@@ -7,28 +7,49 @@ package(default_visibility = ["//visibility:public"])
 NETPROBE_FEATURES = select({
     "//build/platforms:target_linux_aarch64_musl": [],
     "//build/platforms:target_linux_x86_64_musl": [],
-    "//conditions:default": ["pcap-capture"],
+    "//conditions:default": [],
 })
 
 NETPROBE_DEPS = crate_deps([
     "anyhow",
     "clap",
+    "crossbeam-channel",
     "env_logger",
-    "huginn-net",
+    "etherparse",
     "log",
     "nix",
+    "phf",
     "prometheus",
     "prost",
+    "quick-xml",
+    "regex-automata",
     "serde",
     "serde_json",
+    "sha2",
     "thiserror",
     "tokio",
 ]) + select({
-    "//build/platforms:target_linux_aarch64_musl": [],
-    "//build/platforms:target_linux_x86_64_musl": [],
-    "//build/platforms:target_linux_arm64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
-    "//build/platforms:target_linux_x86_64": crate_deps(["pcap"]) + ["//third_party/libpcap:pcap"],
-    "//conditions:default": crate_deps(["pcap"]),
+    "//build/platforms:target_linux_aarch64_musl": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
+    "//build/platforms:target_linux_x86_64_musl": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
+    "//build/platforms:target_linux_arm64": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
+    "//build/platforms:target_linux_x86_64": crate_deps([
+        "aya",
+        "aya-log",
+        "procfs",
+    ]),
+    "//conditions:default": [],
 }) + [
     ":build_script",
 ]
@@ -49,22 +70,38 @@ NETPROBE_RUSTC_FLAGS = select({
 
 cargo_build_script(
     name = "build_script",
-    srcs = ["build.rs"],
+    srcs = [
+        "build.rs",
+        "src/p0f_corpus.rs",
+    ],
     build_script_env = {
         "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
     },
     crate_root = "build.rs",
     data = [
+        "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
-    ],
+    ] + glob(["recog-corpus/xml/*.xml"]),
     edition = "2021",
     tools = ["@bazel_tools//tools/proto:protoc"],
-    deps = crate_deps(["prost-build"]),
+    deps = crate_deps([
+        "aya-build",
+        "phf_codegen",
+        "prost-build",
+        "quick-xml",
+    ]),
 )
 
 rust_binary(
     name = "netprobe",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
+    ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",
@@ -75,6 +112,12 @@ rust_binary(
 rust_test(
     name = "netprobe_test",
     srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
+    ] + glob(["recog-corpus/xml/*.xml"]),
+    data = glob(["satori-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
     edition = "2021",

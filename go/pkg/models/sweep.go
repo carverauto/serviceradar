@@ -40,6 +40,7 @@ type Config struct {
 	Ports         []int          `json:"ports"`
 	SweepModes    []SweepMode    `json:"sweep_modes"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab    BannerGrab     `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
 	Interval      time.Duration  `json:"interval"`
 	Concurrency   int            `json:"concurrency"`
 	Timeout       time.Duration  `json:"timeout"`
@@ -276,12 +277,31 @@ type SweepConfig struct {
 	Interval      string         `json:"interval,omitempty"`
 	Concurrency   int            `json:"concurrency,omitempty"`
 	Timeout       string         `json:"timeout,omitempty"`
+	BannerGrab    BannerGrab     `json:"banner_grab,omitempty"`
 	ICMPCount     int            `json:"icmp_count,omitempty"`
 	HighPerfICMP  bool           `json:"high_perf_icmp,omitempty"`
 	ICMPRateLimit int            `json:"icmp_rate_limit,omitempty"`
 	DeviceTargets []DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
 	SweepGroupID  string         `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash    string         `json:"config_hash,omitempty"`    // Hash of config for change detection
+}
+
+// BannerGrab defines optional active banner-grab sweep behaviour.
+type BannerGrab struct {
+	Enabled                bool             `json:"enabled"`
+	Protocols              []string         `json:"protocols"`
+	Ports                  map[string][]int `json:"ports"`
+	ConnectTimeoutMS       int              `json:"connect_timeout_ms"`
+	ReadTimeoutMS          int              `json:"read_timeout_ms"`
+	MaxBannerBytes         int              `json:"max_banner_bytes"`
+	MaxConcurrencyPerHost  int              `json:"max_concurrency_per_host"`
+	MaxGlobalConcurrency   int              `json:"max_global_concurrency"`
+	MaxProbeRatePerSecond  int              `json:"max_probe_rate_per_second"`
+	MaxCandidateQueue      int              `json:"max_candidate_queue"`
+	MatchBatchSize         int              `json:"match_batch_size"`
+	MatchBatchMaxBytes     int              `json:"match_batch_max_bytes"`
+	MinReprobeIntervalSec  int              `json:"min_reprobe_interval_s"`
+	PerHostRateLimitMillis int              `json:"per_host_rate_limit_ms"`
 }
 
 // DeviceTarget represents a single device/network with its specific sweep configuration
@@ -350,4 +370,33 @@ type ScannerStats struct {
 
 	// Computed metrics
 	RxDropRatePercent float64 `json:"rx_drop_rate_percent"`
+
+	// TCP connect statistics
+	DialsStarted       uint64 `json:"dials_started"`
+	DialsSucceeded     uint64 `json:"dials_succeeded"`
+	DialTimeouts       uint64 `json:"dial_timeouts"`
+	DialResets         uint64 `json:"dial_resets"`
+	DialResourceErrors uint64 `json:"dial_resource_errors"`
+	ActiveDials        uint64 `json:"active_dials"`
+	MaxActiveDials     uint64 `json:"max_active_dials"`
+	QueueDepth         uint64 `json:"queue_depth"`
+	MaxQueueDepth      uint64 `json:"max_queue_depth"`
+}
+
+// BannerGrabStats contains active banner-grab phase counters.
+type BannerGrabStats struct {
+	CandidatesTotal      uint64 `json:"sweep_banner_grab_candidates_total"`
+	ProbesTotal          uint64 `json:"sweep_banner_grab_probes_total"`
+	InFlight             uint64 `json:"sweep_banner_grab_inflight"`
+	QueueDepth           uint64 `json:"sweep_banner_grab_queue_depth"`
+	MatchBatchesTotal    uint64 `json:"sweep_banner_grab_match_batches_total"`
+	MatchBatchBytesTotal uint64 `json:"sweep_banner_grab_match_batch_bytes_total"`
+	BannerBytesTotal     uint64 `json:"sweep_banner_grab_bytes_received_total"`
+	SkippedFreshTotal    uint64 `json:"sweep_banner_grab_skipped_fresh_total"`
+	SkippedBackoffTotal  uint64 `json:"sweep_banner_grab_skipped_backoff_total"`
+	MatchesTotal         uint64 `json:"sweep_banner_grab_matches_total"`
+	EmptyResponseTotal   uint64 `json:"sweep_banner_grab_empty_response_total"`
+	ConnectionResetTotal uint64 `json:"sweep_banner_grab_connection_reset_total"`
+	TimeoutTotal         uint64 `json:"sweep_banner_grab_timeout_total"`
+	ErrorsTotal          uint64 `json:"sweep_banner_grab_errors_total"`
 }

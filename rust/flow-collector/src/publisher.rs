@@ -1,4 +1,5 @@
 use crate::config::{Config, SecurityMode};
+use crate::metrics::HostSliceMetricsRegistry;
 use anyhow::{Context, Result};
 use async_nats::jetstream::{self, stream::StorageType};
 use async_nats::{Client, ConnectOptions};
@@ -13,11 +14,20 @@ use tokio::time::{sleep, timeout};
 pub struct Publisher {
     config: Arc<Config>,
     rx: mpsc::Receiver<(String, Vec<u8>)>,
+    host_slice_metrics: Arc<HostSliceMetricsRegistry>,
 }
 
 impl Publisher {
-    pub fn new(config: Arc<Config>, rx: mpsc::Receiver<(String, Vec<u8>)>) -> Self {
-        Self { config, rx }
+    pub fn new(
+        config: Arc<Config>,
+        rx: mpsc::Receiver<(String, Vec<u8>)>,
+        host_slice_metrics: Arc<HostSliceMetricsRegistry>,
+    ) -> Self {
+        Self {
+            config,
+            rx,
+            host_slice_metrics,
+        }
     }
 
     pub async fn run(mut self) -> Result<()> {
@@ -72,8 +82,12 @@ impl Publisher {
         timeout_duration: Duration,
     ) {
         for (subject, msg) in batch.drain(..) {
-            match js.publish(subject, msg.into()).await {
+            let bytes = msg.len();
+
+            match js.publish(subject.clone(), msg.into()).await {
                 Ok(ack) => {
+                    self.host_slice_metrics.record_publish(&subject, bytes);
+
                     if timeout(timeout_duration, ack).await.is_err() {
                         warn!("NATS ack timed out after {:?}", timeout_duration);
                     }

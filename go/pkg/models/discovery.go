@@ -31,6 +31,7 @@ const (
 	DiscoverySourceNetFlow         DiscoverySource = "netflow"
 	DiscoverySourceManual          DiscoverySource = "manual"
 	DiscoverySourceSweep           DiscoverySource = "sweep"
+	DiscoverySourceSweepActive     DiscoverySource = "sweep_active"
 	DiscoverySourceSighting        DiscoverySource = "sighting"
 	DiscoverySourceSelfReported    DiscoverySource = "self-reported"
 	DiscoverySourceArmis           DiscoverySource = "armis"
@@ -94,7 +95,7 @@ func GetSourceConfidence(source DiscoverySource) int {
 		return ConfidenceGoodSecurity // Good confidence - external security system
 	case DiscoverySourceNetFlow:
 		return ConfidenceMediumTraffic // Medium confidence - traffic analysis
-	case DiscoverySourceSweep:
+	case DiscoverySourceSweep, DiscoverySourceSweepActive:
 		return ConfidenceMediumSweep // Medium confidence - network sweep
 	case DiscoverySourceSighting:
 		return ConfidenceMediumSweep // Medium confidence - promoted sighting

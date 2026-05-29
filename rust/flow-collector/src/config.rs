@@ -1,6 +1,12 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::net::IpAddr;
 use std::path::PathBuf;
+
+use crate::host_slice::{
+    host_slice_publication_allowed, host_slice_subject, validate_host_slice,
+    validate_host_slice_allowlist,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -19,6 +25,17 @@ pub struct Config {
     pub partition: String,
 
     // Buffering
+    //
+    // `channel_size` is the default per-listener bounded mpsc capacity. Each listener
+    // owns its own channel so a noisy protocol cannot starve a quiet one. Individual
+    // listeners may override this via `ListenerConfig::channel_size`.
+    //
+    // Backpressure note: tokio's `mpsc::try_send` rejects the *newest* message on
+    // overflow (i.e. it is a `DropNewest` policy by construction). We do not expose
+    // a `DropOldest` knob because the underlying channel cannot evict the head
+    // without a custom ring buffer; pinning to `DropNewest` keeps behavior honest
+    // and avoids a config field that silently no-ops. If/when we move to a ring
+    // buffer or `broadcast`-style backpressure, reintroduce the policy here.
     #[serde(default = "default_channel_size")]
     pub channel_size: usize,
     #[serde(default = "default_batch_size")]
@@ -26,18 +43,49 @@ pub struct Config {
     #[serde(default = "default_publish_timeout_ms")]
     pub publish_timeout_ms: u64,
 
-    // Backpressure
-    #[serde(default)]
-    pub drop_policy: DropPolicy,
-
     // Security
     pub security: Option<SecurityConfig>,
 
     // Observability
     pub metrics_addr: Option<String>,
 
+    // Per-host flow slices for netprobe attribution
+    #[serde(default)]
+    pub host_slices: Vec<HostSliceConfig>,
+    #[serde(default)]
+    pub host_slice_allowlist: Vec<String>,
+
     // Listeners
     pub listeners: Vec<ListenerConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HostSliceConfig {
+    pub agent_id: String,
+    #[serde(default = "default_partition")]
+    pub partition: String,
+    #[serde(default)]
+    pub host_ips: Vec<IpAddr>,
+    #[serde(default)]
+    pub host_network_visibility: HostNetworkVisibilityStatus,
+}
+
+impl HostSliceConfig {
+    pub fn subject(&self) -> String {
+        host_slice_subject(&self.agent_id)
+    }
+
+    pub fn host_network_visibility_enabled(&self) -> bool {
+        self.host_network_visibility == HostNetworkVisibilityStatus::Enabled
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostNetworkVisibilityStatus {
+    Enabled,
+    #[default]
+    Unavailable,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -48,6 +96,10 @@ pub enum ListenerConfig {
         subject: String,
         #[serde(default = "default_buffer_size")]
         buffer_size: usize,
+        /// Optional override of the per-listener publisher channel capacity.
+        /// Falls back to the top-level `Config::channel_size` when unset.
+        #[serde(default)]
+        channel_size: Option<usize>,
         #[serde(default)]
         max_samples_per_datagram: Option<u32>,
     },
@@ -56,6 +108,10 @@ pub enum ListenerConfig {
         subject: String,
         #[serde(default = "default_buffer_size")]
         buffer_size: usize,
+        /// Optional override of the per-listener publisher channel capacity.
+        /// Falls back to the top-level `Config::channel_size` when unset.
+        #[serde(default)]
+        channel_size: Option<usize>,
         #[serde(default = "default_max_templates")]
         max_templates: usize,
         #[serde(default = "default_max_template_fields")]
@@ -87,21 +143,22 @@ impl ListenerConfig {
         }
     }
 
+    /// Resolve the listener's bounded mpsc capacity. Falls back to the
+    /// top-level default when the listener does not override.
+    pub fn channel_size(&self, default: usize) -> usize {
+        let override_value = match self {
+            ListenerConfig::Sflow { channel_size, .. } => *channel_size,
+            ListenerConfig::Netflow { channel_size, .. } => *channel_size,
+        };
+        override_value.unwrap_or(default)
+    }
+
     pub fn protocol_name(&self) -> &'static str {
         match self {
             ListenerConfig::Sflow { .. } => "sflow",
             ListenerConfig::Netflow { .. } => "netflow",
         }
     }
-}
-
-#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-pub enum DropPolicy {
-    #[default]
-    DropOldest,
-    DropNewest,
-    Block,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -229,6 +286,9 @@ impl Config {
         if self.stream_replicas == 0 {
             anyhow::bail!("stream_replicas must be > 0");
         }
+        if self.channel_size == 0 {
+            anyhow::bail!("channel_size must be > 0");
+        }
         if self.listeners.is_empty() {
             anyhow::bail!("at least one listener is required");
         }
@@ -245,6 +305,9 @@ impl Config {
             }
             if !seen_addrs.insert(addr.to_string()) {
                 anyhow::bail!("listener[{}]: duplicate listen_addr '{}'", i, addr);
+            }
+            if listener.channel_size(self.channel_size) == 0 {
+                anyhow::bail!("listener[{}]: channel_size must be > 0", i);
             }
 
             // Validate netflow-specific pending_flows config
@@ -276,6 +339,10 @@ impl Config {
                 }
             }
         }
+        for (i, slice) in self.host_slices.iter().enumerate() {
+            validate_host_slice(slice, i)?;
+        }
+        validate_host_slice_allowlist(&self.host_slice_allowlist)?;
 
         Ok(())
     }
@@ -288,6 +355,16 @@ impl Config {
             let subj = listener.subject().to_string();
             if !subjects.contains(&subj) {
                 subjects.push(subj);
+            }
+        }
+        for slice in self
+            .host_slices
+            .iter()
+            .filter(|slice| host_slice_publication_allowed(self, slice))
+        {
+            let subject = slice.subject();
+            if !subjects.contains(&subject) {
+                subjects.push(subject);
             }
         }
 
@@ -426,6 +503,66 @@ mod tests {
     }
 
     #[test]
+    fn test_stream_subjects_requires_host_slice_allowlist() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "host_slice_allowlist": ["agent-1"],
+            "host_slices": [
+                {
+                    "agent_id": "agent-1",
+                    "host_ips": ["192.0.2.10"],
+                    "host_network_visibility": "enabled"
+                },
+                {
+                    "agent_id": "agent-2",
+                    "host_ips": ["192.0.2.20"],
+                    "host_network_visibility": "enabled"
+                }
+            ],
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+
+        let subjects = config.stream_subjects_resolved();
+
+        assert!(subjects.contains(&"flow.host-slice.agent-1".to_string()));
+        assert!(!subjects.contains(&"flow.host-slice.agent-2".to_string()));
+    }
+
+    #[test]
+    fn test_host_slice_allowlist_validation() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "host_slice_allowlist": ["agent.1"],
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("host_slice_allowlist")
+        );
+    }
+
+    #[test]
     fn test_sflow_specific_options() {
         let json = r#"{
             "nats_url": "nats://localhost:4222",
@@ -479,7 +616,67 @@ mod tests {
     }
 
     #[test]
-    fn test_drop_policy_default() {
-        assert_eq!(DropPolicy::default(), DropPolicy::DropOldest);
+    fn test_per_listener_channel_size_override() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "channel_size": 5000,
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow",
+                    "channel_size": 1234
+                },
+                {
+                    "protocol": "netflow",
+                    "listen_addr": "0.0.0.0:2055",
+                    "subject": "flows.raw.netflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+        assert_eq!(config.channel_size, 5000);
+        assert_eq!(config.listeners[0].channel_size(config.channel_size), 1234);
+        assert_eq!(config.listeners[1].channel_size(config.channel_size), 5000);
+    }
+
+    #[test]
+    fn test_zero_channel_size_fails() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "channel_size": 0,
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("channel_size"));
+    }
+
+    #[test]
+    fn test_zero_listener_channel_size_fails() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow",
+                    "channel_size": 0
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("channel_size"));
     }
 }

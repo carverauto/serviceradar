@@ -929,6 +929,8 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
+		capabilitySweepBannerGrab,
+		capabilitySweepBannerGrabUnavailable,
 	} {
 		if !slices.Contains(base, capability) {
 			t.Fatalf("base capabilities missing %q: %#v", capability, base)
@@ -944,6 +946,9 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	if slices.Contains(base, capabilityHostNetworkVisibilityFingerprintEnabled) {
 		t.Fatalf("base capabilities should not advertise enabled fingerprinting: %#v", base)
 	}
+	if slices.Contains(base, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("base capabilities should not advertise available banner grab: %#v", base)
+	}
 
 	withNetprobe := agentCapabilities(agentCapabilityOptions{hostNetworkVisibilityFingerprintEnabled: true})
 	if !slices.Contains(withNetprobe, capabilityHostNetworkVisibilityFingerprintEnabled) {
@@ -951,6 +956,14 @@ func TestAgentCapabilitiesAdvertiseRemoteAccessAndGateBPF(t *testing.T) {
 	}
 	if slices.Contains(withNetprobe, capabilityHostNetworkVisibilityFingerprintUnavailable) {
 		t.Fatalf("netprobe capabilities should not advertise unavailable fingerprinting: %#v", withNetprobe)
+	}
+
+	withBannerGrab := agentCapabilities(agentCapabilityOptions{sweepBannerGrabAvailable: true})
+	if !slices.Contains(withBannerGrab, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("banner grab capabilities missing available state: %#v", withBannerGrab)
+	}
+	if slices.Contains(withBannerGrab, capabilitySweepBannerGrabUnavailable) {
+		t.Fatalf("banner grab capabilities should not advertise unavailable state: %#v", withBannerGrab)
 	}
 
 	withBPF := agentCapabilities(agentCapabilityOptions{enhancedBPF: true})

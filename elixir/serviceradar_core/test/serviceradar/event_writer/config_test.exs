@@ -57,6 +57,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "BMP_CAUSAL" in stream_names
       assert "ARANCINI_CAUSAL" in stream_names
       assert "SIEM_CAUSAL" in stream_names
+      assert "ATTRIBUTED_FLOW" in stream_names
     end
 
     test "routes raw Falco sidekick events from the shared events stream" do
@@ -65,6 +66,13 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert falco.stream_name == "events"
       assert falco.subject == "falco.logs"
       assert falco.processor == ServiceRadar.EventWriter.Processors.FalcoEvents
+    end
+
+    test "routes attributed flows through the flow processor" do
+      attributed_flow = Enum.find(Config.default_streams(), &(&1.name == "ATTRIBUTED_FLOW"))
+
+      assert attributed_flow.subject == "flow.attributed.>"
+      assert attributed_flow.processor == ServiceRadar.EventWriter.Processors.Flows
     end
 
     test "each stream has required fields" do

@@ -16,6 +16,13 @@ pub struct Metrics {
     events_emitted_total: IntCounterVec,
     events_dropped_total: IntCounterVec,
     signature_failures_total: IntCounter,
+    p0f_vs_muonfp_disagreement_total: IntCounter,
+    encode_buffer_reuses_total: IntCounter,
+    external_flow_unmatched_total: IntCounter,
+    external_flow_invalid_total: IntCounter,
+    external_flow_matched_total: IntCounter,
+    #[allow(dead_code)]
+    sampling_budget: IntGauge,
     uptime_seconds: IntGauge,
     started_at: Arc<Instant>,
 }
@@ -43,6 +50,30 @@ impl Metrics {
             "netprobe_signature_failures_total",
             "Signature failures",
         ))?;
+        let p0f_vs_muonfp_disagreement_total = IntCounter::with_opts(Opts::new(
+            "p0f_vs_muonfp_disagreement_total",
+            "TCP-axis OS family disagreements between p0f and MuonFP",
+        ))?;
+        let encode_buffer_reuses_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_encode_buffer_reuses_total",
+            "IPC protobuf encode buffer reuses after warmup",
+        ))?;
+        let external_flow_unmatched_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_unmatched_total",
+            "External flow records dropped because no local process attribution matched",
+        ))?;
+        let external_flow_invalid_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_invalid_total",
+            "External flow records dropped because their 5-tuple was invalid",
+        ))?;
+        let external_flow_matched_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_matched_total",
+            "External flow records that produced a FlowAttributionEvent",
+        ))?;
+        let sampling_budget = IntGauge::with_opts(Opts::new(
+            "serviceradar_netprobe_sampling_budget",
+            "Current AF_XDP per-flow packet redirect budget",
+        ))?;
         let uptime_seconds = IntGauge::with_opts(Opts::new(
             "netprobe_uptime_seconds",
             "Process uptime in seconds",
@@ -53,6 +84,12 @@ impl Metrics {
         registry.register(Box::new(events_emitted_total.clone()))?;
         registry.register(Box::new(events_dropped_total.clone()))?;
         registry.register(Box::new(signature_failures_total.clone()))?;
+        registry.register(Box::new(p0f_vs_muonfp_disagreement_total.clone()))?;
+        registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
+        registry.register(Box::new(external_flow_unmatched_total.clone()))?;
+        registry.register(Box::new(external_flow_invalid_total.clone()))?;
+        registry.register(Box::new(external_flow_matched_total.clone()))?;
+        registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
         Ok(Self {
@@ -62,6 +99,12 @@ impl Metrics {
             events_emitted_total,
             events_dropped_total,
             signature_failures_total,
+            p0f_vs_muonfp_disagreement_total,
+            encode_buffer_reuses_total,
+            external_flow_unmatched_total,
+            external_flow_invalid_total,
+            external_flow_matched_total,
+            sampling_budget,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
         })
@@ -83,9 +126,49 @@ impl Metrics {
             .inc();
     }
 
+    #[allow(dead_code)]
+    pub fn inc_dpi_events(&self) {
+        self.events_emitted_total.with_label_values(&["dpi"]).inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_flow_attribution_events(&self) {
+        self.events_emitted_total
+            .with_label_values(&["flow_attribution"])
+            .inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_process_snapshot_events(&self) {
+        self.events_emitted_total
+            .with_label_values(&["process_snapshot"])
+            .inc();
+    }
+
+    #[allow(dead_code)]
     pub fn inc_fingerprint_events_dropped(&self, reason: &str, count: u64) {
         self.events_dropped_total
             .with_label_values(&["fingerprint", reason])
+            .inc_by(count);
+    }
+
+    pub fn inc_dpi_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["dpi", reason])
+            .inc_by(count);
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_flow_attribution_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["flow_attribution", reason])
+            .inc_by(count);
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_process_snapshot_events_dropped(&self, reason: &str, count: u64) {
+        self.events_dropped_total
+            .with_label_values(&["process_snapshot", reason])
             .inc_by(count);
     }
 
@@ -102,6 +185,32 @@ impl Metrics {
     #[allow(dead_code)]
     pub fn inc_signature_failures(&self) {
         self.signature_failures_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_p0f_vs_muonfp_disagreement(&self) {
+        self.p0f_vs_muonfp_disagreement_total.inc();
+    }
+
+    pub fn inc_encode_buffer_reuses(&self) {
+        self.encode_buffer_reuses_total.inc();
+    }
+
+    pub fn inc_external_flow_unmatched(&self) {
+        self.external_flow_unmatched_total.inc();
+    }
+
+    pub fn inc_external_flow_invalid(&self) {
+        self.external_flow_invalid_total.inc();
+    }
+
+    pub fn inc_external_flow_matched(&self) {
+        self.external_flow_matched_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn set_sampling_budget(&self, budget: u32) {
+        self.sampling_budget.set(i64::from(budget));
     }
 }
 

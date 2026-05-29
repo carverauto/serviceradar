@@ -95,6 +95,30 @@ natsCreds:
   platform: ""
   system: ""
   operator: ""
+# Partition identity for this ServiceRadar deployment (B-5 sub-issue 2).
+#
+# ServiceRadar is one deployment per partition (see
+# elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"). The
+# value below is rendered into:
+#   * the NATS authorization block (templates/nats.yaml) — the
+#     core/datasvc/agent/db-event-writer/zen roles get partition-scoped
+#     `flow.attributed.<partitionId>` allow lists plus a deny wildcard on
+#     `flow.attributed.>` as a fail-safe ceiling, so cross-partition
+#     publish stays impossible even if PublishAllow is widened later.
+#   * `SERVICERADAR_OTX_PARTITION` env on core/datasvc workloads so the
+#     runtime side (elixir/serviceradar_core/config/runtime.exs) stays
+#     consistent with what the NATS ACL was rendered against.
+#
+# Precedence (resolved in nats.yaml / core.yaml via `coalesce`):
+#   1. .Values.partitionId (this field)
+#   2. .Values.agent.partitionId
+#   3. literal "default"
+# Leaving this empty falls through to agent.partitionId, preserving the
+# established `--set agent.partitionId=prod-east` release API. Set this
+# field explicitly when deploying multiple partitions to the same
+# Kubernetes cluster.
+partitionId: ""
+
 nats:
   replicas: 3
   clusterName: "serviceradar"

@@ -8,6 +8,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.NetworkDiscovery.MapperJob
+  alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.MapperPromotion
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
@@ -165,6 +166,99 @@ defmodule ServiceRadar.SweepJobs.SweepResultsFlowE2ETest do
     assert execution.hosts_failed == 1
     assert execution.sweep_group_id == group.id
     assert execution.agent_id == agent_id
+  end
+
+  test "records banner grab audit summary on the sweep execution version", %{
+    actor: actor,
+    agent_id: agent_id
+  } do
+    unique_id = Ash.UUID.generate()
+    ip = unique_ip("banner-audit-#{unique_id}")
+    request_id = "req-banner-audit-#{unique_id}"
+
+    {:ok, group} =
+      SweepGroup
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Banner Audit #{unique_id}",
+          partition: "partition-banner-audit-#{unique_id}",
+          agent_id: agent_id
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    execution_id = Ash.UUID.generate()
+
+    assert {:ok, _stats} =
+             SweepResultsIngestor.ingest_results(
+               [
+                 %{
+                   "host_ip" => ip,
+                   "hostname" => "banner-audit-#{unique_id}",
+                   "available" => true,
+                   "port_results" => [
+                     %{"port" => 22, "available" => true, "response_time" => 1_000_000}
+                   ]
+                 }
+               ],
+               execution_id,
+               actor: actor,
+               sweep_group_id: group.id,
+               agent_id: agent_id,
+               request_id: request_id,
+               banner_grab_summary: %{
+                 "sweep_banner_grab_probes_total" => 12,
+                 "sweep_banner_grab_matches_total" => 5,
+                 "sweep_banner_grab_empty_response_total" => 2,
+                 "sweep_banner_grab_errors_total" => 1,
+                 "sweep_banner_grab_connection_reset_total" => 3,
+                 "sweep_banner_grab_timeout_total" => "4",
+                 "sweep_banner_grab_bytes_received_total" => 4096.9,
+                 "attacker_controlled_blob" => String.duplicate("x", 1024)
+               }
+             )
+
+    assert {:ok, execution_page} =
+             SweepGroupExecution
+             |> Ash.Query.filter(id == ^execution_id)
+             |> Ash.read(actor: actor)
+
+    [execution] = results_from(execution_page)
+
+    assert execution.banner_grab_summary["probe_count"] == 12
+    assert execution.banner_grab_summary["banner_match_count"] == 5
+    assert execution.banner_grab_summary["empty_response_count"] == 2
+    assert execution.banner_grab_summary["error_count"] == 8
+    assert execution.banner_grab_summary["total_bytes_received"] == 4096
+    refute Map.has_key?(execution.banner_grab_summary["counters"], "attacker_controlled_blob")
+
+    version =
+      Repo.query!(
+        """
+        SELECT version_action_name, version_action_inputs, request_id
+        FROM platform.sweep_group_execution_versions
+        WHERE version_source_id = ($1::text)::uuid
+          AND version_action_name = 'record_banner_grab_phase'
+        ORDER BY version_inserted_at DESC
+        LIMIT 1
+        """,
+        [execution_id]
+      )
+
+    assert [
+             [
+               "record_banner_grab_phase",
+               %{"banner_grab_summary" => version_summary, "request_id" => ^request_id},
+               ^request_id
+             ]
+           ] = version.rows
+
+    assert version_summary["probe_count"] == 12
+    assert version_summary["banner_match_count"] == 5
+    assert version_summary["error_count"] == 8
+    refute Map.has_key?(version_summary["counters"], "attacker_controlled_blob")
   end
 
   test "successful ICMP or TCP evidence updates device availability when aggregate is false", %{

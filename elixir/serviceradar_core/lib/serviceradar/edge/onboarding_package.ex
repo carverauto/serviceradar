@@ -26,7 +26,10 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     domain: ServiceRadar.Edge,
     data_layer: AshPostgres.DataLayer,
     authorizers: [Ash.Policy.Authorizer],
-    extensions: [AshStateMachine, AshOban]
+    extensions: [AshStateMachine, AshOban, AshCloak]
+
+  alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Edge.Workers.ProvisionAgentWorker
 
   @package_fields [
     :label,
@@ -84,6 +87,14 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
   end
 
+  cloak do
+    vault(ServiceRadar.Vault)
+    # Encrypted at rest; only decrypted when the bundle download endpoint
+    # asks for it via ServiceRadar.Vault.decrypt/1.
+    attributes([:nats_creds_ciphertext])
+    decrypt_by_default([])
+  end
+
   oban do
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
@@ -137,6 +148,27 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
 
     create :create do
       accept @package_fields
+
+      change fn changeset, _context ->
+        # Mirror Edge.CollectorPackage's after_action: enqueue per-package
+        # NATS-creds provisioning so the agent enrollment bundle carries
+        # a per-agent flow-collector JWT (closes Pass 15 B-5).
+        # Gated on component_type == :agent because OnboardingPackage also
+        # backs :gateway / :checker / :sync packages — only :agent rows
+        # need per-agent flow-collector creds.
+        AfterAction.after_action_result(changeset, fn package ->
+          case package.component_type do
+            :agent ->
+              case ProvisionAgentWorker.enqueue(package.id) do
+                {:ok, _job} -> {:ok, package}
+                {:error, reason} -> {:error, reason}
+              end
+
+            _other ->
+              {:ok, package}
+          end
+        end)
+      end
     end
 
     update :update_tokens do
@@ -148,6 +180,26 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     update :update_metadata do
       description "Update metadata fields for the package"
       accept @metadata_fields
+    end
+
+    update :attach_nats_creds do
+      description "Attach per-agent flow-collector NATS creds minted by the provisioning worker."
+
+      # Encrypts via AshCloak and sets a relationship FK in one transition.
+      require_atomic? false
+      accept []
+
+      argument :nats_credential_id, :uuid, allow_nil?: false
+      argument :nats_creds_content, :string, allow_nil?: false, sensitive?: true
+
+      change fn changeset, _context ->
+        creds_content = Ash.Changeset.get_argument(changeset, :nats_creds_content)
+        credential_id = Ash.Changeset.get_argument(changeset, :nats_credential_id)
+
+        changeset
+        |> Ash.Changeset.change_attribute(:nats_credential_id, credential_id)
+        |> AshCloak.encrypt_and_set(:nats_creds_ciphertext, creds_content)
+      end
     end
 
     update :deliver do
@@ -395,6 +447,19 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
       description "Datasvc KV store revision"
     end
 
+    attribute :nats_credential_id, :uuid do
+      allow_nil? true
+      public? false
+      description "Associated per-agent flow-collector NATS credential (for revocation)"
+    end
+
+    attribute :nats_creds_ciphertext, :binary do
+      allow_nil? true
+      public? false
+      sensitive? true
+      description "Encrypted per-agent flow-collector NATS .creds file content"
+    end
+
     attribute :notes, :string do
       public? true
       description "Admin notes"
@@ -407,6 +472,11 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
   relationships do
     has_many :events, ServiceRadar.Edge.OnboardingEvent do
       destination_attribute :package_id
+    end
+
+    belongs_to :nats_credential, ServiceRadar.Edge.NatsCredential do
+      source_attribute :nats_credential_id
+      allow_nil? true
     end
   end
 

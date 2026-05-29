@@ -1,0 +1,101 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fingerprints matches="smb.native_lm" protocol="smb" database_type="service">
+  <!--
+    SMB fingerprints obtained from the Native LM (LAN manager) field of SMB
+    negotations
+  -->
+
+  <!-- Mac OS X -->
+
+  <fingerprint pattern="^Samba (3\.0\.28a-apple)$">
+    <description>Samba on OS X 10.6</description>
+    <example service.version="3.0.28a-apple">Samba 3.0.28a-apple</example>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.version" value="10.6"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:10.6"/>
+    <param pos="0" name="service.vendor" value="Samba"/>
+    <param pos="0" name="service.product" value="Samba"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:samba:samba:{service.version}"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Samba (3\.0\.25b-apple)$">
+    <description>Samba on OS X 10.5</description>
+    <example service.version="3.0.25b-apple">Samba 3.0.25b-apple</example>
+    <param pos="0" name="os.vendor" value="Apple"/>
+    <param pos="0" name="os.family" value="Mac OS X"/>
+    <param pos="0" name="os.product" value="Mac OS X"/>
+    <param pos="0" name="os.version" value="10.5"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:apple:mac_os_x:10.5"/>
+    <param pos="0" name="service.vendor" value="Samba"/>
+    <param pos="0" name="service.product" value="Samba"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:samba:samba:{service.version}"/>
+  </fingerprint>
+
+  <!-- TODO: Detect vendor, distribution, and package versions -->
+
+  <fingerprint pattern="^Samba (\d\.\d+.\d+\w*)">
+    <description>Samba</description>
+    <example service.version="3.0.24">Samba 3.0.24</example>
+    <example service.version="3.0.28a">Samba 3.0.28a</example>
+    <example service.version="3.0.32">Samba 3.0.32-0.2-2210-SUSE-SL10.3</example>
+    <example service.version="3.6.3">Samba 3.6.3</example>
+    <example service.version="3.6.6">Samba 3.6.6</example>
+    <example service.version="3.6.9">Samba 3.6.9-151.el6_4.1</example>
+    <param pos="0" name="service.vendor" value="Samba"/>
+    <param pos="0" name="service.product" value="Samba"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:samba:samba:{service.version}"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Samba (?:Samba )?for GuardianOS v\.?(\d\.[\d.]+)$">
+    <description>Samba on a SnapServer appliance</description>
+    <example os.version="4.3.007.200609131215">Samba Samba for GuardianOS v4.3.007.200609131215</example>
+    <example os.version="5.0.133.200807301131">Samba Samba for GuardianOS v5.0.133.200807301131</example>
+    <example os.version="7.7.220">Samba for GuardianOS v.7.7.220</example>
+    <param pos="0" name="service.vendor" value="Samba"/>
+    <param pos="0" name="service.product" value="Samba"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:samba:samba:-"/>
+    <param pos="0" name="os.vendor" value="SnapServer"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="GuardianOS"/>
+    <param pos="1" name="os.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Netreon LANMAN 1.0$">
+    <description>Netreon SAN software</description>
+    <example>Netreon LANMAN 1.0</example>
+    <param pos="0" name="service.vendor" value="Netreon"/>
+  </fingerprint>
+
+  <fingerprint pattern="(?i)^MikrotikSMB$">
+    <description>Mikrotik</description>
+    <example>MikrotikSMB</example>
+    <param pos="0" name="os.vendor" value="MikroTik"/>
+    <param pos="0" name="os.device" value="Router"/>
+    <param pos="0" name="os.family" value="RouterOS"/>
+    <param pos="0" name="os.product" value="RouterOS"/>
+    <param pos="0" name="os.cpe23" value="cpe:/o:mikrotik:routeros:-"/>
+  </fingerprint>
+
+  <fingerprint pattern="^NQ (\d\.\d+)$">
+    <description>Visuality Systems NQ Enterprise Storage SMB stack</description>
+    <example service.version="7.3">NQ 7.3</example>
+    <example service.version="4.32">NQ 4.32</example>
+    <param pos="0" name="service.vendor" value="Visuality Systems"/>
+    <param pos="0" name="service.product" value="NQ"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^YNQ (\d\.[\d.]+)$">
+    <description>Visuality Systems YNQ Storage SMB stack</description>
+    <example service.version="1.2.1">YNQ 1.2.1</example>
+    <param pos="0" name="service.vendor" value="Visuality Systems"/>
+    <param pos="0" name="service.product" value="YNQ"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+</fingerprints>

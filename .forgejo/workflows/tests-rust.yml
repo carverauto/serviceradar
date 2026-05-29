@@ -17,6 +17,7 @@ on:
       - '.bazelrc'
       - '.forgejo/workflows/tests-rust.yml'
       - 'MODULE.bazel'
+      - 'scripts/ci/assert-netprobe-libpcap-free.sh'
       - 'scripts/ci/ensure-forgejo-tools.sh'
       - 'scripts/ci/install-sfw.sh'
 
@@ -311,6 +312,8 @@ jobs:
             echo "static netprobe output must not declare shared-library dependencies" >&2
             exit 1
           fi
+
+          scripts/ci/assert-netprobe-libpcap-free.sh "${output}"
 
           case "${{ matrix.platform }}" in
             *linux_x86_64_musl)

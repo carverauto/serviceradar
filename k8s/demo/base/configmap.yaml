@@ -1,4 +1,34 @@
 # base/configmap.yaml
+#
+# B-5 sub-issue 2 (partition-scoped NATS ACLs)
+# --------------------------------------------
+# The `nats-server.conf` block embedded below contains subject-scoped
+# authorization for serviceradar-core, serviceradar-datasvc,
+# serviceradar-agent, serviceradar-db-event-writer, and serviceradar-zen.
+# The partition identity is rendered as the literal placeholder
+# `__SERVICERADAR_PARTITION_ID__` (matching the convention in
+# build/packaging/nats/config/nats-server.conf). It MUST be substituted
+# at deploy time to the partition_id of this deployment — matching the
+# value set in core-elx config / SERVICERADAR_OTX_PARTITION.
+#
+# DO NOT edit the rendered YAML in-cluster directly. The substitution
+# is the seam between the static manifest and the runtime partition
+# identity, and any post-render edit will drift from
+# SERVICERADAR_OTX_PARTITION on the next sync.
+#
+# Substitution recipes:
+#   * Helm:      use helm/serviceradar (which renders .Values.partitionId
+#                via templates/nats.yaml) — preferred for production.
+#   * kustomize: add a `replacements:` entry sourced from a
+#                configMapGenerator literal `partitionId=<id>`.
+#   * raw demo:  inline sed matching the postinstall.sh pattern, e.g.
+#                `sed -i "s|__SERVICERADAR_PARTITION_ID__|${SERVICERADAR_OTX_PARTITION:-default}|g" configmap.yaml`
+#                (envsubst is NOT suitable — it expands `${VAR}` syntax,
+#                not the literal `__SERVICERADAR_PARTITION_ID__` token).
+#
+# The deny rule on the unscoped `flow.attributed.>` wildcard is a
+# fail-safe: NATS evaluates allow-then-deny per token, so cross-partition
+# publish remains impossible even if PublishAllow is later widened.
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -779,58 +809,165 @@ data:
               }
             }
           },
+          # Core platform service (B-5 subject-scoping): subscribes to
+          # flow.host-slice.> for attribution, publishes
+          # flow.attributed.<partition_id> for the owning partition,
+          # manages JetStream streams/consumers, and uses request/reply
+          # inboxes. Denied from $SYS.> (system events are scoped to the
+          # SYS account only) and from the unscoped flow.attributed.>
+          # wildcard as a fail-safe so cross-partition publish is
+          # impossible even if PublishAllow is widened later.
+          # `__SERVICERADAR_PARTITION_ID__` is rendered at deploy time;
+          # see the header comment on this ConfigMap.
           {
             user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: [">"]
+                allow: [
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__",
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__.>",
+                  "flow.raw.>",
+                  "flows.raw.>",
+                  "logs.>",
+                  "events.>",
+                  "config.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: [">"]
+                allow: [
+                  "flow.host-slice.>",
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__",
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__.>",
+                  "flow.raw.>",
+                  "flows.raw.>",
+                  "logs.>",
+                  "events.>",
+                  "config.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>"]
               }
             }
           },
+          # Datasvc (B-5 subject-scoping): query-side service that reads
+          # attributed flows for this partition plus catalog events and
+          # config. Same partition-scoped allow + flow.attributed.> deny
+          # fail-safe as core.
           {
             user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: [">"]
+                allow: [
+                  "events.>",
+                  "config.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: [">"]
+                allow: [
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__",
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__.>",
+                  "events.>",
+                  "config.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>"]
               }
             }
           },
+          # Agent (B-5 subject-scoping): emits sweep/discovery events
+          # and consumes config for its partition. Denied from
+          # flow.attributed.> (attribution is core's responsibility)
+          # and $SYS.>.
           {
             user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: [">"]
+                allow: [
+                  "events.>",
+                  "logs.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: [">"]
+                allow: [
+                  "config.agent.>",
+                  "config.__SERVICERADAR_PARTITION_ID__.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
               }
             }
           },
+          # DB event-writer (B-5 subject-scoping): consumes attributed
+          # flows + events for this partition and writes them to
+          # downstream storage. Pure consumer aside from JetStream
+          # control / reply inboxes.
           {
             user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: [">"]
+                allow: [
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: [">"]
+                allow: [
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__",
+                  "flow.attributed.__SERVICERADAR_PARTITION_ID__.>",
+                  "events.>",
+                  "logs.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>"]
               }
             }
           },
+          # Zen rules engine (B-5 subject-scoping): subscribes to
+          # events for its partition and publishes rule decisions.
           {
             user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: [">"]
+                allow: [
+                  "events.zen.>",
+                  "config.zen.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: [">"]
+                allow: [
+                  "events.>",
+                  "config.zen.>",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
               }
             }
           },
@@ -867,14 +1004,30 @@ data:
               }
             }
           },
+          # Flow-collector (B-5 subject-scoping): publishes per-agent host
+          # slices on flow.host-slice.<agent_id> and the raw aggregate
+          # flow.raw.> stream. Subscribing to any flow.* subject is
+          # denied — slice consumption is a core-only role. $SYS.> is
+          # denied for all CN users.
           {
             user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: [
+                  "flow.host-slice.>",
+                  "flow.raw.>",
+                  "flows.raw.>",
+                  "$JS.API.STREAM.INFO.events",
+                  "$JS.API.STREAM.CREATE.events",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: ["$JS.API.>", "_INBOX.>"]
+                allow: ["$JS.API.>", "$JS.ACK.>", "_INBOX.>", "config.flow-collector.>"]
+                deny: ["$SYS.>", "flow.host-slice.>", "flow.attributed.>"]
               }
             }
           },

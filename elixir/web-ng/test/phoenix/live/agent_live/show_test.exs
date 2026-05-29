@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.AgentLive.Show
 
   setup %{conn: conn} do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
@@ -69,6 +70,43 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     assert html =~ "192.168.2.10"
     assert html =~ "30s"
     refute html =~ "No service checks configured for this agent."
+  end
+
+  test "network visibility card surfaces kernel BPF availability" do
+    agent = %{
+      "capabilities" => ["host-network-visibility.flow_attribution.enabled"],
+      "metadata" => %{
+        "sidecars" => [
+          %{"name" => "netprobe", "state" => "running", "pid" => 12_345, "restart_count" => 0}
+        ]
+      }
+    }
+
+    html = render_component(&Show.network_visibility_card/1, agent: agent)
+
+    assert html =~ "Kernel BPF"
+    assert html =~ "BPF available"
+    assert html =~ "available"
+    refute html =~ "degraded"
+  end
+
+  test "network visibility card maps legacy degraded BPF payloads to unavailable" do
+    agent = %{
+      "capabilities" => ["host-network-visibility.flow_attribution.enabled"],
+      "metadata" => %{
+        "host_network_visibility" => %{"bpf" => "degraded"},
+        "sidecars" => [
+          %{"name" => "netprobe", "state" => "running"}
+        ]
+      }
+    }
+
+    html = render_component(&Show.network_visibility_card/1, agent: agent)
+
+    assert html =~ "Kernel BPF"
+    assert html =~ "BPF unavailable"
+    refute html =~ "BPF degraded"
+    refute html =~ ">degraded<"
   end
 
   defmodule RecordingSRQLStub do

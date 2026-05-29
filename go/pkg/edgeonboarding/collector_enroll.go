@@ -22,6 +22,11 @@ import (
 
 const (
 	collectorTokenV2Prefix = "collectorpkg-v2:"
+
+	bundleCollectorNATSCredsName  = "nats.creds"
+	defaultCollectorNATSCredsName = "nats-collector.creds"
+
+	legacySharedNATSCredsPath = "/etc/serviceradar/creds/nats.creds"
 )
 
 var (
@@ -123,7 +128,7 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 	certFile := filepath.Join(certsSrc, "collector.pem")
 	keyFile := filepath.Join(certsSrc, "collector-key.pem")
 	caFile := filepath.Join(certsSrc, "ca-chain.pem")
-	credsFile := filepath.Join(credsSrc, "nats.creds")
+	credsFile := filepath.Join(credsSrc, bundleCollectorNATSCredsName)
 	configFile := filepath.Join(configSrc, configName)
 
 	if !fileExists(certFile) || !fileExists(keyFile) || !fileExists(caFile) || !fileExists(credsFile) || !fileExists(configFile) {
@@ -133,6 +138,7 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 	certsDir := defaultIfEmpty(opts.CertsDir, "/etc/serviceradar/certs")
 	credsDir := defaultIfEmpty(opts.CredsDir, "/etc/serviceradar/creds")
 	configDir := defaultIfEmpty(opts.ConfigDir, "/etc/serviceradar")
+	collectorCredsPath := filepath.Join(credsDir, defaultCollectorNATSCredsName)
 
 	if opts.SkipOverwrite {
 		if fileExists(filepath.Join(configDir, configName)) {
@@ -141,7 +147,7 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 		if anyFileExists(certsDir, "collector.pem", "collector-key.pem", "ca-chain.pem") {
 			return fmt.Errorf("%w: %s", ErrCollectorCertsExist, certsDir)
 		}
-		if anyFileExists(credsDir, "nats.creds") {
+		if anyFileExists(credsDir, defaultCollectorNATSCredsName) {
 			return fmt.Errorf("%w: %s", ErrCollectorCredsExist, credsDir)
 		}
 	}
@@ -165,18 +171,35 @@ func EnrollCollectorFromToken(ctx context.Context, opts CollectorEnrollOptions) 
 	if err := copyFileAtomic(caFile, filepath.Join(certsDir, "ca-chain.pem"), 0644); err != nil {
 		return err
 	}
-	if err := copyFileAtomic(credsFile, filepath.Join(credsDir, "nats.creds"), 0600); err != nil {
+	if err := copyFileAtomic(credsFile, collectorCredsPath, 0600); err != nil {
 		return err
 	}
-	if err := copyFileAtomic(configFile, filepath.Join(configDir, configName), 0644); err != nil {
+	configBytes, err := rewriteCollectorConfigNATSCredsPath(configFile, collectorCredsPath)
+	if err != nil {
 		return err
+	}
+	if err := writeFileAtomic(filepath.Join(configDir, configName), configBytes, 0644); err != nil {
+		return fmt.Errorf("write collector config: %w", err)
 	}
 
 	if opts.Logf != nil {
-		opts.Logf("Collector enrollment complete. Wrote %s, certs to %s, creds to %s", filepath.Join(configDir, configName), certsDir, credsDir)
+		opts.Logf("Collector enrollment complete. Wrote %s, certs to %s, creds to %s", filepath.Join(configDir, configName), certsDir, collectorCredsPath)
 	}
 
 	return nil
+}
+
+func rewriteCollectorConfigNATSCredsPath(configFile, installedCredsPath string) ([]byte, error) {
+	configBytes, err := os.ReadFile(configFile)
+	if err != nil {
+		return nil, fmt.Errorf("read collector config: %w", err)
+	}
+
+	return bytes.ReplaceAll(
+		configBytes,
+		[]byte(legacySharedNATSCredsPath),
+		[]byte(installedCredsPath),
+	), nil
 }
 
 func parseCollectorToken(raw, fallbackBaseURL string) (*collectorTokenPayload, error) {

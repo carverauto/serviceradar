@@ -203,8 +203,19 @@ repo_config =
 # Reduce log noise in tests
 config :logger, level: :warning
 
-# Disable Oban in tests to avoid AshOban.Scheduler issues
-config :serviceradar_core, Oban, false
+# Run Oban in manual testing mode so resource after_actions that enqueue
+# jobs (e.g. ServiceRadar.Edge.OnboardingPackage's :create action enqueuing
+# ProvisionAgentWorker) do not crash, and so worker tests can drive
+# perform/1 directly or use Oban.Testing's perform_job/2 + assert_enqueued/1
+# helpers. Plugins / queues / peer are disabled so AshOban schedulers and
+# background workers never run during tests.
+config :serviceradar_core, Oban,
+  testing: :manual,
+  repo: ServiceRadar.Repo,
+  queues: false,
+  plugins: false,
+  peer: false,
+  notifier: Oban.Notifiers.PG
 
 # Use Test adapter for mailer
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test

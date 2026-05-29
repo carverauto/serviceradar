@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -98,6 +99,13 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintEnabled},
 		sidecars,
 		true,
+		agentnetprobe.CorpusRevisions{
+			P0f:               "p0f-rev",
+			Recog:             "recog-rev",
+			Satori:            "satori-rev",
+			RecogCorpusLoaded: true,
+		},
+		capabilityStatusPayload{Status: capabilityStatusAvailable},
 	)
 
 	if !resp.GetAvailable() {
@@ -118,10 +126,18 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	if !payload.HostNetworkVisibility.RunningAsRoot {
 		t.Fatal("running_as_root = false, want true")
 	}
+	if payload.HostNetworkVisibility.CorpusRevisions == nil ||
+		payload.HostNetworkVisibility.CorpusRevisions.Recog != "recog-rev" ||
+		!payload.HostNetworkVisibility.CorpusRevisions.RecogCorpusLoaded {
+		t.Fatalf("corpus revisions = %#v, want recog revision and loaded flag", payload.HostNetworkVisibility.CorpusRevisions)
+	}
 	if payload.HostNetworkVisibility.DPI != testCapabilityUnavailable ||
 		payload.HostNetworkVisibility.FlowAttribution != testCapabilityUnavailable ||
 		payload.HostNetworkVisibility.ProcessSnapshot != testCapabilityUnavailable {
 		t.Fatalf("unexpected unavailable surfaces: %#v", payload.HostNetworkVisibility)
+	}
+	if payload.Sweep.BannerGrab.Status != capabilityStatusAvailable || payload.Sweep.BannerGrab.Reason != "" {
+		t.Fatalf("banner grab capability = %#v, want available", payload.Sweep.BannerGrab)
 	}
 
 	if len(payload.Sidecars) != 1 || payload.Sidecars[0].GetName() != "netprobe" {
@@ -134,6 +150,11 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintUnavailable},
 		[]*proto.SidecarStatus{{Name: "netprobe", State: "circuit_open"}},
 		false,
+		agentnetprobe.CorpusRevisions{},
+		capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonNetprobeUnavailable,
+		},
 	)
 
 	var payload agentCapabilityStatusPayload
@@ -146,6 +167,10 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 	}
 	if containsCapability(payload.Capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
 		t.Fatalf("capabilities unexpectedly advertised enabled fingerprint: %#v", payload.Capabilities)
+	}
+	if payload.Sweep.BannerGrab.Status != capabilityStatusUnavailable ||
+		payload.Sweep.BannerGrab.Reason != capabilityReasonNetprobeUnavailable {
+		t.Fatalf("banner grab capability = %#v, want unavailable/netprobe reason", payload.Sweep.BannerGrab)
 	}
 }
 
@@ -186,6 +211,116 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 	if !containsCapability(payload.Capabilities, capabilityHostNetworkVisibilityFingerprintEnabled) {
 		t.Fatalf("capabilities missing enabled fingerprint: %#v", payload.Capabilities)
 	}
+}
+
+func TestSweepBannerGrabCapabilityStatusReasons(t *testing.T) {
+	t.Parallel()
+
+	runningSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateRunning)}}
+	loadedCorpus := agentnetprobe.CorpusRevisions{RecogCorpusLoaded: true}
+
+	noProfile := NewPushLoop(&Server{}, nil, 30*time.Second, logger.NewTestLogger()).
+		sweepBannerGrabCapabilityStatus(runningSidecars, loadedCorpus)
+	if noProfile.Status != capabilityStatusUnavailable ||
+		noProfile.Reason != capabilityReasonNoEnabledSweepProfile {
+		t.Fatalf("no-profile status = %#v", noProfile)
+	}
+
+	configuredServer := &Server{
+		services: []Service{&bannerGrabConfigMockService{enabled: true}},
+	}
+	pl := NewPushLoop(configuredServer, nil, 30*time.Second, logger.NewTestLogger())
+
+	noSidecar := pl.sweepBannerGrabCapabilityStatus(nil, loadedCorpus)
+	if noSidecar.Status != capabilityStatusUnavailable ||
+		noSidecar.Reason != capabilityReasonNetprobeUnavailable {
+		t.Fatalf("no-sidecar status = %#v", noSidecar)
+	}
+
+	noCorpus := pl.sweepBannerGrabCapabilityStatus(runningSidecars, agentnetprobe.CorpusRevisions{})
+	if noCorpus.Status != capabilityStatusUnavailable ||
+		noCorpus.Reason != capabilityReasonRecogCorpusUnavailable {
+		t.Fatalf("no-corpus status = %#v", noCorpus)
+	}
+
+	available := pl.sweepBannerGrabCapabilityStatus(runningSidecars, loadedCorpus)
+	if available.Status != capabilityStatusAvailable || available.Reason != "" {
+		t.Fatalf("available status = %#v", available)
+	}
+}
+
+func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprobeStops(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ServerConfig{AgentID: desktopConsoleAgentID, Partition: "default"}
+	pl := NewPushLoop(
+		&Server{
+			config:   cfg,
+			services: []Service{&bannerGrabConfigMockService{enabled: true}},
+		},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	loadedCorpus := agentnetprobe.CorpusRevisions{RecogCorpusLoaded: true}
+
+	runningSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateRunning)}}
+	availableStatus := pl.sweepBannerGrabCapabilityStatus(runningSidecars, loadedCorpus)
+	availablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
+		agentCapabilitiesForStatusWithBannerGrab(cfg, runningSidecars, availableStatus.Status == capabilityStatusAvailable),
+		runningSidecars,
+		false,
+		loadedCorpus,
+		availableStatus,
+	))
+
+	if availablePayload.Sweep.BannerGrab.Status != capabilityStatusAvailable {
+		t.Fatalf("available banner grab status = %#v", availablePayload.Sweep.BannerGrab)
+	}
+	if !containsCapability(availablePayload.Capabilities, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("available capabilities missing banner grab availability: %#v", availablePayload.Capabilities)
+	}
+
+	stoppedSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateStopped)}}
+	unavailableStatus := pl.sweepBannerGrabCapabilityStatus(stoppedSidecars, loadedCorpus)
+	unavailablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
+		agentCapabilitiesForStatusWithBannerGrab(cfg, stoppedSidecars, unavailableStatus.Status == capabilityStatusAvailable),
+		stoppedSidecars,
+		false,
+		loadedCorpus,
+		unavailableStatus,
+	))
+
+	if unavailablePayload.Sweep.BannerGrab.Status != capabilityStatusUnavailable ||
+		unavailablePayload.Sweep.BannerGrab.Reason != capabilityReasonNetprobeUnavailable {
+		t.Fatalf("stopped banner grab status = %#v, want unavailable/netprobe reason", unavailablePayload.Sweep.BannerGrab)
+	}
+	if containsCapability(unavailablePayload.Capabilities, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("stopped capabilities still advertise available banner grab: %#v", unavailablePayload.Capabilities)
+	}
+	if !containsCapability(unavailablePayload.Capabilities, capabilitySweepBannerGrabUnavailable) {
+		t.Fatalf("stopped capabilities missing unavailable banner grab marker: %#v", unavailablePayload.Capabilities)
+	}
+}
+
+type bannerGrabConfigMockService struct {
+	mockService
+	enabled bool
+}
+
+func (s *bannerGrabConfigMockService) BannerGrabEnabled() bool {
+	return s.enabled
+}
+
+func decodeAgentCapabilityPayload(t *testing.T, resp *proto.StatusResponse) agentCapabilityStatusPayload {
+	t.Helper()
+
+	var payload agentCapabilityStatusPayload
+	if err := json.Unmarshal(resp.GetMessage(), &payload); err != nil {
+		t.Fatalf("failed to decode capability payload: %v", err)
+	}
+
+	return payload
 }
 
 func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {

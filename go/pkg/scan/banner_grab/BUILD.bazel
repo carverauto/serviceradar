@@ -1,0 +1,46 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "banner_grab",
+    srcs = [
+        "batcher.go",
+        "candidate_planner.go",
+        "dns.go",
+        "engine.go",
+        "ftp.go",
+        "http.go",
+        "ntp.go",
+        "observation.go",
+        "probe.go",
+        "rate_limit.go",
+        "rdp.go",
+        "smb.go",
+        "smtp.go",
+        "ssh.go",
+        "telnet.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/scan/banner_grab",
+    visibility = ["//visibility:public"],
+    deps = ["//go/pkg/models"],
+)
+
+go_test(
+    name = "banner_grab_test",
+    srcs = ["engine_test.go"],
+    embed = [":banner_grab"],
+    deps = ["//go/pkg/models"],
+)
+
+go_test(
+    name = "banner_grab_integration_test",
+    size = "medium",
+    srcs = ["integration_test.go"],
+    data = ["//rust/netprobe:netprobe"],
+    embed = [":banner_grab"],
+    tags = ["manual"],
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/models",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
+)

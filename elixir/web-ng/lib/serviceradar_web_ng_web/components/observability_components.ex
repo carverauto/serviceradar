@@ -100,6 +100,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           link_kind={@tab_link_kind}
         />
         <.navigate_tab_button
+          id="attributed-flows"
+          label="Attributed Flows"
+          icon="hero-cpu-chip"
+          active_pane={@active_pane}
+          path={~p"/observability/flows/attributed"}
+        />
+        <.navigate_tab_button
           id="bmp"
           label="BMP"
           icon="hero-arrows-right-left"

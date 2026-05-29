@@ -1,6 +1,7 @@
 mod config;
 mod error;
 pub mod flowpb;
+mod host_slice;
 mod listener;
 mod metrics;
 mod netflow;
@@ -10,8 +11,9 @@ mod sflow;
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
+use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
-use metrics::{ListenerMetrics, MetricsReporter};
+use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter, SubjectDropRegistry};
 use publisher::Publisher;
 use std::sync::Arc;
 use std::sync::Once;
@@ -42,27 +44,40 @@ async fn main() -> Result<()> {
     log::info!("Configuration loaded successfully");
     log::info!("  NATS URL: {}", config.nats_url);
     log::info!("  Stream name: {}", config.stream_name);
-    log::info!("  Channel size: {}", config.channel_size);
+    log::info!("  Default channel size: {}", config.channel_size);
     log::info!("  Batch size: {}", config.batch_size);
-    log::info!("  Drop policy: {:?}", config.drop_policy);
+    log::info!(
+        "  Backpressure policy: DropNewest (tokio mpsc::try_send; see config.rs comment)"
+    );
     log::info!("  Listeners: {}", config.listeners.len());
 
     for (i, listener_cfg) in config.listeners.iter().enumerate() {
         log::info!(
-            "  Listener[{}]: protocol={}, addr={}, subject={}",
+            "  Listener[{}]: protocol={}, addr={}, subject={}, channel_size={}",
             i,
             listener_cfg.protocol_name(),
             listener_cfg.listen_addr(),
-            listener_cfg.subject()
+            listener_cfg.subject(),
+            listener_cfg.channel_size(config.channel_size)
         );
     }
 
-    // Create shared channel: all listeners send (subject, encoded_bytes) to one publisher
-    let (tx, rx) = mpsc::channel(config.channel_size);
+    let host_slice_router = Arc::new(HostSliceRouter::from_config(&config));
+    let host_slice_metrics = Arc::new(HostSliceMetricsRegistry::new(
+        HostSliceRouter::metric_slices(&config),
+    ));
+    let subject_drops = Arc::new(SubjectDropRegistry::new());
+
+    // Publisher fan-in: each listener owns a bounded per-listener mpsc and the
+    // publisher consumes from a single merged channel. This isolates noisy
+    // listeners from quiet ones — a saturated sflow stream no longer steals
+    // capacity from a sparse netflow stream.
+    let (publisher_tx, publisher_rx) =
+        mpsc::channel::<(String, Vec<u8>)>(config.channel_size);
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
-    let publisher = Publisher::new(publisher_config, rx);
+    let publisher = Publisher::new(publisher_config, publisher_rx, Arc::clone(&host_slice_metrics));
     let publisher_handle = tokio::spawn(async move {
         if let Err(e) = publisher.run().await {
             log::error!("Publisher error: {}", e);
@@ -72,6 +87,7 @@ async fn main() -> Result<()> {
     // Spawn listeners
     let mut listener_handles: Vec<JoinHandle<()>> = Vec::new();
     let mut all_metrics: Vec<Arc<ListenerMetrics>> = Vec::new();
+    let mut _forwarder_handles: Vec<JoinHandle<()>> = Vec::new();
 
     for listener_cfg in &config.listeners {
         let metrics = Arc::new(ListenerMetrics::new(
@@ -89,13 +105,44 @@ async fn main() -> Result<()> {
             listener_cfg.listen_addr()
         );
 
+        // Per-listener bounded channel. Capacity defaults to the global
+        // `channel_size` but can be overridden per listener so operators can
+        // give sflow more headroom than netflow (or vice versa).
+        let cap = listener_cfg.channel_size(config.channel_size);
+        let (listener_tx, mut listener_rx) =
+            mpsc::channel::<(String, Vec<u8>)>(cap);
+
+        // Forwarder: drains this listener's channel into the shared publisher
+        // channel. We use `send().await` here (not `try_send`) — by the time
+        // a message reaches this point the listener has already accepted it,
+        // so applying backpressure between the forwarder and the publisher
+        // is correct (it pushes the queue depth back into the listener's
+        // own channel, where drops are accounted per-subject).
+        let publisher_tx_for_listener = publisher_tx.clone();
+        let protocol_for_forwarder = listener_cfg.protocol_name().to_string();
+        let addr_for_forwarder = listener_cfg.listen_addr().to_string();
+        _forwarder_handles.push(tokio::spawn(async move {
+            while let Some(msg) = listener_rx.recv().await {
+                if publisher_tx_for_listener.send(msg).await.is_err() {
+                    log::warn!(
+                        "[{}@{}] Publisher channel closed; forwarder stopping",
+                        protocol_for_forwarder,
+                        addr_for_forwarder
+                    );
+                    break;
+                }
+            }
+        }));
+
         let listener = Listener::new(
             handler,
             socket,
             listener_cfg.buffer_size(),
             listener_cfg.subject().to_string(),
-            tx.clone(),
+            Arc::clone(&host_slice_router),
+            listener_tx,
             metrics,
+            Arc::clone(&subject_drops),
         );
 
         let protocol = listener_cfg.protocol_name().to_string();
@@ -107,12 +154,14 @@ async fn main() -> Result<()> {
         }));
     }
 
-    // Drop the original sender so the publisher will shut down when all listeners stop
-    drop(tx);
+    // Drop the original publisher sender so the publisher will shut down when
+    // all forwarders complete (which happens when all listeners stop).
+    drop(publisher_tx);
 
     // Spawn metrics reporter
+    let subject_drops_for_reporter = Arc::clone(&subject_drops);
     let metrics_handle = tokio::spawn(async move {
-        MetricsReporter::run(all_metrics).await;
+        MetricsReporter::run(all_metrics, host_slice_metrics, subject_drops_for_reporter).await;
     });
 
     log::info!("Flow collector started successfully");

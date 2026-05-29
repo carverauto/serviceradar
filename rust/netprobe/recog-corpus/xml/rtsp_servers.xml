@@ -1,0 +1,113 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<fingerprints matches="rtsp_header.server" protocol="rtsp" database_type="service" preference="0.85">
+  <fingerprint pattern="^Flussonic \(http:\/\/www.flussonic.com\/\) ([\d\.]+)$">
+    <description>Flussonic Media Server</description>
+    <example service.version="19.04">Flussonic (http://www.flussonic.com/) 19.04</example>
+    <example service.version="20.01">Flussonic (http://www.flussonic.com/) 20.01</example>
+    <param pos="0" name="service.vendor" value="Flussonic"/>
+    <param pos="0" name="service.product" value="Flussonic Media Server"/>
+    <param pos="1" name="service.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Hipcam RealServer\/V([\d\.]+)$">
+    <description>Hipcam IP camera running the RealServer RTSP server.</description>
+    <example service.version="1.0">Hipcam RealServer/V1.0</example>
+    <param pos="0" name="service.vendor" value="RealNetworks"/>
+    <param pos="0" name="service.product" value="RealServer"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="hw.vendor" value="Hipcam"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Dahua Rtsp Server$">
+    <description>Dahua IP Camera</description>
+    <example>Dahua Rtsp Server</example>
+    <param pos="0" name="service.vendor" value="Dahua"/>
+    <param pos="0" name="hw.vendor" value="Dahua"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+  </fingerprint>
+
+  <fingerprint pattern="^GStreamer RTSP server$">
+    <description>GStreamer RTSP Server (https://github.com/GStreamer/gst-rtsp-server)</description>
+    <example>GStreamer RTSP server</example>
+    <param pos="0" name="service.vendor" value="GStreamer"/>
+    <param pos="0" name="service.product" value="GStreamer RTSP Server"/>
+  </fingerprint>
+
+  <fingerprint pattern="^WMServer\/([\d\.]+)$">
+    <description>Windows Media Server</description>
+    <example service.version="9.1.1.3862">WMServer/9.1.1.3862</example>
+    <example service.version="9.5.6001.22609">WMServer/9.5.6001.22609</example>
+    <param pos="0" name="service.vendor" value="Microsoft"/>
+    <param pos="0" name="service.product" value="Windows Media Server"/>
+    <param pos="0" name="service.family" value="Windows Media Server"/>
+    <param pos="1" name="service.version"/>
+    <param pos="0" name="os.vendor" value="Microsoft"/>
+    <param pos="0" name="os.family" value="Windows"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Wowza (Streaming Engine|Media Server) ([\d\.]+) build(\d*)$">
+    <description>Wowza Media Systems Streaming Video Services</description>
+    <example service.version="4.7.7" service.version.version="20181108145350" service.product="Streaming Engine">Wowza Streaming Engine 4.7.7 build20181108145350</example>
+    <example service.version="3.6.4" service.version.version="9641" service.product="Media Server">Wowza Media Server 3.6.4 build9641</example>
+    <param pos="0" name="service.vendor" value="Wowza Media Systems"/>
+    <param pos="1" name="service.product"/>
+    <param pos="2" name="service.version"/>
+    <param pos="3" name="service.version.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^HiIpcam\/V\d+R\d+ VodServer\/[\d\.]+$">
+    <description>Foscam IP Camera</description>
+    <example>HiIpcam/V100R003 VodServer/1.0.0</example>
+    <param pos="0" name="hw.vendor" value="Foscam"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Indigo\-Security\/[\d\.]+$">
+    <description>Indigo Security IP Camera</description>
+    <example>Indigo-Security/1.0</example>
+    <param pos="0" name="hw.vendor" value="Indigo Security"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Cisco MediaSense Media Server$">
+    <description>Cisco MediaSense Media Server (RTSP)</description>
+    <example>Cisco MediaSense Media Server</example>
+    <param pos="0" name="service.vendor" value="Cisco"/>
+    <param pos="0" name="service.product" value="MediaSense"/>
+    <param pos="0" name="service.cpe23" value="cpe:/a:cisco:mediasense:-"/>
+    <param pos="0" name="os.vendor" value="Cisco"/>
+    <param pos="0" name="hw.vendor" value="Cisco"/>
+    <param pos="0" name="hw.device" value="SIP Gateway"/>
+    <param pos="0" name="hw.product" value="MediaSense"/>
+  </fingerprint>
+
+  <fingerprint pattern="^AvigilonOnvifNvt/(\d+\.\S+)">
+    <description>Avigilon IP Camera</description>
+    <example os.version="2.6.0.130">AvigilonOnvifNvt/2.6.0.130</example>
+    <param pos="0" name="hw.vendor" value="Avigilon"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+    <param pos="0" name="os.vendor" value="Avigilon"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="os.product" value="Linux"/>
+    <param pos="1" name="os.version"/>
+  </fingerprint>
+
+  <fingerprint pattern="^Linux/2\.6\.35\.14_nl-xarina\+ Ze-PRO$">
+    <description>Sony Network Camera</description>
+    <example>Linux/2.6.35.14_nl-xarina+ Ze-PRO</example>
+    <param pos="0" name="hw.vendor" value="Sony"/>
+    <param pos="0" name="hw.device" value="IP Camera"/>
+  </fingerprint>
+
+  <fingerprint pattern="^fbxrtspd/([0-9.]+) Freebox RTSP server$">
+    <description>Freebox OS on Freebox Set-top Box Devices</description>
+    <example os.version="1.2">fbxrtspd/1.2 Freebox RTSP server</example>
+    <param pos="0" name="os.vendor" value="Freebox"/>
+    <param pos="0" name="os.product" value="Freebox OS"/>
+    <param pos="0" name="os.family" value="Linux"/>
+    <param pos="0" name="hw.vendor" value="Freebox"/>
+    <param pos="1" name="os.version"/>
+  </fingerprint>
+
+</fingerprints>

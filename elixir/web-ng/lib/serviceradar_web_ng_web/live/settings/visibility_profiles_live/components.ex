@@ -8,9 +8,9 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
 
   alias ServiceRadarWebNGWeb.SRQL.Catalog
 
-  attr :profiles, :list, required: true
-  attr :can_write, :boolean, default: false
-  attr :can_delete, :boolean, default: false
+  attr(:profiles, :list, required: true)
+  attr(:can_write, :boolean, default: false)
+  attr(:can_delete, :boolean, default: false)
 
   def profiles_panel(assigns) do
     ~H"""
@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               <th>Targeting</th>
               <th>Interfaces</th>
               <th>Sample</th>
-              <th>Fingerprint</th>
+              <th>Capabilities</th>
               <th>Retention</th>
               <th>Actions</th>
             </tr>
@@ -121,6 +121,29 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
                     <.ui_badge :if={fingerprint_enabled?(profile, "http")} variant="ghost" size="xs">
                       HTTP
                     </.ui_badge>
+                    <.ui_badge
+                      :for={protocol <- dpi_protocols()}
+                      :if={dpi_enabled?(profile, protocol)}
+                      variant="info"
+                      size="xs"
+                    >
+                      DPI {dpi_protocol_label(protocol)}
+                    </.ui_badge>
+                    <.ui_badge
+                      :for={protocol <- flow_protocols()}
+                      :if={flow_attribution_enabled?(profile, protocol)}
+                      variant="success"
+                      size="xs"
+                    >
+                      Flow {String.upcase(protocol)}
+                    </.ui_badge>
+                    <.ui_badge
+                      :if={process_snapshot_enabled?(profile)}
+                      variant="warning"
+                      size="xs"
+                    >
+                      Snapshots {profile.process_snapshot_interval_s}s
+                    </.ui_badge>
                   </div>
                 </td>
                 <td class="font-mono text-xs">{profile.retention_days}d</td>
@@ -165,14 +188,14 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     """
   end
 
-  attr :form, :map, required: true
-  attr :errors, :list, default: []
-  attr :show_form, :atom, required: true
-  attr :selected_profile, :any, default: nil
-  attr :target_device_count, :integer, default: nil
-  attr :builder_open, :boolean, default: false
-  attr :builder, :map, required: true
-  attr :builder_sync, :boolean, default: true
+  attr(:form, :map, required: true)
+  attr(:errors, :list, default: [])
+  attr(:show_form, :atom, required: true)
+  attr(:selected_profile, :any, default: nil)
+  attr(:target_device_count, :integer, default: nil)
+  attr(:builder_open, :boolean, default: false)
+  attr(:builder, :map, required: true)
+  attr(:builder_sync, :boolean, default: true)
 
   def profile_form(assigns) do
     config = Catalog.entity("devices")
@@ -180,6 +203,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     assigns =
       assigns
       |> assign(:device_fields, device_filter_fields(config))
+      |> assign(:dpi_protocol_options, Enum.map(dpi_protocols(), &{&1, dpi_protocol_label(&1)}))
       |> assign(:filter_ops, [
         {"contains", "contains"},
         {"equals", "equals"},
@@ -363,10 +387,72 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
               checked={truthy?(@form["fingerprint"]["http"])}
             />
           </div>
-          <div class="flex flex-wrap gap-2 pt-2">
-            <.ui_badge variant="ghost" size="sm">DPI later phase</.ui_badge>
-            <.ui_badge variant="ghost" size="sm">Flow attribution later phase</.ui_badge>
-            <.ui_badge variant="ghost" size="sm">Process snapshots later phase</.ui_badge>
+        </div>
+
+        <div class="rounded-lg border border-base-200 p-4 space-y-3">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Deep Packet Inspection</div>
+              <p class="text-xs text-base-content/60">
+                Protocol detection only; payloads, URIs, and DNS names are not stored.
+              </p>
+            </div>
+            <label class="label cursor-pointer justify-start gap-3 py-0">
+              <input type="hidden" name="form[dpi][enabled]" value="false" />
+              <input
+                type="checkbox"
+                name="form[dpi][enabled]"
+                value="true"
+                class="toggle toggle-primary toggle-sm"
+                checked={truthy?(@form["dpi"]["enabled"])}
+              />
+              <span class="label-text text-sm">Enabled</span>
+            </label>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2">
+            <.dpi_toggle
+              :for={{protocol, label} <- @dpi_protocol_options}
+              name={protocol}
+              label={label}
+              checked={truthy?(@form["dpi"]["protocols"][protocol])}
+            />
+          </div>
+        </div>
+
+        <div class="rounded-lg border border-base-200 p-4">
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div class="space-y-3">
+              <div>
+                <div class="text-sm font-semibold">Flow Attribution</div>
+                <p class="text-xs text-base-content/60">
+                  Attach local process identity to observed connections.
+                </p>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <.flow_attribution_toggle
+                  :for={protocol <- flow_protocols()}
+                  name={protocol}
+                  label={String.upcase(protocol)}
+                  checked={truthy?(@form["flow_attribution"][protocol])}
+                />
+              </div>
+            </div>
+
+            <div class="space-y-3">
+              <div>
+                <div class="text-sm font-semibold">Process Snapshots</div>
+                <p class="text-xs text-base-content/60">
+                  Periodically record local listening sockets with redacted process context.
+                </p>
+              </div>
+              <.number_input
+                name="form[process_snapshot_interval_s]"
+                label="Snapshot interval seconds"
+                value={@form["process_snapshot_interval_s"]}
+                min="0"
+              />
+            </div>
           </div>
         </div>
 
@@ -383,7 +469,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     """
   end
 
-  attr :json_preview, :string, required: true
+  attr(:json_preview, :string, required: true)
 
   def json_preview_modal(assigns) do
     ~H"""
@@ -400,9 +486,9 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     """
   end
 
-  attr :name, :string, required: true
-  attr :label, :string, required: true
-  attr :checked, :boolean, default: false
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:checked, :boolean, default: false)
 
   defp fingerprint_toggle(assigns) do
     ~H"""
@@ -420,10 +506,50 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     """
   end
 
-  attr :name, :string, required: true
-  attr :label, :string, required: true
-  attr :value, :any, default: ""
-  attr :required, :boolean, default: false
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:checked, :boolean, default: false)
+
+  defp dpi_toggle(assigns) do
+    ~H"""
+    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+      <input type="hidden" name={"form[dpi][protocols][#{@name}]"} value="false" />
+      <input
+        type="checkbox"
+        name={"form[dpi][protocols][#{@name}]"}
+        value="true"
+        class="checkbox checkbox-primary checkbox-sm"
+        checked={@checked}
+      />
+      <span class="label-text text-sm">{@label}</span>
+    </label>
+    """
+  end
+
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:checked, :boolean, default: false)
+
+  defp flow_attribution_toggle(assigns) do
+    ~H"""
+    <label class="label cursor-pointer justify-start gap-2 rounded-md border border-base-200 px-3 py-2 hover:bg-base-200/40">
+      <input type="hidden" name={"form[flow_attribution][#{@name}]"} value="false" />
+      <input
+        type="checkbox"
+        name={"form[flow_attribution][#{@name}]"}
+        value="true"
+        class="checkbox checkbox-primary checkbox-sm"
+        checked={@checked}
+      />
+      <span class="label-text text-sm">{@label}</span>
+    </label>
+    """
+  end
+
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: "")
+  attr(:required, :boolean, default: false)
 
   defp text_input(assigns) do
     ~H"""
@@ -440,10 +566,10 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
     """
   end
 
-  attr :name, :string, required: true
-  attr :label, :string, required: true
-  attr :value, :any, default: ""
-  attr :min, :string, default: nil
+  attr(:name, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: "")
+  attr(:min, :string, default: nil)
 
   defp number_input(assigns) do
     ~H"""
@@ -467,4 +593,15 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.Components do
   end
 
   defp device_filter_fields(_), do: []
+
+  defp dpi_protocol_label("http1"), do: "HTTP/1"
+  defp dpi_protocol_label("http2"), do: "HTTP/2"
+  defp dpi_protocol_label("tls"), do: "TLS"
+  defp dpi_protocol_label("dns"), do: "DNS"
+  defp dpi_protocol_label("ssh"), do: "SSH"
+  defp dpi_protocol_label("ftp"), do: "FTP"
+  defp dpi_protocol_label("quic"), do: "QUIC"
+  defp dpi_protocol_label("mqtt"), do: "MQTT"
+  defp dpi_protocol_label("bittorrent"), do: "BitTorrent"
+  defp dpi_protocol_label(protocol), do: Phoenix.Naming.humanize(protocol)
 end

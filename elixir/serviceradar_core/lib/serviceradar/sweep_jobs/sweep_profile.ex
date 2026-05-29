@@ -16,6 +16,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
   - `timeout`: Per-host timeout (e.g., "3s", "5s")
   - `icmp_settings`: ICMP-specific settings (count, interval)
   - `tcp_settings`: TCP-specific settings (syn_only, connect_timeout)
+  - `banner_grab`: Optional active banner-grab phase controls
   - `admin_only`: If true, only admins can use this profile
 
   ## Usage
@@ -36,6 +37,11 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.SweepJobs.Checks.EnablingBannerGrabWithoutPermission
+  alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
+
+  @banner_grab_permission "networks.sweeps.banner_grab"
+
   @profile_fields [
     :name,
     :description,
@@ -45,6 +51,7 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     :timeout,
     :icmp_settings,
     :tcp_settings,
+    :banner_grab,
     :admin_only,
     :enabled
   ]
@@ -82,7 +89,13 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
     import ServiceRadar.Policies
 
     system_bypass()
-    admin_action_type([:create, :update, :destroy])
+
+    policy action_type([:create, :update]) do
+      forbid_if {EnablingBannerGrabWithoutPermission, permission: @banner_grab_permission}
+      authorize_if is_admin()
+    end
+
+    admin_action_type(:destroy)
 
     # Non-admin users can read non-admin-only profiles
     policy action_type(:read) do
@@ -146,6 +159,13 @@ defmodule ServiceRadar.SweepJobs.SweepProfile do
       public? true
       default %{}
       description "TCP-specific settings (syn_only, connect_timeout)"
+    end
+
+    attribute :banner_grab, BannerGrab do
+      allow_nil? false
+      public? true
+      default BannerGrab.default_input()
+      description "Optional active banner-grab phase controls"
     end
 
     attribute :admin_only, :boolean do

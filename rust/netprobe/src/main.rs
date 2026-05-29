@@ -1,14 +1,52 @@
+#[allow(dead_code, unused_imports)]
+mod af_xdp;
+#[allow(dead_code)]
+mod af_xdp_classifier;
+#[allow(dead_code)]
+mod attribution;
+#[allow(dead_code)]
 mod capabilities;
+#[allow(dead_code)]
 mod capture;
 mod config;
+mod dpi;
+#[cfg(target_os = "linux")]
+mod ebpf_loader;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)]
+mod ebpf_runtime;
+mod event_queue;
+mod external_flow;
+#[allow(dead_code)]
 mod fingerprint;
 mod framing;
+#[allow(dead_code)]
+mod hassh;
+mod ipc;
+#[allow(dead_code)]
+mod ja4;
+mod kernel;
+#[allow(dead_code)]
 mod lifecycle;
 mod metrics;
+#[allow(dead_code)]
+mod muonfp;
+#[allow(dead_code)]
+mod os_matcher;
+#[allow(dead_code)]
+mod p0f_corpus;
+#[allow(dead_code)]
+mod p0f_matcher;
 mod proto;
+#[allow(dead_code)]
+mod recog;
+#[allow(dead_code)]
 mod runtime_config;
+#[allow(dead_code)]
+mod satori;
 mod server;
-#[cfg(feature = "pcap-capture")]
+#[cfg(feature = "remote-capture")]
+#[allow(dead_code)]
 mod tls_server;
 
 use std::{
@@ -22,13 +60,15 @@ use clap::{Parser, ValueEnum};
 use tokio::sync::{broadcast, watch};
 
 use crate::{
-    capture::CaptureWorkers,
     config::Config,
-    lifecycle::{initialize_privileged_resources, SystemStartupOps},
+    lifecycle::{StartupOps, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
-    runtime_config::{FingerprintEventGate, RuntimeConfig},
+    runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
     server::IpcServer,
 };
+
+#[cfg(target_os = "linux")]
+use crate::lifecycle::{drop_runtime_privileges, prepare_ebpf_privileged_resources};
 
 #[derive(Debug, Parser)]
 #[command(author, version, about)]
@@ -38,6 +78,9 @@ struct Args {
 
     #[arg(long, env = "SERVICERADAR_NETPROBE_CONFIG")]
     config: Option<PathBuf>,
+
+    #[arg(long, env = "SERVICERADAR_NETPROBE_EBPF_OBJECT")]
+    ebpf_object: Option<PathBuf>,
 
     #[arg(
         long,
@@ -78,6 +121,13 @@ enum LogFormat {
     Json,
 }
 
+#[allow(dead_code)]
+enum VisibilityRuntime {
+    Disabled,
+    #[cfg(target_os = "linux")]
+    Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     let args = Args::parse();
@@ -88,37 +138,74 @@ async fn main() -> Result<()> {
         log::info!("netprobe config is disabled; lifecycle IPC remains available");
     }
 
-    let mut startup_ops = SystemStartupOps;
-    let capture_handles = initialize_privileged_resources(
-        &mut startup_ops,
-        &config,
-        args.drop_user.as_deref(),
-        args.skip_cap_check,
-        args.allow_root,
-    )?;
-    log::info!("opened {} capture interface(s)", capture_handles.len());
-
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let (fingerprint_event_tx, _) = broadcast::channel(4096);
+    let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
+    let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
+    let (flow_attribution_event_tx, _) = broadcast::channel(4096);
+    let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
-    let fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
+    let _fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
     )));
+    let _dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
-    let _capture_workers = CaptureWorkers::start(
-        capture_handles,
-        metrics.clone(),
-        fingerprint_event_tx.clone(),
-        fingerprint_gate,
-    )
-    .context("failed to start capture workers")?;
+    let mut startup_ops = SystemStartupOps;
+    let _visibility_runtime = if args.ebpf_object.is_some() {
+        #[cfg(not(target_os = "linux"))]
+        {
+            anyhow::bail!("--ebpf-object is only supported on Linux");
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            let ebpf_object = args
+                .ebpf_object
+                .as_deref()
+                .expect("checked ebpf_object is present");
+            prepare_ebpf_privileged_resources(&mut startup_ops, &config, args.skip_cap_check)?;
+            let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
+                ebpf_object,
+                &config,
+                metrics.clone(),
+                _fingerprint_event_tx.clone(),
+                _dpi_event_tx.clone(),
+                flow_attribution_event_tx.clone(),
+                process_snapshot_tx.clone(),
+                Arc::clone(&_fingerprint_gate),
+                Arc::clone(&_dpi_gate),
+            )
+            .context("failed to start eBPF/AF_XDP visibility runtime")?;
+            drop_runtime_privileges(&mut startup_ops, args.drop_user.as_deref(), args.allow_root)?;
+            log::info!(
+                "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
+                config.capture_interfaces.len()
+            );
+            VisibilityRuntime::Ebpf(runtime)
+        }
+    } else if config.enabled {
+        anyhow::bail!(
+            "netprobe continuous capture requires --ebpf-object after Phase 3 eBPF cutover"
+        );
+    } else {
+        startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
+        VisibilityRuntime::Disabled
+    };
     let metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),
         shutdown_rx.clone(),
     ));
     let ipc_task = tokio::spawn(
-        IpcServer::new(args.socket, fingerprint_event_tx, runtime_config, metrics).run(shutdown_rx),
+        IpcServer::new(
+            args.socket,
+            fingerprint_event_rx,
+            dpi_event_rx,
+            flow_attribution_event_tx,
+            process_snapshot_tx,
+            runtime_config,
+            metrics,
+        )
+        .run(shutdown_rx),
     );
 
     wait_for_shutdown().await;

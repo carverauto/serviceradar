@@ -9,6 +9,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   """
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.ActiveScansComponents
+  import ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents
   import ServiceRadarWebNGWeb.SettingsComponents
 
   alias AshPhoenix.Form
@@ -26,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepPubSub
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
   @refresh_interval to_timeout(second: 15)
 
@@ -65,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:form, nil)
         |> assign(:target_device_count, nil)
         |> assign(:builder_open, false)
-        |> assign(:builder, default_builder_state())
+        |> assign(:builder, TargetBuilder.default_builder_state())
         |> assign(:builder_sync, true)
         |> assign(:show_mapper_form, nil)
         |> assign(:mapper_jobs, load_mapper_jobs(scope))
@@ -83,6 +85,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:sweep_command_statuses, %{})
         |> assign(:cleanup_settings, cleanup_settings)
         |> assign(:cleanup_form, cleanup_form)
+        |> assign(:can_enable_banner_grab, can_enable_banner_grab?(scope))
+        |> assign(:banner_preview_device_count, nil)
 
       {:ok, socket}
     else
@@ -120,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:form, to_form(ash_form))
     |> assign(:target_device_count, nil)
     |> assign(:builder_open, false)
-    |> assign(:builder, default_builder_state())
+    |> assign(:builder, TargetBuilder.default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:agents, load_agents(scope))
   end
@@ -138,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         scope = socket.assigns.current_scope
         ash_form = Form.for_update(group, :update, domain: ServiceRadar.SweepJobs, scope: scope)
         device_count = count_target_devices(scope, group.target_query)
-        {builder, builder_sync} = parse_target_query_to_builder(group.target_query)
+        {builder, builder_sync} = TargetBuilder.parse_target_query_to_builder(group.target_query)
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
@@ -259,6 +263,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:show_form, :new_profile)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
+    |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -279,6 +284,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:selected_profile, profile)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
+        |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
     end
   end
 
@@ -623,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       if builder_event? do
         {socket.assigns.builder, socket.assigns.builder_sync}
       else
-        parse_target_query_to_builder(target_query)
+        TargetBuilder.parse_target_query_to_builder(target_query)
       end
 
     ash_form = Form.validate(socket.assigns.ash_form, params)
@@ -659,7 +665,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket =
       if Map.has_key?(params, "target_query") do
         target_query = Map.get(params, "target_query")
-        {parsed_builder, parsed_sync} = parse_target_query_to_builder(target_query)
+        {parsed_builder, parsed_sync} = TargetBuilder.parse_target_query_to_builder(target_query)
 
         socket = assign(socket, :builder_sync, parsed_sync)
 
@@ -685,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket =
       if builder_open do
         target_query = current_target_query(socket)
-        {builder, builder_sync} = parse_target_query_to_builder(target_query)
+        {builder, builder_sync} = TargetBuilder.parse_target_query_to_builder(target_query)
 
         socket
         |> assign(:builder_open, true)
@@ -699,7 +705,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("builder_change", %{"builder" => builder_params}, socket) do
-    builder = update_builder(socket.assigns.builder, builder_params)
+    builder = TargetBuilder.update_builder(socket.assigns.builder, builder_params)
 
     socket =
       socket
@@ -712,18 +718,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("builder_add_filter", _params, socket) do
     builder = socket.assigns.builder
-    config = Catalog.entity("devices")
 
     filters =
       builder
       |> Map.get("filters", [])
       |> List.wrap()
 
-    next = %{
-      "field" => config.default_filter_field,
-      "op" => "contains",
-      "value" => ""
-    }
+    next = TargetBuilder.default_filter()
 
     updated_builder = Map.put(builder, "filters", filters ++ [next])
 
@@ -769,7 +770,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("builder_apply", _params, socket) do
     builder = socket.assigns.builder
-    query = build_target_query(builder)
+    query = TargetBuilder.build_target_query(builder)
 
     params =
       socket.assigns.ash_form
@@ -964,7 +965,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             />
           <% else %>
             <%= if @show_form in [:new_profile, :edit_profile] do %>
-              <.profile_form form={@form} show_form={@show_form} />
+              <.profile_form
+                form={@form}
+                show_form={@show_form}
+                can_enable_banner_grab={@can_enable_banner_grab}
+                banner_preview_device_count={@banner_preview_device_count}
+              />
             <% else %>
               <%= if @show_form == :show_group do %>
                 <.group_detail group={@selected_group} />
@@ -1622,7 +1628,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     <div class="space-y-4">
       <!-- Statistics Cards -->
       <.scan_statistics running={@running} recent={@recent} />
-      
+
     <!-- Running Scans -->
       <.ui_panel>
         <:header>
@@ -1655,7 +1661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <% end %>
         </div>
       </.ui_panel>
-      
+
     <!-- Recent Completions -->
       <.ui_panel>
         <:header>
@@ -1780,1148 +1786,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     """
   end
 
-  # Statistics Cards Component
-  attr :running, :list, required: true
-  attr :recent, :list, required: true
-
-  defp scan_statistics(assigns) do
-    # Calculate stats from recent executions
-    completed_recent = Enum.filter(assigns.recent, &(&1.status == :completed))
-
-    latest_completed = latest_execution(completed_recent)
-
-    total_hosts = if latest_completed, do: latest_completed.hosts_total || 0, else: 0
-    available_hosts = if latest_completed, do: latest_completed.hosts_available || 0, else: 0
-
-    avg_success_rate = average_success_rate(completed_recent)
-
-    failed_count = Enum.count(assigns.recent, &(&1.status == :failed))
-
-    # Aggregate scanner metrics from recent completions
-    aggregate_metrics = aggregate_scanner_metrics(completed_recent)
-
-    assigns =
-      assigns
-      |> assign(:total_hosts, total_hosts)
-      |> assign(:available_hosts, available_hosts)
-      |> assign(:avg_success_rate, avg_success_rate)
-      |> assign(:failed_count, failed_count)
-      |> assign(:completed_count, length(completed_recent))
-      |> assign(:aggregate_metrics, aggregate_metrics)
-      |> assign(:latest_completed, latest_completed)
-
-    ~H"""
-    <div class="space-y-4">
-      <!-- Main Stats -->
-      <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Running</div>
-          <div class="text-2xl font-bold mt-1 flex items-center gap-2">
-            {length(@running)}
-            <span :if={length(@running) > 0} class="size-2 rounded-full bg-success animate-pulse">
-            </span>
-          </div>
-        </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Hosts Scanned</div>
-          <div class="text-2xl font-bold mt-1">{@total_hosts}</div>
-          <div class="text-xs text-base-content/60">
-            {@available_hosts} available
-            <%= if @latest_completed do %>
-              • {format_last_run(@latest_completed.completed_at || @latest_completed.updated_at)}
-            <% end %>
-          </div>
-        </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Avg Success Rate</div>
-          <div class={"text-2xl font-bold mt-1 #{success_rate_color(@avg_success_rate)}"}>
-            {@avg_success_rate}%
-          </div>
-        </div>
-        <div class="bg-base-200/50 rounded-lg p-4">
-          <div class="text-xs text-base-content/60 uppercase tracking-wide">Recent Executions</div>
-          <div class="text-2xl font-bold mt-1">{@completed_count}</div>
-          <div :if={@failed_count > 0} class="text-xs text-error">{@failed_count} failed</div>
-        </div>
-      </div>
-      
-    <!-- Scanner Metrics Summary (only if we have metrics) -->
-      <div :if={@aggregate_metrics.has_data} class="bg-base-200/30 rounded-lg p-4">
-        <div class="flex items-center gap-2 mb-3">
-          <.icon name="hero-chart-bar" class="size-4 text-base-content/60" />
-          <span class="text-xs text-base-content/60 uppercase tracking-wide">
-            Scanner Performance (Recent Scans)
-          </span>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-6 gap-4 text-sm">
-          <div>
-            <div class="text-base-content/60 text-xs">Packets Sent</div>
-            <div class="font-semibold font-mono">
-              {format_number(@aggregate_metrics.packets_sent)}
-            </div>
-          </div>
-          <div>
-            <div class="text-base-content/60 text-xs">Packets Received</div>
-            <div class="font-semibold font-mono">
-              {format_number(@aggregate_metrics.packets_recv)}
-            </div>
-          </div>
-          <div>
-            <div class="text-base-content/60 text-xs">Avg Drop Rate</div>
-            <div class={"font-semibold font-mono #{if to_float(@aggregate_metrics.avg_drop_rate) > 1.0, do: "text-warning", else: ""}"}>
-              {Float.round(to_float(@aggregate_metrics.avg_drop_rate), 2)}%
-            </div>
-          </div>
-          <div>
-            <div class="text-base-content/60 text-xs">Total Retries</div>
-            <div class="font-semibold font-mono">
-              {format_number(@aggregate_metrics.retries_successful)}/{format_number(
-                @aggregate_metrics.retries_attempted
-              )}
-            </div>
-          </div>
-          <div>
-            <div class="text-base-content/60 text-xs">Throttle Waits</div>
-            <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_waits > 0, do: "text-info", else: ""}"}>
-              {format_number(@aggregate_metrics.throttle_waits)}
-            </div>
-            <div class="text-[11px] text-base-content/50">
-              rate {format_number(@aggregate_metrics.rate_limit_waits)} / ports {format_number(
-                @aggregate_metrics.source_port_waits
-              )}
-            </div>
-          </div>
-          <div>
-            <div class="text-base-content/60 text-xs">Throttle Time</div>
-            <div class={"font-semibold font-mono #{if @aggregate_metrics.throttle_wait_time_ms > 0, do: "text-info", else: ""}"}>
-              {format_duration(@aggregate_metrics.throttle_wait_time_ms)}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp average_success_rate([]), do: 0.0
-
-  defp average_success_rate(executions) do
-    executions
-    |> Enum.map(&execution_success_rate/1)
-    |> Enum.sum()
-    |> Kernel./(length(executions))
-    |> Float.round(1)
-  end
-
-  defp execution_success_rate(execution) do
-    case execution.hosts_total do
-      total when is_integer(total) and total > 0 ->
-        (execution.hosts_available || 0) / total * 100
-
-      _ ->
-        0
-    end
-  end
-
-  defp aggregate_scanner_metrics(executions) do
-    executions_with_metrics =
-      Enum.filter(executions, fn e ->
-        e.scanner_metrics && e.scanner_metrics != %{}
-      end)
-
-    if Enum.empty?(executions_with_metrics) do
-      %{has_data: false}
-    else
-      packets_sent =
-        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
-          acc + (get_in(e.scanner_metrics, ["packets_sent"]) || 0)
-        end)
-
-      packets_recv =
-        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
-          acc + (get_in(e.scanner_metrics, ["packets_recv"]) || 0)
-        end)
-
-      retries_attempted =
-        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
-          acc + (get_in(e.scanner_metrics, ["retries_attempted"]) || 0)
-        end)
-
-      retries_successful =
-        Enum.reduce(executions_with_metrics, 0, fn e, acc ->
-          acc + (get_in(e.scanner_metrics, ["retries_successful"]) || 0)
-        end)
-
-      rate_limit_deferrals =
-        sum_scanner_metric(executions_with_metrics, "rate_limit_deferrals")
-
-      rate_limit_waits = sum_scanner_metric(executions_with_metrics, "rate_limit_waits")
-      source_port_waits = sum_scanner_metric(executions_with_metrics, "source_port_waits")
-      throttle_waits = rate_limit_waits + source_port_waits
-
-      throttle_waits =
-        if throttle_waits > 0 do
-          throttle_waits
-        else
-          rate_limit_deferrals
-        end
-
-      rate_limit_wait_time_ms = sum_scanner_metric(executions_with_metrics, "rate_limit_wait_time_ms")
-      source_port_wait_time_ms = sum_scanner_metric(executions_with_metrics, "source_port_wait_time_ms")
-      throttle_wait_time_ms = rate_limit_wait_time_ms + source_port_wait_time_ms
-
-      # Calculate average drop rate
-      drop_rates =
-        Enum.map(executions_with_metrics, fn e -> get_in(e.scanner_metrics, ["rx_drop_rate_percent"]) || 0.0 end)
-
-      avg_drop_rate =
-        if Enum.empty?(drop_rates) do
-          0.0
-        else
-          Enum.sum(drop_rates) / length(drop_rates)
-        end
-
-      %{
-        has_data: true,
-        packets_sent: packets_sent,
-        packets_recv: packets_recv,
-        retries_attempted: retries_attempted,
-        retries_successful: retries_successful,
-        rate_limit_deferrals: rate_limit_deferrals,
-        rate_limit_waits: rate_limit_waits,
-        source_port_waits: source_port_waits,
-        throttle_waits: throttle_waits,
-        rate_limit_wait_time_ms: rate_limit_wait_time_ms,
-        source_port_wait_time_ms: source_port_wait_time_ms,
-        throttle_wait_time_ms: throttle_wait_time_ms,
-        avg_drop_rate: avg_drop_rate
-      }
-    end
-  end
-
-  defp sum_scanner_metric(executions, key) do
-    Enum.reduce(executions, 0, fn execution, acc ->
-      acc + (get_in(execution.scanner_metrics, [key]) || 0)
-    end)
-  end
-
-  defp throttle_waits(rate_limit_waits, source_port_waits, legacy_deferrals) do
-    waits = rate_limit_waits + source_port_waits
-
-    if waits > 0, do: waits, else: legacy_deferrals
-  end
-
-  # Computes progress data for running scan card (extracted to reduce complexity)
-  defp compute_scan_progress(execution, progress) do
-    started_at = Map.get(execution, :started_at)
-
-    elapsed_ms =
-      if started_at, do: DateTime.diff(DateTime.utc_now(), started_at, :millisecond), else: 0
-
-    {hosts_processed, hosts_available, hosts_failed, hosts_total, batch_info} =
-      if progress do
-        batch =
-          if progress.total_batches, do: "Batch #{progress.batch_num}/#{progress.total_batches}"
-
-        {progress.hosts_processed, progress.hosts_available, progress.hosts_failed, progress.hosts_total, batch}
-      else
-        processed = Map.get(execution, :hosts_available, 0) + Map.get(execution, :hosts_failed, 0)
-
-        {processed, Map.get(execution, :hosts_available) || 0, Map.get(execution, :hosts_failed) || 0,
-         Map.get(execution, :hosts_total), nil}
-      end
-
-    hosts_total_display = compute_hosts_total_display(hosts_total, hosts_processed)
-
-    %{
-      elapsed_ms: elapsed_ms,
-      hosts_processed: hosts_processed,
-      hosts_available: hosts_available,
-      hosts_failed: hosts_failed,
-      hosts_total: hosts_total,
-      hosts_total_display: hosts_total_display,
-      batch_info: batch_info,
-      has_progress: progress != nil
-    }
-  end
-
-  defp compute_hosts_total_display(hosts_total, hosts_processed) do
-    cond do
-      is_number(hosts_total) and hosts_total > 0 -> hosts_total
-      is_number(hosts_processed) and hosts_processed > 0 -> hosts_processed
-      true -> "—"
-    end
-  end
-
-  # Running Scan Card Component
-  attr :execution, :map, required: true
-  attr :group, :map, default: nil
-  attr :progress, :map, default: nil
-
-  defp running_scan_card(assigns) do
-    progress_data = compute_scan_progress(assigns.execution, assigns.progress)
-
-    assigns =
-      assigns
-      |> assign(:elapsed_ms, progress_data.elapsed_ms)
-      |> assign(:hosts_processed, progress_data.hosts_processed)
-      |> assign(:hosts_available, progress_data.hosts_available)
-      |> assign(:hosts_failed, progress_data.hosts_failed)
-      |> assign(:hosts_total, progress_data.hosts_total)
-      |> assign(:hosts_total_display, progress_data.hosts_total_display)
-      |> assign(:batch_info, progress_data.batch_info)
-      |> assign(:has_progress, progress_data.has_progress)
-
-    ~H"""
-    <div class="bg-base-200/30 rounded-lg p-4 border border-base-200">
-      <div class="flex items-start justify-between">
-        <div class="flex items-center gap-3">
-          <div class="relative">
-            <span class="loading loading-spinner loading-sm text-success"></span>
-          </div>
-          <div>
-            <div class="font-medium">
-              {if @group, do: @group.name, else: "Unknown Group"}
-            </div>
-            <div class="text-xs text-base-content/60 flex items-center gap-2">
-              <span :if={Map.get(@execution, :agent_id)}>
-                <.icon name="hero-server" class="size-3 inline" />
-                {Map.get(@execution, :agent_id)}
-              </span>
-              <span>Started {format_relative_time(Map.get(@execution, :started_at))}</span>
-            </div>
-          </div>
-        </div>
-        <div class="text-right">
-          <div class="text-sm font-mono">{format_duration(@elapsed_ms)}</div>
-          <div class="text-xs text-base-content/60">
-            <span class="text-success">{@hosts_available}</span>
-            <span :if={@hosts_failed > 0} class="text-error ml-1">/ {@hosts_failed} failed</span>
-            <span>
-              of {@hosts_total_display} hosts
-            </span>
-          </div>
-          <div :if={@batch_info} class="text-xs text-base-content/40 mt-0.5">
-            {@batch_info}
-          </div>
-        </div>
-      </div>
-      
-    <!-- Progress bar with real-time updates -->
-      <div class="mt-3">
-        <div class="h-1.5 bg-base-300 rounded-full overflow-hidden">
-          <div
-            class="h-full bg-success transition-all duration-300"
-            style={"width: #{batch_progress_percent(@progress)}%"}
-          >
-          </div>
-        </div>
-        <div
-          :if={@has_progress && @progress.total_batches}
-          class="flex justify-between text-xs text-base-content/40 mt-1"
-        >
-          <span>Processing...</span>
-          <span>{batch_progress_percent(@progress)}%</span>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  # Recent Execution Row Component
-  attr :execution, :map, required: true
-  attr :group, :map, default: nil
-
-  defp recent_execution_row(assigns) do
-    has_metrics = assigns.execution.scanner_metrics && assigns.execution.scanner_metrics != %{}
-    assigns = assign(assigns, :has_metrics, has_metrics)
-
-    ~H"""
-    <tr class="hover:bg-base-200/40">
-      <td>
-        <.execution_status_badge status={@execution.status} />
-      </td>
-      <td>
-        <div class="font-medium">
-          {if @group, do: @group.name, else: "Unknown Group"}
-        </div>
-        <div :if={@execution.agent_id} class="text-xs text-base-content/60">
-          {@execution.agent_id}
-        </div>
-      </td>
-      <td class="text-xs text-base-content/60">
-        {format_relative_time(@execution.started_at)}
-      </td>
-      <td class="font-mono text-xs">
-        {format_duration(@execution.duration_ms)}
-      </td>
-      <td class="text-xs">
-        <span :if={@execution.hosts_total}>
-          {@execution.hosts_available || 0} / {@execution.hosts_total}
-        </span>
-        <span :if={!@execution.hosts_total} class="text-base-content/40">—</span>
-      </td>
-      <td>
-        <.success_rate_badge execution={@execution} />
-      </td>
-      <td>
-        <div :if={@has_metrics} class="dropdown dropdown-end">
-          <div tabindex="0" role="button" class="btn btn-ghost btn-xs">
-            <.icon name="hero-chart-bar" class="size-4" />
-          </div>
-          <div
-            tabindex="0"
-            class="dropdown-content z-[1] card card-compact w-80 p-2 shadow bg-base-100 border border-base-200"
-          >
-            <div class="card-body p-2">
-              <h3 class="text-sm font-semibold mb-2">Scanner Metrics</h3>
-              <.scanner_metrics_grid metrics={@execution.scanner_metrics} />
-            </div>
-          </div>
-        </div>
-        <span :if={!@has_metrics} class="text-base-content/40 text-xs">—</span>
-      </td>
-    </tr>
-    """
-  end
-
-  # Scanner Metrics Grid Component
-  attr :metrics, :map, required: true
-
-  defp scanner_metrics_grid(assigns) do
-    metrics = assigns.metrics || %{}
-    rate_limit_waits = Map.get(metrics, "rate_limit_waits") || 0
-    source_port_waits = Map.get(metrics, "source_port_waits") || 0
-    rate_limit_wait_time_ms = Map.get(metrics, "rate_limit_wait_time_ms") || 0
-    source_port_wait_time_ms = Map.get(metrics, "source_port_wait_time_ms") || 0
-    legacy_deferrals = Map.get(metrics, "rate_limit_deferrals") || 0
-
-    assigns =
-      assigns
-      |> assign(:packets_sent, Map.get(metrics, "packets_sent", 0))
-      |> assign(:packets_recv, Map.get(metrics, "packets_recv", 0))
-      |> assign(:packets_dropped, Map.get(metrics, "packets_dropped", 0))
-      |> assign(:retries_attempted, Map.get(metrics, "retries_attempted", 0))
-      |> assign(:retries_successful, Map.get(metrics, "retries_successful", 0))
-      |> assign(:rate_limit_deferrals, legacy_deferrals)
-      |> assign(:rate_limit_waits, rate_limit_waits)
-      |> assign(:source_port_waits, source_port_waits)
-      |> assign(:rate_limit_wait_time_ms, rate_limit_wait_time_ms)
-      |> assign(:source_port_wait_time_ms, source_port_wait_time_ms)
-      |> assign(:rx_drop_rate_percent, Map.get(metrics, "rx_drop_rate_percent", 0.0))
-      |> assign(:port_exhaustion_count, Map.get(metrics, "port_exhaustion_count", 0))
-      |> assign(:throttle_waits, throttle_waits(rate_limit_waits, source_port_waits, legacy_deferrals))
-      |> assign(:throttle_wait_time_ms, rate_limit_wait_time_ms + source_port_wait_time_ms)
-
-    ~H"""
-    <div class="grid grid-cols-2 gap-2 text-xs">
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Sent</div>
-        <div class="font-semibold font-mono">{format_number(@packets_sent)}</div>
-      </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Received</div>
-        <div class="font-semibold font-mono">{format_number(@packets_recv)}</div>
-      </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Packets Dropped</div>
-        <div class={"font-semibold font-mono #{if @packets_dropped > 0, do: "text-warning", else: ""}"}>
-          {format_number(@packets_dropped)}
-        </div>
-      </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">RX Drop Rate</div>
-        <div class={"font-semibold font-mono #{if to_float(@rx_drop_rate_percent) > 1.0, do: "text-warning", else: ""}"}>
-          {Float.round(to_float(@rx_drop_rate_percent), 2)}%
-        </div>
-      </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Retries</div>
-        <div class="font-semibold font-mono">
-          {format_number(@retries_successful)}/{format_number(@retries_attempted)}
-        </div>
-      </div>
-      <div class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Throttle Waits</div>
-        <div class={"font-semibold font-mono #{if @throttle_waits > 0, do: "text-info", else: ""}"}>
-          {format_number(@throttle_waits)}
-        </div>
-        <div class="text-[11px] text-base-content/50">
-          rate {format_number(@rate_limit_waits)} / ports {format_number(@source_port_waits)}
-        </div>
-      </div>
-      <div :if={@throttle_wait_time_ms > 0} class="bg-base-200/50 rounded p-2">
-        <div class="text-base-content/60">Throttle Time</div>
-        <div class="font-semibold font-mono text-info">
-          {format_duration(@throttle_wait_time_ms)}
-        </div>
-      </div>
-      <div :if={@port_exhaustion_count > 0} class="col-span-2 bg-error/10 rounded p-2">
-        <div class="text-error/80">Port Exhaustion Events</div>
-        <div class="font-semibold font-mono text-error">{format_number(@port_exhaustion_count)}</div>
-      </div>
-    </div>
-    """
-  end
-
-  defp format_number(nil), do: "0"
-  defp format_number(n) when is_float(n), do: n |> Float.round(2) |> to_string()
-
-  defp format_number(n) when is_integer(n) do
-    n
-    |> Integer.to_string()
-    |> String.reverse()
-    |> String.replace(~r/.{3}/, "\\0,")
-    |> String.reverse()
-    |> String.trim_leading(",")
-  end
-
-  defp format_number(n), do: to_string(n)
-
-  # Convert any number to float for Float.round/2 compatibility
-  defp to_float(nil), do: 0.0
-  defp to_float(n) when is_float(n), do: n
-  defp to_float(n) when is_integer(n), do: n * 1.0
-  defp to_float(n) when is_number(n), do: n * 1.0
-
-  # Execution Status Badge
-  attr :status, :atom, required: true
-
-  defp execution_status_badge(assigns) do
-    ~H"""
-    <span class={[
-      "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium",
-      status_badge_class(@status)
-    ]}>
-      <.icon name={status_icon(@status)} class="size-3" />
-      {status_label(@status)}
-    </span>
-    """
-  end
-
-  # Success Rate Badge
-  attr :execution, :map, required: true
-
-  defp success_rate_badge(assigns) do
-    rate =
-      if assigns.execution.hosts_total && assigns.execution.hosts_total > 0 do
-        Float.round((assigns.execution.hosts_available || 0) / assigns.execution.hosts_total * 100, 1)
-      end
-
-    assigns = assign(assigns, :rate, rate)
-
-    ~H"""
-    <span :if={@rate} class={"text-xs font-medium #{success_rate_color(@rate)}"}>
-      {@rate}%
-    </span>
-    <span :if={!@rate} class="text-xs text-base-content/40">—</span>
-    """
-  end
-
-  # Helper functions for Active Scans panel
-
-  defp status_badge_class(:completed), do: "bg-success/20 text-success"
-  defp status_badge_class(:failed), do: "bg-error/20 text-error"
-  defp status_badge_class(:running), do: "bg-info/20 text-info"
-  defp status_badge_class(_), do: "bg-base-200 text-base-content/60"
-
-  defp status_icon(:completed), do: "hero-check-circle"
-  defp status_icon(:failed), do: "hero-x-circle"
-  defp status_icon(:running), do: "hero-arrow-path"
-  defp status_icon(_), do: "hero-clock"
-
-  defp status_label(:completed), do: "Completed"
-  defp status_label(:failed), do: "Failed"
-  defp status_label(:running), do: "Running"
-  defp status_label(:pending), do: "Pending"
-  defp status_label(_), do: "Unknown"
-
-  defp success_rate_color(rate) when rate >= 90, do: "text-success"
-  defp success_rate_color(rate) when rate >= 70, do: "text-warning"
-  defp success_rate_color(_rate), do: "text-error"
-
-  # Calculate progress percentage from batch info
-  defp batch_progress_percent(%{batch_num: batch_num, total_batches: total_batches})
-       when is_integer(batch_num) and is_integer(total_batches) and total_batches > 0 do
-    Float.round(batch_num / total_batches * 100, 1)
-  end
-
-  defp batch_progress_percent(_), do: 0
-
-  defp format_relative_time(nil), do: "—"
-
-  defp format_relative_time(%DateTime{} = dt) do
-    diff_seconds = DateTime.diff(DateTime.utc_now(), dt, :second)
-
-    cond do
-      diff_seconds < 60 -> "#{diff_seconds}s ago"
-      diff_seconds < 3600 -> "#{div(diff_seconds, 60)}m ago"
-      diff_seconds < 86_400 -> "#{div(diff_seconds, 3600)}h ago"
-      true -> Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-    end
-  end
-
-  defp format_relative_time(_), do: "—"
-
-  defp format_duration(nil), do: "—"
-  defp format_duration(ms) when is_integer(ms) and ms < 1000, do: "#{ms}ms"
-
-  defp format_duration(ms) when is_integer(ms) and ms < 60_000, do: "#{Float.round(ms / 1000, 1)}s"
-
-  defp format_duration(ms) when is_integer(ms) do
-    minutes = div(ms, 60_000)
-    seconds = div(rem(ms, 60_000), 1000)
-    "#{minutes}m #{seconds}s"
-  end
-
-  defp format_duration(_), do: "—"
-
-  # Group Form
-  attr :form, :any, required: true
-  attr :show_form, :atom, required: true
-  attr :profiles, :list, required: true
-  attr :agents, :list, default: []
-  attr :target_device_count, :integer, default: nil
-  attr :builder_open, :boolean, default: false
-  attr :builder_sync, :boolean, default: true
-  attr :builder, :map, default: %{}
-
-  defp group_form(assigns) do
-    assigns = assign(assigns, :config, Catalog.entity("devices"))
-
-    ~H"""
-    <.ui_panel>
-      <:header>
-        <div class="flex items-center justify-between w-full">
-          <div class="text-sm font-semibold">
-            {if @show_form == :new_group, do: "New Sweep Group", else: "Edit Sweep Group"}
-          </div>
-          <.link navigate={~p"/settings/networks"}>
-            <.ui_button variant="ghost" size="sm">Cancel</.ui_button>
-          </.link>
-        </div>
-      </:header>
-
-      <form id="sweep-group-builder-form" phx-change="builder_change" phx-debounce="200"></form>
-
-      <.form
-        for={@form}
-        id="sweep-group-form"
-        phx-submit="save_group"
-        phx-change="validate_group"
-        class="space-y-6"
-      >
-        <!-- Basic Info Section -->
-        <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
-            Basic Information
-          </h3>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="label">
-                <span class="label-text">Name</span>
-              </label>
-              <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
-            </div>
-            <div>
-              <label class="label">
-                <span class="label-text">Partition</span>
-              </label>
-              <.input
-                type="text"
-                field={@form[:partition]}
-                class="input input-bordered w-full"
-                placeholder="default"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label class="label">
-              <span class="label-text">Description</span>
-            </label>
-            <.input
-              type="textarea"
-              field={@form[:description]}
-              class="textarea textarea-bordered w-full"
-              rows="2"
-            />
-          </div>
-        </div>
-        
-    <!-- Schedule Section -->
-        <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">Schedule</h3>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="label">
-                <span class="label-text">Scan Interval</span>
-              </label>
-              <.input
-                type="select"
-                field={@form[:interval]}
-                class="select select-bordered w-full"
-                options={[
-                  {"5 minutes", "5m"},
-                  {"15 minutes", "15m"},
-                  {"30 minutes", "30m"},
-                  {"1 hour", "1h"},
-                  {"2 hours", "2h"},
-                  {"6 hours", "6h"},
-                  {"12 hours", "12h"},
-                  {"24 hours", "24h"}
-                ]}
-              />
-            </div>
-            <div>
-              <label class="label">
-                <span class="label-text">Scanner Profile</span>
-              </label>
-              <.input
-                type="select"
-                field={@form[:profile_id]}
-                class="select select-bordered w-full"
-                options={[{"Default settings", ""} | Enum.map(@profiles, &{&1.name, &1.id})]}
-              />
-            </div>
-          </div>
-
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label class="label">
-                <span class="label-text">Agent</span>
-              </label>
-              <.input
-                type="select"
-                field={@form[:agent_id]}
-                class="select select-bordered w-full"
-                options={[{"All agents", ""} | Enum.map(@agents, &{agent_display_name(&1), &1.uid})]}
-              />
-              <label class="label">
-                <span class="label-text-alt text-base-content/50">
-                  Pin this sweep config to a specific agent
-                </span>
-              </label>
-            </div>
-          </div>
-        </div>
-        
-    <!-- Target Criteria Section -->
-        <div class="space-y-4">
-          <div class="flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-            <div>
-              <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
-                Device Targeting
-              </h3>
-              <p class="text-xs text-base-content/60">
-                SRQL query to select devices for this sweep group.
-              </p>
-            </div>
-          </div>
-
-          <div>
-            <label class="label"><span class="label-text">Target Query (SRQL)</span></label>
-            <div class="flex items-center gap-2">
-              <div class="flex-1">
-                <.input
-                  type="text"
-                  field={@form[:target_query]}
-                  class="input input-bordered w-full font-mono text-sm"
-                  placeholder="e.g., tags.env:prod hostname:%db%"
-                />
-              </div>
-              <.ui_icon_button
-                active={@builder_open}
-                aria-label="Toggle query builder"
-                title="Query builder"
-                phx-click="builder_toggle"
-              >
-                <.icon name="hero-adjustments-horizontal" class="size-4" />
-              </.ui_icon_button>
-            </div>
-            <label class="label">
-              <span class="label-text-alt text-base-content/50">
-                SRQL filters to match devices. Examples: <code class="bg-base-200 px-1 rounded">tags.environment:production</code>, <code class="bg-base-200 px-1 rounded">hostname:%prod%</code>,
-                <code class="bg-base-200 px-1 rounded">type:Server</code>
-              </span>
-            </label>
-          </div>
-
-          <div :if={@builder_open} class="border border-base-200 rounded-lg p-4 bg-base-100/50">
-            <div class="flex items-center justify-between mb-4">
-              <div class="text-sm font-semibold">Query Builder</div>
-              <div class="flex items-center gap-2">
-                <.ui_badge :if={not @builder_sync} size="sm">Not applied</.ui_badge>
-                <.ui_button
-                  :if={not @builder_sync}
-                  size="sm"
-                  variant="ghost"
-                  type="button"
-                  phx-click="builder_apply"
-                >
-                  Apply to query
-                </.ui_button>
-              </div>
-            </div>
-
-            <div class="flex flex-col gap-4">
-              <div class="flex flex-col gap-3">
-                <div class="text-xs text-base-content/60 font-medium">
-                  Match devices where:
-                </div>
-
-                <%= for {filter, idx} <- Enum.with_index(Map.get(@builder, "filters", [])) do %>
-                  <div class="flex items-center gap-3">
-                    <.query_builder_pill label="Filter">
-                      <%= if @config.filter_fields == [] do %>
-                        <.ui_inline_input
-                          type="text"
-                          name={"builder[filters][#{idx}][field]"}
-                          value={filter["field"] || ""}
-                          placeholder="field"
-                          form="sweep-group-builder-form"
-                          class="w-40 placeholder:text-base-content/40"
-                        />
-                      <% else %>
-                        <.ui_inline_select
-                          name={"builder[filters][#{idx}][field]"}
-                          form="sweep-group-builder-form"
-                        >
-                          <%= for field <- @config.filter_fields do %>
-                            <option value={field} selected={filter["field"] == field}>
-                              {field}
-                            </option>
-                          <% end %>
-                        </.ui_inline_select>
-                      <% end %>
-
-                      <.ui_inline_select
-                        name={"builder[filters][#{idx}][op]"}
-                        class="text-xs text-base-content/70"
-                        form="sweep-group-builder-form"
-                      >
-                        <option
-                          value="contains"
-                          selected={(filter["op"] || "contains") == "contains"}
-                        >
-                          contains
-                        </option>
-                        <option value="not_contains" selected={filter["op"] == "not_contains"}>
-                          does not contain
-                        </option>
-                        <option value="equals" selected={filter["op"] == "equals"}>
-                          equals
-                        </option>
-                        <option value="not_equals" selected={filter["op"] == "not_equals"}>
-                          does not equal
-                        </option>
-                      </.ui_inline_select>
-
-                      <.ui_inline_input
-                        type="text"
-                        name={"builder[filters][#{idx}][value]"}
-                        value={filter["value"] || ""}
-                        placeholder="value"
-                        form="sweep-group-builder-form"
-                        class="placeholder:text-base-content/40 w-48"
-                      />
-                    </.query_builder_pill>
-
-                    <.ui_icon_button
-                      size="xs"
-                      aria-label="Remove filter"
-                      title="Remove filter"
-                      type="button"
-                      phx-click="builder_remove_filter"
-                      phx-value-idx={idx}
-                    >
-                      <.icon name="hero-x-mark" class="size-4" />
-                    </.ui_icon_button>
-                  </div>
-                <% end %>
-
-                <button
-                  type="button"
-                  class="inline-flex items-center gap-2 rounded-md border border-dashed border-primary/40 px-3 py-2 text-sm text-primary/80 hover:bg-primary/5 w-fit"
-                  phx-click="builder_add_filter"
-                >
-                  <.icon name="hero-plus" class="size-4" /> Add filter
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <div :if={@target_device_count != nil} class="flex items-center gap-2">
-            <.icon name="hero-device-phone-mobile" class="size-4 text-base-content/60" />
-            <span class="text-sm">
-              <span class="font-semibold">{@target_device_count}</span>
-              <span class="text-base-content/60">device(s) match this query</span>
-            </span>
-          </div>
-        </div>
-        
-    <!-- Static Targets Section -->
-        <div class="space-y-4">
-          <h3 class="text-sm font-semibold text-base-content/80 uppercase tracking-wide">
-            Static Targets
-          </h3>
-          <p class="text-xs text-base-content/60">
-            IPs, CIDRs, or ranges to always include, regardless of tags.
-          </p>
-          <.input
-            type="textarea"
-            field={@form[:static_targets]}
-            value={format_static_targets(@form[:static_targets].value)}
-            class="textarea textarea-bordered w-full font-mono text-sm"
-            rows="3"
-            placeholder="10.0.1.0/24&#10;192.168.1.0/24&#10;10.0.0.10-10.0.0.50"
-          />
-        </div>
-        
-    <!-- Enable Toggle -->
-        <div class="flex items-center gap-2 pt-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
-          <label class="label-text">Enable this sweep group</label>
-        </div>
-        
-    <!-- Actions -->
-        <div class="flex justify-end gap-2 pt-4 border-t border-base-200">
-          <.link navigate={~p"/settings/networks"}>
-            <.ui_button variant="ghost">Cancel</.ui_button>
-          </.link>
-          <.ui_button type="submit" variant="primary">Save Sweep Group</.ui_button>
-        </div>
-      </.form>
-    </.ui_panel>
-    """
-  end
-
-  # Profile Form
-  attr :form, :any, required: true
-  attr :show_form, :atom, required: true
-
-  defp profile_form(assigns) do
-    ~H"""
-    <.ui_panel>
-      <:header>
-        <div class="flex items-center justify-between w-full">
-          <div class="text-sm font-semibold">
-            {if @show_form == :new_profile, do: "New Scanner Profile", else: "Edit Scanner Profile"}
-          </div>
-          <.link navigate={~p"/settings/networks"}>
-            <.ui_button variant="ghost" size="sm">Cancel</.ui_button>
-          </.link>
-        </div>
-      </:header>
-
-      <.form for={@form} phx-submit="save_profile" phx-change="validate_profile" class="space-y-4">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="label">
-              <span class="label-text">Name</span>
-            </label>
-            <.input type="text" field={@form[:name]} class="input input-bordered w-full" required />
-          </div>
-          <div>
-            <label class="label">
-              <span class="label-text">Timeout</span>
-            </label>
-            <.input
-              type="select"
-              field={@form[:timeout]}
-              class="select select-bordered w-full"
-              options={[
-                {"1 second", "1s"},
-                {"3 seconds", "3s"},
-                {"5 seconds", "5s"},
-                {"10 seconds", "10s"},
-                {"30 seconds", "30s"}
-              ]}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label class="label">
-            <span class="label-text">Description</span>
-          </label>
-          <.input
-            type="textarea"
-            field={@form[:description]}
-            class="textarea textarea-bordered w-full"
-            rows="2"
-          />
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="label">
-              <span class="label-text">Ports (comma-separated)</span>
-            </label>
-            <.input
-              type="text"
-              field={@form[:ports]}
-              value={format_ports_input(@form[:ports].value)}
-              class="input input-bordered w-full font-mono"
-              placeholder="22, 80, 443, 3389, 8080"
-            />
-          </div>
-          <div>
-            <label class="label">
-              <span class="label-text">Concurrency</span>
-            </label>
-            <.input
-              type="number"
-              field={@form[:concurrency]}
-              class="input input-bordered w-full"
-              min="1"
-              max="500"
-            />
-          </div>
-        </div>
-
-        <div>
-          <label class="label">
-            <span class="label-text">Sweep Modes</span>
-          </label>
-          <% selected_modes = Enum.map(@form[:sweep_modes].value || [], &to_string/1) %>
-          <div class="flex flex-wrap gap-4">
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="form[sweep_modes][]"
-                value="icmp"
-                class="checkbox"
-                checked={Enum.member?(selected_modes, "icmp")}
-              />
-              <span>ICMP (Ping)</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="form[sweep_modes][]"
-                value="tcp"
-                class="checkbox"
-                checked={Enum.member?(selected_modes, "tcp")}
-              />
-              <span>TCP</span>
-            </label>
-            <label class="flex items-center gap-2 cursor-pointer">
-              <input
-                type="checkbox"
-                name="form[sweep_modes][]"
-                value="arp"
-                class="checkbox"
-                checked={Enum.member?(selected_modes, "arp")}
-              />
-              <span>ARP</span>
-            </label>
-          </div>
-        </div>
-
-        <div class="flex items-center gap-2">
-          <.input type="checkbox" field={@form[:enabled]} class="checkbox checkbox-primary" />
-          <label class="label-text">Enabled</label>
-        </div>
-
-        <div class="flex justify-end gap-2 pt-4">
-          <.link navigate={~p"/settings/networks"}>
-            <.ui_button variant="ghost">Cancel</.ui_button>
-          </.link>
-          <.ui_button type="submit" variant="primary">Save Profile</.ui_button>
-        </div>
-      </.form>
-    </.ui_panel>
-    """
-  end
-
-  # Group Detail View
-  attr :group, :map, required: true
-
-  defp group_detail(assigns) do
-    ~H"""
-    <div class="space-y-4">
-      <div class="flex items-center justify-between">
-        <div class="flex items-center gap-3">
-          <.link navigate={~p"/settings/networks"}>
-            <.ui_button variant="ghost" size="sm">
-              <.icon name="hero-arrow-left" class="size-4" />
-            </.ui_button>
-          </.link>
-          <div>
-            <h2 class="text-xl font-semibold">{@group.name}</h2>
-            <p :if={@group.description} class="text-sm text-base-content/60">{@group.description}</p>
-          </div>
-        </div>
-        <div class="flex items-center gap-2">
-          <.link navigate={~p"/settings/networks/groups/#{@group.id}/edit"}>
-            <.ui_button variant="outline" size="sm">
-              <.icon name="hero-pencil" class="size-4" /> Edit
-            </.ui_button>
-          </.link>
-        </div>
-      </div>
-
-      <.ui_panel>
-        <:header>
-          <div class="text-sm font-semibold">Configuration</div>
-        </:header>
-
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <div class="text-xs text-base-content/60 uppercase">Status</div>
-            <div class="flex items-center gap-1.5 mt-1">
-              <span class={"size-2 rounded-full #{if @group.enabled, do: "bg-success", else: "bg-base-content/30"}"}>
-              </span>
-              <span>{if @group.enabled, do: "Enabled", else: "Disabled"}</span>
-            </div>
-          </div>
-          <div>
-            <div class="text-xs text-base-content/60 uppercase">Schedule</div>
-            <div class="mt-1 font-mono">{format_schedule(@group)}</div>
-          </div>
-          <div>
-            <div class="text-xs text-base-content/60 uppercase">Partition</div>
-            <div class="mt-1">{@group.partition}</div>
-          </div>
-          <div>
-            <div class="text-xs text-base-content/60 uppercase">Last Run</div>
-            <div class="mt-1">{format_last_run(@group.last_run_at)}</div>
-          </div>
-        </div>
-      </.ui_panel>
-
-      <.ui_panel>
-        <:header>
-          <div class="text-sm font-semibold">Targets</div>
-        </:header>
-
-        <div class="space-y-2">
-          <div :if={@group.static_targets != []} class="space-y-1">
-            <div class="text-xs text-base-content/60 uppercase">Static Targets</div>
-            <div class="flex flex-wrap gap-2">
-              <%= for target <- (@group.static_targets || []) do %>
-                <.ui_badge variant="ghost" size="sm" class="font-mono">{target}</.ui_badge>
-              <% end %>
-            </div>
-          </div>
-          <div :if={@group.target_query not in [nil, ""]} class="space-y-2">
-            <div class="text-xs text-base-content/60 uppercase">Target Query (SRQL)</div>
-            <div class="font-mono text-sm text-base-content/80 break-words">
-              {@group.target_query}
-            </div>
-          </div>
-          <div :if={@group.static_targets == [] and @group.target_query in [nil, ""]}>
-            <p class="text-base-content/60">No targets configured.</p>
-          </div>
-        </div>
-      </.ui_panel>
-    </div>
-    """
-  end
-
   # Helpers
 
   defp load_sweep_groups(scope) do
@@ -2974,6 +1838,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp can_manage_networks?(scope) do
     RBAC.can?(scope, "settings.networks.manage")
+  end
+
+  defp can_enable_banner_grab?(scope) do
+    RBAC.can?(scope, "networks.sweeps.banner_grab")
   end
 
   defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
@@ -3255,21 +2123,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     end
   end
 
-  defp format_schedule(group) do
-    case group.schedule_type do
-      :cron -> group.cron_expression || "—"
-      _ -> "Every #{group.interval}"
-    end
-  end
-
-  defp format_last_run(nil), do: "Never"
-
-  defp format_last_run(%DateTime{} = dt) do
-    Calendar.strftime(dt, "%Y-%m-%d %H:%M")
-  end
-
-  defp format_last_run(_), do: "—"
-
   defp merge_running_with_progress(running, progress_map) do
     running = List.wrap(running)
     progress_map = progress_map || %{}
@@ -3294,10 +2147,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       end)
 
     Enum.sort_by(running ++ virtuals, &latest_execution_time/1, {:desc, DateTime})
-  end
-
-  defp latest_execution(executions) do
-    Enum.max_by(executions, &latest_execution_time/1, fn -> nil end)
   end
 
   defp latest_execution_time(execution) do
@@ -3649,15 +2498,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   defp format_ports(ports) when length(ports) <= 5, do: Enum.join(ports, ", ")
   defp format_ports(ports), do: "#{length(ports)} ports"
 
-  defp format_ports_input(nil), do: ""
-  defp format_ports_input(""), do: ""
-
-  defp format_ports_input(ports) when is_list(ports) do
-    Enum.map_join(ports, ", ", &to_string/1)
-  end
-
-  defp format_ports_input(value) when is_binary(value), do: value
-
   defp count_target_devices(_scope, nil), do: nil
   defp count_target_devices(_scope, ""), do: nil
 
@@ -3692,262 +2532,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
-  defp default_builder_state do
-    config = Catalog.entity("devices")
-
-    %{
-      "filters" => [
-        %{
-          "field" => config.default_filter_field,
-          "op" => "contains",
-          "value" => ""
-        }
-      ]
-    }
-  end
-
-  defp parse_target_query_to_builder(nil), do: {default_builder_state(), true}
-  defp parse_target_query_to_builder(""), do: {default_builder_state(), true}
-
-  defp parse_target_query_to_builder(query) when is_binary(query) do
-    query = String.trim(query)
-
-    if query == "" do
-      {default_builder_state(), true}
-    else
-      case parse_filters_from_query(query) do
-        {:ok, filters} when filters != [] ->
-          {%{"filters" => filters}, true}
-
-        _ ->
-          {default_builder_state(), false}
-      end
-    end
-  end
-
-  defp parse_filters_from_query(query) do
-    known_prefixes = ["in:", "limit:", "sort:", "time:"]
-
-    tokens =
-      query
-      |> String.split(~r/(?<!\\)\s+/, trim: true)
-      |> Enum.reject(fn token ->
-        Enum.any?(known_prefixes, &String.starts_with?(token, &1))
-      end)
-
-    filters =
-      tokens
-      |> Enum.map(&parse_filter_token/1)
-      |> Enum.reject(&is_nil/1)
-
-    if length(filters) == length(tokens) do
-      {:ok, filters}
-    else
-      {:error, :unsupported_query}
-    end
-  end
-
-  defp parse_filter_token(token) do
-    {field, negated} =
-      if String.starts_with?(token, "!") do
-        {String.replace_prefix(token, "!", ""), true}
-      else
-        {token, false}
-      end
-
-    case String.split(field, ":", parts: 2) do
-      [field_name, value] ->
-        field_name = String.trim(field_name)
-        value = value |> String.trim() |> String.replace("\\ ", " ")
-
-        {op, final_value} = parse_filter_value(field_name, negated, value)
-
-        %{
-          "field" => field_name,
-          "op" => op,
-          "value" => final_value
-        }
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_filter_value(field, negated, value) do
-    cond do
-      list_filter_field?(field) ->
-        normalized = value |> normalize_list_value() |> Enum.join(", ")
-        {maybe_negate_op("equals", negated), normalized}
-
-      String.contains?(value, "%") ->
-        {maybe_negate_op("contains", negated), unwrap_like(value)}
-
-      true ->
-        {maybe_negate_op("equals", negated), value}
-    end
-  end
-
-  defp maybe_negate_op("equals", true), do: "not_equals"
-  defp maybe_negate_op("contains", true), do: "not_contains"
-  defp maybe_negate_op(op, _), do: op
-
-  defp unwrap_like("%" <> rest) do
-    rest
-    |> String.trim_trailing("%")
-    |> String.replace("\\ ", " ")
-  end
-
-  defp unwrap_like(value), do: value
-
-  defp list_filter_field?(field) when is_binary(field) do
-    field in ["discovery_sources"]
-  end
-
-  defp list_filter_field?(_), do: false
-
-  defp normalize_list_value(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.trim_leading("(")
-    |> String.trim_trailing(")")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp update_builder(builder, params) do
-    builder
-    |> Map.merge(stringify_params(params))
-    |> normalize_builder_filters()
-  end
-
-  defp stringify_params(params) do
-    Map.new(params, fn
-      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
-      {k, v} -> {to_string(k), v}
-    end)
-  end
-
-  defp normalize_builder_filters(builder) do
-    config = Catalog.entity("devices")
-
-    filters =
-      builder
-      |> Map.get("filters", %{})
-      |> normalize_filters_list(config)
-
-    Map.put(builder, "filters", filters)
-  end
-
-  defp normalize_filters_list(filters, config) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      field = normalize_filter_field(filter["field"], config)
-
-      %{
-        "field" => field,
-        "op" => normalize_filter_op(filter["op"], field),
-        "value" => filter["value"] || ""
-      }
-    end)
-  end
-
-  defp normalize_filters_list(filters_by_index, config) when is_map(filters_by_index) do
-    filters_by_index
-    |> Enum.sort_by(fn {k, _} ->
-      case Integer.parse(to_string(k)) do
-        {i, ""} -> i
-        _ -> 0
-      end
-    end)
-    |> Enum.map(fn {_k, v} -> v end)
-    |> normalize_filters_list(config)
-  end
-
-  defp normalize_filters_list(_, config) do
-    [%{"field" => config.default_filter_field, "op" => "contains", "value" => ""}]
-  end
-
-  defp normalize_filter_field(nil, config), do: config.default_filter_field
-  defp normalize_filter_field("", config), do: config.default_filter_field
-  defp normalize_filter_field(field, _config), do: field
-
-  defp normalize_filter_op(op, field) do
-    if list_filter_field?(field) do
-      case op do
-        "not_equals" -> "not_equals"
-        "not_contains" -> "not_equals"
-        "equals" -> "equals"
-        "contains" -> "equals"
-        _ -> "equals"
-      end
-    else
-      case op do
-        "contains" -> "contains"
-        "not_contains" -> "not_contains"
-        "equals" -> "equals"
-        "not_equals" -> "not_equals"
-        _ -> "contains"
-      end
-    end
-  end
-
-  defp build_target_query(builder) do
-    filters = Map.get(builder, "filters", [])
-
-    filters
-    |> Enum.map(&build_filter_token/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-  end
-
-  defp build_filter_token(%{"field" => field, "op" => op, "value" => value}) do
-    field = String.trim(field || "")
-    value = String.trim(value || "")
-
-    cond do
-      field == "" or value == "" ->
-        nil
-
-      list_filter_field?(field) ->
-        build_list_filter_token(field, op, value)
-
-      true ->
-        build_scalar_filter_token(field, op, value)
-    end
-  end
-
-  defp build_filter_token(_), do: nil
-
-  defp build_list_filter_token(field, op, value) do
-    values =
-      value
-      |> normalize_list_value()
-      |> Enum.map(&String.replace(&1, " ", "\\ "))
-
-    token = Enum.join(values, ",")
-
-    case op do
-      "not_equals" -> "!#{field}:(#{token})"
-      "not_contains" -> "!#{field}:(#{token})"
-      _ -> "#{field}:(#{token})"
-    end
-  end
-
-  defp build_scalar_filter_token(field, op, value) do
-    escaped = String.replace(value, " ", "\\ ")
-
-    case op do
-      "equals" -> "#{field}:#{escaped}"
-      "not_equals" -> "!#{field}:#{escaped}"
-      "not_contains" -> "!#{field}:%#{escaped}%"
-      _ -> "#{field}:%#{escaped}%"
-    end
-  end
-
   defp maybe_sync_builder_to_form(socket) do
     if socket.assigns.builder_sync do
       builder = socket.assigns.builder
-      query = build_target_query(builder)
+      query = TargetBuilder.build_target_query(builder)
 
       params =
         socket.assigns.ash_form
@@ -3967,13 +2555,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       socket
     end
   end
-
-  defp format_static_targets(targets) when is_list(targets) do
-    Enum.join(targets, "\n")
-  end
-
-  defp format_static_targets(targets) when is_binary(targets), do: targets
-  defp format_static_targets(_), do: ""
 
   defp normalize_static_targets(params) when is_map(params) do
     case Map.get(params, "static_targets") do
@@ -4013,7 +2594,104 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Transform comma-separated ports string to array of integers for Ash
   defp transform_profile_params(params) do
-    transform_ports_to_array(params)
+    params
+    |> transform_ports_to_array()
+    |> transform_banner_grab_params()
+  end
+
+  defp transform_banner_grab_params(%{"banner_grab" => banner_grab} = params) when is_map(banner_grab) do
+    Map.put(params, "banner_grab", normalize_banner_grab_params(banner_grab))
+  end
+
+  defp transform_banner_grab_params(params), do: params
+
+  defp normalize_banner_grab_params(params) do
+    params
+    |> normalize_boolean("enabled")
+    |> normalize_banner_protocols_param()
+    |> normalize_banner_ports_param()
+    |> normalize_integer("connect_timeout_ms")
+    |> normalize_integer("read_timeout_ms")
+    |> normalize_integer("max_banner_bytes")
+    |> normalize_integer("max_concurrency_per_host")
+    |> normalize_integer("max_global_concurrency")
+    |> normalize_integer("max_probe_rate_per_second")
+    |> normalize_integer("max_candidate_queue")
+    |> normalize_integer("match_batch_size")
+    |> normalize_integer("match_batch_max_bytes")
+    |> normalize_integer("min_reprobe_interval_s")
+    |> normalize_integer("per_host_rate_limit_ms")
+  end
+
+  defp normalize_banner_protocols_param(params) do
+    protocols =
+      params
+      |> Map.get("protocols", [])
+      |> List.wrap()
+      |> Enum.flat_map(&banner_protocol_atom/1)
+      |> Enum.uniq()
+
+    Map.put(params, "protocols", protocols)
+  end
+
+  defp normalize_banner_ports_param(params) do
+    selected_protocols =
+      params
+      |> Map.get("protocols", [])
+      |> List.wrap()
+      |> Enum.map(&to_string/1)
+
+    ports =
+      params
+      |> Map.get("ports", %{})
+      |> normalize_banner_ports()
+      |> Map.take(selected_protocols)
+
+    Map.put(params, "ports", ports)
+  end
+
+  defp normalize_banner_ports(ports) when is_map(ports) do
+    Map.new(banner_grab_protocol_options(), fn {protocol, _label} ->
+      values =
+        ports
+        |> Map.get(protocol, "")
+        |> parse_banner_ports()
+
+      {protocol, values}
+    end)
+  end
+
+  defp normalize_banner_ports(_ports), do: %{}
+
+  defp parse_banner_ports(value) when is_binary(value) do
+    value
+    |> String.split([",", " ", "\n", "\t"], trim: true)
+    |> Enum.flat_map(&parse_port/1)
+    |> Enum.uniq()
+  end
+
+  defp parse_banner_ports(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_integer/1)
+    |> Enum.filter(&(&1 > 0 and &1 <= 65_535))
+    |> Enum.uniq()
+  end
+
+  defp parse_banner_ports(_value), do: []
+
+  defp banner_protocol_atom(value) do
+    case to_string(value) do
+      "ssh" -> [:ssh]
+      "http" -> [:http]
+      "smb" -> [:smb]
+      "ftp" -> [:ftp]
+      "telnet" -> [:telnet]
+      "smtp" -> [:smtp]
+      "ntp" -> [:ntp]
+      "dns" -> [:dns]
+      "rdp" -> [:rdp]
+      _ -> []
+    end
   end
 
   defp transform_ports_to_array(params) do
@@ -4046,14 +2724,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     case Integer.parse(port_str) do
       {port, _} when port > 0 and port <= 65_535 -> [port]
       _ -> []
-    end
-  end
-
-  defp agent_display_name(agent) do
-    cond do
-      agent.name && agent.name != "" -> agent.name
-      agent.uid && agent.uid != "" -> agent.uid
-      true -> "Agent #{agent.uid}"
     end
   end
 end

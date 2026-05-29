@@ -246,15 +246,13 @@ docker logs serviceradar-flow-collector-mtls | grep "Template Cache"
 ```json
 {
   "channel_size": 50000,  // Up from 10000
-  "batch_size": 200,      // Balance between throughput and latency
-  "drop_policy": "drop_oldest"  // Or "drop_newest" or "block"
+  "batch_size": 200       // Balance between throughput and latency
 }
 ```
 
-**Drop Policies:**
-- `drop_oldest`: Drop old flows when channel full (default)
-- `drop_newest`: Drop new flows when channel full
-- `block`: Block listener until space available (can cause UDP drops)
+**Backpressure behavior:**
+
+Each listener owns a bounded mpsc channel of depth `channel_size`. When the channel is full, the listener drops the incoming datagram (drop-newest) and increments a per-subject drop counter exposed on the metrics endpoint. There is no operator-tunable policy — raise `channel_size`, increase `batch_size`, or improve NATS publish latency to keep the channel drained.
 
 ### Low Template Cache Hit Ratio
 

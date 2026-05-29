@@ -3,14 +3,41 @@ defmodule ServiceRadar.StatusHandler do
   Handles service status updates forwarded from agent-gateway.
 
   Results payloads are routed to ResultsRouter when available.
+
+  When `source == "flow-attribution"` the status message carries a
+  `Netprobepb.FlowAttributionEventBatch` payload drained by the agent's
+  netprobe sidecar. Each contained `FlowAttributionEvent` is routed into
+  `ServiceRadar.EventWriter.AttributedFlowJoiner.put_attribution/3` for the
+  5-tuple join with host-slice flow records. The partition we tag the
+  attribution with is the partition the agent-gateway derived from the mTLS
+  certificate (carried as `status[:partition]`) — agent-claimed values cannot
+  influence the published subject.
   """
 
   use GenServer
 
+  alias Netprobepb.FlowAttributionEvent
+  alias Netprobepb.FlowAttributionEventBatch
+  alias ServiceRadar.EventWriter.AttributedFlowJoiner
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.ResultsRouter
 
   require Logger
+
+  @flow_attribution_source "flow-attribution"
+
+  @telemetry_batch_received [
+    :serviceradar,
+    :event_writer,
+    :attributed_flow,
+    :batch_received
+  ]
+  @telemetry_batch_decode_failed [
+    :serviceradar,
+    :event_writer,
+    :attributed_flow,
+    :batch_decode_failed
+  ]
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -65,7 +92,68 @@ defmodule ServiceRadar.StatusHandler do
     end
   end
 
+  defp process(%{source: source} = status)
+       when source in [@flow_attribution_source, :flow_attribution] do
+    handle_flow_attribution(status)
+  end
+
   defp process(_status), do: :ok
+
+  defp handle_flow_attribution(status) do
+    partition_id = status[:partition] || "default"
+    agent_id = status[:agent_id]
+    message = status[:message]
+
+    case decode_batch(message) do
+      {:ok, %FlowAttributionEventBatch{events: events, dropped_since_last: dropped}} ->
+        :telemetry.execute(
+          @telemetry_batch_received,
+          %{count: 1, event_count: length(events || []), dropped_since_last: dropped || 0},
+          %{partition_id: partition_id, agent_id: agent_id}
+        )
+
+        Enum.each(events || [], fn
+          %FlowAttributionEvent{} = event ->
+            AttributedFlowJoiner.put_attribution(event, partition_id, agent_id: agent_id)
+
+          _ ->
+            :ok
+        end)
+
+        :ok
+
+      :error ->
+        :telemetry.execute(
+          @telemetry_batch_decode_failed,
+          %{count: 1},
+          %{partition_id: partition_id, agent_id: agent_id}
+        )
+
+        Logger.warning(
+          "StatusHandler: failed to decode FlowAttributionEventBatch",
+          partition_id: partition_id,
+          agent_id: agent_id,
+          message_size: byte_size_or_nil(message)
+        )
+
+        {:error, :flow_attribution_decode_failed}
+    end
+  end
+
+  defp decode_batch(message) when is_binary(message) and byte_size(message) > 0 do
+    case FlowAttributionEventBatch.decode(message) do
+      {:ok, %FlowAttributionEventBatch{} = batch} -> {:ok, batch}
+      %FlowAttributionEventBatch{} = batch -> {:ok, batch}
+      _ -> :error
+    end
+  rescue
+    _ -> :error
+  end
+
+  defp decode_batch(_), do: :error
+
+  defp byte_size_or_nil(value) when is_binary(value), do: byte_size(value)
+  defp byte_size_or_nil(_), do: nil
 
   defp process_legacy_results(%{service_type: "sync"} = status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path

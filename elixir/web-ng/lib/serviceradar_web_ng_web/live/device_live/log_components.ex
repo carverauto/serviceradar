@@ -1,0 +1,211 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.LogComponents do
+  @moduledoc false
+
+  use ServiceRadarWebNGWeb, :html
+
+  # ---------------------------------------------------------------------------
+  # Logs Tab Content
+  # ---------------------------------------------------------------------------
+
+  attr(:logs, :list, required: true)
+  attr(:error, :string, default: nil)
+  attr(:loading, :boolean, default: false)
+  attr(:pagination, :map, default: %{})
+  attr(:device_uid, :string, required: true)
+  attr(:query, :string, required: true)
+  attr(:limit, :integer, required: true)
+
+  def device_logs_tab_content(assigns) do
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-clipboard-document-list" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Device Logs</span>
+          <span class="text-xs text-base-content/50">({length(@logs)} rows)</span>
+        </div>
+        <.link
+          navigate={~p"/observability?#{%{"tab" => "logs", "q" => @query, "limit" => @limit}}"}
+          class="text-xs text-primary hover:underline"
+        >
+          Open full logs view
+        </.link>
+      </div>
+
+      <div class="p-4">
+        <div :if={is_binary(@error)} class="mb-3 text-xs text-error">{@error}</div>
+
+        <%= if @loading do %>
+          <div class="flex items-center gap-2 text-sm text-base-content/60">
+            <span class="loading loading-spinner loading-sm"></span> Loading device logs...
+          </div>
+        <% else %>
+          <%= if @logs == [] and is_nil(@error) do %>
+            <div class="text-sm text-base-content/60">No logs found for this device.</div>
+          <% else %>
+            <div class="overflow-x-auto">
+              <table class="table table-sm table-zebra w-full">
+                <thead>
+                  <tr>
+                    <th class="w-40">Time</th>
+                    <th class="w-24">Level</th>
+                    <th class="w-44">Service</th>
+                    <th>Message</th>
+                    <th class="w-20 text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :for={log <- @logs}>
+                    <td class="whitespace-nowrap text-xs font-mono">
+                      {format_timestamp(log_timestamp(log))}
+                    </td>
+                    <td class="whitespace-nowrap text-xs">
+                      <.ui_badge variant={log_severity_variant(log)} size="xs">
+                        {log_severity_label(log)}
+                      </.ui_badge>
+                    </td>
+                    <td
+                      class="whitespace-nowrap text-xs truncate max-w-[14rem]"
+                      title={log_service(log)}
+                    >
+                      {log_service(log)}
+                    </td>
+                    <td class="text-xs truncate max-w-[42rem]" title={log_message(log)}>
+                      {log_message(log)}
+                    </td>
+                    <td class="text-right">
+                      <.link
+                        :if={log_id(log) != "unknown"}
+                        navigate={~p"/logs/#{log_id(log)}"}
+                        class="btn btn-ghost btn-xs"
+                      >
+                        Details
+                      </.link>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="pt-3 border-t border-base-200 mt-3">
+              <.ui_pagination
+                prev_cursor={Map.get(@pagination, "prev_cursor")}
+                next_cursor={Map.get(@pagination, "next_cursor")}
+                base_path={"/devices/#{@device_uid}"}
+                query={@query}
+                limit={@limit}
+                result_count={length(@logs)}
+                extra_params={%{"tab" => "logs"}}
+              />
+            </div>
+          <% end %>
+        <% end %>
+      </div>
+    </div>
+    """
+  end
+
+  defp log_timestamp(log) when is_map(log) do
+    Map.get(log, "observed_timestamp") || Map.get(log, "timestamp") || Map.get(log, "time")
+  end
+
+  defp log_timestamp(_log), do: nil
+
+  defp log_id(log) when is_map(log) do
+    case Map.get(log, "id") do
+      nil -> "unknown"
+      id when is_binary(id) -> id
+      id -> to_string(id)
+    end
+  end
+
+  defp log_id(_log), do: "unknown"
+
+  defp log_severity_variant(log) when is_map(log) do
+    case log |> Map.get("severity_text") |> normalize_log_severity() do
+      value when value in ["critical", "fatal", "error"] -> "error"
+      value when value in ["high", "warn", "warning"] -> "warning"
+      value when value in ["medium", "info"] -> "info"
+      value when value in ["low", "debug", "trace", "ok"] -> "success"
+      _ -> "ghost"
+    end
+  end
+
+  defp log_severity_variant(_log), do: "ghost"
+
+  defp log_severity_label(log) when is_map(log) do
+    case Map.get(log, "severity_text") do
+      nil -> "—"
+      "" -> "—"
+      value when is_binary(value) -> value |> String.upcase() |> String.slice(0, 5)
+      value -> value |> to_string() |> String.upcase() |> String.slice(0, 5)
+    end
+  end
+
+  defp log_severity_label(_log), do: "—"
+
+  defp normalize_log_severity(nil), do: ""
+
+  defp normalize_log_severity(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
+
+  defp normalize_log_severity(value), do: value |> to_string() |> normalize_log_severity()
+
+  defp log_service(log) when is_map(log) do
+    log
+    |> first_present(["service_name", "source", "scope_name"])
+    |> present_or_dash()
+  end
+
+  defp log_service(_log), do: "—"
+
+  defp log_message(log) when is_map(log) do
+    log
+    |> first_present(["body", "message", "short_message"])
+    |> present_or_dash()
+    |> String.slice(0, 300)
+  end
+
+  defp log_message(_log), do: "—"
+
+  defp first_present(map, keys) do
+    Enum.find_value(keys, fn key ->
+      case Map.get(map, key) do
+        nil -> nil
+        "" -> nil
+        value -> value
+      end
+    end)
+  end
+
+  defp present_or_dash(nil), do: "—"
+  defp present_or_dash(""), do: "—"
+  defp present_or_dash(value) when is_binary(value), do: value
+  defp present_or_dash(value), do: to_string(value)
+
+  defp format_timestamp(nil), do: "—"
+
+  defp format_timestamp(value) do
+    case parse_datetime(value) do
+      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> "—"
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_datetime(%NaiveDateTime{} = ndt) do
+    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+  end
+
+  defp parse_datetime(value) when is_binary(value) do
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+    else
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_datetime(_), do: {:error, :invalid_datetime}
+end

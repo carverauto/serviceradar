@@ -394,9 +394,32 @@ func allowedSystemSubject(
 	credType UserCredentialType,
 	subject string,
 ) bool {
-	if namespace != "SYS" || credType != CredentialTypeService {
-		return false
+	// System-account-only subjects.
+	if namespace == "SYS" && credType == CredentialTypeService {
+		if subject == "$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE" {
+			return true
+		}
 	}
 
-	return subject == "$SYS.REQ.ACCOUNT.*.CLAIMS.UPDATE"
+	// JetStream API + ACK subjects are required by every service-typed
+	// credential that uses streams, regardless of namespace. They are
+	// scoped to the user's account so granting them does not grant
+	// cross-account access. See B-5 in the host-network-visibility audit
+	// for the subject-scoping rationale.
+	if credType == CredentialTypeService {
+		switch {
+		case subject == "$JS.API.>",
+			subject == "$JS.ACK.>",
+			strings.HasPrefix(subject, "$JS.API."),
+			strings.HasPrefix(subject, "$JS.ACK."):
+			return true
+		}
+		// Explicit deny entries for $SYS.> are allowed so callers can
+		// codify the restriction in their permissions block.
+		if subject == "$SYS.>" {
+			return true
+		}
+	}
+
+	return false
 }

@@ -489,6 +489,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
       agent_timestamp: metadata.agent_timestamp,
+      request_id: Logger.metadata()[:request_id],
       chunk_index: Map.get(metadata, :chunk_index, 0),
       total_chunks: Map.get(metadata, :total_chunks, 1),
       is_final: Map.get(metadata, :is_final, true)

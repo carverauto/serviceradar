@@ -1,0 +1,124 @@
+AR Series
+Adaptive Security Appliance
+Aficio
+AirPort
+Apple TV
+Communication Manager
+DVR
+Data ONTAP
+DiskStation
+Document Centre
+EDR
+Eurotherm
+Extended Systems ExtendNet
+FRITZ!Box
+FRITZ!Fon
+FRITZ!Powerline
+FRITZ!WLAN Repeater
+FS
+Firewall-1
+Forms Printer
+FortiGate
+FortiVoice
+GW25
+GXV
+GXW
+HDX
+HandyTone
+HomePod
+Honeywell
+ILOM
+IMDVR
+ION
+JetDirect
+LX Series
+LaserJet
+LinkCom Xpress
+MGate
+MPEG4 DVR
+MT
+MX Series
+Mac mini
+MacBook
+MacBook Air
+MacBook Pro
+MegaRAC
+MiiNePort
+Multifunction
+My Book
+NE
+NPort
+NetScaler
+NetVanta
+Netscaler
+Network Audio
+Network Security Appliance
+Network Video Door Station
+OpenScape Desk Phone
+Optra
+Orbi
+POWER System
+Phaser
+Primergy
+Pro Series
+RMX
+ReadyNAS
+RealPresence
+RealPresence Group
+Router
+S500 Range
+SIP Device
+SIP Gateway
+SL2100
+Service Access Switch
+Service Router
+Simatic HMI
+Simatic NET
+Simatic S7
+Simatic Sinumerik
+SoundPoint
+SoundStation IP
+SoundTouch
+SpeedTouch
+Speedport
+Storage
+Sun Fire
+Sunny
+Switch
+System X
+TASKalfa
+TelePresence
+Time Capsule
+TippingPoint
+Turbo Station
+UNIVERGE
+UniFi
+Unified Security Gateway
+VDX
+VSX
+VVX
+Vigor
+VoIP
+WD2GO
+WiMax
+Wide Format
+Wide Format Printer
+WorkCentre
+WorkCentre Pro
+Xserve
+ZXDSL
+ZXHN
+ZXV
+ZebraNet
+airMAX
+iLO
+iMac
+iPad
+iPad Air
+iPad Pro
+iPad mini
+iPhone
+iPod
+iSTAR Door Controllers
+imageClass
+imageRunner

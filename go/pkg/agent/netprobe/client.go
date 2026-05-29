@@ -34,11 +34,16 @@ const defaultEventBuffer = 1024
 const (
 	MetricEventsDroppedTotal = "netprobe_events_dropped_total"
 	EventStreamFingerprint   = "fingerprint"
+	EventStreamDPI           = "dpi"
+	EventStreamFlowAttr      = "flow_attribution"
+	EventStreamProcessSnap   = "process_snapshot"
 	EventDropBackpressure    = "backpressure"
 )
 
 var (
 	ErrClientClosed    = errors.New("netprobe client is closed")
+	ErrNilConnection   = errors.New("netprobe client connection is nil")
+	ErrNilExternalFlow = errors.New("netprobe external flow record is nil")
 	ErrUnexpectedFrame = errors.New("netprobe returned unexpected frame")
 )
 
@@ -79,16 +84,30 @@ type Client struct {
 	pendingMu sync.Mutex
 	pending   map[uint64]chan response
 
-	events chan *netprobepb.FingerprintEvent
-	done   chan struct{}
+	events           chan *netprobepb.FingerprintEvent
+	dpiEvents        chan *netprobepb.DpiEvent
+	flowEvents       chan *netprobepb.FlowAttributionEvent
+	processSnapshots chan *netprobepb.ProcessSnapshot
+	done             chan struct{}
 
 	closeOnce sync.Once
 	closeErr  atomic.Value
 
-	lastEngineVersion atomic.Value
-	lastRunningAsRoot atomic.Bool
+	lastEngineVersion                 atomic.Value
+	lastP0fCorpusRevision             atomic.Value
+	lastServiceRadarAdditionsRevision atomic.Value
+	lastJA4SpecRevision               atomic.Value
+	lastMuonFPCorpusRevision          atomic.Value
+	lastRecogCorpusRevision           atomic.Value
+	lastSatoriCorpusRevision          atomic.Value
+	lastServiceRadarRecogAdditionsRev atomic.Value
+	lastRecogCorpusLoaded             atomic.Bool
+	lastRunningAsRoot                 atomic.Bool
 
 	droppedFingerprintEvents atomic.Uint64
+	droppedDPIEvents         atomic.Uint64
+	droppedFlowEvents        atomic.Uint64
+	droppedProcessSnapshots  atomic.Uint64
 	eventDropRecorder        EventDropRecorder
 }
 
@@ -110,13 +129,25 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	}
 
 	c := &Client{
-		conn:    conn,
-		pending: make(map[uint64]chan response),
-		events:  make(chan *netprobepb.FingerprintEvent, eventBuffer),
-		done:    make(chan struct{}),
+		conn:             conn,
+		pending:          make(map[uint64]chan response),
+		events:           make(chan *netprobepb.FingerprintEvent, eventBuffer),
+		dpiEvents:        make(chan *netprobepb.DpiEvent, eventBuffer),
+		flowEvents:       make(chan *netprobepb.FlowAttributionEvent, eventBuffer),
+		processSnapshots: make(chan *netprobepb.ProcessSnapshot, eventBuffer),
+		done:             make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(c)
+	}
+	if conn == nil {
+		c.closeWithError(ErrNilConnection)
+		close(c.events)
+		close(c.dpiEvents)
+		close(c.flowEvents)
+		close(c.processSnapshots)
+
+		return c
 	}
 	go c.readLoop()
 
@@ -140,6 +171,14 @@ func (c *Client) Ping(ctx context.Context) error {
 		return fmt.Errorf("%w: expected ping_ack", ErrUnexpectedFrame)
 	}
 	c.lastEngineVersion.Store(ack.GetFingerprintEngineVersion())
+	c.lastP0fCorpusRevision.Store(ack.GetP0FCorpusRevision())
+	c.lastServiceRadarAdditionsRevision.Store(ack.GetServiceradarAdditionsRevision())
+	c.lastJA4SpecRevision.Store(ack.GetJa4SpecRevision())
+	c.lastMuonFPCorpusRevision.Store(ack.GetMuonfpCorpusRevision())
+	c.lastRecogCorpusRevision.Store(ack.GetRecogCorpusRevision())
+	c.lastSatoriCorpusRevision.Store(ack.GetSatoriCorpusRevision())
+	c.lastServiceRadarRecogAdditionsRev.Store(ack.GetServiceradarRecogAdditionsRevision())
+	c.lastRecogCorpusLoaded.Store(ack.GetRecogCorpusLoaded())
 	c.lastRunningAsRoot.Store(ack.GetRunningAsRoot())
 
 	return nil
@@ -164,9 +203,79 @@ func (c *Client) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAgen
 	return ack.GetConfigHash(), nil
 }
 
+// MatchBanners sends active sweep banner observations to netprobe for corpus matching.
+func (c *Client) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
+	frame, err := c.request(ctx, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_BannerBatch{
+			BannerBatch: batch,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	matches := frame.GetBannerMatchBatch()
+	if matches == nil {
+		return nil, fmt.Errorf("%w: expected banner_match_batch", ErrUnexpectedFrame)
+	}
+
+	return matches, nil
+}
+
+// IngestExternalFlow sends one external flow record and waits for the sidecar's ingest ack.
+func (c *Client) IngestExternalFlow(ctx context.Context, record *netprobepb.ExternalFlowRecord) (*netprobepb.ExternalFlowAck, error) {
+	if record == nil {
+		return nil, ErrNilExternalFlow
+	}
+
+	frame, err := c.request(ctx, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_ExternalFlowRecord{
+			ExternalFlowRecord: record,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	ack := frame.GetExternalFlowAck()
+	if ack == nil {
+		return nil, fmt.Errorf("%w: expected external_flow_ack", ErrUnexpectedFrame)
+	}
+
+	return ack, nil
+}
+
+// StreamExternalFlow sends one fire-and-forget external flow frame on the client-streamed channel.
+func (c *Client) StreamExternalFlow(record *netprobepb.ExternalFlowRecord) error {
+	if record == nil {
+		return ErrNilExternalFlow
+	}
+
+	return c.writeRequest(&netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_ExternalFlowRecord{
+			ExternalFlowRecord: record,
+		},
+	})
+}
+
 // Events returns the bounded stream of fingerprint events from netprobe.
 func (c *Client) Events() <-chan *netprobepb.FingerprintEvent {
 	return c.events
+}
+
+// DpiEvents returns the bounded stream of DPI events from netprobe.
+func (c *Client) DpiEvents() <-chan *netprobepb.DpiEvent {
+	return c.dpiEvents
+}
+
+// FlowAttributionEvents returns the bounded stream of flow attribution events from netprobe.
+func (c *Client) FlowAttributionEvents() <-chan *netprobepb.FlowAttributionEvent {
+	return c.flowEvents
+}
+
+// ProcessSnapshots returns the bounded stream of process snapshots from netprobe.
+func (c *Client) ProcessSnapshots() <-chan *netprobepb.ProcessSnapshot {
+	return c.processSnapshots
 }
 
 // DrainFingerprintEvents invokes handler for each streamed fingerprint event.
@@ -186,6 +295,57 @@ func (c *Client) DrainFingerprintEvents(ctx context.Context, handler func(contex
 	}
 }
 
+// DrainDPIEvents invokes handler for each streamed DPI event.
+func (c *Client) DrainDPIEvents(ctx context.Context, handler func(context.Context, *netprobepb.DpiEvent) error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-c.dpiEvents:
+			if !ok {
+				return c.closeError()
+			}
+			if err := handler(ctx, event); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// DrainFlowAttributionEvents invokes handler for each streamed flow attribution event.
+func (c *Client) DrainFlowAttributionEvents(ctx context.Context, handler func(context.Context, *netprobepb.FlowAttributionEvent) error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case event, ok := <-c.flowEvents:
+			if !ok {
+				return c.closeError()
+			}
+			if err := handler(ctx, event); err != nil {
+				return err
+			}
+		}
+	}
+}
+
+// DrainProcessSnapshots invokes handler for each streamed process snapshot.
+func (c *Client) DrainProcessSnapshots(ctx context.Context, handler func(context.Context, *netprobepb.ProcessSnapshot) error) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case snapshot, ok := <-c.processSnapshots:
+			if !ok {
+				return c.closeError()
+			}
+			if err := handler(ctx, snapshot); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // FingerprintEngineVersion returns the latest version observed from PingAck.
 func (c *Client) FingerprintEngineVersion() string {
 	value := c.lastEngineVersion.Load()
@@ -197,8 +357,68 @@ func (c *Client) FingerprintEngineVersion() string {
 	return version
 }
 
+func (c *Client) P0fCorpusRevision() string {
+	value := c.lastP0fCorpusRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
+}
+
+func (c *Client) ServiceRadarAdditionsRevision() string {
+	value := c.lastServiceRadarAdditionsRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
+}
+
+func (c *Client) JA4SpecRevision() string {
+	value := c.lastJA4SpecRevision.Load()
+	if value == nil {
+		return ""
+	}
+	revision, _ := value.(string)
+
+	return revision
+}
+
+func (c *Client) MuonFPCorpusRevision() string {
+	return atomicString(&c.lastMuonFPCorpusRevision)
+}
+
+func (c *Client) RecogCorpusRevision() string {
+	return atomicString(&c.lastRecogCorpusRevision)
+}
+
+func (c *Client) SatoriCorpusRevision() string {
+	return atomicString(&c.lastSatoriCorpusRevision)
+}
+
+func (c *Client) ServiceRadarRecogAdditionsRevision() string {
+	return atomicString(&c.lastServiceRadarRecogAdditionsRev)
+}
+
+func (c *Client) RecogCorpusLoaded() bool {
+	return c.lastRecogCorpusLoaded.Load()
+}
+
 func (c *Client) RunningAsRoot() bool {
 	return c.lastRunningAsRoot.Load()
+}
+
+func atomicString(value *atomic.Value) string {
+	loaded := value.Load()
+	if loaded == nil {
+		return ""
+	}
+	stringValue, _ := loaded.(string)
+
+	return stringValue
 }
 
 // DroppedFingerprintEvents returns events dropped because the downstream consumer was slow.
@@ -206,8 +426,26 @@ func (c *Client) DroppedFingerprintEvents() uint64 {
 	return c.droppedFingerprintEvents.Load()
 }
 
+// DroppedDPIEvents returns DPI events dropped because the downstream consumer was slow.
+func (c *Client) DroppedDPIEvents() uint64 {
+	return c.droppedDPIEvents.Load()
+}
+
+// DroppedFlowAttributionEvents returns flow attribution events dropped because the downstream consumer was slow.
+func (c *Client) DroppedFlowAttributionEvents() uint64 {
+	return c.droppedFlowEvents.Load()
+}
+
+// DroppedProcessSnapshots returns process snapshots dropped because the downstream consumer was slow.
+func (c *Client) DroppedProcessSnapshots() uint64 {
+	return c.droppedProcessSnapshots.Load()
+}
+
 // Close closes the IPC connection and unblocks pending requests.
 func (c *Client) Close() error {
+	if c == nil {
+		return nil
+	}
 	c.closeWithError(ErrClientClosed)
 	return nil
 }
@@ -273,6 +511,9 @@ func (c *Client) writeRequest(frame *netprobepb.NetprobeFrame) error {
 
 func (c *Client) readLoop() {
 	defer close(c.events)
+	defer close(c.dpiEvents)
+	defer close(c.flowEvents)
+	defer close(c.processSnapshots)
 
 	for {
 		frame, err := readFrame(c.conn)
@@ -292,6 +533,27 @@ func (c *Client) readLoop() {
 					c.recordEventDrop(EventStreamFingerprint, EventDropBackpressure)
 				}
 			}
+			if event := frame.GetDpiEvent(); event != nil {
+				select {
+				case c.dpiEvents <- event:
+				default:
+					c.recordEventDrop(EventStreamDPI, EventDropBackpressure)
+				}
+			}
+			if event := frame.GetFlowAttributionEvent(); event != nil {
+				select {
+				case c.flowEvents <- event:
+				default:
+					c.recordEventDrop(EventStreamFlowAttr, EventDropBackpressure)
+				}
+			}
+			if snapshot := frame.GetProcessSnapshot(); snapshot != nil {
+				select {
+				case c.processSnapshots <- snapshot:
+				default:
+					c.recordEventDrop(EventStreamProcessSnap, EventDropBackpressure)
+				}
+			}
 			continue
 		}
 
@@ -306,9 +568,19 @@ func (c *Client) readLoop() {
 	}
 }
 
+//nolint:unparam // reason parameterized for future per-stream policies
 func (c *Client) recordEventDrop(stream, reason string) {
 	if stream == EventStreamFingerprint && reason == EventDropBackpressure {
 		c.droppedFingerprintEvents.Add(1)
+	}
+	if stream == EventStreamDPI && reason == EventDropBackpressure {
+		c.droppedDPIEvents.Add(1)
+	}
+	if stream == EventStreamFlowAttr && reason == EventDropBackpressure {
+		c.droppedFlowEvents.Add(1)
+	}
+	if stream == EventStreamProcessSnap && reason == EventDropBackpressure {
+		c.droppedProcessSnapshots.Add(1)
 	}
 	if c.eventDropRecorder != nil {
 		c.eventDropRecorder.IncEventDrop(stream, reason)
@@ -322,12 +594,17 @@ func (c *Client) removePending(sequence uint64) {
 }
 
 func (c *Client) closeWithError(err error) {
+	if c == nil {
+		return
+	}
 	c.closeOnce.Do(func() {
 		if err == nil {
 			err = ErrClientClosed
 		}
 		c.closeErr.Store(err)
-		_ = c.conn.Close()
+		if c.conn != nil {
+			_ = c.conn.Close()
+		}
 
 		c.pendingMu.Lock()
 		for sequence, ch := range c.pending {
@@ -336,7 +613,9 @@ func (c *Client) closeWithError(err error) {
 		}
 		c.pendingMu.Unlock()
 
-		close(c.done)
+		if c.done != nil {
+			close(c.done)
+		}
 	})
 }
 

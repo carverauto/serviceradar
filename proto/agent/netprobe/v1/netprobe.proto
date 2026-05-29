@@ -42,6 +42,9 @@ message NetprobeFrame {
     ExternalFlowRecord external_flow_record = 23;
     StartRemoteCapture start_remote_capture = 24;
     PcapngBlock pcapng_block = 25;
+    BannerBatch banner_batch = 26;
+    BannerMatchBatch banner_match_batch = 27;
+    ExternalFlowAck external_flow_ack = 28;
   }
 }
 
@@ -60,8 +63,18 @@ message Ping {
 message PingAck {
   int64 sent_at_unix_nano = 1;
   int64 acked_at_unix_nano = 2;
+  // Deprecated: kept for one minor version while agents migrate to the
+  // license-clean corpus revision fields below.
   string fingerprint_engine_version = 3;
   bool running_as_root = 4;
+  string p0f_corpus_revision = 5;
+  string serviceradar_additions_revision = 6;
+  string ja4_spec_revision = 7;
+  string muonfp_corpus_revision = 8;
+  string recog_corpus_revision = 9;
+  string satori_corpus_revision = 10;
+  string serviceradar_recog_additions_revision = 11;
+  bool recog_corpus_loaded = 12;
 }
 
 message ErrorFrame {
@@ -74,9 +87,13 @@ message VisibilityAgentConfig {
   repeated string capture_interfaces = 2;
   repeated DeviceBinding device_bindings = 3;
   uint32 default_sample_interval_ms = 4;
+  DpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
+  uint32 process_snapshot_interval_s = 41;
+  uint32 external_flow_match_window_ms = 42;
 
-  reserved 20 to 39;
-  reserved "dpi", "flow_attribution", "process_snapshot_interval_s";
+  reserved 21 to 39;
+  reserved "flow_attribution";
 }
 
 message DeviceBinding {
@@ -85,12 +102,18 @@ message DeviceBinding {
   string profile_name = 3;
   FingerprintConfig fingerprint = 4;
   uint32 sample_interval_ms = 5;
+  DpiConfig dpi = 6;
 }
 
 message FingerprintConfig {
   bool tcp = 1;
   bool tls = 2;
   bool http = 3;
+}
+
+message DpiConfig {
+  bool enabled = 1;
+  repeated string protocols = 2;
 }
 
 message FingerprintEvent {
@@ -100,10 +123,104 @@ message FingerprintEvent {
   int64 observed_at_unix_nano = 4;
 
   oneof evidence {
-    TcpFingerprint tcp = 10;
-    TlsFingerprint tls = 11;
-    HttpFingerprint http = 12;
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    TcpFingerprint tcp = 10 [deprecated = true];
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    TlsFingerprint tls = 11 [deprecated = true];
+    // Deprecated: populated for one minor version while agents migrate to
+    // license_clean.
+    HttpFingerprint http = 12 [deprecated = true];
+    LicenseCleanFingerprint license_clean = 13;
   }
+}
+
+message LicenseCleanFingerprint {
+  // Version 2 extends the original p0f / JA4 / HASSH shape with
+  // multi-corpus evidence fields. Fields 1-9 remain the v1 carrier shape.
+  string p0f_signature = 1;
+  P0fFingerprintMatch p0f_match = 2;
+  string ja4 = 3;
+  FingerprintMatch ja4_match = 4;
+  string hassh = 5;
+  string hassh_server = 6;
+  FingerprintMatch hassh_match = 7;
+  OsMatch os_match = 8;
+  uint32 agreement_count = 9;
+  MuonFpFingerprintMatch muonfp = 10;
+  RecogFingerprintMatch recog_http = 11;
+  RecogFingerprintMatch recog_ssh = 12;
+  RecogFingerprintMatch recog_smb = 13;
+  RecogFingerprintMatch recog_ftp = 14;
+  RecogFingerprintMatch recog_telnet = 15;
+  RecogFingerprintMatch recog_snmp = 16;
+  RecogFingerprintMatch recog_sip = 17;
+  RecogFingerprintMatch recog_rdp = 18;
+  RecogFingerprintMatch recog_dns = 19;
+  repeated SatoriFingerprintMatch satori_matches = 20;
+  bool tcp_observed = 21;
+  bool ja4_observed = 22;
+  bool hassh_observed = 23;
+  bool dhcp_observed = 24;
+  bool dhcpv6_observed = 25;
+  bool http_observed = 26;
+  bool ssh_observed = 27;
+  bool smb_observed = 28;
+  bool dns_observed = 29;
+  bool icmp_observed = 30;
+  bool ntp_observed = 31;
+  bool sip_observed = 32;
+  RecogFingerprintMatch recog_smtp = 33;
+  RecogFingerprintMatch recog_ntp = 34;
+}
+
+message P0fFingerprintMatch {
+  string label = 1;
+  string name = 2;
+  string version_flavor = 3;
+  string os_family = 4;
+}
+
+message MuonFpFingerprintMatch {
+  string signature = 1;
+  string label = 2;
+}
+
+message RecogFingerprintMatch {
+  string product = 1;
+  string version = 2;
+  string os_family = 3;
+}
+
+message SatoriFingerprintMatch {
+  string axis = 1;
+  string signature = 2;
+  string label = 3;
+  string device_class = 4;
+  string os_family = 5;
+}
+
+message FingerprintMatch {
+  string name = 1;
+  string version_range = 2;
+  string os_family = 3;
+}
+
+message OsMatch {
+  string name = 1;
+  string version_range = 2;
+  string os_family = 3;
+  float confidence = 4;
+  repeated FingerprintDisagreement disagreements = 5;
+}
+
+message FingerprintDisagreement {
+  string signal = 1;
+  string signature = 2;
+  string observed_family = 3;
+  string observed_name = 4;
+  string version_range = 5;
 }
 
 message TcpFingerprint {
@@ -134,19 +251,105 @@ message HttpFingerprint {
 }
 
 message DpiEvent {
-  // TODO(add-host-network-visibility-sidecar Phase 2): define DPI fields.
+  string source_ip = 1;
+  string destination_ip = 2;
+  uint32 source_port = 3;
+  uint32 destination_port = 4;
+  string transport_protocol = 5;
+  string protocol = 6;
+  // Confidence is normalized to 0.0..1.0. Values below 0.6 are weak signals,
+  // 0.6..0.84 are medium signals, and 0.85+ are strong structural matches.
+  float confidence = 7;
+  int64 observed_at_unix_nano = 8;
+  string interface_name = 9;
+  string profile_id = 10;
+  // Dissector identifier naming the heuristic that produced this event.
+  string dissector_id = 11;
 }
 
 message FlowAttributionEvent {
-  // TODO(add-host-network-visibility-sidecar Phase 3): define attribution fields.
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string remote_ip = 3;
+  uint32 remote_port = 4;
+  string transport_protocol = 5;
+  uint32 pid = 6;
+  uint32 tgid = 7;
+  uint32 uid = 8;
+  uint32 gid = 9;
+  string comm = 10;
+  repeated string redacted_cmdline = 11;
+  string container_id = 12;
+  int64 observed_at_unix_nano = 13;
+  uint64 socket_address = 14;
+  uint32 event_kind = 15;
+  int32 old_state = 16;
+  int32 new_state = 17;
+  string source = 18;
+  uint64 external_flow_id = 19;
+}
+
+// FlowAttributionEventBatch is the wire payload the agent ships to the
+// agent-gateway inside GatewayServiceStatus.message when
+// GatewayServiceStatus.source == "flow-attribution". It carries a batch of
+// FlowAttributionEvent records the agent drained from the netprobe sidecar
+// (see DrainFlowAttributionEvents). The gateway forwards these to core-elx,
+// where the 5-tuple join with host-slice flow records happens.
+//
+// batch_start_unix_nano / batch_end_unix_nano bracket the wall-clock window
+// during which the included events were drained from the sidecar IPC queue.
+// They are informational only — the join cache keys off the per-event
+// observed_at_unix_nano + 5-tuple, not the batch envelope.
+//
+// dropped_since_last surfaces backpressure from
+// client.DroppedFlowAttributionEvents so the receive path can emit telemetry
+// when the sidecar IPC queue overflowed between drains.
+message FlowAttributionEventBatch {
+  repeated FlowAttributionEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  uint32 dropped_since_last = 4;
 }
 
 message ProcessSnapshot {
-  // TODO(add-host-network-visibility-sidecar Phase 3): define process fields.
+  string fingerprint = 1;
+  int64 observed_at_unix_nano = 2;
+  repeated ProcessSnapshotEntry entries = 3;
+}
+
+message ProcessSnapshotEntry {
+  string local_ip = 1;
+  uint32 local_port = 2;
+  string transport_protocol = 3;
+  uint32 pid = 4;
+  uint32 tgid = 5;
+  uint32 uid = 6;
+  uint32 gid = 7;
+  string comm = 8;
+  repeated string redacted_cmdline = 9;
+  string container_id = 10;
 }
 
 message ExternalFlowRecord {
-  // TODO(add-host-network-visibility-sidecar Phase 4): define external flow fields.
+  uint64 external_flow_id = 1;
+  bytes source_ip = 2;
+  bytes destination_ip = 3;
+  uint32 source_port = 4;
+  uint32 destination_port = 5;
+  string transport_protocol = 6;
+  uint32 ip_protocol = 7;
+  uint64 time_flow_start_ns = 8;
+  uint64 time_flow_end_ns = 9;
+  uint64 bytes = 10;
+  uint64 packets = 11;
+  string partition = 12;
+}
+
+message ExternalFlowAck {
+  uint64 accepted = 1;
+  uint64 matched = 2;
+  uint64 unmatched = 3;
+  uint64 invalid = 4;
 }
 
 message StartRemoteCapture {
@@ -155,4 +358,32 @@ message StartRemoteCapture {
 
 message PcapngBlock {
   // TODO(add-host-network-visibility-sidecar Phase 5): define pcapng block fields.
+}
+
+message BannerObservation {
+  uint64 observation_id = 1;
+  string host = 2;
+  uint32 port = 3;
+  string protocol = 4;
+  bytes banner_bytes = 5;
+  int64 observed_at = 6;
+  string source = 7;
+}
+
+message BannerBatch {
+  repeated BannerObservation observations = 1;
+}
+
+message BannerMatch {
+  uint64 observation_id = 1;
+  string corpus_label = 2;
+  string os_family = 3;
+  string product = 4;
+  string version = 5;
+  double confidence = 6;
+  string raw_pattern_id = 7;
+}
+
+message BannerMatchBatch {
+  repeated BannerMatch matches = 1;
 }

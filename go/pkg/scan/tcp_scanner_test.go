@@ -18,9 +18,11 @@ package scan
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -232,6 +234,180 @@ func TestFilterTCPTargets(t *testing.T) {
 	}
 }
 
+func TestTCPSweeperScanStreamProcessesTCPConnectTargets(t *testing.T) {
+	const (
+		concurrency = int64(8)
+		targetCount = 100
+	)
+
+	s := NewTCPSweeper(1*time.Second, int(concurrency), logger.NewTestLogger())
+	releaseDialers := make(chan struct{})
+
+	var activeDials int64
+	var maxActiveDials int64
+	var dialCount int64
+
+	s.dialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		current := atomic.AddInt64(&activeDials, 1)
+		recordMaxInt64(&maxActiveDials, current)
+		atomic.AddInt64(&dialCount, 1)
+
+		select {
+		case <-releaseDialers:
+		case <-ctx.Done():
+			atomic.AddInt64(&activeDials, -1)
+
+			return nil, ctx.Err()
+		}
+
+		atomic.AddInt64(&activeDials, -1)
+
+		return &mockConn{}, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	targets := make(chan models.Target, concurrency*2)
+	results, errs, err := s.ScanStream(ctx, targets, StreamOptions{})
+	if err != nil {
+		t.Fatalf("ScanStream() error = %v", err)
+	}
+
+	go func() {
+		defer close(targets)
+
+		for i := 0; i < targetCount; i++ {
+			targets <- models.Target{
+				Host: "192.0.2.10",
+				Port: 10000 + i,
+				Mode: models.ModeTCPConnect,
+			}
+		}
+
+		targets <- models.Target{Host: "192.0.2.10", Mode: models.ModeICMP}
+	}()
+
+	waitForActiveDialers(t, &maxActiveDials, concurrency)
+	close(releaseDialers)
+
+	var resultCount int
+	for result := range results {
+		resultCount++
+
+		if result.Target.Mode != models.ModeTCPConnect {
+			t.Fatalf("unexpected streamed target mode: %v", result.Target.Mode)
+		}
+	}
+
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("ScanStream() async error = %v", err)
+		}
+	}
+
+	if resultCount != targetCount {
+		t.Fatalf("ScanStream() emitted %d results, want %d", resultCount, targetCount)
+	}
+
+	if got := atomic.LoadInt64(&dialCount); got != targetCount {
+		t.Fatalf("dial count = %d, want %d", got, targetCount)
+	}
+
+	if got := atomic.LoadInt64(&maxActiveDials); got > concurrency {
+		t.Fatalf("max active dials = %d, want <= %d", got, concurrency)
+	}
+
+	stats := s.GetStats()
+	if stats.DialsStarted != targetCount {
+		t.Fatalf("DialsStarted = %d, want %d", stats.DialsStarted, targetCount)
+	}
+
+	if stats.DialsSucceeded != targetCount {
+		t.Fatalf("DialsSucceeded = %d, want %d", stats.DialsSucceeded, targetCount)
+	}
+
+	if stats.MaxActiveDials > uint64(concurrency) {
+		t.Fatalf("MaxActiveDials = %d, want <= %d", stats.MaxActiveDials, concurrency)
+	}
+
+	if stats.ActiveDials != 0 {
+		t.Fatalf("ActiveDials = %d, want 0 after scan", stats.ActiveDials)
+	}
+}
+
+var (
+	errTooManyOpenFiles      = errors.New("dial tcp: socket: too many open files")
+	errCannotAssignRequested = errors.New("dial tcp: connect: cannot assign requested address")
+)
+
+func TestTCPSweeperStatsClassifiesDialOutcomes(t *testing.T) {
+	tests := []struct {
+		name              string
+		err               error
+		wantTimeouts      uint64
+		wantResets        uint64
+		wantResourceError uint64
+	}{
+		{
+			name:         "timeout",
+			err:          context.DeadlineExceeded,
+			wantTimeouts: 1,
+		},
+		{
+			name:       "refused",
+			err:        errConnectionRefused,
+			wantResets: 1,
+		},
+		{
+			name:              "fd pressure",
+			err:               errTooManyOpenFiles,
+			wantResourceError: 1,
+		},
+		{
+			name:              "ephemeral port pressure",
+			err:               errCannotAssignRequested,
+			wantResourceError: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s := NewTCPSweeper(1*time.Second, 1, logger.NewTestLogger())
+			s.dialContext = func(context.Context, string, string) (net.Conn, error) {
+				return nil, tt.err
+			}
+
+			_, _, _ = s.checkPort(context.Background(), "192.0.2.10", 22)
+
+			stats := s.GetStats()
+			if stats.DialsStarted != 1 {
+				t.Fatalf("DialsStarted = %d, want 1", stats.DialsStarted)
+			}
+
+			if stats.DialsSucceeded != 0 {
+				t.Fatalf("DialsSucceeded = %d, want 0", stats.DialsSucceeded)
+			}
+
+			if stats.DialTimeouts != tt.wantTimeouts {
+				t.Fatalf("DialTimeouts = %d, want %d", stats.DialTimeouts, tt.wantTimeouts)
+			}
+
+			if stats.DialResets != tt.wantResets {
+				t.Fatalf("DialResets = %d, want %d", stats.DialResets, tt.wantResets)
+			}
+
+			if stats.DialResourceErrors != tt.wantResourceError {
+				t.Fatalf("DialResourceErrors = %d, want %d", stats.DialResourceErrors, tt.wantResourceError)
+			}
+
+			if stats.ActiveDials != 0 {
+				t.Fatalf("ActiveDials = %d, want 0 after failed dial", stats.ActiveDials)
+			}
+		})
+	}
+}
+
 // MockDialerFunc is a type for mocking net.DialTimeout.
 type MockDialerFunc func(network, address string, timeout time.Duration) (net.Conn, error)
 
@@ -321,4 +497,32 @@ func (s *TCPSweeper) checkPortWithDialer(
 	}(conn)
 
 	return true, time.Since(start), nil
+}
+
+func recordMaxInt64(max *int64, candidate int64) {
+	for {
+		current := atomic.LoadInt64(max)
+		if candidate <= current {
+			return
+		}
+
+		if atomic.CompareAndSwapInt64(max, current, candidate) {
+			return
+		}
+	}
+}
+
+func waitForActiveDialers(t *testing.T, maxActive *int64, want int64) {
+	t.Helper()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if atomic.LoadInt64(maxActive) >= want {
+			return
+		}
+
+		time.Sleep(time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for %d active dialers; saw %d", want, atomic.LoadInt64(maxActive))
 }

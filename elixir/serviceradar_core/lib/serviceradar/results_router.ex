@@ -164,6 +164,7 @@ defmodule ServiceRadar.ResultsRouter do
       actor = SystemActor.system(:sweep_ingestor)
       expected_total_hosts = parse_total_hosts(payload)
       scanner_metrics = parse_scanner_metrics(payload)
+      banner_grab_summary = parse_banner_grab_summary(payload)
 
       opts =
         Enum.reject(
@@ -173,6 +174,8 @@ defmodule ServiceRadar.ResultsRouter do
             actor: actor,
             expected_total_hosts: expected_total_hosts,
             scanner_metrics: scanner_metrics,
+            banner_grab_summary: banner_grab_summary,
+            request_id: status[:request_id],
             chunk_index: status[:chunk_index],
             total_chunks: status[:total_chunks],
             is_final: status[:is_final]
@@ -353,6 +356,14 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp parse_scanner_metrics(_payload), do: nil
+
+  defp parse_banner_grab_summary(payload) when is_map(payload) do
+    value = payload["banner_grab"] || payload["bannerGrab"]
+
+    if is_map(value), do: value
+  end
+
+  defp parse_banner_grab_summary(_payload), do: nil
 
   defp build_sweep_result(host, last_sweep_time, network) when is_map(host) do
     case host_ip(host) do

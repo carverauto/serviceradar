@@ -34,8 +34,9 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled           bool     `json:"enabled"`
-	CaptureInterfaces []string `json:"capture_interfaces"`
+	Enabled             bool     `json:"enabled"`
+	CaptureInterfaces   []string `json:"capture_interfaces"`
+	FlowTableMaxEntries uint32   `json:"flow_table_max_entries,omitempty"`
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
@@ -50,7 +51,9 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 		NetprobeConfig: &netprobepb.VisibilityAgentConfig{
 			Enabled:                 cfg.GetEnabled(),
 			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
+			Dpi:                     parseDPIConfig(cfg.GetDpi()),
 			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
+			FlowTableMaxEntries:     cfg.GetFlowTableMaxEntries(),
 			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
 		BinaryOverridePath: strings.TrimSpace(cfg.GetBinaryOverrides().GetPath()),
@@ -69,6 +72,7 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 	if cfg != nil {
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
+		payload.FlowTableMaxEntries = cfg.GetFlowTableMaxEntries()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")
@@ -102,6 +106,7 @@ func parseDeviceBindings(bindings []*monitoringpb.VisibilityDeviceBinding) []*ne
 			ProfileId:        strings.TrimSpace(binding.GetProfileId()),
 			ProfileName:      strings.TrimSpace(binding.GetProfileName()),
 			Fingerprint:      parseFingerprintConfig(binding.GetFingerprint()),
+			Dpi:              parseDPIConfig(binding.GetDpi()),
 			SampleIntervalMs: binding.GetSampleIntervalMs(),
 		})
 	}
@@ -118,6 +123,17 @@ func parseFingerprintConfig(cfg *monitoringpb.VisibilityFingerprintConfig) *netp
 		Tcp:  cfg.GetTcp(),
 		Tls:  cfg.GetTls(),
 		Http: cfg.GetHttp(),
+	}
+}
+
+func parseDPIConfig(cfg *monitoringpb.VisibilityDpiConfig) *netprobepb.DpiConfig {
+	if cfg == nil {
+		return nil
+	}
+
+	return &netprobepb.DpiConfig{
+		Enabled:   cfg.GetEnabled(),
+		Protocols: trimStrings(cfg.GetProtocols()),
 	}
 }
 

@@ -56,14 +56,29 @@ type Sidecar struct {
 	client        *Client
 	eventClient   *Client
 	events        chan *netprobepb.FingerprintEvent
+	dpiEvents     chan *netprobepb.DpiEvent
+	flowEvents    chan *netprobepb.FlowAttributionEvent
+	processSnaps  chan *netprobepb.ProcessSnapshot
 	healthy       atomic.Bool
 	unhealthy     atomic.Bool
 	runningAsRoot atomic.Bool
 	engineVersion atomic.Value
+	revisions     atomic.Value
 	lastError     atomic.Value
 }
 
 var _ sidecar.Sidecar = (*Sidecar)(nil)
+
+type CorpusRevisions struct {
+	P0f                   string `json:"p0f,omitempty"`
+	ServiceRadarAdditions string `json:"serviceradar_additions,omitempty"`
+	JA4                   string `json:"ja4,omitempty"`
+	MuonFP                string `json:"muonfp,omitempty"`
+	Recog                 string `json:"recog,omitempty"`
+	Satori                string `json:"satori,omitempty"`
+	ServiceRadarRecogAdds string `json:"serviceradar_recog_additions,omitempty"`
+	RecogCorpusLoaded     bool   `json:"recog_corpus_loaded,omitempty"`
+}
 
 // NewSidecar creates a netprobe sidecar adapter.
 func NewSidecar(cfg SidecarConfig) *Sidecar {
@@ -78,8 +93,11 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 	}
 
 	return &Sidecar{
-		cfg:    cfg,
-		events: make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		cfg:          cfg,
+		events:       make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
+		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
+		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
+		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
 	}
 }
 
@@ -120,6 +138,16 @@ func (s *Sidecar) OnHealthy(client sidecar.Client) {
 	if netprobeClient, ok := client.(*Client); ok {
 		s.engineVersion.Store(netprobeClient.FingerprintEngineVersion())
 		s.runningAsRoot.Store(netprobeClient.RunningAsRoot())
+		s.revisions.Store(CorpusRevisions{
+			P0f:                   netprobeClient.P0fCorpusRevision(),
+			ServiceRadarAdditions: netprobeClient.ServiceRadarAdditionsRevision(),
+			JA4:                   netprobeClient.JA4SpecRevision(),
+			MuonFP:                netprobeClient.MuonFPCorpusRevision(),
+			Recog:                 netprobeClient.RecogCorpusRevision(),
+			Satori:                netprobeClient.SatoriCorpusRevision(),
+			ServiceRadarRecogAdds: netprobeClient.ServiceRadarRecogAdditionsRevision(),
+			RecogCorpusLoaded:     netprobeClient.RecogCorpusLoaded(),
+		})
 		s.setClient(netprobeClient)
 	}
 }
@@ -151,6 +179,16 @@ func (s *Sidecar) RunningAsRoot() bool {
 	return s.runningAsRoot.Load()
 }
 
+func (s *Sidecar) CorpusRevisions() CorpusRevisions {
+	value := s.revisions.Load()
+	if value == nil {
+		return CorpusRevisions{}
+	}
+	revisions, _ := value.(CorpusRevisions)
+
+	return revisions
+}
+
 func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAgentConfig) (string, error) {
 	ticker := time.NewTicker(defaultApplyWaitInterval)
 	defer ticker.Stop()
@@ -166,6 +204,35 @@ func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAge
 			return "", ctx.Err()
 		case <-ticker.C:
 		}
+	}
+}
+
+func (s *Sidecar) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
+	ticker := time.NewTicker(defaultApplyWaitInterval)
+	defer ticker.Stop()
+
+	for {
+		client := s.currentClient()
+		if client != nil {
+			return client.MatchBanners(ctx, batch)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Sidecar) EnqueueFingerprintEvent(event *netprobepb.FingerprintEvent) {
+	if event == nil {
+		return
+	}
+
+	select {
+	case s.events <- event:
+	default:
 	}
 }
 
@@ -187,6 +254,77 @@ func (s *Sidecar) DrainEvents(max int) []*netprobepb.FingerprintEvent {
 	}
 
 	return events
+}
+
+func (s *Sidecar) DrainDPIEvents(max int) []*netprobepb.DpiEvent {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	events := make([]*netprobepb.DpiEvent, 0, max)
+	for len(events) < max {
+		select {
+		case event := <-s.dpiEvents:
+			if event != nil {
+				events = append(events, event)
+			}
+		default:
+			return events
+		}
+	}
+
+	return events
+}
+
+func (s *Sidecar) DrainFlowAttributionEvents(max int) []*netprobepb.FlowAttributionEvent {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	events := make([]*netprobepb.FlowAttributionEvent, 0, max)
+	for len(events) < max {
+		select {
+		case event := <-s.flowEvents:
+			if event != nil {
+				events = append(events, event)
+			}
+		default:
+			return events
+		}
+	}
+
+	return events
+}
+
+func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
+	if max <= 0 {
+		max = defaultSidecarEventBuffer
+	}
+
+	snapshots := make([]*netprobepb.ProcessSnapshot, 0, max)
+	for len(snapshots) < max {
+		select {
+		case snapshot := <-s.processSnaps:
+			if snapshot != nil {
+				snapshots = append(snapshots, snapshot)
+			}
+		default:
+			return snapshots
+		}
+	}
+
+	return snapshots
+}
+
+// DroppedFlowAttributionEvents returns the cumulative number of
+// FlowAttributionEvents the IPC client has dropped due to backpressure.
+// Returns 0 when no client is currently attached.
+func (s *Sidecar) DroppedFlowAttributionEvents() uint64 {
+	client := s.currentClient()
+	if client == nil {
+		return 0
+	}
+	return client.DroppedFlowAttributionEvents()
 }
 
 func (s *Sidecar) currentClient() *Client {
@@ -219,14 +357,47 @@ func (s *Sidecar) setClient(client *Client) {
 }
 
 func (s *Sidecar) forwardEvents(client *Client) {
-	for event := range client.Events() {
-		select {
-		case s.events <- event:
-		default:
-			// Keep the manager/IPC reader non-blocking; client-level drop metrics
-			// already cover drops before this fan-in point.
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		for event := range client.Events() {
+			select {
+			case s.events <- event:
+			default:
+				// Keep the manager/IPC reader non-blocking; client-level drop metrics
+				// already cover drops before this fan-in point.
+			}
 		}
-	}
+	}()
+	go func() {
+		defer wg.Done()
+		for event := range client.DpiEvents() {
+			select {
+			case s.dpiEvents <- event:
+			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for event := range client.FlowAttributionEvents() {
+			select {
+			case s.flowEvents <- event:
+			default:
+			}
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for snapshot := range client.ProcessSnapshots() {
+			select {
+			case s.processSnaps <- snapshot:
+			default:
+			}
+		}
+	}()
+	wg.Wait()
 
 	s.mu.Lock()
 	if s.client == client {

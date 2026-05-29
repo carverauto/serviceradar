@@ -10,16 +10,24 @@ use std::{
 use anyhow::{Context, Result};
 use tokio::{
     net::{UnixListener, UnixStream},
-    sync::{broadcast, watch},
+    sync::{broadcast, watch, Mutex},
 };
 
 use crate::{
     capabilities,
-    fingerprint::FINGERPRINT_ENGINE_VERSION,
-    framing::{read_frame, write_frame},
+    event_queue::EventReceiver,
+    external_flow::{ExternalFlowIngest, ExternalFlowMatcher},
+    fingerprint::{
+        FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
+        P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
+        SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
+    },
+    framing::{read_frame, write_frame, write_frame_with_buffer},
+    ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
-        netprobe_frame, ConfigAck, ErrorFrame, FingerprintEvent, NetprobeFrame, PingAck,
+        netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
+        FingerprintEvent, FlowAttributionEvent, NetprobeFrame, PingAck, ProcessSnapshot,
     },
     runtime_config::RuntimeConfig,
 };
@@ -27,7 +35,10 @@ use crate::{
 pub struct IpcServer {
     socket_path: PathBuf,
     active_client: Arc<AtomicBool>,
-    fingerprint_events: broadcast::Sender<FingerprintEvent>,
+    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
+    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
+    flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+    process_snapshots: broadcast::Sender<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 }
@@ -35,14 +46,20 @@ pub struct IpcServer {
 impl IpcServer {
     pub fn new(
         socket_path: impl Into<PathBuf>,
-        fingerprint_events: broadcast::Sender<FingerprintEvent>,
+        fingerprint_event_rx: EventReceiver<FingerprintEvent>,
+        dpi_event_rx: EventReceiver<DpiEvent>,
+        flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        process_snapshots: broadcast::Sender<ProcessSnapshot>,
         runtime_config: RuntimeConfig,
         metrics: Metrics,
     ) -> Self {
         Self {
             socket_path: socket_path.into(),
             active_client: Arc::new(AtomicBool::new(false)),
-            fingerprint_events,
+            fingerprint_events: Arc::new(Mutex::new(fingerprint_event_rx)),
+            dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
+            flow_attribution_events,
+            process_snapshots,
             runtime_config,
             metrics,
         }
@@ -70,12 +87,26 @@ impl IpcServer {
                     }
 
                     let active_client = Arc::clone(&self.active_client);
-                    let event_rx = self.fingerprint_events.subscribe();
+                    let fingerprint_rx = Arc::clone(&self.fingerprint_events);
+                    let dpi_rx = Arc::clone(&self.dpi_events);
+                    let flow_attribution_tx = self.flow_attribution_events.clone();
+                    let flow_attribution_rx = self.flow_attribution_events.subscribe();
+                    let process_snapshot_rx = self.process_snapshots.subscribe();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
                     tokio::spawn(async move {
                         let _guard = ActiveClientGuard(active_client);
-                        let result = handle_client(stream, event_rx, runtime_config, metrics).await;
+                        let result = handle_client(
+                            stream,
+                            fingerprint_rx,
+                            dpi_rx,
+                            flow_attribution_tx,
+                            flow_attribution_rx,
+                            process_snapshot_rx,
+                            runtime_config,
+                            metrics,
+                        )
+                        .await;
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
                         }
@@ -122,11 +153,18 @@ async fn reject_concurrent_client(mut stream: UnixStream) -> Result<()> {
 
 async fn handle_client(
     stream: UnixStream,
-    mut fingerprint_events: broadcast::Receiver<FingerprintEvent>,
+    fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
+    dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
+    flow_attribution_broadcast: broadcast::Sender<FlowAttributionEvent>,
+    mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
+    mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
+    let mut encode_buffer = Vec::new();
+    let mut external_flows =
+        ExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
 
     loop {
         tokio::select! {
@@ -134,21 +172,71 @@ async fn handle_client(
                 let Some(frame) = frame? else {
                     return Ok(());
                 };
-                let response = response_for_frame(frame, &runtime_config);
-                write_frame(&mut writer, &response).await?;
+                if let Some(response) = response_for_frame(
+                    frame,
+                    &runtime_config,
+                    &mut external_flows,
+                    &metrics,
+                    &flow_attribution_broadcast,
+                ).await? {
+                    write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
+                }
             }
-            event = fingerprint_events.recv() => {
+            event = recv_event(&fingerprint_events) => {
                 match event {
-                    Ok(event) => {
+                    Some(event) => {
                         let frame = NetprobeFrame {
                             sequence: 0,
                             payload: Some(netprobe_frame::Payload::FingerprintEvent(event)),
                         };
-                        write_frame(&mut writer, &frame).await?;
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                    }
+                    None => return Ok(()),
+                }
+            }
+            event = recv_event(&dpi_events) => {
+                match event {
+                    Some(event) => {
+                        let frame = NetprobeFrame {
+                            sequence: 0,
+                            payload: Some(netprobe_frame::Payload::DpiEvent(event)),
+                        };
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                    }
+                    None => return Ok(()),
+                }
+            }
+            event = flow_attribution_events.recv() => {
+                match event {
+                    Ok(event) => {
+                        external_flows.observe_attribution(&event);
+                        let frame = NetprobeFrame {
+                            sequence: 0,
+                            payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
+                        };
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        metrics.inc_fingerprint_events_dropped("lagged_receiver", skipped);
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} fingerprint event(s)");
+                        metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
+                        log::warn!("netprobe IPC client lagged; skipped {skipped} flow attribution event(s)");
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Ok(());
+                    }
+                }
+            }
+            snapshot = process_snapshots.recv() => {
+                match snapshot {
+                    Ok(snapshot) => {
+                        let frame = NetprobeFrame {
+                            sequence: 0,
+                            payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
+                        };
+                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                    }
+                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
+                        metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
+                        log::warn!("netprobe IPC client lagged; skipped {skipped} process snapshot(s)");
                     }
                     Err(broadcast::error::RecvError::Closed) => {
                         return Ok(());
@@ -159,44 +247,143 @@ async fn handle_client(
     }
 }
 
-fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> NetprobeFrame {
+async fn recv_event<T>(receiver: &Arc<Mutex<EventReceiver<T>>>) -> Option<T> {
+    receiver.lock().await.recv().await
+}
+
+async fn write_reused_frame<W>(
+    writer: &mut W,
+    frame: &NetprobeFrame,
+    encode_buffer: &mut Vec<u8>,
+    metrics: &Metrics,
+) -> Result<(), crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if write_frame_with_buffer(writer, frame, encode_buffer).await? {
+        metrics.inc_encode_buffer_reuses();
+    }
+    Ok(())
+}
+
+async fn response_for_frame(
+    frame: NetprobeFrame,
+    runtime_config: &RuntimeConfig,
+    external_flows: &mut ExternalFlowMatcher,
+    metrics: &Metrics,
+    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+) -> Result<Option<NetprobeFrame>, crate::framing::FramingError> {
+    let sequence = frame.sequence;
     match frame.payload {
-        Some(netprobe_frame::Payload::Ping(ping)) => NetprobeFrame {
-            sequence: frame.sequence,
+        Some(netprobe_frame::Payload::Ping(ping)) => Ok(Some(NetprobeFrame {
+            sequence,
             payload: Some(netprobe_frame::Payload::PingAck(PingAck {
                 sent_at_unix_nano: ping.sent_at_unix_nano,
                 acked_at_unix_nano: now_unix_nano(),
                 fingerprint_engine_version: FINGERPRINT_ENGINE_VERSION.to_string(),
                 running_as_root: capabilities::running_as_root(),
+                p0f_corpus_revision: P0F_CORPUS_REVISION.to_string(),
+                serviceradar_additions_revision: SERVICERADAR_ADDITIONS_REVISION.to_string(),
+                ja4_spec_revision: JA4_BASE_SPEC_REVISION.to_string(),
+                muonfp_corpus_revision: MUONFP_CORPUS_REVISION.to_string(),
+                recog_corpus_revision: RECOG_CORPUS_REVISION.to_string(),
+                satori_corpus_revision: SATORI_CORPUS_REVISION.to_string(),
+                serviceradar_recog_additions_revision: SERVICERADAR_RECOG_ADDITIONS_REVISION
+                    .to_string(),
+                recog_corpus_loaded: true,
             })),
-        },
+        })),
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
             match apply
                 .config
                 .and_then(|config| runtime_config.apply(config).ok())
             {
-                Some(config_hash) => NetprobeFrame {
-                    sequence: frame.sequence,
+                Some(config_hash) => Ok(Some(NetprobeFrame {
+                    sequence,
                     payload: Some(netprobe_frame::Payload::ConfigAck(ConfigAck {
                         config_hash,
                     })),
-                },
-                None => NetprobeFrame {
-                    sequence: frame.sequence,
+                })),
+                None => Ok(Some(NetprobeFrame {
+                    sequence,
                     payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
                         code: "invalid_config".to_string(),
                         message: "visibility config is missing or invalid".to_string(),
                     })),
-                },
+                })),
             }
         }
-        _ => NetprobeFrame {
-            sequence: frame.sequence,
+        Some(netprobe_frame::Payload::BannerBatch(batch)) => Ok(Some(NetprobeFrame {
+            sequence,
+            payload: Some(netprobe_frame::Payload::BannerMatchBatch(
+                match_banner::match_banner_batch(&batch),
+            )),
+        })),
+        Some(netprobe_frame::Payload::ExternalFlowRecord(record)) => {
+            external_flows.set_match_window_ms(runtime_config.external_flow_match_window_ms());
+            let ack = ingest_external_flow_record(
+                record,
+                external_flows,
+                metrics,
+                flow_attribution_broadcast,
+            );
+            if sequence == 0 {
+                Ok(None)
+            } else {
+                Ok(Some(NetprobeFrame {
+                    sequence,
+                    payload: Some(netprobe_frame::Payload::ExternalFlowAck(ack)),
+                }))
+            }
+        }
+        _ => Ok(Some(NetprobeFrame {
+            sequence,
             payload: Some(netprobe_frame::Payload::Error(ErrorFrame {
                 code: "unsupported_frame".to_string(),
                 message: "frame type is not supported by the Phase 1 skeleton".to_string(),
             })),
-        },
+        })),
+    }
+}
+
+fn ingest_external_flow_record(
+    record: ExternalFlowRecord,
+    external_flows: &ExternalFlowMatcher,
+    metrics: &Metrics,
+    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+) -> ExternalFlowAck {
+    match external_flows.ingest(&record, now_unix_nano()) {
+        ExternalFlowIngest::Matched(event) => {
+            metrics.inc_flow_attribution_events();
+            metrics.inc_external_flow_matched();
+            // Route the matched FlowAttributionEvent through the broadcast
+            // channel so the existing `handle_client` consumer mirrors it to
+            // the IPC writer and back-fills the matcher cache via
+            // `observe_attribution`. Errors only occur when no receivers are
+            // attached — silently drop in that case, matching the broadcast
+            // semantics used elsewhere in this module.
+            let _ = flow_attribution_broadcast.send(event);
+            ExternalFlowAck {
+                accepted: 1,
+                matched: 1,
+                ..Default::default()
+            }
+        }
+        ExternalFlowIngest::Unmatched => {
+            metrics.inc_external_flow_unmatched();
+            ExternalFlowAck {
+                accepted: 1,
+                unmatched: 1,
+                ..Default::default()
+            }
+        }
+        ExternalFlowIngest::Invalid => {
+            metrics.inc_external_flow_invalid();
+            ExternalFlowAck {
+                invalid: 1,
+                ..Default::default()
+            }
+        }
     }
 }
 
@@ -215,13 +402,20 @@ mod tests {
         sync::{broadcast, watch},
     };
 
-    use super::IpcServer;
+    use super::{ingest_external_flow_record, IpcServer};
+    use crate::external_flow::ExternalFlowMatcher;
     use crate::{
         config::Config,
+        fingerprint::{
+            JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION, P0F_CORPUS_REVISION,
+            RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
+            SERVICERADAR_RECOG_ADDITIONS_REVISION,
+        },
         framing::{read_frame, write_frame},
         metrics::Metrics,
         proto::netprobe::{
-            fingerprint_event, netprobe_frame, ApplyConfig, FingerprintEvent, NetprobeFrame, Ping,
+            fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, ExternalFlowRecord,
+            FingerprintEvent, FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot,
             TcpFingerprint, VisibilityAgentConfig,
         },
         runtime_config::RuntimeConfig,
@@ -232,10 +426,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -258,10 +458,23 @@ mod tests {
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 1);
-        assert!(matches!(
-            response.payload,
-            Some(netprobe_frame::Payload::PingAck(_))
-        ));
+        let Some(netprobe_frame::Payload::PingAck(ack)) = response.payload else {
+            panic!("expected ping ack");
+        };
+        assert_eq!(ack.p0f_corpus_revision, P0F_CORPUS_REVISION);
+        assert_eq!(
+            ack.serviceradar_additions_revision,
+            SERVICERADAR_ADDITIONS_REVISION
+        );
+        assert_eq!(ack.ja4_spec_revision, JA4_BASE_SPEC_REVISION);
+        assert_eq!(ack.muonfp_corpus_revision, MUONFP_CORPUS_REVISION);
+        assert_eq!(ack.recog_corpus_revision, RECOG_CORPUS_REVISION);
+        assert_eq!(ack.satori_corpus_revision, SATORI_CORPUS_REVISION);
+        assert_eq!(
+            ack.serviceradar_recog_additions_revision,
+            SERVICERADAR_RECOG_ADDITIONS_REVISION
+        );
+        assert!(ack.recog_corpus_loaded);
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
@@ -272,10 +485,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -300,10 +519,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
+        let (event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx.clone(),
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -312,8 +537,7 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&event_tx).await;
-        event_tx.send(fingerprint_event()).unwrap();
+        event_tx.try_send(fingerprint_event()).unwrap();
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 0);
@@ -327,16 +551,21 @@ mod tests {
         task.await.unwrap().unwrap();
     }
 
-    #[cfg(feature = "pcap-capture")]
     #[tokio::test]
-    async fn streams_fixture_traffic_events_to_connected_client() {
+    async fn streams_dpi_events_to_connected_client() {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx.clone(),
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -345,11 +574,229 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&event_tx).await;
+        dpi_tx.try_send(dpi_event()).unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::DpiEvent(event)) = response.payload else {
+            panic!("expected DPI event");
+        };
+        assert_eq!(event.protocol, "dns");
+        assert_eq!(event.interface_name, "eth0");
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn streams_flow_attribution_events_to_connected_client() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx.clone(),
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&flow_tx).await;
+        flow_tx.send(flow_attribution_event()).unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::FlowAttributionEvent(event)) = response.payload else {
+            panic!("expected flow attribution event");
+        };
+        assert_eq!(event.local_ip, "192.0.2.10");
+        assert_eq!(event.pid, 123);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn ingests_external_flow_record_and_emits_matched_attribution() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx.clone(),
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&flow_tx).await;
+        flow_tx.send(flow_attribution_event()).unwrap();
+
+        let local = read_frame(&mut client).await.unwrap().unwrap();
+        assert!(matches!(
+            local.payload,
+            Some(netprobe_frame::Payload::FlowAttributionEvent(_))
+        ));
+
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 0,
+                payload: Some(netprobe_frame::Payload::ExternalFlowRecord(
+                    external_flow_record(),
+                )),
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::FlowAttributionEvent(event)) = response.payload else {
+            panic!("expected matched flow attribution event");
+        };
+        assert_eq!(event.pid, 123);
+        assert_eq!(event.source, "external_netflow");
+        assert_eq!(event.external_flow_id, 42);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn acks_unmatched_external_flow_record_requests() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 99,
+                payload: Some(netprobe_frame::Payload::ExternalFlowRecord(
+                    external_flow_record(),
+                )),
+            },
+        )
+        .await
+        .unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 99);
+        let Some(netprobe_frame::Payload::ExternalFlowAck(ack)) = response.payload else {
+            panic!("expected external flow ack");
+        };
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.matched, 0);
+        assert_eq!(ack.unmatched, 1);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn streams_process_snapshots_to_connected_client() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx.clone(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        wait_for_event_receiver(&process_tx).await;
+        process_tx.send(process_snapshot()).unwrap();
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)) = response.payload else {
+            panic!("expected process snapshot");
+        };
+        assert_eq!(snapshot.fingerprint, "fp-1");
+        assert_eq!(snapshot.entries.len(), 1);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[cfg(feature = "remote-capture")]
+    #[tokio::test]
+    async fn streams_fixture_traffic_events_to_connected_client() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
 
         let mut engine = crate::fingerprint::FingerprintEngine::phase1().unwrap();
         for event in engine.analyze_packet("eth0", 789, &tls_server_hello_packet()) {
-            event_tx.send(event).unwrap();
+            event_tx.try_send(event).unwrap();
         }
 
         let (event, tls) = read_tls_fixture_event(&mut client).await;
@@ -367,10 +814,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let socket = dir.path().join("ipc.sock");
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
-        let (event_tx, _) = broadcast::channel(16);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
-            event_tx,
+            event_rx,
+            dpi_rx,
+            flow_tx,
+            process_tx,
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -416,7 +869,7 @@ mod tests {
         panic!("socket did not appear");
     }
 
-    async fn wait_for_event_receiver(event_tx: &broadcast::Sender<FingerprintEvent>) {
+    async fn wait_for_event_receiver<T: Clone>(event_tx: &broadcast::Sender<T>) {
         for _ in 0..50 {
             if event_tx.receiver_count() > 0 {
                 return;
@@ -426,7 +879,7 @@ mod tests {
         panic!("server did not subscribe to fingerprint events");
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     async fn read_tls_fixture_event(
         client: &mut UnixStream,
     ) -> (FingerprintEvent, crate::proto::netprobe::TlsFingerprint) {
@@ -463,7 +916,182 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "pcap-capture")]
+    fn dpi_event() -> DpiEvent {
+        DpiEvent {
+            source_ip: "192.0.2.10".to_string(),
+            destination_ip: "198.51.100.20".to_string(),
+            source_port: 49_152,
+            destination_port: 53,
+            transport_protocol: "udp".to_string(),
+            protocol: "dns".to_string(),
+            confidence: 0.95,
+            observed_at_unix_nano: 123,
+            interface_name: "eth0".to_string(),
+            dissector_id: "dns_header".to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_emits_matched_via_broadcast_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        let mut matcher = ExternalFlowMatcher::new(0);
+        matcher.observe_attribution(&flow_attribution_event());
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        let ack = ingest_external_flow_record(
+            external_flow_record(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.matched, 1);
+        assert_eq!(ack.unmatched, 0);
+        assert_eq!(ack.invalid, 0);
+
+        let event = broadcast_rx.try_recv().expect("broadcast event present");
+        assert_eq!(event.source, "external_netflow");
+        assert_eq!(event.external_flow_id, 42);
+
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            0
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_drops_unmatched_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        // Empty matcher — no attribution observed — every well-formed
+        // external record reports Unmatched.
+        let matcher = ExternalFlowMatcher::new(0);
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        let ack = ingest_external_flow_record(
+            external_flow_record(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.unmatched, 1);
+        assert_eq!(ack.matched, 0);
+        assert!(broadcast_rx.try_recv().is_err());
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_drops_invalid_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        let matcher = ExternalFlowMatcher::new(0);
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        // Default record has empty IP buffers, so `flow_key_from_external_record`
+        // returns None and the matcher reports Invalid.
+        let ack = ingest_external_flow_record(
+            ExternalFlowRecord::default(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.invalid, 1);
+        assert_eq!(ack.accepted, 0);
+        assert!(broadcast_rx.try_recv().is_err());
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            0
+        );
+    }
+
+    fn counter_value(metrics: &Metrics, name: &str) -> u64 {
+        metrics
+            .registry()
+            .gather()
+            .into_iter()
+            .find(|family| family.name() == name)
+            .and_then(|family| family.get_metric().first().map(|m| m.get_counter().value()))
+            .unwrap_or(0.0) as u64
+    }
+
+    fn flow_attribution_event() -> FlowAttributionEvent {
+        FlowAttributionEvent {
+            local_ip: "192.0.2.10".to_string(),
+            local_port: 49_152,
+            remote_ip: "198.51.100.20".to_string(),
+            remote_port: 443,
+            transport_protocol: "tcp".to_string(),
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1000,
+            comm: "curl".to_string(),
+            redacted_cmdline: vec![
+                "/usr/bin/curl".to_string(),
+                "[redacted 1 arg(s)]".to_string(),
+            ],
+            observed_at_unix_nano: 123,
+            ..Default::default()
+        }
+    }
+
+    fn external_flow_record() -> ExternalFlowRecord {
+        ExternalFlowRecord {
+            external_flow_id: 42,
+            source_ip: vec![198, 51, 100, 20],
+            destination_ip: vec![192, 0, 2, 10],
+            source_port: 443,
+            destination_port: 49_152,
+            transport_protocol: "tcp".to_string(),
+            time_flow_end_ns: 123,
+            bytes: 4096,
+            packets: 9,
+            ..Default::default()
+        }
+    }
+
+    fn process_snapshot() -> ProcessSnapshot {
+        ProcessSnapshot {
+            fingerprint: "fp-1".to_string(),
+            observed_at_unix_nano: 123,
+            entries: vec![crate::proto::netprobe::ProcessSnapshotEntry {
+                local_ip: "192.0.2.10".to_string(),
+                local_port: 443,
+                transport_protocol: "tcp".to_string(),
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1000,
+                comm: "nginx".to_string(),
+                redacted_cmdline: vec!["/usr/sbin/nginx".to_string()],
+                ..Default::default()
+            }],
+        }
+    }
+
+    #[cfg(feature = "remote-capture")]
     fn tls_server_hello_packet() -> Vec<u8> {
         ipv4_tcp_packet(
             [198, 51, 100, 40],
@@ -474,7 +1102,7 @@ mod tests {
         )
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn tls_server_hello_payload() -> Vec<u8> {
         let mut body = Vec::new();
         body.extend_from_slice(&[0x03, 0x03]);
@@ -512,7 +1140,7 @@ mod tests {
         record
     }
 
-    #[cfg(feature = "pcap-capture")]
+    #[cfg(feature = "remote-capture")]
     fn ipv4_tcp_packet(
         source_ip: [u8; 4],
         destination_ip: [u8; 4],

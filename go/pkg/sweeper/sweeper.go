@@ -28,10 +28,23 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
+	"github.com/carverauto/serviceradar/go/pkg/scan/banner_grab"
 )
 
 // Option configures a NetworkSweeper instance.
 type Option func(*NetworkSweeper)
+
+// BannerObservationHandler consumes successful active banner observations.
+type BannerObservationHandler func(context.Context, models.BannerGrab, *banner_grab.Engine, <-chan banner_grab.BannerObservation) error
+
+// WithBannerObservationHandler wires banner observations to the agent-owned
+// netprobe IPC batcher. When unset, the sweeper drains observations and logs
+// counters so enabling banner grab cannot block the scan path.
+func WithBannerObservationHandler(handler BannerObservationHandler) Option {
+	return func(s *NetworkSweeper) {
+		s.bannerHandler = handler
+	}
+}
 
 const (
 	defaultInterval      = 5 * time.Minute
@@ -51,6 +64,7 @@ const (
 	addressFamilyUnknown         = "unknown"
 	scannerProtocolTCP           = "tcp"
 	scannerPathRawSYN            = "raw_syn"
+	scannerPathTCPConnect        = "tcp_connect"
 	scannerPathTCPConnectIPv6SYN = "tcp_connect_ipv6_raw_syn_fallback"
 )
 
@@ -79,9 +93,13 @@ type NetworkSweeper struct {
 	stopped           bool
 	lastSweep         time.Time
 	// Device result aggregation for multi-IP devices
-	deviceResults map[string]*DeviceResultAggregator
-	resultsMu     sync.Mutex
-	tickerReset   chan struct{}
+	deviceResults   map[string]*DeviceResultAggregator
+	resultsMu       sync.Mutex
+	tickerReset     chan struct{}
+	bannerMu        sync.RWMutex
+	bannerPhase     *banner_grab.Engine
+	lastBannerStats *models.BannerGrabStats
+	bannerHandler   BannerObservationHandler
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
@@ -616,7 +634,7 @@ func (s *NetworkSweeper) GetConfig() models.Config {
 	return *s.config
 }
 
-// GetScannerStats returns aggregated scanner statistics from the TCP SYN scanner.
+// GetScannerStats returns aggregated scanner statistics from the TCP scanner.
 // Returns nil if the scanner doesn't support statistics.
 func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	s.mu.RLock()
@@ -626,6 +644,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 	if statsProvider, ok := s.tcpScanner.(scan.StatsProvider); ok {
 		scanStats := statsProvider.GetStats()
 		addressFamily := scannerStatsAddressFamily(s.tcpScanner)
+		scannerPath := scannerStatsPath(s.tcpScanner)
 
 		// Calculate drop rate
 		var rxDropRate float64
@@ -636,7 +655,7 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 		return &models.ScannerStats{
 			Protocol:             scannerProtocolTCP,
 			AddressFamily:        addressFamily,
-			ScannerPath:          scannerPathRawSYN,
+			ScannerPath:          scannerPath,
 			PacketsSent:          scanStats.PacketsSent,
 			PacketsRecv:          scanStats.PacketsRecv,
 			PacketsDropped:       scanStats.PacketsDropped,
@@ -653,6 +672,15 @@ func (s *NetworkSweeper) GetScannerStats() *models.ScannerStats {
 			RateLimitWaitTimeMs:  scanStats.RateLimitWaitNanos / uint64(time.Millisecond),
 			SourcePortWaitTimeMs: scanStats.SourcePortWaitNanos / uint64(time.Millisecond),
 			RxDropRatePercent:    rxDropRate,
+			DialsStarted:         scanStats.DialsStarted,
+			DialsSucceeded:       scanStats.DialsSucceeded,
+			DialTimeouts:         scanStats.DialTimeouts,
+			DialResets:           scanStats.DialResets,
+			DialResourceErrors:   scanStats.DialResourceErrors,
+			ActiveDials:          scanStats.ActiveDials,
+			MaxActiveDials:       scanStats.MaxActiveDials,
+			QueueDepth:           scanStats.QueueDepth,
+			MaxQueueDepth:        scanStats.MaxQueueDepth,
 		}
 	}
 
@@ -1025,6 +1053,10 @@ func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-cha
 				return s.handleStreamComplete(ctx, resultBatch, scanType, count, success)
 			}
 
+			if err := s.submitBannerGrabCandidate(ctx, result); err != nil {
+				return err
+			}
+
 			count, success = s.processSingleResult(&result, &resultBatch, count, success)
 			if err := s.processBatchIfFull(ctx, &resultBatch, scanType, count, success); err != nil {
 				return err
@@ -1033,6 +1065,166 @@ func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-cha
 		case <-ctx.Done():
 			return s.handleContextDone(ctx, resultBatch, scanType, count, success)
 		}
+	}
+}
+
+type activeBannerGrabPhase struct {
+	engine *banner_grab.Engine
+	done   <-chan error
+}
+
+func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBannerGrabPhase {
+	if !s.config.BannerGrab.Enabled {
+		return nil
+	}
+
+	engine := banner_grab.New(banner_grab.ConfigFromModel(s.config.BannerGrab))
+	observations := engine.Start(ctx)
+
+	handler := s.bannerHandler
+	if handler == nil {
+		handler = s.drainBannerGrabObservations
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- handler(ctx, s.config.BannerGrab, engine, observations)
+	}()
+
+	s.bannerMu.Lock()
+	s.bannerPhase = engine
+	s.lastBannerStats = nil
+	s.bannerMu.Unlock()
+
+	s.logger.Info().
+		Strs("protocols", s.config.BannerGrab.Protocols).
+		Int("maxGlobalConcurrency", s.config.BannerGrab.MaxGlobalConcurrency).
+		Int("maxCandidateQueue", s.config.BannerGrab.MaxCandidateQueue).
+		Msg("Started banner-grab phase")
+
+	return &activeBannerGrabPhase{
+		engine: engine,
+		done:   done,
+	}
+}
+
+func (s *NetworkSweeper) finishBannerGrabPhase(phase *activeBannerGrabPhase) error {
+	if phase == nil {
+		return nil
+	}
+
+	phase.engine.Stop()
+	err := <-phase.done
+	stats := phase.engine.Stats()
+
+	s.bannerMu.Lock()
+	if s.bannerPhase == phase.engine {
+		s.bannerPhase = nil
+	}
+	s.lastBannerStats = bannerGrabStatsFromEngine(stats)
+	s.bannerMu.Unlock()
+
+	s.logger.Info().
+		Uint64("candidates", stats.CandidatesTotal).
+		Uint64("probes", stats.ProbesTotal).
+		Uint64("observations", stats.ObservationsTotal).
+		Uint64("bytesReceived", stats.BannerBytesTotal).
+		Uint64("timeouts", stats.TimeoutTotal).
+		Uint64("connectionResets", stats.ConnectionResetTotal).
+		Uint64("emptyResponses", stats.EmptyResponseTotal).
+		Uint64("errors", stats.ErrorsTotal).
+		Uint64("maxQueueDepth", stats.MaxQueueDepth).
+		Msg("Finished banner-grab phase")
+
+	return err
+}
+
+func (s *NetworkSweeper) abortBannerGrabPhase(phase *activeBannerGrabPhase) {
+	if phase == nil {
+		return
+	}
+
+	phase.engine.Stop()
+	<-phase.done
+
+	s.bannerMu.Lock()
+	if s.bannerPhase == phase.engine {
+		s.bannerPhase = nil
+	}
+	s.bannerMu.Unlock()
+}
+
+func (s *NetworkSweeper) GetBannerGrabStats() *models.BannerGrabStats {
+	s.bannerMu.RLock()
+	engine := s.bannerPhase
+	lastStats := s.lastBannerStats
+	s.bannerMu.RUnlock()
+
+	if engine != nil {
+		return bannerGrabStatsFromEngine(engine.Stats())
+	}
+	if lastStats == nil {
+		return nil
+	}
+
+	stats := *lastStats
+	return &stats
+}
+
+func (s *NetworkSweeper) submitBannerGrabCandidate(ctx context.Context, result models.Result) error {
+	s.bannerMu.RLock()
+	engine := s.bannerPhase
+	s.bannerMu.RUnlock()
+
+	if engine == nil {
+		return nil
+	}
+
+	return engine.SubmitResult(ctx, result)
+}
+
+func (s *NetworkSweeper) drainBannerGrabObservations(
+	ctx context.Context,
+	_ models.BannerGrab,
+	_ *banner_grab.Engine,
+	observations <-chan banner_grab.BannerObservation,
+) error {
+	count := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case _, ok := <-observations:
+			if !ok {
+				if count > 0 {
+					s.logger.Debug().Int("observations", count).Msg("Drained banner-grab observations without netprobe handler")
+				}
+
+				return nil
+			}
+
+			count++
+		}
+	}
+}
+
+func bannerGrabStatsFromEngine(stats banner_grab.Stats) *models.BannerGrabStats {
+	return &models.BannerGrabStats{
+		CandidatesTotal:      stats.CandidatesTotal,
+		ProbesTotal:          stats.ProbesTotal,
+		InFlight:             stats.InFlight,
+		QueueDepth:           stats.QueueDepth,
+		MatchBatchesTotal:    stats.MatchBatchesTotal,
+		MatchBatchBytesTotal: stats.MatchBatchBytesTotal,
+		BannerBytesTotal:     stats.BannerBytesTotal,
+		SkippedFreshTotal:    stats.SkippedFreshTotal,
+		SkippedBackoffTotal:  stats.SkippedBackoffTotal,
+		MatchesTotal:         stats.MatchesTotal,
+		EmptyResponseTotal:   stats.EmptyResponseTotal,
+		ConnectionResetTotal: stats.ConnectionResetTotal,
+		TimeoutTotal:         stats.TimeoutTotal,
+		ErrorsTotal:          stats.ErrorsTotal,
 	}
 }
 
@@ -1173,6 +1365,14 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting sweep")
 
+	bannerPhase := s.startBannerGrabPhase(ctx)
+	finishedBannerPhase := false
+	defer func() {
+		if !finishedBannerPhase {
+			s.abortBannerGrabPhase(bannerPhase)
+		}
+	}()
+
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
@@ -1221,6 +1421,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return err
 	}
 
+	err = s.finishBannerGrabPhase(bannerPhase)
+	finishedBannerPhase = true
+	if err != nil {
+		return err
+	}
+
 	// Finalize and process aggregated device results
 	s.finalizeDeviceAggregators(ctx)
 
@@ -1243,6 +1449,14 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	s.deviceResults = make(map[string]*DeviceResultAggregator)
 	s.resultsMu.Unlock()
 
+	bannerPhase := s.startBannerGrabPhase(ctx)
+	finishedBannerPhase := false
+	defer func() {
+		if !finishedBannerPhase {
+			s.abortBannerGrabPhase(bannerPhase)
+		}
+	}()
+
 	runner := &sweepBatchRunner{
 		sweeper:           s,
 		ctx:               ctx,
@@ -1260,10 +1474,17 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 		runner.tcpStream = tcpStream
 	}
 
+	if tcpConnectStream, ok, err := s.startStreamingScan(ctx, tcpConnectScanner, "tcp_connect", targetEstimate); err != nil {
+		return err
+	} else if ok {
+		runner.tcpConnectStream = tcpConnectStream
+	}
+
 	s.logger.Info().
 		Int("estimatedTargets", targetEstimate).
 		Int("batchSize", defaultTargetBatch).
 		Bool("tcpStreaming", runner.tcpStream != nil).
+		Bool("tcpConnectStreaming", runner.tcpConnectStream != nil).
 		Bool("icmpScannerAvailable", icmpScanner != nil).
 		Bool("tcpScannerAvailable", tcpScanner != nil).
 		Bool("tcpConnectScannerAvailable", tcpConnectScanner != nil).
@@ -1281,6 +1502,12 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	}
 
 	if err := runner.flushAll(); err != nil {
+		return err
+	}
+
+	err := s.finishBannerGrabPhase(bannerPhase)
+	finishedBannerPhase = true
+	if err != nil {
 		return err
 	}
 
@@ -1384,6 +1611,7 @@ type sweepBatchRunner struct {
 	tcpScanner                  scan.Scanner
 	tcpConnectScanner           scan.Scanner
 	tcpStream                   *sweepTargetStream
+	tcpConnectStream            *sweepTargetStream
 	icmpTargets                 []models.Target
 	tcpTargets                  []models.Target
 	tcpConnectTargets           []models.Target
@@ -1422,6 +1650,12 @@ func (r *sweepBatchRunner) addTarget(target models.Target) error {
 			}
 		}
 	case models.ModeTCPConnect:
+		if r.tcpConnectStream != nil {
+			r.tcpConnectCount++
+
+			return r.tcpConnectStream.add(target)
+		}
+
 		r.tcpConnectTargets = append(r.tcpConnectTargets, target)
 		r.tcpConnectCount++
 		if len(r.tcpConnectTargets) >= defaultTargetBatch {
@@ -1465,7 +1699,13 @@ func (r *sweepBatchRunner) flushAll() error {
 	}
 
 	if r.tcpStream != nil {
-		return r.tcpStream.closeAndWait()
+		if err := r.tcpStream.closeAndWait(); err != nil {
+			return err
+		}
+	}
+
+	if r.tcpConnectStream != nil {
+		return r.tcpConnectStream.closeAndWait()
 	}
 
 	return nil
@@ -1474,6 +1714,10 @@ func (r *sweepBatchRunner) flushAll() error {
 func (r *sweepBatchRunner) closeStreams() {
 	if r.tcpStream != nil {
 		r.tcpStream.closeOnly()
+	}
+
+	if r.tcpConnectStream != nil {
+		r.tcpConnectStream.closeOnly()
 	}
 }
 
@@ -2088,6 +2332,29 @@ func scannerStatsAddressFamily(scanner scan.Scanner) string {
 		default:
 			return addressFamilyIPv4
 		}
+	}
+
+	if caps.TCPConnectIPv4 || caps.TCPConnectIPv6 {
+		switch {
+		case caps.TCPConnectIPv4 && caps.TCPConnectIPv6:
+			return addressFamilyDualStack
+		case caps.TCPConnectIPv6:
+			return addressFamilyIPv6
+		default:
+			return addressFamilyIPv4
+		}
+	}
+
+	return addressFamilyUnknown
+}
+
+func scannerStatsPath(scanner scan.Scanner) string {
+	caps := scannerCapabilities(scanner)
+	if caps.RawSYNIPv4 || caps.RawSYNIPv6 {
+		return scannerPathRawSYN
+	}
+	if caps.TCPConnectIPv4 || caps.TCPConnectIPv6 {
+		return scannerPathTCPConnect
 	}
 
 	return addressFamilyUnknown

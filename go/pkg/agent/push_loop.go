@@ -20,16 +20,12 @@ package agent
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"os"
 	"runtime"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,7 +41,6 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
-	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
@@ -77,22 +72,44 @@ const (
 	capabilityHostNetworkVisibilityDPIUnavailable         = "host-network-visibility.dpi.unavailable"
 	capabilityHostNetworkVisibilityFlowUnavailable        = "host-network-visibility.flow_attribution.unavailable"
 	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
+	capabilitySweepBannerGrab                             = "sweep.banner_grab"
+	capabilitySweepBannerGrabAvailable                    = "sweep.banner_grab.available"
+	capabilitySweepBannerGrabUnavailable                  = "sweep.banner_grab.unavailable"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
 )
 
+const (
+	capabilityStatusAvailable              = "available"
+	capabilityStatusUnavailable            = "unavailable"
+	capabilityReasonNoEnabledSweepProfile  = "no_enabled_sweep_profile"
+	capabilityReasonNetprobeUnavailable    = "netprobe_unavailable"
+	capabilityReasonRecogCorpusUnavailable = "recog_corpus_unavailable"
+)
+
+type capabilityStatusPayload struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
+
 type hostNetworkVisibilityCapabilityStatus struct {
-	Fingerprint     string `json:"fingerprint"`
-	DPI             string `json:"dpi"`
-	FlowAttribution string `json:"flow_attribution"`
-	ProcessSnapshot string `json:"process_snapshot"`
-	RunningAsRoot   bool   `json:"running_as_root,omitempty"`
+	Fingerprint     string                         `json:"fingerprint"`
+	DPI             string                         `json:"dpi"`
+	FlowAttribution string                         `json:"flow_attribution"`
+	ProcessSnapshot string                         `json:"process_snapshot"`
+	RunningAsRoot   bool                           `json:"running_as_root,omitempty"`
+	CorpusRevisions *agentnetprobe.CorpusRevisions `json:"corpus_revisions,omitempty"`
+}
+
+type sweepCapabilityStatus struct {
+	BannerGrab capabilityStatusPayload `json:"banner_grab"`
 }
 
 type agentCapabilityStatusPayload struct {
 	Capabilities          []string                              `json:"capabilities"`
 	HostNetworkVisibility hostNetworkVisibilityCapabilityStatus `json:"host_network_visibility"`
+	Sweep                 sweepCapabilityStatus                 `json:"sweep"`
 	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
 }
 
@@ -622,259 +639,6 @@ func (p *PushLoop) attemptConnectionAndEnrollment(ctx context.Context) {
 	p.enroll(ctx)
 }
 
-type statusPushReason string
-
-const (
-	statusPushReasonInitial   statusPushReason = "initial"
-	statusPushReasonChange    statusPushReason = "change"
-	statusPushReasonHeartbeat statusPushReason = "heartbeat"
-)
-
-type statusPushDecision struct {
-	shouldPush bool
-	reason     statusPushReason
-	signature  string
-}
-
-// evaluateStatusPush decides whether to push regular statuses based on change detection and heartbeat.
-func (p *PushLoop) evaluateStatusPush(statuses []*proto.GatewayServiceStatus, now time.Time) statusPushDecision {
-	if len(statuses) == 0 {
-		return statusPushDecision{}
-	}
-
-	signature := buildStatusSignature(statuses)
-	lastSignature, lastPush := p.getStatusTrackingState()
-
-	if lastSignature == "" {
-		return statusPushDecision{shouldPush: true, reason: statusPushReasonInitial, signature: signature}
-	}
-
-	if signature != lastSignature {
-		return statusPushDecision{shouldPush: true, reason: statusPushReasonChange, signature: signature}
-	}
-
-	debounce := p.getStatusDebounceInterval()
-	if debounce > 0 && now.Sub(lastPush) < debounce {
-		return statusPushDecision{}
-	}
-
-	heartbeat := p.getStatusHeartbeatInterval()
-	if heartbeat <= 0 {
-		heartbeat = defaultStatusHeartbeatInterval
-	}
-	if now.Sub(lastPush) >= heartbeat {
-		return statusPushDecision{shouldPush: true, reason: statusPushReasonHeartbeat, signature: signature}
-	}
-
-	return statusPushDecision{}
-}
-
-type statusSignatureEntry struct {
-	serviceName string
-	serviceType string
-	source      string
-	available   bool
-	messageHash string
-}
-
-func buildStatusSignature(statuses []*proto.GatewayServiceStatus) string {
-	entries := make([]statusSignatureEntry, 0, len(statuses))
-	for _, status := range statuses {
-		if status == nil {
-			continue
-		}
-		entries = append(entries, statusSignatureEntry{
-			serviceName: status.ServiceName,
-			serviceType: status.ServiceType,
-			source:      status.Source,
-			available:   status.Available,
-			messageHash: hashStatusMessage(status.Message),
-		})
-	}
-
-	sort.Slice(entries, func(i, j int) bool {
-		if entries[i].serviceName != entries[j].serviceName {
-			return entries[i].serviceName < entries[j].serviceName
-		}
-		if entries[i].serviceType != entries[j].serviceType {
-			return entries[i].serviceType < entries[j].serviceType
-		}
-		if entries[i].source != entries[j].source {
-			return entries[i].source < entries[j].source
-		}
-		if entries[i].available != entries[j].available {
-			return !entries[i].available && entries[j].available
-		}
-		return entries[i].messageHash < entries[j].messageHash
-	})
-
-	hasher := sha256.New()
-	for _, entry := range entries {
-		hasher.Write([]byte(entry.serviceName))
-		hasher.Write([]byte{0})
-		hasher.Write([]byte(entry.serviceType))
-		hasher.Write([]byte{0})
-		hasher.Write([]byte(entry.source))
-		hasher.Write([]byte{0})
-		if entry.available {
-			hasher.Write([]byte{1})
-		} else {
-			hasher.Write([]byte{0})
-		}
-		hasher.Write([]byte{0})
-		hasher.Write([]byte(entry.messageHash))
-		hasher.Write([]byte{0})
-	}
-
-	return base64.StdEncoding.EncodeToString(hasher.Sum(nil))
-}
-
-func hashStatusMessage(message []byte) string {
-	if len(message) == 0 {
-		return ""
-	}
-
-	raw := bytes.TrimSpace(message)
-	if len(raw) == 0 {
-		return ""
-	}
-
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.UseNumber()
-
-	var payload interface{}
-	if err := dec.Decode(&payload); err != nil {
-		return hashBytes(raw)
-	}
-	if err := dec.Decode(&struct{}{}); err == nil {
-		return hashBytes(raw)
-	} else if !errors.Is(err, io.EOF) {
-		return hashBytes(raw)
-	}
-
-	scrubVolatileFields(payload)
-	canonical, err := marshalCanonicalJSON(payload)
-	if err != nil {
-		return hashBytes(raw)
-	}
-
-	return hashBytes(canonical)
-}
-
-func hashBytes(data []byte) string {
-	sum := sha256.Sum256(data)
-	return base64.StdEncoding.EncodeToString(sum[:])
-}
-
-func scrubVolatileFields(value interface{}) {
-	switch typed := value.(type) {
-	case map[string]interface{}:
-		for key, entry := range typed {
-			if isStatusSignatureScrubKey(key) {
-				delete(typed, key)
-				continue
-			}
-			scrubVolatileFields(entry)
-		}
-	case []interface{}:
-		for _, entry := range typed {
-			scrubVolatileFields(entry)
-		}
-	}
-}
-
-func isStatusSignatureScrubKey(key string) bool {
-	switch key {
-	case "response_time", "response_time_ns":
-		return true
-	default:
-		return false
-	}
-}
-
-func marshalCanonicalJSON(value interface{}) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := writeCanonicalJSON(&buf, value); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
-}
-
-func writeCanonicalJSON(buf *bytes.Buffer, value interface{}) error {
-	switch typed := value.(type) {
-	case map[string]interface{}:
-		keys := make([]string, 0, len(typed))
-		for key := range typed {
-			keys = append(keys, key)
-		}
-		sort.Strings(keys)
-
-		buf.WriteByte('{')
-		for i, key := range keys {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			keyBytes, err := json.Marshal(key)
-			if err != nil {
-				return err
-			}
-			buf.Write(keyBytes)
-			buf.WriteByte(':')
-			if err := writeCanonicalJSON(buf, typed[key]); err != nil {
-				return err
-			}
-		}
-		buf.WriteByte('}')
-		return nil
-	case []interface{}:
-		buf.WriteByte('[')
-		for i, entry := range typed {
-			if i > 0 {
-				buf.WriteByte(',')
-			}
-			if err := writeCanonicalJSON(buf, entry); err != nil {
-				return err
-			}
-		}
-		buf.WriteByte(']')
-		return nil
-	case json.Number:
-		buf.WriteString(typed.String())
-		return nil
-	case string:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return err
-		}
-		buf.Write(encoded)
-		return nil
-	case bool:
-		if typed {
-			buf.WriteString("true")
-		} else {
-			buf.WriteString("false")
-		}
-		return nil
-	case nil:
-		buf.WriteString("null")
-		return nil
-	case float64:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return err
-		}
-		buf.Write(encoded)
-		return nil
-	default:
-		encoded, err := json.Marshal(typed)
-		if err != nil {
-			return err
-		}
-		buf.Write(encoded)
-		return nil
-	}
-}
-
 // pushStatus collects status from all services and pushes to the gateway.
 func (p *PushLoop) pushStatus(ctx context.Context) {
 	// Ensure we're connected
@@ -924,6 +688,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentNetprobeResults := p.pushNetprobeResults(ctx)
+	sentFlowAttribution := p.pushFlowAttribution(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
@@ -937,6 +702,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
 		!sentNetprobeResults &&
+		!sentFlowAttribution &&
 		!sentPluginResults &&
 		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
@@ -1484,397 +1250,6 @@ func parseIfIndexFromOID(oid string) *int {
 	return &value
 }
 
-func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
-	sweepSvc := p.findSweepResultsProvider()
-	if sweepSvc == nil {
-		return false
-	}
-
-	lastSequence := p.getSweepResultsSequence()
-	sentAny := false
-	maxIterations := 32
-
-	for i := 0; i < maxIterations; i++ {
-		response, err := sweepSvc.GetSweepResults(ctx, lastSequence)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to get sweep results")
-			return sentAny
-		}
-
-		if response == nil {
-			return sentAny
-		}
-
-		pendingSeq := response.CurrentSequence
-
-		if !response.HasNewData || len(response.Data) == 0 {
-			p.logger.Debug().
-				Str("service_name", response.ServiceName).
-				Str("service_type", response.ServiceType).
-				Str("current_sequence", response.CurrentSequence).
-				Bool("has_new_data", response.HasNewData).
-				Int("data_bytes", len(response.Data)).
-				Msg("No sweep results to stream")
-
-			if pendingSeq != "" {
-				p.setSweepResultsSequence(pendingSeq)
-			}
-			return sentAny
-		}
-
-		chunks, err := buildSweepResultsChunks(response)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Failed to chunk sweep results")
-			return sentAny
-		}
-
-		serviceName := response.ServiceName
-		if serviceName == "" {
-			serviceName = networkSweepServiceName
-		}
-
-		serviceType := response.ServiceType
-		if serviceType == "" {
-			serviceType = sweepType
-		}
-
-		statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
-		if len(statusChunks) == 0 {
-			return sentAny
-		}
-
-		pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
-		_, err = p.gateway.StreamStatus(pushCtx, statusChunks)
-		cancel()
-		if err != nil {
-			p.logger.Error().Err(err).Msg("Failed to stream sweep results to gateway")
-			return sentAny
-		}
-
-		if pendingSeq != "" {
-			if ack, ok := sweepSvc.(interface {
-				AcknowledgeSweepResults(groupID string, sequence string)
-			}); ok {
-				ack.AcknowledgeSweepResults(response.SweepGroupId, pendingSeq)
-			}
-
-			p.setSweepResultsSequence(pendingSeq)
-			lastSequence = pendingSeq
-		}
-
-		sentAny = true
-		p.logger.Info().
-			Str("service_name", serviceName).
-			Int("chunk_count", len(statusChunks)).
-			Msg("Streamed sweep results to gateway")
-	}
-
-	if sentAny {
-		p.logger.Warn().Int("max_iterations", maxIterations).Msg("Stopped sweep results push after max iterations")
-	}
-
-	return sentAny
-}
-
-func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
-	results := p.collectDueICMPResults(ctx)
-	if len(results) == 0 {
-		return false
-	}
-
-	payload := map[string]interface{}{
-		"results": results,
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal ICMP results payload")
-		return false
-	}
-
-	chunk := &proto.ResultsChunk{
-		Data:        data,
-		IsFinal:     true,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		Timestamp:   time.Now().UnixNano(),
-	}
-
-	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, "icmp_checks", "icmp")
-	if len(statusChunks) == 0 {
-		return false
-	}
-
-	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
-		p.logger.Error().Err(err).Msg("Failed to stream ICMP results to gateway")
-		return false
-	}
-
-	p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
-	return true
-}
-
-func (p *PushLoop) collectDueICMPResults(ctx context.Context) []icmpCheckResult {
-	now := time.Now()
-
-	p.icmpMu.RLock()
-	checks := make([]*icmpCheckConfig, 0, len(p.icmpChecks))
-	for _, check := range p.icmpChecks {
-		checks = append(checks, check)
-	}
-	lastRun := make(map[string]time.Time, len(p.icmpLastRun))
-	for id, t := range p.icmpLastRun {
-		lastRun[id] = t
-	}
-	p.icmpMu.RUnlock()
-
-	if len(checks) == 0 {
-		return nil
-	}
-
-	results := make([]icmpCheckResult, 0, len(checks))
-
-	for _, check := range checks {
-		if check == nil || !check.Enabled || check.Target == "" {
-			continue
-		}
-
-		interval := check.Interval
-		if interval <= 0 {
-			interval = p.getInterval()
-		}
-
-		if last, ok := lastRun[check.ID]; ok && now.Sub(last) < interval {
-			continue
-		}
-
-		result := p.runICMPCheck(ctx, check)
-		results = append(results, result)
-
-		p.icmpMu.Lock()
-		p.icmpLastRun[check.ID] = now
-		p.icmpMu.Unlock()
-	}
-
-	return results
-}
-
-func (p *PushLoop) runICMPCheck(ctx context.Context, check *icmpCheckConfig) icmpCheckResult {
-	timeout := check.Timeout
-	if timeout <= 0 {
-		timeout = 5 * time.Second
-	}
-
-	checkCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	scanner, err := scan.NewICMPSweeper(timeout, defaultICMPSweeperRateLimit, p.logger)
-	if err != nil {
-		return icmpCheckResult{
-			CheckID:   check.ID,
-			CheckName: check.Name,
-			Target:    check.Target,
-			DeviceID:  check.DeviceID,
-			Available: false,
-			Timestamp: time.Now().UnixNano(),
-			Error:     err.Error(),
-		}
-	}
-	defer func() {
-		if stopErr := scanner.Stop(); stopErr != nil {
-			p.logger.Error().Err(stopErr).Msg("Failed to stop ICMP scanner")
-		}
-	}()
-
-	resultChan, err := scanner.Scan(checkCtx, []models.Target{{Host: check.Target, Mode: models.ModeICMP}})
-	if err != nil {
-		return icmpCheckResult{
-			CheckID:   check.ID,
-			CheckName: check.Name,
-			Target:    check.Target,
-			DeviceID:  check.DeviceID,
-			Available: false,
-			Timestamp: time.Now().UnixNano(),
-			Error:     err.Error(),
-		}
-	}
-
-	var result models.Result
-	select {
-	case r, ok := <-resultChan:
-		if ok {
-			result = r
-		}
-	case <-checkCtx.Done():
-		return icmpCheckResult{
-			CheckID:   check.ID,
-			CheckName: check.Name,
-			Target:    check.Target,
-			DeviceID:  check.DeviceID,
-			Available: false,
-			Timestamp: time.Now().UnixNano(),
-			Error:     checkCtx.Err().Error(),
-		}
-	}
-
-	return icmpCheckResult{
-		CheckID:        check.ID,
-		CheckName:      check.Name,
-		Target:         check.Target,
-		DeviceID:       check.DeviceID,
-		Available:      result.Available,
-		ResponseTimeNs: result.RespTime.Nanoseconds(),
-		PacketLoss:     result.PacketLoss,
-		Timestamp:      time.Now().UnixNano(),
-	}
-}
-
-func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsChunk, error) {
-	if response == nil {
-		return nil, nil
-	}
-
-	if len(response.Data) == 0 {
-		return nil, nil
-	}
-
-	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
-
-	if len(response.Data) <= maxChunkSize {
-		return []*proto.ResultsChunk{{
-			Data:            response.Data,
-			IsFinal:         true,
-			ChunkIndex:      0,
-			TotalChunks:     1,
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
-		}}, nil
-	}
-
-	var sweepData map[string]interface{}
-	if err := json.Unmarshal(response.Data, &sweepData); err != nil {
-		return nil, fmt.Errorf("parse sweep data: %w", err)
-	}
-
-	hostsInterface, ok := sweepData["hosts"]
-	if !ok {
-		return nil, errSweepMissingHosts
-	}
-
-	hosts, ok := hostsInterface.([]interface{})
-	if !ok {
-		return nil, errSweepHostsNotArray
-	}
-
-	totalHosts := len(hosts)
-
-	metadata := make(map[string]interface{})
-	for key, value := range sweepData {
-		if key != "hosts" {
-			metadata[key] = value
-		}
-	}
-
-	baseData := make(map[string]interface{}, len(metadata))
-	for key, value := range metadata {
-		baseData[key] = value
-	}
-	baseData["hosts"] = []interface{}{}
-
-	baseBytes, err := json.Marshal(baseData)
-	if err != nil {
-		return nil, fmt.Errorf("marshal sweep metadata: %w", err)
-	}
-
-	baseSize := len(baseBytes) - 2
-	if baseSize < 0 {
-		baseSize = len(baseBytes)
-	}
-
-	hostSizes := make([]int, totalHosts)
-	for i, host := range hosts {
-		hostBytes, err := json.Marshal(host)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sweep host %d: %w", i, err)
-		}
-		hostSizes[i] = len(hostBytes)
-	}
-
-	type hostRange struct {
-		start int
-		end   int
-	}
-
-	var ranges []hostRange
-	start := 0
-	currentSize := baseSize + 2
-
-	for i, hostSize := range hostSizes {
-		additional := hostSize
-		if i > start {
-			additional++
-		}
-
-		if (currentSize+additional > maxChunkSize || i-start >= maxHostsPerChunk) && i > start {
-			ranges = append(ranges, hostRange{start: start, end: i})
-			start = i
-			currentSize = baseSize + 2
-			additional = hostSize
-		}
-
-		currentSize += additional
-	}
-
-	if start < totalHosts {
-		ranges = append(ranges, hostRange{start: start, end: totalHosts})
-	}
-
-	totalChunks := len(ranges)
-	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
-
-	for chunkIndex, chunkRange := range ranges {
-		chunkHosts := hosts[chunkRange.start:chunkRange.end]
-
-		chunkData := make(map[string]interface{}, len(metadata))
-		for key, value := range metadata {
-			chunkData[key] = value
-		}
-		chunkData["hosts"] = chunkHosts
-
-		chunkBytes, err := json.Marshal(chunkData)
-		if err != nil {
-			return nil, fmt.Errorf("marshal sweep chunk %d: %w", chunkIndex, err)
-		}
-
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            chunkBytes,
-			IsFinal:         chunkIndex == totalChunks-1,
-			ChunkIndex:      int32(chunkIndex),
-			TotalChunks:     int32(totalChunks),
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
-		})
-	}
-
-	return chunks, nil
-}
-
-func sweepResultsStreamTimeout(chunkCount int) time.Duration {
-	if chunkCount <= 0 {
-		return minSweepResultsStreamTimeout
-	}
-
-	timeout := minSweepResultsStreamTimeout + time.Duration(chunkCount)*sweepResultsTimeoutPerChunk
-	if timeout > maxSweepResultsStreamTimeout {
-		return maxSweepResultsStreamTimeout
-	}
-
-	return timeout
-}
-
 // collectAllStatusesSeparated gathers status from all services, separating sysmon from others.
 // Sysmon is returned separately because it uses StreamStatus with Source: "sysmon-metrics".
 func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.GatewayServiceStatus, *proto.GatewayServiceStatus) {
@@ -1957,13 +1332,17 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	}
 	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
 
-	capabilities := agentCapabilitiesForStatus(cfg, sidecars)
+	corpusRevisions := p.netprobeCorpusRevisions()
+	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
+	capabilities := agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, sweepBannerGrab.Status == capabilityStatusAvailable)
 	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
 
 	resp := buildAgentCapabilityStatusResponse(
 		capabilities,
 		sidecars,
 		p.netprobeRunningAsRoot(),
+		corpusRevisions,
+		sweepBannerGrab,
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
 }
@@ -1981,7 +1360,18 @@ func addonCapabilities(statuses []agentaddon.Status) []string {
 	return capabilities
 }
 
-func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus, runningAsRoot bool) *proto.StatusResponse {
+func buildAgentCapabilityStatusResponse(
+	capabilities []string,
+	sidecars []*proto.SidecarStatus,
+	runningAsRoot bool,
+	corpusRevisions agentnetprobe.CorpusRevisions,
+	sweepBannerGrab capabilityStatusPayload,
+) *proto.StatusResponse {
+	corpusRevisionPayload := &corpusRevisions
+	if corpusRevisions == (agentnetprobe.CorpusRevisions{}) {
+		corpusRevisionPayload = nil
+	}
+
 	payload, err := json.Marshal(agentCapabilityStatusPayload{
 		Capabilities: append([]string(nil), capabilities...),
 		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
@@ -1990,6 +1380,10 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 			FlowAttribution: "unavailable",
 			ProcessSnapshot: "unavailable",
 			RunningAsRoot:   runningAsRoot,
+			CorpusRevisions: corpusRevisionPayload,
+		},
+		Sweep: sweepCapabilityStatus{
+			BannerGrab: sweepBannerGrab,
 		},
 		Sidecars: sidecars,
 	})
@@ -2005,8 +1399,12 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 	}
 }
 
-func agentCapabilitiesForStatus(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
-	return getAgentCapabilitiesForSidecars(cfg, sidecars)
+func agentCapabilitiesForStatusWithBannerGrab(
+	cfg *ServerConfig,
+	sidecars []*proto.SidecarStatus,
+	sweepBannerGrabAvailable bool,
+) []string {
+	return getAgentCapabilitiesForSidecars(cfg, sidecars, sweepBannerGrabAvailable)
 }
 
 func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
@@ -2065,313 +1463,6 @@ func (p *PushLoop) convertToGatewayStatusWithSource(
 		Source:       source,
 		KvStoreId:    kvStoreID,
 	}
-}
-
-func (p *PushLoop) buildPluginGatewayStatus(
-	result PluginResult,
-	agentID string,
-	partition string,
-	kvStoreID string,
-) *proto.GatewayServiceStatus {
-	payload, available, err := p.normalizePluginPayload(result, agentID, partition)
-	if err != nil {
-		payload = p.buildPluginErrorPayload(result, err, agentID, partition)
-		available = false
-	}
-
-	serviceName := pluginServiceName(result)
-	gatewayID := p.gateway.GetGatewayID()
-
-	return &proto.GatewayServiceStatus{
-		ServiceName:  serviceName,
-		Available:    available,
-		Message:      payload,
-		ServiceType:  "plugin",
-		ResponseTime: 0,
-		AgentId:      agentID,
-		GatewayId:    gatewayID,
-		Partition:    partition,
-		Source:       "plugin-result",
-		KvStoreId:    kvStoreID,
-	}
-}
-
-func (p *PushLoop) normalizePluginPayload(
-	result PluginResult,
-	agentID string,
-	partition string,
-) ([]byte, bool, error) {
-	if len(result.Payload) == 0 {
-		return nil, false, errPluginEmptyPayload
-	}
-
-	decoder := json.NewDecoder(bytes.NewReader(result.Payload))
-	decoder.UseNumber()
-
-	var payload map[string]interface{}
-	if err := decoder.Decode(&payload); err != nil {
-		return nil, false, fmt.Errorf("invalid json: %w", err)
-	}
-
-	statusRaw, ok := payload["status"].(string)
-	if !ok {
-		return nil, false, errPluginMissingStatus
-	}
-	status := normalizePluginStatus(statusRaw)
-	if !isValidPluginStatus(status) {
-		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
-	}
-
-	summary, ok := payload["summary"].(string)
-	if !ok || strings.TrimSpace(summary) == "" {
-		return nil, false, errPluginMissingSummary
-	}
-
-	payload["status"] = status
-	ensureObservedAt(payload, result.ObservedAt)
-	labels := normalizePluginLabels(payload)
-
-	if result.AssignmentID != "" {
-		labels["assignment_id"] = result.AssignmentID
-	}
-	if result.PluginID != "" {
-		labels["plugin_id"] = result.PluginID
-	}
-	if result.PluginName != "" {
-		labels["plugin_name"] = result.PluginName
-	}
-	if agentID != "" {
-		labels["agent_id"] = agentID
-	}
-	if partition != "" {
-		labels["partition"] = partition
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return nil, false, fmt.Errorf("marshal payload: %w", err)
-	}
-
-	return data, pluginStatusAvailable(status), nil
-}
-
-func (p *PushLoop) buildPluginErrorPayload(
-	result PluginResult,
-	err error,
-	agentID string,
-	partition string,
-) []byte {
-	summary := "plugin result invalid"
-	if err != nil {
-		summary = fmt.Sprintf("plugin result invalid: %s", err)
-	}
-
-	payload := map[string]interface{}{
-		"status":      "UNKNOWN",
-		"summary":     summary,
-		"observed_at": time.Now().UTC().Format(time.RFC3339Nano),
-		"labels":      map[string]interface{}{},
-	}
-
-	labels := normalizePluginLabels(payload)
-	if result.AssignmentID != "" {
-		labels["assignment_id"] = result.AssignmentID
-	}
-	if result.PluginID != "" {
-		labels["plugin_id"] = result.PluginID
-	}
-	if result.PluginName != "" {
-		labels["plugin_name"] = result.PluginName
-	}
-	if agentID != "" {
-		labels["agent_id"] = agentID
-	}
-	if partition != "" {
-		labels["partition"] = partition
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return []byte(`{"status":"UNKNOWN","summary":"plugin result invalid"}`)
-	}
-
-	return data
-}
-
-func normalizePluginLabels(payload map[string]interface{}) map[string]interface{} {
-	if payload == nil {
-		return map[string]interface{}{}
-	}
-
-	if raw, ok := payload["labels"]; ok {
-		if labels, ok := raw.(map[string]interface{}); ok {
-			return labels
-		}
-		if labels, ok := raw.(map[string]string); ok {
-			converted := make(map[string]interface{}, len(labels))
-			for key, value := range labels {
-				converted[key] = value
-			}
-			payload["labels"] = converted
-			return converted
-		}
-	}
-
-	labels := map[string]interface{}{}
-	payload["labels"] = labels
-	return labels
-}
-
-func ensureObservedAt(payload map[string]interface{}, observed time.Time) {
-	raw, ok := payload["observed_at"].(string)
-	if ok && strings.TrimSpace(raw) != "" {
-		return
-	}
-
-	if observed.IsZero() {
-		observed = time.Now().UTC()
-	}
-	payload["observed_at"] = observed.Format(time.RFC3339Nano)
-}
-
-func pluginServiceName(result PluginResult) string {
-	if result.PluginName != "" {
-		return result.PluginName
-	}
-	if result.PluginID != "" {
-		return result.PluginID
-	}
-	if result.AssignmentID != "" {
-		return result.AssignmentID
-	}
-	return "plugin"
-}
-
-const (
-	pluginStatusOK       = "OK"
-	pluginStatusWarning  = "WARNING"
-	pluginStatusCritical = "CRITICAL"
-	pluginStatusUnknown  = "UNKNOWN"
-)
-
-func isValidPluginStatus(status string) bool {
-	switch status {
-	case pluginStatusOK, pluginStatusWarning, pluginStatusCritical, pluginStatusUnknown:
-		return true
-	default:
-		return false
-	}
-}
-
-func normalizePluginStatus(status string) string {
-	switch strings.ToUpper(strings.TrimSpace(status)) {
-	case "FAILED", "FAIL", "ERROR":
-		return pluginStatusCritical
-	default:
-		return strings.ToUpper(strings.TrimSpace(status))
-	}
-}
-
-func pluginStatusAvailable(status string) bool {
-	switch status {
-	case pluginStatusOK, pluginStatusWarning:
-		return true
-	case pluginStatusCritical, pluginStatusUnknown:
-		return false
-	default:
-		return false
-	}
-}
-
-func shouldSendPluginTelemetry(snapshot PluginEngineSnapshot) bool {
-	if snapshot.AssignmentsTotal > 0 ||
-		snapshot.AssignmentsAdmitted > 0 ||
-		snapshot.ExecTotal > 0 ||
-		snapshot.Limits.MaxMemoryMB > 0 ||
-		snapshot.Limits.MaxCPUMS > 0 ||
-		snapshot.Limits.MaxConcurrent > 0 ||
-		snapshot.Limits.MaxOpenConnections > 0 {
-		return true
-	}
-	return false
-}
-
-func buildPluginTelemetryPayload(
-	snapshot PluginEngineSnapshot,
-	agentID string,
-	partition string,
-) ([]byte, bool) {
-	healthy, reason := pluginTelemetryHealth(snapshot)
-
-	payload := map[string]interface{}{
-		"schema":      "serviceradar.plugin_engine_telemetry.v1",
-		"observed_at": snapshot.ObservedAt.Format(time.RFC3339Nano),
-		"agent_id":    agentID,
-		"partition":   partition,
-		"health":      map[string]interface{}{"status": healthStatusLabel(healthy), "reason": reason},
-		"limits": map[string]interface{}{
-			"max_memory_mb":        snapshot.Limits.MaxMemoryMB,
-			"max_cpu_ms":           snapshot.Limits.MaxCPUMS,
-			"max_concurrent":       snapshot.Limits.MaxConcurrent,
-			"max_open_connections": snapshot.Limits.MaxOpenConnections,
-		},
-		"requested": map[string]interface{}{
-			"memory_mb":        snapshot.RequestedMemoryMB,
-			"cpu_ms":           snapshot.RequestedCPUMS,
-			"open_connections": snapshot.RequestedConnections,
-		},
-		"runtime": map[string]interface{}{
-			"active_executions": snapshot.ActiveExecutions,
-			"open_connections":  snapshot.OpenConnections,
-		},
-		"assignments": map[string]interface{}{
-			"total":    snapshot.AssignmentsTotal,
-			"admitted": snapshot.AssignmentsAdmitted,
-			"rejected": snapshot.AssignmentsRejected,
-		},
-		"executions": map[string]interface{}{
-			"total":           snapshot.ExecTotal,
-			"failures":        snapshot.ExecFailures,
-			"last_exec_at":    formatTimestamp(snapshot.LastExecAt),
-			"last_failure_at": formatTimestamp(snapshot.LastFailureAt),
-		},
-		"config": map[string]interface{}{
-			"last_updated_at": formatTimestamp(snapshot.LastConfigAt),
-		},
-	}
-
-	data, err := json.Marshal(payload)
-	if err != nil {
-		return []byte(`{"schema":"serviceradar.plugin_engine_telemetry.v1","health":{"status":"unknown"}}`), false
-	}
-
-	return data, healthy
-}
-
-func pluginTelemetryHealth(snapshot PluginEngineSnapshot) (bool, string) {
-	if snapshot.AssignmentsRejected > 0 {
-		return false, "admission_denied"
-	}
-
-	if snapshot.ExecFailures > 0 && time.Since(snapshot.LastFailureAt) < 5*time.Minute {
-		return false, "recent_execution_failures"
-	}
-
-	return true, ""
-}
-
-func healthStatusLabel(healthy bool) string {
-	if healthy {
-		return "ok"
-	}
-	return "degraded"
-}
-
-func formatTimestamp(ts time.Time) string {
-	if ts.IsZero() {
-		return ""
-	}
-	return ts.UTC().Format(time.RFC3339Nano)
 }
 
 func (p *PushLoop) buildResultsStatusChunks(
@@ -2878,7 +1969,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		}
 	}
 
-	p.applySweepConfig(configResp.ConfigJson)
+	p.applySweepConfig(ctx, configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
 	if !p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson) {
 		p.logger.Warn().
@@ -2905,7 +1996,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	// Apply SNMP config if present
 	if configResp.SnmpConfig != nil {
-		p.applySNMPConfig(configResp.SnmpConfig)
+		p.applySNMPConfig(ctx, configResp.SnmpConfig)
 	}
 
 	// Apply plugin config if present. Older generated clients may not decode
@@ -3436,8 +2527,10 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	events := netprobeSidecar.DrainEvents(1000)
-	if len(events) == 0 {
+	fingerprintEvents := netprobeSidecar.DrainEvents(1000)
+	dpiEvents := netprobeSidecar.DrainDPIEvents(1000)
+	processSnapshots := netprobeSidecar.DrainProcessSnapshots(1000)
+	if len(fingerprintEvents) == 0 && len(dpiEvents) == 0 && len(processSnapshots) == 0 {
 		return false
 	}
 
@@ -3446,11 +2539,47 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		GatewayID:   p.gateway.GetGatewayID(),
 		CollectorIP: collectorIP,
 	}
-	updates := make([]map[string]any, 0, len(events))
-	for _, event := range events {
+	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
+	for _, event := range fingerprintEvents {
 		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
 		if err != nil {
 			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe fingerprint event")
+			continue
+		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     netprobeDiscoverySource(device.GetMetadata()),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
+	}
+	for _, event := range dpiEvents {
+		device, err := agentnetprobe.DpiEventToDiscoveredDevice(event, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe DPI event")
+			continue
+		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
+	}
+	for _, snapshot := range processSnapshots {
+		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
 			continue
 		}
 
@@ -3503,9 +2632,27 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	p.logger.Info().Int("event_count", len(updates)).Msg("Streamed netprobe results to gateway")
+	p.logger.Info().
+		Int("fingerprint_event_count", len(fingerprintEvents)).
+		Int("dpi_event_count", len(dpiEvents)).
+		Int("process_snapshot_count", len(processSnapshots)).
+		Int("update_count", len(updates)).
+		Msg("Streamed netprobe results to gateway")
 
 	return true
+}
+
+func netprobeDiscoverySource(metadata map[string]string) string {
+	if metadata != nil {
+		if source := strings.TrimSpace(metadata["discovery_source"]); source != "" {
+			return source
+		}
+		if source := strings.TrimSpace(metadata["source"]); source != "" {
+			return source
+		}
+	}
+
+	return string(models.DiscoverySourcePassiveNetprobe)
 }
 
 func (p *PushLoop) pushMapperInterfaces(ctx context.Context) bool {
@@ -3594,7 +2741,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 	return true
 }
 
-func (p *PushLoop) applySweepConfig(configJSON []byte) {
+func (p *PushLoop) applySweepConfig(ctx context.Context, configJSON []byte) {
 	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return
@@ -3618,6 +2765,19 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 	p.server.mu.RLock()
 	cfg := p.server.config
 	p.server.mu.RUnlock()
+
+	if updater, ok := sweepSvc.(SweepGroupConfigContextUpdater); ok {
+		if err := updater.UpdateSweepGroupsContext(ctx, sweepConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep group config from gateway")
+			return
+		}
+
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("group_count", len(sweepConfig.Groups)).
+			Msg("Applied sweep group config from gateway")
+		return
+	}
 
 	if updater, ok := sweepSvc.(SweepGroupConfigUpdater); ok {
 		if err := updater.UpdateSweepGroups(sweepConfig); err != nil {
@@ -3716,7 +2876,7 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 }
 
 // applySNMPConfig applies SNMP configuration from the gateway to the embedded SNMP service.
-func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
+func (p *PushLoop) applySNMPConfig(ctx context.Context, protoConfig *proto.SNMPConfig) {
 	p.server.mu.RLock()
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
@@ -3726,7 +2886,11 @@ func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	if err := snmpSvc.ApplyProtoConfig(ctx, protoConfig); err != nil {
@@ -3860,11 +3024,12 @@ type agentCapabilityOptions struct {
 	enhancedBPF                             bool
 	desktopRDP                              bool
 	hostNetworkVisibilityFingerprintEnabled bool
+	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
-	return getAgentCapabilitiesForSidecars(cfg, nil)
+	return getAgentCapabilitiesForSidecars(cfg, nil, false)
 }
 
 func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
@@ -3876,7 +3041,7 @@ func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
 
-	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus))
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false)
 }
 
 func (p *PushLoop) netprobeRunningAsRoot() bool {
@@ -3894,11 +3059,57 @@ func (p *PushLoop) netprobeRunningAsRoot() bool {
 	return netprobeSidecar.RunningAsRoot()
 }
 
-func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
+func (p *PushLoop) netprobeCorpusRevisions() agentnetprobe.CorpusRevisions {
+	if p == nil || p.server == nil {
+		return agentnetprobe.CorpusRevisions{}
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	p.server.mu.RUnlock()
+	if netprobeSidecar == nil {
+		return agentnetprobe.CorpusRevisions{}
+	}
+
+	return netprobeSidecar.CorpusRevisions()
+}
+
+func (p *PushLoop) sweepBannerGrabCapabilityStatus(
+	sidecars []*proto.SidecarStatus,
+	corpusRevisions agentnetprobe.CorpusRevisions,
+) capabilityStatusPayload {
+	if p == nil || p.server == nil || !p.server.BannerGrabEnabled() {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonNoEnabledSweepProfile,
+		}
+	}
+	if !hasHealthyNetprobeSidecar(sidecars) {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonNetprobeUnavailable,
+		}
+	}
+	if !corpusRevisions.RecogCorpusLoaded {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonRecogCorpusUnavailable,
+		}
+	}
+
+	return capabilityStatusPayload{Status: capabilityStatusAvailable}
+}
+
+func getAgentCapabilitiesForSidecars(
+	cfg *ServerConfig,
+	sidecars []*proto.SidecarStatus,
+	sweepBannerGrabAvailable bool,
+) []string {
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
+		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 	})
 }
@@ -3923,12 +3134,18 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
+		capabilitySweepBannerGrab,
 	}
 
 	if options.hostNetworkVisibilityFingerprintEnabled {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)
 	} else {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintUnavailable)
+	}
+	if options.sweepBannerGrabAvailable {
+		capabilities = append(capabilities, capabilitySweepBannerGrabAvailable)
+	} else {
+		capabilities = append(capabilities, capabilitySweepBannerGrabUnavailable)
 	}
 
 	if options.bumblebee {

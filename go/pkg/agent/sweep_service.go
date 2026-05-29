@@ -53,16 +53,16 @@ type SweepService struct {
 
 // NewSweepService creates a new SweepService.
 func NewSweepService(
-	ctx context.Context,
 	config *models.Config,
 	log logger.Logger,
+	opts ...sweeper.Option,
 ) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
 	storeOptions := sweeper.StoreOptionsForConfig(config)
 	store := sweeper.NewInMemoryStore(processor, log, storeOptions...)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}
@@ -153,14 +153,15 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 
 	s.mu.RLock()
 	data := struct {
-		Network        string             `json:"network"`
-		TotalHosts     int                `json:"total_hosts"`
-		AvailableHosts int                `json:"available_hosts"`
-		LastSweep      int64              `json:"last_sweep"`
-		Ports          []models.PortCount `json:"ports"`
-		DefinedCIDRs   int                `json:"defined_cidrs"`
-		UniqueIPs      int                `json:"unique_ips"`
-		Sequence       uint64             `json:"sequence"`
+		Network        string                  `json:"network"`
+		TotalHosts     int                     `json:"total_hosts"`
+		AvailableHosts int                     `json:"available_hosts"`
+		LastSweep      int64                   `json:"last_sweep"`
+		Ports          []models.PortCount      `json:"ports"`
+		DefinedCIDRs   int                     `json:"defined_cidrs"`
+		UniqueIPs      int                     `json:"unique_ips"`
+		Sequence       uint64                  `json:"sequence"`
+		BannerGrab     *models.BannerGrabStats `json:"banner_grab,omitempty"`
 	}{
 		Network:        strings.Join(s.config.Networks, ","),
 		TotalHosts:     summary.TotalHosts,
@@ -170,6 +171,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		DefinedCIDRs:   len(s.config.Networks),
 		UniqueIPs:      s.stats.uniqueIPs,
 		Sequence:       s.currentSequence,
+		BannerGrab:     s.sweeper.GetBannerGrabStats(),
 	}
 	s.mu.RUnlock()
 
@@ -186,6 +188,17 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
 	}, nil
+}
+
+func (s *SweepService) GetBannerGrabStats() *models.BannerGrabStats {
+	return s.sweeper.GetBannerGrabStats()
+}
+
+func (s *SweepService) BannerGrabEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config != nil && s.config.BannerGrab.Enabled
 }
 
 func (s *SweepService) Check(ctx context.Context, _ *proto.StatusRequest) (bool, json.RawMessage) {
@@ -381,6 +394,9 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 	if scannerStats := s.sweeper.GetScannerStats(); scannerStats != nil {
 		resultPayload["scanner_stats"] = scannerStats
 	}
+	if bannerStats := s.sweeper.GetBannerGrabStats(); bannerStats != nil {
+		resultPayload["banner_grab"] = bannerStats
+	}
 
 	resultData, err := json.Marshal(resultPayload)
 	if err != nil {
@@ -427,6 +443,15 @@ func (s *SweepService) GetSweepResults(ctx context.Context, lastSequence string)
 			RateLimitWaitTimeMs:  scannerStats.RateLimitWaitTimeMs,
 			SourcePortWaitTimeMs: scannerStats.SourcePortWaitTimeMs,
 			RxDropRatePercent:    scannerStats.RxDropRatePercent,
+			DialsStarted:         scannerStats.DialsStarted,
+			DialsSucceeded:       scannerStats.DialsSucceeded,
+			DialTimeouts:         scannerStats.DialTimeouts,
+			DialResets:           scannerStats.DialResets,
+			DialResourceErrors:   scannerStats.DialResourceErrors,
+			ActiveDials:          scannerStats.ActiveDials,
+			MaxActiveDials:       scannerStats.MaxActiveDials,
+			QueueDepth:           scannerStats.QueueDepth,
+			MaxQueueDepth:        scannerStats.MaxQueueDepth,
 		}
 	}
 

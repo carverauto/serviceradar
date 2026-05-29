@@ -9,7 +9,8 @@ Host Network Visibility uses the `serviceradar-netprobe` sidecar to observe
 traffic from a ServiceRadar agent host and emit passive device fingerprint
 evidence. Phase 1 is limited to passive fingerprinting. DPI, process
 attribution, external flow attribution, and remote packet capture are reserved
-for later phases.
+for later phases. See [Fingerprint Architecture](./fingerprint-architecture.md)
+for the p0f, JA4 base, and HASSH licensing and data-flow model.
 
 ## Current Scope
 

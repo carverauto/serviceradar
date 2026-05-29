@@ -1,13 +1,13 @@
 """Shared helpers for ServiceRadar packaging targets."""
 
-load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
-load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
 load(
     "@rules_pkg//pkg:mappings.bzl",
     "pkg_attributes",
     "pkg_files",
     "pkg_mkdirs",
 )
+load("@rules_pkg//pkg:pkg.bzl", "pkg_deb", "pkg_tar")
+load("@rules_pkg//pkg:rpm.bzl", "pkg_rpm")
 load("@serviceradar_version//:defs.bzl", "RELEASE", "VERSION")
 
 _DEFAULT_HOMEPAGE = "https://github.com/carverauto/serviceradar"
@@ -29,7 +29,6 @@ def _split_dest(dest):
         prefix = "/"
     return prefix, basename
 
-
 def _attrs_from(entry):
     attrs = {}
     for key, attr_key in [("mode", "mode"), ("owner", "user"), ("group", "group"), ("rpm_filetag", "rpm_filetag")]:
@@ -43,7 +42,6 @@ def _attrs_from(entry):
                     value = "%" + value
             attrs[attr_key] = value
     return pkg_attributes(**attrs) if attrs else None
-
 
 def _normalize_file_entry(entry):
     src = entry.get("src") or entry.get("target")
@@ -60,7 +58,6 @@ def _normalize_file_entry(entry):
         "attributes": attributes,
         "strip_prefix": strip_prefix,
     }
-
 
 def _emit_pkg_files(name, suffix, entries):
     targets = []
@@ -83,7 +80,6 @@ def _emit_pkg_files(name, suffix, entries):
         targets.append(":{}_{}{}".format(name, suffix, idx))
     return targets
 
-
 def _emit_pkg_tree(name, suffix, tree):
     patterns = tree.get("patterns")
     if not patterns:
@@ -101,6 +97,50 @@ def _emit_pkg_tree(name, suffix, tree):
     )
     return ":{}_{}".format(name, suffix)
 
+def _shell_quote(value):
+    return "'" + value.replace("'", "'\"'\"'") + "'"
+
+def _genrule_shell_quote(value):
+    return _shell_quote(value.replace("$", "$$"))
+
+def _rpm_spec_template_with_recommends(rpm_recommends):
+    lines = [
+        "# -*- rpm-spec -*-",
+        "",
+        "# This comprises the entirety of the preamble",
+        "%include %build_rpm_options",
+    ]
+
+    lines.extend(["Recommends: " + dep for dep in rpm_recommends])
+
+    lines.extend([
+        "",
+        "%description",
+        "%include %build_rpm_description",
+        "",
+        "%install",
+        "%include %build_rpm_install",
+        "",
+        "%files -f %build_rpm_files",
+        "",
+        "${PRE_SCRIPTLET}",
+        "",
+        "${POST_SCRIPTLET}",
+        "",
+        "${PREUN_SCRIPTLET}",
+        "",
+        "${POSTUN_SCRIPTLET}",
+        "",
+        "${POSTTRANS_SCRIPTLET}",
+        "",
+        "${SUBRPMS}",
+        "",
+        "${CHANGELOG}",
+        "",
+    ])
+
+    return "\n".join(lines)
+
 # ---------------------------------------------------------------------------
 # Public macro
 # ---------------------------------------------------------------------------
@@ -115,6 +155,8 @@ def serviceradar_package(
         priority,
         deb_depends,
         rpm_requires,
+        deb_recommends = [],
+        rpm_recommends = [],
         binary = None,
         files = [],
         trees = [],
@@ -131,8 +173,7 @@ def serviceradar_package(
         rpm_tags = [],
         package_tags = [],
         rpm_disable_remote = False,
-        rpm_spec_template = None,
-    ):
+        rpm_spec_template = None):
     """Define .deb and .rpm packaging targets for a component."""
 
     data_targets = []
@@ -206,6 +247,7 @@ def serviceradar_package(
         homepage = homepage,
         license = license,
         depends = deb_depends,
+        recommends = deb_recommends,
         section = section,
         priority = priority,
         conffiles = conffiles,
@@ -288,6 +330,18 @@ PY
     rpm_extra_kwargs = dict(rpm_kwargs)
     if rpm_spec_template:
         rpm_extra_kwargs["spec_template"] = rpm_spec_template
+    if rpm_recommends:
+        if rpm_spec_template:
+            fail("rpm_recommends cannot be combined with rpm_spec_template for %s" % name)
+
+        rpm_template_target = "{}_rpm_spec_template".format(name)
+        rpm_template_output = "{}_with_recommends.spec.tpl".format(name)
+        native.genrule(
+            name = rpm_template_target,
+            outs = [rpm_template_output],
+            cmd = "printf %s " + _genrule_shell_quote(_rpm_spec_template_with_recommends(rpm_recommends)) + " > \"$@\"",
+        )
+        rpm_extra_kwargs["spec_template"] = ":{}".format(rpm_template_target)
 
     rpm_arch = "x86_64" if architecture == "amd64" else architecture
 
@@ -317,7 +371,6 @@ PY
             ":{}_rpm".format(name),
         ],
     )
-
 
 def serviceradar_package_from_config(name, config):
     serviceradar_package(name = name, **config)

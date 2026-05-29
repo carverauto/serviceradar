@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ServiceRadar Recog signature additions.
+
+  License: CC0-1.0 for ServiceRadar-authored additions unless a future
+  fingerprint explicitly states otherwise.
+
+  Keep this file separate from Rapid7's upstream Recog XML files so local
+  additions can be reviewed, replaced, and diffed independently.
+-->
+<fingerprints>
+</fingerprints>

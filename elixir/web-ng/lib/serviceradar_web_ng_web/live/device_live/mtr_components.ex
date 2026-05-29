@@ -1,0 +1,643 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.MtrComponents do
+  @moduledoc false
+
+  use ServiceRadarWebNGWeb, :html
+
+  import ServiceRadarWebNGWeb.SRQLComponents, only: [srql_sparkline: 1]
+
+  attr(:device_uid, :string, required: true)
+  attr(:fallback_target, :string, default: nil)
+  attr(:traces, :list, default: [])
+  attr(:pending_jobs, :list, default: [])
+  attr(:trends, :map, default: %{hops: [], latency: []})
+  attr(:total_count, :integer, default: 0)
+  attr(:coverage, :map, default: %{trace_count: 0, earliest_time: nil, latest_time: nil})
+  attr(:retention_status, :map, default: %{configured_days: 30, status: :degraded, tables: %{}})
+  attr(:page, :integer, default: 1)
+  attr(:page_size, :integer, default: 50)
+
+  def mtr_tab_content(assigns) do
+    dashboard = mtr_trace_dashboard(assigns.traces, assigns.pending_jobs, assigns.trends)
+    recent_trace_bars = recent_mtr_trace_bars(assigns.traces)
+
+    assigns =
+      assigns
+      |> assign(:mtr_dashboard, dashboard)
+      |> assign(:recent_trace_bars, recent_trace_bars)
+
+    ~H"""
+    <div class="space-y-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h3 class="text-lg font-semibold">MTR Traces</h3>
+        <div class="flex flex-wrap gap-2 sm:justify-end">
+          <button
+            type="button"
+            phx-click="run_mtr"
+            class="btn btn-sm btn-primary"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="h-4 w-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                stroke-width="2"
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+            Queue MTR
+          </button>
+          <.link
+            navigate={~p"/diagnostics/mtr"}
+            class="btn btn-sm btn-ghost"
+          >
+            View All
+          </.link>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3 min-[1800px]:grid-cols-6">
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">Pending Jobs</div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.pending_count}</div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="min-w-0">
+              <div class="sr-mtr-label">Reachability</div>
+              <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.success_rate}%</div>
+              <div class="sr-mtr-muted text-sm">recent traces reached target</div>
+            </div>
+            <div
+              class={[
+                "radial-progress sr-mtr-radial shrink-0 text-sm font-semibold",
+                mtr_reachability_tone(@mtr_dashboard.success_rate)
+              ]}
+              style={"--value: #{mtr_radial_value(@mtr_dashboard.success_rate)};"}
+              role="progressbar"
+              aria-label="MTR reachability"
+            >
+              {mtr_radial_value(@mtr_dashboard.success_rate)}%
+            </div>
+          </div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">
+            Avg Hop Depth
+          </div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_hops}</div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">
+            Avg Last-Hop Latency
+          </div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@mtr_dashboard.avg_latency_label}</div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">
+            Retained Matches
+          </div>
+          <div class="sr-mtr-value mt-2 text-3xl">{@total_count}</div>
+          <div class="sr-mtr-muted text-sm">{mtr_coverage_label(@coverage)}</div>
+        </div>
+        <div class="sr-mtr-card p-4">
+          <div class="sr-mtr-label">Retention</div>
+          <div class="sr-mtr-value mt-2 text-3xl">
+            {Map.get(@retention_status, :configured_days, 30)}d
+          </div>
+          <div class={["text-sm", mtr_retention_status_class(@retention_status)]}>
+            {mtr_retention_status_label(@retention_status)}
+          </div>
+        </div>
+      </div>
+
+      <div
+        :if={@recent_trace_bars != [] or @trends.latency != []}
+        class="grid grid-cols-1 gap-4 xl:grid-cols-3"
+      >
+        <div :if={@recent_trace_bars != []} class="sr-mtr-panel p-4 xl:col-span-2">
+          <div class="flex items-center justify-between gap-3">
+            <h4 class="sr-mtr-title font-semibold">Recent Availability Timeline</h4>
+            <div class="sr-mtr-muted text-xs">newest left</div>
+          </div>
+          <div
+            class="sr-mtr-outcome-strip mt-4"
+            role="list"
+            aria-label="Recent MTR trace outcomes"
+          >
+            <span
+              :for={trace <- @recent_trace_bars}
+              role="listitem"
+              class={[
+                "sr-mtr-outcome-dot",
+                if(mtr_trace_reached?(trace), do: "is-reached", else: "is-failed")
+              ]}
+              title={"#{format_mtr_time(trace["time"])} #{trace["target"]} #{if mtr_trace_reached?(trace), do: "reached", else: "unreachable"}"}
+            />
+          </div>
+          <div class="mt-3 grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+            <div class="sr-mtr-subpanel p-3">
+              <div class="sr-mtr-label">Reached</div>
+              <div class="sr-mtr-value mt-1 text-lg">{@mtr_dashboard.reached_count}</div>
+            </div>
+            <div class="sr-mtr-subpanel p-3">
+              <div class="sr-mtr-label">Unreachable</div>
+              <div class="sr-mtr-value mt-1 text-lg">{@mtr_dashboard.failed_count}</div>
+            </div>
+            <div class="sr-mtr-subpanel p-3">
+              <div class="sr-mtr-label">Recent Samples</div>
+              <div class="sr-mtr-value mt-1 text-lg">{@mtr_dashboard.trace_count}</div>
+            </div>
+          </div>
+        </div>
+        <div class="sr-mtr-subpanel p-3">
+          <div class="sr-mtr-muted text-xs mb-1">Last Hop Latency Trend</div>
+          <.srql_sparkline points={@trends.latency} />
+        </div>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="table table-sm sr-mtr-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Target</th>
+              <th>Status</th>
+              <th>Hops</th>
+              <th>Protocol</th>
+              <th>Check</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={job <- @pending_jobs} class="hover opacity-80">
+              <td class="whitespace-nowrap text-xs">
+                {format_mtr_time(job.inserted_at)}
+              </td>
+              <td class="font-mono text-sm">
+                {(job.payload || %{})["target"] || @fallback_target || "-"}
+              </td>
+              <td>
+                <span class={["badge badge-sm", pending_status_class(job.status)]}>
+                  {job.status |> to_string() |> String.replace("_", " ") |> String.upcase()}
+                </span>
+              </td>
+              <td class="text-center">-</td>
+              <td>
+                <span class="badge badge-ghost badge-sm">
+                  {String.upcase((job.payload || %{})["protocol"] || "icmp")}
+                </span>
+              </td>
+              <td class="text-xs">pending</td>
+              <td class="sr-mtr-muted text-xs">{job.id}</td>
+            </tr>
+            <tr :for={trace <- @traces} class="hover">
+              <td class="whitespace-nowrap text-xs">
+                {format_mtr_time(trace["time"])}
+              </td>
+              <td class="font-mono text-sm">{trace["target"]}</td>
+              <td>
+                <span
+                  :if={trace["target_reached"]}
+                  class="badge badge-success badge-sm"
+                >
+                  Reached
+                </span>
+                <span
+                  :if={!trace["target_reached"]}
+                  class="badge badge-error badge-sm"
+                >
+                  Unreachable
+                </span>
+              </td>
+              <td class="text-center">{trace["total_hops"]}</td>
+              <td>
+                <span class="badge badge-ghost badge-sm">
+                  {String.upcase(trace["protocol"] || "icmp")}
+                </span>
+              </td>
+              <td class="text-xs">{trace["check_name"] || "-"}</td>
+              <td>
+                <button
+                  type="button"
+                  phx-click="view_mtr_trace"
+                  phx-value-id={trace["id"]}
+                  class="btn btn-xs btn-ghost"
+                >
+                  View
+                </button>
+              </td>
+            </tr>
+            <tr :if={@pending_jobs == [] and @traces == []}>
+              <td colspan="7" class="sr-mtr-muted text-center py-8">
+                No MTR traces found for this device.
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flex items-center justify-between gap-3 border-t border-base-200 pt-4">
+        <div class="sr-mtr-muted text-sm">
+          {mtr_device_page_label(@page, @total_count)}
+        </div>
+        <div class="join">
+          <.link
+            :if={@page > 1}
+            patch={mtr_device_page_path(@device_uid, @page - 1)}
+            class="join-item btn btn-sm btn-outline"
+          >
+            <.icon name="hero-chevron-left" class="size-4" /> Prev
+          </.link>
+          <button :if={@page <= 1} class="join-item btn btn-sm btn-outline" disabled>
+            <.icon name="hero-chevron-left" class="size-4" /> Prev
+          </button>
+          <span class="join-item btn btn-sm btn-ghost pointer-events-none">
+            {@page} / {mtr_device_total_pages(@total_count, @page_size)}
+          </span>
+          <.link
+            :if={@page < mtr_device_total_pages(@total_count, @page_size)}
+            patch={mtr_device_page_path(@device_uid, @page + 1)}
+            class="join-item btn btn-sm btn-outline"
+          >
+            Next <.icon name="hero-chevron-right" class="size-4" />
+          </.link>
+          <button
+            :if={@page >= mtr_device_total_pages(@total_count, @page_size)}
+            class="join-item btn btn-sm btn-outline"
+            disabled
+          >
+            Next <.icon name="hero-chevron-right" class="size-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:show, :boolean, default: false)
+  attr(:trace, :map, default: nil)
+  attr(:hops, :list, default: [])
+
+  def mtr_trace_modal(assigns) do
+    assigns = assign(assigns, :hop_dashboard, mtr_hop_dashboard(assigns.hops))
+
+    ~H"""
+    <%= if @show and @trace do %>
+      <div class="modal modal-open">
+        <div class="modal-box max-w-6xl">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-lg">MTR Trace Details</h3>
+            <button type="button" phx-click="close_mtr_trace_modal" class="btn btn-sm btn-ghost">
+              Close
+            </button>
+          </div>
+
+          <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4 text-sm">
+            <div>
+              <span class="sr-mtr-muted">Target:</span>
+              <span class="font-mono">{@trace["target"]}</span>
+            </div>
+            <div>
+              <span class="sr-mtr-muted">Agent:</span>
+              <span class="font-mono">{@trace["agent_id"]}</span>
+            </div>
+            <div>
+              <span class="sr-mtr-muted">Protocol:</span> {String.upcase(@trace["protocol"] || "icmp")}
+            </div>
+            <div>
+              <span class="sr-mtr-muted">Time:</span> {format_mtr_time(@trace["time"])}
+            </div>
+          </div>
+
+          <div
+            :if={@hops != []}
+            class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3 mb-4"
+          >
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Hop Count</div>
+              <div class="sr-mtr-value mt-2 text-2xl">{@hop_dashboard.hop_count}</div>
+            </div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Avg Loss</div>
+              <div class={[
+                "mt-2 text-2xl font-semibold",
+                loss_class_for_modal(@hop_dashboard.avg_loss_pct)
+              ]}>
+                {format_pct_mtr(@hop_dashboard.avg_loss_pct)}
+              </div>
+            </div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Peak Avg RTT</div>
+              <div class="sr-mtr-value mt-2 text-2xl">
+                {format_us_mtr(@hop_dashboard.max_avg_us)}
+              </div>
+            </div>
+            <div class="sr-mtr-card p-4">
+              <div class="sr-mtr-label">Most Lossy Hop</div>
+              <div class="sr-mtr-value mt-2 text-2xl">
+                {format_pct_mtr(@hop_dashboard.max_loss_pct)}
+              </div>
+            </div>
+          </div>
+
+          <div
+            :if={@hops != []}
+            class="sr-mtr-panel p-4 mb-4"
+          >
+            <div class="flex items-center justify-between">
+              <h4 class="sr-mtr-title font-semibold">Hop Health</h4>
+              <div class="sr-mtr-muted text-xs">latency width, loss tint</div>
+            </div>
+            <div class="mt-4 space-y-3">
+              <div :for={hop <- @hops} class="space-y-1">
+                <div class="flex items-center justify-between text-xs">
+                  <span class="font-mono">hop {hop["hop_number"]} · {hop["addr"] || "???"}</span>
+                  <span>{format_us_mtr(hop["avg_us"])} · {format_pct_mtr(hop["loss_pct"])}</span>
+                </div>
+                <div class="sr-mtr-track h-2">
+                  <div
+                    class={[
+                      "h-full rounded-full transition-all",
+                      hop_loss_bar_class(hop["loss_pct"])
+                    ]}
+                    style={"width: #{mtr_hop_latency_bar_width(hop, @hop_dashboard.max_avg_us)}"}
+                  >
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="overflow-x-auto max-h-[60vh]">
+            <table class="table table-sm sr-mtr-table">
+              <thead>
+                <tr>
+                  <th>Hop</th>
+                  <th>Address</th>
+                  <th>Hostname</th>
+                  <th class="text-right">Loss %</th>
+                  <th class="text-right">Last</th>
+                  <th class="text-right">Avg</th>
+                  <th class="text-right">Min</th>
+                  <th class="text-right">Max</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={hop <- @hops}>
+                  <td class="font-mono text-center">{hop["hop_number"]}</td>
+                  <td class="font-mono text-sm">{hop["addr"] || "???"}</td>
+                  <td class="text-sm max-w-[220px] truncate" title={hop["hostname"]}>
+                    {hop["hostname"] || "-"}
+                  </td>
+                  <td class={["text-right font-mono text-sm", loss_class_for_modal(hop["loss_pct"])]}>
+                    {format_pct_mtr(hop["loss_pct"])}
+                  </td>
+                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["last_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["avg_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["min_us"])}</td>
+                  <td class="text-right font-mono text-sm">{format_us_mtr(hop["max_us"])}</td>
+                </tr>
+                <tr :if={@hops == []}>
+                  <td colspan="8" class="sr-mtr-muted text-center py-4">
+                    No hop data available
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="modal-backdrop" phx-click="close_mtr_trace_modal"></div>
+      </div>
+    <% end %>
+    """
+  end
+
+  defp format_mtr_time(nil), do: "-"
+
+  defp format_mtr_time(%DateTime{} = dt) do
+    Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_mtr_time(%NaiveDateTime{} = ndt) do
+    Calendar.strftime(ndt, "%Y-%m-%d %H:%M:%S")
+  end
+
+  defp format_mtr_time(_), do: "-"
+
+  defp mtr_coverage_label(%{earliest_time: nil}), do: "no retained history"
+
+  defp mtr_coverage_label(%{earliest_time: earliest, latest_time: latest}) do
+    "#{format_mtr_date(earliest)} to #{format_mtr_date(latest)}"
+  end
+
+  defp mtr_coverage_label(_), do: "unknown coverage"
+
+  defp format_mtr_date(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d")
+  defp format_mtr_date(%NaiveDateTime{} = ndt), do: Calendar.strftime(ndt, "%Y-%m-%d")
+  defp format_mtr_date(_), do: "-"
+
+  defp mtr_retention_status_label(%{status: :ok}), do: "policy synced"
+  defp mtr_retention_status_label(%{status: :mismatch}), do: "policy mismatch"
+  defp mtr_retention_status_label(%{status: :missing}), do: "policy missing"
+  defp mtr_retention_status_label(%{status: :degraded}), do: "status unavailable"
+  defp mtr_retention_status_label(_), do: "status unavailable"
+
+  defp mtr_retention_status_class(%{status: :ok}), do: "text-success"
+
+  defp mtr_retention_status_class(%{status: status}) when status in [:mismatch, :missing], do: "text-warning"
+
+  defp mtr_retention_status_class(%{status: :degraded}), do: "text-error"
+  defp mtr_retention_status_class(_), do: "sr-mtr-muted"
+
+  defp mtr_device_total_pages(total_count, page_size) do
+    max(1, ceil((total_count || 0) / max(page_size || 50, 1)))
+  end
+
+  defp mtr_device_page_label(page, total_count) when total_count > 0 do
+    "Showing page #{page} (#{total_count} retained matches)"
+  end
+
+  defp mtr_device_page_label(_page, _total_count), do: "No retained matches"
+
+  defp mtr_device_page_path(device_uid, page) do
+    ~p"/devices/#{device_uid}?tab=mtr&mtr_page=#{page}"
+  end
+
+  defp pending_status_class(:queued), do: "badge-ghost"
+  defp pending_status_class(:sent), do: "badge-info"
+  defp pending_status_class(:acknowledged), do: "badge-info"
+  defp pending_status_class(:running), do: "badge-warning"
+  defp pending_status_class(_), do: "badge-ghost"
+
+  defp mtr_trace_dashboard(traces, pending_jobs, trends) do
+    traces = List.wrap(traces)
+    pending_jobs = List.wrap(pending_jobs)
+    reached_count = Enum.count(traces, &mtr_trace_reached?/1)
+    trace_count = length(traces)
+    failed_count = max(trace_count - reached_count, 0)
+
+    avg_hops =
+      traces
+      |> Enum.map(&mtr_trace_total_hops/1)
+      |> Enum.reject(&(&1 <= 0))
+      |> average_mtr_number()
+
+    avg_latency_us =
+      trends
+      |> Map.get(:latency, [])
+      |> Enum.map(fn
+        {_time, us} when is_integer(us) -> us
+        {_time, us} when is_float(us) -> trunc(us)
+        _ -> 0
+      end)
+      |> Enum.reject(&(&1 <= 0))
+      |> average_mtr_number()
+      |> trunc()
+
+    success_rate =
+      trace_count
+      |> positive_ratio(reached_count)
+      |> Kernel.*(100)
+      |> Float.round(1)
+
+    %{
+      pending_count: length(pending_jobs),
+      trace_count: trace_count,
+      reached_count: reached_count,
+      failed_count: failed_count,
+      success_rate: success_rate,
+      avg_hops: Float.round(avg_hops, 1),
+      avg_latency_label: format_us_mtr(avg_latency_us)
+    }
+  end
+
+  defp recent_mtr_trace_bars(traces) do
+    traces
+    |> List.wrap()
+    |> Enum.take(8)
+  end
+
+  defp mtr_trace_reached?(trace) when is_map(trace) do
+    value = Map.get(trace, "target_reached")
+    value in [true, "true", 1, "1"]
+  end
+
+  defp mtr_trace_reached?(_trace), do: false
+
+  defp mtr_trace_total_hops(trace) when is_map(trace) do
+    case Map.get(trace, "total_hops") do
+      value when is_integer(value) -> value
+      value when is_float(value) -> trunc(value)
+      _ -> 0
+    end
+  end
+
+  defp mtr_trace_total_hops(_trace), do: 0
+
+  defp mtr_radial_value(value) when is_number(value) do
+    value
+    |> round()
+    |> min(100)
+    |> max(0)
+  end
+
+  defp mtr_radial_value(_), do: 0
+
+  defp mtr_reachability_tone(value) when is_number(value) and value < 80, do: "is-error"
+  defp mtr_reachability_tone(value) when is_number(value) and value < 95, do: "is-warning"
+  defp mtr_reachability_tone(_), do: "is-success"
+
+  defp average_mtr_number([]), do: 0.0
+  defp average_mtr_number(values), do: Enum.sum(values) / length(values)
+
+  defp positive_ratio(_value, total) when total in [0, 0.0, nil], do: 0.0
+  defp positive_ratio(value, total), do: min(1.0, max(value / total, 0.0))
+
+  defp format_us_mtr(nil), do: "-"
+  defp format_us_mtr(0), do: "-"
+
+  defp format_us_mtr(us) when is_integer(us) do
+    cond do
+      us >= 1_000_000 -> "#{Float.round(us / 1_000_000, 1)}s"
+      us >= 1_000 -> "#{Float.round(us / 1_000, 1)}ms"
+      true -> "#{us}us"
+    end
+  end
+
+  defp format_us_mtr(_), do: "-"
+
+  defp format_pct_mtr(nil), do: "-"
+  defp format_pct_mtr(pct) when is_float(pct), do: "#{Float.round(pct, 1)}%"
+  defp format_pct_mtr(pct) when is_integer(pct), do: "#{pct}%"
+  defp format_pct_mtr(_), do: "-"
+
+  defp loss_class_for_modal(pct) when is_number(pct) and pct >= 50, do: "text-error"
+  defp loss_class_for_modal(pct) when is_number(pct) and pct >= 10, do: "text-warning"
+  defp loss_class_for_modal(_), do: ""
+
+  defp mtr_hop_dashboard(hops) do
+    hops = List.wrap(hops)
+
+    avg_loss_pct =
+      hops
+      |> Enum.map(&hop_loss_pct/1)
+      |> Enum.reject(&is_nil/1)
+      |> average_mtr_number()
+
+    max_avg_us =
+      hops
+      |> Enum.map(&hop_avg_us/1)
+      |> Enum.reject(&(&1 <= 0))
+      |> Enum.max(fn -> 0 end)
+
+    max_loss_pct =
+      hops
+      |> Enum.map(&hop_loss_pct/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.max(fn -> 0.0 end)
+
+    %{
+      hop_count: length(hops),
+      avg_loss_pct: Float.round(avg_loss_pct, 1),
+      max_avg_us: max_avg_us,
+      max_loss_pct: max_loss_pct
+    }
+  end
+
+  defp hop_avg_us(hop) when is_map(hop) do
+    case hop["avg_us"] do
+      value when is_integer(value) -> value
+      value when is_float(value) -> trunc(value)
+      _ -> 0
+    end
+  end
+
+  defp hop_avg_us(_hop), do: 0
+
+  defp hop_loss_pct(hop) when is_map(hop) do
+    case hop["loss_pct"] do
+      value when is_integer(value) -> value * 1.0
+      value when is_float(value) -> value
+      _ -> nil
+    end
+  end
+
+  defp hop_loss_pct(_hop), do: nil
+
+  defp mtr_hop_latency_bar_width(hop, max_avg_us) do
+    hop
+    |> hop_avg_us()
+    |> positive_ratio(max_avg_us)
+    |> Kernel.*(100)
+    |> Float.round(1)
+    |> then(&"#{&1}%")
+  end
+
+  defp hop_loss_bar_class(pct) when is_number(pct) and pct >= 50, do: "bg-error"
+  defp hop_loss_bar_class(pct) when is_number(pct) and pct >= 10, do: "bg-warning"
+  defp hop_loss_bar_class(_pct), do: "bg-success"
+end

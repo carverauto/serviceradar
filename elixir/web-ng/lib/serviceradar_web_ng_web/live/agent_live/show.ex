@@ -648,13 +648,15 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   attr :agent, :map, required: true
 
-  defp network_visibility_card(assigns) do
+  def network_visibility_card(assigns) do
     status = netprobe_sidecar_status(assigns.agent)
+    bpf_state = host_visibility_bpf_state(assigns.agent, status)
 
     assigns =
       assigns
       |> assign(:visibility_surfaces, host_visibility_surfaces(assigns.agent))
       |> assign(:netprobe_status, status)
+      |> assign(:bpf_state, bpf_state)
 
     ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
@@ -664,12 +666,23 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           <span class="text-sm font-semibold">Host Network Visibility</span>
           <span class="badge badge-primary badge-sm">host-network-visibility</span>
         </div>
-        <.ui_badge variant={sidecar_status_variant(@netprobe_status["state"])} size="sm">
-          {sidecar_status_label(@netprobe_status["state"])}
-        </.ui_badge>
+        <div class="flex flex-wrap items-center gap-2">
+          <.ui_badge variant={bpf_state_variant(@bpf_state)} size="sm">
+            BPF {bpf_state_label(@bpf_state)}
+          </.ui_badge>
+          <.ui_badge variant={sidecar_status_variant(@netprobe_status["state"])} size="sm">
+            {sidecar_status_label(@netprobe_status["state"])}
+          </.ui_badge>
+        </div>
       </div>
       <div class="p-4 space-y-4">
-        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3">
+          <div class="rounded-lg bg-base-200/40 p-3">
+            <div class="text-xs uppercase tracking-wide text-base-content/50">Kernel BPF</div>
+            <div class={["mt-1 text-sm font-semibold", bpf_state_class(@bpf_state)]}>
+              {bpf_state_label(@bpf_state)}
+            </div>
+          </div>
           <div :for={surface <- @visibility_surfaces} class="rounded-lg bg-base-200/40 p-3">
             <div class="text-xs uppercase tracking-wide text-base-content/50">{surface.label}</div>
             <div class="mt-1 text-sm font-semibold">{surface.status}</div>
@@ -1161,6 +1174,119 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
       %{label: "Process Snapshot", status: surface_status(capabilities, "process-snapshot")}
     ]
   end
+
+  defp host_visibility_bpf_state(agent, netprobe_status) do
+    explicit_state =
+      agent
+      |> host_visibility_bpf_candidates()
+      |> Enum.find_value(&normalize_bpf_state/1)
+
+    explicit_state ||
+      if netprobe_sidecar_running?(netprobe_status) || host_visibility_surface_enabled?(agent) do
+        :available
+      else
+        :unavailable
+      end
+  end
+
+  defp host_visibility_bpf_candidates(agent) do
+    metadata = metadata_map(agent)
+    payload = host_visibility_payload(agent)
+    agent = stringify_keys(agent)
+
+    [
+      Map.get(payload, "bpf"),
+      Map.get(payload, "bpf_state"),
+      Map.get(payload, "bpf_support"),
+      Map.get(payload, "kernel_bpf"),
+      Map.get(payload, "kernel_bpf_state"),
+      Map.get(payload, "ebpf"),
+      Map.get(payload, "flow_attribution_available"),
+      Map.get(payload, "process_snapshot_available"),
+      Map.get(metadata, "host_network_visibility.bpf"),
+      Map.get(metadata, "host_network_visibility.bpf_state"),
+      Map.get(metadata, "host_network_visibility.kernel_bpf"),
+      Map.get(metadata, "host_network_visibility.kernel_bpf_state"),
+      Map.get(agent, "bpf_state"),
+      Map.get(agent, "kernel_bpf_state")
+    ]
+  end
+
+  defp host_visibility_payload(agent) do
+    metadata = metadata_map(agent)
+    agent = stringify_keys(agent)
+
+    metadata
+    |> Map.get("host_network_visibility", Map.get(metadata, "hostNetworkVisibility"))
+    |> case do
+      nil -> Map.get(agent, "host_network_visibility", Map.get(agent, "hostNetworkVisibility"))
+      value -> value
+    end
+    |> decode_map_payload()
+  end
+
+  defp decode_map_payload(%{} = payload), do: stringify_keys(payload)
+
+  defp decode_map_payload(payload) when is_binary(payload) do
+    case Jason.decode(payload) do
+      {:ok, %{} = decoded} -> stringify_keys(decoded)
+      _ -> %{}
+    end
+  end
+
+  defp decode_map_payload(_payload), do: %{}
+
+  defp host_visibility_surface_enabled?(agent) do
+    agent
+    |> host_visibility_surfaces()
+    |> Enum.any?(&(&1.status == "enabled"))
+  end
+
+  defp netprobe_sidecar_running?(%{} = status) do
+    status
+    |> Map.get("state", Map.get(status, :state))
+    |> normalize_capability()
+    |> Kernel.in(["healthy", "running"])
+  end
+
+  defp netprobe_sidecar_running?(_status), do: false
+
+  defp normalize_bpf_state(nil), do: nil
+  defp normalize_bpf_state(true), do: :available
+  defp normalize_bpf_state(false), do: :unavailable
+
+  defp normalize_bpf_state(value) do
+    case normalize_capability(value) do
+      state when state in ["available", "enabled", "healthy", "ready", "running", "supported", "true"] ->
+        :available
+
+      state
+      when state in [
+             "degraded",
+             "disabled",
+             "false",
+             "missing",
+             "not-available",
+             "not-supported",
+             "too-old",
+             "unavailable",
+             "unsupported"
+           ] ->
+        :unavailable
+
+      _ ->
+        nil
+    end
+  end
+
+  defp bpf_state_label(:available), do: "available"
+  defp bpf_state_label(_state), do: "unavailable"
+
+  defp bpf_state_variant(:available), do: "success"
+  defp bpf_state_variant(_state), do: "error"
+
+  defp bpf_state_class(:available), do: "text-success"
+  defp bpf_state_class(_state), do: "text-error"
 
   defp surface_status(capabilities, surface) do
     cond do

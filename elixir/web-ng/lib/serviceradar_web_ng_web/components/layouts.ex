@@ -470,6 +470,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
 
       href == "/observability" ->
         current_path in ["/observability", "/logs", "/events", "/alerts"] or
+          String.starts_with?(current_path, "/observability/flows") or
           String.starts_with?(current_path, "/observability/bmp") or
           String.starts_with?(current_path, "/observability/bgp") or
           String.starts_with?(current_path, "/logs/") or
@@ -492,6 +493,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/alerts"), do: "Alerts"
   defp operations_page_title("/observability"), do: "Observability"
   defp operations_page_title("/observability/flows"), do: "Network Flows"
+  defp operations_page_title("/observability/flows/attributed"), do: "Attributed Flows"
   defp operations_page_title("/spatial"), do: "FieldSurvey"
 
   defp operations_page_title(path) when is_binary(path) do

@@ -11,9 +11,29 @@ runs:
    appliances, and integration-imported devices (Armis, NetBox) have no
    OS or vendor evidence beyond what the importing system already
    supplied. Issue
-   [#3423](https://forgejo/issues/3423) covers this gap and its
-   accompanying PRD pins the implementation to passive p0f / JA4 / HTTP
-   fingerprinting.
+   [#3423](https://forgejo/issues/3423) covers this gap. ServiceRadar's
+   answer is a **license-audited multi-corpus fingerprint ensemble**
+   (see D14 + D15): the p0f canonical TCP fingerprint computed inside
+   the eBPF kprobe as the foundation, backed by the upstream LGPL-2.1
+   p0f corpus shipped as a separate replaceable data file, supplemented by
+   five separately licensed additions — MuonFP (Censys, MIT) as a
+   parallel TCP signature; Recog (Rapid7, BSD-2-Clause-Views) for
+   HTTP / SSH / SMB / FTP / Telnet / SNMP / SIP / RDP / DNS banner
+   fingerprints; Satori multi-protocol fingerprint XML (GPLv2, shipped
+   as a separate replaceable data corpus with notices preserved) for
+   TCP / DHCP / DNS / SMB / SSH / SSL / HTTP / browser / ICMP / NTP /
+   SIP signatures; JA4 base (BSD-3, FoxIO patent-disclaimed) for TLS
+   ClientHello; and HASSH (BSD-3) for SSH KEXINIT. Combined corpus
+   audited reach: ~7,000 fingerprints across ~8 independent observation
+   axes, vs huginn-net's p0f-only ~400. The `huginn-net` crate is
+   dropped from the dependency set. The encumbered parts of FoxIO's
+   JA4+ family (JA4T, JA4H, JA4S, JA4SSH, JA4X) are explicitly *not*
+   used — their FoxIO License 1.1 terms and patent-pending posture
+   are incompatible with ServiceRadar's commercial sale. Computing
+   p0f canonical form in-kernel is genuinely ahead of the current
+   commercial state of the art for passive OS fingerprinting; the
+   multi-corpus ensemble on top of it pushes accuracy further by
+   layering independent observation axes.
 2. **NetFlow records are anonymous at the endpoint.** The existing
    `flow-collector` ingests sFlow / NetFlow from switches, but a record
    like `192.0.2.10:51234 → 198.51.100.5:443, 10 MB` does not tell an
@@ -49,6 +69,18 @@ operator UX. One sidecar plus one streaming-RPC surface — wrapped in
 ServiceRadar's existing RBAC, audit, and mTLS transport — gives all
 four use cases for the cost of one.
 
+Closing the inventory-discovery gap further, the change also adds an
+**active banner-grab phase** to the existing sweep service
+(`go/pkg/scan/`, where the lightning-fast SYN half-open scanner
+already lives). Sweep finds live `(host, port)` pairs today but
+captures no application-layer evidence; the new phase, opt-in per
+`SweepProfile`, completes a 3-way handshake against confirmed-live
+targets and forwards the captured banner to netprobe via a new
+`MatchBanner` IPC method so the §32 Recog corpus does the matching.
+This pairs the lightning-fast reachability scan with on-demand
+application-layer fingerprinting without duplicating the corpus or
+adding cross-language regex codegen — see D16 for details.
+
 This change introduces a single Rust sidecar — `netprobe` — bundled with
 `serviceradar-agent` and supervised by it, that provides all three
 capabilities through one IPC contract, one capability bundle, one socket,
@@ -57,8 +89,11 @@ and one set of operator-facing profiles. It supersedes the earlier
 
 Rust was chosen because:
 
-- `huginn-net` (TCP p0f, HTTP, TLS-JA4) is already a maintained Rust
-  crate.
+- `aya` is the pure-Rust eBPF runtime that lets the same workspace own
+  both the kernel-side programs (`#![no_std]`) and the userspace loader
+  / classifier without a C toolchain at build time. JA4T canonical-form
+  encoding inside the SYN kprobe is feasible because `aya-ebpf` permits
+  a small `no_std` JA4T encoder, callable directly from the probe body.
 - The most mature host-level protocol-dissection + eBPF
   process-attribution reference implementation we found —
   [rustnet](https://github.com/domcyrus/rustnet) — is Rust, and its
@@ -76,10 +111,19 @@ Rust was chosen because:
 
 `netprobe` will not depend on rustnet as a crate (it is structured as a
 TUI binary, not a library). Instead this change extracts the patterns
-ServiceRadar needs into `netprobe` directly, depending on the same
-underlying crates rustnet itself uses — `huginn-net` for fingerprinting,
-`aya` (preferred) or `libbpf-rs` for eBPF, and `etherparse` /
-`pktparse-rs` for parsing.
+ServiceRadar needs into `netprobe` directly. The original Phase 1 plan
+pinned passive fingerprinting to the `huginn-net` crate (p0f-style TCP
+analysis + JA4/JA4S extraction); the amendment in D14 replaces that
+with a self-contained **license-clean fingerprint stack**: the p0f
+canonical TCP fingerprint computed inside the eBPF SYN kprobe (primary
+classifier, upstream LGPL-2.1 corpus kept as a separate replaceable file
+plus ServiceRadar curated additions),
+plus JA4 base (BSD-3, TLS ClientHello) and HASSH (BSD-3 via Corelight's
+maintained fork, SSH KEXINIT)
+encoded in userspace as confidence boosters when the corresponding DPI
+dissectors fire. `huginn-net` is removed entirely. `aya` is the eBPF
+runtime; `etherparse` / `pktparse-rs` handle userspace L3/L4 framing
+for the DPI dissector path.
 
 The change also lands the first ServiceRadar agent component that
 supervises a co-located native sidecar. The supervision pattern is
@@ -121,19 +165,72 @@ management.
   (`rust_binary`) mirroring `rust/trapd/`.
 - Static **musl** build targets for `x86_64-unknown-linux-musl` and
   `aarch64-unknown-linux-musl`, registered in `MODULE.bazel`
-  `extra_target_triples` and `.cargo/config.toml`. Phase 1 shipping
-  packages use the libpcap-enabled dynamic Linux build and declare or
-  bundle the libpcap runtime dependency; static packet capture remains
-  a future portability hardening target.
-- New Cargo dependencies pulled into the workspace via crate-universe:
-  `huginn-net` (fingerprinting), `aya` + `aya-log` + `aya-ebpf`
-  (eBPF), `pcap` (capture handle), `tokio` (already present),
-  `prost` (already present).
+  `extra_target_triples` and `.cargo/config.toml`. Phase 1 / Phase 2
+  shipping packages use the libpcap-enabled dynamic Linux build as a
+  documented stopgap; Phase 3 replaces the continuous capture path
+  with kernel-side eBPF + AF_XDP and removes the libpcap dependency
+  from the continuous code path entirely. After the Phase 3 cutover,
+  libpcap remains only for the Phase 5 remote-capture tunnel behind a
+  `remote-capture` Cargo feature, declared as `Recommends` (not
+  `Depends`) in deb/rpm metadata.
+- Cargo dependencies pulled into the workspace via crate-universe:
+  `aya` + `aya-log` + `aya-ebpf` (eBPF runtime and program crate),
+  AF_XDP bindings (e.g. `xsk-rs` or `aya::maps::xdp`), `tokio`
+  (already present), and `prost` (already present). `huginn-net` is
+  explicitly removed; fingerprinting is handled by ServiceRadar-owned
+  p0f / JA4-base / HASSH code. The `pcap` crate is gated behind the
+  `remote-capture` Cargo feature; **continuous packet observation does
+  not depend on libpcap at runtime after Phase 3**.
+
+### Continuous capture is eBPF-only (revised 2026-05-27)
+
+After Phase 3 cutover, continuous packet observation runs entirely in
+the kernel:
+
+- **TC ingress + egress eBPF programs** attached to each allowlisted
+  interface. The TC programs parse the 5-tuple, look up a kernel BPF
+  `flow_table` map, and:
+  - For already-classified flows: bump byte/packet counters in-kernel
+    and return `TC_ACT_OK`. **These packets never enter userspace.**
+  - For new or in-classification flows: redirect the first 8–32
+    packets to an AF_XDP ring for userspace dissection. Once
+    classified, userspace writes the result back to the map and
+    subsequent packets short-circuit in the kernel.
+- **SYN-time fingerprinting via kprobe.** A `kprobe` on
+  `tcp_rcv_state_process` (or the kernel-version-appropriate
+  equivalent) extracts the SYN's TCP options at connection setup,
+  emits one p0f-signature event per new connection, and userspace runs
+  the in-tree p0f matcher / OS-match ensemble exactly once per
+  connection rather than per packet.
+- **Socket lifecycle + process attribution** via kprobes on
+  `tcp_connect`, `inet_csk_accept`, `tcp_close`, `udp_sendmsg`,
+  `udp_recvmsg`. Populates `flow_to_pid` and `process_info` BPF maps
+  that the userspace classifier joins against to label each flow
+  with its owning process.
+- **No `degraded` half-state.** If any required eBPF program fails to
+  load (kernel too old, verifier rejection, missing CAP_BPF), the
+  sidecar refuses to start its continuous capture worker and the
+  agent advertises `host-network-visibility = unavailable`. Hard
+  kernel floor: 5.8.
+
+The eBPF object code lives under `rust/netprobe/ebpf/` as a separate
+Cargo crate compiled to BPF bytecode via `aya-ebpf` and embedded into
+the userspace binary at build time. Maps are pinned under
+`/sys/fs/bpf/serviceradar/netprobe/` so sidecar restart reattaches to
+in-flight state without losing accumulated counters.
+
+This is the architectural baseline that Datadog NPM, Cilium/Hubble,
+and current-generation Cisco Secure Workload all converged on — for
+the same reason ServiceRadar is making this commitment: per-packet
+kernel→user transitions in libpcap-based userspace agents are the CPU
+bottleneck that gates fleet-wide deployment. We avoid that trap from
+day one (well, from Phase 3 onward; Phase 1/2 ship the libpcap
+stopgap and Phase 3 deletes it rather than optimizing it further).
 
 ### Sidecar capabilities (`netprobe`)
 
-- **Passive OS / device fingerprinting** — TCP p0f, TLS JA4/JA4S, HTTP
-  signature analysis (via `huginn-net`).
+- **Passive OS / device fingerprinting** — ServiceRadar-owned TCP p0f,
+  JA4-base TLS ClientHello, and HASSH SSH KEXINIT analysis.
 - **Deep packet inspection** — per-flow protocol classification across
   HTTP/1.x, HTTP/2 cleartext, TLS SNI, DNS, SSH, FTP, QUIC, MQTT,
   BitTorrent at MVP; designed for additive dissectors over time.
@@ -430,40 +527,81 @@ This proposal is intentionally large because it captures the end-state
 architecture. Implementation lands in named phases, each one shippable
 and reversible on its own:
 
-- **Phase 1 — OS fingerprinting only (the first shipping increment).**
-  `rust/netprobe/` skeleton with `huginn-net` integration; static musl
-  build targets wired into MODULE.bazel plus libpcap-enabled dynamic
-  Linux agent packaging; sidecar runtime
-  in `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
-  `ApplyConfig` / `Ping` / `FingerprintEvents` (other event channels
-  reserved); `VisibilityProfile` Ash resource with only the
-  `fingerprint` toggles wired; compiler integration; discovery
-  ingestion of fingerprint events; OCSF `os.passive_fingerprint` +
-  `metadata.passive_fingerprint` storage; minimal Visibility Profile
-  list+edit UI (fingerprint section only); agent advertises
+- **Phase 1 — OS fingerprinting only (shipped 2026-05-27, then
+  license-clean amended).** `rust/netprobe/` skeleton with static musl
+  build targets wired into MODULE.bazel plus libpcap-enabled
+  dynamic Linux agent packaging *as a stopgap*; sidecar runtime in
+  `go/pkg/agent/sidecar/`; IPC v1 protobuf carrying only
+  `ApplyConfig` / `Ping` / `FingerprintEvents`; `VisibilityProfile`
+  Ash resource with `fingerprint` toggles wired; compiler integration;
+  discovery ingestion of fingerprint events; OCSF
+  `os.passive_fingerprint` + `metadata.passive_fingerprint` storage;
+  minimal Visibility Profile list+edit UI; agent advertises
   `host-network-visibility = enabled` for fingerprint and
-  `unavailable` for other surfaces. **This is the slice that closes
-  Forgejo #3423.**
-- **Phase 2 — DPI.** Add dissectors (HTTP/1, HTTP/2, TLS-SNI, DNS,
-  SSH, FTP, QUIC, MQTT, BitTorrent), DPI event stream, device
-  metadata DPI map, DPI UI panel.
-- **Phase 3 — eBPF flow attribution + process snapshots.** Load eBPF
-  programs, emit `FlowAttributionEvent` + `ProcessSnapshot`, render
-  local-process map + Process Listeners tab. Degraded mode for
-  kernels without modern BPF support.
+  `unavailable` for other surfaces. **Closes Forgejo #3423.**
+- **Phase 2 — DPI dissectors (shipped 2026-05-27).** Adds dissectors
+  (HTTP/1, HTTP/2, TLS-SNI, DNS, SSH, FTP, QUIC, MQTT, BitTorrent),
+  `DpiEvent` stream, device `metadata.dpi` map, DPI UI panel. The
+  libpcap-userspace capture path that backs Phase 1 and Phase 2 is
+  understood to be a stopgap. **No performance backstops are landed
+  on the libpcap path**; that work would be deleted by Phase 3
+  anyway. Customers concerned about Phase 2 CPU cost wait for the
+  Phase 3 eBPF cutover.
+- **Phase 3 — Replace libpcap with kernel-side eBPF (the strategic
+  pivot).** This phase rewrites the continuous capture path from
+  libpcap-userspace to a kernel-eBPF golden path that matches
+  Datadog NPM / Cilium / current-generation Cisco Secure Workload
+  architecture. Phase 3 simultaneously ships:
+  - **TC ingress + egress eBPF programs** on each allowlisted
+    interface with a kernel `flow_table` map; classified flows
+    short-circuit in-kernel and never enter userspace.
+  - **AF_XDP ring** for delivering the first 8–32 packets of each
+    new flow to userspace where the L7 dissectors classify them.
+    After classification the result is written back to the
+    flow_table and subsequent packets bypass userspace.
+  - **SYN-time fingerprinting kprobe** on `tcp_rcv_state_process`
+    that emits exactly one p0f-signature event per new TCP connection.
+    The in-tree p0f matcher / OS-match ensemble runs once per
+    connection; no more userspace work in steady state.
+  - **Socket lifecycle kprobes** on `tcp_connect`,
+    `inet_csk_accept`, `tcp_close`, `udp_sendmsg`, `udp_recvmsg`
+    populating `flow_to_pid` and `process_info` BPF maps. This is
+    the original Phase 3 attribution work; it now lives on the
+    same eBPF surface as the capture path.
+  - **Deletion of the libpcap continuous capture worker** in
+    `rust/netprobe/src/capture.rs`. After Phase 3 cutover that
+    file is a thin AF_XDP consumer; the `pcap` Cargo dependency
+    moves behind a `remote-capture` feature flag used only by
+    Phase 5. deb/rpm `Depends` on libpcap drops to `Recommends`.
+  - `FlowAttributionEvent` + `ProcessSnapshot` IPC streams
+    activated. Local-process map and Process Listeners tab render
+    in the UI.
+  - **Hard kernel floor: 5.8.** Hosts below the floor advertise
+    `host-network-visibility = unavailable` cleanly. There is no
+    `degraded` half-state.
 - **Phase 4 — NetFlow ↔ application attribution.** `flow-collector`
   per-host slice publication, agent forwarding into `netprobe`,
-  `attributed_flow` republish, Attributed Flows view.
-- **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions` IPC
-  RPC, agent-side session bridge over the existing mTLS control
+  `attributed_flow` republish, Attributed Flows view. Now trivial
+  to land because the `flow_to_pid` map already exists from
+  Phase 3.
+- **Phase 5 — Remote pcapng capture sessions.** `CaptureSessions`
+  IPC RPC, agent-side session bridge over the existing mTLS control
   stream, `core-elx` session lifecycle + audit, `srctl capture` CLI
   helper, "Start Remote Capture" action on Device / Agent Detail.
-- **Phase 6 — Polish and hardening.** Capture interface allowlist UI,
-  privacy opt-in toggles, runbook, Cisco Secure Workload labelling
-  cookbook, Grafana dashboard.
+  **libpcap returns here, scoped to one operator-initiated session
+  at a time behind the `remote-capture` Cargo feature.** The
+  continuous code path is unaffected.
+- **Phase 6 — Polish and hardening.** Capture interface allowlist
+  UI, privacy opt-in toggle polish, runbook expansion, Cisco Secure
+  Workload labelling cookbook, Grafana dashboard for eBPF map
+  occupancy / sampling budget / flow_table hit ratio.
 
-Phase 1 must land first; later phases can re-order based on operator
-demand. Phase 2 has no dependency on Phase 5, and vice versa.
+Phase 1 has shipped. Phase 2 dissectors have shipped. Phase 3 is the
+next active phase and the single most important phase for fleet-wide
+deployment viability — its work is what unlocks the customer use case
+at acceptable CPU cost. No interim libpcap-path optimisation is
+planned; the Phase 3 eBPF cutover is the only customer-perf
+deliverable in flight.
 
 ### Non-goals
 

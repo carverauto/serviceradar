@@ -1,9 +1,12 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::IpAddr;
 
-use huginn_net::{
-    huginn_net_tls::{first_last_alpn, hash12, TLS_GREASE_VALUES},
-    packet_parser::{parse_packet, IpPacket},
-};
+use etherparse::{NetHeaders, PacketHeaders, TransportHeader};
+use sha2::{Digest, Sha256};
+
+const TLS_GREASE_VALUES: [u16; 16] = [
+    0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa, 0xbaba,
+    0xcaca, 0xdada, 0xeaea, 0xfafa,
+];
 
 #[derive(Debug, PartialEq)]
 pub(crate) struct TlsServerFingerprint {
@@ -19,71 +22,20 @@ pub(crate) fn fingerprint(packet: &[u8]) -> Option<TlsServerFingerprint> {
 }
 
 fn tcp_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
-    match parse_packet(packet) {
-        IpPacket::Ipv4(packet) => ipv4_tcp_payload(packet),
-        IpPacket::Ipv6(packet) => ipv6_tcp_payload(packet),
-        IpPacket::None => None,
+    let headers = if matches!(packet.first().map(|byte| byte >> 4), Some(4 | 6)) {
+        PacketHeaders::from_ip_slice(packet).ok()?
+    } else {
+        PacketHeaders::from_ethernet_slice(packet).ok()?
+    };
+    let source_ip = match headers.net.as_ref()? {
+        NetHeaders::Ipv4(header, _) => IpAddr::from(header.source),
+        NetHeaders::Ipv6(header, _) => IpAddr::from(header.source),
+        NetHeaders::Arp(_) => return None,
+    };
+    match headers.transport.as_ref()? {
+        TransportHeader::Tcp(_) => Some((source_ip, headers.payload.slice())),
+        _ => None,
     }
-}
-
-fn ipv4_tcp_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
-    if packet.len() < 20 || packet[0] >> 4 != 4 {
-        return None;
-    }
-
-    let header_len = usize::from(packet[0] & 0x0f) * 4;
-    let total_len = usize::from(u16::from_be_bytes([packet[2], packet[3]]));
-    if header_len < 20 || total_len < header_len || packet.len() < total_len {
-        return None;
-    }
-
-    if packet[9] != 6 {
-        return None;
-    }
-
-    let flags_fragment = u16::from_be_bytes([packet[6], packet[7]]);
-    if flags_fragment & 0x3fff != 0 {
-        return None;
-    }
-
-    let source_ip = IpAddr::V4(Ipv4Addr::new(
-        packet[12], packet[13], packet[14], packet[15],
-    ));
-    let tcp = &packet[header_len..total_len];
-    if tcp.len() < 20 {
-        return None;
-    }
-
-    let tcp_header_len = usize::from(tcp[12] >> 4) * 4;
-    if tcp_header_len < 20 || tcp.len() < tcp_header_len {
-        return None;
-    }
-
-    Some((source_ip, &tcp[tcp_header_len..]))
-}
-
-fn ipv6_tcp_payload(packet: &[u8]) -> Option<(IpAddr, &[u8])> {
-    if packet.len() < 40 || packet[0] >> 4 != 6 || packet[6] != 6 {
-        return None;
-    }
-
-    let payload_len = usize::from(u16::from_be_bytes([packet[4], packet[5]]));
-    if packet.len() < 40 + payload_len {
-        return None;
-    }
-
-    let source_ip = IpAddr::V6(Ipv6Addr::from(<[u8; 16]>::try_from(&packet[8..24]).ok()?));
-    let tcp = &packet[40..40 + payload_len];
-    if tcp.len() < 20 {
-        return None;
-    }
-
-    let tcp_header_len = usize::from(tcp[12] >> 4) * 4;
-    if tcp_header_len < 20 || tcp.len() < tcp_header_len {
-        return None;
-    }
-
-    Some((source_ip, &tcp[tcp_header_len..]))
 }
 
 fn parse_ja4s(payload: &[u8]) -> Option<String> {
@@ -253,6 +205,31 @@ fn ja4s(version: u16, cipher: u16, extension_types: &[u16], alpn: Option<&str>) 
         filtered_extensions.len().min(99),
         hash12(&extension_hash_input)
     )
+}
+
+fn first_last_alpn(alpn: &str) -> (char, char) {
+    let bytes = alpn.as_bytes();
+    let first = bytes.first().copied().unwrap_or(b'0');
+    let last = bytes.last().copied().unwrap_or(first);
+    (alpn_char(first), alpn_char(last))
+}
+
+fn alpn_char(value: u8) -> char {
+    if value.is_ascii_alphanumeric() {
+        value as char
+    } else {
+        const HEX: &[u8; 16] = b"0123456789abcdef";
+        HEX[usize::from(value & 0x0f)] as char
+    }
+}
+
+fn hash12(input: &str) -> String {
+    let digest = Sha256::digest(input.as_bytes());
+    digest
+        .iter()
+        .take(6)
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 
 fn tls_version(version: u16) -> &'static str {

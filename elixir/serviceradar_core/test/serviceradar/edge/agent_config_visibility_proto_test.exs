@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentConfigVisibilityProtoTest do
       capture_interfaces: ["en0"],
       binary_overrides: %Monitoring.VisibilityBinaryOverrides{path: "/tmp/netprobe"},
       default_sample_interval_ms: 250,
+      dpi: %Monitoring.VisibilityDpiConfig{enabled: true, protocols: ["dns", "tls"]},
       device_bindings: [
         %Monitoring.VisibilityDeviceBinding{
           ip: "192.0.2.10",
@@ -21,6 +22,7 @@ defmodule ServiceRadar.Edge.AgentConfigVisibilityProtoTest do
             tls: true,
             http: false
           },
+          dpi: %Monitoring.VisibilityDpiConfig{enabled: true, protocols: ["dns"]},
           sample_interval_ms: 500
         }
       ]

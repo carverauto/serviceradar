@@ -184,6 +184,17 @@ message SweepScannerStats {
   string protocol = 17;       // "tcp", "icmp", etc.
   string address_family = 18; // "ipv4", "ipv6", or "dual_stack"
   string scanner_path = 19;   // "raw_syn", "tcp_connect", etc.
+
+  // TCP connect statistics
+  uint64 dials_started = 20;         // Total full TCP connect dials started
+  uint64 dials_succeeded = 21;       // Full TCP connect dials that established
+  uint64 dial_timeouts = 22;         // Dial attempts that timed out
+  uint64 dial_resets = 23;           // Dial attempts refused or reset
+  uint64 dial_resource_errors = 24;  // Local fd/port/buffer pressure errors
+  uint64 active_dials = 25;          // Current full TCP connect dials
+  uint64 max_active_dials = 26;      // High-water mark of active dials
+  uint64 queue_depth = 27;           // Latest scanner input queue depth
+  uint64 max_queue_depth = 28;       // High-water mark of input queue depth
 }
 
 
@@ -622,9 +633,11 @@ message VisibilityConfig {
   VisibilityBinaryOverrides binary_overrides = 3;
   repeated VisibilityDeviceBinding device_bindings = 4;
   uint32 default_sample_interval_ms = 5;
+  VisibilityDpiConfig dpi = 20;
+  uint32 flow_table_max_entries = 40;
 
-  reserved 20 to 39;
-  reserved "dpi", "flow_attribution", "process_snapshot_interval_s";
+  reserved 21 to 39;
+  reserved "flow_attribution", "process_snapshot_interval_s";
 }
 
 message VisibilityBinaryOverrides {
@@ -637,12 +650,18 @@ message VisibilityDeviceBinding {
   string profile_name = 3;
   VisibilityFingerprintConfig fingerprint = 4;
   uint32 sample_interval_ms = 5;
+  VisibilityDpiConfig dpi = 6;
 }
 
 message VisibilityFingerprintConfig {
   bool tcp = 1;
   bool tls = 2;
   bool http = 3;
+}
+
+message VisibilityDpiConfig {
+  bool enabled = 1;
+  repeated string protocols = 2;
 }
 
 // SNMPTargetConfig defines a single SNMP target (network device) to poll.

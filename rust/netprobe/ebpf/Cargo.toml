@@ -1,0 +1,13 @@
+[package]
+name = "serviceradar-netprobe-ebpf"
+version = "0.1.0"
+edition = "2021"
+publish = false
+autolib = false
+
+[dependencies]
+aya-ebpf = "0.1.1"
+
+[[bin]]
+name = "netprobe-ebpf"
+path = "src/lib.rs"

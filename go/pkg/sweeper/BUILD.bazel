@@ -16,6 +16,7 @@ go_library(
         "//go/pkg/logger",
         "//go/pkg/models",
         "//go/pkg/scan",
+        "//go/pkg/scan/banner_grab",
         "@org_uber_go_mock//gomock",
     ],
 )
@@ -28,6 +29,7 @@ go_test(
         "base_processor_test.go",
         "memory_store_test.go",
         "sticky_availability_test.go",
+        "sweeper_banner_grab_test.go",
         "sweeper_prune_test.go",
         "sweeper_test.go",
         "target_count_test.go",
@@ -37,6 +39,7 @@ go_test(
     deps = [
         "//go/pkg/logger",
         "//go/pkg/models",
+        "//go/pkg/scan/banner_grab",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_uber_go_mock//gomock",

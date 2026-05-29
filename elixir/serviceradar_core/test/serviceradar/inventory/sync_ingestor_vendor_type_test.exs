@@ -410,6 +410,84 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert device.os["passive_fingerprint"]["version"] == "Linux 5.x"
   end
 
+  @tag :visibility
+  test "normalizes passive netprobe DPI evidence onto canonical device metadata", %{actor: actor} do
+    ip = unique_ip()
+
+    dpi_update = %{
+      "ip" => ip,
+      "source" => "passive-netprobe",
+      "metadata" => %{
+        "dpi.source" => "passive-netprobe",
+        "dpi.profile_id" => "dpi-hosts",
+        "dpi.interface" => "eth0",
+        "dpi.protocol" => "dns",
+        "dpi.dns.count" => "1",
+        "dpi.dns.confidence" => "0.920",
+        "dpi.dns.last_observed_at" => "2026-05-27T14:30:01Z",
+        "_alias_last_seen_ip" => ip,
+        "ip_alias:#{ip}" => "2026-05-27T14:30:01Z"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([dpi_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert "passive-netprobe" in device.discovery_sources
+
+    assert device.metadata["dpi"]["dns"] == %{
+             "count" => 1,
+             "confidence" => 0.92,
+             "last_observed_at" => "2026-05-27T14:30:01Z"
+           }
+
+    refute Map.has_key?(device.metadata["dpi"]["dns"], "source_port")
+    refute Map.has_key?(device.metadata["dpi"]["dns"], "destination_port")
+  end
+
+  @tag :visibility
+  test "normalizes sweep active banner fingerprint onto canonical device metadata and os", %{
+    actor: actor
+  } do
+    ip = unique_seeded_ip("active-fingerprint-#{Ash.UUID.generate()}")
+
+    active_update = %{
+      "ip" => ip,
+      "source" => "sweep_active",
+      "metadata" => %{
+        "active_fingerprint.source" => "sweep_active",
+        "active_fingerprint.observed_at" => "2026-05-28T12:00:00Z",
+        "active_fingerprint.os.name" => "Ubuntu Linux",
+        "active_fingerprint.os.version_range" => "22.04",
+        "active_fingerprint.os.family" => "linux",
+        "active_fingerprint.os.confidence" => "0.86",
+        "active_fingerprint.recog.ssh.product" => "OpenSSH",
+        "active_fingerprint.recog.ssh.version" => "8.9",
+        "active_fingerprint.recog.ssh.os_family" => "linux"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([active_update], actor: actor)
+
+    device = fetch_device_by_ip!(actor, ip)
+    assert "sweep_active" in device.discovery_sources
+
+    assert device.metadata["active_fingerprint"]["recog"]["ssh"] == %{
+             "product" => "OpenSSH",
+             "version" => "8.9",
+             "os_family" => "linux"
+           }
+
+    assert device.os["active_fingerprint"] == %{
+             "name" => "Ubuntu Linux",
+             "version_range" => "22.04",
+             "family" => "linux",
+             "confidence" => 0.86,
+             "source" => "serviceradar-sweep-active",
+             "observed_at" => "2026-05-28T12:00:00Z"
+           }
+  end
+
   test "replaces placeholder type with integration metadata alias", %{actor: actor} do
     ip = unique_ip()
     existing_uid = "sr:" <> Ecto.UUID.generate()
@@ -966,6 +1044,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         _ -> nil
       end
     end)
+  end
+
+  defp unique_seeded_ip(seed) do
+    <<octet2, octet3, octet4, _rest::binary>> = :crypto.hash(:sha256, seed)
+    "10.#{1 + rem(octet2, 250)}.#{1 + rem(octet3, 250)}.#{1 + rem(octet4, 250)}"
   end
 
   defp unique_mac do

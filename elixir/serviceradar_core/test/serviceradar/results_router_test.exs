@@ -192,6 +192,13 @@ defmodule ServiceRadar.ResultsRouterTest do
       "last_sweep" => last_sweep,
       "total_hosts" => 50,
       "scanner_stats" => %{"packets_sent" => 100, "packets_recv" => 90},
+      "banner_grab" => %{
+        "sweep_banner_grab_probes_total" => 12,
+        "sweep_banner_grab_matches_total" => 5,
+        "sweep_banner_grab_empty_response_total" => 2,
+        "sweep_banner_grab_errors_total" => 1,
+        "sweep_banner_grab_bytes_received_total" => 4096
+      },
       "hosts" => [
         %{
           "host" => "192.168.1.10",
@@ -233,6 +240,15 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert opts[:agent_id] == "agent-1"
     assert opts[:expected_total_hosts] == 50
     assert opts[:scanner_metrics] == %{"packets_sent" => 100, "packets_recv" => 90}
+
+    assert opts[:banner_grab_summary] == %{
+             "sweep_banner_grab_probes_total" => 12,
+             "sweep_banner_grab_matches_total" => 5,
+             "sweep_banner_grab_empty_response_total" => 2,
+             "sweep_banner_grab_errors_total" => 1,
+             "sweep_banner_grab_bytes_received_total" => 4096
+           }
+
     assert opts[:chunk_index] == 0
     assert opts[:total_chunks] == 4
     assert opts[:is_final] == false

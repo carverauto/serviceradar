@@ -58,6 +58,32 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   # Process in chunks to balance memory vs DB efficiency
   @batch_size 500
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
+  @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
+  @banner_grab_counter_dropped_event [
+    :serviceradar,
+    :sweep,
+    :banner_grab,
+    :counter_dropped
+  ]
+  # Allowlist of counter keys persisted into the audit `counters` map alongside
+  # the expected value type. Values that do not satisfy the type are dropped
+  # from the persisted summary (and emit a `:counter_dropped` telemetry event)
+  # to prevent untrusted agent payloads from injecting hostile values
+  # (negative ints, floats, binaries, maps, lists, etc.) into the audit row.
+  @banner_grab_counter_keys %{
+    "sweep_banner_grab_candidates_total" => :non_neg_integer,
+    "sweep_banner_grab_probes_total" => :non_neg_integer,
+    "sweep_banner_grab_match_batches_total" => :non_neg_integer,
+    "sweep_banner_grab_match_batch_bytes_total" => :non_neg_integer,
+    "sweep_banner_grab_bytes_received_total" => :non_neg_integer,
+    "sweep_banner_grab_skipped_fresh_total" => :non_neg_integer,
+    "sweep_banner_grab_skipped_backoff_total" => :non_neg_integer,
+    "sweep_banner_grab_matches_total" => :non_neg_integer,
+    "sweep_banner_grab_empty_response_total" => :non_neg_integer,
+    "sweep_banner_grab_connection_reset_total" => :non_neg_integer,
+    "sweep_banner_grab_timeout_total" => :non_neg_integer,
+    "sweep_banner_grab_errors_total" => :non_neg_integer
+  }
 
   @doc """
   Ingest a batch of sweep results for an execution.
@@ -68,6 +94,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:agent_id` - The agent that performed the sweep
   - `:config_version` - Config version hash for the execution
   - `:scanner_metrics` - Scanner performance metrics from the agent
+  - `:banner_grab_summary` - Phase-level banner-grab counters from the agent
+  - `:request_id` - Optional upstream request/correlation ID for audit rows
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
@@ -80,6 +108,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     agent_id = Keyword.get(opts, :agent_id)
     config_version = Keyword.get(opts, :config_version)
     scanner_metrics = Keyword.get(opts, :scanner_metrics)
+    banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
+    request_id = Keyword.get(opts, :request_id)
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     chunk_index = Keyword.get(opts, :chunk_index)
     total_chunks = Keyword.get(opts, :total_chunks)
@@ -118,6 +148,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           total_count,
           start_time,
           expected_total_hosts: expected_total_hosts,
+          banner_grab_summary: banner_grab_summary,
+          request_id: request_id,
           chunk_index: chunk_index,
           total_chunks: total_chunks,
           is_final: is_final
@@ -1162,8 +1194,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     UPDATE ocsf_devices
     SET
       is_available = true,
-      last_seen_time = $2,
-      modified_time = $2,
+      last_seen_time = $2::timestamptz,
+      modified_time = $2::timestamptz,
       metadata = jsonb_set(
         jsonb_set(
           COALESCE(metadata, '{}'::jsonb),
@@ -1327,9 +1359,11 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   end
 
-  defp update_execution(execution_id, _sweep_group_id, stats, scanner_metrics, _actor, opts) do
+  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, actor, opts) do
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     is_final = Keyword.get(opts, :is_final, true)
+    banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
+    request_id = Keyword.get(opts, :request_id)
 
     {completed_at, updated_at} = execution_timestamps(is_final)
     duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
@@ -1342,7 +1376,213 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     update_execution_row(execution_id, inc_fields, set_fields)
     maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+
+    maybe_record_banner_grab_phase(
+      execution_id,
+      sweep_group_id,
+      banner_grab_summary,
+      request_id,
+      actor,
+      is_final
+    )
+
     fetch_execution(execution_id)
+  end
+
+  defp maybe_record_banner_grab_phase(
+         _execution_id,
+         _sweep_group_id,
+         _summary,
+         _request_id,
+         _actor,
+         false
+       ), do: :ok
+
+  defp maybe_record_banner_grab_phase(
+         _execution_id,
+         _sweep_group_id,
+         nil,
+         _request_id,
+         _actor,
+         true
+       ), do: :ok
+
+  defp maybe_record_banner_grab_phase(
+         _execution_id,
+         _sweep_group_id,
+         summary,
+         _request_id,
+         _actor,
+         true
+       )
+       when summary == %{}, do: :ok
+
+  defp maybe_record_banner_grab_phase(
+         execution_id,
+         sweep_group_id,
+         summary,
+         request_id,
+         actor,
+         true
+       ) do
+    audited_summary = banner_grab_audit_summary(summary)
+    audit_context = audit_context(sweep_group_id, request_id)
+    audit_actor = audit_actor(actor, request_id)
+
+    case Ash.get(SweepGroupExecution, execution_id, actor: audit_actor) do
+      {:ok, execution} ->
+        execution
+        |> Ash.Changeset.for_update(
+          :record_banner_grab_phase,
+          %{banner_grab_summary: audited_summary},
+          actor: audit_actor
+        )
+        |> Ash.Changeset.set_context(audit_context)
+        |> Ash.update(actor: audit_actor)
+        |> case do
+          {:ok, _updated} ->
+            :ok
+
+          {:error, reason} ->
+            record_banner_grab_audit_failure(
+              :update_failed,
+              execution_id,
+              sweep_group_id,
+              reason
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        record_banner_grab_audit_failure(
+          :load_failed,
+          execution_id,
+          sweep_group_id,
+          reason
+        )
+
+        :ok
+    end
+  end
+
+  defp audit_context(sweep_group_id, request_id) do
+    %{}
+    |> maybe_put_context(:sweep_group_id, sweep_group_id)
+    |> maybe_put_context(:request_id, request_id)
+  end
+
+  defp maybe_put_context(context, _key, nil), do: context
+  defp maybe_put_context(context, _key, ""), do: context
+  defp maybe_put_context(context, key, value), do: Map.put(context, key, value)
+
+  defp audit_actor(%{} = actor, request_id) when is_binary(request_id) and request_id != "",
+    do: Map.put(actor, :request_id, request_id)
+
+  defp audit_actor(actor, _request_id), do: actor
+
+  @doc false
+  def banner_grab_audit_summary(summary) when is_map(summary) do
+    %{
+      "probe_count" => counter(summary, "sweep_banner_grab_probes_total"),
+      "banner_match_count" => counter(summary, "sweep_banner_grab_matches_total"),
+      "empty_response_count" => counter(summary, "sweep_banner_grab_empty_response_total"),
+      "error_count" => banner_grab_error_count(summary),
+      "total_bytes_received" => counter(summary, "sweep_banner_grab_bytes_received_total"),
+      "counters" => sanitize_banner_grab_counters(summary)
+    }
+  end
+
+  # Filter the agent-supplied summary down to allowlisted keys, validating each
+  # value against its expected type. Mismatched values are dropped (not coerced)
+  # so that the persisted audit row never contains attacker-controlled blobs,
+  # and a telemetry event is emitted per dropped key for observability.
+  defp sanitize_banner_grab_counters(summary) do
+    Enum.reduce(@banner_grab_counter_keys, %{}, fn {key, type}, acc ->
+      case Map.fetch(summary, key) do
+        :error ->
+          acc
+
+        {:ok, value} ->
+          if valid_counter_value?(value, type) do
+            Map.put(acc, key, value)
+          else
+            emit_counter_dropped(key, type, value)
+            acc
+          end
+      end
+    end)
+  end
+
+  defp valid_counter_value?(value, :non_neg_integer)
+       when is_integer(value) and value >= 0,
+       do: true
+
+  defp valid_counter_value?(_value, _type), do: false
+
+  defp emit_counter_dropped(key, expected_type, value) do
+    :telemetry.execute(
+      @banner_grab_counter_dropped_event,
+      %{count: 1, banner_grab_counter_dropped_total: 1},
+      %{
+        counter_key: key,
+        expected_type: expected_type,
+        value_type: counter_value_type(value)
+      }
+    )
+  end
+
+  defp counter_value_type(value) when is_integer(value), do: :integer
+  defp counter_value_type(value) when is_float(value), do: :float
+  defp counter_value_type(value) when is_binary(value), do: :binary
+  defp counter_value_type(value) when is_map(value), do: :map
+  defp counter_value_type(value) when is_list(value), do: :list
+  defp counter_value_type(value) when is_atom(value), do: :atom
+  defp counter_value_type(_value), do: :other
+
+  @doc false
+  def record_banner_grab_audit_failure(operation, execution_id, sweep_group_id, reason) do
+    reason_text = inspect(reason)
+
+    Logger.error("SweepResultsIngestor: failed to record banner-grab audit summary",
+      operation: operation,
+      execution_id: execution_id,
+      sweep_group_id: sweep_group_id,
+      reason: reason_text
+    )
+
+    :telemetry.execute(
+      @banner_grab_audit_failed_event,
+      %{count: 1, banner_grab_audit_failed_total: 1},
+      %{
+        operation: operation,
+        execution_id: to_string(execution_id),
+        sweep_group_id: to_string(sweep_group_id),
+        reason: reason_text
+      }
+    )
+  end
+
+  defp banner_grab_error_count(summary) do
+    counter(summary, "sweep_banner_grab_errors_total") +
+      counter(summary, "sweep_banner_grab_connection_reset_total") +
+      counter(summary, "sweep_banner_grab_timeout_total")
+  end
+
+  defp counter(summary, key) do
+    case Map.get(summary, key) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> trunc(value)
+      value when is_binary(value) -> parse_counter(value)
+      _ -> 0
+    end
+  end
+
+  defp parse_counter(value) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> 0
+    end
   end
 
   defp execution_timestamps(true) do
@@ -1438,7 +1678,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           duration_ms: e.duration_ms,
           hosts_total: e.hosts_total,
           hosts_available: e.hosts_available,
-          hosts_failed: e.hosts_failed
+          hosts_failed: e.hosts_failed,
+          banner_grab_summary: e.banner_grab_summary
         }
       )
     )

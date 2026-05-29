@@ -57,6 +57,7 @@ type Server struct {
 	sidecarStatus      sidecarStatusProvider
 	sidecarManager     sidecarLifecycleManager
 	netprobeSidecar    *agentnetprobe.Sidecar
+	flowPublisher      *flowPublisher
 	addonManager       agentaddon.AddonManager
 	objectStore        ObjectStore
 }
@@ -84,11 +85,30 @@ type SweepConfig struct {
 	Ports         []int                 `json:"ports"`
 	SweepModes    []models.SweepMode    `json:"sweep_modes"`
 	DeviceTargets []models.DeviceTarget `json:"device_targets,omitempty"` // Per-device sweep configuration
+	BannerGrab    BannerGrabConfig      `json:"banner_grab,omitempty"`    // Optional active banner-grab phase
 	Interval      Duration              `json:"interval"`
 	Concurrency   int                   `json:"concurrency"`
 	Timeout       Duration              `json:"timeout"`
 	SweepGroupID  string                `json:"sweep_group_id,omitempty"` // Sweep group UUID for result tracking
 	ConfigHash    string                `json:"config_hash,omitempty"`    // Hash of config for change detection
+}
+
+// BannerGrabConfig controls the optional active banner-grab phase.
+type BannerGrabConfig struct {
+	Enabled                bool             `json:"enabled"`
+	Protocols              []string         `json:"protocols"`
+	Ports                  map[string][]int `json:"ports"`
+	ConnectTimeoutMS       int              `json:"connect_timeout_ms"`
+	ReadTimeoutMS          int              `json:"read_timeout_ms"`
+	MaxBannerBytes         int              `json:"max_banner_bytes"`
+	MaxConcurrencyPerHost  int              `json:"max_concurrency_per_host"`
+	MaxGlobalConcurrency   int              `json:"max_global_concurrency"`
+	MaxProbeRatePerSecond  int              `json:"max_probe_rate_per_second"`
+	MaxCandidateQueue      int              `json:"max_candidate_queue"`
+	MatchBatchSize         int              `json:"match_batch_size"`
+	MatchBatchMaxBytes     int              `json:"match_batch_max_bytes"`
+	MinReprobeIntervalSec  int              `json:"min_reprobe_interval_s"`
+	PerHostRateLimitMillis int              `json:"per_host_rate_limit_ms"`
 }
 
 // SweepGroupConfig represents a single sweep group config parsed from gateway payloads.
@@ -99,6 +119,7 @@ type SweepGroupConfig struct {
 	Ports          []int
 	SweepModes     []models.SweepMode
 	DeviceTargets  []models.DeviceTarget
+	BannerGrab     BannerGrabConfig
 	Interval       Duration
 	Concurrency    int
 	Timeout        Duration
@@ -144,6 +165,22 @@ type ServerConfig struct {
 	// when enabled and the helper binary is locally executable.
 	RemoteAccessRDPEnabled     *bool  `json:"remote_access_rdp_enabled,omitempty"`
 	RemoteAccessRDPAdapterPath string `json:"remote_access_rdp_adapter_path,omitempty"`
+
+	// NATSURL is the URL of the NATS server the agent publishes its
+	// per-host flow slice to. Populated by edge-bundle enrollment when
+	// the agent has flow-collector creds provisioned (B-5 sub-issue 1).
+	// When empty, the agent skips NATS publishing entirely.
+	NATSURL string `json:"nats_url,omitempty"`
+	// NATSCredsFile is the on-disk path to the per-agent flow-collector
+	// .creds file (typically /etc/serviceradar/creds/nats-agent.creds). When
+	// non-empty, it is passed to nats.UserCredentials at connect time so
+	// the agent authenticates under the per-agent JWT (host-slice publish
+	// subject `flow.host-slice.<agent-id>`). When empty, the agent falls
+	// back to the existing auth (mTLS via NATSSecurity, or anonymous).
+	NATSCredsFile string `json:"nats_creds_file,omitempty"`
+	// NATSSecurity optionally configures mTLS for the NATS connection.
+	// Used in tandem with (or independently of) NATSCredsFile.
+	NATSSecurity *models.SecurityConfig `json:"nats_security,omitempty"`
 }
 
 type BumblebeeStatusConfig struct {

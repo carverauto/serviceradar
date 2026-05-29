@@ -1,0 +1,1121 @@
+21publish
+2N Telekomunikace
+3CX
+3Com
+8x8 Inc.
+A.K.I Software
+ACME
+ACT Security
+AContent
+ADB
+ADC
+ADTRAN
+AIOHTTP Project
+ALCATEL
+ALT
+ALU
+AMAG Technology
+AMI
+AMTDatasouth
+ANNKE
+APC
+ARRIS
+ASUS
+AT&T - GBCS
+AT&T Laboratories Cambridge
+AT&T Starpoint
+AT&T Worldworx
+ATEN
+ATG
+ATL Telecom Limited
+ATT
+ATutor
+AVM
+AVT
+AVTECH
+AXIS
+Aastra
+Accelerated Technology
+Ad Aures
+AdGuard
+Adaptec
+AdminDroid
+Adminer
+Adobe
+Adtran
+Aerohive
+Agere Systems
+Agilent
+AirDefense
+AirMagnet
+Aircookie
+Airties
+Akamai
+Alentis Electronics
+Alexander
+Algo
+Alibaba
+AlienVault
+Allegro Software
+Allen-Bradley
+Allied Telesyn
+Allworx
+Alpha Technologies
+Alpha Telecom, Inc. U.S.A.
+Alpine
+Alt-N
+Amazon
+Ampache
+AnalogX
+Android Debug Database
+Ant
+AnyBus
+Apache
+Apple
+Aprelium Technologies
+Aptinex
+ArGoSoft
+Arachni
+Araknis Networks
+Arch
+Arescom
+Arista
+Array Networks
+Arris
+Artisoft Inc.
+Aruba
+Aruba Networks
+Ascend
+Ascom
+Asentria
+Asianux
+Aspect Communications
+Aspen
+Asterisk
+Asus
+Atlassian
+Atmail
+Atomic
+Atrium Software
+Attachmate
+Attivio
+AudioCodes
+Avaya
+Avery Dennison
+Avigilon
+Avleen Vig
+Avocent
+Axis
+Axonius
+Axway
+Azul Systems
+B-RAYZ
+BEA
+BT
+Ballerina
+Bandura Labs
+Bangteng
+Barco
+Barix
+Barracuda
+Baxter
+Beehive
+Berkeley Software Design Inc.
+Bftpd Project
+Bigfoot
+Bird Home Automation
+Biscom
+Bitvise
+Bitwarden
+Bitweaver
+BlackBox
+Blue Coat
+BlueCat
+Boa
+Bobcat
+Bomgar
+Bosch
+Bose
+BrightSign
+British Telecommunications
+Broadcom
+Brocade
+Brother
+Buffalo
+Busybox
+C&D Technologies
+C-Phone Corporation
+CA
+CBT
+CDVI
+COMpact
+CSM
+Cabletron
+Cacti
+CaddyServer
+CakePHP
+Calibre-Web Project
+Calient
+Calnex
+Cambium Networks
+Canon
+Carnegie Mellon University
+Cascade
+Castelle
+Caucho
+Celery
+Cellopoint
+CentOS
+Ceph
+Cesanta
+Chainpoint
+Chamilo
+Check Point
+Checkpoint
+Cherokee Project
+CherryPy
+Ciena
+Cintech Tele-Management
+Cirilium, Inc.
+Cisco
+Citrix
+CivicPlus
+Clarent Corporation
+CleanBrowsing
+Clearswift
+Cleo
+ClipBucket
+Clipcomm
+CloudFlare
+CloudLinux
+Cloudera
+Cobalt
+Cockroach Labs
+Codian
+Colin Harrison
+Comcast
+Communigate
+Compaq
+Compression Labs
+Compuprint
+Compuware
+Comsenz
+Conectiva
+Conexant
+Congruency, Inc.
+ConnectWise
+Control Solutions
+Control Web Panel
+CouchPotato
+Couchbase
+Cradlepoint
+Crestron
+Critical Path
+CrowCPP
+CrushFTP
+CrystalVoice Communications
+Cumulus
+CyberPower
+Cyberoam
+D J Bernstein
+D-Link
+DD-WRT
+DEC
+Dahua
+Dan Kaminsky
+Data Connection
+Data Domain
+Data General
+Datalogic Mobile
+Datamax
+DeTeWe - Deutsche Telephonwerke AG
+Debian
+Dell
+Deutsche Telekom
+Device42
+Dialogic
+Digi
+Digitronic Computersysteme GmbH
+Digium
+DirectLOGIC
+DokuWiki
+Dokuwiki
+Domain
+DotNetNuke
+Double Precision
+Dovecot
+Dr. Neuhaus Mikroelektronik
+Dragonfly
+DrayTek
+Dreambox
+Dreamhost
+Dropbear SSH Project
+Drupal
+Duo
+Dvbbs
+E-zekiel
+EFI
+ELAN
+EMC
+EMWAC
+ERIS
+Eagle Eye Networks
+Eaton
+Ecelerity
+Eclipse
+Ektron
+Elastic
+Eltek
+Eltex
+EmbedThis
+Embedthis
+Emby
+Emerson
+Emulex
+Encode
+Enterasys
+Envoy Proxy
+Epson
+EqualLogic
+Equivalence (OpenH323)
+Ericsson
+Etherpad
+Eudora
+Evolis
+Ewon
+ExtraHop
+Extreme Networks
+Extron
+F5
+FUHO
+FUJI XEROX
+Facebook
+FarSite Communications
+FastHTTP Project
+FatPipe Networks
+FatWire
+Fedora Project
+Feng
+Ferner
+Ferrari Electronik GmbH
+Fidelis
+Fidelix
+FileRun
+Filezilla-Project
+FireEye
+Firefly
+Floosietek
+FlowPoint
+Flussonic
+Flyspray
+Fog
+Folding@home
+Fortinet
+Fortra
+Foscam
+Foundry
+Foundry Networks
+FreeBSD
+FreePBX
+FreeSWITCH
+Freebox
+FreshTomato
+Fritz!
+Fuji Xerox
+Fujifilm
+Fujitsu
+Fujitsu Siemens
+GDM
+GFI
+GNU
+GPT Video Systems
+GStreamer
+Gallagher
+GarrettCom
+Gene6
+General Dynamics
+Genesys Telecommunications Labs Inc
+Genetec
+Genivia
+Genscape
+Gentoo
+Gerrit
+GigaBlue
+Gigamon
+Gigaset
+GitHub
+GitLab
+Gitea
+Gitweb
+Global Technology Associates
+GlobalScape
+GoGogate
+Gogs
+Google
+Gordano
+Grafana
+Grandstream
+Graylog
+Greenbone
+Greenwave Systems
+Greyware Automation Products, Inc.
+Gude
+Gunicorn
+H3C
+HAProxy
+HP
+HPE
+Hadoop
+Haivision
+Hak5
+Hanwha Techwin
+HashiCorp
+Hauni Elektronik
+HeiTel
+Hewlett-Packard
+HiSilicon
+Hikvision
+HipServ
+Hipcam
+Holger
+Home-Assistant
+Honeywell
+Horde
+Huawei
+Huawei-3com
+Hubitat
+Hummingbird Ltd.
+Hydra Project
+IBHsofte
+IBM
+INDECT
+IQinVision
+ISC
+ISDN Communications
+ITO Communications
+Idea
+Ignite Realtime
+ImageCom
+Imagistics
+Inari Inc.
+Incognito
+Indigo Active Vision Systems
+Indigo Security
+Inductive Automation
+InfluxData
+Ingate
+Intel
+Intermec
+Internet Archive
+Intland
+Inveo
+Invision
+Iomega
+Ipswitch
+Isilon
+Istio
+JFrog
+Jamf
+Jellyfin
+Jellyseerr
+Jenkins
+JetBrains
+Jive
+Joomla!
+Juniper
+Jupyter
+KACE
+Kaeser Compressors
+Kali
+Kamailio
+Kaptivo
+Kayako
+Keenetic
+Kerio
+Keweon
+Keyper
+Keysight
+Kodi
+Konftel
+Kong
+Konica Minolta
+Kubernetes
+Kubuntu
+Kyocera
+Kyocera Mita
+LANCOM
+LANCOM Systems
+LANDesk
+LG
+LINX
+LaCie
+Labtam
+Lanier
+Lansweeper
+Lantronix
+Laravel
+Leadtek Research Inc.
+Lencore
+Lenel
+Lenovo
+Lexmark
+LibreNMS
+Lidarr
+Liebert
+Lifesize
+LigoWave
+Ligowave
+Lime Technologies
+LimeSurvey
+Linksys
+Linux
+LiteSpeed Technologies
+LiveWorks Limited
+Logitech
+Lorex
+Lotus
+Lotus-Domino
+Loxone
+Lucent
+Lynx Technology
+Lyris
+MBP Kommunikationssysteme GmbH
+MGT-COMMERCE GmbH
+MITRE
+MPI Technologies
+MPS Software
+MRV Communications
+Ma Jian
+Macromedia
+Madge
+MagTek
+MagicMail
+Mail-Max
+MailEnable
+Mailman
+ManageEngine
+Mandriva
+Mantis
+Mantrey
+Maraschino
+Marconi Communications
+MariaDB
+Mayan-EDMS
+Mbedthis Software
+McAfee
+Media5 Corporation
+MediaGate
+Mediatrix Telecom
+Merak
+Meraki
+Mercury Security
+Merge Healthcare
+Merit LILIN
+Mersive
+MetaInfo
+Metabase
+MeterSphere
+MiBridge Inc.
+Michael Tokarev
+MicroStrategy
+Microplex
+Microsoft
+MikroTik
+MiniUPnP Project
+Miniflux
+Mirapoint
+Mitel
+Mobatek
+Mobotix
+Mocana
+MoinMoin
+Moodle
+Mort Bay
+Motion Media Technology
+Motorola
+Moxa
+Mozilla
+MultiTech
+Multicraft
+Munin
+N-able
+NACT Telecommunications
+NAGRA
+NAS4Free
+NEC
+NFT
+NLnet Labs
+NTP
+NVIDIA
+Nagios
+Nanoleaf
+NcFTP Software
+Neologica
+Neoscale
+Nero
+Nessus
+Net-SNMP
+NetApp
+NetBSD
+NetBotz
+NetData
+NetIQ
+NetSarang Computer, Inc.
+NetScout
+NetScreen
+NetWin
+Netgate
+Netgear
+Netia
+Netopia
+Netreon
+Netrix Corporation
+Netscape
+Netscape Conference
+Netwave
+Network Alchemy Limited
+Network Equipment Technologies
+Neustar
+Nextcloud
+Nightmare Software
+Nokia
+Nokia-Siemens
+Nominum
+Nortel
+Norton
+Novell
+Nuuo
+OPNSense
+OPNsense
+OSSDL.de
+OTRS
+OWASP
+Objective Communications
+Observium
+Oce
+Octeth
+Octopress
+Octopus
+Oki
+Okidata
+Open Text
+OpenBSD
+OpenKM
+OpenLDAP
+OpenMediaVault
+OpenNAC
+OpenResty
+OpenSER
+OpenSIPS
+OpenSUSE
+OpenStack
+OpenVMS
+OpenVPN
+OpenWRT
+OpenWall
+OpenWebif
+OpenXPKI
+Opengear
+Oracle
+Orthanc
+OsirX
+Overland
+Oversee
+PHP
+PHPWind
+PHPwiki
+PIAF
+PIPS
+PLD
+PRTG
+Pagoo, Inc.
+PalletsProjects
+Palm
+Palo Alto Networks
+Panasonic
+Panduit
+PaperCut
+Paperless-ng
+Paperless-ngx
+Papermerge
+Paradyne
+Parallels
+Paramiko
+Patton
+Paul Smith Computer Services
+Pelco
+Percona
+Perl
+Phacility
+Philips
+Philips Video Conferencing Systems
+Phoenix Contact
+Pi-hole
+PictureTel
+Plain Black
+Plesk
+Plex
+Pligg
+Plixer
+Plone
+Polatis
+Poly
+Polycom
+Portainer
+Postfix
+Power Measurement Ltd.
+PowerDNS
+PowerWare
+Powered
+Pragma Systems
+Pro Group
+ProFTPD Project
+ProSoft Technology
+Process Software
+Progress
+ProjectPier
+Prometheus
+Pronet
+Prowlarr
+Proxmox
+Psion Teklogix
+Pulse Secure
+Puppet
+Pure Storage
+PureFTPd
+Python Software Foundation
+Q-SYS
+QNAP
+QNAP Systems
+QPC Software
+Qualcomm
+Quintum Technologies, Inc.
+RADVision, Inc.
+RIPE
+RSI
+RStudio
+RabbitMQ
+Radarr
+Rapid7
+RapidShare
+Raritan
+Raspbian
+RealMedia
+RealNetworks
+RealVNC Ltd.
+Rectifier Technologies
+Red Hat
+Redaxscript
+Redback Networks
+Redline
+Redmine
+Rhino Software
+Ricoh
+Ridgeway Systems and Software
+Rifatron
+Riverbed
+Riverstone
+Rockliffe
+Rockwell Automation
+Rohde & Schwarz
+Roku
+Roller
+Roundcube
+Roxen
+Ruby-Lang
+Ruckus
+Ruijie
+Rundeck
+S2
+SABnzbd
+SAP
+SATO
+SBLIM
+SCO
+SEH Technology
+SGI
+SMA
+SMA Solar Technology Ag
+SMC Networks
+SPIP
+SSH Communications Security
+SSLstrip
+ST
+STARFACE GmhH
+SUSE
+SafeNet
+Sage
+SalesAgility
+Samba
+Samsung
+Sangoma
+SapporoWorks
+Satelitech
+Savin
+Sawmill
+Scalix
+Schneider
+Schneider Electric
+Schneider Rundfunkwerke AG
+Science Dynamics Corporation
+Science Logic
+Scientific
+ScriptLogic
+Seagate
+Seattle Labs
+SecureConnect
+Segger
+Sendmail
+Sequent
+Sercomm
+Serena
+SerenityOS
+Serome Technology, Inc.
+Serv-U
+Server Technology
+Sharp
+ShellInABox
+Shelly
+Shenzhen Reecam Tech. Ltd.
+ShoreTel
+Siebel
+Siemens
+SiliconDust
+Silver Peak
+Siqura
+Slackware
+SmoothWall
+SnapServer
+SocialText
+Sofrel
+Softing
+Software House
+SolarWinds
+SonarQube
+Sonarr
+SonicWall
+Sonos
+Sony
+Sophos
+Source Technologies
+SparkWeb
+SpeedTouch
+Sphera
+Spiceworks
+Spirent Communications
+SpliceCom
+Splunk
+SpotterRF
+Spyce
+Squid
+Squid Cache
+Standard Networks
+StarNet Communications Corp.
+StarVox, Inc.
+StartCom
+Steinsvik
+Stephen
+Strategic Cyber LLC
+StreamComm
+SuSE
+SubText
+Subrion
+Sun
+SunOne
+Super Micro
+Supervisord
+Swagger
+Swissvoice
+Sybase
+Symantec
+Symbol
+Symbol Technologies Inc.
+Symplified
+Syndeo Corp.
+Synology
+SysMaster Corporation
+Systech
+TIS
+TLD
+TP-LINK
+TRENDnet
+TVersity
+TYPO3
+Tableau
+Talend
+Tandberg
+Taobao
+Tasman Networks
+TeamSpeak
+Technicolor
+Tektronix
+Teldat H. Kruszynski, M. Cichocki Sp. J.
+TeleStream Technologies, Inc.
+TeleWare
+Telecomsoft
+Teledyne FLIR
+Telligent
+Telliris
+Telxon Corporation
+Tenable
+Tencent
+Teradici
+The
+Thekelleys
+Thomson
+TigerVNC
+TightVNC
+Tildeslash
+Tilgin
+Tintro
+Tinyproxy Project
+Tivo
+Tobit Software
+Tokutek
+Tomato
+TomatoUSB
+Tor Project
+TornadoWeb
+Toshiba
+TradingEye
+Traefik Labs
+TransmissionBT
+Treck
+Tridium
+Trimble
+Troy
+Truen
+Trustix
+Turbolinux
+Twisted Matrix Labs
+TwistedMatrix
+Typo3
+UNIX
+Ubee
+Ubiquiti
+Ubuntu
+UnboundID
+Unica
+Unify
+Unisys
+UnitedLinux
+Ushahidi
+VBrick
+VISEC
+VMware
+VTEL
+Vaddio
+Valcom
+VanDyke Software
+Vanguard Managed Solutions
+Varnish Cache Project
+Vaultwarden
+VcXsrv
+Vegastream
+Vermillion
+Vertical Networks, Inc.
+ViaVideo/PolyCom
+VideoServer
+Vignette
+Vine
+Vircom
+Visuality Systems
+Vizio
+VocalTec Communications, Inc.
+Västgöta-Data AB
+WFTPServer
+WRQ, Inc.
+WSO2
+Washington University
+WatchGuard
+WeOnlyDo
+WebTrends
+Webmin
+Weidmüller
+Westbay Engineers
+Westell
+Western Digital
+White Box
+Wifx
+WikiWebHelp
+Wildix
+Wind River
+WoltLab
+WordPress
+Wowza
+Wowza Media Systems
+Wyze
+X.Org
+XAMPP
+XFree86
+XOOPS
+XRoads
+Xerox
+Xinit
+Xiongmai Technology
+Xiph
+Xiph.org
+Xitami
+Xlight
+Xubuntu
+Xyplex
+Xytronix
+Yahoo!
+Yamaha
+Yealink
+Yocto
+Youngzsoft
+ZMailer
+ZTE
+Zabbix
+Zaphoyd Studios
+Zarafa
+Zebra
+Zed Shaw
+Zenoss
+Zero
+Zimbra
+Zyxel
+aCola
+aMule
+autopsy
+axTLS Project
+axyl
+b2evolution
+bmpx
+boost
+cPanel
+cakephp
+caudium
+cgiirc
+chora2
+chronicle
+cimg
+couchdb
+cream
+cz.nic
+darkhttpd Project
+darkstat Project
+doc-iana-20080601
+dotCMS
+dtc
+eGroupWare
+ebug-http
+enGenius
+estos
+etherpad
+exim
+flac
+freevo
+frp
+gallery
+garlic-doc
+gdnsd
+gforge
+glpi
+gollem
+gonzui
+gosa
+gramps
+gsoap
+hercules
+home.pl
+horde
+horde-sam
+hplip
+hunchentoot
+i.LON
+i3micro
+iRobot
+iTach
+iXsystems
+ikiwiki
+innovaphone
+jetty
+k3d
+kdelibs
+kdenetwork
+kolab-webadmin
+ktorrent
+lastfmproxy
+ldap-account-manager
+libitpp
+libssh
+libswarmcache-java
+lighttpd
+lucene
+mahara
+mathomatic
+mediatomb
+mitmproxy
+mod_ssl
+mod_wsgi
+mongo-express Project
+movabletype-opensource
+myghty
+mythplugins
+nanoblogger
+netmrg
+nginx
+ninenines
+noVNC
+ntop
+nulog
+ocPortal
+ocsinventory-server
+openHAB
+owasp.org
+ownCloud
+parrot
+pathological
+penguin
+perl-doc-html
+pfSense
+phpMyAdmin
+phpMyBackupPro
+phpSysInfo
+phpgroupware
+phpldapadmin
+phpress
+pootle
+port25
+prewikka
+python-cherrypy
+python-werkzeug
+qdPM
+qmail
+quantlib-refman-html
+quickplot
+qwik
+rPath
+ramaze-ruby
+roundcube
+selfhtml
+solr
+sork-forwards-h3
+sork-passwd-h3
+sork-vacation-h3
+spe
+sql-ledger
+status.net
+tea
+torrentflux
+transmission
+tulip
+turbogears
+twiki
+vBulletin
+vdr-plugin-live
+vdradmin-am
+vlc
+vsFTPd Project
+vtiger
+webERP
+webcheck
+webcit
+websvn
+witty
+xsp
+yaws
+znc
+zoneminder

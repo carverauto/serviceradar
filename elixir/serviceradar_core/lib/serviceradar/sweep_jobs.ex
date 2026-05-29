@@ -23,10 +23,14 @@ defmodule ServiceRadar.SweepJobs do
       "in:devices discovery_sources:armis ip:10.0.0.0/8"
   """
 
-  use Ash.Domain, extensions: [AshAdmin.Domain]
+  use Ash.Domain, extensions: [AshAdmin.Domain, AshPaperTrail.Domain]
 
   admin do
     show?(true)
+  end
+
+  paper_trail do
+    include_versions? true
   end
 
   resources do

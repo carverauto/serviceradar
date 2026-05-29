@@ -247,6 +247,12 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 				{Port: 80, Available: 5},
 			},
 		},
+		bannerStats: &models.BannerGrabStats{
+			CandidatesTotal:   3,
+			ProbesTotal:       2,
+			MatchBatchesTotal: 1,
+			MatchesTotal:      1,
+		},
 	}
 
 	sweepService := &SweepService{
@@ -290,4 +296,9 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 	ports, hasPorts := statusData["ports"]
 	assert.True(t, hasPorts)
 	assert.NotEmpty(t, ports)
+
+	bannerGrab, hasBannerGrab := statusData["banner_grab"].(map[string]interface{})
+	assert.True(t, hasBannerGrab)
+	assert.InDelta(t, float64(3), bannerGrab["sweep_banner_grab_candidates_total"], 0.1)
+	assert.InDelta(t, float64(1), bannerGrab["sweep_banner_grab_match_batches_total"], 0.1)
 }

@@ -17,11 +17,15 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   Raw flow messages:
 
   - canonical: protobuf `flowpb.FlowMessage`
+  - attributed: protobuf `flowpb.AttributedFlowMessage` on
+    `flow.attributed.<partition>`
   - legacy compatibility: JSON flow payloads
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias Flowpb.AttributedFlowMessage
+  alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
   alias ServiceRadar.BGP.Ingestor
   alias ServiceRadar.EventWriter.FieldParser
@@ -30,6 +34,37 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias ServiceRadar.Observability.FlowPubSub
 
   require Logger
+
+  @attributed_flow_event_type "attributed_flow"
+  @attributed_flow_subject_prefix "flow.attributed."
+
+  # Attribution payload caps in BYTES (Mi-85, proto/flow/flow.proto:132-142).
+  # Producers MUST cap redacted_cmdline at 256 bytes; comm/container_id are
+  # byte-capped at their natural kernel/runtime limits (TASK_COMM_LEN and the
+  # full Docker/containerd ID hex length, respectively).
+  @comm_max_bytes 16
+  @container_id_max_bytes 64
+  @redacted_cmdline_max_bytes 256
+
+  # Telemetry event names
+  @telemetry_partition_mismatch [
+    :serviceradar,
+    :event_writer,
+    :flows,
+    :partition_mismatch
+  ]
+  @telemetry_attribution_truncated [
+    :serviceradar,
+    :flow_collector,
+    :attribution,
+    :truncated
+  ]
+  @telemetry_attributed_decode_failed [
+    :serviceradar,
+    :event_writer,
+    :flows,
+    :attributed_decode_failed
+  ]
 
   @impl true
   def table_name, do: "ocsf_network_activity"
@@ -67,6 +102,15 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     |> parse_flow(nats_metadata)
   end
 
+  def row_from_attributed_flow_message(%AttributedFlowMessage{} = message, nats_metadata \\ %{}) do
+    message
+    |> processed_from_attributed_flow_message(nats_metadata)
+    |> case do
+      %{row: row} -> row
+      nil -> nil
+    end
+  end
+
   def insert_rows(rows) when is_list(rows) do
     if Enum.empty?(rows) do
       {:ok, 0}
@@ -100,17 +144,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
           nil
       end
     else
-      case FlowMessage.decode(data) do
-        {:ok, flow} ->
-          processed_from_flow_message(flow, metadata)
-
-        flow when is_struct(flow, FlowMessage) ->
-          processed_from_flow_message(flow, metadata)
-
-        {:error, reason} ->
-          Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
-          nil
-      end
+      parse_protobuf_payload(data, metadata)
     end
   rescue
     e ->
@@ -127,6 +161,118 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       row: row_from_flow_message(flow, metadata),
       bgp_observation: build_bgp_observation(flow, metadata)
     }
+  end
+
+  defp processed_from_attributed_flow_message(
+         %AttributedFlowMessage{
+           event_type: @attributed_flow_event_type,
+           flow: %FlowMessage{} = flow
+         } = message,
+         metadata
+       ) do
+    partition = resolve_partition(message, metadata)
+
+    attribution = attribution_payload(message.attribution, metadata, partition)
+
+    row =
+      flow
+      |> row_from_flow_message(metadata)
+      |> Map.put(:partition, partition)
+      |> Map.update!(:ocsf_payload, fn payload ->
+        payload
+        |> Map.put("event_type", @attributed_flow_event_type)
+        |> put_if_present("agent_id", blank_to_nil(message.agent_id))
+        |> put_if_present("partition", partition)
+        |> put_if_present("attribution", attribution)
+      end)
+
+    %{
+      row: row,
+      bgp_observation: build_bgp_observation(flow, metadata)
+    }
+  end
+
+  defp processed_from_attributed_flow_message(_message, _metadata), do: nil
+
+  defp parse_protobuf_payload(data, metadata) do
+    subject = metadata[:subject]
+
+    if attributed_subject?(subject) do
+      parse_attributed_protobuf_payload(data, metadata, subject)
+    else
+      parse_unattributed_protobuf_payload(data, metadata)
+    end
+  end
+
+  defp parse_attributed_protobuf_payload(data, metadata, subject) do
+    case decode_attributed_flow(data) do
+      %AttributedFlowMessage{} = message ->
+        case processed_from_attributed_flow_message(message, metadata) do
+          %{row: _row} = processed ->
+            processed
+
+          nil ->
+            emit_attributed_decode_failed(subject, :event_type_mismatch)
+            nil
+        end
+
+      nil ->
+        emit_attributed_decode_failed(subject, :decode_error)
+        nil
+    end
+  end
+
+  defp parse_unattributed_protobuf_payload(data, metadata) do
+    with %AttributedFlowMessage{} = message <- decode_attributed_flow(data),
+         %{row: _row} = processed <- processed_from_attributed_flow_message(message, metadata) do
+      processed
+    else
+      _ -> parse_flow_message_payload(data, metadata)
+    end
+  end
+
+  defp attributed_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, @attributed_flow_subject_prefix)
+  end
+
+  defp attributed_subject?(_), do: false
+
+  defp emit_attributed_decode_failed(subject, reason) do
+    :telemetry.execute(
+      @telemetry_attributed_decode_failed,
+      %{count: 1},
+      %{subject: subject, reason: reason}
+    )
+
+    Logger.debug(
+      "Attributed flow protobuf decode failed",
+      subject: subject,
+      reason: reason
+    )
+  end
+
+  defp decode_attributed_flow(data) do
+    case AttributedFlowMessage.decode(data) do
+      {:ok, %AttributedFlowMessage{} = message} -> message
+      %AttributedFlowMessage{} = message -> message
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp parse_flow_message_payload(data, metadata) do
+    case FlowMessage.decode(data) do
+      {:ok, flow} ->
+        processed_from_flow_message(flow, metadata)
+
+      flow when is_struct(flow, FlowMessage) ->
+        processed_from_flow_message(flow, metadata)
+
+      {:error, reason} ->
+        Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
+        nil
+    end
   end
 
   defp insert_netflow_rows(rows) do
@@ -374,6 +520,139 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   end
 
   defp flow_source_from_subject(_), do: "Unknown"
+
+  defp partition_from_attributed_subject(subject) when is_binary(subject) do
+    if String.starts_with?(subject, @attributed_flow_subject_prefix) do
+      subject
+      |> String.replace_prefix(@attributed_flow_subject_prefix, "")
+      |> String.split(".", parts: 2)
+      |> List.first()
+      |> blank_to_nil()
+    end
+  end
+
+  defp partition_from_attributed_subject(_), do: nil
+
+  defp attribution_payload(%FlowAttribution{} = attribution, metadata, partition) do
+    subject = metadata[:subject]
+
+    comm =
+      attribution.comm
+      |> blank_to_nil()
+      |> cap_bytes("comm", @comm_max_bytes, subject, partition)
+
+    redacted_cmdline =
+      attribution.redacted_cmdline
+      |> blank_to_nil()
+      |> cap_bytes(
+        "redacted_cmdline",
+        @redacted_cmdline_max_bytes,
+        subject,
+        partition
+      )
+
+    container_id =
+      attribution.container_id
+      |> blank_to_nil()
+      |> cap_bytes("container_id", @container_id_max_bytes, subject, partition)
+
+    %{}
+    |> put_if_present("pid", zero_to_nil(attribution.pid))
+    |> put_if_present("comm", comm)
+    |> put_if_present("redacted_cmdline", redacted_cmdline)
+    |> put_if_present("uid", zero_to_nil(attribution.uid))
+    |> put_if_present("container_id", container_id)
+    |> case do
+      map when map == %{} -> nil
+      map -> map
+    end
+  end
+
+  defp attribution_payload(_, _, _), do: nil
+
+  # UTF-8-safe byte capper. The proto contract is expressed in bytes (see
+  # proto/flow/flow.proto:132-142), so we measure with byte_size/1 and slice
+  # via binary_part/3, then walk backwards at most 3 bytes to land on a valid
+  # UTF-8 codepoint boundary (UTF-8 codepoints are 1-4 bytes).
+  defp cap_bytes(nil, _field, _max, _subject, _partition), do: nil
+
+  defp cap_bytes(value, field, max, subject, partition) when is_binary(value) do
+    original_bytes = byte_size(value)
+
+    if original_bytes > max do
+      truncated = trim_to_utf8_boundary(binary_part(value, 0, max))
+
+      :telemetry.execute(
+        @telemetry_attribution_truncated,
+        %{
+          count: 1,
+          original_bytes: original_bytes,
+          truncated_bytes: byte_size(truncated)
+        },
+        %{field: field, subject: subject, partition: partition}
+      )
+
+      truncated
+    else
+      value
+    end
+  end
+
+  defp cap_bytes(value, _field, _max, _subject, _partition), do: value
+
+  defp trim_to_utf8_boundary(<<>>), do: <<>>
+
+  defp trim_to_utf8_boundary(bin) when is_binary(bin) do
+    if String.valid?(bin) do
+      bin
+    else
+      trim_to_utf8_boundary(binary_part(bin, 0, byte_size(bin) - 1))
+    end
+  end
+
+  defp resolve_partition(%AttributedFlowMessage{} = message, metadata) do
+    subject = metadata[:subject]
+    subject_partition = partition_from_attributed_subject(subject)
+    body_partition = blank_to_nil(message.partition)
+
+    cond do
+      not is_nil(subject_partition) and not is_nil(body_partition) and
+          subject_partition != body_partition ->
+        emit_partition_mismatch(subject, body_partition, subject_partition)
+        subject_partition
+
+      not is_nil(subject_partition) ->
+        subject_partition
+
+      not is_nil(body_partition) ->
+        body_partition
+
+      true ->
+        "default"
+    end
+  end
+
+  defp emit_partition_mismatch(subject, body_partition, subject_partition) do
+    :telemetry.execute(
+      @telemetry_partition_mismatch,
+      %{count: 1},
+      %{
+        subject: subject,
+        body_partition: body_partition,
+        subject_partition: subject_partition
+      }
+    )
+
+    Logger.warning(
+      "Attributed flow partition mismatch; trusting subject",
+      subject: subject,
+      body_partition: body_partition,
+      subject_partition: subject_partition
+    )
+  end
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
 
   defp json_payload?(data) when is_binary(data) do
     case String.trim_leading(data) do

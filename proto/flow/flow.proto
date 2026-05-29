@@ -128,3 +128,33 @@ message FlowMessage {
   string protocol_name = 107;
 
 }
+
+message FlowAttribution {
+  uint32 pid = 1;
+  // Process command name (TASK_COMM_LEN-style identifier). Producers MUST
+  // cap the value at 16 bytes per the netprobe redaction discipline
+  // (matches FlowAttributionEvent.comm in
+  // proto/agent/netprobe/v1/netprobe.proto).
+  string comm = 2;
+  // Redacted process command line. Producers MUST strip secrets/credentials
+  // and cap the value at 256 bytes per the netprobe redaction discipline
+  // (matches FlowAttributionEvent.redacted_cmdline in
+  // proto/agent/netprobe/v1/netprobe.proto).
+  string redacted_cmdline = 3;
+  uint32 uid = 4;
+  // Container identifier (cgroup/runtime-assigned). Producers MUST cap the
+  // value at 64 bytes per the netprobe redaction discipline (matches
+  // FlowAttributionEvent.container_id in
+  // proto/agent/netprobe/v1/netprobe.proto).
+  string container_id = 5;
+}
+
+message AttributedFlowMessage {
+  // Must be "attributed_flow"; kept as a string to match the existing
+  // event-writer contract style.
+  string event_type = 1;
+  FlowMessage flow = 2;
+  FlowAttribution attribution = 3;
+  string agent_id = 4;
+  string partition = 5;
+}

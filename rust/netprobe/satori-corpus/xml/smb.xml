@@ -1,0 +1,611 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<SMB created="2008-05-23" last_updated="2024-05-27" author="xnih13@gmail.com" last_edited_by="" last_edited_with="Fingerprint Editor">
+    <fingerprints>
+        <fingerprint name="CIFS Client" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-04-05">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativelanman="CIFS VFS Client for Linux"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Dell Printer" os_name="" os_class="" os_vendor="" os_url="" device_type="Printer" device_vendor="Dell" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-05-03">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="FXNIC 0.01"/>
+                <test weight="5" matchtype="exact" smbnativelanman="FXNIC0.01"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="FreeBSD" os_name="FreeBSD" os_class="FreeBSD" os_vendor="FreeBSD" os_url="http://www.freebsd.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="FreeBSD"/>
+                <test weight="5" matchtype="exact" smbnativelanman="NETSMB"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="GuardianOS" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-10-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativelanman="Samba Samba for GuardianOS v4.3.007.200609131215"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Samba Samba for GuardianOS v5.0.133.200807301131"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Samba for GuardianOS v.7.7.220"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="isilon" os_name="isilon" os_class="isilon" os_vendor="dell" os_url="https://www.dell.com/en-us/dt/storage/powerscale.htm" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativelanman="Isilon OneFS"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X" os_name="Mac OS X" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-05-03">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="MacOSX"/>
+                <test weight="5" matchtype="exact" smbnativelanman="NETSMB"/>
+                <test weight="5" matchtype="exact" smbnativename="Darwin"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.10" os_name="Yosemite" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.10"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.10.5" os_name="Yosemite" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-327.20.3"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.11" os_name="El Capitan" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.11"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.11.6" os_name="El Capitan" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-347.60.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.12" os_name="Sierra" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.12"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.12.6" os_name="Sierra" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-378.20.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.13" os_name="High Sierra" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.13"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 3.2.3"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.13.4" os_name="High Sierra" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-407.50.7"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.13.6" os_name="High Sierra" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-407.60.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.14" os_name="Mojave" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.14"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 3.3.2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.14.3" os_name="Mojave" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-407.200.5"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.14.4" os_name="Mojave" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-407.250.4"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.14.6" os_name="Mojave" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-407.270.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.15"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 3.4"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15.0" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-499.0.5"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15.1" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-499.40.3"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15.2" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-499.60.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15.3" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-499.60.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.15.4" os_name="Catalina" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-499.100.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.5" os_name="Leopard" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="exact" smbnativelanman="3.0.25b-apple"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.6" os_name="Snow Leopard" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-09-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="partial" smbnativelanman="3.0.28b-apple"/>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.6"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.6.8" os_name="Snow Leopard" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Mac OS X 10.6.8"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 1.6.7"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.7" os_name="Lion" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.8"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 1.7.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.7.5" os_name="Lion" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-105.8.70"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.8" os_name="Mountain Lion" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.8"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS 1.8.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.9" os_name="Mavericks" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Mac OS X 10.9"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Mac OS X - 10.9.5" os_name="Mavericks" os_class="Mac OS" os_vendor="Apple, Inc." os_url="http://www.apple.com/macosx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="@(#)PROGRAM:smbd  PROJECT:smbx-276.92.2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="MikroTik" os_name="RouterOS" os_class="RouterOS" os_vendor="MicroTik" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="MikrotikSMB"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Netapp - Ontap 9.1" os_name="" os_class="" os_vendor="Netapp" os_url="" device_type="File Storage" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="SpinCifsClient V1"/>
+                <test weight="5" matchtype="partial" smbnativelanman="SpinCifsClient LanMan"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Netapp - Ontap 9.6" os_name="" os_class="" os_vendor="Netapp" os_url="" device_type="File Storage" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="SpinStream2"/>
+                <test weight="5" matchtype="partial" smbnativelanman="Windows 2000 Lan Manager"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Netreon" os_name="" os_class="" os_vendor="Netreon" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="Netreon LANMAN 1.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="NMAP" os_name="" os_class="" os_vendor="Netreon" os_url="" device_type="" device_vendor="nmap.org" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-10-01">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativelanman="Native Lanman"/>
+                <test weight="10" matchtype="exact" smbnativename="Nmap"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Redhat Linux" os_name="Linux" os_class="Linux" os_vendor="Redhat" os_url="http://www.redhat.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="RedHat Linux"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Samba  4.x Client" os_name="" os_class="" os_vendor="" os_url="http://www.samba.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="partial" smbnativelanman="Samba 4."/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Samba 2.0 Client" os_name="" os_class="" os_vendor="" os_url="http://www.samba.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="partial" smbnativelanman="Samba 2.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Samba 2.2.x Client" os_name="" os_class="" os_vendor="" os_url="http://www.samba.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="partial" smbnativelanman="Samba 2.2."/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Samba 3.x Client" os_name="" os_class="" os_vendor="" os_url="http://www.samba.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="7" matchtype="partial" smbnativelanman="Samba 3."/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Samba Client" os_name="" os_class="" os_vendor="" os_url="http://www.samba.org" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Unix"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Samba"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMBFS"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Visuality Systems NQ Enterprise Storage SMB stack" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-10-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativelanman="NQ 7.3"/>
+                <test weight="5" matchtype="exact" smbnativelanman="NQ 4.32"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Visuality Systems YNQ Storage SMB stack" os_name="" os_class="" os_vendor="" os_url="" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-10-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativelanman="YNQ 1.2.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="vSphere" os_name="VMware" os_class="VMware" os_vendor="VMware" os_url="http://www.vmware.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Linux version 4.4.276-1.ph1"/>
+                <test weight="7" matchtype="exact" smbnativelanman="CIFS VFS Client for Linux"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1511" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://windows.microsoft.com" device_type="" device_vendor="" device_url="" comments="10586" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise Evaluation 10586"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 10 Enterprise Evaluation 6.3"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 14393"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1607" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="14393" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 14393"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1703" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="15063" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 15063"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 15063"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 15063"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 15063"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 15063"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1709" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="16299" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 16299"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 16299"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 16299"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 16299"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 16299"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1803" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="17134" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 17134"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 17134"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 17134"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 17134"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 17134"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1809" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="17763" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 17763"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 17763"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 17763"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 17763"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 17763"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1903" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="18362" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 18362"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 18362"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 18362"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 18362"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 18362"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 1909" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="18363" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 18363"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 18363"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 18363"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 18363"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 18363"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 2004" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="19041" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 19041"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 19041"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 19041"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 19041"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 19041"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 2015 LTSB" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="10240" author="xnih13@gmail.com" last_updated="2023-07-09">
+            <smb_tests>
+                <test weight="10" matchtype="partial" smbnativename="Windows 10 Enterprise 2015 LTSB"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 2016 LTSB" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="14393" author="xnih13@gmail.com" last_updated="2023-07-09">
+            <smb_tests>
+                <test weight="10" matchtype="partial" smbnativename="Windows 10 Enterprise 2016 LTSB"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 2019 LTSC" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="17763" author="xnih13@gmail.com" last_updated="2023-07-09">
+            <smb_tests>
+                <test weight="10" matchtype="partial" smbnativename="Windows 10 Enterprise LTSC 2019"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 20H2" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="19042" author="xnih13@gmail.com" last_updated="2023-05-20">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 19042"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 19042"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 19042"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 19042"/>
+                <test weight="5" matchtype="exact" smbnativename="Windows 10 Enterprise N 19042"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 21H1" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="19043" author="xnih13@gmail.com" last_updated="2023-05-20">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 19043"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 19043"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 19043"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 19043"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 19043"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 21H2" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="19044" author="xnih13@gmail.com" last_updated="2023-05-20">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 19044"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 19044"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 19044"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 19044"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 19044"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 10 - 22H2" os_name="Windows 10" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="19045" author="xnih13@gmail.com" last_updated="2023-05-20">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Pro 19045"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Home 19045"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise 19045"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Education 19045"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 10 Enterprise N 19045"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 2000" os_name="Windows 2000" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Windows 5.0"/>
+                <test weight="7" matchtype="exact" smbnativename="Windows 2000 2195"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 2000 LAN Manager"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 2000 5.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 7" os_name="Windows 7" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-7/default.aspx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 7 Enterprise 7600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 7 Enterprise 6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 7 Home Premium 7600"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows 7 Home Premium 6.1"/>
+                <test weight="7" matchtype="partial" smbnativename="Windows 7"/>
+                <test weight="7" matchtype="partial" smbnativename="7600"/>
+                <test weight="7" matchtype="partial" smbnativelanman="6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 7 Ultimate 7100"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows 7 Ultimate 6.1"/>
+                <test weight="7" matchtype="exact" smbnativename="6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 6.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 7 SP1" os_name="Windows 7" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-7/default.aspx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-04-05">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 7 Enterprise 7601 Service Pack 1"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 7 Enterprise 6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Embedded Standard 7601 Service Pack 1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 8" os_name="Windows 8" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://windows.microsoft.com/en-US/windows-8/meet" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="7" matchtype="partial" smbnativelanman="6.2"/>
+                <test weight="5" matchtype="exact" smbnativename="Windows 8 Enterprise 9200"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows 8.1" os_name="Windows 8.1" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://windows.microsoft.com/en-US/windows-8/meet" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2023-07-09">
+            <smb_tests>
+                <test weight="5" matchtype="partial" smbnativelanman="6.3"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 8.1 Enterprise Evaluation 9600"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows 8.1 Enterprise Evaluation 6.3"/>
+                <test weight="10" matchtype="partial" smbnativename="Windows 8.1 9600"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 8.1 Enterprise 9600"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 8.1 Pro 9600"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Embedded 7 SP1" os_name="Windows 7" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-7/default.aspx" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2022-02-21">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Embedded Standard 7601 Service Pack 1"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Embedded Standard 6.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows NT 4" os_name="Windows NT 4" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows NT 4.0"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows NT 1381"/>
+                <test weight="10" matchtype="exact" smbnativelanman="NT LAN Manager 4.0"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows 4.0"/>
+                <test weight="7" matchtype="exact" smbnativename="Windows 4.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2003" os_name="Windows Server 2003" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2003" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2003 3790"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2003 5.2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2003 R2" os_name="Windows Server 2003 R2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2003r2" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2012-02-11">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2003 R2"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2003 R2 3790 Service Pack 2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2003 SP1" os_name="Windows Server 2003 SP1" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2003" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2008-05-23">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2003 3790 Service Pack 1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2003 R2 3790 Service Pack 1"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows Server 2003 5.2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2003 SP2" os_name="Windows Server 2003 SP2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2003" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2003 5.2"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2008" os_name="Windows Server 2008" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="7" matchtype="exact" smbnativename="Windows Server 2008"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2008"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2008 R2" os_name="Windows Server 2008 R2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008r2" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-24">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2008 R2 Enterprise 7600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2008 R2 Enterprise 6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2008 R2 Standard 7600 "/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2008 R2 Standard 6.1"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2008 R2 Datacenter 6.1"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Storage Server 2008 R2 Standard 6.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2008 R2 SP1" os_name="Windows Server 2008 R2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008r2" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2008 R2 Enterprise 7601 Service Pack 1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2008 R2 Datacenter 7601 Service Pack 1"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2008 R2 Standard 6.1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2008 R2 Standard 7601 Service Pack 1"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Storage Server 2008 R2 Standard 7601 Service Pack 1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2008 SP2" os_name="Windows Server 2008" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server (R) 2008 Enterprise 6002 Service Pack 2"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server (R) 2008 Enterprise 6.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2012 R2" os_name="Windows Server 2012 R2" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2008r2" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-10-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2012 R2 Standard 6.3"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2012 R2 Standard 9600"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2012 R2 Datacenter 6.3"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2012 R2 Datacenter 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2012 Standard 6.2"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2012 Standard 9200"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Storage Server 2012 Standard 6.2"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Storage Server 2012 Standard 9200"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2012 R2 Datacenter 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2012 R2 Workgroup 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2012 R2 Essentials 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Server 2012 R2 Standard 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Storage Server 2012 R2 Standard 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Storage Server 2012 R2 Workgroup 9600"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Storage Server 2012 R2 Essentials 9600"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2016" os_name="Windows Server 2016 6.3" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2016" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-22">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2016 Datacenter 14393"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2016 Datacenter 6.3"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2016 Standard 14393"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2016 Standard 14393"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2016 Standard 6.3"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2016 Standard 6.3"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Server 2019" os_name="Windows Server 2019 6.3" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windowsserver2019" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-04-22">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2019 Standard 17763"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2019 Standard 17763"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows Server 2019 Standard 6.3"/>
+                <test weight="10" matchtype="exact" smbnativelanman="Windows Server 2019 Standard 6.3"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Vista" os_name="Windows Vista" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-vista" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-10-27">
+            <smb_tests>
+                <test weight="7" matchtype="partial" smbnativename="Windows Vista"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Vista"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Vista Ultimate" os_name="Windows Vista Ultimate" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-vista" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="7" matchtype="partial" smbnativename="Windows Vista"/>
+                <test weight="7" matchtype="partial" smbnativename="(TM) Ultimate"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Vista (TM) Ultimate 6.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows Vista Ultimate SP1" os_name="Windows Vista Ultimate SP1" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-vista" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2019-02-14">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows Vista (TM) Ultimate 6001 Service Pack 1"/>
+                <test weight="7" matchtype="exact" smbnativelanman="Windows Vista (TM) Ultimate 6.0"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP" os_name="Windows XP" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-xp" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="Windows 2002 2600"/>
+                <test weight="5" matchtype="exact" smbnativename="Windows 5.1"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows 2002 5.1"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows 2000 LAN Manager"/>
+                <test weight="1" matchtype="partial" smbnativename="2600"/>
+                <test weight="1" matchtype="partial" smbnativename="2002"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP SP1" os_name="Windows XP" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-xp" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 2002 Service Pack 1 2600"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 2002 2600 Service Pack 1"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows 2002 5.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP SP2" os_name="Windows XP" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-xp" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2020-05-27">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 2002 Service Pack 2 2600"/>
+                <test weight="10" matchtype="exact" smbnativename="Windows 2002 Service Pack 2, v.2149 2600"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows 2002 5.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Windows XP SP3" os_name="Windows XP" os_class="Windows" os_vendor="Microsoft Corp." os_url="http://www.microsoft.com/windows/windows-xp" device_type="" device_vendor="" device_url="" comments="" author="xnih13@gmail.com" last_updated="2010-01-06">
+            <smb_tests>
+                <test weight="10" matchtype="exact" smbnativename="Windows 2002 Service Pack 3 2600"/>
+                <test weight="5" matchtype="exact" smbnativelanman="Windows 2002 5.1"/>
+            </smb_tests>
+        </fingerprint>
+        <fingerprint name="Xerox WorkCentre - 6xxx" os_name="" os_class="" os_vendor="" os_url="" device_type="Printer" device_vendor="Xerox Corp." device_url="" comments="" author="xnih13@gmail.com" last_updated="2021-05-03">
+            <smb_tests>
+                <test weight="5" matchtype="exact" smbnativename="FXNICOS 0.1"/>
+                <test weight="5" matchtype="exact" smbnativename="FXNIC 0.01"/>
+                <test weight="5" matchtype="exact" smbnativelanman="FXNIC 0.01"/>
+                <test weight="5" matchtype="exact" smbnativelanman="SMB 1.0"/>
+                <test weight="5" matchtype="exact" smbnativename="S 1.00"/>
+            </smb_tests>
+        </fingerprint>
+    </fingerprints>
+</SMB>

@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,7 @@ import (
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -55,7 +57,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	s := initializeServer(configDir, cfg, log)
 
 	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig) (Service, error) {
-		return createSweepService(ctx, sweepConfig, cfg, log)
+		return createSweepService(ctx, sweepConfig, cfg, log, sweeper.WithBannerObservationHandler(s.handleBannerObservations))
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -77,6 +79,24 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
+	// Initialize flow publisher (NATS connection for `flow.host-slice.<agent-id>`).
+	// Optional: only connects when nats_url + nats_creds_file are present in the
+	// bootstrap config (written by edge-bundle generator for :agent packages).
+	// Backwards-compatible: when keys are absent, the agent runs without it.
+	//
+	// Fail-loud when the operator explicitly configured NATS auth but it is
+	// broken — silent fallback would defeat B-5 (per-agent JWT-scoped
+	// publishing). The no-config path returns nil from initFlowPublisher
+	// (see nats_publisher.go newFlowPublisher: returns (nil, nil) when both
+	// URL and Creds are empty), so reaching the error branch with intent
+	// signalled in config is operator misconfiguration we must surface.
+	if err := s.initFlowPublisher(ctx); err != nil {
+		if errors.Is(err, ErrFlowPublisherCredsMissing) || cfg.NATSCredsFile != "" || cfg.NATSURL != "" {
+			return nil, fmt.Errorf("failed to initialize flow publisher: %w", err)
+		}
+		log.Warn().Err(err).Msg("Failed to initialize flow publisher, continuing without it")
+	}
+
 	return s, nil
 }
 
@@ -94,17 +114,18 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 
 // createSweepService constructs a new SweepService instance.
 func createSweepService(
-	_ context.Context,
+	ctx context.Context,
 	sweepConfig *SweepConfig,
 	cfg *ServerConfig,
 	log logger.Logger,
+	opts ...sweeper.Option,
 ) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
 
 	groupConfig := sweepGroupConfigFromSweepConfig(sweepConfig)
-	service, err := NewMultiSweepService(cfg, []SweepGroupConfig{groupConfig}, log)
+	service, err := NewMultiSweepServiceWithContext(ctx, cfg, []SweepGroupConfig{groupConfig}, log, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -125,6 +146,7 @@ func sweepGroupConfigFromSweepConfig(sweepConfig *SweepConfig) SweepGroupConfig 
 		Ports:         sweepConfig.Ports,
 		SweepModes:    sweepConfig.SweepModes,
 		DeviceTargets: sweepConfig.DeviceTargets,
+		BannerGrab:    sweepConfig.BannerGrab,
 		Interval:      sweepConfig.Interval,
 		Concurrency:   sweepConfig.Concurrency,
 		Timeout:       sweepConfig.Timeout,
@@ -153,6 +175,7 @@ func buildSweepModelConfigFromGroup(cfg *ServerConfig, group SweepGroupConfig, l
 		Ports:         group.Ports,
 		SweepModes:    group.SweepModes,
 		DeviceTargets: group.DeviceTargets,
+		BannerGrab:    toModelBannerGrab(group.BannerGrab),
 		Interval:      time.Duration(group.Interval),
 		Concurrency:   group.Concurrency,
 		Timeout:       time.Duration(group.Timeout),
@@ -345,6 +368,105 @@ func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, erro
 	return svc.GetStatus(ctx)
 }
 
+type bannerGrabStatsProvider interface {
+	GetBannerGrabStats() *models.BannerGrabStats
+}
+
+type bannerGrabConfigProvider interface {
+	BannerGrabEnabled() bool
+}
+
+func (s *Server) BannerGrabEnabled() bool {
+	s.mu.RLock()
+	services := append([]Service(nil), s.services...)
+	s.mu.RUnlock()
+
+	for _, svc := range services {
+		provider, ok := svc.(bannerGrabConfigProvider)
+		if ok && provider.BannerGrabEnabled() {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (s *Server) BannerGrabStats() *models.BannerGrabStats {
+	s.mu.RLock()
+	services := append([]Service(nil), s.services...)
+	s.mu.RUnlock()
+
+	var out models.BannerGrabStats
+	found := false
+	for _, svc := range services {
+		provider, ok := svc.(bannerGrabStatsProvider)
+		if !ok {
+			continue
+		}
+		stats := provider.GetBannerGrabStats()
+		if stats == nil {
+			continue
+		}
+
+		found = true
+		out.CandidatesTotal += stats.CandidatesTotal
+		out.ProbesTotal += stats.ProbesTotal
+		out.InFlight += stats.InFlight
+		out.QueueDepth += stats.QueueDepth
+		out.MatchBatchesTotal += stats.MatchBatchesTotal
+		out.MatchBatchBytesTotal += stats.MatchBatchBytesTotal
+		out.BannerBytesTotal += stats.BannerBytesTotal
+		out.SkippedFreshTotal += stats.SkippedFreshTotal
+		out.SkippedBackoffTotal += stats.SkippedBackoffTotal
+		out.MatchesTotal += stats.MatchesTotal
+		out.EmptyResponseTotal += stats.EmptyResponseTotal
+		out.ConnectionResetTotal += stats.ConnectionResetTotal
+		out.TimeoutTotal += stats.TimeoutTotal
+		out.ErrorsTotal += stats.ErrorsTotal
+	}
+	if !found {
+		return nil
+	}
+
+	return &out
+}
+
+func (s *Server) WritePrometheusMetrics(w io.Writer) error {
+	stats := s.BannerGrabStats()
+	if stats == nil {
+		stats = &models.BannerGrabStats{}
+	}
+
+	metrics := []struct {
+		name  string
+		typ   string
+		value uint64
+	}{
+		{"sweep_banner_grab_candidates_total", "counter", stats.CandidatesTotal},
+		{"sweep_banner_grab_probes_total", "counter", stats.ProbesTotal},
+		{"sweep_banner_grab_inflight", "gauge", stats.InFlight},
+		{"sweep_banner_grab_queue_depth", "gauge", stats.QueueDepth},
+		{"sweep_banner_grab_match_batches_total", "counter", stats.MatchBatchesTotal},
+		{"sweep_banner_grab_match_batch_bytes_total", "counter", stats.MatchBatchBytesTotal},
+		{"sweep_banner_grab_bytes_received_total", "counter", stats.BannerBytesTotal},
+		{"sweep_banner_grab_skipped_fresh_total", "counter", stats.SkippedFreshTotal},
+		{"sweep_banner_grab_skipped_backoff_total", "counter", stats.SkippedBackoffTotal},
+		{"sweep_banner_grab_matches_total", "counter", stats.MatchesTotal},
+		{"sweep_banner_grab_empty_response_total", "counter", stats.EmptyResponseTotal},
+		{"sweep_banner_grab_connection_reset_total", "counter", stats.ConnectionResetTotal},
+		{"sweep_banner_grab_timeout_total", "counter", stats.TimeoutTotal},
+		{"sweep_banner_grab_errors_total", "counter", stats.ErrorsTotal},
+	}
+
+	for _, metric := range metrics {
+		if _, err := fmt.Fprintf(w, "# TYPE %s %s\n%s %d\n", metric.name, metric.typ, metric.name, metric.value); err != nil {
+			return fmt.Errorf("write prometheus metric %s: %w", metric.name, err)
+		}
+	}
+
+	return nil
+}
+
 func (s *Server) initPluginManager(ctx context.Context) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -391,6 +513,11 @@ func (s *Server) Stop(_ context.Context) error {
 		if err := s.sidecarManager.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop sidecar manager")
 		}
+	}
+
+	// Drain and close the NATS flow publisher connection if present.
+	if s.flowPublisher != nil {
+		s.flowPublisher.Close()
 	}
 
 	if s.addonManager != nil {

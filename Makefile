@@ -282,6 +282,14 @@ tidy: ## Tidy and format Go code
 update-rust-deps: ## Repin Bazel-managed Rust dependencies (use REPIN=<mode>, VERIFY_TARGET=<label>)
 	@./scripts/update-rust-bazel-deps.sh "$(if $(REPIN),$(REPIN),workspace)" "$(if $(VERIFY_TARGET),$(VERIFY_TARGET),//rust/srql:srql_lib)"
 
+.PHONY: lint-p0f-additions
+lint-p0f-additions: ## Validate ServiceRadar p0f additions corpus grammar
+	@./scripts/lint-p0f-additions.sh
+
+.PHONY: lint-recog-additions
+lint-recog-additions: ## Validate ServiceRadar Recog additions XML and license header
+	@./scripts/lint-recog-additions.sh
+
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"
@@ -484,6 +492,54 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/agent/addon/v1/addon.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
+
+# Elixir protobuf regeneration
+# -----------------------------------------------------------------------------
+# Run `make generate-proto-elixir` after editing any proto/*.proto file that
+# already has a checked-in Elixir binding under
+# elixir/serviceradar_core/lib/serviceradar/proto/ (e.g. flow/flow.proto). The
+# target keeps the .pb.ex stubs in lockstep with the proto contract so manual
+# edits (such as the B-6 `cmdline` -> `redacted_cmdline` rename) cannot drift.
+#
+# The escript is pinned to the same protobuf hex version declared in
+# elixir/serviceradar_core/mix.exs ({:protobuf, "~> 0.16.0"}) and is invoked
+# via the protoc plugin discovery path so contributors do not need to mutate
+# their shell rc files.
+ELIXIR_PROTOBUF_VERSION ?= 0.16.0
+ELIXIR_PROTO_OUT ?= elixir/serviceradar_core/lib/serviceradar/proto
+PROTOC_GEN_ELIXIR ?= $(HOME)/.mix/escripts/protoc-gen-elixir
+
+.PHONY: install-protoc-gen-elixir
+install-protoc-gen-elixir: ## Install the protoc-gen-elixir escript pinned to the protobuf hex dep
+	@if [ ! -x "$(PROTOC_GEN_ELIXIR)" ]; then \
+		echo "$(COLOR_BOLD)Installing protoc-gen-elixir $(ELIXIR_PROTOBUF_VERSION)$(COLOR_RESET)"; \
+		mix escript.install --force hex protobuf $(ELIXIR_PROTOBUF_VERSION); \
+	fi
+
+.PHONY: generate-proto-elixir
+generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from protobuf definitions (run after proto contract changes)
+	@echo "$(COLOR_BOLD)Generating Elixir code from protobuf definitions$(COLOR_RESET)"
+	@mkdir -p $(ELIXIR_PROTO_OUT)
+	@PATH="$(dir $(PROTOC_GEN_ELIXIR)):$$PATH" protoc -I=proto -I=. \
+		--elixir_out=plugins=grpc:$(ELIXIR_PROTO_OUT) \
+		proto/flow/flow.proto \
+		proto/core_service.proto \
+		proto/kv.proto \
+		proto/monitoring.proto \
+		proto/nats_account.proto \
+		proto/data_service.proto \
+		proto/camera_media.proto \
+		proto/desktop_media.proto \
+		proto/identitymap/v1/identity_map.proto \
+		proto/agent/netprobe/v1/netprobe.proto
+	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
+
+.PHONY: verify-proto-elixir
+verify-proto-elixir: generate-proto-elixir ## Fail if regenerated Elixir bindings differ from the checked-in tree (CI drift guard)
+	@git diff --exit-code -- $(ELIXIR_PROTO_OUT) || ( \
+		echo "$(COLOR_BOLD)Elixir protobuf bindings are out of sync with proto/. Run 'make generate-proto-elixir' and commit the result.$(COLOR_RESET)"; \
+		exit 1; \
+	)
 
 .PHONY: proto-lint
 proto-lint: ## Lint protobuf definitions with Buf

@@ -1,0 +1,26 @@
+package(default_visibility = ["//visibility:public"])
+
+filegroup(
+    name = "netprobe_ebpf_srcs",
+    srcs = glob([
+        "src/**/*.rs",
+    ]) + [
+        "Cargo.lock",
+        "Cargo.toml",
+        "include/vmlinux.h",
+    ],
+)
+
+genrule(
+    name = "netprobe_ebpf_object",
+    srcs = glob([
+        "src/**/*.rs",
+    ]) + [
+        "Cargo.lock",
+        "Cargo.toml",
+        "include/vmlinux.h",
+    ],
+    outs = ["netprobe_ebpf.o"],
+    cmd = "bash $(location build-ebpf-object.sh) $(location Cargo.toml) $@",
+    tools = ["build-ebpf-object.sh"],
+)

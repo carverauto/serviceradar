@@ -85,6 +85,8 @@ type SweepService interface {
 	UpdateConfig(*models.Config) error
 	// GetScannerStats returns aggregated scanner statistics (optional, may return nil)
 	GetScannerStats() *models.ScannerStats
+	// GetBannerGrabStats returns active or last-completed banner-grab counters.
+	GetBannerGrabStats() *models.BannerGrabStats
 }
 
 type KVStore interface {

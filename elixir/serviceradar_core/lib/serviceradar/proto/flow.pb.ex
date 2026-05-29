@@ -104,3 +104,27 @@ defmodule Flowpb.FlowMessage do
   field :ipv6_routing_header_seg_left, 106, type: :uint32, json_name: "ipv6RoutingHeaderSegLeft"
   field :protocol_name, 107, type: :string, json_name: "protocolName"
 end
+
+defmodule Flowpb.FlowAttribution do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :pid, 1, type: :uint32
+  field :comm, 2, type: :string
+  field :redacted_cmdline, 3, type: :string, json_name: "redactedCmdline"
+  field :uid, 4, type: :uint32
+  field :container_id, 5, type: :string, json_name: "containerId"
+end
+
+defmodule Flowpb.AttributedFlowMessage do
+  @moduledoc false
+
+  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+
+  field :event_type, 1, type: :string, json_name: "eventType"
+  field :flow, 2, type: Flowpb.FlowMessage
+  field :attribution, 3, type: Flowpb.FlowAttribution
+  field :agent_id, 4, type: :string, json_name: "agentId"
+  field :partition, 5, type: :string
+end

@@ -6,7 +6,7 @@ The `Serviceradar.Inventory.Device` Ash resource SHALL accept and
 persist a `passive_fingerprint` map under both the OCSF `os` attribute
 and the extension `metadata` attribute. The `os.passive_fingerprint`
 map MUST carry `family`, `version`, `confidence` (0..1), `source`
-(literal `"huginn-net"`), and `observed_at`. The
+(literal `"serviceradar-license-clean"`), and `observed_at`. The
 `metadata.passive_fingerprint` map MUST carry protocol-specific
 signature payloads keyed by `tcp`, `tls`, and `http`, each with its
 own `observed_at`. No new database tables are introduced.
@@ -15,7 +15,7 @@ own `observed_at`. No new database tables are introduced.
 - **WHEN** a passive-netprobe discovery record carrying a TCP signature
   is ingested for a device
 - **THEN** `device.os.passive_fingerprint` is populated with `{family,
-  version, confidence, source: "huginn-net", observed_at}`
+  version, confidence, source: "serviceradar-license-clean", observed_at}`
 - **AND** `device.metadata.passive_fingerprint.tcp` is populated with
   the p0f signature payload and `observed_at`
 

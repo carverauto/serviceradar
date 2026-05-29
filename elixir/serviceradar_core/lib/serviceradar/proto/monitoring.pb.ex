@@ -278,6 +278,18 @@ defmodule Monitoring.SweepScannerStats do
   field(:source_port_waits, 14, type: :uint64, json_name: "sourcePortWaits")
   field(:rate_limit_wait_time_ms, 15, type: :uint64, json_name: "rateLimitWaitTimeMs")
   field(:source_port_wait_time_ms, 16, type: :uint64, json_name: "sourcePortWaitTimeMs")
+  field(:protocol, 17, type: :string)
+  field(:address_family, 18, type: :string, json_name: "addressFamily")
+  field(:scanner_path, 19, type: :string, json_name: "scannerPath")
+  field(:dials_started, 20, type: :uint64, json_name: "dialsStarted")
+  field(:dials_succeeded, 21, type: :uint64, json_name: "dialsSucceeded")
+  field(:dial_timeouts, 22, type: :uint64, json_name: "dialTimeouts")
+  field(:dial_resets, 23, type: :uint64, json_name: "dialResets")
+  field(:dial_resource_errors, 24, type: :uint64, json_name: "dialResourceErrors")
+  field(:active_dials, 25, type: :uint64, json_name: "activeDials")
+  field(:max_active_dials, 26, type: :uint64, json_name: "maxActiveDials")
+  field(:queue_depth, 27, type: :uint64, json_name: "queueDepth")
+  field(:max_queue_depth, 28, type: :uint64, json_name: "maxQueueDepth")
 end
 
 defmodule Monitoring.GatewayStatusRequest do
@@ -901,6 +913,7 @@ defmodule Monitoring.VisibilityConfig do
   )
 
   field(:default_sample_interval_ms, 5, type: :uint32, json_name: "defaultSampleIntervalMs")
+  field(:dpi, 20, type: Monitoring.VisibilityDpiConfig)
 end
 
 defmodule Monitoring.VisibilityBinaryOverrides do
@@ -927,6 +940,7 @@ defmodule Monitoring.VisibilityDeviceBinding do
   field(:profile_name, 3, type: :string, json_name: "profileName")
   field(:fingerprint, 4, type: Monitoring.VisibilityFingerprintConfig)
   field(:sample_interval_ms, 5, type: :uint32, json_name: "sampleIntervalMs")
+  field(:dpi, 6, type: Monitoring.VisibilityDpiConfig)
 end
 
 defmodule Monitoring.VisibilityFingerprintConfig do
@@ -940,6 +954,18 @@ defmodule Monitoring.VisibilityFingerprintConfig do
   field(:tcp, 1, type: :bool)
   field(:tls, 2, type: :bool)
   field(:http, 3, type: :bool)
+end
+
+defmodule Monitoring.VisibilityDpiConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.VisibilityDpiConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:enabled, 1, type: :bool)
+  field(:protocols, 2, repeated: true, type: :string)
 end
 
 defmodule Monitoring.SNMPTargetConfig do

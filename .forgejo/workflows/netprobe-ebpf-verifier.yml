@@ -1,0 +1,94 @@
+name: Netprobe eBPF Verifier
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'rust/netprobe/**'
+      - 'build/platforms/**'
+      - 'build/rust/**'
+      - 'build/toolchains/**'
+      - '.bazelrc'
+      - '.forgejo/workflows/netprobe-ebpf-verifier.yml'
+      - 'MODULE.bazel'
+      - 'scripts/ci/ensure-forgejo-tools.sh'
+      - 'scripts/ci/install-sfw.sh'
+      - 'scripts/ci/netprobe-ebpf-verify.sh'
+
+permissions:
+  contents: read
+
+jobs:
+  verify-ebpf:
+    if: ${{ vars.NETPROBE_EBPF_VERIFIER_ENABLED == 'true' }}
+    name: Verify eBPF programs on Linux ${{ matrix.kernel }}
+    runs-on: ${{ matrix.runner }}
+    env:
+      BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
+      SERVICERADAR_NETPROBE_EXPECT_KERNEL: ${{ matrix.kernel }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - kernel: '5.8'
+            runner: netprobe-kernel-5.8
+          - kernel: '5.15'
+            runner: netprobe-kernel-5.15
+          - kernel: '6.x'
+            runner: netprobe-kernel-6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Cache Bazel artifacts
+        uses: actions/cache@668228422ae6a00e4ad889ee87cd7109ec5666a7
+        with:
+          path: |
+            ${{ env.BAZELISK_HOME }}
+            third_party/bazel-repo-cache
+            third_party/bazel-disk-cache
+            third_party/distdir
+          key: ${{ runner.os }}-bazel-${{ hashFiles('.bazelversion', '.bazelrc', 'MODULE.bazel', 'MODULE.bazel.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bazel-
+
+      - name: Install dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+
+      - name: Install Bazelisk
+        run: ./scripts/install-bazelisk.sh
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+
+      - name: Verify eBPF object
+        run: scripts/ci/netprobe-ebpf-verify.sh
+
+  kernel-too-old:
+    if: ${{ vars.NETPROBE_EBPF_VERIFIER_ENABLED == 'true' }}
+    name: Verify eBPF refusal on Linux 5.4
+    runs-on: netprobe-kernel-5.4
+    env:
+      SERVICERADAR_NETPROBE_EXPECT_KERNEL: '5.4'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+
+      - name: Install Socket Firewall
+        run: bash scripts/ci/install-sfw.sh
+
+      - name: Install dependencies
+        run: ./scripts/ci/ensure-forgejo-tools.sh bazel-build
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8
+        with:
+          toolchain: stable
+
+      - name: Verify unavailable state
+        run: scripts/ci/netprobe-kernel-too-old.sh
