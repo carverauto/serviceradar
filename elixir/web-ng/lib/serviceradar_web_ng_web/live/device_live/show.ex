@@ -83,6 +83,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {"mqtt", "MQTT"},
     {"bittorrent", "BitTorrent"}
   ]
+  @active_fingerprint_protocols [
+    {"ssh", "SSH"},
+    {"http", "HTTP"},
+    {"smb", "SMB"},
+    {"ftp", "FTP"},
+    {"telnet", "Telnet"},
+    {"rdp", "RDP"},
+    {"dns", "DNS"}
+  ]
   @availability_window "last_24h"
   @availability_bucket "30m"
   @camera_relay_poll_interval_ms 1_000
@@ -623,6 +632,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          "flows",
          "logs",
          "profiles",
+         "active-fingerprint",
          "process-listeners",
          "sysmon",
          "mtr",
@@ -3470,6 +3480,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
             <li :if={@active_tab == "logs"} class="text-base-content/70">Logs</li>
             <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
+            <li :if={@active_tab == "active-fingerprint"} class="text-base-content/70">
+              Active Fingerprint
+            </li>
             <li :if={@active_tab == "process-listeners"} class="text-base-content/70">
               Process Listeners
             </li>
@@ -3601,7 +3614,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
             No device row returned for this query.
           </div>
-          
+
     <!-- View Mode -->
           <div
             :if={is_map(@device_row) and not @editing}
@@ -3708,7 +3721,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </div>
             </div>
           </div>
-          
+
     <!-- Edit Mode -->
           <div
             :if={is_map(@device_row) and @editing}
@@ -4083,7 +4096,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               </.form>
             </div>
           </div>
-          
+
     <!-- Tabs Navigation -->
           <div
             :if={is_map(@device_row)}
@@ -4141,6 +4154,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               class={["tab", @active_tab == "profiles" && "tab-active"]}
             >
               <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
+            </button>
+            <button
+              :if={active_fingerprint_tab_visible?(@device_row, @current_scope)}
+              type="button"
+              phx-click="switch_tab"
+              phx-value-tab="active-fingerprint"
+              class={["tab", @active_tab == "active-fingerprint" && "tab-active"]}
+            >
+              <.icon name="hero-finger-print" class="size-4 mr-1.5" /> Active Fingerprint
             </button>
             <button
               :if={process_listeners_tab_visible?(@device_row)}
@@ -4378,6 +4400,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
                 device_uid={@device_uid}
               />
             </div>
+          </div>
+
+    <!-- Active Fingerprint Tab Content -->
+          <div :if={
+            @active_tab == "active-fingerprint" and can_view_active_fingerprint?(@current_scope)
+          }>
+            <.active_fingerprint_tab_content device_row={@device_row} />
           </div>
 
     <!-- Process Listeners Tab Content -->
@@ -5271,6 +5300,87 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   attr(:device_row, :map, required: true)
 
+  defp active_fingerprint_tab_content(assigns) do
+    summary = active_fingerprint_summary(assigns.device_row)
+    rows = active_fingerprint_rows(assigns.device_row)
+
+    assigns =
+      assigns
+      |> assign(:summary, summary)
+      |> assign(:rows, rows)
+      |> assign(:has_summary, summary.items != [])
+      |> assign(:has_rows, rows != [])
+
+    ~H"""
+    <div class="space-y-4">
+      <div :if={@has_summary} class="rounded-xl border border-base-200 bg-base-100">
+        <div class="px-4 py-3 border-b border-base-200">
+          <div class="flex flex-wrap items-center gap-2">
+            <.icon name="hero-finger-print" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Active OS fingerprint</span>
+            <span :if={@summary.source} class="badge badge-ghost badge-sm">
+              {@summary.source}
+            </span>
+          </div>
+        </div>
+        <div class="p-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          <.metadata_kv
+            :for={item <- @summary.items}
+            label={item.label}
+            value={item.value}
+            mono={item.mono}
+          />
+        </div>
+      </div>
+
+      <div class="rounded-xl border border-base-200 bg-base-100">
+        <div class="px-4 py-3 border-b border-base-200">
+          <div class="flex flex-wrap items-center gap-2">
+            <.icon name="hero-server-stack" class="size-4 text-primary" />
+            <span class="text-sm font-semibold">Banner-grab matches</span>
+            <span :if={@has_rows} class="badge badge-info badge-sm">{length(@rows)}</span>
+          </div>
+        </div>
+
+        <div :if={!@has_rows} class="p-6 text-sm text-base-content/60">
+          No active banner fingerprint evidence has been recorded for this device.
+        </div>
+
+        <div :if={@has_rows} class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                <th>Protocol</th>
+                <th>Port</th>
+                <th>Product</th>
+                <th>Version</th>
+                <th>OS / Vendor</th>
+                <th>Source</th>
+                <th>Last observed</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={row <- @rows}>
+                <td>
+                  <span class="badge badge-ghost badge-sm">{row.protocol}</span>
+                </td>
+                <td class="font-mono text-xs">{row.port}</td>
+                <td>{row.product}</td>
+                <td>{row.version}</td>
+                <td>{row.os}</td>
+                <td class="text-xs">{row.source}</td>
+                <td class="text-xs font-mono">{row.observed_at}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:device_row, :map, required: true)
+
   def process_listeners_tab_content(assigns) do
     snapshot = process_listener_snapshot(assigns.device_row)
     rows = Map.get(snapshot, :entries, [])
@@ -5637,6 +5747,157 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp passive_fingerprint_rows(_row), do: []
 
+  defp active_fingerprint_summary(row) when is_map(row) do
+    payload = active_os_payload(row)
+
+    items =
+      Enum.reject(
+        [
+          metadata_item("OS family", metadata_lookup(payload, "family")),
+          metadata_item("OS name", metadata_lookup(payload, "name")),
+          metadata_item("Version range", metadata_lookup(payload, "version_range")),
+          metadata_item("Confidence", metadata_lookup(payload, "confidence")),
+          metadata_item("Last observed", metadata_timestamp(metadata_lookup(payload, "observed_at")), mono: true)
+        ],
+        &is_nil/1
+      )
+
+    %{source: metadata_lookup(payload, "source"), items: items}
+  end
+
+  defp active_fingerprint_summary(_row), do: %{source: nil, items: []}
+
+  defp active_fingerprint_rows(row) when is_map(row) do
+    metadata = row_metadata(row)
+    active = active_fingerprint_payload(row)
+    recog = active_recog_payload(active)
+    observed_at = active_observed_at(row, active)
+
+    @active_fingerprint_protocols
+    |> Enum.map(fn {protocol, label} ->
+      active_protocol_row(
+        label,
+        active_protocol_payload(metadata, recog, protocol),
+        metadata,
+        protocol,
+        observed_at
+      )
+    end)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp active_fingerprint_rows(_row), do: []
+
+  defp active_protocol_row(label, payload, metadata, protocol, observed_at) do
+    product = active_value(metadata, payload, protocol, "product")
+    version = active_value(metadata, payload, protocol, "version")
+    os_family = active_value(metadata, payload, protocol, "os_family")
+    vendor = active_value(metadata, payload, protocol, "vendor")
+
+    if Enum.any?([product, version, os_family, vendor], &metadata_present?/1) do
+      %{
+        protocol: label,
+        port: format_metadata_value(active_value(metadata, payload, protocol, "port")),
+        product: format_metadata_value(product),
+        version: format_metadata_value(version),
+        os: active_os_label(os_family, vendor),
+        source: format_metadata_value(active_row_source(metadata, payload, protocol)),
+        observed_at:
+          format_metadata_value(metadata_timestamp(active_observed_at(metadata, payload, protocol)) || observed_at)
+      }
+    end
+  end
+
+  defp active_os_label(os_family, vendor) do
+    [vendor, os_family]
+    |> Enum.filter(&metadata_present?/1)
+    |> Enum.map_join(" / ", &format_metadata_value/1)
+    |> case do
+      "" -> "—"
+      value -> value
+    end
+  end
+
+  defp active_fingerprint_payload(row) do
+    metadata = row_metadata(row)
+
+    case metadata_lookup(metadata, "active_fingerprint") do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp active_recog_payload(active) when is_map(active) do
+    case metadata_lookup(active, "recog") do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp active_recog_payload(_active), do: %{}
+
+  defp active_protocol_payload(metadata, recog, protocol) do
+    case Map.get(recog, protocol) || metadata_lookup(metadata, "active_fingerprint.recog.#{protocol}") do
+      payload when is_map(payload) -> payload
+      _ -> %{}
+    end
+  end
+
+  defp active_value(metadata, payload, protocol, key) do
+    metadata_lookup(payload, key) ||
+      metadata_lookup(metadata, "active_fingerprint.recog.#{protocol}.#{key}")
+  end
+
+  defp active_row_source(metadata, payload, protocol) do
+    [
+      active_value(metadata, payload, protocol, "source") ||
+        metadata_lookup(metadata, "active_fingerprint.source") ||
+        "sweep_active",
+      source_context("profile", active_source_context(metadata, payload, protocol, "profile_id")),
+      source_context("sweep", active_source_context(metadata, payload, protocol, "sweep_cycle"))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" / ")
+  end
+
+  defp active_source_context(metadata, payload, protocol, key) do
+    active_value(metadata, payload, protocol, key) ||
+      active_value(metadata, payload, protocol, String.replace(key, "_id", "")) ||
+      metadata_lookup(metadata, "active_fingerprint.#{key}")
+  end
+
+  defp source_context(_label, nil), do: nil
+  defp source_context(_label, ""), do: nil
+  defp source_context(label, value), do: "#{label}: #{format_metadata_value(value)}"
+
+  defp active_observed_at(row, active) when is_map(row) do
+    metadata = row_metadata(row)
+
+    metadata_timestamp(metadata_lookup(active, "observed_at")) ||
+      metadata_timestamp(metadata_lookup(active_os_payload(row), "observed_at")) ||
+      metadata_timestamp(metadata_lookup(metadata, "active_fingerprint.observed_at"))
+  end
+
+  defp active_observed_at(metadata, payload, protocol) do
+    active_value(metadata, payload, protocol, "observed_at")
+  end
+
+  defp active_os_payload(row) do
+    active = active_fingerprint_payload(row)
+    os = Map.get(row, "os") || Map.get(row, "os_info") || %{}
+
+    cond do
+      is_map(active) and is_map(metadata_lookup(active, "os")) ->
+        metadata_lookup(active, "os")
+
+      is_map(os) and is_map(metadata_lookup(os, "active_fingerprint")) ->
+        metadata_lookup(os, "active_fingerprint")
+
+      true ->
+        %{}
+    end
+  end
+
   defp dpi_rows(row) when is_map(row) do
     metadata = row_metadata(row)
     nested = metadata_lookup(metadata, "dpi") || %{}
@@ -5739,6 +6000,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       _ -> metadata_lookup(metadata, "os.passive_fingerprint") || %{}
     end
   end
+
+  defp active_fingerprint_tab_visible?(row, scope) when is_map(row) do
+    can_view_active_fingerprint?(scope) and
+      (active_fingerprint_summary(row).items != [] or active_fingerprint_rows(row) != [])
+  end
+
+  defp active_fingerprint_tab_visible?(_row, _scope), do: false
 
   defp process_listeners_tab_visible?(row) when is_map(row) do
     agent_device?(row) or process_listener_rows(row) != []
@@ -11787,6 +12055,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   # RBAC helper - check if user can edit devices
   defp can_view_device?(scope), do: RBAC.can?(scope, "devices.view")
+
+  defp can_view_active_fingerprint?(scope), do: RBAC.can?(scope, "networks.sweeps.banner_grab")
 
   defp can_edit_device?(scope), do: RBAC.can?(scope, "devices.update")
 
