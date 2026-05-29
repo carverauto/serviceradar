@@ -59,20 +59,31 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   @batch_size 500
   @active_ip_unique_constraint "ocsf_devices_unique_active_ip_idx"
   @banner_grab_audit_failed_event [:serviceradar, :sweep, :banner_grab, :audit_failed]
-  @banner_grab_counter_keys [
-    "sweep_banner_grab_candidates_total",
-    "sweep_banner_grab_probes_total",
-    "sweep_banner_grab_match_batches_total",
-    "sweep_banner_grab_match_batch_bytes_total",
-    "sweep_banner_grab_bytes_received_total",
-    "sweep_banner_grab_skipped_fresh_total",
-    "sweep_banner_grab_skipped_backoff_total",
-    "sweep_banner_grab_matches_total",
-    "sweep_banner_grab_empty_response_total",
-    "sweep_banner_grab_connection_reset_total",
-    "sweep_banner_grab_timeout_total",
-    "sweep_banner_grab_errors_total"
+  @banner_grab_counter_dropped_event [
+    :serviceradar,
+    :sweep,
+    :banner_grab,
+    :counter_dropped
   ]
+  # Allowlist of counter keys persisted into the audit `counters` map alongside
+  # the expected value type. Values that do not satisfy the type are dropped
+  # from the persisted summary (and emit a `:counter_dropped` telemetry event)
+  # to prevent untrusted agent payloads from injecting hostile values
+  # (negative ints, floats, binaries, maps, lists, etc.) into the audit row.
+  @banner_grab_counter_keys %{
+    "sweep_banner_grab_candidates_total" => :non_neg_integer,
+    "sweep_banner_grab_probes_total" => :non_neg_integer,
+    "sweep_banner_grab_match_batches_total" => :non_neg_integer,
+    "sweep_banner_grab_match_batch_bytes_total" => :non_neg_integer,
+    "sweep_banner_grab_bytes_received_total" => :non_neg_integer,
+    "sweep_banner_grab_skipped_fresh_total" => :non_neg_integer,
+    "sweep_banner_grab_skipped_backoff_total" => :non_neg_integer,
+    "sweep_banner_grab_matches_total" => :non_neg_integer,
+    "sweep_banner_grab_empty_response_total" => :non_neg_integer,
+    "sweep_banner_grab_connection_reset_total" => :non_neg_integer,
+    "sweep_banner_grab_timeout_total" => :non_neg_integer,
+    "sweep_banner_grab_errors_total" => :non_neg_integer
+  }
 
   @doc """
   Ingest a batch of sweep results for an execution.
@@ -1470,18 +1481,67 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
   defp audit_actor(actor, _request_id), do: actor
 
-  defp banner_grab_audit_summary(summary) when is_map(summary) do
+  @doc false
+  def banner_grab_audit_summary(summary) when is_map(summary) do
     %{
       "probe_count" => counter(summary, "sweep_banner_grab_probes_total"),
       "banner_match_count" => counter(summary, "sweep_banner_grab_matches_total"),
       "empty_response_count" => counter(summary, "sweep_banner_grab_empty_response_total"),
       "error_count" => banner_grab_error_count(summary),
       "total_bytes_received" => counter(summary, "sweep_banner_grab_bytes_received_total"),
-      "counters" => Map.take(summary, @banner_grab_counter_keys)
+      "counters" => sanitize_banner_grab_counters(summary)
     }
   end
 
-  defp record_banner_grab_audit_failure(operation, execution_id, sweep_group_id, reason) do
+  # Filter the agent-supplied summary down to allowlisted keys, validating each
+  # value against its expected type. Mismatched values are dropped (not coerced)
+  # so that the persisted audit row never contains attacker-controlled blobs,
+  # and a telemetry event is emitted per dropped key for observability.
+  defp sanitize_banner_grab_counters(summary) do
+    Enum.reduce(@banner_grab_counter_keys, %{}, fn {key, type}, acc ->
+      case Map.fetch(summary, key) do
+        :error ->
+          acc
+
+        {:ok, value} ->
+          if valid_counter_value?(value, type) do
+            Map.put(acc, key, value)
+          else
+            emit_counter_dropped(key, type, value)
+            acc
+          end
+      end
+    end)
+  end
+
+  defp valid_counter_value?(value, :non_neg_integer)
+       when is_integer(value) and value >= 0,
+       do: true
+
+  defp valid_counter_value?(_value, _type), do: false
+
+  defp emit_counter_dropped(key, expected_type, value) do
+    :telemetry.execute(
+      @banner_grab_counter_dropped_event,
+      %{count: 1, banner_grab_counter_dropped_total: 1},
+      %{
+        counter_key: key,
+        expected_type: expected_type,
+        value_type: counter_value_type(value)
+      }
+    )
+  end
+
+  defp counter_value_type(value) when is_integer(value), do: :integer
+  defp counter_value_type(value) when is_float(value), do: :float
+  defp counter_value_type(value) when is_binary(value), do: :binary
+  defp counter_value_type(value) when is_map(value), do: :map
+  defp counter_value_type(value) when is_list(value), do: :list
+  defp counter_value_type(value) when is_atom(value), do: :atom
+  defp counter_value_type(_value), do: :other
+
+  @doc false
+  def record_banner_grab_audit_failure(operation, execution_id, sweep_group_id, reason) do
     reason_text = inspect(reason)
 
     Logger.error("SweepResultsIngestor: failed to record banner-grab audit summary",

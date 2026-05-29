@@ -603,4 +603,137 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
       refute Map.has_key?(record.sweep_modes_results, "tcp")
     end
   end
+
+  describe "banner_grab_audit_summary/1 counter sanitisation" do
+    test "drops allowlisted keys whose values fail type validation" do
+      summary = %{
+        # valid values — kept verbatim
+        "sweep_banner_grab_probes_total" => 7,
+        "sweep_banner_grab_matches_total" => 0,
+        # hostile values on allowlisted keys — must be dropped from `counters`
+        "sweep_banner_grab_errors_total" => -1,
+        "sweep_banner_grab_bytes_received_total" => 1.5,
+        "sweep_banner_grab_timeout_total" => "not-a-number",
+        "sweep_banner_grab_connection_reset_total" => %{"$inject" => "payload"},
+        "sweep_banner_grab_empty_response_total" => [1, 2, 3],
+        # non-allowlisted key — must be filtered out
+        "attacker_controlled_blob" => "drop-me"
+      }
+
+      audited = SweepResultsIngestor.banner_grab_audit_summary(summary)
+      counters = audited["counters"]
+
+      # Valid allowlisted values survive
+      assert counters["sweep_banner_grab_probes_total"] == 7
+      assert counters["sweep_banner_grab_matches_total"] == 0
+
+      # Hostile values on allowlisted keys are dropped from the persisted map
+      refute Map.has_key?(counters, "sweep_banner_grab_errors_total")
+      refute Map.has_key?(counters, "sweep_banner_grab_bytes_received_total")
+      refute Map.has_key?(counters, "sweep_banner_grab_timeout_total")
+      refute Map.has_key?(counters, "sweep_banner_grab_connection_reset_total")
+      refute Map.has_key?(counters, "sweep_banner_grab_empty_response_total")
+
+      # Non-allowlisted keys never make it into the persisted map
+      refute Map.has_key?(counters, "attacker_controlled_blob")
+
+      # Derived fields stay integers regardless of upstream hostility
+      assert is_integer(audited["probe_count"])
+      assert is_integer(audited["banner_match_count"])
+      assert is_integer(audited["empty_response_count"])
+      assert is_integer(audited["error_count"])
+      assert is_integer(audited["total_bytes_received"])
+    end
+
+    test "emits :counter_dropped telemetry for each hostile allowlisted value" do
+      test_pid = self()
+      handler_id = "ingestor-counter-dropped-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> _ = :telemetry.detach(handler_id) end)
+
+      summary = %{
+        "sweep_banner_grab_errors_total" => -1,
+        "sweep_banner_grab_bytes_received_total" => 1.5,
+        "sweep_banner_grab_timeout_total" => "not-a-number"
+      }
+
+      _ = SweepResultsIngestor.banner_grab_audit_summary(summary)
+
+      assert_receive {:telemetry_event,
+                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+                      %{count: 1, banner_grab_counter_dropped_total: 1},
+                      %{
+                        counter_key: "sweep_banner_grab_errors_total",
+                        expected_type: :non_neg_integer,
+                        value_type: :integer
+                      }}
+
+      assert_receive {:telemetry_event,
+                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+                      _measurements,
+                      %{
+                        counter_key: "sweep_banner_grab_bytes_received_total",
+                        expected_type: :non_neg_integer,
+                        value_type: :float
+                      }}
+
+      assert_receive {:telemetry_event,
+                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+                      _measurements,
+                      %{
+                        counter_key: "sweep_banner_grab_timeout_total",
+                        expected_type: :non_neg_integer,
+                        value_type: :binary
+                      }}
+    end
+  end
+
+  describe "record_banner_grab_audit_failure/4 telemetry" do
+    test "emits :audit_failed event with operation, ids, and reason metadata" do
+      test_pid = self()
+      handler_id = "ingestor-audit-failed-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :sweep, :banner_grab, :audit_failed],
+        fn event, measurements, metadata, _config ->
+          send(test_pid, {:telemetry_event, event, measurements, metadata})
+        end,
+        nil
+      )
+
+      on_exit(fn -> _ = :telemetry.detach(handler_id) end)
+
+      execution_id = Ash.UUID.generate()
+      sweep_group_id = Ash.UUID.generate()
+      reason = %Ash.Error.Invalid{errors: [%{field: :banner_grab_summary, message: "boom"}]}
+
+      :ok =
+        SweepResultsIngestor.record_banner_grab_audit_failure(
+          :update_failed,
+          execution_id,
+          sweep_group_id,
+          reason
+        )
+
+      assert_receive {:telemetry_event,
+                      [:serviceradar, :sweep, :banner_grab, :audit_failed],
+                      %{count: 1, banner_grab_audit_failed_total: 1}, metadata}
+
+      assert metadata.operation == :update_failed
+      assert metadata.execution_id == execution_id
+      assert metadata.sweep_group_id == sweep_group_id
+      assert is_binary(metadata.reason)
+      assert metadata.reason =~ "boom"
+    end
+  end
 end
