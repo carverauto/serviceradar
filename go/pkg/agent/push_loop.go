@@ -686,6 +686,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentMapperTopology := p.pushMapperTopology(ctx)
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentNetprobeResults := p.pushNetprobeResults(ctx)
+	sentFlowAttribution := p.pushFlowAttribution(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
@@ -699,6 +700,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentMapperTopology &&
 		!sentSNMPMetrics &&
 		!sentNetprobeResults &&
+		!sentFlowAttribution &&
 		!sentPluginResults &&
 		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")

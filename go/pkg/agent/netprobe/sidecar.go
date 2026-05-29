@@ -316,6 +316,17 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 	return snapshots
 }
 
+// DroppedFlowAttributionEvents returns the cumulative number of
+// FlowAttributionEvents the IPC client has dropped due to backpressure.
+// Returns 0 when no client is currently attached.
+func (s *Sidecar) DroppedFlowAttributionEvents() uint64 {
+	client := s.currentClient()
+	if client == nil {
+		return 0
+	}
+	return client.DroppedFlowAttributionEvents()
+}
+
 func (s *Sidecar) currentClient() *Client {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
