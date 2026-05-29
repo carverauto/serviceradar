@@ -50,6 +50,12 @@ type SweepGroupConfigUpdater interface {
 	UpdateSweepGroups(*SweepGroupsConfig) error
 }
 
+// SweepGroupConfigContextUpdater applies multi-group sweep configurations with
+// the caller's lifecycle context.
+type SweepGroupConfigContextUpdater interface {
+	UpdateSweepGroupsContext(context.Context, *SweepGroupsConfig) error
+}
+
 // KVStore defines the interface for key-value store operations.
 // It embeds the shared configuration KV interface so agent stores remain compatible
 // with the config loader while allowing optional extensions (e.g. PutIfAbsent).

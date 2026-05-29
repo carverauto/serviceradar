@@ -2316,7 +2316,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		}
 	}
 
-	p.applySweepConfig(configResp.ConfigJson)
+	p.applySweepConfig(ctx, configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
@@ -2920,7 +2920,7 @@ func (p *PushLoop) pushMapperDerivedResults(
 	return true
 }
 
-func (p *PushLoop) applySweepConfig(configJSON []byte) {
+func (p *PushLoop) applySweepConfig(ctx context.Context, configJSON []byte) {
 	sweepSvc := p.findSweepResultsProvider()
 	if sweepSvc == nil {
 		return
@@ -2944,6 +2944,19 @@ func (p *PushLoop) applySweepConfig(configJSON []byte) {
 	p.server.mu.RLock()
 	cfg := p.server.config
 	p.server.mu.RUnlock()
+
+	if updater, ok := sweepSvc.(SweepGroupConfigContextUpdater); ok {
+		if err := updater.UpdateSweepGroupsContext(ctx, sweepConfig); err != nil {
+			p.logger.Error().Err(err).Msg("Failed to apply sweep group config from gateway")
+			return
+		}
+
+		p.logger.Info().
+			Str("config_hash", sweepConfig.ConfigHash).
+			Int("group_count", len(sweepConfig.Groups)).
+			Msg("Applied sweep group config from gateway")
+		return
+	}
 
 	if updater, ok := sweepSvc.(SweepGroupConfigUpdater); ok {
 		if err := updater.UpdateSweepGroups(sweepConfig); err != nil {

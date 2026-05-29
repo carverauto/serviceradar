@@ -60,6 +60,18 @@ func NewMultiSweepService(
 	log logger.Logger,
 	opts ...sweeper.Option,
 ) (*MultiSweepService, error) {
+	return NewMultiSweepServiceWithContext(context.Background(), cfg, groups, log, opts...)
+}
+
+// NewMultiSweepServiceWithContext creates a MultiSweepService using ctx for
+// initial service replacement work.
+func NewMultiSweepServiceWithContext(
+	ctx context.Context,
+	cfg *ServerConfig,
+	groups []SweepGroupConfig,
+	log logger.Logger,
+	opts ...sweeper.Option,
+) (*MultiSweepService, error) {
 	service := &MultiSweepService{
 		groups:         make(map[string]*SweepService),
 		groupConfigs:   make(map[string]SweepGroupConfig),
@@ -79,7 +91,7 @@ func NewMultiSweepService(
 		return service, nil
 	}
 
-	if err := service.UpdateSweepGroups(&SweepGroupsConfig{Groups: groups, ConfigHash: groups[0].ConfigHash}); err != nil {
+	if err := service.UpdateSweepGroupsContext(ctx, &SweepGroupsConfig{Groups: groups, ConfigHash: groups[0].ConfigHash}); err != nil {
 		return nil, err
 	}
 
@@ -198,11 +210,17 @@ func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 		ConfigHash:    config.ConfigHash,
 	}
 
-	return s.UpdateSweepGroups(&SweepGroupsConfig{Groups: []SweepGroupConfig{groupConfig}, ConfigHash: config.ConfigHash})
+	return s.UpdateSweepGroupsContext(nil, &SweepGroupsConfig{Groups: []SweepGroupConfig{groupConfig}, ConfigHash: config.ConfigHash})
 }
 
 // UpdateSweepGroups updates sweep group configs, creating or removing per-group services as needed.
 func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
+	return s.UpdateSweepGroupsContext(nil, config)
+}
+
+// UpdateSweepGroupsContext updates sweep group configs, creating or removing
+// per-group services as needed.
+func (s *MultiSweepService) UpdateSweepGroupsContext(ctx context.Context, config *SweepGroupsConfig) error {
 	if config == nil {
 		return nil
 	}
@@ -235,9 +253,12 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 	started := s.started
 	startCtx := s.startCtx
 	s.mu.RUnlock()
-	stopCtx := startCtx
-	if stopCtx == nil {
-		stopCtx = context.TODO()
+
+	if ctx == nil {
+		ctx = startCtx
+	}
+	if ctx == nil {
+		ctx = context.Background()
 	}
 
 	toStop := make(map[string]*SweepService)
@@ -248,7 +269,7 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 	}
 
 	for groupID, svc := range toStop {
-		if err := svc.Stop(stopCtx); err != nil {
+		if err := svc.Stop(ctx); err != nil {
 			s.logger.Error().Err(err).Str("sweep_group_id", groupID).Msg("Failed to stop sweep group service")
 		}
 	}

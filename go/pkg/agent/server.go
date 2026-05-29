@@ -100,7 +100,7 @@ func initializeServer(configDir string, cfg *ServerConfig, log logger.Logger) *S
 
 // createSweepService constructs a new SweepService instance.
 func createSweepService(
-	_ context.Context,
+	ctx context.Context,
 	sweepConfig *SweepConfig,
 	cfg *ServerConfig,
 	log logger.Logger,
@@ -111,7 +111,7 @@ func createSweepService(
 	}
 
 	groupConfig := sweepGroupConfigFromSweepConfig(sweepConfig)
-	service, err := NewMultiSweepService(cfg, []SweepGroupConfig{groupConfig}, log, opts...)
+	service, err := NewMultiSweepServiceWithContext(ctx, cfg, []SweepGroupConfig{groupConfig}, log, opts...)
 	if err != nil {
 		return nil, err
 	}
