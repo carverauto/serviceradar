@@ -3,7 +3,10 @@ use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-use crate::host_slice::{host_slice_subject, validate_host_slice};
+use crate::host_slice::{
+    host_slice_publication_allowed, host_slice_subject, validate_host_slice,
+    validate_host_slice_allowlist,
+};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -42,6 +45,8 @@ pub struct Config {
     // Per-host flow slices for netprobe attribution
     #[serde(default)]
     pub host_slices: Vec<HostSliceConfig>,
+    #[serde(default)]
+    pub host_slice_allowlist: Vec<String>,
 
     // Listeners
     pub listeners: Vec<ListenerConfig>,
@@ -315,6 +320,7 @@ impl Config {
         for (i, slice) in self.host_slices.iter().enumerate() {
             validate_host_slice(slice, i)?;
         }
+        validate_host_slice_allowlist(&self.host_slice_allowlist)?;
 
         Ok(())
     }
@@ -329,9 +335,11 @@ impl Config {
                 subjects.push(subj);
             }
         }
-        for slice in self.host_slices.iter().filter(|slice| {
-            slice.partition == self.partition && slice.host_network_visibility_enabled()
-        }) {
+        for slice in self
+            .host_slices
+            .iter()
+            .filter(|slice| host_slice_publication_allowed(self, slice))
+        {
             let subject = slice.subject();
             if !subjects.contains(&subject) {
                 subjects.push(subject);
@@ -470,6 +478,66 @@ mod tests {
         assert!(subjects.contains(&"flows.raw.sflow".to_string()));
         assert!(subjects.contains(&"flows.raw.netflow".to_string()));
         assert!(subjects.contains(&"flows.raw.extra".to_string()));
+    }
+
+    #[test]
+    fn test_stream_subjects_requires_host_slice_allowlist() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "host_slice_allowlist": ["agent-1"],
+            "host_slices": [
+                {
+                    "agent_id": "agent-1",
+                    "host_ips": ["192.0.2.10"],
+                    "host_network_visibility": "enabled"
+                },
+                {
+                    "agent_id": "agent-2",
+                    "host_ips": ["192.0.2.20"],
+                    "host_network_visibility": "enabled"
+                }
+            ],
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+        config.validate().unwrap();
+
+        let subjects = config.stream_subjects_resolved();
+
+        assert!(subjects.contains(&"flow.host-slice.agent-1".to_string()));
+        assert!(!subjects.contains(&"flow.host-slice.agent-2".to_string()));
+    }
+
+    #[test]
+    fn test_host_slice_allowlist_validation() {
+        let json = r#"{
+            "nats_url": "nats://localhost:4222",
+            "stream_name": "events",
+            "host_slice_allowlist": ["agent.1"],
+            "listeners": [
+                {
+                    "protocol": "sflow",
+                    "listen_addr": "0.0.0.0:6343",
+                    "subject": "flows.raw.sflow"
+                }
+            ]
+        }"#;
+        let config: Config = serde_json::from_str(json).unwrap();
+
+        assert!(
+            config
+                .validate()
+                .unwrap_err()
+                .to_string()
+                .contains("host_slice_allowlist")
+        );
     }
 
     #[test]

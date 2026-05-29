@@ -1,6 +1,6 @@
 use crate::config::{Config, HostSliceConfig};
 use crate::flowpb::FlowMessage;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 
@@ -13,9 +13,11 @@ impl HostSliceRouter {
     pub fn from_config(config: &Config) -> Self {
         let mut subjects_by_ip: HashMap<IpAddr, Vec<Arc<str>>> = HashMap::new();
 
-        for slice in config.host_slices.iter().filter(|slice| {
-            slice.partition == config.partition && slice.host_network_visibility_enabled()
-        }) {
+        for slice in config
+            .host_slices
+            .iter()
+            .filter(|slice| host_slice_publication_allowed(config, slice))
+        {
             let subject: Arc<str> = Arc::from(slice.subject());
 
             for ip in &slice.host_ips {
@@ -59,6 +61,15 @@ pub fn host_slice_subject(agent_id: &str) -> String {
     format!("flow.host-slice.{agent_id}")
 }
 
+pub fn host_slice_publication_allowed(config: &Config, slice: &HostSliceConfig) -> bool {
+    slice.partition == config.partition
+        && slice.host_network_visibility_enabled()
+        && config
+            .host_slice_allowlist
+            .iter()
+            .any(|agent_id| agent_id == &slice.agent_id)
+}
+
 fn flow_ip(bytes: &[u8]) -> Option<IpAddr> {
     match bytes.len() {
         4 => Some(IpAddr::from(<[u8; 4]>::try_from(bytes).ok()?)),
@@ -88,6 +99,31 @@ pub fn validate_host_slice(slice: &HostSliceConfig, index: usize) -> anyhow::Res
             "host_slices[{}]: host_ips cannot be empty for enabled host-network-visibility",
             index
         );
+    }
+
+    Ok(())
+}
+
+pub fn validate_host_slice_allowlist(allowlist: &[String]) -> anyhow::Result<()> {
+    let mut seen = HashSet::new();
+
+    for (index, agent_id) in allowlist.iter().enumerate() {
+        if agent_id.is_empty() {
+            anyhow::bail!("host_slice_allowlist[{}]: agent_id cannot be empty", index);
+        }
+        if !is_safe_subject_token(agent_id) {
+            anyhow::bail!(
+                "host_slice_allowlist[{}]: agent_id must contain only letters, numbers, '_' or '-'",
+                index
+            );
+        }
+        if !seen.insert(agent_id) {
+            anyhow::bail!(
+                "host_slice_allowlist[{}]: duplicate agent_id '{}'",
+                index,
+                agent_id
+            );
+        }
     }
 
     Ok(())
@@ -157,7 +193,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn ignores_enabled_slices_without_allowlist_entry() {
+        let router = HostSliceRouter::from_config(&config_with_slices_and_allowlist(
+            vec![HostSliceConfig {
+                agent_id: "agent-1".to_string(),
+                partition: "default".to_string(),
+                host_ips: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))],
+                host_network_visibility: HostNetworkVisibilityStatus::Enabled,
+            }],
+            Vec::new(),
+        ));
+
+        assert!(
+            router
+                .subjects_for_flow(&FlowMessage {
+                    src_addr: vec![192, 0, 2, 10],
+                    dst_addr: vec![203, 0, 113, 5],
+                    ..Default::default()
+                })
+                .is_empty()
+        );
+    }
+
     fn config_with_slices(host_slices: Vec<HostSliceConfig>) -> Config {
+        let host_slice_allowlist = host_slices
+            .iter()
+            .map(|slice| slice.agent_id.clone())
+            .collect();
+
+        config_with_slices_and_allowlist(host_slices, host_slice_allowlist)
+    }
+
+    fn config_with_slices_and_allowlist(
+        host_slices: Vec<HostSliceConfig>,
+        host_slice_allowlist: Vec<String>,
+    ) -> Config {
         Config {
             nats_url: "nats://localhost:4222".to_string(),
             nats_creds_file: None,
@@ -172,6 +243,7 @@ mod tests {
             drop_policy: DropPolicy::DropOldest,
             security: None,
             metrics_addr: None,
+            host_slice_allowlist,
             host_slices,
             listeners: vec![ListenerConfig::Sflow {
                 listen_addr: "127.0.0.1:6343".to_string(),

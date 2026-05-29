@@ -277,6 +277,7 @@ mod tests {
             drop_policy: DropPolicy::DropOldest,
             security: None,
             metrics_addr: None,
+            host_slice_allowlist: vec!["agent-1".to_string()],
             host_slices: vec![HostSliceConfig {
                 agent_id: "agent-1".to_string(),
                 partition: "default".to_string(),
