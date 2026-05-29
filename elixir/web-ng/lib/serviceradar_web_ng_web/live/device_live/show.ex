@@ -29,7 +29,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias Ash.Error.Invalid
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
-  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
@@ -41,6 +40,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
@@ -1423,27 +1423,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
 
-    case load_device(scope, device_uid) do
-      {:ok, device} ->
-        deleted_by = DeviceStateData.deleted_by_from_scope(scope)
+    deleted_by = DeviceStateData.deleted_by_from_scope(scope)
 
-        case Device.soft_delete(device, "ui_delete", deleted_by, scope: scope) do
-          {:ok, _} ->
-            {:noreply,
-             socket
-             |> put_flash(:info, "Device deleted")
-             |> push_patch(to: device_show_path(socket, device_uid))}
-
-          {:error, reason} ->
-            Logger.error("Device delete failed for #{device_uid}: #{inspect(reason)}")
-
-            {:noreply, put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
-        end
+    case DeviceResourceData.soft_delete(scope, device_uid, deleted_by) do
+      {:ok, _} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Device deleted")
+         |> push_patch(to: device_show_path(socket, device_uid))}
 
       {:error, reason} ->
-        Logger.error("Device load failed for delete #{device_uid}: #{inspect(reason)}")
+        Logger.error("Device delete failed for #{device_uid}: #{inspect(reason)}")
 
-        {:noreply, put_flash(socket, :error, "Failed to load device: #{format_ash_error(reason)}")}
+        {:noreply, put_flash(socket, :error, "Failed to delete device: #{format_ash_error(reason)}")}
     end
   end
 
@@ -1451,7 +1443,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
 
-    case restore_device(scope, device_uid) do
+    case DeviceResourceData.restore(scope, device_uid) do
       :ok ->
         {:noreply,
          socket
@@ -1500,7 +1492,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         value -> value
       end
 
-    case load_device(scope, device_uid) do
+    case DeviceResourceData.load(scope, device_uid) do
       {:ok, device} ->
         result =
           device
@@ -1597,7 +1589,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
 
-    case update_device(scope, device_uid, params) do
+    case DeviceResourceData.update(scope, device_uid, params) do
       {:ok, _device} ->
         {:noreply,
          socket
@@ -2861,13 +2853,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
 
-  defp load_device(scope, device_uid) do
-    case Device.get_by_uid(device_uid, true, scope: scope) do
-      {:ok, nil} -> {:error, :not_found}
-      other -> other
-    end
-  end
-
   defp device_show_path(socket, device_uid) do
     tab =
       case socket.assigns.active_tab do
@@ -2887,34 +2872,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
 
-  # Update device via Ash
-  defp update_device(scope, device_uid, params) do
-    # Parse tags from newline-separated string to map
-    attrs =
-      %{
-        hostname: params["hostname"],
-        ip: params["ip"],
-        vendor_name: params["vendor_name"],
-        model: params["model"],
-        is_managed: DeviceFormData.parse_bool(params["is_managed"]),
-        is_trusted: DeviceFormData.parse_bool(params["is_trusted"]),
-        tags: DeviceFormData.parse_tags(params["tags"])
-      }
-      |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
-      |> Map.new()
-
-    # First get the device, then update it
-    case Device.get_by_uid(device_uid, false, scope: scope) do
-      {:ok, device} ->
-        device
-        |> Ash.Changeset.for_update(:update, attrs)
-        |> Ash.update(scope: scope)
-
-      {:error, _} = error ->
-        error
-    end
-  end
-
   defp format_ash_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_ash_error/1)
   end
@@ -2929,67 +2886,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_single_ash_error(err), do: inspect(err)
 
-  defp stale_record_error?(%Invalid{errors: errors}) when is_list(errors) do
-    Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
-  end
-
-  defp stale_record_error?(_), do: false
-
-  defp restore_device(scope, device_uid) do
-    with {:ok, device} <- load_device(scope, device_uid),
-         {:ok, _} <- Device.restore(device, scope: scope) do
-      :ok
-    else
-      {:error, %Invalid{} = error} ->
-        if stale_record_error?(error) do
-          case force_restore_device(scope, device_uid) do
-            :ok -> :ok
-            {:error, reason} -> {:error, reason}
-          end
-        else
-          {:error, error}
-        end
-
-      {:error, reason} ->
-        {:error, reason}
-    end
-  end
-
-  defp force_restore_device(scope, device_uid) do
-    query =
-      Device
-      |> Ash.Query.for_read(:read, %{include_deleted: true})
-      |> Ash.Query.filter(uid == ^device_uid)
-
-    case Ash.bulk_update(query, :restore, %{},
-           scope: scope,
-           return_errors?: true,
-           return_records?: false
-         ) do
-      %Ash.BulkResult{status: :success} ->
-        :ok
-
-      %Ash.BulkResult{status: :partial_success, errors: errors} ->
-        {:error, List.first(errors) || :partial_failure}
-
-      %Ash.BulkResult{status: :error, errors: errors} ->
-        {:error, List.first(errors) || :bulk_update_failed}
-    end
-  end
-
   defp update_device_active_state(socket, active?) do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
 
-    with {:ok, device} <- load_device(scope, device_uid),
-         {:ok, _updated} <- set_device_active_state(device, active?, scope) do
-      message = if active?, do: "Device returned to service", else: "Device marked out of service"
+    case DeviceResourceData.set_active(scope, device_uid, active?) do
+      {:ok, _updated} ->
+        message = if active?, do: "Device returned to service", else: "Device marked out of service"
 
-      {:noreply,
-       socket
-       |> put_flash(:info, message)
-       |> push_patch(to: device_show_path(socket, device_uid))}
-    else
+        {:noreply,
+         socket
+         |> put_flash(:info, message)
+         |> push_patch(to: device_show_path(socket, device_uid))}
+
       {:error, reason} ->
         action = if active?, do: "return device to service", else: "mark device out of service"
 
@@ -2998,8 +2907,4 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply, put_flash(socket, :error, "Failed to #{action}: #{format_ash_error(reason)}")}
     end
   end
-
-  defp set_device_active_state(device, true, scope), do: Device.mark_active(device, scope: scope)
-
-  defp set_device_active_state(device, false, scope), do: Device.mark_inactive(device, scope: scope)
 end
