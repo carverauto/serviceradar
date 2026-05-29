@@ -136,6 +136,154 @@ func TestGenerateAgentFlowCollectorCreds_RejectsUnsafeAgentID(t *testing.T) {
 	}
 }
 
+// TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied is the B-5
+// sub-issue 1 acceptance regression: a creds file minted for agent A
+// must not contain publish authority for agent B's host-slice subject.
+// We validate this by inspecting the JWT permissions exactly the way a
+// NATS server does — Pub.Allow is an allowlist; any subject not in it
+// is implicitly denied.
+func TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied(t *testing.T) {
+	seed, _ := bootstrapTestAccount(t)
+
+	credsA, err := GenerateAgentFlowCollectorCreds("platform", seed, "agent-a", 0)
+	if err != nil {
+		t.Fatalf("GenerateAgentFlowCollectorCreds(agent-a): %v", err)
+	}
+	credsB, err := GenerateAgentFlowCollectorCreds("platform", seed, "agent-b", 0)
+	if err != nil {
+		t.Fatalf("GenerateAgentFlowCollectorCreds(agent-b): %v", err)
+	}
+
+	claimsA := decodeUserClaims(t, credsA.CredsFileContent)
+	claimsB := decodeUserClaims(t, credsB.CredsFileContent)
+
+	// agent A's allow list must scope to its own slice and nothing else.
+	if !containsString(claimsA.Pub.Allow, "flow.host-slice.agent-a") {
+		t.Fatalf("agent-a publish allow missing own subject: %v", claimsA.Pub.Allow)
+	}
+	// agent A must NOT have allowance for agent-b's slice. Anything not
+	// listed is denied by NATS, so the strict assertion here matches
+	// server-side behavior even without a live broker.
+	for _, forbidden := range []string{
+		"flow.host-slice.agent-b",
+		"flow.host-slice.>",
+		"flow.attributed.*",
+		"flow.attributed.>",
+		"flow.attributed.agent-b",
+	} {
+		if containsString(claimsA.Pub.Allow, forbidden) {
+			t.Errorf("agent-a publish allow leaked %q: %v", forbidden, claimsA.Pub.Allow)
+		}
+	}
+
+	// Symmetric: agent-b must scope only to its own slice.
+	if !containsString(claimsB.Pub.Allow, "flow.host-slice.agent-b") {
+		t.Fatalf("agent-b publish allow missing own subject: %v", claimsB.Pub.Allow)
+	}
+	if containsString(claimsB.Pub.Allow, "flow.host-slice.agent-a") {
+		t.Errorf("agent-b publish allow leaked agent-a: %v", claimsB.Pub.Allow)
+	}
+
+	// And the deny list must include the wildcard fail-safe so a future
+	// PublishAllow drift still cannot grant cross-agent publish.
+	for _, mustDeny := range []string{"flow.attributed.>", "$SYS.>"} {
+		if !containsString(claimsA.Pub.Deny, mustDeny) {
+			t.Errorf("agent-a publish deny missing %q: %v", mustDeny, claimsA.Pub.Deny)
+		}
+		if !containsString(claimsB.Pub.Deny, mustDeny) {
+			t.Errorf("agent-b publish deny missing %q: %v", mustDeny, claimsB.Pub.Deny)
+		}
+	}
+}
+
+func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
+	seed, _ := bootstrapTestAccount(t)
+
+	creds, err := GeneratePartitionCoreCreds("platform", seed, "partition-A", 0)
+	if err != nil {
+		t.Fatalf("GeneratePartitionCoreCreds: %v", err)
+	}
+
+	claims := decodeUserClaims(t, creds.CredsFileContent)
+
+	pubAllow := claims.Pub.Allow
+
+	// The owning partition's exact subject + subtree must be allowed.
+	for _, required := range []string{
+		"flow.attributed.partition-A",
+		"flow.attributed.partition-A.>",
+	} {
+		if !containsString(pubAllow, required) {
+			t.Errorf("publish allow missing %q: %v", required, pubAllow)
+		}
+	}
+
+	// Other partitions and the publish wildcard must not appear in the
+	// allow list — the fail-safe deny on flow.attributed.> below would
+	// catch a drift, but the allow list itself must stay narrow.
+	for _, forbidden := range []string{
+		"flow.attributed.>",
+		"flow.attributed.partition-B",
+		"flow.attributed.partition-B.>",
+	} {
+		if containsString(pubAllow, forbidden) {
+			t.Errorf("publish allow must not contain %q: %v", forbidden, pubAllow)
+		}
+	}
+
+	// $SYS.> is reserved for the system account on every identity.
+	if !containsString(claims.Pub.Deny, "$SYS.>") {
+		t.Errorf("publish deny must contain $SYS.>: %v", claims.Pub.Deny)
+	}
+	// Deny-wildcard fail-safe: NATS evaluates allow-then-deny per
+	// token, so this guarantees cross-partition publish is impossible
+	// even if PublishAllow ever drifts.
+	if !containsString(claims.Pub.Deny, "flow.attributed.>") {
+		t.Errorf("publish deny must contain flow.attributed.> fail-safe: %v", claims.Pub.Deny)
+	}
+
+	// Subscribe is scoped per-partition for defense-in-depth.
+	subAllow := claims.Sub.Allow
+	for _, required := range []string{
+		"flow.attributed.partition-A",
+		"flow.attributed.partition-A.>",
+		"flow.host-slice.>",
+	} {
+		if !containsString(subAllow, required) {
+			t.Errorf("subscribe allow missing %q: %v", required, subAllow)
+		}
+	}
+	for _, forbidden := range []string{
+		"flow.attributed.>",
+		"flow.attributed.partition-B",
+		"flow.attributed.partition-B.>",
+	} {
+		if containsString(subAllow, forbidden) {
+			t.Errorf("subscribe allow must not contain %q: %v", forbidden, subAllow)
+		}
+	}
+}
+
+func TestGeneratePartitionCoreCreds_RejectsUnsafePartitionID(t *testing.T) {
+	seed, _ := bootstrapTestAccount(t)
+
+	cases := []string{
+		"",
+		"partition.with.dots",
+		"partition>",
+		"partition*",
+		"partition space",
+		"partition/slash",
+		">",
+	}
+	for _, partitionID := range cases {
+		_, err := GeneratePartitionCoreCreds("platform", seed, partitionID, 0)
+		if err == nil {
+			t.Errorf("expected error for unsafe partition id %q", partitionID)
+		}
+	}
+}
+
 func TestIsSafeSubjectToken(t *testing.T) {
 	cases := []struct {
 		token string

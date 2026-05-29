@@ -704,6 +704,103 @@ func GenerateAgentFlowCollectorCreds(
 	)
 }
 
+// GeneratePartitionCoreCreds issues a NATS user JWT scoped to a single
+// partition's core / control-plane identity. This is the B-5 sub-issue 2
+// building block for true per-partition publish ACLs on the
+// flow.attributed.<partition_id> subject tree.
+//
+// ServiceRadar runs one deployment per partition (see
+// elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"); each
+// core-elx process knows its own partition_id at boot from
+// SERVICERADAR_OTX_PARTITION. Issuing a partition-scoped credential at
+// deployment bootstrap binds NATS publish authority for
+// flow.attributed.<partition_id> to that specific deployment, so a
+// compromised or misconfigured core in partition A cannot inject
+// attributed-flow events into partition B's stream.
+//
+// The permission shape:
+//
+//   - PublishAllow lists the exact partition subject plus its subtree
+//     (flow.attributed.<partition_id> and flow.attributed.<partition_id>.>)
+//     alongside the other control subjects core legitimately publishes
+//     (flow.raw.>, logs.>, events.>, config.>, JetStream control,
+//     inboxes).
+//   - PublishDeny includes the wildcard flow.attributed.> as a fail-safe
+//     ceiling. NATS evaluates allow-then-deny per token, so even if a
+//     future edit widens PublishAllow, cross-partition publish remains
+//     impossible without an explicit operator override of the deny rule.
+//   - SubscribeAllow is tightened to the matching
+//     flow.attributed.<partition_id>.> subtree (defense-in-depth) plus
+//     the host-slice consumer subjects core needs for the attribution
+//     bridge.
+//   - SubscribeDeny denies $SYS.> for symmetry with other identities.
+//
+// Callers should provision per-partition core creds at deployment
+// bootstrap and rotate them on the standard JWT expiration cadence.
+// accountSeed is the platform account's seed, typically held by the
+// bootstrap operator and never written to long-lived agent disk.
+func GeneratePartitionCoreCreds(
+	accountName string,
+	accountSeed string,
+	partitionID string,
+	expirationSeconds int64,
+) (*accounts.UserCredentials, error) {
+	if strings.TrimSpace(partitionID) == "" {
+		return nil, fmt.Errorf("partition id required for per-partition core creds")
+	}
+	if !isSafeSubjectToken(partitionID) {
+		return nil, fmt.Errorf("partition id %q contains characters disallowed in NATS subjects", partitionID)
+	}
+
+	attributedSubject := "flow.attributed." + partitionID
+
+	permissions := &accounts.UserPermissions{
+		PublishAllow: []string{
+			attributedSubject,
+			attributedSubject + ".>",
+			"flow.raw.>",
+			"logs.>",
+			"events.>",
+			"config.>",
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+		},
+		// Deny-wildcard on flow.attributed.> is the fail-safe: even if
+		// PublishAllow ever drifts to widen the partition scope, NATS
+		// will still reject cross-partition publishes because the deny
+		// rule wins. The explicit allow above is narrower than the deny
+		// wildcard, so it must be added back per-partition deliberately.
+		PublishDeny: []string{"$SYS.>", "flow.attributed.>"},
+		SubscribeAllow: []string{
+			"flow.host-slice.>",
+			attributedSubject,
+			attributedSubject + ".>",
+			"flow.raw.>",
+			"logs.>",
+			"events.>",
+			"config.>",
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+		},
+		SubscribeDeny:  []string{"$SYS.>"},
+		AllowResponses: true,
+		MaxResponses:   1000,
+	}
+
+	userName := "core-" + partitionID
+
+	return accounts.GenerateUserCredentials(
+		accountName,
+		accountSeed,
+		userName,
+		accounts.CredentialTypeService,
+		permissions,
+		expirationSeconds,
+	)
+}
+
 // isSafeSubjectToken mirrors the validation applied to host_slice agent_id
 // values in rust/flow-collector/src/host_slice.rs so per-agent JWTs can
 // only be issued for tokens that are safe to embed in a NATS subject.
