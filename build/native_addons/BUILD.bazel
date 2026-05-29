@@ -1,0 +1,10 @@
+load(":addon_inventory.bzl", "ADDON_BUNDLES")
+load(":defs.bzl", "declare_native_addon_targets")
+
+exports_files(["assemble_addon_bundle.py"])
+
+# Builds per-arch native add-on bundles (zip + sha256 + metadata.json) for every
+# add-on declared in addon_inventory.bzl. Signing (Cosign + ed25519
+# upload-signature), the discovery index, and the Forgejo release upload reuse the
+# Wasm plugin rails (scripts/ + .forgejo) and consume :all_metadata / :all_bundles.
+declare_native_addon_targets(ADDON_BUNDLES)
