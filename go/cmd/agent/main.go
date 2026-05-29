@@ -184,7 +184,7 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	pushCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	startPprofServer(pushCtx, log)
+	startPprofServer(pushCtx, server, log)
 
 	// Start the server's services (checkers, sweep, etc.)
 	if err := server.Start(pushCtx); err != nil {
@@ -258,15 +258,25 @@ func runPushMode(ctx context.Context, server *agent.Server, cfg *agent.ServerCon
 	return nil
 }
 
-func startPprofServer(ctx context.Context, log logger.Logger) {
+func startPprofServer(ctx context.Context, server *agent.Server, log logger.Logger) {
 	addr := os.Getenv("SERVICERADAR_AGENT_PPROF_ADDR")
 	if addr == "" {
 		return
 	}
 
+	mux := http.NewServeMux()
+	mux.Handle("/debug/pprof/", http.DefaultServeMux)
+	mux.HandleFunc("/metrics", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+		if err := server.WritePrometheusMetrics(w); err != nil {
+			log.Error().Err(err).Msg("Agent metrics render failed")
+			http.Error(w, "failed to render metrics", http.StatusInternalServerError)
+		}
+	})
+
 	srv := &http.Server{
 		Addr:              addr,
-		Handler:           http.DefaultServeMux,
+		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 

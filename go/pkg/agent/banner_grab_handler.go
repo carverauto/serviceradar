@@ -31,6 +31,7 @@ const bannerMatchFlushInterval = 500 * time.Millisecond
 func (s *Server) handleBannerObservations(
 	ctx context.Context,
 	config models.BannerGrab,
+	engine *banner_grab.Engine,
 	observations <-chan banner_grab.BannerObservation,
 ) error {
 	batcher := banner_grab.NewBatcher(config.MatchBatchSize, config.MatchBatchMaxBytes)
@@ -49,13 +50,13 @@ func (s *Server) handleBannerObservations(
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-timerC:
-			if err := s.flushBannerBatch(ctx, batcher.Flush()); err != nil {
+			if err := s.flushBannerBatch(ctx, engine, batcher.Flush()); err != nil {
 				return err
 			}
 			timerC = nil
 		case observation, ok := <-observations:
 			if !ok {
-				return s.flushBannerBatch(ctx, batcher.Flush())
+				return s.flushBannerBatch(ctx, engine, batcher.Flush())
 			}
 
 			if timerC == nil {
@@ -63,7 +64,7 @@ func (s *Server) handleBannerObservations(
 				timerC = timer.C
 			}
 			if batch, flush := batcher.Add(observation); flush {
-				if err := s.flushBannerBatch(ctx, batch); err != nil {
+				if err := s.flushBannerBatch(ctx, engine, batch); err != nil {
 					return err
 				}
 				if !timer.Stop() {
@@ -78,7 +79,11 @@ func (s *Server) handleBannerObservations(
 	}
 }
 
-func (s *Server) flushBannerBatch(ctx context.Context, observations []banner_grab.BannerObservation) error {
+func (s *Server) flushBannerBatch(
+	ctx context.Context,
+	engine *banner_grab.Engine,
+	observations []banner_grab.BannerObservation,
+) error {
 	if len(observations) == 0 {
 		return nil
 	}
@@ -96,6 +101,9 @@ func (s *Server) flushBannerBatch(ctx context.Context, observations []banner_gra
 	for _, event := range events {
 		s.netprobeSidecar.EnqueueFingerprintEvent(event)
 	}
+	if engine != nil {
+		engine.RecordMatchBatch(bannerObservationBatchBytes(observations), len(events))
+	}
 
 	s.logger.Debug().
 		Int("observations", len(observations)).
@@ -103,6 +111,19 @@ func (s *Server) flushBannerBatch(ctx context.Context, observations []banner_gra
 		Msg("Matched banner-grab observations")
 
 	return nil
+}
+
+func bannerObservationBatchBytes(observations []banner_grab.BannerObservation) int {
+	total := 0
+	for _, observation := range observations {
+		total += len(observation.Host)
+		total += len(observation.Protocol)
+		total += len(observation.Source)
+		total += len(observation.BannerBytes)
+		total += 32
+	}
+
+	return total
 }
 
 func bannerObservationsToProto(observations []banner_grab.BannerObservation) *netprobepb.BannerBatch {

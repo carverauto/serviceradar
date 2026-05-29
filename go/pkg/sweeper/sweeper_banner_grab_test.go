@@ -76,7 +76,7 @@ func TestProcessResultsStreamSubmitsBannerGrabCandidates(t *testing.T) {
 		store:     mockStore,
 		processor: mockProcessor,
 		logger:    logger.NewTestLogger(),
-		bannerHandler: func(_ context.Context, _ models.BannerGrab, stream <-chan banner_grab.BannerObservation) error {
+		bannerHandler: func(_ context.Context, _ models.BannerGrab, _ *banner_grab.Engine, stream <-chan banner_grab.BannerObservation) error {
 			for observation := range stream {
 				mu.Lock()
 				observations = append(observations, observation)
@@ -113,6 +113,13 @@ func TestProcessResultsStreamSubmitsBannerGrabCandidates(t *testing.T) {
 	}
 	if got := string(observations[0].BannerBytes); got == "" {
 		t.Fatalf("empty banner observation")
+	}
+	stats := sweeper.GetBannerGrabStats()
+	if stats == nil {
+		t.Fatalf("GetBannerGrabStats() = nil, want completed stats")
+	}
+	if stats.CandidatesTotal != 1 || stats.ProbesTotal != 1 {
+		t.Fatalf("banner stats candidates=%d probes=%d, want 1/1", stats.CandidatesTotal, stats.ProbesTotal)
 	}
 }
 

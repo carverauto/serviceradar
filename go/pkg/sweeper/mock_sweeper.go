@@ -310,6 +310,20 @@ func (m *MockSweepService) EXPECT() *MockSweepServiceMockRecorder {
 	return m.recorder
 }
 
+// GetBannerGrabStats mocks base method.
+func (m *MockSweepService) GetBannerGrabStats() *models.BannerGrabStats {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetBannerGrabStats")
+	ret0, _ := ret[0].(*models.BannerGrabStats)
+	return ret0
+}
+
+// GetBannerGrabStats indicates an expected call of GetBannerGrabStats.
+func (mr *MockSweepServiceMockRecorder) GetBannerGrabStats() *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetBannerGrabStats", reflect.TypeOf((*MockSweepService)(nil).GetBannerGrabStats))
+}
+
 // GetStatus mocks base method.
 func (m *MockSweepService) GetStatus(arg0 context.Context) (*models.SweepSummary, error) {
 	m.ctrl.T.Helper()

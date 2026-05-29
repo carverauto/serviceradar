@@ -68,6 +68,9 @@ type Stats struct {
 	ObservationsTotal    uint64
 	SkippedFreshTotal    uint64
 	SkippedBackoffTotal  uint64
+	MatchBatchesTotal    uint64
+	MatchBatchBytesTotal uint64
+	MatchesTotal         uint64
 	EmptyResponseTotal   uint64
 	ConnectionResetTotal uint64
 	TimeoutTotal         uint64
@@ -163,7 +166,17 @@ func (e *Engine) SubmitResult(ctx context.Context, result models.Result) error {
 		return nil
 	}
 
-	candidates := e.planner.candidates(result.Target.Host, result.Target.Port, e.config.ForceRefresh)
+	candidates, skippedFresh, skippedBackoff := e.planner.candidates(
+		result.Target.Host,
+		result.Target.Port,
+		e.config.ForceRefresh,
+	)
+	if skippedFresh > 0 {
+		atomic.AddUint64(&e.stats.SkippedFreshTotal, uint64(skippedFresh))
+	}
+	if skippedBackoff > 0 {
+		atomic.AddUint64(&e.stats.SkippedBackoffTotal, uint64(skippedBackoff))
+	}
 	if len(candidates) == 0 {
 		return nil
 	}
@@ -195,6 +208,9 @@ func (e *Engine) Stats() Stats {
 		ObservationsTotal:    atomic.LoadUint64(&e.stats.ObservationsTotal),
 		SkippedFreshTotal:    atomic.LoadUint64(&e.stats.SkippedFreshTotal),
 		SkippedBackoffTotal:  atomic.LoadUint64(&e.stats.SkippedBackoffTotal),
+		MatchBatchesTotal:    atomic.LoadUint64(&e.stats.MatchBatchesTotal),
+		MatchBatchBytesTotal: atomic.LoadUint64(&e.stats.MatchBatchBytesTotal),
+		MatchesTotal:         atomic.LoadUint64(&e.stats.MatchesTotal),
 		EmptyResponseTotal:   atomic.LoadUint64(&e.stats.EmptyResponseTotal),
 		ConnectionResetTotal: atomic.LoadUint64(&e.stats.ConnectionResetTotal),
 		TimeoutTotal:         atomic.LoadUint64(&e.stats.TimeoutTotal),
@@ -203,6 +219,19 @@ func (e *Engine) Stats() Stats {
 		InFlight:             atomic.LoadUint64(&e.stats.InFlight),
 		QueueDepth:           atomic.LoadUint64(&e.stats.QueueDepth),
 		MaxQueueDepth:        atomic.LoadUint64(&e.stats.MaxQueueDepth),
+	}
+}
+
+func (e *Engine) RecordMatchBatch(bytes int, matches int) {
+	if e == nil {
+		return
+	}
+	atomic.AddUint64(&e.stats.MatchBatchesTotal, 1)
+	if bytes > 0 {
+		atomic.AddUint64(&e.stats.MatchBatchBytesTotal, uint64(bytes))
+	}
+	if matches > 0 {
+		atomic.AddUint64(&e.stats.MatchesTotal, uint64(matches))
 	}
 }
 

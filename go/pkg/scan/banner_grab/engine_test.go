@@ -111,8 +111,21 @@ func TestEngineFiltersFreshEligibleCandidatesAndStreamsObservations(t *testing.T
 	if stats.CandidatesTotal != 1 {
 		t.Fatalf("CandidatesTotal = %d, want 1 fresh-gated candidate", stats.CandidatesTotal)
 	}
+	if stats.SkippedFreshTotal != 1 {
+		t.Fatalf("SkippedFreshTotal = %d, want 1", stats.SkippedFreshTotal)
+	}
 	if stats.ObservationsTotal != 1 {
 		t.Fatalf("ObservationsTotal = %d, want 1", stats.ObservationsTotal)
+	}
+	engine.RecordMatchBatch(128, 1)
+	stats = engine.Stats()
+	if stats.MatchBatchesTotal != 1 || stats.MatchBatchBytesTotal != 128 || stats.MatchesTotal != 1 {
+		t.Fatalf(
+			"match stats batches=%d bytes=%d matches=%d, want 1/128/1",
+			stats.MatchBatchesTotal,
+			stats.MatchBatchBytesTotal,
+			stats.MatchesTotal,
+		)
 	}
 }
 

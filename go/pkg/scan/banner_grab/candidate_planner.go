@@ -44,14 +44,16 @@ func newCandidatePlanner(config Config, now func() time.Time) *candidatePlanner 
 	}
 }
 
-func (p *candidatePlanner) candidates(host string, port int, force bool) []Candidate {
+func (p *candidatePlanner) candidates(host string, port int, force bool) ([]Candidate, int, int) {
 	protocols := p.portProtocols[port]
 	if len(protocols) == 0 || host == "" || port <= 0 {
-		return nil
+		return nil, 0, 0
 	}
 
 	now := p.now()
 	out := make([]Candidate, 0, len(protocols))
+	skippedFresh := 0
+	skippedBackoff := 0
 
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -60,9 +62,11 @@ func (p *candidatePlanner) candidates(host string, port int, force bool) []Candi
 		key := candidateKey(host, port, protocol)
 		if !force {
 			if last := p.lastObserved[key]; !last.IsZero() && p.minFreshness > 0 && now.Sub(last) < p.minFreshness {
+				skippedFresh++
 				continue
 			}
 			if until := p.backoffUntil[key]; until.After(now) {
+				skippedBackoff++
 				continue
 			}
 		}
@@ -75,7 +79,7 @@ func (p *candidatePlanner) candidates(host string, port int, force bool) []Candi
 		})
 	}
 
-	return out
+	return out, skippedFresh, skippedBackoff
 }
 
 func (p *candidatePlanner) recordSuccess(candidate Candidate, at time.Time) {

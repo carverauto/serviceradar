@@ -21,6 +21,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -292,6 +293,82 @@ func (s *Server) GetSNMPStatus(ctx context.Context) (*proto.StatusResponse, erro
 	}
 
 	return svc.GetStatus(ctx)
+}
+
+type bannerGrabStatsProvider interface {
+	GetBannerGrabStats() *models.BannerGrabStats
+}
+
+func (s *Server) BannerGrabStats() *models.BannerGrabStats {
+	s.mu.RLock()
+	services := append([]Service(nil), s.services...)
+	s.mu.RUnlock()
+
+	var out models.BannerGrabStats
+	found := false
+	for _, svc := range services {
+		provider, ok := svc.(bannerGrabStatsProvider)
+		if !ok {
+			continue
+		}
+		stats := provider.GetBannerGrabStats()
+		if stats == nil {
+			continue
+		}
+
+		found = true
+		out.CandidatesTotal += stats.CandidatesTotal
+		out.ProbesTotal += stats.ProbesTotal
+		out.InFlight += stats.InFlight
+		out.QueueDepth += stats.QueueDepth
+		out.MatchBatchesTotal += stats.MatchBatchesTotal
+		out.MatchBatchBytesTotal += stats.MatchBatchBytesTotal
+		out.SkippedFreshTotal += stats.SkippedFreshTotal
+		out.SkippedBackoffTotal += stats.SkippedBackoffTotal
+		out.MatchesTotal += stats.MatchesTotal
+		out.EmptyResponseTotal += stats.EmptyResponseTotal
+		out.ConnectionResetTotal += stats.ConnectionResetTotal
+		out.TimeoutTotal += stats.TimeoutTotal
+	}
+	if !found {
+		return nil
+	}
+
+	return &out
+}
+
+func (s *Server) WritePrometheusMetrics(w io.Writer) error {
+	stats := s.BannerGrabStats()
+	if stats == nil {
+		stats = &models.BannerGrabStats{}
+	}
+
+	metrics := []struct {
+		name  string
+		typ   string
+		value uint64
+	}{
+		{"sweep_banner_grab_candidates_total", "counter", stats.CandidatesTotal},
+		{"sweep_banner_grab_probes_total", "counter", stats.ProbesTotal},
+		{"sweep_banner_grab_inflight", "gauge", stats.InFlight},
+		{"sweep_banner_grab_queue_depth", "gauge", stats.QueueDepth},
+		{"sweep_banner_grab_match_batches_total", "counter", stats.MatchBatchesTotal},
+		{"sweep_banner_grab_match_batch_bytes_total", "counter", stats.MatchBatchBytesTotal},
+		{"sweep_banner_grab_skipped_fresh_total", "counter", stats.SkippedFreshTotal},
+		{"sweep_banner_grab_skipped_backoff_total", "counter", stats.SkippedBackoffTotal},
+		{"sweep_banner_grab_matches_total", "counter", stats.MatchesTotal},
+		{"sweep_banner_grab_empty_response_total", "counter", stats.EmptyResponseTotal},
+		{"sweep_banner_grab_connection_reset_total", "counter", stats.ConnectionResetTotal},
+		{"sweep_banner_grab_timeout_total", "counter", stats.TimeoutTotal},
+	}
+
+	for _, metric := range metrics {
+		if _, err := fmt.Fprintf(w, "# TYPE %s %s\n%s %d\n", metric.name, metric.typ, metric.name, metric.value); err != nil {
+			return fmt.Errorf("write prometheus metric %s: %w", metric.name, err)
+		}
+	}
+
+	return nil
 }
 
 func (s *Server) initPluginManager(ctx context.Context) {

@@ -27,6 +27,7 @@ import (
 type mockSweeper struct {
 	summary     *models.SweepSummary
 	updateCount int
+	bannerStats *models.BannerGrabStats
 }
 
 func (*mockSweeper) Start(_ context.Context) error {
@@ -47,6 +48,10 @@ func (m *mockSweeper) GetStatus(_ context.Context) (*models.SweepSummary, error)
 
 func (*mockSweeper) GetScannerStats() *models.ScannerStats {
 	return nil
+}
+
+func (m *mockSweeper) GetBannerGrabStats() *models.BannerGrabStats {
+	return m.bannerStats
 }
 
 func (m *mockSweeper) updateSummary(newSummary *models.SweepSummary) {

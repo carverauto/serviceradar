@@ -114,6 +114,7 @@ go_test(
         "release_update_test.go",
         "remote_file_transfer_test.go",
         "server_test.go",
+        "server_metrics_test.go",
         "sweep_test_helpers_test.go",
         "sweep_performance_test.go",
         "sweep_service_sequencing_test.go",

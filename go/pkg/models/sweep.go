@@ -382,3 +382,19 @@ type ScannerStats struct {
 	QueueDepth         uint64 `json:"queue_depth"`
 	MaxQueueDepth      uint64 `json:"max_queue_depth"`
 }
+
+// BannerGrabStats contains active banner-grab phase counters.
+type BannerGrabStats struct {
+	CandidatesTotal      uint64 `json:"sweep_banner_grab_candidates_total"`
+	ProbesTotal          uint64 `json:"sweep_banner_grab_probes_total"`
+	InFlight             uint64 `json:"sweep_banner_grab_inflight"`
+	QueueDepth           uint64 `json:"sweep_banner_grab_queue_depth"`
+	MatchBatchesTotal    uint64 `json:"sweep_banner_grab_match_batches_total"`
+	MatchBatchBytesTotal uint64 `json:"sweep_banner_grab_match_batch_bytes_total"`
+	SkippedFreshTotal    uint64 `json:"sweep_banner_grab_skipped_fresh_total"`
+	SkippedBackoffTotal  uint64 `json:"sweep_banner_grab_skipped_backoff_total"`
+	MatchesTotal         uint64 `json:"sweep_banner_grab_matches_total"`
+	EmptyResponseTotal   uint64 `json:"sweep_banner_grab_empty_response_total"`
+	ConnectionResetTotal uint64 `json:"sweep_banner_grab_connection_reset_total"`
+	TimeoutTotal         uint64 `json:"sweep_banner_grab_timeout_total"`
+}

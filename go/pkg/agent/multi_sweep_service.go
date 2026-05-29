@@ -453,6 +453,46 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 	return bestStatus, nil
 }
 
+func (s *MultiSweepService) GetBannerGrabStats() *models.BannerGrabStats {
+	s.mu.RLock()
+	groups := make([]*SweepService, 0, len(s.groups))
+	for _, svc := range s.groups {
+		groups = append(groups, svc)
+	}
+	s.mu.RUnlock()
+
+	var out models.BannerGrabStats
+	found := false
+	for _, svc := range groups {
+		if svc == nil {
+			continue
+		}
+		stats := svc.GetBannerGrabStats()
+		if stats == nil {
+			continue
+		}
+
+		found = true
+		out.CandidatesTotal += stats.CandidatesTotal
+		out.ProbesTotal += stats.ProbesTotal
+		out.InFlight += stats.InFlight
+		out.QueueDepth += stats.QueueDepth
+		out.MatchBatchesTotal += stats.MatchBatchesTotal
+		out.MatchBatchBytesTotal += stats.MatchBatchBytesTotal
+		out.SkippedFreshTotal += stats.SkippedFreshTotal
+		out.SkippedBackoffTotal += stats.SkippedBackoffTotal
+		out.MatchesTotal += stats.MatchesTotal
+		out.EmptyResponseTotal += stats.EmptyResponseTotal
+		out.ConnectionResetTotal += stats.ConnectionResetTotal
+		out.TimeoutTotal += stats.TimeoutTotal
+	}
+	if !found {
+		return nil
+	}
+
+	return &out
+}
+
 func sortedGroupIDs(groups map[string]SweepGroupConfig) []string {
 	ids := make([]string, 0, len(groups))
 	for id := range groups {

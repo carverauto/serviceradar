@@ -35,7 +35,7 @@ import (
 type Option func(*NetworkSweeper)
 
 // BannerObservationHandler consumes successful active banner observations.
-type BannerObservationHandler func(context.Context, models.BannerGrab, <-chan banner_grab.BannerObservation) error
+type BannerObservationHandler func(context.Context, models.BannerGrab, *banner_grab.Engine, <-chan banner_grab.BannerObservation) error
 
 // WithBannerObservationHandler wires banner observations to the agent-owned
 // netprobe IPC batcher. When unset, the sweeper drains observations and logs
@@ -93,12 +93,13 @@ type NetworkSweeper struct {
 	stopped           bool
 	lastSweep         time.Time
 	// Device result aggregation for multi-IP devices
-	deviceResults map[string]*DeviceResultAggregator
-	resultsMu     sync.Mutex
-	tickerReset   chan struct{}
-	bannerMu      sync.RWMutex
-	bannerPhase   *banner_grab.Engine
-	bannerHandler BannerObservationHandler
+	deviceResults   map[string]*DeviceResultAggregator
+	resultsMu       sync.Mutex
+	tickerReset     chan struct{}
+	bannerMu        sync.RWMutex
+	bannerPhase     *banner_grab.Engine
+	lastBannerStats *models.BannerGrabStats
+	bannerHandler   BannerObservationHandler
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
@@ -1087,11 +1088,12 @@ func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBanner
 
 	done := make(chan error, 1)
 	go func() {
-		done <- handler(ctx, s.config.BannerGrab, observations)
+		done <- handler(ctx, s.config.BannerGrab, engine, observations)
 	}()
 
 	s.bannerMu.Lock()
 	s.bannerPhase = engine
+	s.lastBannerStats = nil
 	s.bannerMu.Unlock()
 
 	s.logger.Info().
@@ -1119,6 +1121,7 @@ func (s *NetworkSweeper) finishBannerGrabPhase(phase *activeBannerGrabPhase) err
 	if s.bannerPhase == phase.engine {
 		s.bannerPhase = nil
 	}
+	s.lastBannerStats = bannerGrabStatsFromEngine(stats)
 	s.bannerMu.Unlock()
 
 	s.logger.Info().
@@ -1149,6 +1152,23 @@ func (s *NetworkSweeper) abortBannerGrabPhase(phase *activeBannerGrabPhase) {
 	s.bannerMu.Unlock()
 }
 
+func (s *NetworkSweeper) GetBannerGrabStats() *models.BannerGrabStats {
+	s.bannerMu.RLock()
+	engine := s.bannerPhase
+	lastStats := s.lastBannerStats
+	s.bannerMu.RUnlock()
+
+	if engine != nil {
+		return bannerGrabStatsFromEngine(engine.Stats())
+	}
+	if lastStats == nil {
+		return nil
+	}
+
+	stats := *lastStats
+	return &stats
+}
+
 func (s *NetworkSweeper) submitBannerGrabCandidate(ctx context.Context, result models.Result) error {
 	s.bannerMu.RLock()
 	engine := s.bannerPhase
@@ -1164,6 +1184,7 @@ func (s *NetworkSweeper) submitBannerGrabCandidate(ctx context.Context, result m
 func (s *NetworkSweeper) drainBannerGrabObservations(
 	ctx context.Context,
 	_ models.BannerGrab,
+	_ *banner_grab.Engine,
 	observations <-chan banner_grab.BannerObservation,
 ) error {
 	count := 0
@@ -1183,6 +1204,23 @@ func (s *NetworkSweeper) drainBannerGrabObservations(
 
 			count++
 		}
+	}
+}
+
+func bannerGrabStatsFromEngine(stats banner_grab.Stats) *models.BannerGrabStats {
+	return &models.BannerGrabStats{
+		CandidatesTotal:      stats.CandidatesTotal,
+		ProbesTotal:          stats.ProbesTotal,
+		InFlight:             stats.InFlight,
+		QueueDepth:           stats.QueueDepth,
+		MatchBatchesTotal:    stats.MatchBatchesTotal,
+		MatchBatchBytesTotal: stats.MatchBatchBytesTotal,
+		SkippedFreshTotal:    stats.SkippedFreshTotal,
+		SkippedBackoffTotal:  stats.SkippedBackoffTotal,
+		MatchesTotal:         stats.MatchesTotal,
+		EmptyResponseTotal:   stats.EmptyResponseTotal,
+		ConnectionResetTotal: stats.ConnectionResetTotal,
+		TimeoutTotal:         stats.TimeoutTotal,
 	}
 }
 
