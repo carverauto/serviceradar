@@ -1,0 +1,20 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "manifestschema",
+    srcs = ["validator.go"],
+    embedsrcs = ["native-addon-manifest.schema.json"],
+    importpath = "github.com/carverauto/serviceradar/go/tools/addon-manifest-validator/internal/manifestschema",
+    visibility = ["//go/tools/addon-manifest-validator:__subpackages__"],
+    deps = ["@in_gopkg_yaml_v3//:go_default_library"],
+)
+
+go_test(
+    name = "manifestschema_test",
+    srcs = ["validator_test.go"],
+    # testdata fixtures travel with the package. The two tests that read the
+    # repo-relative canonical schema / sample manifest t.Skipf when those files are
+    # not present (e.g. under the Bazel test sandbox), so they are not data deps.
+    data = glob(["testdata/**"]),
+    deps = [":manifestschema"],
+)

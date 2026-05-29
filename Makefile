@@ -234,6 +234,30 @@ verify_wasm_plugins: ## Verify published Wasm plugin OCI artifacts and signature
 	fi; \
 	./scripts/verify-wasm-plugin-publish.sh "$${primary_tag}"
 
+.PHONY: validate_addon_manifests
+validate_addon_manifests: ## Validate native add-on manifests (addon.yaml) against the manifest JSON-Schema (fails closed)
+	@go run ./go/tools/addon-manifest-validator
+
+.PHONY: check_addon_dependency_isolation
+check_addon_dependency_isolation: ## Assert the base agent's transitive deps exclude every add-on implementation package
+	@./scripts/check-addon-dependency-isolation.sh
+
+.PHONY: check_addon_no_stdlib_plugin
+check_addon_no_stdlib_plugin: ## Forbid the Go stdlib `plugin` package in the agent + add-on builds
+	@./scripts/check-addon-no-stdlib-plugin.sh
+
+.PHONY: check_addon_binary_size
+check_addon_binary_size: ## Per-artifact binary-size regression gate (requires go-size-analyzer / gsa; pass ARTIFACTS=...)
+	@./scripts/check-addon-binary-size.sh $(ARTIFACTS)
+
+.PHONY: addon_build_gates
+addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin ## Run all add-on build/CI hygiene gates that need no secrets (manifest schema + dependency isolation + stdlib-plugin)
+	@echo "add-on build gates passed"
+
+.PHONY: build_native_addons
+build_native_addons: addon_build_gates ## Build first-party native add-on bundle artifacts locally with Bazel (gated on manifest + isolation checks)
+	@bazel build //build/native_addons:all_bundles
+
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)
 	@scripts/check-dev-image-tags.sh

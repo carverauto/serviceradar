@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.carverauto.dev/schemas/native-addon-manifest.schema.json",
+  "title": "ServiceRadar Native Add-on Manifest (addon.yaml)",
+  "description": "Schema for a first-party native ServiceRadar agent add-on manifest (issue 3425). The manifest is authored as YAML (addon.yaml) and validated (after YAML->JSON normalization) against this schema before the signed bundle is assembled. The build fails closed on a manifest that is missing required fields or declares an unknown kind/delivery/supervision value.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "name",
+    "version",
+    "kind",
+    "delivery",
+    "supervision",
+    "capabilities",
+    "requires",
+    "exec",
+    "config_schema"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "title": "Add-on identifier",
+      "description": "Stable, lowercase, hyphen/underscore-delimited identifier for the add-on.",
+      "minLength": 1,
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "name": {
+      "type": "string",
+      "title": "Human-readable name",
+      "minLength": 1
+    },
+    "version": {
+      "type": "string",
+      "title": "Add-on version",
+      "description": "Semantic version of the add-on (e.g. 0.1.0).",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "description": {
+      "type": "string",
+      "title": "Description"
+    },
+    "kind": {
+      "type": "string",
+      "title": "Add-on kind",
+      "description": "The add-on packaging kind. Only native add-ons are described by this schema.",
+      "enum": ["native"]
+    },
+    "delivery": {
+      "type": "string",
+      "title": "Delivery model",
+      "description": "How the add-on artifact reaches the agent.",
+      "enum": ["compiled-in", "pushed-artifact", "os-package"]
+    },
+    "supervision": {
+      "type": "string",
+      "title": "Supervision model",
+      "description": "How the agent supervises the add-on at runtime.",
+      "enum": [
+        "config-toggle",
+        "agent-sidecar",
+        "systemd-service",
+        "systemd-timer",
+        "ephemeral-helper"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "title": "Implementation language",
+      "enum": ["go", "rust"]
+    },
+    "capabilities": {
+      "type": "array",
+      "title": "Capabilities",
+      "description": "Capability strings this add-on provides; at least one is required.",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "requires": {
+      "type": "object",
+      "title": "Runtime requirements",
+      "additionalProperties": false,
+      "required": ["base_agent", "platforms"],
+      "properties": {
+        "base_agent": {
+          "type": "string",
+          "title": "Required base agent version constraint",
+          "description": "A version constraint on the base serviceradar-agent (e.g. \">=1.2.0\").",
+          "minLength": 1
+        },
+        "platforms": {
+          "type": "array",
+          "title": "Supported platforms (OS)",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": ["linux", "darwin", "windows"]
+          }
+        },
+        "os_capabilities": {
+          "type": "array",
+          "title": "Required OS capabilities",
+          "description": "Linux capabilities the add-on requires (e.g. CAP_NET_RAW). Empty by default.",
+          "uniqueItems": true,
+          "items": {
+            "type": "string"
+          }
+        },
+        "run_as": {
+          "type": "string",
+          "title": "Run-as user",
+          "description": "OS user the add-on is expected to run as."
+        }
+      }
+    },
+    "plugin": {
+      "type": "object",
+      "title": "go-plugin protocol settings",
+      "description": "Settings for the HashiCorp go-plugin transport the agent uses to supervise an agent-sidecar add-on.",
+      "additionalProperties": false,
+      "properties": {
+        "protocol": {
+          "type": "string",
+          "enum": ["grpc"]
+        },
+        "app_protocol_version": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "artifacts": {
+      "type": "array",
+      "title": "Signed per-architecture artifacts",
+      "description": "Per-architecture artifact descriptors populated by the signed-bundle build (native-addon-builds). Omitted in reference/source manifests.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["os", "arch", "object_key", "sha256"],
+        "properties": {
+          "os": {
+            "type": "string",
+            "enum": ["linux", "darwin", "windows"]
+          },
+          "arch": {
+            "type": "string",
+            "enum": ["amd64", "arm64"]
+          },
+          "object_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "signature_ref": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "exec": {
+      "type": "object",
+      "title": "Execution descriptor",
+      "additionalProperties": false,
+      "required": ["binary", "install_path"],
+      "properties": {
+        "binary": {
+          "type": "string",
+          "title": "Binary name",
+          "minLength": 1
+        },
+        "install_path": {
+          "type": "string",
+          "title": "Install path",
+          "description": "Absolute path the add-on binary is installed under.",
+          "minLength": 1,
+          "pattern": "^/"
+        },
+        "args": {
+          "type": "array",
+          "title": "Default arguments",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "state_dirs": {
+      "type": "array",
+      "title": "State directories",
+      "description": "Absolute directories the add-on is allowed to read/write at runtime.",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^/"
+      }
+    },
+    "config_schema": {
+      "type": "string",
+      "title": "Config schema reference",
+      "description": "Relative path (within the bundle) to the JSON-Schema the control plane validates add-on configuration against.",
+      "minLength": 1
+    }
+  }
+}

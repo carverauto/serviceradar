@@ -1,0 +1,254 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package manifestschema_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/carverauto/serviceradar/go/tools/addon-manifest-validator/internal/manifestschema"
+)
+
+func readFixture(t *testing.T, name string) []byte {
+	t.Helper()
+
+	data, err := os.ReadFile(filepath.Join("testdata", name))
+	if err != nil {
+		t.Fatalf("reading fixture %s: %v", name, err)
+	}
+
+	return data
+}
+
+func TestValidManifestPasses(t *testing.T) {
+	res, err := manifestschema.ValidateYAML(readFixture(t, "valid.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("expected valid manifest to pass, got %d errors: %v", len(res.Errors), res.Errors)
+	}
+}
+
+func TestInvalidManifestFailsClosed(t *testing.T) {
+	res, err := manifestschema.ValidateYAML(readFixture(t, "invalid_bad_delivery.yaml"))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if res.OK() {
+		t.Fatal("expected invalid manifest to fail validation, but it passed")
+	}
+
+	joined := joinErrors(res)
+
+	if !strings.Contains(joined, "delivery") {
+		t.Errorf("expected a violation mentioning the unknown delivery value; got:\n%s", joined)
+	}
+
+	if !strings.Contains(joined, "config_schema") {
+		t.Errorf("expected a violation for the missing required config_schema field; got:\n%s", joined)
+	}
+}
+
+// TestRepoSampleManifestIsValid guards the shipped first-party manifest so the
+// schema and the de-facto manifest cannot drift out of sync.
+func TestRepoSampleManifestIsValid(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "..", "addons", "sample-addon", "addon.yaml")
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("sample addon.yaml not found at %s: %v", path, err)
+	}
+
+	res, err := manifestschema.ValidateYAML(data)
+	if err != nil {
+		t.Fatalf("unexpected error validating sample manifest: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("shipped sample addon.yaml is invalid against the schema: %v", res.Errors)
+	}
+}
+
+// TestEmbeddedSchemaMatchesCanonical guards against the embedded copy drifting
+// away from the canonical schema published under addons/.
+func TestEmbeddedSchemaMatchesCanonical(t *testing.T) {
+	path := filepath.Join("..", "..", "..", "..", "..", "addons", "native-addon-manifest.schema.json")
+
+	canonical, err := os.ReadFile(path)
+	if err != nil {
+		t.Skipf("canonical schema not found at %s: %v", path, err)
+	}
+
+	if string(canonical) != string(manifestschema.SchemaJSON) {
+		t.Fatalf("embedded schema has drifted from canonical %s; re-copy the canonical schema into the package", path)
+	}
+}
+
+func TestTargetedViolations(t *testing.T) {
+	tests := []struct {
+		name        string
+		manifest    string
+		wantSubstrs []string
+	}{
+		{
+			name: "missing required id",
+			manifest: `
+name: x
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"id", "required"},
+		},
+		{
+			name: "unknown top-level property",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+surprise: nope
+`,
+			wantSubstrs: []string{"surprise", "unknown property"},
+		},
+		{
+			name: "unknown supervision enum",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: cron-daemon
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"supervision", "allowed values"},
+		},
+		{
+			name: "empty capabilities array",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: []
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"capabilities", "minItems"},
+		},
+		{
+			name: "relative install_path rejected",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: relative/path}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"install_path", "pattern"},
+		},
+		{
+			name: "unknown platform enum",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [solaris]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"platforms[0]", "allowed values"},
+		},
+		{
+			name: "bad version pattern",
+			manifest: `
+id: x
+name: X
+version: not-semver
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+`,
+			wantSubstrs: []string{"version", "pattern"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res, err := manifestschema.ValidateYAML([]byte(tc.manifest))
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if res.OK() {
+				t.Fatal("expected manifest to fail validation, but it passed")
+			}
+
+			joined := joinErrors(res)
+			for _, want := range tc.wantSubstrs {
+				if !strings.Contains(joined, want) {
+					t.Errorf("expected a violation containing %q; got:\n%s", want, joined)
+				}
+			}
+		})
+	}
+}
+
+func joinErrors(res *manifestschema.Result) string {
+	parts := make([]string, 0, len(res.Errors))
+	for _, e := range res.Errors {
+		parts = append(parts, e.String())
+	}
+
+	return strings.Join(parts, "\n")
+}
