@@ -28,9 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
-  alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
-  alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
@@ -48,8 +46,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
+  alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.NorthboundHistoryData
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
@@ -1103,8 +1103,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         DiscoveryData.load_sweep_results(socket.assigns.current_scope, device_ip)
       end),
       timed_device_task(:mapper, fn -> DiscoveryData.load_mapper_jobs_for_device(scope, device_row) end),
-      timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end),
-      timed_device_task(:northbound_history, fn -> load_northbound_device_history(scope, uid) end)
+      timed_device_task(:aliases, fn -> IpAliasData.load(scope, uid, show_stale) end),
+      timed_device_task(:northbound_history, fn -> NorthboundHistoryData.load(scope, uid) end)
     ]
 
     base_tasks
@@ -1464,7 +1464,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
 
-    {ip_aliases, ip_alias_error} = load_ip_aliases(scope, device_uid, show_stale)
+    {ip_aliases, ip_alias_error} = IpAliasData.load(scope, device_uid, show_stale)
 
     {:noreply,
      socket
@@ -1817,7 +1817,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          {:ok, targets} <- selected_interface_action_targets(socket),
          {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
       {history, history_error} =
-        load_northbound_device_history(socket.assigns.current_scope, socket.assigns.device_uid)
+        NorthboundHistoryData.load(socket.assigns.current_scope, socket.assigns.device_uid)
 
       {:noreply,
        socket
@@ -2400,49 +2400,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp to_safe_number(_), do: 0
-
-  defp load_ip_aliases(_scope, nil, _show_stale), do: {[], nil}
-  defp load_ip_aliases(nil, _device_uid, _show_stale), do: {[], "Scope unavailable"}
-
-  defp load_ip_aliases(scope, device_uid, show_stale) do
-    require Ash.Query
-
-    query =
-      DeviceAliasState
-      |> Ash.Query.for_read(:read, %{}, scope: scope)
-      |> Ash.Query.filter(device_id == ^device_uid and alias_type == :ip)
-      |> maybe_filter_alias_states(show_stale)
-      |> Ash.Query.sort(alias_value: :asc)
-
-    case Ash.read(query, scope: scope) do
-      {:ok, aliases} -> {aliases, nil}
-      {:error, reason} -> {[], QueryData.format_error(reason)}
-    end
-  end
-
-  defp maybe_filter_alias_states(query, true), do: query
-
-  defp maybe_filter_alias_states(query, false) do
-    Ash.Query.filter(query, state in [:detected, :confirmed, :updated])
-  end
-
-  defp load_northbound_device_history(nil, _device_uid), do: {[], nil}
-  defp load_northbound_device_history(_scope, nil), do: {[], nil}
-
-  defp load_northbound_device_history(scope, device_uid) do
-    if RBAC.can?(scope, "northbound.actions.view") do
-      case NorthboundHistory.list_for_device(device_uid, scope: scope, limit: 10) do
-        {:ok, entries} ->
-          {entries, nil}
-
-        {:error, reason} ->
-          Logger.warning("Failed to load northbound device action history: #{inspect(reason)}")
-          {[], "Failed to load task history."}
-      end
-    else
-      {[], nil}
-    end
-  end
 
   @impl true
   def render(assigns) do
