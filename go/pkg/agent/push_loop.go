@@ -2336,7 +2336,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	// Apply SNMP config if present
 	if configResp.SnmpConfig != nil {
-		p.applySNMPConfig(configResp.SnmpConfig)
+		p.applySNMPConfig(ctx, configResp.SnmpConfig)
 	}
 
 	// Apply plugin config if present. Older generated clients may not decode
@@ -3042,7 +3042,7 @@ func protoToSysmonConfig(proto *proto.SysmonConfig) sysmon.Config {
 }
 
 // applySNMPConfig applies SNMP configuration from the gateway to the embedded SNMP service.
-func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
+func (p *PushLoop) applySNMPConfig(ctx context.Context, protoConfig *proto.SNMPConfig) {
 	p.server.mu.RLock()
 	snmpSvc := p.server.snmpService
 	p.server.mu.RUnlock()
@@ -3052,7 +3052,11 @@ func (p *PushLoop) applySNMPConfig(protoConfig *proto.SNMPConfig) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	if err := snmpSvc.ApplyProtoConfig(ctx, protoConfig); err != nil {
