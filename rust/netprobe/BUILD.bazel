@@ -81,6 +81,7 @@ cargo_build_script(
     data = [
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
         "//proto/agent/netprobe/v1:netprobe_proto_src",
     ] + glob(["recog-corpus/xml/*.xml"]),
     edition = "2021",
@@ -99,6 +100,7 @@ rust_binary(
     compile_data = [
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
     ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
@@ -113,6 +115,7 @@ rust_test(
     compile_data = [
         "p0f-corpus/p0f.fp",
         "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
     ] + glob(["recog-corpus/xml/*.xml"]),
     data = glob(["satori-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,

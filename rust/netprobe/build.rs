@@ -18,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=p0f-corpus/p0f.fp");
     println!("cargo:rerun-if-changed=p0f-corpus/serviceradar-additions.fp");
     println!("cargo:rerun-if-changed=recog-corpus/xml");
+    println!("cargo:rerun-if-changed=recog-corpus/serviceradar-recog-additions.xml");
     println!("cargo:rerun-if-changed=src/p0f_corpus.rs");
     println!("cargo:rerun-if-env-changed=SERVICERADAR_NETPROBE_BUILD_EBPF");
 
@@ -68,11 +69,12 @@ struct RecogParam {
 }
 
 fn generate_recog_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let xml_dir = if Path::new("recog-corpus/xml").exists() {
-        PathBuf::from("recog-corpus/xml")
+    let recog_root = if Path::new("recog-corpus").exists() {
+        PathBuf::from("recog-corpus")
     } else {
-        PathBuf::from("rust/netprobe/recog-corpus/xml")
+        PathBuf::from("rust/netprobe/recog-corpus")
     };
+    let xml_dir = recog_root.join("xml");
     let mut paths = fs::read_dir(&xml_dir)?
         .map(|entry| entry.map(|entry| entry.path()))
         .collect::<Result<Vec<_>, _>>()?;
@@ -84,8 +86,13 @@ fn generate_recog_tables(out_dir: &str) -> Result<(), Box<dyn std::error::Error>
             continue;
         }
         if let Some(service) = recog_service_for_file(&path) {
-            parse_recog_file(&path, service, &mut fingerprints)?;
+            parse_recog_file(&path, Some(service), &mut fingerprints)?;
         }
+    }
+
+    let additions_path = recog_root.join("serviceradar-recog-additions.xml");
+    if additions_path.exists() {
+        parse_recog_file(&additions_path, None, &mut fingerprints)?;
     }
 
     let output_path = Path::new(out_dir).join("recog_generated.rs");
@@ -140,7 +147,7 @@ fn recog_service_for_file(path: &Path) -> Option<&'static str> {
 
 fn parse_recog_file(
     path: &Path,
-    service: &'static str,
+    default_service: Option<&'static str>,
     fingerprints: &mut Vec<RecogFingerprint>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let source = path
@@ -158,6 +165,7 @@ fn parse_recog_file(
             Event::Start(element) if element.name().as_ref() == b"fingerprint" => {
                 let mut pattern = None;
                 let mut flags = None;
+                let mut service = default_service;
                 for attr in element.attributes() {
                     let attr = attr?;
                     if attr.key.as_ref() == b"pattern" {
@@ -170,9 +178,23 @@ fn parse_recog_file(
                             attr.decode_and_unescape_value(reader.decoder())?
                                 .into_owned(),
                         );
+                    } else if attr.key.as_ref() == b"service" {
+                        let value = attr.decode_and_unescape_value(reader.decoder())?;
+                        service = Some(recog_service_for_addition(&value).ok_or_else(|| {
+                            format!(
+                                "unknown Recog additions service {value:?} in {}",
+                                path.display()
+                            )
+                        })?);
                     }
                 }
                 let pattern = pattern.ok_or("Recog fingerprint missing pattern attribute")?;
+                let service = service.ok_or_else(|| {
+                    format!(
+                        "Recog additions fingerprint in {} is missing a service attribute",
+                        path.display()
+                    )
+                })?;
                 current = Some(RecogFingerprint {
                     service,
                     source: source.clone(),
@@ -198,6 +220,24 @@ fn parse_recog_file(
     }
 
     Ok(())
+}
+
+fn recog_service_for_addition(name: &str) -> Option<&'static str> {
+    match name {
+        "http" | "http_server" | "http_servers" => Some("HttpServer"),
+        "ssh" | "ssh_banner" | "ssh_banners" => Some("SshBanner"),
+        "smb" | "smb_version" | "smb_native_lm" | "smb_native_os" => Some("SmbVersion"),
+        "ftp" | "ftp_banner" | "ftp_banners" => Some("FtpBanner"),
+        "smtp" | "smtp_banner" | "smtp_banners" => Some("SmtpBanner"),
+        "telnet" | "telnet_banner" | "telnet_banners" => Some("TelnetBanner"),
+        "snmp" | "snmp_banner" | "snmp_sysdescr" => Some("SnmpBanner"),
+        "sip" | "sip_banner" | "sip_banners" | "sip_user_agent" | "sip_user_agents" => {
+            Some("SipBanner")
+        }
+        "rdp" | "rdp_banner" | "rdp_banners" => Some("RdpBanner"),
+        "dns" | "dns_version" | "dns_versionbind" => Some("DnsVersion"),
+        _ => None,
+    }
 }
 
 fn apply_recog_flags(pattern: String, flags: Option<&str>) -> String {

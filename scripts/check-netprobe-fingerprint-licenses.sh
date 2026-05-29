@@ -72,6 +72,7 @@ for required in \
   "${p0f_dir}/serviceradar-additions.fp" \
   "${recog_dir}/COPYING" \
   "${recog_dir}/LICENSE" \
+  "${recog_dir}/serviceradar-recog-additions.xml" \
   "${recog_dir}/SHA256SUMS" \
   "${recog_dir}/IDENTIFIER_SHA256SUMS" \
   "${muonfp_dir}/LICENSE-MIT.txt" \
@@ -94,6 +95,7 @@ require_file_contains "${p0f_dir}/serviceradar-additions.fp" 'License: CC0-1\.0'
 require_file_contains "${recog_dir}/README.md" 'License: BSD-2-[Cc]lause' 'BSD-2-Clause provenance for the Recog corpus'
 require_file_contains "${recog_dir}/LICENSE" 'License: BSD-2-clause' 'BSD-2-Clause Debian copyright declaration'
 require_file_contains "${recog_dir}/COPYING" 'Redistribution and use in source and binary forms' 'BSD-2-Clause redistribution terms'
+require_file_contains "${recog_dir}/serviceradar-recog-additions.xml" 'License: CC0-1\.0' 'CC0-1.0 provenance for ServiceRadar Recog additions'
 verify_manifest "${recog_dir}" "SHA256SUMS"
 verify_manifest "${recog_dir}" "IDENTIFIER_SHA256SUMS"
 

@@ -286,6 +286,10 @@ update-rust-deps: ## Repin Bazel-managed Rust dependencies (use REPIN=<mode>, VE
 lint-p0f-additions: ## Validate ServiceRadar p0f additions corpus grammar
 	@./scripts/lint-p0f-additions.sh
 
+.PHONY: lint-recog-additions
+lint-recog-additions: ## Validate ServiceRadar Recog additions XML and license header
+	@./scripts/lint-recog-additions.sh
+
 .PHONY: get-golangcilint
 get-golangcilint: ## Install golangci-lint
 	@echo "$(COLOR_BOLD)Checking golangci-lint $(GOLANGCI_LINT_VERSION)$(COLOR_RESET)"

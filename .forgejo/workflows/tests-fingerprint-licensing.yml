@@ -5,12 +5,14 @@ on:
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
+      - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'
   push:
     paths:
       - 'Cargo.lock'
       - 'rust/netprobe/**'
+      - 'scripts/lint-recog-additions.sh'
       - 'scripts/check-netprobe-fingerprint-licenses.sh'
       - '.forgejo/workflows/tests-fingerprint-licensing.yml'
 
@@ -34,3 +36,6 @@ jobs:
 
       - name: Check netprobe fingerprint dependencies
         run: bash scripts/check-netprobe-fingerprint-licenses.sh
+
+      - name: Check ServiceRadar Recog additions
+        run: make lint-recog-additions
