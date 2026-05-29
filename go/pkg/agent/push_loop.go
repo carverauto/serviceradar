@@ -1886,9 +1886,10 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	sysmonSvc := p.server.sysmonService
 	cfg := p.server.config
 	sidecarStatus := p.server.sidecarStatus
+	addonManager := p.server.addonManager
 	p.server.mu.RUnlock()
 
-	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus); status != nil {
+	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus, addonManager); status != nil {
 		statuses = append(statuses, status)
 	}
 
@@ -1934,14 +1935,38 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	cfg *ServerConfig,
 	sidecarStatus sidecarStatusProvider,
+	addonManager agentaddon.AddonManager,
 ) *proto.GatewayServiceStatus {
 	sidecars := sidecarStatusesForStatus(sidecarStatus)
+
+	var addonStatuses []agentaddon.Status
+	if addonManager != nil {
+		addonStatuses = addonManager.Status()
+	}
+	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
+
+	capabilities := agentCapabilitiesForStatus(cfg, sidecars)
+	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
+
 	resp := buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatus(cfg, sidecars),
+		capabilities,
 		sidecars,
 		p.netprobeRunningAsRoot(),
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
+}
+
+// addonCapabilities returns the capability identifiers advertised by add-ons that
+// are currently running, so the control plane can reconcile active add-ons.
+func addonCapabilities(statuses []agentaddon.Status) []string {
+	var capabilities []string
+	for _, status := range statuses {
+		if status.State != agentaddon.StateRunning {
+			continue
+		}
+		capabilities = append(capabilities, status.Capabilities...)
+	}
+	return capabilities
 }
 
 func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus, runningAsRoot bool) *proto.StatusResponse {

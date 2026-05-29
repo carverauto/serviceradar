@@ -72,6 +72,7 @@ type Status struct {
 	ID                string    `json:"id"`
 	State             State     `json:"state"`
 	Version           string    `json:"version,omitempty"`
+	Capabilities      []string  `json:"capabilities,omitempty"`
 	DegradationReason string    `json:"degradation_reason,omitempty"`
 	ConfigHash        string    `json:"config_hash,omitempty"`
 	PID               int       `json:"pid,omitempty"`

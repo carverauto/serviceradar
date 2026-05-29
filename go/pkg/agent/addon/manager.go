@@ -408,7 +408,9 @@ func (r *runner) configure(parent context.Context, ac coreaddon.Addon) error {
 func (r *runner) snapshot() Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.status
+	status := r.status
+	status.Capabilities = append([]string(nil), r.spec.Capabilities...)
+	return status
 }
 
 func (r *runner) setState(state State, lastErr string) {
