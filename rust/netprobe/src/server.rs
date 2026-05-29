@@ -89,13 +89,24 @@ impl IpcServer {
                     let active_client = Arc::clone(&self.active_client);
                     let fingerprint_rx = Arc::clone(&self.fingerprint_events);
                     let dpi_rx = Arc::clone(&self.dpi_events);
+                    let flow_attribution_tx = self.flow_attribution_events.clone();
                     let flow_attribution_rx = self.flow_attribution_events.subscribe();
                     let process_snapshot_rx = self.process_snapshots.subscribe();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
                     tokio::spawn(async move {
                         let _guard = ActiveClientGuard(active_client);
-                        let result = handle_client(stream, fingerprint_rx, dpi_rx, flow_attribution_rx, process_snapshot_rx, runtime_config, metrics).await;
+                        let result = handle_client(
+                            stream,
+                            fingerprint_rx,
+                            dpi_rx,
+                            flow_attribution_tx,
+                            flow_attribution_rx,
+                            process_snapshot_rx,
+                            runtime_config,
+                            metrics,
+                        )
+                        .await;
                         if let Err(err) = result {
                             log::warn!("netprobe IPC client disconnected with error: {err:#}");
                         }
@@ -144,6 +155,7 @@ async fn handle_client(
     stream: UnixStream,
     fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
+    flow_attribution_broadcast: broadcast::Sender<FlowAttributionEvent>,
     mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
     mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     runtime_config: RuntimeConfig,
@@ -165,8 +177,7 @@ async fn handle_client(
                     &runtime_config,
                     &mut external_flows,
                     &metrics,
-                    &mut writer,
-                    &mut encode_buffer,
+                    &flow_attribution_broadcast,
                 ).await? {
                     write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
                 }
@@ -255,17 +266,13 @@ where
     Ok(())
 }
 
-async fn response_for_frame<W>(
+async fn response_for_frame(
     frame: NetprobeFrame,
     runtime_config: &RuntimeConfig,
     external_flows: &mut ExternalFlowMatcher,
     metrics: &Metrics,
-    writer: &mut W,
-    encode_buffer: &mut Vec<u8>,
-) -> Result<Option<NetprobeFrame>, crate::framing::FramingError>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-{
+    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+) -> Result<Option<NetprobeFrame>, crate::framing::FramingError> {
     let sequence = frame.sequence;
     match frame.payload {
         Some(netprobe_frame::Payload::Ping(ping)) => Ok(Some(NetprobeFrame {
@@ -314,9 +321,12 @@ where
         })),
         Some(netprobe_frame::Payload::ExternalFlowRecord(record)) => {
             external_flows.set_match_window_ms(runtime_config.external_flow_match_window_ms());
-            let ack =
-                ingest_external_flow_record(record, external_flows, metrics, writer, encode_buffer)
-                    .await?;
+            let ack = ingest_external_flow_record(
+                record,
+                external_flows,
+                metrics,
+                flow_attribution_broadcast,
+            );
             if sequence == 0 {
                 Ok(None)
             } else {
@@ -336,44 +346,43 @@ where
     }
 }
 
-async fn ingest_external_flow_record<W>(
+fn ingest_external_flow_record(
     record: ExternalFlowRecord,
     external_flows: &ExternalFlowMatcher,
     metrics: &Metrics,
-    writer: &mut W,
-    encode_buffer: &mut Vec<u8>,
-) -> Result<ExternalFlowAck, crate::framing::FramingError>
-where
-    W: tokio::io::AsyncWrite + Unpin,
-{
+    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+) -> ExternalFlowAck {
     match external_flows.ingest(&record, now_unix_nano()) {
         ExternalFlowIngest::Matched(event) => {
             metrics.inc_flow_attribution_events();
-            let frame = NetprobeFrame {
-                sequence: 0,
-                payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
-            };
-            write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
-            Ok(ExternalFlowAck {
+            metrics.inc_external_flow_matched();
+            // Route the matched FlowAttributionEvent through the broadcast
+            // channel so the existing `handle_client` consumer mirrors it to
+            // the IPC writer and back-fills the matcher cache via
+            // `observe_attribution`. Errors only occur when no receivers are
+            // attached — silently drop in that case, matching the broadcast
+            // semantics used elsewhere in this module.
+            let _ = flow_attribution_broadcast.send(event);
+            ExternalFlowAck {
                 accepted: 1,
                 matched: 1,
                 ..Default::default()
-            })
+            }
         }
         ExternalFlowIngest::Unmatched => {
             metrics.inc_external_flow_unmatched();
-            Ok(ExternalFlowAck {
+            ExternalFlowAck {
                 accepted: 1,
                 unmatched: 1,
                 ..Default::default()
-            })
+            }
         }
         ExternalFlowIngest::Invalid => {
             metrics.inc_external_flow_invalid();
-            Ok(ExternalFlowAck {
+            ExternalFlowAck {
                 invalid: 1,
                 ..Default::default()
-            })
+            }
         }
     }
 }
@@ -393,7 +402,8 @@ mod tests {
         sync::{broadcast, watch},
     };
 
-    use super::IpcServer;
+    use super::{ingest_external_flow_record, IpcServer};
+    use crate::external_flow::ExternalFlowMatcher;
     use crate::{
         config::Config,
         fingerprint::{
@@ -920,6 +930,110 @@ mod tests {
             dissector_id: "dns_header".to_string(),
             ..Default::default()
         }
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_emits_matched_via_broadcast_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        let mut matcher = ExternalFlowMatcher::new(0);
+        matcher.observe_attribution(&flow_attribution_event());
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        let ack = ingest_external_flow_record(
+            external_flow_record(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.matched, 1);
+        assert_eq!(ack.unmatched, 0);
+        assert_eq!(ack.invalid, 0);
+
+        let event = broadcast_rx.try_recv().expect("broadcast event present");
+        assert_eq!(event.source, "external_netflow");
+        assert_eq!(event.external_flow_id, 42);
+
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            0
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_drops_unmatched_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        // Empty matcher — no attribution observed — every well-formed
+        // external record reports Unmatched.
+        let matcher = ExternalFlowMatcher::new(0);
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        let ack = ingest_external_flow_record(
+            external_flow_record(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.accepted, 1);
+        assert_eq!(ack.unmatched, 1);
+        assert_eq!(ack.matched, 0);
+        assert!(broadcast_rx.try_recv().is_err());
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            0
+        );
+    }
+
+    #[tokio::test]
+    async fn ingest_external_flow_record_drops_invalid_and_bumps_counter() {
+        let metrics = Metrics::new().unwrap();
+        let matcher = ExternalFlowMatcher::new(0);
+        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+
+        // Default record has empty IP buffers, so `flow_key_from_external_record`
+        // returns None and the matcher reports Invalid.
+        let ack = ingest_external_flow_record(
+            ExternalFlowRecord::default(),
+            &matcher,
+            &metrics,
+            &broadcast_tx,
+        );
+
+        assert_eq!(ack.invalid, 1);
+        assert_eq!(ack.accepted, 0);
+        assert!(broadcast_rx.try_recv().is_err());
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            1
+        );
+        assert_eq!(
+            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            0
+        );
+    }
+
+    fn counter_value(metrics: &Metrics, name: &str) -> u64 {
+        metrics
+            .registry()
+            .gather()
+            .into_iter()
+            .find(|family| family.name() == name)
+            .and_then(|family| family.get_metric().first().map(|m| m.get_counter().value()))
+            .unwrap_or(0.0) as u64
     }
 
     fn flow_attribution_event() -> FlowAttributionEvent {

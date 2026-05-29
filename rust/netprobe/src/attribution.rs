@@ -28,6 +28,12 @@ const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
+/// Maximum byte length for the joined `redacted_cmdline` payload on a
+/// `FlowAttributionEvent`. The cap mirrors the Elixir `cap_bytes`/
+/// `trim_to_utf8_boundary` contract enforced in `flows.ex` so that the
+/// producer never publishes a payload that the downstream consumer would
+/// have to truncate.
+const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 #[cfg(target_os = "linux")]
 const FLOW_ATTRIBUTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
 
@@ -400,6 +406,37 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
         .map(str::to_string)
 }
 
+/// Joins `parts` with a single space and truncates the result to
+/// [`REDACTED_CMDLINE_MAX_BYTES`] bytes on a UTF-8 codepoint boundary.
+///
+/// Returns an empty vector when `parts` is empty so that the
+/// `repeated string redacted_cmdline` field stays unset on the wire.
+/// Otherwise the helper always returns a single-element vector — the
+/// joined, possibly-truncated payload — because the §20.15 contract
+/// caps the cumulative byte length of the field, not its element count.
+fn cap_redacted_cmdline(parts: Vec<String>) -> Vec<String> {
+    if parts.is_empty() {
+        return Vec::new();
+    }
+    let joined = parts.join(" ");
+    let capped = trim_to_utf8_boundary(&joined, REDACTED_CMDLINE_MAX_BYTES);
+    vec![capped]
+}
+
+/// Truncates `value` to at most `max_bytes` bytes, walking back to the
+/// nearest UTF-8 codepoint boundary so multi-byte sequences are never
+/// split. Mirrors the Elixir `trim_to_utf8_boundary/2` helper.
+fn trim_to_utf8_boundary(value: &str, max_bytes: usize) -> String {
+    if value.len() <= max_bytes {
+        return value.to_string();
+    }
+    let mut cut = max_bytes;
+    while cut > 0 && !value.is_char_boundary(cut) {
+        cut -= 1;
+    }
+    value[..cut].to_string()
+}
+
 fn flow_attribution_event(
     flow: &AttributedFlow,
     observed_at_unix_nano: i64,
@@ -421,9 +458,11 @@ fn flow_attribution_event(
         comm: process
             .map(|details| details.comm.clone())
             .unwrap_or_default(),
-        redacted_cmdline: process
-            .map(|details| details.cmdline.clone())
-            .unwrap_or_default(),
+        redacted_cmdline: cap_redacted_cmdline(
+            process
+                .map(|details| details.cmdline.clone())
+                .unwrap_or_default(),
+        ),
         container_id: process
             .and_then(|details| details.container_id.clone())
             .unwrap_or_default(),
@@ -664,9 +703,10 @@ mod tests {
     use std::fs;
 
     use super::{
-        comm_from_bytes, container_id, flow_attribution_event, redacted_cmdline, AttributedFlow,
-        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
-        IPPROTO_TCP,
+        cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
+        redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
+        ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP,
+        REDACTED_CMDLINE_MAX_BYTES,
     };
     use crate::af_xdp_classifier::FlowKey;
 
@@ -768,7 +808,14 @@ mod tests {
         assert_eq!(event.remote_port, 443);
         assert_eq!(event.transport_protocol, "tcp");
         assert_eq!(event.comm, "curl");
-        assert_eq!(event.redacted_cmdline.len(), 2);
+        // §20.15: redacted_cmdline is joined and byte-capped at the event
+        // construction site, so the wire payload is always a single element
+        // (or empty when the producer had no cmdline data).
+        assert_eq!(event.redacted_cmdline.len(), 1);
+        assert_eq!(
+            event.redacted_cmdline[0],
+            "/usr/bin/curl [redacted 1 arg(s)]"
+        );
         assert_eq!(event.observed_at_unix_nano, 123_456);
     }
 
@@ -825,6 +872,138 @@ mod tests {
             snapshot.observed_at_unix_nano,
             snapshot_again.observed_at_unix_nano
         );
+    }
+
+    #[test]
+    fn cap_redacted_cmdline_returns_empty_for_empty_parts() {
+        assert!(cap_redacted_cmdline(Vec::new()).is_empty());
+    }
+
+    #[test]
+    fn cap_redacted_cmdline_preserves_short_ascii_payload() {
+        let parts = vec!["/usr/bin/curl".to_string(), "[redacted 2 arg(s)]".to_string()];
+        let capped = cap_redacted_cmdline(parts);
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0], "/usr/bin/curl [redacted 2 arg(s)]");
+        assert!(capped[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+    }
+
+    #[test]
+    fn cap_redacted_cmdline_caps_payload_exactly_at_limit() {
+        // Build a single argv0 whose joined length is exactly 256 bytes — no
+        // truncation should occur and the cap helper should pass it through.
+        let argv0 = "a".repeat(REDACTED_CMDLINE_MAX_BYTES);
+        let capped = cap_redacted_cmdline(vec![argv0.clone()]);
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].len(), REDACTED_CMDLINE_MAX_BYTES);
+        assert_eq!(capped[0], argv0);
+    }
+
+    #[test]
+    fn cap_redacted_cmdline_truncates_oversized_ascii_argv0() {
+        let argv0 = "a".repeat(REDACTED_CMDLINE_MAX_BYTES + 64);
+        let capped = cap_redacted_cmdline(vec![argv0, "[redacted 1 arg(s)]".to_string()]);
+        assert_eq!(capped.len(), 1);
+        assert_eq!(capped[0].len(), REDACTED_CMDLINE_MAX_BYTES);
+        assert!(capped[0].chars().all(|c| c == 'a'));
+    }
+
+    #[test]
+    fn cap_redacted_cmdline_respects_utf8_codepoint_boundary() {
+        // The 4-byte UTF-8 sequence "🚀" (U+1F680) crosses 256 bytes when
+        // joined with enough leading single-byte padding. The cap must
+        // truncate *before* the multi-byte sequence so the returned string
+        // is still valid UTF-8 (Rust would panic on slice otherwise, but we
+        // assert the boundary explicitly).
+        let padding_len = REDACTED_CMDLINE_MAX_BYTES - 2; // landing mid-rocket
+        let mut argv0 = "a".repeat(padding_len);
+        argv0.push_str("🚀🚀");
+        let capped = cap_redacted_cmdline(vec![argv0]);
+        assert_eq!(capped.len(), 1);
+        assert!(capped[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+        // The single byte at offset `padding_len` lies inside a 4-byte UTF-8
+        // sequence, so the helper walks back to the previous codepoint
+        // boundary at `padding_len` itself.
+        assert_eq!(capped[0].len(), padding_len);
+        assert!(capped[0].is_char_boundary(capped[0].len()));
+        // Round-tripping through `from_utf8` proves the slice is valid.
+        assert!(std::str::from_utf8(capped[0].as_bytes()).is_ok());
+    }
+
+    #[test]
+    fn trim_to_utf8_boundary_is_no_op_when_under_limit() {
+        let value = "hello world";
+        assert_eq!(trim_to_utf8_boundary(value, 256), value);
+    }
+
+    #[test]
+    fn trim_to_utf8_boundary_walks_back_through_multibyte() {
+        // "héllo" — the "é" is two bytes (0xC3 0xA9). Asking for a 2-byte
+        // cap lands in the middle of "é", so the helper must walk back to
+        // byte 1 (just after the leading "h").
+        let trimmed = trim_to_utf8_boundary("héllo", 2);
+        assert_eq!(trimmed, "h");
+    }
+
+    #[test]
+    fn flow_attribution_event_caps_redacted_cmdline_to_contract() {
+        let argv0 = "a".repeat(REDACTED_CMDLINE_MAX_BYTES + 32);
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 443,
+                endpoint_b_port: 51_000,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: 2,
+                pid: 7,
+                tgid: 7,
+                uid: 0,
+                gid: 0,
+                socket_address: 0,
+                last_seen_ns: 0,
+                old_state: 0,
+                new_state: 0,
+                local_endpoint: FLOW_ENDPOINT_B,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 7,
+                tgid: 7,
+                uid: 0,
+                gid: 0,
+                comm: "longargv".to_string(),
+                cmdline: vec![argv0, "[redacted 9 arg(s)]".to_string()],
+                container_id: None,
+                last_seen_ns: 0,
+            }),
+        };
+
+        let event = flow_attribution_event(&flow, 1).unwrap();
+        assert_eq!(event.redacted_cmdline.len(), 1);
+        assert!(event.redacted_cmdline[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+    }
+
+    #[test]
+    fn redacted_cmdline_producer_reads_unbounded_proc_payload() {
+        // Confirms the cap lives at the FlowAttributionEvent construction
+        // site rather than the /proc read — the producer returns the raw
+        // argv0 + placeholder as before so ProcessSnapshotEntry can stay
+        // unchanged and the cap is only applied on the wire shape that
+        // §20.15 governs.
+        let big_argv0 = "b".repeat(1024);
+        let mut bytes = big_argv0.clone().into_bytes();
+        bytes.push(0);
+        bytes.extend_from_slice(b"--token\0secret\0");
+        let root = temp_proc("321", &bytes, "");
+        let parts = redacted_cmdline(root.path(), 321);
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], big_argv0);
+        assert_eq!(parts[1], "[redacted 2 arg(s)]");
     }
 
     fn temp_proc(pid: &str, cmdline: &[u8], cgroup: &str) -> tempfile::TempDir {

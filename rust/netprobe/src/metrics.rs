@@ -20,6 +20,7 @@ pub struct Metrics {
     encode_buffer_reuses_total: IntCounter,
     external_flow_unmatched_total: IntCounter,
     external_flow_invalid_total: IntCounter,
+    external_flow_matched_total: IntCounter,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
     uptime_seconds: IntGauge,
@@ -65,6 +66,10 @@ impl Metrics {
             "serviceradar_netprobe_external_flow_invalid_total",
             "External flow records dropped because their 5-tuple was invalid",
         ))?;
+        let external_flow_matched_total = IntCounter::with_opts(Opts::new(
+            "serviceradar_netprobe_external_flow_matched_total",
+            "External flow records that produced a FlowAttributionEvent",
+        ))?;
         let sampling_budget = IntGauge::with_opts(Opts::new(
             "serviceradar_netprobe_sampling_budget",
             "Current AF_XDP per-flow packet redirect budget",
@@ -83,6 +88,7 @@ impl Metrics {
         registry.register(Box::new(encode_buffer_reuses_total.clone()))?;
         registry.register(Box::new(external_flow_unmatched_total.clone()))?;
         registry.register(Box::new(external_flow_invalid_total.clone()))?;
+        registry.register(Box::new(external_flow_matched_total.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
@@ -97,6 +103,7 @@ impl Metrics {
             encode_buffer_reuses_total,
             external_flow_unmatched_total,
             external_flow_invalid_total,
+            external_flow_matched_total,
             sampling_budget,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
@@ -195,6 +202,10 @@ impl Metrics {
 
     pub fn inc_external_flow_invalid(&self) {
         self.external_flow_invalid_total.inc();
+    }
+
+    pub fn inc_external_flow_matched(&self) {
+        self.external_flow_matched_total.inc();
     }
 
     #[allow(dead_code)]

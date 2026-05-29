@@ -186,6 +186,29 @@ mod tests {
         );
     }
 
+    #[test]
+    fn matched_event_carries_attribution_redacted_cmdline() {
+        // The matcher passes the cached FlowAttributionEvent through
+        // verbatim on Matched. §20.15 enforcement lives at the producer
+        // site (`attribution::flow_attribution_event`), so by the time the
+        // attribution event lands in the matcher cache it has already been
+        // joined + capped. This test pins the contract: whatever joined
+        // payload the matcher cached is exactly what it emits on Matched
+        // (no double-truncation, no re-shaping into multiple elements).
+        let mut matcher = ExternalFlowMatcher::new(0);
+        let capped_payload = "/usr/bin/curl [redacted 2 arg(s)]".to_string();
+        let mut attribution = attribution_event();
+        attribution.redacted_cmdline = vec![capped_payload.clone()];
+        matcher.observe_attribution(&attribution);
+
+        let ExternalFlowIngest::Matched(event) = matcher.ingest(&external_flow_record(), 123_456)
+        else {
+            panic!("expected matched external flow");
+        };
+
+        assert_eq!(event.redacted_cmdline, vec![capped_payload]);
+    }
+
     fn attribution_event() -> FlowAttributionEvent {
         FlowAttributionEvent {
             local_ip: "192.0.2.10".to_string(),
