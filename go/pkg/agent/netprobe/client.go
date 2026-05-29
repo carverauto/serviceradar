@@ -568,6 +568,7 @@ func (c *Client) readLoop() {
 	}
 }
 
+//nolint:unparam // reason parameterized for future per-stream policies
 func (c *Client) recordEventDrop(stream, reason string) {
 	if stream == EventStreamFingerprint && reason == EventDropBackpressure {
 		c.droppedFingerprintEvents.Add(1)

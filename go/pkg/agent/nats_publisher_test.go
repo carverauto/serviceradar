@@ -32,6 +32,10 @@ import (
 
 const testNATSUserJWT = "stub-user-jwt"
 
+// errDialRefused is a sentinel error used by tests that need to verify
+// error propagation through newFlowPublisher via errors.Is.
+var errDialRefused = errors.New("dial refused")
+
 // writeCredsFile writes a syntactically-valid minimal NATS .creds file
 // (the contents are never parsed by nats.UserCredentials at config-bind
 // time — it just records the path — so a placeholder is sufficient for
@@ -71,7 +75,7 @@ func TestBuildExtraNATSOpts_MissingFileFailsClearly(t *testing.T) {
 	opts, err := buildExtraNATSOpts(missing)
 	require.Error(t, err)
 	require.Nil(t, opts)
-	require.True(t, errors.Is(err, ErrFlowPublisherCredsMissing),
+	require.ErrorIs(t, err, ErrFlowPublisherCredsMissing,
 		"expected ErrFlowPublisherCredsMissing, got %v", err)
 	require.Contains(t, err.Error(), missing,
 		"error message should mention the missing path for operator visibility")
@@ -148,7 +152,7 @@ func TestNewFlowPublisher_MissingCredsFileFails(t *testing.T) {
 	}, log, connect)
 	require.Error(t, err)
 	require.Nil(t, p)
-	require.True(t, errors.Is(err, ErrFlowPublisherCredsMissing))
+	require.ErrorIs(t, err, ErrFlowPublisherCredsMissing)
 }
 
 func TestNewFlowPublisher_PassesUserCredentialsOption(t *testing.T) {
@@ -220,9 +224,8 @@ func TestNewFlowPublisher_URLOnlyFallsBackToExistingAuth(t *testing.T) {
 
 func TestNewFlowPublisher_ConnectorErrorPropagates(t *testing.T) {
 	log := logger.NewTestLogger()
-	wantErr := errors.New("dial refused")
 	connect := func(_ context.Context, _ string, _ *models.SecurityConfig, _ ...nats.Option) (*nats.Conn, error) {
-		return nil, wantErr
+		return nil, errDialRefused
 	}
 
 	p, err := newFlowPublisher(context.Background(), flowPublisherConfig{
@@ -230,7 +233,7 @@ func TestNewFlowPublisher_ConnectorErrorPropagates(t *testing.T) {
 	}, log, connect)
 	require.Error(t, err)
 	require.Nil(t, p)
-	require.ErrorIs(t, err, wantErr)
+	require.ErrorIs(t, err, errDialRefused)
 }
 
 // TestInitFlowPublisher_MissingCredsFailLoud guards the server-level
@@ -256,7 +259,7 @@ func TestInitFlowPublisher_MissingCredsFailLoud(t *testing.T) {
 
 	err := s.initFlowPublisher(context.Background())
 	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrFlowPublisherCredsMissing),
+	require.ErrorIs(t, err, ErrFlowPublisherCredsMissing,
 		"expected ErrFlowPublisherCredsMissing to propagate from initFlowPublisher, got %v", err)
 	require.Nil(t, s.flowPublisher,
 		"flowPublisher must remain nil when initialization fails so the agent cannot publish unauthenticated")

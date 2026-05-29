@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -31,6 +32,16 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/edgeonboarding"
 	"github.com/carverauto/serviceradar/go/pkg/nats/accounts"
+)
+
+// Sentinel errors for per-agent / per-partition credential generation. These
+// satisfy err113 by giving callers stable wrap targets to inspect with
+// errors.Is rather than matching dynamic error strings.
+var (
+	ErrAgentIDRequired           = errors.New("agent id required for per-agent flow-collector creds")
+	ErrAgentIDInvalidSubject     = errors.New("agent id contains characters disallowed in NATS subjects")
+	ErrPartitionIDRequired       = errors.New("partition id required for per-partition core creds")
+	ErrPartitionIDInvalidSubject = errors.New("partition id contains characters disallowed in NATS subjects")
 )
 
 const (
@@ -665,10 +676,10 @@ func GenerateAgentFlowCollectorCreds(
 	expirationSeconds int64,
 ) (*accounts.UserCredentials, error) {
 	if strings.TrimSpace(agentID) == "" {
-		return nil, fmt.Errorf("agent id required for per-agent flow-collector creds")
+		return nil, ErrAgentIDRequired
 	}
 	if !isSafeSubjectToken(agentID) {
-		return nil, fmt.Errorf("agent id %q contains characters disallowed in NATS subjects", agentID)
+		return nil, fmt.Errorf("%w: %q", ErrAgentIDInvalidSubject, agentID)
 	}
 
 	subject := "flow.host-slice." + agentID
@@ -752,10 +763,10 @@ func GeneratePartitionCoreCreds(
 	expirationSeconds int64,
 ) (*accounts.UserCredentials, error) {
 	if strings.TrimSpace(partitionID) == "" {
-		return nil, fmt.Errorf("partition id required for per-partition core creds")
+		return nil, ErrPartitionIDRequired
 	}
 	if !isSafeSubjectToken(partitionID) {
-		return nil, fmt.Errorf("partition id %q contains characters disallowed in NATS subjects", partitionID)
+		return nil, fmt.Errorf("%w: %q", ErrPartitionIDInvalidSubject, partitionID)
 	}
 
 	attributedSubject := "flow.attributed." + partitionID

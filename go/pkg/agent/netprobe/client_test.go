@@ -27,6 +27,11 @@ import (
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
 
+const testDNSProtocol = "dns"
+
+//nolint:gocyclo // end-to-end integration scenario exercising ping, apply_config, and
+// streaming event delivery; the branching mirrors the frame types under test and keeping
+// them in one test preserves ordering guarantees that splitting into subtests would lose.
 func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()
@@ -81,7 +86,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 		}
 		err = writeFrame(serverConn, &netprobepb.NetprobeFrame{
 			Payload: &netprobepb.NetprobeFrame_DpiEvent{
-				DpiEvent: &netprobepb.DpiEvent{Protocol: "dns"},
+				DpiEvent: &netprobepb.DpiEvent{Protocol: testDNSProtocol},
 			},
 		})
 		if err != nil {
@@ -163,7 +168,7 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	}
 	select {
 	case event := <-client.DpiEvents():
-		if event.GetProtocol() != "dns" {
+		if event.GetProtocol() != testDNSProtocol {
 			t.Fatalf("DPI event protocol = %q, want dns", event.GetProtocol())
 		}
 	case <-ctx.Done():
@@ -190,7 +195,24 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	<-serverDone
 }
 
-func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
+// backpressureTestCase wires a typed-event-stream backpressure test into the
+// shared runBackpressureTest helper. Each typed event stream (DPI, process
+// snapshots, fingerprint events, flow attribution) exercises the same control
+// flow — write two frames into a length-1 buffer, expect exactly one drop,
+// then verify the first frame remained queued — so they are expressed as
+// table-driven cases rather than duplicating the test body.
+type backpressureTestCase struct {
+	name             string
+	stream           string
+	writeFrame       func(t *testing.T, conn net.Conn, i int) error
+	droppedCount     func(c *Client) uint64
+	consumeAndVerify func(t *testing.T, c *Client)
+	droppedLabel     string
+}
+
+func runBackpressureTest(t *testing.T, tc backpressureTestCase) {
+	t.Helper()
+
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()
 
@@ -202,13 +224,8 @@ func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
 	go func() {
 		defer close(serverDone)
 		for i := 0; i < 2; i++ {
-			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
-				Payload: &netprobepb.NetprobeFrame_DpiEvent{
-					DpiEvent: &netprobepb.DpiEvent{Protocol: "dns"},
-				},
-			})
-			if err != nil {
-				t.Errorf("write DPI event frame %d: %v", i, err)
+			if err := tc.writeFrame(t, serverConn, i); err != nil {
+				t.Errorf("write %s frame %d: %v", tc.stream, i, err)
 				return
 			}
 		}
@@ -231,28 +248,48 @@ func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
 	defer cancel()
 
 	waitFor(t, ctx, func() bool {
-		return client.DroppedDPIEvents() == 1
+		return tc.droppedCount(client) == 1
 	})
 	if err := client.Ping(ctx); err != nil {
 		t.Fatalf("Ping() after backpressure error = %v", err)
 	}
 
-	select {
-	case event := <-client.DpiEvents():
-		if event.GetProtocol() != "dns" {
-			t.Fatalf("queued DPI event protocol = %q, want dns", event.GetProtocol())
-		}
-	default:
-		t.Fatal("expected first DPI event to remain queued")
-	}
+	tc.consumeAndVerify(t, client)
 
-	if got := client.DroppedDPIEvents(); got != 1 {
-		t.Fatalf("DroppedDPIEvents() = %d, want 1", got)
+	if got := tc.droppedCount(client); got != 1 {
+		t.Fatalf("%s = %d, want 1", tc.droppedLabel, got)
 	}
-	recorder.assertOne(t, EventStreamDPI, EventDropBackpressure)
+	recorder.assertOne(t, tc.stream, EventDropBackpressure)
 
 	_ = client.Close()
 	<-serverDone
+}
+
+func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
+	runBackpressureTest(t, backpressureTestCase{
+		name:   "dpi",
+		stream: EventStreamDPI,
+		writeFrame: func(_ *testing.T, conn net.Conn, _ int) error {
+			return writeFrame(conn, &netprobepb.NetprobeFrame{
+				Payload: &netprobepb.NetprobeFrame_DpiEvent{
+					DpiEvent: &netprobepb.DpiEvent{Protocol: testDNSProtocol},
+				},
+			})
+		},
+		droppedCount: func(c *Client) uint64 { return c.DroppedDPIEvents() },
+		consumeAndVerify: func(t *testing.T, c *Client) {
+			t.Helper()
+			select {
+			case event := <-c.DpiEvents():
+				if event.GetProtocol() != testDNSProtocol {
+					t.Fatalf("queued DPI event protocol = %q, want dns", event.GetProtocol())
+				}
+			default:
+				t.Fatal("expected first DPI event to remain queued")
+			}
+		},
+		droppedLabel: "DroppedDPIEvents()",
+	})
 }
 
 func TestClientMatchBanners(t *testing.T) {
@@ -385,135 +422,60 @@ func TestClientStreamExternalFlowUsesFireAndForgetFrame(t *testing.T) {
 }
 
 func TestClientDropsFlowAttributionEventsOnBackpressure(t *testing.T) {
-	clientConn, serverConn := net.Pipe()
-	defer func() { _ = serverConn.Close() }()
-
-	recorder := &testEventDropRecorder{}
-	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
-	defer func() { _ = client.Close() }()
-
-	serverDone := make(chan struct{})
-	go func() {
-		defer close(serverDone)
-		for i := 0; i < 2; i++ {
-			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+	runBackpressureTest(t, backpressureTestCase{
+		name:   "flow_attribution",
+		stream: EventStreamFlowAttr,
+		writeFrame: func(_ *testing.T, conn net.Conn, i int) error {
+			return writeFrame(conn, &netprobepb.NetprobeFrame{
 				Payload: &netprobepb.NetprobeFrame_FlowAttributionEvent{
 					FlowAttributionEvent: &netprobepb.FlowAttributionEvent{LocalIp: "192.0.2.10", Pid: uint32(123 + i)},
 				},
 			})
-			if err != nil {
-				t.Errorf("write flow attribution event frame %d: %v", i, err)
-				return
+		},
+		droppedCount: func(c *Client) uint64 { return c.DroppedFlowAttributionEvents() },
+		consumeAndVerify: func(t *testing.T, c *Client) {
+			t.Helper()
+			select {
+			case event := <-c.FlowAttributionEvents():
+				if event.GetPid() != 123 {
+					t.Fatalf("queued flow attribution event PID = %d, want 123", event.GetPid())
+				}
+			default:
+				t.Fatal("expected first flow attribution event to remain queued")
 			}
-		}
-		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
-			ping := frame.GetPing()
-			if ping == nil {
-				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
-			}
-			return &netprobepb.NetprobeFrame{
-				Sequence: frame.GetSequence(),
-				Payload: &netprobepb.NetprobeFrame_PingAck{
-					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
-				},
-			}
-		})
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	waitFor(t, ctx, func() bool {
-		return client.DroppedFlowAttributionEvents() == 1
+		},
+		droppedLabel: "DroppedFlowAttributionEvents()",
 	})
-	if err := client.Ping(ctx); err != nil {
-		t.Fatalf("Ping() after backpressure error = %v", err)
-	}
-
-	select {
-	case event := <-client.FlowAttributionEvents():
-		if event.GetPid() != 123 {
-			t.Fatalf("queued flow attribution event PID = %d, want 123", event.GetPid())
-		}
-	default:
-		t.Fatal("expected first flow attribution event to remain queued")
-	}
-
-	if got := client.DroppedFlowAttributionEvents(); got != 1 {
-		t.Fatalf("DroppedFlowAttributionEvents() = %d, want 1", got)
-	}
-	recorder.assertOne(t, EventStreamFlowAttr, EventDropBackpressure)
-
-	_ = client.Close()
-	<-serverDone
 }
 
 func TestClientDropsProcessSnapshotsOnBackpressure(t *testing.T) {
-	clientConn, serverConn := net.Pipe()
-	defer func() { _ = serverConn.Close() }()
-
-	recorder := &testEventDropRecorder{}
-	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
-	defer func() { _ = client.Close() }()
-
-	serverDone := make(chan struct{})
-	go func() {
-		defer close(serverDone)
-		for i := 0; i < 2; i++ {
-			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+	runBackpressureTest(t, backpressureTestCase{
+		name:   "process_snapshot",
+		stream: EventStreamProcessSnap,
+		writeFrame: func(_ *testing.T, conn net.Conn, _ int) error {
+			return writeFrame(conn, &netprobepb.NetprobeFrame{
 				Payload: &netprobepb.NetprobeFrame_ProcessSnapshot{
 					ProcessSnapshot: &netprobepb.ProcessSnapshot{Fingerprint: "fp"},
 				},
 			})
-			if err != nil {
-				t.Errorf("write process snapshot frame %d: %v", i, err)
-				return
+		},
+		droppedCount: func(c *Client) uint64 { return c.DroppedProcessSnapshots() },
+		consumeAndVerify: func(t *testing.T, c *Client) {
+			t.Helper()
+			select {
+			case snapshot := <-c.ProcessSnapshots():
+				if snapshot.GetFingerprint() != "fp" {
+					t.Fatalf("queued process snapshot fingerprint = %q, want fp", snapshot.GetFingerprint())
+				}
+			default:
+				t.Fatal("expected first process snapshot to remain queued")
 			}
-		}
-		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
-			ping := frame.GetPing()
-			if ping == nil {
-				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
-			}
-			return &netprobepb.NetprobeFrame{
-				Sequence: frame.GetSequence(),
-				Payload: &netprobepb.NetprobeFrame_PingAck{
-					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
-				},
-			}
-		})
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	waitFor(t, ctx, func() bool {
-		return client.DroppedProcessSnapshots() == 1
+		},
+		droppedLabel: "DroppedProcessSnapshots()",
 	})
-	if err := client.Ping(ctx); err != nil {
-		t.Fatalf("Ping() after backpressure error = %v", err)
-	}
-
-	select {
-	case snapshot := <-client.ProcessSnapshots():
-		if snapshot.GetFingerprint() != "fp" {
-			t.Fatalf("queued process snapshot fingerprint = %q, want fp", snapshot.GetFingerprint())
-		}
-	default:
-		t.Fatal("expected first process snapshot to remain queued")
-	}
-
-	if got := client.DroppedProcessSnapshots(); got != 1 {
-		t.Fatalf("DroppedProcessSnapshots() = %d, want 1", got)
-	}
-	recorder.assertOne(t, EventStreamProcessSnap, EventDropBackpressure)
-
-	_ = client.Close()
-	<-serverDone
 }
 
+//nolint:unparam // code parameterized for future error-code coverage in tests
 func errorResponse(sequence uint64, code, message string) *netprobepb.NetprobeFrame {
 	return &netprobepb.NetprobeFrame{
 		Sequence: sequence,
@@ -564,68 +526,30 @@ func TestClientReturnsErrorFrame(t *testing.T) {
 }
 
 func TestClientDropsFingerprintEventsOnBackpressure(t *testing.T) {
-	clientConn, serverConn := net.Pipe()
-	defer func() { _ = serverConn.Close() }()
-
-	recorder := &testEventDropRecorder{}
-	client := NewClient(clientConn, 1, WithEventDropRecorder(recorder))
-	defer func() { _ = client.Close() }()
-
-	serverDone := make(chan struct{})
-	go func() {
-		defer close(serverDone)
-		for i := 0; i < 2; i++ {
-			err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+	runBackpressureTest(t, backpressureTestCase{
+		name:   "fingerprint",
+		stream: EventStreamFingerprint,
+		writeFrame: func(_ *testing.T, conn net.Conn, _ int) error {
+			return writeFrame(conn, &netprobepb.NetprobeFrame{
 				Payload: &netprobepb.NetprobeFrame_FingerprintEvent{
 					FingerprintEvent: &netprobepb.FingerprintEvent{Ip: "192.0.2.10"},
 				},
 			})
-			if err != nil {
-				t.Errorf("write event frame %d: %v", i, err)
-				return
+		},
+		droppedCount: func(c *Client) uint64 { return c.DroppedFingerprintEvents() },
+		consumeAndVerify: func(t *testing.T, c *Client) {
+			t.Helper()
+			select {
+			case event := <-c.Events():
+				if event.GetIp() != "192.0.2.10" {
+					t.Fatalf("queued event IP = %q, want 192.0.2.10", event.GetIp())
+				}
+			default:
+				t.Fatal("expected first fingerprint event to remain queued")
 			}
-		}
-		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
-			ping := frame.GetPing()
-			if ping == nil {
-				t.Errorf("frame payload = %T, want ping", frame.GetPayload())
-				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected ping")
-			}
-			return &netprobepb.NetprobeFrame{
-				Sequence: frame.GetSequence(),
-				Payload: &netprobepb.NetprobeFrame_PingAck{
-					PingAck: &netprobepb.PingAck{SentAtUnixNano: ping.GetSentAtUnixNano()},
-				},
-			}
-		})
-	}()
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-
-	waitFor(t, ctx, func() bool {
-		return client.DroppedFingerprintEvents() == 1
+		},
+		droppedLabel: "DroppedFingerprintEvents()",
 	})
-	if err := client.Ping(ctx); err != nil {
-		t.Fatalf("Ping() after backpressure error = %v", err)
-	}
-
-	select {
-	case event := <-client.Events():
-		if event.GetIp() != "192.0.2.10" {
-			t.Fatalf("queued event IP = %q, want 192.0.2.10", event.GetIp())
-		}
-	default:
-		t.Fatal("expected first fingerprint event to remain queued")
-	}
-
-	if got := client.DroppedFingerprintEvents(); got != 1 {
-		t.Fatalf("DroppedFingerprintEvents() = %d, want 1", got)
-	}
-	recorder.assertOne(t, EventStreamFingerprint, EventDropBackpressure)
-
-	_ = client.Close()
-	<-serverDone
 }
 
 func TestClientCloseClosesEventsFromReadLoop(t *testing.T) {

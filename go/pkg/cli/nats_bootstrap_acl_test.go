@@ -28,7 +28,7 @@ import (
 // bootstrapTestAccount spins up an operator + account in-memory and returns
 // the account seed used to sign per-agent user credentials. Mirrors the
 // runtime path used by runNatsBootstrapLocal.
-func bootstrapTestAccount(t *testing.T) (string, string) {
+func bootstrapTestAccount(t *testing.T) string {
 	t.Helper()
 
 	operator, result, err := accounts.BootstrapOperator("acl-test", "", true)
@@ -45,7 +45,7 @@ func bootstrapTestAccount(t *testing.T) (string, string) {
 		t.Fatalf("CreateAccount: %v", err)
 	}
 
-	return acct.AccountSeed, acct.AccountPublicKey
+	return acct.AccountSeed
 }
 
 func decodeUserClaims(t *testing.T, credsContent string) *jwt.UserClaims {
@@ -69,7 +69,7 @@ func decodeUserClaims(t *testing.T, credsContent string) *jwt.UserClaims {
 }
 
 func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
-	seed, _ := bootstrapTestAccount(t)
+	seed := bootstrapTestAccount(t)
 
 	creds, err := GenerateAgentFlowCollectorCreds("platform", seed, "agent-42", 0)
 	if err != nil {
@@ -118,7 +118,7 @@ func TestGenerateAgentFlowCollectorCreds_ScopedToAgentSubject(t *testing.T) {
 }
 
 func TestGenerateAgentFlowCollectorCreds_RejectsUnsafeAgentID(t *testing.T) {
-	seed, _ := bootstrapTestAccount(t)
+	seed := bootstrapTestAccount(t)
 
 	cases := []string{
 		"",
@@ -143,7 +143,7 @@ func TestGenerateAgentFlowCollectorCreds_RejectsUnsafeAgentID(t *testing.T) {
 // NATS server does — Pub.Allow is an allowlist; any subject not in it
 // is implicitly denied.
 func TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied(t *testing.T) {
-	seed, _ := bootstrapTestAccount(t)
+	seed := bootstrapTestAccount(t)
 
 	credsA, err := GenerateAgentFlowCollectorCreds("platform", seed, "agent-a", 0)
 	if err != nil {
@@ -197,7 +197,7 @@ func TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied(t *testing.T) {
 }
 
 func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
-	seed, _ := bootstrapTestAccount(t)
+	seed := bootstrapTestAccount(t)
 
 	creds, err := GeneratePartitionCoreCreds("platform", seed, "partition-A", 0)
 	if err != nil {
@@ -271,7 +271,7 @@ func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
 }
 
 func TestGeneratePartitionCoreCreds_RejectsUnsafePartitionID(t *testing.T) {
-	seed, _ := bootstrapTestAccount(t)
+	seed := bootstrapTestAccount(t)
 
 	cases := []string{
 		"",

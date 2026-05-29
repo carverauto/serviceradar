@@ -210,12 +210,12 @@ func (s *MultiSweepService) UpdateConfig(config *models.Config) error {
 		ConfigHash:    config.ConfigHash,
 	}
 
-	return s.UpdateSweepGroupsContext(nil, &SweepGroupsConfig{Groups: []SweepGroupConfig{groupConfig}, ConfigHash: config.ConfigHash})
+	return s.UpdateSweepGroupsContext(context.TODO(), &SweepGroupsConfig{Groups: []SweepGroupConfig{groupConfig}, ConfigHash: config.ConfigHash})
 }
 
 // UpdateSweepGroups updates sweep group configs, creating or removing per-group services as needed.
 func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
-	return s.UpdateSweepGroupsContext(nil, config)
+	return s.UpdateSweepGroupsContext(context.TODO(), config)
 }
 
 // UpdateSweepGroupsContext updates sweep group configs, creating or removing

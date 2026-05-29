@@ -104,7 +104,9 @@ func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
 		assert.Equal(t, "/api/edge-packages/pkg-1/bundle", r.URL.Path)
 		assert.Equal(t, "download-token", r.Header.Get(downloadTokenHeader))
 		_, err := testAgentBundle(t, "").WriteTo(w)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -145,7 +147,9 @@ func TestEnrollAgentWritesReplacementNATSCredsToRoleScopedPath(t *testing.T) {
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/edge-packages/pkg-1/bundle", r.URL.Path)
 		_, err := testAgentBundleWith(t, withNATSCreds("replacement-creds")).WriteTo(w)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 	}))
 	defer server.Close()
 
@@ -184,7 +188,9 @@ func TestEnrollCollectorInstallsRoleScopedNATSCredsAndRewritesConfig(t *testing.
 		assert.Equal(t, "/api/collectors/collector-pkg/bundle", r.URL.Path)
 		assert.Equal(t, "collector-secret", r.Header.Get(downloadTokenHeader))
 		_, err := testCollectorBundle(t).WriteTo(w)
-		require.NoError(t, err)
+		if !assert.NoError(t, err) {
+			return
+		}
 	}))
 	defer server.Close()
 

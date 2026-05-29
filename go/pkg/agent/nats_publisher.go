@@ -44,6 +44,11 @@ import (
 // defeat the purpose of B-5 (per-agent JWT-scoped publishing).
 var ErrFlowPublisherCredsMissing = errors.New("nats_creds_file does not exist on disk")
 
+// ErrFlowPublisherURLMissing is returned when nats_creds_file is set but
+// nats_url is empty. This misconfiguration cannot be recovered from
+// because we have no endpoint to authenticate against.
+var ErrFlowPublisherURLMissing = errors.New("nats_creds_file set but nats_url is empty; cannot connect")
+
 // flowPublisher wraps the NATS connection that publishes per-host flow
 // slices. It is created lazily at agent startup and torn down with Stop.
 type flowPublisher struct {
@@ -74,6 +79,8 @@ type natsConnector func(ctx context.Context, url string, security *models.Securi
 // mTLS + reconnect handlers; UserCredentials is appended in
 // buildExtraNATSOpts so it sits in the extraOpts slot of
 // ConnectWithSecurity.
+//
+//nolint:gochecknoglobals,gocritic // injectable connector for test stubbing; thin wrapper around natsutil.ConnectWithSecurity is intentional so tests can replace the connector without monkey-patching natsutil
 var defaultNATSConnector natsConnector = func(ctx context.Context, url string, security *models.SecurityConfig, extraOpts ...nats.Option) (*nats.Conn, error) {
 	return natsutil.ConnectWithSecurity(ctx, url, security, extraOpts...)
 }
@@ -120,7 +127,7 @@ func newFlowPublisher(ctx context.Context, cfg flowPublisherConfig, log logger.L
 
 	// Creds without URL is a misconfiguration we cannot recover from.
 	if url == "" {
-		return nil, fmt.Errorf("nats_creds_file set but nats_url is empty; cannot connect")
+		return nil, ErrFlowPublisherURLMissing
 	}
 
 	extraOpts, err := buildExtraNATSOpts(creds)

@@ -23,6 +23,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+const testHostIP = "192.0.2.10"
+
 func TestHandleBannerObservationsMatchesAndEnqueuesFingerprintEvents(t *testing.T) {
 	t.Parallel()
 
@@ -92,7 +94,7 @@ func TestHandleBannerObservationsMatchesAndEnqueuesFingerprintEvents(t *testing.
 	observations := make(chan banner_grab.BannerObservation, 1)
 	observations <- banner_grab.BannerObservation{
 		ObservationID: 77,
-		Host:          "192.0.2.10",
+		Host:          testHostIP,
 		Port:          22,
 		Protocol:      banner_grab.ProtocolSSH,
 		Source:        banner_grab.SourceSweepActive,
@@ -123,7 +125,7 @@ func TestHandleBannerObservationsMatchesAndEnqueuesFingerprintEvents(t *testing.
 	}
 
 	event := events[0]
-	if event.GetIp() != "192.0.2.10" || event.GetProfileId() != banner_grab.SourceSweepActive {
+	if event.GetIp() != testHostIP || event.GetProfileId() != banner_grab.SourceSweepActive {
 		t.Fatalf("event ip/profile = %q/%q, want 192.0.2.10/sweep_active", event.GetIp(), event.GetProfileId())
 	}
 
@@ -178,7 +180,7 @@ func TestBannerMatchToFingerprintEventCarriesSMTPAndNTPRecogEvidence(t *testing.
 			event := bannerMatchToFingerprintEvent(
 				banner_grab.BannerObservation{
 					ObservationID: 42,
-					Host:          "192.0.2.10",
+					Host:          testHostIP,
 					Protocol:      tc.protocol,
 					Source:        banner_grab.SourceSweepActive,
 					ObservedAt:    time.Unix(1_700_000_000, 0),

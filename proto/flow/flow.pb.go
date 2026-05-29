@@ -659,16 +659,24 @@ func (x *FlowMessage) GetProtocolName() string {
 type FlowAttribution struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	Pid   uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	Comm  string                 `protobuf:"bytes,2,opt,name=comm,proto3" json:"comm,omitempty"`
+	// Process command name (TASK_COMM_LEN-style identifier). Producers MUST
+	// cap the value at 16 bytes per the netprobe redaction discipline
+	// (matches FlowAttributionEvent.comm in
+	// proto/agent/netprobe/v1/netprobe.proto).
+	Comm string `protobuf:"bytes,2,opt,name=comm,proto3" json:"comm,omitempty"`
 	// Redacted process command line. Producers MUST strip secrets/credentials
 	// and cap the value at 256 bytes per the netprobe redaction discipline
 	// (matches FlowAttributionEvent.redacted_cmdline in
 	// proto/agent/netprobe/v1/netprobe.proto).
 	RedactedCmdline string `protobuf:"bytes,3,opt,name=redacted_cmdline,json=redactedCmdline,proto3" json:"redacted_cmdline,omitempty"`
 	Uid             uint32 `protobuf:"varint,4,opt,name=uid,proto3" json:"uid,omitempty"`
-	ContainerId     string `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	unknownFields   protoimpl.UnknownFields
-	sizeCache       protoimpl.SizeCache
+	// Container identifier (cgroup/runtime-assigned). Producers MUST cap the
+	// value at 64 bytes per the netprobe redaction discipline (matches
+	// FlowAttributionEvent.container_id in
+	// proto/agent/netprobe/v1/netprobe.proto).
+	ContainerId   string `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *FlowAttribution) Reset() {

@@ -214,55 +214,108 @@ func TestPushFlowAttribution_DrainedBatchReachesStatusPayload(t *testing.T) {
 	}
 
 	for i, want := range drained {
-		got := decoded.GetEvents()[i]
-		if got.GetLocalIp() != want.GetLocalIp() ||
-			got.GetLocalPort() != want.GetLocalPort() ||
-			got.GetRemoteIp() != want.GetRemoteIp() ||
-			got.GetRemotePort() != want.GetRemotePort() ||
-			got.GetTransportProtocol() != want.GetTransportProtocol() {
-			t.Errorf("event[%d] 5-tuple mismatch:\n got=%+v\nwant=%+v", i, got, want)
-		}
-		if got.GetPid() != want.GetPid() ||
-			got.GetTgid() != want.GetTgid() ||
-			got.GetUid() != want.GetUid() ||
-			got.GetGid() != want.GetGid() {
-			t.Errorf("event[%d] identity tuple mismatch: got=(%d,%d,%d,%d), want=(%d,%d,%d,%d)",
-				i, got.GetPid(), got.GetTgid(), got.GetUid(), got.GetGid(),
-				want.GetPid(), want.GetTgid(), want.GetUid(), want.GetGid())
-		}
-		if got.GetComm() != want.GetComm() {
-			t.Errorf("event[%d] comm = %q, want %q", i, got.GetComm(), want.GetComm())
-		}
-		if len(got.GetRedactedCmdline()) != len(want.GetRedactedCmdline()) {
-			t.Errorf("event[%d] redacted_cmdline length = %d, want %d",
-				i, len(got.GetRedactedCmdline()), len(want.GetRedactedCmdline()))
-		}
-		if got.GetContainerId() != want.GetContainerId() {
-			t.Errorf("event[%d] container_id = %q, want %q",
-				i, got.GetContainerId(), want.GetContainerId())
-		}
-		if got.GetObservedAtUnixNano() != want.GetObservedAtUnixNano() {
-			t.Errorf("event[%d] observed_at = %d, want %d",
-				i, got.GetObservedAtUnixNano(), want.GetObservedAtUnixNano())
-		}
-		if got.GetSocketAddress() != want.GetSocketAddress() {
-			t.Errorf("event[%d] socket_address = %x, want %x",
-				i, got.GetSocketAddress(), want.GetSocketAddress())
-		}
-		if got.GetEventKind() != want.GetEventKind() ||
-			got.GetOldState() != want.GetOldState() ||
-			got.GetNewState() != want.GetNewState() {
-			t.Errorf("event[%d] state transition mismatch: got=(kind=%d,old=%d,new=%d), want=(kind=%d,old=%d,new=%d)",
-				i, got.GetEventKind(), got.GetOldState(), got.GetNewState(),
-				want.GetEventKind(), want.GetOldState(), want.GetNewState())
-		}
-		if got.GetSource() != want.GetSource() {
-			t.Errorf("event[%d] source = %q, want %q", i, got.GetSource(), want.GetSource())
-		}
-		if got.GetExternalFlowId() != want.GetExternalFlowId() {
-			t.Errorf("event[%d] external_flow_id = %d, want %d",
-				i, got.GetExternalFlowId(), want.GetExternalFlowId())
-		}
+		assertFlowAttributionEventMatches(t, i, decoded.GetEvents()[i], want)
+	}
+}
+
+// assertFlowAttributionEventMatches verifies a single decoded
+// FlowAttributionEvent matches the synthetic one that was drained. It is
+// extracted from TestPushFlowAttribution_DrainedBatchReachesStatusPayload
+// to keep that test's cyclomatic complexity manageable.
+func assertFlowAttributionEventMatches(
+	t *testing.T,
+	i int,
+	got, want *netprobepb.FlowAttributionEvent,
+) {
+	t.Helper()
+
+	assertFlowAttributionFiveTuple(t, i, got, want)
+	assertFlowAttributionIdentity(t, i, got, want)
+	assertFlowAttributionProcessFields(t, i, got, want)
+	assertFlowAttributionStateAndProvenance(t, i, got, want)
+}
+
+func assertFlowAttributionFiveTuple(
+	t *testing.T,
+	i int,
+	got, want *netprobepb.FlowAttributionEvent,
+) {
+	t.Helper()
+
+	if got.GetLocalIp() != want.GetLocalIp() ||
+		got.GetLocalPort() != want.GetLocalPort() ||
+		got.GetRemoteIp() != want.GetRemoteIp() ||
+		got.GetRemotePort() != want.GetRemotePort() ||
+		got.GetTransportProtocol() != want.GetTransportProtocol() {
+		t.Errorf("event[%d] 5-tuple mismatch:\n got=%+v\nwant=%+v", i, got, want)
+	}
+}
+
+func assertFlowAttributionIdentity(
+	t *testing.T,
+	i int,
+	got, want *netprobepb.FlowAttributionEvent,
+) {
+	t.Helper()
+
+	if got.GetPid() != want.GetPid() ||
+		got.GetTgid() != want.GetTgid() ||
+		got.GetUid() != want.GetUid() ||
+		got.GetGid() != want.GetGid() {
+		t.Errorf("event[%d] identity tuple mismatch: got=(%d,%d,%d,%d), want=(%d,%d,%d,%d)",
+			i, got.GetPid(), got.GetTgid(), got.GetUid(), got.GetGid(),
+			want.GetPid(), want.GetTgid(), want.GetUid(), want.GetGid())
+	}
+}
+
+func assertFlowAttributionProcessFields(
+	t *testing.T,
+	i int,
+	got, want *netprobepb.FlowAttributionEvent,
+) {
+	t.Helper()
+
+	if got.GetComm() != want.GetComm() {
+		t.Errorf("event[%d] comm = %q, want %q", i, got.GetComm(), want.GetComm())
+	}
+	if len(got.GetRedactedCmdline()) != len(want.GetRedactedCmdline()) {
+		t.Errorf("event[%d] redacted_cmdline length = %d, want %d",
+			i, len(got.GetRedactedCmdline()), len(want.GetRedactedCmdline()))
+	}
+	if got.GetContainerId() != want.GetContainerId() {
+		t.Errorf("event[%d] container_id = %q, want %q",
+			i, got.GetContainerId(), want.GetContainerId())
+	}
+	if got.GetObservedAtUnixNano() != want.GetObservedAtUnixNano() {
+		t.Errorf("event[%d] observed_at = %d, want %d",
+			i, got.GetObservedAtUnixNano(), want.GetObservedAtUnixNano())
+	}
+	if got.GetSocketAddress() != want.GetSocketAddress() {
+		t.Errorf("event[%d] socket_address = %x, want %x",
+			i, got.GetSocketAddress(), want.GetSocketAddress())
+	}
+}
+
+func assertFlowAttributionStateAndProvenance(
+	t *testing.T,
+	i int,
+	got, want *netprobepb.FlowAttributionEvent,
+) {
+	t.Helper()
+
+	if got.GetEventKind() != want.GetEventKind() ||
+		got.GetOldState() != want.GetOldState() ||
+		got.GetNewState() != want.GetNewState() {
+		t.Errorf("event[%d] state transition mismatch: got=(kind=%d,old=%d,new=%d), want=(kind=%d,old=%d,new=%d)",
+			i, got.GetEventKind(), got.GetOldState(), got.GetNewState(),
+			want.GetEventKind(), want.GetOldState(), want.GetNewState())
+	}
+	if got.GetSource() != want.GetSource() {
+		t.Errorf("event[%d] source = %q, want %q", i, got.GetSource(), want.GetSource())
+	}
+	if got.GetExternalFlowId() != want.GetExternalFlowId() {
+		t.Errorf("event[%d] external_flow_id = %d, want %d",
+			i, got.GetExternalFlowId(), want.GetExternalFlowId())
 	}
 }
 

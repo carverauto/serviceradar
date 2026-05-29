@@ -69,6 +69,10 @@ type EnrollOptions struct {
 }
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
+//
+//nolint:gocyclo // enrollment is an end-to-end orchestration step covering token parsing,
+// bundle download, certificate/credential placement, config merging, and atomic install;
+// the branching reflects required environment validation rather than incidental complexity.
 func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	payload, err := parseOnboardingToken(opts.Token, "", opts.CoreHost)
 	if err != nil {

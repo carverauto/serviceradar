@@ -376,6 +376,7 @@ func processSnapshotEntries(entries []*netprobepb.ProcessSnapshotEntry) []proces
 func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent, base string) error {
 	switch evidence := event.GetEvidence().(type) {
 	case *netprobepb.FingerprintEvent_Tcp:
+		//nolint:staticcheck // backwards-compatible deprecated-field path; remove with proto v2
 		tcp := evidence.Tcp
 		metadata[base+".protocol"] = "tcp"
 		metadata[base+".tcp.signature"] = strings.TrimSpace(tcp.GetSignature())
@@ -391,12 +392,14 @@ func addEvidenceMetadata(metadata map[string]string, event *netprobepb.Fingerpri
 		metadata[base+".tcp.window_scale"] = strconv.FormatUint(uint64(tcp.GetWindowScale()), 10)
 		metadata[base+".tcp.payload_class"] = strings.TrimSpace(tcp.GetPayloadClass())
 	case *netprobepb.FingerprintEvent_Tls:
+		//nolint:staticcheck // backwards-compatible deprecated-field path; remove with proto v2
 		tls := evidence.Tls
 		metadata[base+".protocol"] = "tls"
 		metadata[base+".tls.ja4"] = strings.TrimSpace(tls.GetJa4())
 		metadata[base+".tls.ja4s"] = strings.TrimSpace(tls.GetJa4S())
 		metadata[base+".tls.sni_redacted"] = sanitizeSniRedacted(tls.GetSniRedacted())
 	case *netprobepb.FingerprintEvent_Http:
+		//nolint:staticcheck // backwards-compatible deprecated-field path; remove with proto v2
 		http := evidence.Http
 		metadata[base+".protocol"] = "http"
 		metadata[base+".http.user_agent"] = strings.TrimSpace(http.GetUserAgent())

@@ -91,6 +91,7 @@ func (p *candidatePlanner) recordSuccess(candidate Candidate, at time.Time) {
 	delete(p.backoffUntil, key)
 }
 
+//nolint:unparam // duration parameterized for future adaptive backoff strategies
 func (p *candidatePlanner) recordBackoff(candidate Candidate, duration time.Duration) {
 	if duration <= 0 {
 		return

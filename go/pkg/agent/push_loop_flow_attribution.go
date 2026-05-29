@@ -67,6 +67,8 @@ const (
 // to the gateway, surfaced as
 // `agent_flow_attribution_events_forwarded_total` by the Prometheus
 // exporter.
+//
+//nolint:gochecknoglobals // process-global Prometheus counter
 var agentFlowAttributionEventsForwardedTotal atomic.Uint64
 
 // AgentFlowAttributionEventsForwardedTotal returns the current value
@@ -263,6 +265,8 @@ func commitFlowAttributionDropped(cumulative uint64) {
 // lastDroppedFlowAttribution holds the previously-observed cumulative
 // drop count so the next batch can publish a delta. Package-level
 // because the counter on the netprobe client is also process-global.
+//
+//nolint:gochecknoglobals // process-global baseline for cumulative-counter delta
 var lastDroppedFlowAttribution atomic.Uint64
 
 func clampToUint32(v uint64) uint32 {

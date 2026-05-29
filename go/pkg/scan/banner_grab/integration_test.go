@@ -113,7 +113,7 @@ type bannerFixture struct {
 func startBannerFixture(t *testing.T, protocol string, banner []byte, readBeforeWrite bool) bannerFixture {
 	t.Helper()
 
-	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	listener, err := (&net.ListenConfig{}).Listen(context.Background(), "tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatalf("Listen(%s) error = %v", protocol, err)
 	}
