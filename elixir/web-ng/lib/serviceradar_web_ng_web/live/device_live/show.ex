@@ -32,12 +32,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Identity.DeviceAliasState
-  alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
-  alias ServiceRadar.Observability.IpGeoEnrichmentCache
-  alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
@@ -48,7 +45,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
+  alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
+  alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
@@ -809,7 +808,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     device_row =
       results
       |> Enum.find(&is_map/1)
-      |> enrich_integration_metadata(scope)
+      |> MetadataData.enrich_integration_metadata(scope)
 
     device_ip = get_device_ip(results)
     show_stale = socket.assigns.show_stale_aliases
@@ -2051,7 +2050,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_top_protocols_json, top_protocols_json)
      |> assign(:flow_facets, facets)
      |> assign(:flow_active_topn, %{field: field, value: value})
-     |> enrich_flow_ips()}
+     |> FlowIpEnrichment.enrich_socket()}
   end
 
   def handle_event("topn_filter", _params, socket), do: {:noreply, socket}
@@ -2073,7 +2072,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:device_flows, flows)
      |> assign(:flows_pagination, pagination)
      |> assign(:flows_error, flows_error)
-     |> enrich_flow_ips()}
+     |> FlowIpEnrichment.enrich_socket()}
   end
 
   def handle_event("facet_toggle", %{"field" => field, "value" => value}, socket)
@@ -2171,7 +2170,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:flow_facets, facets)
        |> assign(:flow_active_facets, %{})
        |> assign(:flow_active_topn, nil)
-       |> enrich_flow_ips()}
+       |> FlowIpEnrichment.enrich_socket()}
     else
       _ -> {:noreply, socket}
     end
@@ -2219,7 +2218,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:flow_facets, facets)
      |> assign(:flow_active_facets, %{})
      |> assign(:flow_active_topn, nil)
-     |> enrich_flow_ips()}
+     |> FlowIpEnrichment.enrich_socket()}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -2497,7 +2496,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:flow_top_ports_json, top_ports_json)
     |> assign(:flow_top_protocols_json, top_protocols_json)
     |> assign(:flow_facets, facet_data)
-    |> enrich_flow_ips()
+    |> FlowIpEnrichment.enrich_socket()
   end
 
   defp maybe_begin_flow_background_loads(socket, "flows", uid, flows) do
@@ -2538,7 +2537,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp begin_flow_ip_enrichment(socket, uid, flows) do
     request_ref = make_ref()
     scope = Map.get(socket.assigns, :current_scope)
-    ips = flow_ips(flows)
+    ips = FlowIpEnrichment.ips(flows)
 
     if ips == [] do
       socket
@@ -2551,9 +2550,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:rdns_map, %{})
       |> assign(:geo_iso2_map, %{})
       |> start_async({:flow_ip_enrichment, uid, request_ref}, fn ->
-        rdns_map = bulk_rdns(ips, scope)
-        geo_iso2_map = bulk_geo_iso2(ips, scope)
-        {rdns_map, geo_iso2_map}
+        FlowIpEnrichment.load_maps(ips, scope)
       end)
     end
   end
@@ -2636,7 +2633,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
-      |> assign(:device_active, device_active_state(device_row, row_metadata(device_row)))
+      |> assign(:device_active, device_active_state(device_row, MetadataData.row_metadata(device_row)))
       |> assign(:device_display_name, device_display_name(device_row))
       |> assign(:agent_device, agent_device?(device_row))
       |> assign(:proxmox_console_target, proxmox_console_target?(Map.get(assigns, :virtualization_summary)))
@@ -2972,168 +2969,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_value(""), do: "—"
   defp format_value(v) when is_binary(v), do: v
   defp format_value(v), do: to_string(v)
-
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value), do: not is_nil(value)
-
-  defp row_metadata(row) when is_map(row) do
-    case Map.get(row, "metadata") || Map.get(row, :metadata) do
-      map when is_map(map) -> map
-      _ -> %{}
-    end
-  end
-
-  defp row_metadata(_row), do: %{}
-
-  defp enrich_integration_metadata(nil, _scope), do: nil
-
-  defp enrich_integration_metadata(row, scope) when is_map(row) do
-    metadata = row_metadata(row)
-    sync_service_id = Map.get(metadata, "sync_service_id")
-
-    metadata =
-      metadata
-      |> maybe_put_sync_service_path(sync_service_id)
-      |> maybe_put_armis_device_url(sync_service_id, scope)
-
-    Map.put(row, "metadata", metadata)
-  end
-
-  defp maybe_put_sync_service_path(metadata, sync_service_id)
-       when is_map(metadata) and is_binary(sync_service_id) and sync_service_id != "" do
-    Map.put(metadata, "sync_service_path", ~p"/settings/networks/integrations/#{sync_service_id}")
-  end
-
-  defp maybe_put_sync_service_path(metadata, _sync_service_id), do: metadata
-
-  defp maybe_put_armis_device_url(metadata, sync_service_id, scope)
-       when is_map(metadata) and is_binary(sync_service_id) and sync_service_id != "" do
-    armis_id =
-      metadata_first_value(metadata, ["armis_device_id", "source_device_id", "integration_id"])
-
-    if metadata_lookup(metadata, "integration_type") == "armis" and present?(armis_id) do
-      case IntegrationSource.get_by_id(sync_service_id, scope: scope) do
-        {:ok, %IntegrationSource{endpoint: endpoint}} ->
-          Map.put(metadata, "armis_device_url", armis_device_url(endpoint, armis_id))
-
-        _ ->
-          metadata
-      end
-    else
-      metadata
-    end
-  rescue
-    _ -> metadata
-  end
-
-  defp maybe_put_armis_device_url(metadata, _sync_service_id, _scope), do: metadata
-
-  defp armis_device_url(endpoint, armis_id) when is_binary(endpoint) do
-    endpoint
-    |> String.trim()
-    |> String.trim_trailing("/")
-    |> Kernel.<>("/inventory/devices/#{armis_id}/")
-  end
-
-  defp armis_device_url(_endpoint, _armis_id), do: nil
-
-  defp metadata_value(row, key) when is_map(row) and is_binary(key) do
-    row
-    |> row_metadata()
-    |> Map.get(key)
-  end
-
-  defp metadata_value(_row, _key), do: nil
-
-  defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
-    Enum.find_value(keys, fn key ->
-      case Map.get(metadata, key) do
-        value when value in [nil, ""] -> nil
-        value -> value
-      end
-    end)
-  end
-
-  defp enrich_flow_ips(socket) do
-    flows = socket.assigns.device_flows
-    scope = Map.get(socket.assigns, :current_scope)
-    ips = flow_ips(flows)
-
-    if ips == [] do
-      socket |> assign(:rdns_map, %{}) |> assign(:geo_iso2_map, %{})
-    else
-      tasks = [
-        Task.async(fn -> {:rdns, bulk_rdns(ips, scope)} end),
-        Task.async(fn -> {:geo, bulk_geo_iso2(ips, scope)} end)
-      ]
-
-      results = safe_yield_many(tasks, 3_000)
-
-      socket
-      |> assign(:rdns_map, Map.get(results, :rdns, %{}))
-      |> assign(:geo_iso2_map, Map.get(results, :geo, %{}))
-    end
-  end
-
-  defp flow_ips(flows) when is_list(flows) do
-    flows
-    |> Enum.flat_map(fn flow ->
-      [Map.get(flow, "src_endpoint_ip"), Map.get(flow, "dst_endpoint_ip")]
-    end)
-    |> Enum.filter(&is_binary/1)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-    |> Enum.take(200)
-  end
-
-  defp flow_ips(_), do: []
-
-  defp bulk_rdns(ips, scope) do
-    query = IpRdnsCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
-
-    case Ash.read(query, scope: scope) do
-      {:ok, rows} when is_list(rows) ->
-        rows
-        |> Enum.filter(&rdns_row_valid?/1)
-        |> Map.new(fn r -> {r.ip, r.hostname} end)
-
-      _ ->
-        %{}
-    end
-  rescue
-    _ -> %{}
-  end
-
-  defp rdns_row_valid?(r) do
-    ok? =
-      case r.status do
-        :ok -> true
-        "ok" -> true
-        s when is_binary(s) -> String.downcase(String.trim(s)) == "ok"
-        _ -> false
-      end
-
-    ok? and is_binary(r.hostname) and String.trim(r.hostname) != ""
-  end
-
-  defp bulk_geo_iso2(ips, scope) do
-    query = IpGeoEnrichmentCache |> Ash.Query.for_read(:read, %{}) |> Ash.Query.filter(ip in ^ips)
-
-    case Ash.read(query, scope: scope) do
-      {:ok, rows} when is_list(rows) ->
-        rows
-        |> Enum.filter(fn r ->
-          is_binary(r.country_iso2) and String.length(String.trim(r.country_iso2)) == 2
-        end)
-        |> Map.new(fn r -> {r.ip, String.upcase(String.trim(r.country_iso2))} end)
-
-      _ ->
-        %{}
-    end
-  rescue
-    _ -> %{}
-  end
 
   attr(:label, :string, required: true)
   attr(:value, :any, default: nil)
@@ -3503,13 +3338,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         Map.get(device_row, "device_type"),
         Map.get(device_row, "os_info"),
         Map.get(device_row, "os"),
-        metadata_value(device_row, "operating_system"),
-        metadata_value(device_row, "os_name"),
-        metadata_value(device_row, "os_type"),
-        metadata_value(device_row, "platform"),
-        metadata_value(device_row, "platform_name"),
-        metadata_value(device_row, "sys_descr"),
-        metadata_value(device_row, "snmp_description")
+        MetadataData.value(device_row, "operating_system"),
+        MetadataData.value(device_row, "os_name"),
+        MetadataData.value(device_row, "os_type"),
+        MetadataData.value(device_row, "platform"),
+        MetadataData.value(device_row, "platform_name"),
+        MetadataData.value(device_row, "sys_descr"),
+        MetadataData.value(device_row, "snmp_description")
       ],
       &ssh_capability_strings/1
     )
