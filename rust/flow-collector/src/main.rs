@@ -13,7 +13,7 @@ use clap::Parser;
 use config::Config;
 use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
-use metrics::{ListenerMetrics, MetricsReporter};
+use metrics::{HostSliceMetricsRegistry, ListenerMetrics, MetricsReporter};
 use publisher::Publisher;
 use std::sync::Arc;
 use std::sync::Once;
@@ -62,10 +62,13 @@ async fn main() -> Result<()> {
     // Create shared channel: all listeners send (subject, encoded_bytes) to one publisher
     let (tx, rx) = mpsc::channel(config.channel_size);
     let host_slice_router = Arc::new(HostSliceRouter::from_config(&config));
+    let host_slice_metrics = Arc::new(HostSliceMetricsRegistry::new(
+        HostSliceRouter::metric_slices(&config),
+    ));
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
-    let publisher = Publisher::new(publisher_config, rx);
+    let publisher = Publisher::new(publisher_config, rx, Arc::clone(&host_slice_metrics));
     let publisher_handle = tokio::spawn(async move {
         if let Err(e) = publisher.run().await {
             log::error!("Publisher error: {}", e);
@@ -116,7 +119,7 @@ async fn main() -> Result<()> {
 
     // Spawn metrics reporter
     let metrics_handle = tokio::spawn(async move {
-        MetricsReporter::run(all_metrics).await;
+        MetricsReporter::run(all_metrics, host_slice_metrics).await;
     });
 
     log::info!("Flow collector started successfully");

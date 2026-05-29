@@ -44,6 +44,19 @@ impl HostSliceRouter {
         subjects
     }
 
+    pub fn metric_slices(config: &Config) -> Vec<(String, String)> {
+        let mut slices: Vec<_> = config
+            .host_slices
+            .iter()
+            .filter(|slice| host_slice_publication_allowed(config, slice))
+            .map(|slice| (slice.agent_id.clone(), slice.subject()))
+            .collect();
+
+        slices.sort_by(|left, right| left.1.cmp(&right.1));
+        slices.dedup_by(|left, right| left.1 == right.1);
+        slices
+    }
+
     fn push_subjects(&self, ip: IpAddr, subjects: &mut Vec<String>) {
         let Some(matches) = self.subjects_by_ip.get(&ip) else {
             return;
@@ -213,6 +226,32 @@ mod tests {
                     ..Default::default()
                 })
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn metric_slices_include_only_allowed_slice_subjects() {
+        let config = config_with_slices_and_allowlist(
+            vec![
+                HostSliceConfig {
+                    agent_id: "agent-1".to_string(),
+                    partition: "default".to_string(),
+                    host_ips: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))],
+                    host_network_visibility: HostNetworkVisibilityStatus::Enabled,
+                },
+                HostSliceConfig {
+                    agent_id: "agent-2".to_string(),
+                    partition: "default".to_string(),
+                    host_ips: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 20))],
+                    host_network_visibility: HostNetworkVisibilityStatus::Enabled,
+                },
+            ],
+            vec!["agent-1".to_string()],
+        );
+
+        assert_eq!(
+            HostSliceRouter::metric_slices(&config),
+            vec![("agent-1".to_string(), "flow.host-slice.agent-1".to_string())]
         );
     }
 
