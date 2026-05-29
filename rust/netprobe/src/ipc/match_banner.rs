@@ -182,6 +182,7 @@ mod tests {
         proto::netprobe::{BannerBatch, BannerObservation},
         satori::SatoriCorpus,
     };
+    use std::time::{Duration, Instant};
 
     #[test]
     fn matches_recog_http_banner_and_preserves_order() {
@@ -277,6 +278,56 @@ mod tests {
             .expect("Cisco SSH Satori banner matches");
 
         assert_eq!(matched.label, "Cisco Router");
+    }
+
+    #[test]
+    fn matches_ssh_http_batch_256_within_p99_target() {
+        const ITERATIONS: usize = 40;
+        const BATCH_SIZE: usize = 256;
+        const P99_TARGET: Duration = Duration::from_millis(100);
+
+        let batch = BannerBatch {
+            observations: (0..BATCH_SIZE)
+                .map(|index| {
+                    if index % 2 == 0 {
+                        observation(
+                            index as u64,
+                            "ssh",
+                            b"SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.10\r\n",
+                        )
+                    } else {
+                        observation(
+                            index as u64,
+                            "http",
+                            b"HTTP/1.1 200 OK\r\nServer: Apache/2.4.58 (Ubuntu)\r\n\r\n",
+                        )
+                    }
+                })
+                .collect(),
+        };
+
+        let warmup = match_banner_batch(&batch);
+        assert_eq!(warmup.matches.len(), BATCH_SIZE);
+
+        let mut timings = Vec::with_capacity(ITERATIONS);
+        for _ in 0..ITERATIONS {
+            let started = Instant::now();
+            let matches = match_banner_batch(&batch).matches;
+            timings.push(started.elapsed());
+
+            assert_eq!(matches.len(), BATCH_SIZE);
+            assert!(matches.iter().all(|matched| matched.confidence > 0.0));
+        }
+        timings.sort_unstable();
+
+        let p99_index = (ITERATIONS * 99).div_ceil(100).saturating_sub(1);
+        let p99 = timings[p99_index.min(timings.len() - 1)];
+        assert!(
+            p99 <= P99_TARGET,
+            "256-observation SSH/HTTP MatchBanners p99 {:?} exceeded {:?}",
+            p99,
+            P99_TARGET
+        );
     }
 
     fn observation(id: u64, protocol: &str, banner: &[u8]) -> BannerObservation {
