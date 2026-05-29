@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadar.SweepJobs.SweepProfile
   alias ServiceRadar.SweepJobs.SweepPubSub
   alias ServiceRadarWebNG.RBAC
-  alias ServiceRadarWebNGWeb.SRQL.Catalog
+  alias ServiceRadarWebNGWeb.Settings.NetworksLive.TargetBuilder
 
   @refresh_interval to_timeout(second: 15)
 
@@ -67,7 +67,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:form, nil)
         |> assign(:target_device_count, nil)
         |> assign(:builder_open, false)
-        |> assign(:builder, default_builder_state())
+        |> assign(:builder, TargetBuilder.default_builder_state())
         |> assign(:builder_sync, true)
         |> assign(:show_mapper_form, nil)
         |> assign(:mapper_jobs, load_mapper_jobs(scope))
@@ -124,7 +124,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:form, to_form(ash_form))
     |> assign(:target_device_count, nil)
     |> assign(:builder_open, false)
-    |> assign(:builder, default_builder_state())
+    |> assign(:builder, TargetBuilder.default_builder_state())
     |> assign(:builder_sync, true)
     |> assign(:agents, load_agents(scope))
   end
@@ -142,7 +142,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         scope = socket.assigns.current_scope
         ash_form = Form.for_update(group, :update, domain: ServiceRadar.SweepJobs, scope: scope)
         device_count = count_target_devices(scope, group.target_query)
-        {builder, builder_sync} = parse_target_query_to_builder(group.target_query)
+        {builder, builder_sync} = TargetBuilder.parse_target_query_to_builder(group.target_query)
 
         socket
         |> assign(:page_title, "Edit Sweep Group")
@@ -629,7 +629,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       if builder_event? do
         {socket.assigns.builder, socket.assigns.builder_sync}
       else
-        parse_target_query_to_builder(target_query)
+        TargetBuilder.parse_target_query_to_builder(target_query)
       end
 
     ash_form = Form.validate(socket.assigns.ash_form, params)
@@ -665,7 +665,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket =
       if Map.has_key?(params, "target_query") do
         target_query = Map.get(params, "target_query")
-        {parsed_builder, parsed_sync} = parse_target_query_to_builder(target_query)
+        {parsed_builder, parsed_sync} = TargetBuilder.parse_target_query_to_builder(target_query)
 
         socket = assign(socket, :builder_sync, parsed_sync)
 
@@ -691,7 +691,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     socket =
       if builder_open do
         target_query = current_target_query(socket)
-        {builder, builder_sync} = parse_target_query_to_builder(target_query)
+        {builder, builder_sync} = TargetBuilder.parse_target_query_to_builder(target_query)
 
         socket
         |> assign(:builder_open, true)
@@ -705,7 +705,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   end
 
   def handle_event("builder_change", %{"builder" => builder_params}, socket) do
-    builder = update_builder(socket.assigns.builder, builder_params)
+    builder = TargetBuilder.update_builder(socket.assigns.builder, builder_params)
 
     socket =
       socket
@@ -718,18 +718,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("builder_add_filter", _params, socket) do
     builder = socket.assigns.builder
-    config = Catalog.entity("devices")
 
     filters =
       builder
       |> Map.get("filters", [])
       |> List.wrap()
 
-    next = %{
-      "field" => config.default_filter_field,
-      "op" => "contains",
-      "value" => ""
-    }
+    next = TargetBuilder.default_filter()
 
     updated_builder = Map.put(builder, "filters", filters ++ [next])
 
@@ -775,7 +770,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   def handle_event("builder_apply", _params, socket) do
     builder = socket.assigns.builder
-    query = build_target_query(builder)
+    query = TargetBuilder.build_target_query(builder)
 
     params =
       socket.assigns.ash_form
@@ -1633,7 +1628,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     <div class="space-y-4">
       <!-- Statistics Cards -->
       <.scan_statistics running={@running} recent={@recent} />
-      
+
     <!-- Running Scans -->
       <.ui_panel>
         <:header>
@@ -1666,7 +1661,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <% end %>
         </div>
       </.ui_panel>
-      
+
     <!-- Recent Completions -->
       <.ui_panel>
         <:header>
@@ -2537,262 +2532,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
 
-  defp default_builder_state do
-    config = Catalog.entity("devices")
-
-    %{
-      "filters" => [
-        %{
-          "field" => config.default_filter_field,
-          "op" => "contains",
-          "value" => ""
-        }
-      ]
-    }
-  end
-
-  defp parse_target_query_to_builder(nil), do: {default_builder_state(), true}
-  defp parse_target_query_to_builder(""), do: {default_builder_state(), true}
-
-  defp parse_target_query_to_builder(query) when is_binary(query) do
-    query = String.trim(query)
-
-    if query == "" do
-      {default_builder_state(), true}
-    else
-      case parse_filters_from_query(query) do
-        {:ok, filters} when filters != [] ->
-          {%{"filters" => filters}, true}
-
-        _ ->
-          {default_builder_state(), false}
-      end
-    end
-  end
-
-  defp parse_filters_from_query(query) do
-    known_prefixes = ["in:", "limit:", "sort:", "time:"]
-
-    tokens =
-      query
-      |> String.split(~r/(?<!\\)\s+/, trim: true)
-      |> Enum.reject(fn token ->
-        Enum.any?(known_prefixes, &String.starts_with?(token, &1))
-      end)
-
-    filters =
-      tokens
-      |> Enum.map(&parse_filter_token/1)
-      |> Enum.reject(&is_nil/1)
-
-    if length(filters) == length(tokens) do
-      {:ok, filters}
-    else
-      {:error, :unsupported_query}
-    end
-  end
-
-  defp parse_filter_token(token) do
-    {field, negated} =
-      if String.starts_with?(token, "!") do
-        {String.replace_prefix(token, "!", ""), true}
-      else
-        {token, false}
-      end
-
-    case String.split(field, ":", parts: 2) do
-      [field_name, value] ->
-        field_name = String.trim(field_name)
-        value = value |> String.trim() |> String.replace("\\ ", " ")
-
-        {op, final_value} = parse_filter_value(field_name, negated, value)
-
-        %{
-          "field" => field_name,
-          "op" => op,
-          "value" => final_value
-        }
-
-      _ ->
-        nil
-    end
-  end
-
-  defp parse_filter_value(field, negated, value) do
-    cond do
-      list_filter_field?(field) ->
-        normalized = value |> normalize_list_value() |> Enum.join(", ")
-        {maybe_negate_op("equals", negated), normalized}
-
-      String.contains?(value, "%") ->
-        {maybe_negate_op("contains", negated), unwrap_like(value)}
-
-      true ->
-        {maybe_negate_op("equals", negated), value}
-    end
-  end
-
-  defp maybe_negate_op("equals", true), do: "not_equals"
-  defp maybe_negate_op("contains", true), do: "not_contains"
-  defp maybe_negate_op(op, _), do: op
-
-  defp unwrap_like("%" <> rest) do
-    rest
-    |> String.trim_trailing("%")
-    |> String.replace("\\ ", " ")
-  end
-
-  defp unwrap_like(value), do: value
-
-  defp list_filter_field?(field) when is_binary(field) do
-    field in ["discovery_sources"]
-  end
-
-  defp list_filter_field?(_), do: false
-
-  defp normalize_list_value(value) when is_binary(value) do
-    value
-    |> String.trim()
-    |> String.trim_leading("(")
-    |> String.trim_trailing(")")
-    |> String.split(",", trim: true)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-  end
-
-  defp update_builder(builder, params) do
-    builder
-    |> Map.merge(stringify_params(params))
-    |> normalize_builder_filters()
-  end
-
-  defp stringify_params(params) do
-    Map.new(params, fn
-      {k, v} when is_atom(k) -> {Atom.to_string(k), v}
-      {k, v} -> {to_string(k), v}
-    end)
-  end
-
-  defp normalize_builder_filters(builder) do
-    config = Catalog.entity("devices")
-
-    filters =
-      builder
-      |> Map.get("filters", %{})
-      |> normalize_filters_list(config)
-
-    Map.put(builder, "filters", filters)
-  end
-
-  defp normalize_filters_list(filters, config) when is_list(filters) do
-    Enum.map(filters, fn filter ->
-      field = normalize_filter_field(filter["field"], config)
-
-      %{
-        "field" => field,
-        "op" => normalize_filter_op(filter["op"], field),
-        "value" => filter["value"] || ""
-      }
-    end)
-  end
-
-  defp normalize_filters_list(filters_by_index, config) when is_map(filters_by_index) do
-    filters_by_index
-    |> Enum.sort_by(fn {k, _} ->
-      case Integer.parse(to_string(k)) do
-        {i, ""} -> i
-        _ -> 0
-      end
-    end)
-    |> Enum.map(fn {_k, v} -> v end)
-    |> normalize_filters_list(config)
-  end
-
-  defp normalize_filters_list(_, config) do
-    [%{"field" => config.default_filter_field, "op" => "contains", "value" => ""}]
-  end
-
-  defp normalize_filter_field(nil, config), do: config.default_filter_field
-  defp normalize_filter_field("", config), do: config.default_filter_field
-  defp normalize_filter_field(field, _config), do: field
-
-  defp normalize_filter_op(op, field) do
-    if list_filter_field?(field) do
-      case op do
-        "not_equals" -> "not_equals"
-        "not_contains" -> "not_equals"
-        "equals" -> "equals"
-        "contains" -> "equals"
-        _ -> "equals"
-      end
-    else
-      case op do
-        "contains" -> "contains"
-        "not_contains" -> "not_contains"
-        "equals" -> "equals"
-        "not_equals" -> "not_equals"
-        _ -> "contains"
-      end
-    end
-  end
-
-  defp build_target_query(builder) do
-    filters = Map.get(builder, "filters", [])
-
-    filters
-    |> Enum.map(&build_filter_token/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" ")
-  end
-
-  defp build_filter_token(%{"field" => field, "op" => op, "value" => value}) do
-    field = String.trim(field || "")
-    value = String.trim(value || "")
-
-    cond do
-      field == "" or value == "" ->
-        nil
-
-      list_filter_field?(field) ->
-        build_list_filter_token(field, op, value)
-
-      true ->
-        build_scalar_filter_token(field, op, value)
-    end
-  end
-
-  defp build_filter_token(_), do: nil
-
-  defp build_list_filter_token(field, op, value) do
-    values =
-      value
-      |> normalize_list_value()
-      |> Enum.map(&String.replace(&1, " ", "\\ "))
-
-    token = Enum.join(values, ",")
-
-    case op do
-      "not_equals" -> "!#{field}:(#{token})"
-      "not_contains" -> "!#{field}:(#{token})"
-      _ -> "#{field}:(#{token})"
-    end
-  end
-
-  defp build_scalar_filter_token(field, op, value) do
-    escaped = String.replace(value, " ", "\\ ")
-
-    case op do
-      "equals" -> "#{field}:#{escaped}"
-      "not_equals" -> "!#{field}:#{escaped}"
-      "not_contains" -> "!#{field}:%#{escaped}%"
-      _ -> "#{field}:%#{escaped}%"
-    end
-  end
-
   defp maybe_sync_builder_to_form(socket) do
     if socket.assigns.builder_sync do
       builder = socket.assigns.builder
-      query = build_target_query(builder)
+      query = TargetBuilder.build_target_query(builder)
 
       params =
         socket.assigns.ash_form
