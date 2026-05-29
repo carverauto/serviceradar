@@ -224,6 +224,10 @@ spec:
                     allow: [
                       "events.>",
                       "config.>",
+                      "\$KV.serviceradar-datasvc.>",
+                      "\$O.serviceradar-objects.>",
+                      "\$JS.FC.KV_serviceradar-datasvc.>",
+                      "\$JS.FC.OBJ_serviceradar-objects.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
