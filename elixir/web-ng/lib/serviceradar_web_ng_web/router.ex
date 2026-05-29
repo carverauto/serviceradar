@@ -733,6 +733,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/alerts", AlertLive.Index, :index)
       live("/alerts/:alert_id", AlertLive.Show, :show)
       live("/observability", LogLive.Index, :index)
+      live("/observability/flows/attributed", Flows.AttributedLive, :index)
       live("/observability/bmp", BmpLive.Index, :index)
       live("/observability/bgp", BGPLive.Index, :index)
       live("/observability/camera-relays", CameraRelayLive.Index, :index)
