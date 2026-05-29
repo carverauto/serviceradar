@@ -232,7 +232,6 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
   "channel_size": 10000,
   "batch_size": 100,
   "publish_timeout_ms": 5000,
-  "drop_policy": "drop_oldest",
   "security": {
     "mode": "mtls",
     "cert_dir": "/etc/serviceradar/certs",
@@ -258,7 +257,7 @@ The flow collector reads a single JSON file (`/etc/serviceradar/flow-collector.j
 - `channel_size`: Bounded channel depth (default: 10,000)
 - `batch_size`: Flows per NATS publish (default: 100)
 - `publish_timeout_ms`: NATS publish timeout (default: 5,000)
-- `drop_policy`: Backpressure handling (`drop_oldest`, `drop_newest`, `block`)
+- Backpressure is fixed to drop-newest: each listener owns a bounded mpsc channel of depth `channel_size`, and when it is full the listener drops the incoming datagram and increments a per-subject drop counter (no operator-tunable policy).
 - `metrics_addr`: Optional address for the collector metrics endpoint
 
 **Per-listener parameters:**
