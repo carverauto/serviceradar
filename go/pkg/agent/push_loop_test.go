@@ -321,6 +321,7 @@ func decodeAgentCapabilityPayload(t *testing.T, resp *proto.StatusResponse) agen
 	}
 
 	return payload
+}
 
 func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {
 	dir := t.TempDir()

@@ -1399,10 +1399,6 @@ func buildAgentCapabilityStatusResponse(
 	}
 }
 
-func agentCapabilitiesForStatus(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
-	return agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, false)
-}
-
 func agentCapabilitiesForStatusWithBannerGrab(
 	cfg *ServerConfig,
 	sidecars []*proto.SidecarStatus,
