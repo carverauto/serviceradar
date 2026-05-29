@@ -28,10 +28,23 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
+	"github.com/carverauto/serviceradar/go/pkg/scan/banner_grab"
 )
 
 // Option configures a NetworkSweeper instance.
 type Option func(*NetworkSweeper)
+
+// BannerObservationHandler consumes successful active banner observations.
+type BannerObservationHandler func(context.Context, <-chan banner_grab.BannerObservation) error
+
+// WithBannerObservationHandler wires banner observations to the agent-owned
+// netprobe IPC batcher. When unset, the sweeper drains observations and logs
+// counters so enabling banner grab cannot block the scan path.
+func WithBannerObservationHandler(handler BannerObservationHandler) Option {
+	return func(s *NetworkSweeper) {
+		s.bannerHandler = handler
+	}
+}
 
 const (
 	defaultInterval      = 5 * time.Minute
@@ -83,6 +96,9 @@ type NetworkSweeper struct {
 	deviceResults map[string]*DeviceResultAggregator
 	resultsMu     sync.Mutex
 	tickerReset   chan struct{}
+	bannerMu      sync.RWMutex
+	bannerPhase   *banner_grab.Engine
+	bannerHandler BannerObservationHandler
 }
 
 // DeviceResultAggregator aggregates scan results for a device with multiple IPs
@@ -1036,6 +1052,10 @@ func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-cha
 				return s.handleStreamComplete(ctx, resultBatch, scanType, count, success)
 			}
 
+			if err := s.submitBannerGrabCandidate(ctx, result); err != nil {
+				return err
+			}
+
 			count, success = s.processSingleResult(&result, &resultBatch, count, success)
 			if err := s.processBatchIfFull(ctx, &resultBatch, scanType, count, success); err != nil {
 				return err
@@ -1043,6 +1063,121 @@ func (s *NetworkSweeper) processResultsStream(ctx context.Context, results <-cha
 
 		case <-ctx.Done():
 			return s.handleContextDone(ctx, resultBatch, scanType, count, success)
+		}
+	}
+}
+
+type activeBannerGrabPhase struct {
+	engine *banner_grab.Engine
+	done   <-chan error
+}
+
+func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBannerGrabPhase {
+	if !s.config.BannerGrab.Enabled {
+		return nil
+	}
+
+	engine := banner_grab.New(banner_grab.ConfigFromModel(s.config.BannerGrab))
+	observations := engine.Start(ctx)
+
+	handler := s.bannerHandler
+	if handler == nil {
+		handler = s.drainBannerGrabObservations
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- handler(ctx, observations)
+	}()
+
+	s.bannerMu.Lock()
+	s.bannerPhase = engine
+	s.bannerMu.Unlock()
+
+	s.logger.Info().
+		Strs("protocols", s.config.BannerGrab.Protocols).
+		Int("maxGlobalConcurrency", s.config.BannerGrab.MaxGlobalConcurrency).
+		Int("maxCandidateQueue", s.config.BannerGrab.MaxCandidateQueue).
+		Msg("Started banner-grab phase")
+
+	return &activeBannerGrabPhase{
+		engine: engine,
+		done:   done,
+	}
+}
+
+func (s *NetworkSweeper) finishBannerGrabPhase(phase *activeBannerGrabPhase) error {
+	if phase == nil {
+		return nil
+	}
+
+	phase.engine.Stop()
+	err := <-phase.done
+	stats := phase.engine.Stats()
+
+	s.bannerMu.Lock()
+	if s.bannerPhase == phase.engine {
+		s.bannerPhase = nil
+	}
+	s.bannerMu.Unlock()
+
+	s.logger.Info().
+		Uint64("candidates", stats.CandidatesTotal).
+		Uint64("probes", stats.ProbesTotal).
+		Uint64("observations", stats.ObservationsTotal).
+		Uint64("timeouts", stats.TimeoutTotal).
+		Uint64("connectionResets", stats.ConnectionResetTotal).
+		Uint64("emptyResponses", stats.EmptyResponseTotal).
+		Uint64("maxQueueDepth", stats.MaxQueueDepth).
+		Msg("Finished banner-grab phase")
+
+	return err
+}
+
+func (s *NetworkSweeper) abortBannerGrabPhase(phase *activeBannerGrabPhase) {
+	if phase == nil {
+		return
+	}
+
+	phase.engine.Stop()
+	<-phase.done
+
+	s.bannerMu.Lock()
+	if s.bannerPhase == phase.engine {
+		s.bannerPhase = nil
+	}
+	s.bannerMu.Unlock()
+}
+
+func (s *NetworkSweeper) submitBannerGrabCandidate(ctx context.Context, result models.Result) error {
+	s.bannerMu.RLock()
+	engine := s.bannerPhase
+	s.bannerMu.RUnlock()
+
+	if engine == nil {
+		return nil
+	}
+
+	return engine.SubmitResult(ctx, result)
+}
+
+func (s *NetworkSweeper) drainBannerGrabObservations(ctx context.Context, observations <-chan banner_grab.BannerObservation) error {
+	count := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case _, ok := <-observations:
+			if !ok {
+				if count > 0 {
+					s.logger.Debug().Int("observations", count).Msg("Drained banner-grab observations without netprobe handler")
+				}
+
+				return nil
+			}
+
+			count++
 		}
 	}
 }
@@ -1184,6 +1319,14 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		Bool("tcpConnectIPv6Available", tcpConnectCaps.TCPConnectIPv6).
 		Msg("Starting sweep")
 
+	bannerPhase := s.startBannerGrabPhase(ctx)
+	finishedBannerPhase := false
+	defer func() {
+		if !finishedBannerPhase {
+			s.abortBannerGrabPhase(bannerPhase)
+		}
+	}()
+
 	var wg sync.WaitGroup
 
 	errChan := make(chan error, 3) // Buffer for ICMP, TCP, and TCP connect errors
@@ -1232,6 +1375,12 @@ func (s *NetworkSweeper) runSweep(ctx context.Context) error {
 		return err
 	}
 
+	err = s.finishBannerGrabPhase(bannerPhase)
+	finishedBannerPhase = true
+	if err != nil {
+		return err
+	}
+
 	// Finalize and process aggregated device results
 	s.finalizeDeviceAggregators(ctx)
 
@@ -1253,6 +1402,14 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	s.resultsMu.Lock()
 	s.deviceResults = make(map[string]*DeviceResultAggregator)
 	s.resultsMu.Unlock()
+
+	bannerPhase := s.startBannerGrabPhase(ctx)
+	finishedBannerPhase := false
+	defer func() {
+		if !finishedBannerPhase {
+			s.abortBannerGrabPhase(bannerPhase)
+		}
+	}()
 
 	runner := &sweepBatchRunner{
 		sweeper:           s,
@@ -1299,6 +1456,12 @@ func (s *NetworkSweeper) runBatchedSweep(ctx context.Context, targetEstimate int
 	}
 
 	if err := runner.flushAll(); err != nil {
+		return err
+	}
+
+	err := s.finishBannerGrabPhase(bannerPhase)
+	finishedBannerPhase = true
+	if err != nil {
 		return err
 	}
 
