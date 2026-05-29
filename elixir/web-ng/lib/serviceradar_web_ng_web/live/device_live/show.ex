@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
@@ -52,126 +53,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, MtrPubSub.topic())
     end
 
-    srql = %{
-      enabled: true,
-      entity: "devices",
-      page_path: nil,
-      query: nil,
-      draft: nil,
-      error: nil,
-      viz: nil,
-      loading: false,
-      builder_available: false,
-      builder_open: false,
-      builder_supported: false,
-      builder_sync: false,
-      builder: %{}
-    }
-
     {:ok,
-     socket
-     |> assign(:page_title, "Device")
-     |> assign(:device_uid, nil)
-     |> assign(:device_details_request_ref, nil)
-     |> assign(:details_loading, false)
-     |> assign(:results, [])
-     |> assign(:panels, [])
-     |> assign(:metric_sections, [])
-     |> assign(:sysmon_presence, false)
-     |> assign(:sysmon_profile_info, nil)
-     |> assign(:available_profiles, [])
-     |> assign(:availability, nil)
-     |> assign(:agent_availability, [])
-     |> assign(:healthcheck_summary, nil)
-     |> assign(:virtualization_summary, nil)
-     |> assign(:has_virtualization_guests, false)
-     |> assign(:sweep_results, nil)
-     |> assign(:process_metrics, nil)
-     |> assign(:limit, @default_limit)
-     |> assign(:flows_limit, @flows_limit)
-     |> assign(:srql, srql)
-     # Edit mode
-     |> assign(:editing, false)
-     |> assign(:device_form, to_form(%{}, as: :device))
-     |> assign(:device_snmp_credential, nil)
-     |> assign(:snmp_credential_form, to_form(%{}, as: :snmp))
-     # Network interfaces for dedicated tab
-     |> assign(:network_interfaces, [])
-     |> assign(:interfaces_error, nil)
-     |> assign(:has_ifaces, false)
-     |> assign(:discovery_job, nil)
-     # Interface selection state
-     |> assign(:selected_interfaces, MapSet.new())
-     |> assign(:favorited_interfaces, MapSet.new())
-     |> assign(:northbound_interface_actions, [])
-     |> assign(:northbound_interface_actions_loading, false)
-     |> assign(:northbound_interface_actions_loaded, false)
-     |> assign(:show_northbound_interface_action_modal, false)
-     |> assign(:northbound_interface_action_form, to_form(%{}, as: :action))
-     |> assign(:northbound_interface_action_error, nil)
-     |> assign(:northbound_interface_launch_action, nil)
-     |> assign(:northbound_device_history, [])
-     |> assign(:northbound_device_history_error, nil)
-     |> assign(:northbound_launch_notice, nil)
-     |> assign(:show_interfaces_bulk_edit, false)
-     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
-     # Interface metrics for favorited interfaces
-     |> assign(:interface_metrics, nil)
-     |> assign(:interface_metrics_layout, "two")
-     |> assign(:device_flows, [])
-     |> assign(:flows_error, nil)
-     |> assign(:rdns_map, %{})
-     |> assign(:geo_iso2_map, %{})
-     |> assign(:flows_pagination, %{})
-     |> assign(:has_flows, false)
-     |> assign(:device_logs, [])
-     |> assign(:logs_error, nil)
-     |> assign(:logs_pagination, %{})
-     |> assign(:logs_loading, false)
-     |> assign(:logs_request_ref, nil)
-     |> assign(:logs_cursor, nil)
-     |> assign(:has_logs, false)
-     |> assign(:logs_limit, @logs_limit)
-     |> assign(:flow_stats, %{})
-     |> assign(:flow_stats_loading, true)
-     |> assign(:flow_sparkline_json, "[]")
-     |> assign(:flow_proto_json, "[]")
-     |> assign(:flow_chart_keys_json, "[]")
-     |> assign(:flow_chart_points_json, "[]")
-     |> assign(:flow_top_talkers_json, "[]")
-     |> assign(:flow_top_destinations_json, "[]")
-     |> assign(:flow_top_ports_json, "[]")
-     |> assign(:flow_top_protocols_json, "[]")
-     |> assign(:flow_facets, %{protocols: [], directions: [], services: []})
-     |> assign(:flow_stats_request_ref, nil)
-     |> assign(:flow_ip_request_ref, nil)
-     |> assign(:device_metrics_request_ref, nil)
-     |> assign(:metrics_loading, false)
-     |> assign(:flow_active_facets, %{})
-     |> assign(:flow_active_topn, nil)
-     |> assign(:flow_zoom_range, nil)
-     |> assign(:ip_aliases, [])
-     |> assign(:ip_alias_error, nil)
-     |> assign(:show_stale_aliases, false)
-     # MTR diagnostics tab
-     |> assign(:mtr_traces, [])
-     |> assign(:mtr_pending_jobs, [])
-     |> assign(:mtr_trends, %{hops: [], latency: []})
-     |> assign(:mtr_page, 1)
-     |> assign(:mtr_page_size, MtrRuntime.default_page_size())
-     |> assign(:mtr_total_count, 0)
-     |> assign(:mtr_coverage, %{trace_count: 0, earliest_time: nil, latest_time: nil})
-     |> assign(:mtr_retention_status, %{configured_days: 30, status: :degraded, tables: %{}})
-     |> assign(:has_mtr, false)
-     |> assign(:show_mtr_trace_modal, false)
-     |> assign(:selected_mtr_trace, nil)
-     |> assign(:selected_mtr_hops, [])
-     |> assign(:camera_sources, [])
-     |> assign(:camera_inventory_error, nil)
-     |> assign(:active_camera_relay_session, nil)
-     |> assign(:last_camera_relay_session, nil)
-     # Tab state for device details
-     |> assign(:active_tab, "details")}
+     DeviceMountAssigns.assign_defaults(socket,
+       default_limit: @default_limit,
+       flows_limit: @flows_limit,
+       logs_limit: @logs_limit
+     )}
   end
 
   @impl true
