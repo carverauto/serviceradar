@@ -219,8 +219,10 @@ func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
 	}
 
 	// Other partitions and the publish wildcard must not appear in the
-	// allow list — the fail-safe deny on flow.attributed.> below would
-	// catch a drift, but the allow list itself must stay narrow.
+	// allow list — the allow list itself must stay narrow because that
+	// is what bounds the publish authority (B-7: NATS publish ACL
+	// semantics are "any matching deny wins", so a wildcard deny would
+	// shadow the partition allow rather than acting as a fail-safe).
 	for _, forbidden := range []string{
 		"flow.attributed.>",
 		"flow.attributed.partition-B",
@@ -235,11 +237,15 @@ func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
 	if !containsString(claims.Pub.Deny, "$SYS.>") {
 		t.Errorf("publish deny must contain $SYS.>: %v", claims.Pub.Deny)
 	}
-	// Deny-wildcard fail-safe: NATS evaluates allow-then-deny per
-	// token, so this guarantees cross-partition publish is impossible
-	// even if PublishAllow ever drifts.
-	if !containsString(claims.Pub.Deny, "flow.attributed.>") {
-		t.Errorf("publish deny must contain flow.attributed.> fail-safe: %v", claims.Pub.Deny)
+	// B-7: PublishDeny must NOT contain flow.attributed.> — that
+	// wildcard is a strict superset of the partition-scoped allows
+	// above and would shadow them at runtime, preventing core from
+	// publishing to its own partition. Cross-partition isolation is
+	// provided by the narrowness of PublishAllow.
+	if containsString(claims.Pub.Deny, "flow.attributed.>") {
+		t.Errorf("publish deny must NOT contain flow.attributed.> "+
+			"(B-7: shadows partition-scoped PublishAllow): %v",
+			claims.Pub.Deny)
 	}
 
 	// Subscribe is scoped per-partition for defense-in-depth.

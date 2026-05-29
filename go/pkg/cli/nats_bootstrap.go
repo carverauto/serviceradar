@@ -724,11 +724,17 @@ func GenerateAgentFlowCollectorCreds(
 //     (flow.attributed.<partition_id> and flow.attributed.<partition_id>.>)
 //     alongside the other control subjects core legitimately publishes
 //     (flow.raw.>, logs.>, events.>, config.>, JetStream control,
-//     inboxes).
-//   - PublishDeny includes the wildcard flow.attributed.> as a fail-safe
-//     ceiling. NATS evaluates allow-then-deny per token, so even if a
-//     future edit widens PublishAllow, cross-partition publish remains
-//     impossible without an explicit operator override of the deny rule.
+//     inboxes). NATS publish ACL semantics are "any deny wins": for any
+//     subject token that matches both the allow list and the deny list,
+//     the deny rejects the publish. Cross-partition publish is
+//     prevented by the narrowness of PublishAllow itself —
+//     flow.attributed.<otherP> is not in the allow list, so NATS
+//     implicitly denies it. We do NOT add flow.attributed.> to
+//     PublishDeny because that wildcard is a strict superset of the
+//     partition-scoped allow tokens and would shadow them at runtime
+//     (B-7 fix).
+//   - PublishDeny is limited to $SYS.> (reserved for the system
+//     account on every identity).
 //   - SubscribeAllow is tightened to the matching
 //     flow.attributed.<partition_id>.> subtree (defense-in-depth) plus
 //     the host-slice consumer subjects core needs for the attribution
@@ -766,12 +772,16 @@ func GeneratePartitionCoreCreds(
 			"$JS.ACK.>",
 			"_INBOX.>",
 		},
-		// Deny-wildcard on flow.attributed.> is the fail-safe: even if
-		// PublishAllow ever drifts to widen the partition scope, NATS
-		// will still reject cross-partition publishes because the deny
-		// rule wins. The explicit allow above is narrower than the deny
-		// wildcard, so it must be added back per-partition deliberately.
-		PublishDeny: []string{"$SYS.>", "flow.attributed.>"},
+		// PublishDeny is intentionally limited to $SYS.>. We previously
+		// also denied "flow.attributed.>" as a fail-safe ceiling, but
+		// NATS publish authorization is "any matching deny wins": the
+		// wildcard deny is a strict superset of the partition-scoped
+		// allows above, so it would shadow them and prevent core from
+		// publishing to its own partition (B-7). Cross-partition publish
+		// is prevented by the narrowness of PublishAllow itself —
+		// flow.attributed.<otherP> is not in the allow list and is
+		// implicitly denied by NATS.
+		PublishDeny: []string{"$SYS.>"},
 		SubscribeAllow: []string{
 			"flow.host-slice.>",
 			attributedSubject,

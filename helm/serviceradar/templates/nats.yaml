@@ -11,8 +11,15 @@ truth; agent.partitionId is honored as a fallback for backwards
 compatibility with releases that only set it under .agent. This MUST
 match SERVICERADAR_OTX_PARTITION on the core-elx runtime config —
 otherwise core will publish to flow.attributed.<partition> subjects
-that the NATS authorization block denies, and the deny-wildcard on
-the unscoped flow.attributed.> token will silently drop the messages.
+that are not in any allowed publish ACL, and NATS will reject the
+messages with a permissions violation.
+
+B-7 fix: the per-identity publish ACLs below do NOT deny the unscoped
+flow.attributed.> wildcard for the core/datasvc/db-event-writer/zen
+roles. NATS publish authorization is "any matching deny wins"; a
+wildcard deny would be a strict superset of the partition-scoped
+allow tokens and would shadow them. Cross-partition publish is
+prevented by the narrowness of each identity's PublishAllow.
 */}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
@@ -161,10 +168,13 @@ spec:
               # flow.attributed.{{ $partitionId }} for the owning
               # partition, manages JetStream streams/consumers, and uses
               # request/reply inboxes. Denied from $SYS.> (system events
-              # are scoped to the SYS account only) and from the unscoped
-              # flow.attributed.> wildcard as a fail-safe so cross-
-              # partition publish is impossible even if PublishAllow is
-              # widened later.
+              # are scoped to the SYS account only). The unscoped
+              # flow.attributed.> wildcard is NOT in PublishDeny because
+              # NATS publish authorization is "any matching deny wins" —
+              # a wildcard deny would be a strict superset of the
+              # partition-scoped allows and would shadow them at runtime
+              # (B-7). Cross-partition publish is prevented by the
+              # narrowness of PublishAllow itself.
               {
                 user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -181,7 +191,7 @@ spec:
                       "\$JS.ACK.>",
                       "_INBOX.>"
                     ]
-                    deny: ["\$SYS.>", "flow.attributed.>"]
+                    deny: ["\$SYS.>"]
                   }
                   subscribe: {
                     allow: [
@@ -203,8 +213,10 @@ spec:
               },
               # Datasvc (B-5 subject-scoping): query-side service that reads
               # attributed flows for this partition plus catalog events and
-              # config. Same partition-scoped allow + flow.attributed.> deny
-              # fail-safe as core.
+              # config. PublishAllow does not include any flow.attributed.*
+              # token, so the wildcard deny on flow.attributed.> is omitted
+              # (B-7 consistency): subjects not in PublishAllow are already
+              # implicitly denied by NATS.
               {
                 user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -216,7 +228,7 @@ spec:
                       "\$JS.ACK.>",
                       "_INBOX.>"
                     ]
-                    deny: ["\$SYS.>", "flow.attributed.>"]
+                    deny: ["\$SYS.>"]
                   }
                   subscribe: {
                     allow: [
@@ -264,7 +276,10 @@ spec:
               # DB event-writer (B-5 subject-scoping): consumes attributed
               # flows + events for this partition and writes them to
               # downstream storage. Pure consumer aside from JetStream
-              # control / reply inboxes.
+              # control / reply inboxes. PublishAllow does not include
+              # any flow.attributed.* token, so the wildcard deny on
+              # flow.attributed.> is omitted (B-7 consistency): subjects
+              # not in PublishAllow are already implicitly denied.
               {
                 user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -274,7 +289,7 @@ spec:
                       "\$JS.ACK.>",
                       "_INBOX.>"
                     ]
-                    deny: ["\$SYS.>", "flow.attributed.>"]
+                    deny: ["\$SYS.>"]
                   }
                   subscribe: {
                     allow: [
@@ -292,6 +307,10 @@ spec:
               },
               # Zen rules engine (B-5 subject-scoping): subscribes to
               # events for its partition and publishes rule decisions.
+              # PublishAllow does not include any flow.attributed.*
+              # token, so the wildcard deny on flow.attributed.> is
+              # omitted (B-7 consistency): subjects not in PublishAllow
+              # are already implicitly denied by NATS.
               {
                 user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -303,7 +322,7 @@ spec:
                       "\$JS.ACK.>",
                       "_INBOX.>"
                     ]
-                    deny: ["\$SYS.>", "flow.attributed.>"]
+                    deny: ["\$SYS.>"]
                   }
                   subscribe: {
                     allow: [
