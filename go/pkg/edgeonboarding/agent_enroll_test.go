@@ -114,11 +114,12 @@ func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
 	require.NoError(t, err)
 
 	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
-		Token:         token,
-		ConfigPath:    configPath,
-		CertDir:       certDir,
-		NATSCredsPath: credsPath,
-		HTTPClient:    server.Client(),
+		Token:          token,
+		ConfigPath:     configPath,
+		CertDir:        certDir,
+		NATSCredsPath:  credsPath,
+		HTTPClient:     server.Client(),
+		RestartService: noopRestartService,
 	})
 	require.NoError(t, err)
 
@@ -157,11 +158,12 @@ func TestEnrollAgentWritesReplacementNATSCredsToRoleScopedPath(t *testing.T) {
 	require.NoError(t, err)
 
 	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
-		Token:         token,
-		ConfigPath:    configPath,
-		CertDir:       certDir,
-		NATSCredsPath: credsPath,
-		HTTPClient:    server.Client(),
+		Token:          token,
+		ConfigPath:     configPath,
+		CertDir:        certDir,
+		NATSCredsPath:  credsPath,
+		HTTPClient:     server.Client(),
+		RestartService: noopRestartService,
 	})
 	require.NoError(t, err)
 
@@ -276,6 +278,12 @@ func TestNewBundleDownloadRequestUsesPostAndHeader(t *testing.T) {
 	)
 	assert.Equal(t, "token-123", req.Header.Get(downloadTokenHeader))
 }
+
+// noopRestartService stubs out the post-enrollment systemctl restart so the
+// agent enrollment tests exercise config/credential placement without touching
+// the host's service manager (which fails with "Interactive authentication
+// required" off-root and would otherwise make these tests environment-dependent).
+func noopRestartService(context.Context) error { return nil }
 
 func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	t.Helper()

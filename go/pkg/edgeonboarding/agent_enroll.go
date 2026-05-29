@@ -66,6 +66,11 @@ type EnrollOptions struct {
 	Logf          func(string, ...interface{})
 	Errorf        func(string, ...interface{})
 	SkipOverwrite bool
+	// RestartService restarts the local serviceradar-agent unit after the
+	// bundle has been installed. When nil it defaults to restartAgentService,
+	// which shells out to `systemctl restart serviceradar-agent`. Tests inject
+	// a no-op so enrollment does not touch the host's service manager.
+	RestartService func(ctx context.Context) error
 }
 
 // EnrollAgentFromToken downloads an edge onboarding bundle and writes agent config + certs.
@@ -205,7 +210,13 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		return err
 	}
 
-	if err := restartAgentService(ctx, opts.Logf); err != nil {
+	restart := opts.RestartService
+	if restart == nil {
+		restart = func(ctx context.Context) error {
+			return restartAgentService(ctx, opts.Logf)
+		}
+	}
+	if err := restart(ctx); err != nil {
 		return err
 	}
 
