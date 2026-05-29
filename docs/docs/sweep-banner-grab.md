@@ -143,3 +143,49 @@ To stop active banner-grab traffic:
 5. Leave passive fingerprinting enabled if TLS, HTTP, or TCP fingerprint evidence
    is still required.
 
+## Data Handling
+
+Active banner-grab is designed so raw payload bytes never leave the agent host,
+and so the canonical Device record only gains structured, matched labels.
+Operators reviewing privacy or compliance posture should know:
+
+- **Raw banner bytes stay agent-local.** Every captured banner is forwarded to
+  the netprobe sidecar over the host's Unix domain socket
+  (`/var/run/serviceradar/netprobe.sock` by default). The bytes are never
+  serialised onto the agent's gRPC status push to core and are never written to
+  disk.
+- **Only matched labels reach core.** After netprobe runs the Recog corpus
+  against a banner, only the structured match (corpus label, product, version,
+  optional OS family / vendor / CPE) is bridged into the agent's status push
+  as a `FingerprintEvent` with `source = sweep_active`. The originating raw
+  banner bytes are dropped at the netprobe boundary.
+- **Audit summary is counts only.** The AshPaperTrail entry on the parent
+  sweep-job record summarises the phase as counts (probes, matches, empty
+  responses, errors, total bytes received). It does not include per-probe
+  payloads or per-host detail.
+- **cmdline and hostname are NOT in the active-fingerprint flow.** Active
+  banner-grab fingerprints derive solely from on-wire banner payloads. Process
+  cmdline arguments and OS hostnames remain in the passive / host-agent
+  evidence stream and are not collected, attached to, or correlated with
+  `FingerprintEvent`s emitted by the active sweep path.
+
+If you need to expose the raw banner bytes for a specific Device Detail view,
+that requires the operator-only `metadata.raw_banner` privacy opt-in flag
+described in §33.18 of the host-network-visibility change proposal; without it,
+even operators only see the matched labels.
+
+### Synthetic 1M-Host Validation
+
+The bounded-concurrency invariants advertised above are guarded by
+`TestEngineKeepsMillionHostSyntheticStreamBounded` in
+`go/pkg/scan/banner_grab/engine_test.go`. The test is opt-in (it skips unless
+`SERVICERADAR_LARGE_BANNER_GRAB_TEST=1` is set) and runs nightly via the
+`.forgejo/workflows/banner-grab-large.yml` workflow. To reproduce locally:
+
+```sh
+SERVICERADAR_LARGE_BANNER_GRAB_TEST=1 \
+  go test -count=1 -timeout=5m \
+  -run TestEngineKeepsMillionHostSyntheticStreamBounded \
+  ./go/pkg/scan/banner_grab/...
+```
+

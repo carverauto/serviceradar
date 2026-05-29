@@ -858,7 +858,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.FormComponents do
   end
 
   def banner_grab_default_ports("ssh"), do: "22"
-  def banner_grab_default_ports("http"), do: "80, 443, 8080"
+  def banner_grab_default_ports("http"), do: "80, 8080, 8000, 8888"
   def banner_grab_default_ports("smb"), do: "139, 445"
   def banner_grab_default_ports("ftp"), do: "21"
   def banner_grab_default_ports("telnet"), do: "23"

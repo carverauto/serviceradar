@@ -40,11 +40,22 @@ func TestIntegrationBannerGrabFixtureNetworkMatchesNetprobe(t *testing.T) {
 	client := startNetprobeSidecarForIntegration(t, ctx, netprobeBin)
 	defer func() { _ = client.Close() }()
 
+	// Synthetic NTP mode-6 readvar response payload. The recog corpus matches
+	// banners of the form `version="ntpd <ver> ...", processor="<arch>",
+	// system="Linux/<kernel>"`; the bytes here are an opaque NTP control
+	// header prefix followed by an ASCII variable list so the netprobe
+	// corpus produces a real ntpd match without us having to forge the full
+	// mode-6 framing the engine consumes.
+	ntpReadvarResponse := append(
+		[]byte{0x17, 0x82, 0x00, 0x2a, 0x00, 0x00, 0x00, 0x00},
+		[]byte(`version="ntpd 4.2.8p15@1.3728-o Wed Jun 23 09:31:32 UTC 2021 (1)", processor="x86_64", system="Linux/5.15.0", leap=00, stratum=3,`)...,
+	)
 	fixtures := []bannerFixture{
 		startBannerFixture(t, ProtocolSSH, []byte("OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"), false),
 		startBannerFixture(t, ProtocolHTTP, []byte("HTTP/1.1 200 OK\r\nServer: Apache/2.4.58 (Ubuntu)\r\n\r\n"), true),
 		startBannerFixture(t, ProtocolSMTP, []byte("foo.bar ESMTP Postfix 2.7.1\r\n"), false),
 		startBannerFixture(t, ProtocolSMB, []byte("Samba 4.13.17"), true),
+		startUDPBannerFixture(t, ProtocolNTP, ntpReadvarResponse),
 	}
 
 	config := Config{
@@ -132,6 +143,37 @@ func startBannerFixture(t *testing.T, protocol string, banner []byte, readBefore
 		protocol: protocol,
 		host:     tcpAddr.IP.String(),
 		port:     tcpAddr.Port,
+	}
+}
+
+func startUDPBannerFixture(t *testing.T, protocol string, response []byte) bannerFixture {
+	t.Helper()
+
+	conn, err := net.ListenUDP("udp", &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0})
+	if err != nil {
+		t.Fatalf("ListenUDP(%s) error = %v", protocol, err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+
+	go func() {
+		buf := make([]byte, 1500)
+		_ = conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+		n, addr, readErr := conn.ReadFromUDP(buf)
+		if readErr != nil || n == 0 || addr == nil {
+			return
+		}
+		_, _ = conn.WriteToUDP(response, addr)
+	}()
+
+	udpAddr, ok := conn.LocalAddr().(*net.UDPAddr)
+	if !ok {
+		t.Fatalf("listener addr = %T, want *net.UDPAddr", conn.LocalAddr())
+	}
+
+	return bannerFixture{
+		protocol: protocol,
+		host:     udpAddr.IP.String(),
+		port:     udpAddr.Port,
 	}
 }
 
@@ -240,7 +282,7 @@ func assertIntegrationMatches(t *testing.T, matches []*netprobepb.BannerMatch) {
 		byProduct[strings.ToLower(match.GetProduct())] = match
 	}
 
-	for _, product := range []string{"openssh", "httpd", "postfix", "samba"} {
+	for _, product := range []string{"openssh", "httpd", "postfix", "samba", "ntp"} {
 		if byProduct[product] == nil {
 			t.Fatalf("missing %s match in %s", product, bannerMatchSummary(matches))
 		}
