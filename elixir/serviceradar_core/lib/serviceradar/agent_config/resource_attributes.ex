@@ -1,9 +1,9 @@
 defmodule ServiceRadar.AgentConfig.ResourceAttributes do
   @moduledoc false
 
-  @config_types [:sweep, :sysmon, :snmp, :mapper, :visibility]
+  @config_types [:sweep, :sysmon, :snmp, :mapper, :visibility, :bumblebee]
 
-  @spec config_types() :: [:sweep | :sysmon | :snmp | :mapper | :visibility]
+  @spec config_types() :: [:sweep | :sysmon | :snmp | :mapper | :visibility | :bumblebee]
   def config_types, do: @config_types
 
   defmacro config_type_attribute(description) do

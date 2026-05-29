@@ -4,6 +4,8 @@ go_library(
     name = "agent",
     srcs = [
         "app_tcp_route.go",
+        "bumblebee_config.go",
+        "bumblebee_spool_service.go",
         "camera_relay.go",
         "camera_relay_rtsp.go",
         "credential_broker_resolver.go",
@@ -61,6 +63,7 @@ go_library(
         "//go/pkg/agent/remoteaccess",
         "//go/pkg/agent/sidecar",
         "//go/pkg/agent/snmp",
+        "//go/pkg/bumblebee",
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/grpc",
@@ -97,6 +100,8 @@ go_library(
 go_test(
     name = "agent_test",
     srcs = [
+        "bumblebee_config_test.go",
+        "bumblebee_spool_service_test.go",
         "camera_relay_test.go",
         "control_stream_test.go",
         "credential_broker_resolver_test.go",
@@ -121,6 +126,7 @@ go_test(
     embed = [":agent"],
     deps = [
         "//go/pkg/agent/remoteaccess",
+        "//go/pkg/bumblebee",
         "//go/pkg/config",
         "//go/pkg/config/kv",
         "//go/pkg/grpc",

@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Invalid
+  alias Ash.Page.Keyset
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
@@ -23,9 +24,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.BumblebeeDevicePosture
+  alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
+  alias ServiceRadar.Inventory.DeviceRiskContribution
   alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Inventory.VirtualizationCluster
@@ -117,6 +121,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
      |> assign(:available_profiles, [])
      |> assign(:availability, nil)
      |> assign(:agent_availability, [])
+     |> assign(:bumblebee_postures, [])
+     |> assign(:bumblebee_findings, [])
+     |> assign(:device_risk_contributions, [])
+     |> assign(:bumblebee_exposure_error, nil)
      |> assign(:healthcheck_summary, nil)
      |> assign(:virtualization_summary, nil)
      |> assign(:has_virtualization_guests, false)
@@ -1083,9 +1091,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {northbound_device_history, northbound_device_history_error} =
       Map.get(parallel_results, :northbound_history, {[], nil})
 
+    {bumblebee_postures, bumblebee_findings, device_risk_contributions, bumblebee_exposure_error} =
+      Map.get(parallel_results, :bumblebee_exposure, {[], [], [], nil})
+
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
+      bumblebee_postures: bumblebee_postures,
+      bumblebee_findings: bumblebee_findings,
+      device_risk_contributions: device_risk_contributions,
+      bumblebee_exposure_error: bumblebee_exposure_error,
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
       virtualization_summary: virtualization_summary,
       has_virtualization_guests: virtualization_guests?(virtualization_summary),
@@ -1149,7 +1164,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end),
       timed_device_task(:mapper, fn -> load_mapper_jobs_for_device(scope, device_row) end),
       timed_device_task(:aliases, fn -> load_ip_aliases(scope, uid, show_stale) end),
-      timed_device_task(:northbound_history, fn -> load_northbound_device_history(scope, uid) end)
+      timed_device_task(:northbound_history, fn -> load_northbound_device_history(scope, uid) end),
+      timed_device_task(:bumblebee_exposure, fn -> load_bumblebee_exposure(scope, uid) end)
     ]
 
     base_tasks
@@ -3402,6 +3418,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
+  defp load_bumblebee_exposure(nil, _device_uid), do: {[], [], [], nil}
+  defp load_bumblebee_exposure(_scope, nil), do: {[], [], [], nil}
+
+  defp load_bumblebee_exposure(scope, device_uid) do
+    with {:ok, postures} <- read_bumblebee_postures(scope, device_uid),
+         {:ok, findings} <- read_bumblebee_findings(scope, device_uid),
+         {:ok, risk_contributions} <- read_device_risk_contributions(scope, device_uid) do
+      {postures, findings, risk_contributions, nil}
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to load Bumblebee exposure for #{device_uid}: #{inspect(reason)}")
+        {[], [], [], "Failed to load Bumblebee exposure."}
+    end
+  end
+
+  defp read_bumblebee_postures(scope, device_uid) do
+    BumblebeeDevicePosture
+    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(8)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp read_bumblebee_findings(scope, device_uid) do
+    BumblebeeFinding
+    |> Ash.Query.for_read(:active_by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(25)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp read_device_risk_contributions(scope, device_uid) do
+    DeviceRiskContribution
+    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(20)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp normalize_ash_list_result({:ok, %Keyset{results: results}}), do: {:ok, results}
+  defp normalize_ash_list_result({:ok, results}) when is_list(results), do: {:ok, results}
+  defp normalize_ash_list_result({:error, reason}), do: {:error, reason}
+
   @impl true
   def render(assigns) do
     device_row = List.first(Enum.filter(assigns.results, &is_map/1))
@@ -4144,6 +4203,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
 
               <.metadata_summary_section :if={is_map(@device_row)} device_row={@device_row} />
+
+              <.bumblebee_exposure_section
+                :if={is_map(@device_row)}
+                postures={@bumblebee_postures}
+                findings={@bumblebee_findings}
+                risk_contributions={@device_risk_contributions}
+                error={@bumblebee_exposure_error}
+              />
 
               <.network_visibility_section :if={is_map(@device_row)} device_row={@device_row} />
 
@@ -5487,7 +5554,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         passive_protocol_row("HTTP", passive_protocol_payload(metadata, nested, "http"), [
           metadata_item("Server", passive_value(metadata, nested, "http", "server")),
           metadata_item("User agent", passive_value(metadata, nested, "http", "user_agent")),
-          metadata_item("Accept language", passive_value(metadata, nested, "http", "accept_language"))
+          metadata_item(
+            "Accept language",
+            passive_value(metadata, nested, "http", "accept_language")
+          )
         ])
       ],
       &is_nil/1
@@ -6029,6 +6099,262 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp summarize_metadata_value(value), do: value
+
+  attr(:postures, :list, default: [])
+  attr(:findings, :list, default: [])
+  attr(:risk_contributions, :list, default: [])
+  attr(:error, :string, default: nil)
+
+  defp bumblebee_exposure_section(assigns) do
+    posture = List.first(assigns.postures || [])
+
+    contribution =
+      Enum.find(assigns.risk_contributions || [], &(resource_value(&1, :source) == "bumblebee"))
+
+    posture_state = resource_value(posture, :state)
+    coverage_state = resource_value(posture, :coverage_state)
+    skipped_roots = resource_value(posture, :skipped_roots) || []
+    hidden_skipped_count = max(length(skipped_roots) - 5, 0)
+
+    assigns =
+      assigns
+      |> assign(:posture, posture)
+      |> assign(:contribution, contribution)
+      |> assign(:posture_state, posture_state)
+      |> assign(:coverage_state, coverage_state)
+      |> assign(:posture_risk_score, resource_value(posture, :risk_score))
+      |> assign(:posture_highest_severity, resource_value(posture, :highest_severity))
+      |> assign(:posture_active_count, resource_value(posture, :active_finding_count) || 0)
+      |> assign(:skipped_roots, skipped_roots)
+      |> assign(:hidden_skipped_count, hidden_skipped_count)
+      |> assign(:contribution_score, resource_value(contribution, :score))
+      |> assign(:contribution_level, resource_value(contribution, :risk_level))
+      |> assign(:contribution_reason, resource_value(contribution, :reason))
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-4 py-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-bug-ant" class="size-4 text-error" />
+          <span class="text-sm font-semibold">Bumblebee Exposure</span>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class={["badge badge-sm", bumblebee_state_badge_class(@posture_state)]}>
+            {bumblebee_state_label(@posture_state)}
+          </span>
+          <span
+            :if={@coverage_state}
+            class={["badge badge-sm", bumblebee_coverage_badge_class(@coverage_state)]}
+          >
+            {bumblebee_coverage_label(@coverage_state)}
+          </span>
+        </div>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div
+          :if={is_binary(@error)}
+          class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-sm text-warning"
+        >
+          {@error}
+        </div>
+
+        <div :if={is_nil(@posture) and is_nil(@error)} class="text-sm text-base-content/60">
+          No Bumblebee scan has reported for this device yet.
+        </div>
+
+        <div
+          :if={@posture}
+          class="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)] gap-4"
+        >
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-x-4 gap-y-3 text-sm">
+            <.kv_block label="Active Findings" value={@posture_active_count} />
+            <.kv_block
+              label="Highest Severity"
+              value={bumblebee_severity_label(@posture_highest_severity)}
+            />
+            <.kv_block label="Roots Scanned" value={bumblebee_roots_summary(@posture)} />
+            <.kv_block label="Catalog" value={resource_value(@posture, :catalog_snapshot_ref)} />
+            <.kv_block label="Agent" value={resource_value(@posture, :agent_id)} />
+            <.kv_block label="Scanner" value={resource_value(@posture, :scanner_version)} />
+            <.kv_block
+              label="Last Scan"
+              value={format_timestamp(resource_value(@posture, :last_scan_at))}
+            />
+            <.kv_block
+              label="Root Covered"
+              value={bumblebee_root_covered_label(resource_value(@posture, :root_covered))}
+            />
+          </div>
+
+          <div class="rounded-lg border border-base-200/80 bg-base-50/40 p-3">
+            <div class="text-xs text-base-content/60">Composite Risk Contribution</div>
+            <div :if={@contribution} class="mt-2 flex flex-wrap items-center gap-3">
+              <div class="text-2xl font-semibold tabular-nums">{@contribution_score}</div>
+              <.risk_badge :if={@contribution_level} level={@contribution_level} />
+              <div class="min-w-0 basis-full text-xs text-base-content/60">
+                {@contribution_reason}
+              </div>
+            </div>
+            <div :if={is_nil(@contribution)} class="mt-2 text-sm text-base-content/60">
+              No active Bumblebee risk contribution.
+            </div>
+          </div>
+        </div>
+
+        <div :if={@skipped_roots != []} class="rounded-lg border border-warning/20 bg-warning/5 p-3">
+          <div class="flex items-center gap-2 text-sm font-medium text-warning">
+            <.icon name="hero-exclamation-triangle" class="size-4" /> Skipped Scan Roots
+          </div>
+          <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+            <div
+              :for={root <- Enum.take(@skipped_roots, 5)}
+              class="rounded-md bg-base-100/80 px-2 py-1"
+            >
+              <span class="font-mono">{Map.get(root, "path") || "unknown"}</span>
+              <span :if={Map.get(root, "reason")} class="text-base-content/60">
+                {" "}({Map.get(root, "reason")})
+              </span>
+            </div>
+            <div :if={@hidden_skipped_count > 0} class="px-2 py-1 text-base-content/60">
+              +{@hidden_skipped_count} more
+            </div>
+          </div>
+        </div>
+
+        <div :if={@findings != []} class="overflow-x-auto">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Severity</th>
+                <th>Package</th>
+                <th>Evidence</th>
+                <th>Risk</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :for={finding <- Enum.take(@findings, 10)}>
+                <td>
+                  <span class={[
+                    "badge badge-sm",
+                    bumblebee_severity_badge_class(resource_value(finding, :severity))
+                  ]}>
+                    {bumblebee_severity_label(resource_value(finding, :severity))}
+                  </span>
+                </td>
+                <td>
+                  <div class="font-medium">{bumblebee_package_label(finding)}</div>
+                  <div class="text-xs text-base-content/60">
+                    {resource_value(finding, :ecosystem)}
+                  </div>
+                </td>
+                <td class="max-w-xl">
+                  <div class="truncate text-xs">
+                    {bumblebee_evidence_summary(resource_value(finding, :evidence))}
+                  </div>
+                </td>
+                <td class="font-mono tabular-nums">{resource_value(finding, :risk_score)}</td>
+                <td class="font-mono text-xs">
+                  {format_timestamp(resource_value(finding, :last_seen_at))}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+          <div :if={length(@findings) > 10} class="mt-2 text-xs text-base-content/60">
+            Showing 10 of {length(@findings)} active findings.
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp resource_value(nil, _key), do: nil
+
+  defp resource_value(resource, key) when is_map(resource),
+    do: Map.get(resource, key) || Map.get(resource, Atom.to_string(key))
+
+  defp bumblebee_state_label(nil), do: "Not scanned"
+  defp bumblebee_state_label("scan_failed"), do: "Scan failed"
+  defp bumblebee_state_label("not_scanned"), do: "Not scanned"
+  defp bumblebee_state_label("scanned"), do: "Scanned"
+  defp bumblebee_state_label(value) when is_binary(value), do: humanize_token(value)
+  defp bumblebee_state_label(_value), do: "Unknown"
+
+  defp bumblebee_state_badge_class("scanned"), do: "badge-success"
+  defp bumblebee_state_badge_class("scan_failed"), do: "badge-error"
+  defp bumblebee_state_badge_class(_state), do: "badge-ghost"
+
+  defp bumblebee_coverage_label("complete"), do: "Full coverage"
+  defp bumblebee_coverage_label("partial"), do: "Partial coverage"
+  defp bumblebee_coverage_label("failed"), do: "Coverage failed"
+  defp bumblebee_coverage_label("not_scanned"), do: "No coverage"
+  defp bumblebee_coverage_label(value) when is_binary(value), do: humanize_token(value)
+  defp bumblebee_coverage_label(_value), do: "Unknown coverage"
+
+  defp bumblebee_coverage_badge_class("complete"), do: "badge-success"
+  defp bumblebee_coverage_badge_class("partial"), do: "badge-warning"
+  defp bumblebee_coverage_badge_class("failed"), do: "badge-error"
+  defp bumblebee_coverage_badge_class(_state), do: "badge-ghost"
+
+  defp bumblebee_roots_summary(nil), do: "—"
+
+  defp bumblebee_roots_summary(posture) do
+    scanned = resource_value(posture, :scanned_root_count) || 0
+    attempted = resource_value(posture, :attempted_root_count) || 0
+
+    "#{scanned} / #{attempted}"
+  end
+
+  defp bumblebee_root_covered_label(true), do: "Yes"
+  defp bumblebee_root_covered_label(false), do: "No"
+  defp bumblebee_root_covered_label(_), do: "Unknown"
+
+  defp bumblebee_package_label(finding) do
+    name = resource_value(finding, :package_name) || "Unknown package"
+    version = resource_value(finding, :package_version)
+
+    if present?(version), do: "#{name} #{version}", else: name
+  end
+
+  defp bumblebee_evidence_summary(evidence) when is_map(evidence) do
+    cond do
+      present?(Map.get(evidence, "path")) -> Map.get(evidence, "path")
+      present?(Map.get(evidence, "manifest")) -> Map.get(evidence, "manifest")
+      present?(Map.get(evidence, "file")) -> Map.get(evidence, "file")
+      map_size(evidence) > 0 -> "#{map_size(evidence)} evidence fields"
+      true -> "—"
+    end
+  end
+
+  defp bumblebee_evidence_summary(_evidence), do: "—"
+
+  defp bumblebee_severity_label(nil), do: "—"
+
+  defp bumblebee_severity_label(value) when is_binary(value), do: value |> String.downcase() |> humanize_token()
+
+  defp bumblebee_severity_label(value), do: to_string(value)
+
+  defp bumblebee_severity_badge_class(value) when is_binary(value) do
+    case String.downcase(value) do
+      "critical" -> "badge-error"
+      "high" -> "badge-warning"
+      "medium" -> "badge-info"
+      "low" -> "badge-success"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp bumblebee_severity_badge_class(_value), do: "badge-ghost"
+
+  defp humanize_token(value) when is_binary(value) do
+    value
+    |> String.replace("_", " ")
+    |> String.replace("-", " ")
+    |> String.split(" ", trim: true)
+    |> Enum.map_join(" ", &String.capitalize/1)
+  end
 
   attr(:camera_sources, :list, default: [])
   attr(:inventory_error, :string, default: nil)
@@ -9430,7 +9756,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case result do
       {:ok, rows} when is_list(rows) -> rows
-      {:ok, %Ash.Page.Keyset{results: rows}} -> rows
+      {:ok, %Keyset{results: rows}} -> rows
       {:ok, %Ash.Page.Offset{results: rows}} -> rows
       _ -> []
     end
