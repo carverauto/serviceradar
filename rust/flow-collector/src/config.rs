@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
+use std::net::IpAddr;
 use std::path::PathBuf;
+
+use crate::host_slice::{host_slice_subject, validate_host_slice};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Config {
@@ -36,8 +39,41 @@ pub struct Config {
     // Observability
     pub metrics_addr: Option<String>,
 
+    // Per-host flow slices for netprobe attribution
+    #[serde(default)]
+    pub host_slices: Vec<HostSliceConfig>,
+
     // Listeners
     pub listeners: Vec<ListenerConfig>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct HostSliceConfig {
+    pub agent_id: String,
+    #[serde(default = "default_partition")]
+    pub partition: String,
+    #[serde(default)]
+    pub host_ips: Vec<IpAddr>,
+    #[serde(default)]
+    pub host_network_visibility: HostNetworkVisibilityStatus,
+}
+
+impl HostSliceConfig {
+    pub fn subject(&self) -> String {
+        host_slice_subject(&self.agent_id)
+    }
+
+    pub fn host_network_visibility_enabled(&self) -> bool {
+        self.host_network_visibility == HostNetworkVisibilityStatus::Enabled
+    }
+}
+
+#[derive(Debug, Default, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum HostNetworkVisibilityStatus {
+    Enabled,
+    #[default]
+    Unavailable,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -276,6 +312,9 @@ impl Config {
                 }
             }
         }
+        for (i, slice) in self.host_slices.iter().enumerate() {
+            validate_host_slice(slice, i)?;
+        }
 
         Ok(())
     }
@@ -288,6 +327,14 @@ impl Config {
             let subj = listener.subject().to_string();
             if !subjects.contains(&subj) {
                 subjects.push(subj);
+            }
+        }
+        for slice in self.host_slices.iter().filter(|slice| {
+            slice.partition == self.partition && slice.host_network_visibility_enabled()
+        }) {
+            let subject = slice.subject();
+            if !subjects.contains(&subject) {
+                subjects.push(subject);
             }
         }
 

@@ -1,6 +1,7 @@
 use crate::config::ListenerConfig;
 use crate::error::GetCurrentTimeError;
 use crate::flowpb::FlowMessage;
+use crate::host_slice::HostSliceRouter;
 use crate::metrics::ListenerMetrics;
 use crate::netflow::NetflowHandler;
 use crate::sflow::SflowHandler;
@@ -73,6 +74,7 @@ pub struct Listener {
     buffer_size: usize,
     tx: mpsc::Sender<(String, Vec<u8>)>,
     subject: String,
+    host_slice_router: Arc<HostSliceRouter>,
     metrics: Arc<ListenerMetrics>,
 }
 
@@ -82,6 +84,7 @@ impl Listener {
         socket: UdpSocket,
         buffer_size: usize,
         subject: String,
+        host_slice_router: Arc<HostSliceRouter>,
         tx: mpsc::Sender<(String, Vec<u8>)>,
         metrics: Arc<ListenerMetrics>,
     ) -> Self {
@@ -91,6 +94,7 @@ impl Listener {
             buffer_size,
             tx,
             subject,
+            host_slice_router,
             metrics,
         }
     }
@@ -113,21 +117,19 @@ impl Listener {
                     for flow_msg in messages {
                         let encoded = flow_to_bytes(&flow_msg);
 
-                        match self.tx.try_send((self.subject.clone(), encoded)) {
-                            Ok(_) => {}
-                            Err(mpsc::error::TrySendError::Full(_)) => {
-                                warn!(
-                                    "[{}] Publisher channel full, dropping flow message",
-                                    protocol
-                                );
-                                self.metrics.flows_dropped.fetch_add(1, Ordering::Relaxed);
-                            }
-                            Err(mpsc::error::TrySendError::Closed(_)) => {
-                                error!(
-                                    "[{}] Publisher channel closed, stopping listener",
-                                    protocol
-                                );
-                                return Err(anyhow::anyhow!("Publisher channel closed"));
+                        if !self
+                            .publish_encoded(protocol, self.subject.clone(), encoded.clone())
+                            .await?
+                        {
+                            continue;
+                        }
+
+                        for subject in self.host_slice_router.subjects_for_flow(&flow_msg) {
+                            if !self
+                                .publish_encoded(protocol, subject, encoded.clone())
+                                .await?
+                            {
+                                break;
                             }
                         }
                     }
@@ -135,6 +137,30 @@ impl Listener {
                 Err(e) => {
                     error!("[{}] Error receiving UDP packet: {}", protocol, e);
                 }
+            }
+        }
+    }
+
+    async fn publish_encoded(
+        &self,
+        protocol: &str,
+        subject: String,
+        encoded: Vec<u8>,
+    ) -> Result<bool> {
+        match self.tx.try_send((subject, encoded)) {
+            Ok(_) => Ok(true),
+            Err(mpsc::error::TrySendError::Full(_)) => {
+                warn!(
+                    "[{}] Publisher channel full, dropping flow message",
+                    protocol
+                );
+                self.metrics.flows_dropped.fetch_add(1, Ordering::Relaxed);
+
+                Ok(false)
+            }
+            Err(mpsc::error::TrySendError::Closed(_)) => {
+                error!("[{}] Publisher channel closed, stopping listener", protocol);
+                Err(anyhow::anyhow!("Publisher channel closed"))
             }
         }
     }
@@ -159,5 +185,110 @@ pub fn build_handler(
             pending_flows.as_ref(),
             metrics,
         )),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::{
+        Config, DropPolicy, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig,
+    };
+    use std::net::{IpAddr, Ipv4Addr};
+    use tokio::time::{Duration, timeout};
+
+    struct StaticFlowHandler;
+
+    impl FlowHandler for StaticFlowHandler {
+        fn parse_datagram(&self, _buf: &[u8], _len: usize, _peer: SocketAddr) -> Vec<FlowMessage> {
+            vec![FlowMessage {
+                src_addr: vec![192, 0, 2, 10],
+                dst_addr: vec![203, 0, 113, 5],
+                bytes: 128,
+                packets: 1,
+                ..Default::default()
+            }]
+        }
+
+        fn protocol_name(&self) -> &'static str {
+            "test"
+        }
+    }
+
+    #[tokio::test]
+    async fn listener_publishes_matching_host_slice_subject() {
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let (tx, mut rx) = mpsc::channel(4);
+        let metrics = Arc::new(ListenerMetrics::new("test", addr.to_string()));
+        let router = Arc::new(HostSliceRouter::from_config(&config_with_slice()));
+
+        let listener = Listener::new(
+            Box::new(StaticFlowHandler),
+            socket,
+            1024,
+            "flows.raw.test".to_string(),
+            router,
+            tx,
+            metrics,
+        );
+
+        let handle = tokio::spawn(async move {
+            let _ = listener.run().await;
+        });
+
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        sender.send_to(b"flow", addr).await.unwrap();
+
+        let first = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        let second = timeout(Duration::from_secs(1), rx.recv())
+            .await
+            .unwrap()
+            .unwrap();
+        handle.abort();
+
+        let mut subjects = vec![first.0, second.0];
+        subjects.sort();
+
+        assert_eq!(
+            subjects,
+            vec![
+                "flow.host-slice.agent-1".to_string(),
+                "flows.raw.test".to_string()
+            ]
+        );
+    }
+
+    fn config_with_slice() -> Config {
+        Config {
+            nats_url: "nats://localhost:4222".to_string(),
+            nats_creds_file: None,
+            stream_name: "events".to_string(),
+            stream_subjects: None,
+            stream_max_bytes: 1024,
+            stream_replicas: 1,
+            partition: "default".to_string(),
+            channel_size: 100,
+            batch_size: 10,
+            publish_timeout_ms: 1000,
+            drop_policy: DropPolicy::DropOldest,
+            security: None,
+            metrics_addr: None,
+            host_slices: vec![HostSliceConfig {
+                agent_id: "agent-1".to_string(),
+                partition: "default".to_string(),
+                host_ips: vec![IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10))],
+                host_network_visibility: HostNetworkVisibilityStatus::Enabled,
+            }],
+            listeners: vec![ListenerConfig::Sflow {
+                listen_addr: "127.0.0.1:6343".to_string(),
+                subject: "flows.raw.sflow".to_string(),
+                buffer_size: 1024,
+                max_samples_per_datagram: None,
+            }],
+        }
     }
 }

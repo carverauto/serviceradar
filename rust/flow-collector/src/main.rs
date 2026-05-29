@@ -1,6 +1,7 @@
 mod config;
 mod error;
 pub mod flowpb;
+mod host_slice;
 mod listener;
 mod metrics;
 mod netflow;
@@ -10,6 +11,7 @@ mod sflow;
 use anyhow::Result;
 use clap::Parser;
 use config::Config;
+use host_slice::HostSliceRouter;
 use listener::{Listener, build_handler};
 use metrics::{ListenerMetrics, MetricsReporter};
 use publisher::Publisher;
@@ -59,6 +61,7 @@ async fn main() -> Result<()> {
 
     // Create shared channel: all listeners send (subject, encoded_bytes) to one publisher
     let (tx, rx) = mpsc::channel(config.channel_size);
+    let host_slice_router = Arc::new(HostSliceRouter::from_config(&config));
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
@@ -94,6 +97,7 @@ async fn main() -> Result<()> {
             socket,
             listener_cfg.buffer_size(),
             listener_cfg.subject().to_string(),
+            Arc::clone(&host_slice_router),
             tx.clone(),
             metrics,
         );
