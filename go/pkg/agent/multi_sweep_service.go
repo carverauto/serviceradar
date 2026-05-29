@@ -493,6 +493,19 @@ func (s *MultiSweepService) GetBannerGrabStats() *models.BannerGrabStats {
 	return &out
 }
 
+func (s *MultiSweepService) BannerGrabEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	for _, group := range s.groupConfigs {
+		if group.BannerGrab.Enabled {
+			return true
+		}
+	}
+
+	return false
+}
+
 func sortedGroupIDs(groups map[string]SweepGroupConfig) []string {
 	ids := make([]string, 0, len(groups))
 	for id := range groups {

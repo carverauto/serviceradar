@@ -75,10 +75,26 @@ const (
 	capabilityHostNetworkVisibilityDPIUnavailable         = "host-network-visibility.dpi.unavailable"
 	capabilityHostNetworkVisibilityFlowUnavailable        = "host-network-visibility.flow_attribution.unavailable"
 	capabilityHostNetworkVisibilitySnapshotUnavailable    = "host-network-visibility.process_snapshot.unavailable"
+	capabilitySweepBannerGrab                             = "sweep.banner_grab"
+	capabilitySweepBannerGrabAvailable                    = "sweep.banner_grab.available"
+	capabilitySweepBannerGrabUnavailable                  = "sweep.banner_grab.unavailable"
 
 	agentCapabilityServiceName = "agent"
 	agentCapabilityServiceType = "agent"
 )
+
+const (
+	capabilityStatusAvailable              = "available"
+	capabilityStatusUnavailable            = "unavailable"
+	capabilityReasonNoEnabledSweepProfile  = "no_enabled_sweep_profile"
+	capabilityReasonNetprobeUnavailable    = "netprobe_unavailable"
+	capabilityReasonRecogCorpusUnavailable = "recog_corpus_unavailable"
+)
+
+type capabilityStatusPayload struct {
+	Status string `json:"status"`
+	Reason string `json:"reason,omitempty"`
+}
 
 type hostNetworkVisibilityCapabilityStatus struct {
 	Fingerprint     string                         `json:"fingerprint"`
@@ -89,9 +105,14 @@ type hostNetworkVisibilityCapabilityStatus struct {
 	CorpusRevisions *agentnetprobe.CorpusRevisions `json:"corpus_revisions,omitempty"`
 }
 
+type sweepCapabilityStatus struct {
+	BannerGrab capabilityStatusPayload `json:"banner_grab"`
+}
+
 type agentCapabilityStatusPayload struct {
 	Capabilities          []string                              `json:"capabilities"`
 	HostNetworkVisibility hostNetworkVisibilityCapabilityStatus `json:"host_network_visibility"`
+	Sweep                 sweepCapabilityStatus                 `json:"sweep"`
 	Sidecars              []*proto.SidecarStatus                `json:"sidecars,omitempty"`
 }
 
@@ -1936,11 +1957,14 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	sidecarStatus sidecarStatusProvider,
 ) *proto.GatewayServiceStatus {
 	sidecars := sidecarStatusesForStatus(sidecarStatus)
+	corpusRevisions := p.netprobeCorpusRevisions()
+	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
 	resp := buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatus(cfg, sidecars),
+		agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, sweepBannerGrab.Status == capabilityStatusAvailable),
 		sidecars,
 		p.netprobeRunningAsRoot(),
-		p.netprobeCorpusRevisions(),
+		corpusRevisions,
+		sweepBannerGrab,
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
 }
@@ -1950,6 +1974,7 @@ func buildAgentCapabilityStatusResponse(
 	sidecars []*proto.SidecarStatus,
 	runningAsRoot bool,
 	corpusRevisions agentnetprobe.CorpusRevisions,
+	sweepBannerGrab capabilityStatusPayload,
 ) *proto.StatusResponse {
 	corpusRevisionPayload := &corpusRevisions
 	if corpusRevisions == (agentnetprobe.CorpusRevisions{}) {
@@ -1966,6 +1991,9 @@ func buildAgentCapabilityStatusResponse(
 			RunningAsRoot:   runningAsRoot,
 			CorpusRevisions: corpusRevisionPayload,
 		},
+		Sweep: sweepCapabilityStatus{
+			BannerGrab: sweepBannerGrab,
+		},
 		Sidecars: sidecars,
 	})
 	if err != nil {
@@ -1981,7 +2009,15 @@ func buildAgentCapabilityStatusResponse(
 }
 
 func agentCapabilitiesForStatus(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
-	return getAgentCapabilitiesForSidecars(cfg, sidecars)
+	return agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, false)
+}
+
+func agentCapabilitiesForStatusWithBannerGrab(
+	cfg *ServerConfig,
+	sidecars []*proto.SidecarStatus,
+	sweepBannerGrabAvailable bool,
+) []string {
+	return getAgentCapabilitiesForSidecars(cfg, sidecars, sweepBannerGrabAvailable)
 }
 
 func sidecarStatusesForStatus(provider sidecarStatusProvider) []*proto.SidecarStatus {
@@ -3701,10 +3737,11 @@ type agentCapabilityOptions struct {
 	enhancedBPF                             bool
 	desktopRDP                              bool
 	hostNetworkVisibilityFingerprintEnabled bool
+	sweepBannerGrabAvailable                bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
-	return getAgentCapabilitiesForSidecars(cfg, nil)
+	return getAgentCapabilitiesForSidecars(cfg, nil, false)
 }
 
 func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
@@ -3716,7 +3753,7 @@ func (p *PushLoop) getAgentCapabilities(cfg *ServerConfig) []string {
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
 
-	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus))
+	return getAgentCapabilitiesForSidecars(cfg, sidecarStatusesForStatus(sidecarStatus), false)
 }
 
 func (p *PushLoop) netprobeRunningAsRoot() bool {
@@ -3749,11 +3786,42 @@ func (p *PushLoop) netprobeCorpusRevisions() agentnetprobe.CorpusRevisions {
 	return netprobeSidecar.CorpusRevisions()
 }
 
-func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {
+func (p *PushLoop) sweepBannerGrabCapabilityStatus(
+	sidecars []*proto.SidecarStatus,
+	corpusRevisions agentnetprobe.CorpusRevisions,
+) capabilityStatusPayload {
+	if p == nil || p.server == nil || !p.server.BannerGrabEnabled() {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonNoEnabledSweepProfile,
+		}
+	}
+	if !hasHealthyNetprobeSidecar(sidecars) {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonNetprobeUnavailable,
+		}
+	}
+	if !corpusRevisions.RecogCorpusLoaded {
+		return capabilityStatusPayload{
+			Status: capabilityStatusUnavailable,
+			Reason: capabilityReasonRecogCorpusUnavailable,
+		}
+	}
+
+	return capabilityStatusPayload{Status: capabilityStatusAvailable}
+}
+
+func getAgentCapabilitiesForSidecars(
+	cfg *ServerConfig,
+	sidecars []*proto.SidecarStatus,
+	sweepBannerGrabAvailable bool,
+) []string {
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
 		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
+		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 	})
 }
 
@@ -3777,12 +3845,18 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilityHostNetworkVisibilityDPIUnavailable,
 		capabilityHostNetworkVisibilityFlowUnavailable,
 		capabilityHostNetworkVisibilitySnapshotUnavailable,
+		capabilitySweepBannerGrab,
 	}
 
 	if options.hostNetworkVisibilityFingerprintEnabled {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintEnabled)
 	} else {
 		capabilities = append(capabilities, capabilityHostNetworkVisibilityFingerprintUnavailable)
+	}
+	if options.sweepBannerGrabAvailable {
+		capabilities = append(capabilities, capabilitySweepBannerGrabAvailable)
+	} else {
+		capabilities = append(capabilities, capabilitySweepBannerGrabUnavailable)
 	}
 
 	if options.enhancedBPF {

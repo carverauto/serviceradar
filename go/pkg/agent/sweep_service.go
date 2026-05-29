@@ -195,6 +195,13 @@ func (s *SweepService) GetBannerGrabStats() *models.BannerGrabStats {
 	return s.sweeper.GetBannerGrabStats()
 }
 
+func (s *SweepService) BannerGrabEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.config != nil && s.config.BannerGrab.Enabled
+}
+
 func (s *SweepService) Check(ctx context.Context, _ *proto.StatusRequest) (bool, json.RawMessage) {
 	resp, err := s.GetStatus(ctx)
 	if err != nil {

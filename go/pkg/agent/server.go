@@ -299,6 +299,25 @@ type bannerGrabStatsProvider interface {
 	GetBannerGrabStats() *models.BannerGrabStats
 }
 
+type bannerGrabConfigProvider interface {
+	BannerGrabEnabled() bool
+}
+
+func (s *Server) BannerGrabEnabled() bool {
+	s.mu.RLock()
+	services := append([]Service(nil), s.services...)
+	s.mu.RUnlock()
+
+	for _, svc := range services {
+		provider, ok := svc.(bannerGrabConfigProvider)
+		if ok && provider.BannerGrabEnabled() {
+			return true
+		}
+	}
+
+	return false
+}
+
 func (s *Server) BannerGrabStats() *models.BannerGrabStats {
 	s.mu.RLock()
 	services := append([]Service(nil), s.services...)
