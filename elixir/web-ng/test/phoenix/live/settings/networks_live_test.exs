@@ -106,6 +106,58 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLiveTest do
 
     assert html =~ "New Scanner Profile"
     assert html =~ "Sweep Modes"
+    assert html =~ "Banner grab"
+    assert html =~ "Outbound traffic preview"
+    assert html =~ "form[banner_grab][ports][ssh]"
+  end
+
+  test "saves banner grab controls on scanner profile", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    name = "Banner Profile #{unique}"
+
+    {:ok, lv, _html} = live(conn, ~p"/settings/networks/profiles/new")
+
+    lv
+    |> form("#scanner-profile-form", %{
+      "form" => %{
+        "name" => name,
+        "description" => "",
+        "ports" => "22, 80",
+        "concurrency" => "50",
+        "timeout" => "3s",
+        "sweep_modes" => ["icmp", "tcp"],
+        "enabled" => "true",
+        "banner_grab" => %{
+          "enabled" => "true",
+          "protocols" => ["ssh", "http"],
+          "ports" => %{"ssh" => "22", "http" => "80, 443"},
+          "connect_timeout_ms" => "1500",
+          "read_timeout_ms" => "1200",
+          "max_banner_bytes" => "2048",
+          "max_concurrency_per_host" => "2",
+          "max_global_concurrency" => "64",
+          "max_probe_rate_per_second" => "100",
+          "max_candidate_queue" => "4096",
+          "match_batch_size" => "128",
+          "match_batch_max_bytes" => "524288",
+          "min_reprobe_interval_s" => "3600",
+          "per_host_rate_limit_ms" => "50"
+        }
+      }
+    })
+    |> render_submit()
+
+    profile =
+      SweepProfile
+      |> Ash.read!(scope: scope)
+      |> Enum.find(&(&1.name == name))
+
+    assert profile.banner_grab.enabled
+    assert Enum.sort(profile.banner_grab.protocols) == [:http, :ssh]
+    assert profile.banner_grab.ports["ssh"] == [22]
+    assert profile.banner_grab.ports["http"] == [80, 443]
+    assert profile.banner_grab.connect_timeout_ms == 1_500
+    assert profile.banner_grab.max_global_concurrency == 64
   end
 
   test "lists discovery jobs on the discovery tab", %{conn: conn, scope: scope} do

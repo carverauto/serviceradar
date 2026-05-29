@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   alias ServiceRadar.SweepJobs.SweepGroup
   alias ServiceRadar.SweepJobs.SweepGroupExecution
   alias ServiceRadar.SweepJobs.SweepProfile
+  alias ServiceRadar.SweepJobs.SweepProfile.BannerGrab
   alias ServiceRadar.SweepJobs.SweepPubSub
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.SRQL.Catalog
@@ -83,6 +84,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:sweep_command_statuses, %{})
         |> assign(:cleanup_settings, cleanup_settings)
         |> assign(:cleanup_form, cleanup_form)
+        |> assign(:can_enable_banner_grab, can_enable_banner_grab?(scope))
+        |> assign(:banner_preview_device_count, nil)
 
       {:ok, socket}
     else
@@ -259,6 +262,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
     |> assign(:show_form, :new_profile)
     |> assign(:ash_form, ash_form)
     |> assign(:form, to_form(ash_form))
+    |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
   end
 
   defp apply_action(socket, :edit_profile, %{"id" => id}) do
@@ -279,6 +283,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         |> assign(:selected_profile, profile)
         |> assign(:ash_form, ash_form)
         |> assign(:form, to_form(ash_form))
+        |> assign(:banner_preview_device_count, count_target_devices(scope, "in:devices"))
     end
   end
 
@@ -964,7 +969,12 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
             />
           <% else %>
             <%= if @show_form in [:new_profile, :edit_profile] do %>
-              <.profile_form form={@form} show_form={@show_form} />
+              <.profile_form
+                form={@form}
+                show_form={@show_form}
+                can_enable_banner_grab={@can_enable_banner_grab}
+                banner_preview_device_count={@banner_preview_device_count}
+              />
             <% else %>
               <%= if @show_form == :show_group do %>
                 <.group_detail group={@selected_group} />
@@ -2701,6 +2711,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
   # Profile Form
   attr :form, :any, required: true
   attr :show_form, :atom, required: true
+  attr :can_enable_banner_grab, :boolean, default: false
+  attr :banner_preview_device_count, :any, default: nil
 
   defp profile_form(assigns) do
     ~H"""
@@ -2716,7 +2728,13 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </:header>
 
-      <.form for={@form} phx-submit="save_profile" phx-change="validate_profile" class="space-y-4">
+      <.form
+        for={@form}
+        id="scanner-profile-form"
+        phx-submit="save_profile"
+        phx-change="validate_profile"
+        class="space-y-4"
+      >
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="label">
@@ -2826,6 +2844,174 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
           <label class="label-text">Enabled</label>
         </div>
 
+        <% banner_grab = banner_grab_form_value(@form) %>
+        <% banner_preview = banner_grab_preview(banner_grab, @banner_preview_device_count) %>
+        <div class="rounded-lg border border-base-200 p-4 space-y-4">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Banner grab</div>
+              <p class="text-xs text-base-content/60">
+                Active TCP connects for license-clean banner fingerprint matching.
+              </p>
+            </div>
+            <%= if @can_enable_banner_grab do %>
+              <label class="label cursor-pointer justify-start gap-3 py-0">
+                <input type="hidden" name="form[banner_grab][enabled]" value="false" />
+                <input
+                  type="checkbox"
+                  name="form[banner_grab][enabled]"
+                  value="true"
+                  class="toggle toggle-primary toggle-sm"
+                  checked={truthy?(banner_grab_value(banner_grab, "enabled", false))}
+                />
+                <span class="label-text text-sm">Enabled</span>
+              </label>
+            <% else %>
+              <.ui_badge variant="ghost" size="sm">Restricted</.ui_badge>
+            <% end %>
+          </div>
+
+          <%= if @can_enable_banner_grab do %>
+            <input type="hidden" name="form[banner_grab][protocols][]" value="" />
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div class="lg:col-span-2 space-y-3">
+                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                  Protocols and ports
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+                  <%= for {protocol, label} <- banner_grab_protocol_options() do %>
+                    <div class="rounded-md border border-base-200 p-3 space-y-2">
+                      <label class="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          name="form[banner_grab][protocols][]"
+                          value={protocol}
+                          class="checkbox checkbox-sm"
+                          checked={Enum.member?(banner_grab_protocols(banner_grab), protocol)}
+                        />
+                        <span class="text-sm font-medium">{label}</span>
+                      </label>
+                      <input
+                        type="text"
+                        name={"form[banner_grab][ports][#{protocol}]"}
+                        value={banner_grab_ports_input(banner_grab, protocol)}
+                        class="input input-bordered input-sm w-full font-mono text-xs"
+                        placeholder={banner_grab_default_ports(protocol)}
+                      />
+                    </div>
+                  <% end %>
+                </div>
+              </div>
+
+              <div class="rounded-md border border-base-200 bg-base-100/60 p-3 space-y-3">
+                <div class="text-xs font-semibold uppercase tracking-wide text-base-content/60">
+                  Outbound traffic preview
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div class="text-xs text-base-content/60">Inventory</div>
+                    <div class="font-semibold">{banner_preview.device_count}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-base-content/60">Ports</div>
+                    <div class="font-semibold">{banner_preview.port_count}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-base-content/60">Connects</div>
+                    <div class="font-semibold">{banner_preview.connects}</div>
+                  </div>
+                  <div>
+                    <div class="text-xs text-base-content/60">Elapsed</div>
+                    <div class="font-semibold">{banner_preview.elapsed}</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
+              <.banner_number_input
+                name="connect_timeout_ms"
+                label="Connect timeout ms"
+                value={banner_grab_value(banner_grab, "connect_timeout_ms", 2_000)}
+                min="1"
+                max="30000"
+              />
+              <.banner_number_input
+                name="read_timeout_ms"
+                label="Read timeout ms"
+                value={banner_grab_value(banner_grab, "read_timeout_ms", 2_000)}
+                min="1"
+                max="30000"
+              />
+              <.banner_number_input
+                name="max_banner_bytes"
+                label="Max banner bytes"
+                value={banner_grab_value(banner_grab, "max_banner_bytes", 1_024)}
+                min="1"
+                max="65536"
+              />
+              <.banner_number_input
+                name="max_concurrency_per_host"
+                label="Per-host concurrency"
+                value={banner_grab_value(banner_grab, "max_concurrency_per_host", 4)}
+                min="1"
+                max="4096"
+              />
+              <.banner_number_input
+                name="max_global_concurrency"
+                label="Global concurrency"
+                value={banner_grab_value(banner_grab, "max_global_concurrency", 256)}
+                min="1"
+                max="4096"
+              />
+              <.banner_number_input
+                name="max_probe_rate_per_second"
+                label="Max probe rate"
+                value={banner_grab_value(banner_grab, "max_probe_rate_per_second", 0)}
+                min="0"
+                max="50000"
+              />
+              <.banner_number_input
+                name="max_candidate_queue"
+                label="Candidate queue"
+                value={banner_grab_value(banner_grab, "max_candidate_queue", 8_192)}
+                min="1"
+                max="1000000"
+              />
+              <.banner_number_input
+                name="match_batch_size"
+                label="Match batch size"
+                value={banner_grab_value(banner_grab, "match_batch_size", 256)}
+                min="1"
+                max="4096"
+              />
+              <.banner_number_input
+                name="match_batch_max_bytes"
+                label="Match batch bytes"
+                value={banner_grab_value(banner_grab, "match_batch_max_bytes", 1_048_576)}
+                min="1"
+                max="4194304"
+              />
+              <.banner_number_input
+                name="min_reprobe_interval_s"
+                label="Min re-probe interval s"
+                value={banner_grab_value(banner_grab, "min_reprobe_interval_s", 86_400)}
+                min="0"
+              />
+              <.banner_number_input
+                name="per_host_rate_limit_ms"
+                label="Per-host rate limit ms"
+                value={banner_grab_value(banner_grab, "per_host_rate_limit_ms", 100)}
+                min="0"
+              />
+            </div>
+          <% else %>
+            <p class="text-xs text-base-content/60">
+              Requires the networks.sweeps.banner_grab permission.
+            </p>
+          <% end %>
+        </div>
+
         <div class="flex justify-end gap-2 pt-4">
           <.link navigate={~p"/settings/networks"}>
             <.ui_button variant="ghost">Cancel</.ui_button>
@@ -2834,6 +3020,28 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </.form>
     </.ui_panel>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :min, :string, default: nil
+  attr :max, :string, default: nil
+
+  defp banner_number_input(assigns) do
+    ~H"""
+    <label class="form-control">
+      <span class="label-text text-xs">{@label}</span>
+      <input
+        type="number"
+        name={"form[banner_grab][#{@name}]"}
+        value={@value}
+        min={@min}
+        max={@max}
+        class="input input-bordered input-sm w-full"
+      />
+    </label>
     """
   end
 
@@ -2974,6 +3182,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp can_manage_networks?(scope) do
     RBAC.can?(scope, "settings.networks.manage")
+  end
+
+  defp can_enable_banner_grab?(scope) do
+    RBAC.can?(scope, "networks.sweeps.banner_grab")
   end
 
   defp active_agent?(%Agent{status: status, last_seen_time: %DateTime{} = last_seen_time})
@@ -4013,7 +4225,97 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   # Transform comma-separated ports string to array of integers for Ash
   defp transform_profile_params(params) do
-    transform_ports_to_array(params)
+    params
+    |> transform_ports_to_array()
+    |> transform_banner_grab_params()
+  end
+
+  defp transform_banner_grab_params(%{"banner_grab" => banner_grab} = params) when is_map(banner_grab) do
+    Map.put(params, "banner_grab", normalize_banner_grab_params(banner_grab))
+  end
+
+  defp transform_banner_grab_params(params), do: params
+
+  defp normalize_banner_grab_params(params) do
+    params
+    |> normalize_boolean("enabled")
+    |> normalize_banner_protocols_param()
+    |> normalize_banner_ports_param()
+    |> normalize_integer("connect_timeout_ms")
+    |> normalize_integer("read_timeout_ms")
+    |> normalize_integer("max_banner_bytes")
+    |> normalize_integer("max_concurrency_per_host")
+    |> normalize_integer("max_global_concurrency")
+    |> normalize_integer("max_probe_rate_per_second")
+    |> normalize_integer("max_candidate_queue")
+    |> normalize_integer("match_batch_size")
+    |> normalize_integer("match_batch_max_bytes")
+    |> normalize_integer("min_reprobe_interval_s")
+    |> normalize_integer("per_host_rate_limit_ms")
+  end
+
+  defp normalize_banner_protocols_param(params) do
+    protocols =
+      params
+      |> Map.get("protocols", [])
+      |> List.wrap()
+      |> Enum.flat_map(&banner_protocol_atom/1)
+      |> Enum.uniq()
+
+    Map.put(params, "protocols", protocols)
+  end
+
+  defp normalize_banner_ports_param(params) do
+    ports =
+      params
+      |> Map.get("ports", %{})
+      |> normalize_banner_ports()
+
+    Map.put(params, "ports", ports)
+  end
+
+  defp normalize_banner_ports(ports) when is_map(ports) do
+    Map.new(banner_grab_protocol_options(), fn {protocol, _label} ->
+      values =
+        ports
+        |> Map.get(protocol, "")
+        |> parse_banner_ports()
+
+      {protocol, values}
+    end)
+  end
+
+  defp normalize_banner_ports(_ports), do: %{}
+
+  defp parse_banner_ports(value) when is_binary(value) do
+    value
+    |> String.split([",", " ", "\n", "\t"], trim: true)
+    |> Enum.flat_map(&parse_port/1)
+    |> Enum.uniq()
+  end
+
+  defp parse_banner_ports(values) when is_list(values) do
+    values
+    |> Enum.filter(&is_integer/1)
+    |> Enum.filter(&(&1 > 0 and &1 <= 65_535))
+    |> Enum.uniq()
+  end
+
+  defp parse_banner_ports(_value), do: []
+
+  defp banner_protocol_atom(value) do
+    case to_string(value) do
+      "ssh" -> [:ssh]
+      "http" -> [:http]
+      "smb" -> [:smb]
+      "ftp" -> [:ftp]
+      "telnet" -> [:telnet]
+      "smtp" -> [:smtp]
+      "ntp" -> [:ntp]
+      "dns" -> [:dns]
+      "rdp" -> [:rdp]
+      _ -> []
+    end
   end
 
   defp transform_ports_to_array(params) do
@@ -4048,6 +4350,145 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       _ -> []
     end
   end
+
+  defp banner_grab_form_value(form) do
+    form
+    |> Phoenix.HTML.Form.input_value(:banner_grab)
+    |> banner_grab_to_map()
+  end
+
+  defp banner_grab_to_map(%_{} = banner_grab) do
+    banner_grab
+    |> Map.from_struct()
+    |> Map.drop([:__meta__, :__metadata__, :aggregates, :calculations])
+  end
+
+  defp banner_grab_to_map(%{} = banner_grab), do: banner_grab
+  defp banner_grab_to_map(_banner_grab), do: BannerGrab.default_input()
+
+  defp banner_grab_value(banner_grab, key, default) do
+    Map.get(banner_grab, key, Map.get(banner_grab, banner_key_atom(key), default))
+  end
+
+  defp banner_key_atom("enabled"), do: :enabled
+  defp banner_key_atom("protocols"), do: :protocols
+  defp banner_key_atom("ports"), do: :ports
+  defp banner_key_atom("connect_timeout_ms"), do: :connect_timeout_ms
+  defp banner_key_atom("read_timeout_ms"), do: :read_timeout_ms
+  defp banner_key_atom("max_banner_bytes"), do: :max_banner_bytes
+  defp banner_key_atom("max_concurrency_per_host"), do: :max_concurrency_per_host
+  defp banner_key_atom("max_global_concurrency"), do: :max_global_concurrency
+  defp banner_key_atom("max_probe_rate_per_second"), do: :max_probe_rate_per_second
+  defp banner_key_atom("max_candidate_queue"), do: :max_candidate_queue
+  defp banner_key_atom("match_batch_size"), do: :match_batch_size
+  defp banner_key_atom("match_batch_max_bytes"), do: :match_batch_max_bytes
+  defp banner_key_atom("min_reprobe_interval_s"), do: :min_reprobe_interval_s
+  defp banner_key_atom("per_host_rate_limit_ms"), do: :per_host_rate_limit_ms
+
+  defp banner_grab_protocols(banner_grab) do
+    banner_grab
+    |> banner_grab_value("protocols", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp banner_grab_ports_input(banner_grab, protocol) do
+    banner_grab
+    |> banner_grab_ports(protocol)
+    |> Enum.map_join(", ", &to_string/1)
+  end
+
+  defp banner_grab_ports(banner_grab, protocol) do
+    ports = banner_grab_value(banner_grab, "ports", %{})
+
+    case Map.get(ports, protocol) || Map.get(ports, protocol_atom(protocol)) do
+      values when is_list(values) -> values
+      _ -> []
+    end
+  end
+
+  defp protocol_atom("ssh"), do: :ssh
+  defp protocol_atom("http"), do: :http
+  defp protocol_atom("smb"), do: :smb
+  defp protocol_atom("ftp"), do: :ftp
+  defp protocol_atom("telnet"), do: :telnet
+  defp protocol_atom("smtp"), do: :smtp
+  defp protocol_atom("ntp"), do: :ntp
+  defp protocol_atom("dns"), do: :dns
+  defp protocol_atom("rdp"), do: :rdp
+
+  defp banner_grab_protocol_options do
+    [
+      {"ssh", "SSH"},
+      {"http", "HTTP"},
+      {"smb", "SMB"},
+      {"ftp", "FTP"},
+      {"telnet", "Telnet"},
+      {"smtp", "SMTP"},
+      {"ntp", "NTP"},
+      {"dns", "DNS"},
+      {"rdp", "RDP"}
+    ]
+  end
+
+  defp banner_grab_default_ports("ssh"), do: "22"
+  defp banner_grab_default_ports("http"), do: "80, 443, 8080"
+  defp banner_grab_default_ports("smb"), do: "139, 445"
+  defp banner_grab_default_ports("ftp"), do: "21"
+  defp banner_grab_default_ports("telnet"), do: "23"
+  defp banner_grab_default_ports("smtp"), do: "25, 587"
+  defp banner_grab_default_ports("ntp"), do: "123"
+  defp banner_grab_default_ports("dns"), do: "53"
+  defp banner_grab_default_ports("rdp"), do: "3389"
+
+  defp banner_grab_preview(banner_grab, device_count) do
+    device_count = device_count || 0
+
+    port_count =
+      banner_grab
+      |> banner_grab_protocols()
+      |> Enum.flat_map(&banner_grab_ports(banner_grab, &1))
+      |> Enum.uniq()
+      |> length()
+
+    connects = device_count * port_count
+    rate = banner_grab_value(banner_grab, "max_probe_rate_per_second", 0)
+    concurrency = max(banner_grab_value(banner_grab, "max_global_concurrency", 256), 1)
+    timeout_ms = banner_grab_value(banner_grab, "connect_timeout_ms", 2_000)
+    read_ms = banner_grab_value(banner_grab, "read_timeout_ms", 2_000)
+
+    elapsed_seconds =
+      cond do
+        connects == 0 -> 0
+        is_integer(rate) and rate > 0 -> ceil(connects / rate)
+        true -> ceil(connects / concurrency * ((timeout_ms + read_ms) / 1_000))
+      end
+
+    %{
+      device_count: format_count(device_count),
+      port_count: format_count(port_count),
+      connects: format_count(connects),
+      elapsed: format_duration_seconds(elapsed_seconds)
+    }
+  end
+
+  defp format_count(value) when is_integer(value), do: :erlang.integer_to_binary(value)
+  defp format_count(_value), do: "0"
+
+  defp format_duration_seconds(seconds) when seconds <= 0, do: "0s"
+  defp format_duration_seconds(seconds) when seconds < 60, do: "#{seconds}s"
+
+  defp format_duration_seconds(seconds) when seconds < 3_600 do
+    "#{ceil(seconds / 60)}m"
+  end
+
+  defp format_duration_seconds(seconds), do: "#{ceil(seconds / 3_600)}h"
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?("on"), do: true
+  defp truthy?(1), do: true
+  defp truthy?(_value), do: false
 
   defp agent_display_name(agent) do
     cond do
