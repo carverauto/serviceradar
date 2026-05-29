@@ -215,6 +215,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 20.2 Gate slice publication on a control-plane-managed allowlist so we never blanket-publish slices to unsubscribed agents.
 - [x] 20.3 Add `attributed_flow` event type to the flow pipeline contract.
 - [x] 20.4 Add per-slice observability metrics.
+- [x] 20.5 [B-5 sub-issue 1] Wire `GenerateAgentFlowCollectorCreds` into agent enrollment + bundle delivery: server-side mint via `ProvisionAgentWorker`, persist on `OnboardingPackage` (AshCloak), tar `creds/nats.creds` into the agent bundle, extract to `/etc/serviceradar/creds/nats.creds` mode 0600 in `agent_enroll.go`. Regression test: a creds file minted for agent A cannot publish to `flow.host-slice.<agent-B>`.
 
 ### 21. [Phase 4] Sidecar + bridge + UI
 

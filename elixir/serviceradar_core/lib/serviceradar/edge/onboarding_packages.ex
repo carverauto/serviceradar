@@ -198,7 +198,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
   """
   @spec deliver(String.t(), String.t(), keyword()) ::
           {:ok,
-           %{package: OnboardingPackage.t(), join_token: String.t(), bundle_pem: String.t() | nil}}
+           %{
+             package: OnboardingPackage.t(),
+             join_token: String.t(),
+             bundle_pem: String.t() | nil,
+             nats_creds: String.t() | nil
+           }}
           | {:error, atom()}
   def deliver(package_id, download_token, opts \\ []) do
     actor = Keyword.get(opts, :actor)
@@ -224,6 +229,11 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
               Crypto.decrypt(updated_package.bundle_ciphertext)
             end
 
+          # Per-agent flow-collector NATS creds are AshCloak-encrypted via
+          # the :attach_nats_creds action (B-5 sub-issue 1). Decrypt only
+          # if the agent package has been provisioned.
+          nats_creds = decrypt_nats_creds(updated_package)
+
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
             actor: get_actor_name(actor),
@@ -234,12 +244,22 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            %{
              package: updated_package,
              join_token: join_token,
-             bundle_pem: bundle_pem
+             bundle_pem: bundle_pem,
+             nats_creds: nats_creds
            }}
 
         {:error, error} ->
           handle_deliver_update_error(package_id, actor, authorize?, error)
       end
+    end
+  end
+
+  defp decrypt_nats_creds(%OnboardingPackage{nats_creds_ciphertext: nil}), do: nil
+
+  defp decrypt_nats_creds(%OnboardingPackage{nats_creds_ciphertext: ciphertext}) do
+    case ServiceRadar.Vault.decrypt(ciphertext) do
+      {:ok, plain} -> plain
+      _ -> nil
     end
   end
 

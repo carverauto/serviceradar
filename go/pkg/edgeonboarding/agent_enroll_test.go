@@ -51,6 +51,35 @@ func TestExtractBundleReadsOptionalOverridesFile(t *testing.T) {
 	assert.Equal(t, "SAFE_SETTING=test-key\n", string(payload.EnvOverrides))
 }
 
+func TestExtractBundleReadsOptionalNATSCredsFile(t *testing.T) {
+	t.Parallel()
+
+	credsContent := "-----BEGIN NATS USER JWT-----\ntoken\n------END NATS USER JWT------\n"
+
+	payload, err := extractBundle(
+		testAgentBundleWith(t, withNATSCreds(credsContent)),
+	)
+	require.NoError(t, err)
+
+	assert.Equal(t, credsContent, string(payload.NATSCreds))
+}
+
+func TestExtractBundleNATSCredsIsOptional(t *testing.T) {
+	t.Parallel()
+
+	payload, err := extractBundle(testAgentBundle(t, ""))
+	require.NoError(t, err)
+	assert.Empty(t, payload.NATSCreds, "bundle without nats.creds must still parse cleanly")
+}
+
+func TestResolveAgentNATSCredsPathFallsBackToDefault(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, defaultAgentNATSCredsPath, resolveAgentNATSCredsPath(""))
+	assert.Equal(t, defaultAgentNATSCredsPath, resolveAgentNATSCredsPath("   "))
+	assert.Equal(t, "/var/run/sr/nats.creds", resolveAgentNATSCredsPath("/var/run/sr/nats.creds"))
+}
+
 func TestExtractEnvOverridesRejectsProtectedKeys(t *testing.T) {
 	t.Parallel()
 
@@ -115,6 +144,40 @@ func TestNewBundleDownloadRequestUsesPostAndHeader(t *testing.T) {
 func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	t.Helper()
 
+	var opts []agentBundleOpt
+	if overrides != "" {
+		opts = append(opts, withOverrides(overrides))
+	}
+
+	return testAgentBundleWith(t, opts...)
+}
+
+// agentBundleOpt customizes the test tarball produced by
+// testAgentBundleWith. Centralizing this avoids stamping out a parallel
+// helper for each new optional bundle file.
+type agentBundleOpt func(*agentBundleSpec)
+
+type agentBundleSpec struct {
+	overrides string
+	natsCreds string
+}
+
+func withOverrides(content string) agentBundleOpt {
+	return func(s *agentBundleSpec) { s.overrides = content }
+}
+
+func withNATSCreds(content string) agentBundleOpt {
+	return func(s *agentBundleSpec) { s.natsCreds = content }
+}
+
+func testAgentBundleWith(t *testing.T, options ...agentBundleOpt) *bytes.Reader {
+	t.Helper()
+
+	spec := &agentBundleSpec{}
+	for _, opt := range options {
+		opt(spec)
+	}
+
 	var archive bytes.Buffer
 	gzw := gzip.NewWriter(&archive)
 	tw := tar.NewWriter(gzw)
@@ -137,8 +200,15 @@ func testAgentBundle(t *testing.T, overrides string) *bytes.Reader {
 	writeBundleFile("edge-package-test/certs/component-key.pem", []byte("key"))
 	writeBundleFile("edge-package-test/certs/ca-chain.pem", []byte("ca"))
 
-	if overrides != "" {
-		writeBundleFile("edge-package-test/config/agent-env-overrides.env", []byte(overrides))
+	if spec.overrides != "" {
+		writeBundleFile(
+			"edge-package-test/config/agent-env-overrides.env",
+			[]byte(spec.overrides),
+		)
+	}
+
+	if spec.natsCreds != "" {
+		writeBundleFile("edge-package-test/creds/nats.creds", []byte(spec.natsCreds))
 	}
 
 	require.NoError(t, tw.Close())
