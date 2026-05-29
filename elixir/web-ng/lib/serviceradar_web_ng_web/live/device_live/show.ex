@@ -27,12 +27,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     only: [northbound_action_history: 1, northbound_action_modal: 1]
 
   alias Ash.Error.Invalid
-  alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Camera.RelaySession
-  alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
@@ -41,18 +39,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.MtrPubSub
-  alias ServiceRadar.SysmonProfiles.SysmonProfile
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
+  alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.FeatureFlags
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -762,7 +761,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_reload_profiles_for_active_tab(socket, "profiles", uid) do
     scope = socket.assigns.current_scope
-    {profile_info, available_profiles} = load_sysmon_profile_info(scope, uid)
+    {profile_info, available_profiles} = SysmonProfileData.load_profile_info(scope, uid)
 
     socket
     |> assign(:sysmon_profile_info, profile_info)
@@ -816,7 +815,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     show_stale = socket.assigns.show_stale_aliases
     virtualization_summary = VirtualizationData.load_virtualization_summary(scope, uid)
     has_virtualization_guests = virtualization_guests?(virtualization_summary)
-    {camera_sources, camera_inventory_error} = load_camera_sources(scope, uid, device_row)
+    {camera_sources, camera_inventory_error} = CameraData.load_sources(scope, uid, device_row, &format_ash_error/1)
 
     supplemental_context = %{
       socket: socket,
@@ -1155,7 +1154,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_profile_task(tasks, "profiles", uid, scope) do
-    tasks ++ [timed_device_task(:profile, fn -> load_sysmon_profile_info(scope, uid) end)]
+    tasks ++ [timed_device_task(:profile, fn -> SysmonProfileData.load_profile_info(scope, uid) end)]
   end
 
   defp maybe_add_profile_task(tasks, _active_tab, _uid, _scope), do: tasks
@@ -3374,113 +3373,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     case List.first(Enum.filter(results, &is_map/1)) do
       nil -> nil
       row -> Map.get(row, "ip")
-    end
-  end
-
-  defp load_camera_sources(scope, device_uid, device_row) do
-    case CameraSource.list_for_device(device_uid, load: [:stream_profiles], scope: scope) do
-      {:ok, []} ->
-        load_camera_sources_by_fallback(scope, device_row)
-
-      {:ok, sources} ->
-        {sources, nil}
-
-      {:error, error} ->
-        {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
-    end
-  end
-
-  defp load_camera_sources_by_fallback(scope, device_row) do
-    fallback_ids = camera_source_fallback_ids(device_row)
-
-    if fallback_ids == [] do
-      {[], nil}
-    else
-      query =
-        CameraSource
-        |> Ash.Query.for_read(:read)
-        |> Ash.Query.filter(device_uid in ^fallback_ids)
-        |> Ash.Query.load(:stream_profiles)
-        |> Ash.Query.sort(inserted_at: :asc)
-
-      case read_camera_sources(query, scope) do
-        {:ok, sources} -> {sources, nil}
-        {:error, error} -> {[], "Failed to load camera inventory: #{format_ash_error(error)}"}
-      end
-    end
-  end
-
-  defp read_camera_sources(query, nil), do: Ash.read(query)
-  defp read_camera_sources(query, scope), do: Ash.read(query, scope: scope)
-
-  defp camera_source_fallback_ids(device_row) do
-    mac =
-      case device_row do
-        %{} = row -> Map.get(row, :mac) || Map.get(row, "mac")
-        _ -> nil
-      end
-
-    mac
-    |> List.wrap()
-    |> Enum.flat_map(fn value ->
-      trimmed = value |> to_string() |> String.trim()
-      normalized = trimmed |> String.replace(":", "") |> String.upcase()
-
-      [
-        trimmed,
-        String.upcase(trimmed),
-        String.downcase(trimmed),
-        normalized,
-        String.downcase(normalized)
-      ]
-    end)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  # ---------------------------------------------------------------------------
-  # Sysmon Profile Loading
-  # ---------------------------------------------------------------------------
-
-  # Extract the user from scope to use as actor for Ash operations
-  defp get_profile_actor(%{user: user}) when not is_nil(user), do: user
-  defp get_profile_actor(_), do: nil
-
-  defp load_sysmon_profile_info(scope, device_uid) do
-    actor = get_profile_actor(scope)
-
-    # Load available profiles (for reference)
-    available_profiles = load_available_profiles(actor)
-
-    # Resolve the effective profile via SRQL targeting
-    profile = SysmonCompiler.resolve_profile(device_uid, actor)
-
-    # Determine source based on profile type
-    source =
-      cond do
-        is_nil(profile) -> "unassigned"
-        not is_nil(profile.target_query) -> "srql"
-        true -> "unassigned"
-      end
-
-    profile_info = %{
-      profile: profile,
-      source: source
-    }
-
-    {profile_info, available_profiles}
-  rescue
-    e ->
-      require Logger
-
-      Logger.warning("Failed to load sysmon profile info: #{inspect(e)}")
-      {nil, []}
-  end
-
-  defp load_available_profiles(actor) do
-    case Ash.read(SysmonProfile, action: :list_available, actor: actor) do
-      {:ok, profiles} -> profiles
-      {:error, _} -> []
     end
   end
 
