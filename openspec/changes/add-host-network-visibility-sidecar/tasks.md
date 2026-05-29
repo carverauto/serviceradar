@@ -213,7 +213,7 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 
 - [x] 20.1 Extend `rust/flow-collector/` to publish a per-host slice (`flow.host-slice.<agent-id>`) for every agent advertising `host-network-visibility`.
 - [x] 20.2 Gate slice publication on a control-plane-managed allowlist so we never blanket-publish slices to unsubscribed agents.
-- [ ] 20.3 Add `attributed_flow` event type to the flow pipeline contract.
+- [x] 20.3 Add `attributed_flow` event type to the flow pipeline contract.
 - [ ] 20.4 Add per-slice observability metrics.
 
 ### 21. [Phase 4] Sidecar + bridge + UI

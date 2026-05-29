@@ -17,11 +17,15 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   Raw flow messages:
 
   - canonical: protobuf `flowpb.FlowMessage`
+  - attributed: protobuf `flowpb.AttributedFlowMessage` on
+    `flow.attributed.<partition>`
   - legacy compatibility: JSON flow payloads
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias Flowpb.AttributedFlowMessage
+  alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
   alias ServiceRadar.BGP.Ingestor
   alias ServiceRadar.EventWriter.FieldParser
@@ -30,6 +34,9 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias ServiceRadar.Observability.FlowPubSub
 
   require Logger
+
+  @attributed_flow_event_type "attributed_flow"
+  @attributed_flow_subject_prefix "flow.attributed."
 
   @impl true
   def table_name, do: "ocsf_network_activity"
@@ -67,6 +74,15 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     |> parse_flow(nats_metadata)
   end
 
+  def row_from_attributed_flow_message(%AttributedFlowMessage{} = message, nats_metadata \\ %{}) do
+    message
+    |> processed_from_attributed_flow_message(nats_metadata)
+    |> case do
+      %{row: row} -> row
+      nil -> nil
+    end
+  end
+
   def insert_rows(rows) when is_list(rows) do
     if Enum.empty?(rows) do
       {:ok, 0}
@@ -100,17 +116,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
           nil
       end
     else
-      case FlowMessage.decode(data) do
-        {:ok, flow} ->
-          processed_from_flow_message(flow, metadata)
-
-        flow when is_struct(flow, FlowMessage) ->
-          processed_from_flow_message(flow, metadata)
-
-        {:error, reason} ->
-          Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
-          nil
-      end
+      parse_protobuf_payload(data, metadata)
     end
   rescue
     e ->
@@ -127,6 +133,72 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
       row: row_from_flow_message(flow, metadata),
       bgp_observation: build_bgp_observation(flow, metadata)
     }
+  end
+
+  defp processed_from_attributed_flow_message(
+         %AttributedFlowMessage{
+           event_type: @attributed_flow_event_type,
+           flow: %FlowMessage{} = flow
+         } = message,
+         metadata
+       ) do
+    partition =
+      blank_to_nil(message.partition) || partition_from_attributed_subject(metadata[:subject]) ||
+        "default"
+
+    attribution = attribution_payload(message.attribution)
+
+    row =
+      flow
+      |> row_from_flow_message(metadata)
+      |> Map.put(:partition, partition)
+      |> Map.update!(:ocsf_payload, fn payload ->
+        payload
+        |> Map.put("event_type", @attributed_flow_event_type)
+        |> put_if_present("agent_id", blank_to_nil(message.agent_id))
+        |> put_if_present("partition", partition)
+        |> put_if_present("attribution", attribution)
+      end)
+
+    %{
+      row: row,
+      bgp_observation: build_bgp_observation(flow, metadata)
+    }
+  end
+
+  defp processed_from_attributed_flow_message(_message, _metadata), do: nil
+
+  defp parse_protobuf_payload(data, metadata) do
+    with %AttributedFlowMessage{} = message <- decode_attributed_flow(data),
+         %{row: _row} = processed <- processed_from_attributed_flow_message(message, metadata) do
+      processed
+    else
+      _ -> parse_flow_message_payload(data, metadata)
+    end
+  end
+
+  defp decode_attributed_flow(data) do
+    case AttributedFlowMessage.decode(data) do
+      {:ok, %AttributedFlowMessage{} = message} -> message
+      %AttributedFlowMessage{} = message -> message
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp parse_flow_message_payload(data, metadata) do
+    case FlowMessage.decode(data) do
+      {:ok, flow} ->
+        processed_from_flow_message(flow, metadata)
+
+      flow when is_struct(flow, FlowMessage) ->
+        processed_from_flow_message(flow, metadata)
+
+      {:error, reason} ->
+        Logger.debug("Failed to decode FlowMessage protobuf: #{inspect(reason)}")
+        nil
+    end
   end
 
   defp insert_netflow_rows(rows) do
@@ -374,6 +446,36 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   end
 
   defp flow_source_from_subject(_), do: "Unknown"
+
+  defp partition_from_attributed_subject(subject) when is_binary(subject) do
+    if String.starts_with?(subject, @attributed_flow_subject_prefix) do
+      subject
+      |> String.replace_prefix(@attributed_flow_subject_prefix, "")
+      |> String.split(".", parts: 2)
+      |> List.first()
+      |> blank_to_nil()
+    end
+  end
+
+  defp partition_from_attributed_subject(_), do: nil
+
+  defp attribution_payload(%FlowAttribution{} = attribution) do
+    %{}
+    |> put_if_present("pid", zero_to_nil(attribution.pid))
+    |> put_if_present("comm", blank_to_nil(attribution.comm))
+    |> put_if_present("cmdline", blank_to_nil(attribution.cmdline))
+    |> put_if_present("uid", zero_to_nil(attribution.uid))
+    |> put_if_present("container_id", blank_to_nil(attribution.container_id))
+    |> case do
+      map when map == %{} -> nil
+      map -> map
+    end
+  end
+
+  defp attribution_payload(_), do: nil
+
+  defp put_if_present(map, _key, nil), do: map
+  defp put_if_present(map, key, value), do: Map.put(map, key, value)
 
   defp json_payload?(data) when is_binary(data) do
     case String.trim_leading(data) do

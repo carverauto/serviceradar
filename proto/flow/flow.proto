@@ -128,3 +128,21 @@ message FlowMessage {
   string protocol_name = 107;
 
 }
+
+message FlowAttribution {
+  uint32 pid = 1;
+  string comm = 2;
+  string cmdline = 3;
+  uint32 uid = 4;
+  string container_id = 5;
+}
+
+message AttributedFlowMessage {
+  // Must be "attributed_flow"; kept as a string to match the existing
+  // event-writer contract style.
+  string event_type = 1;
+  FlowMessage flow = 2;
+  FlowAttribution attribution = 3;
+  string agent_id = 4;
+  string partition = 5;
+}

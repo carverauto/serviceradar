@@ -1,6 +1,8 @@
 defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
   use ExUnit.Case, async: true
 
+  alias Flowpb.AttributedFlowMessage
+  alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
   alias ServiceRadar.EventWriter.Processors.Flows
 
@@ -86,5 +88,53 @@ defmodule ServiceRadar.EventWriter.Processors.FlowsTest do
     assert row.dst_endpoint_ip == "198.51.100.20"
     assert row.protocol_num == 17
     assert row.ocsf_payload["flow_source"] == "sFlow v5"
+  end
+
+  test "parse_message accepts attributed_flow protobuf payloads" do
+    flow = %FlowMessage{
+      type: :NETFLOW_V9,
+      time_received_ns: 1_705_363_200_000_000_000,
+      src_addr: <<192, 0, 2, 10>>,
+      dst_addr: <<198, 51, 100, 20>>,
+      proto: 6,
+      src_port: 53_000,
+      dst_port: 443,
+      bytes: 4096,
+      packets: 8
+    }
+
+    message = %AttributedFlowMessage{
+      event_type: "attributed_flow",
+      flow: flow,
+      attribution: %FlowAttribution{
+        pid: 1234,
+        comm: "nginx",
+        cmdline: "nginx: worker process",
+        uid: 33,
+        container_id: "container-1"
+      },
+      agent_id: "agent-1",
+      partition: "edge-a"
+    }
+
+    row =
+      Flows.parse_message(%{
+        data: AttributedFlowMessage.encode(message),
+        metadata: %{subject: "flow.attributed.edge-a"}
+      })
+
+    assert row.partition == "edge-a"
+    assert row.src_endpoint_ip == "192.0.2.10"
+    assert row.dst_endpoint_ip == "198.51.100.20"
+    assert row.ocsf_payload["event_type"] == "attributed_flow"
+    assert row.ocsf_payload["agent_id"] == "agent-1"
+
+    assert row.ocsf_payload["attribution"] == %{
+             "pid" => 1234,
+             "comm" => "nginx",
+             "cmdline" => "nginx: worker process",
+             "uid" => 33,
+             "container_id" => "container-1"
+           }
   end
 end
