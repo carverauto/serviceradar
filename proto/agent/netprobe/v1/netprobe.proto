@@ -42,6 +42,8 @@ message NetprobeFrame {
     ExternalFlowRecord external_flow_record = 23;
     StartRemoteCapture start_remote_capture = 24;
     PcapngBlock pcapng_block = 25;
+    BannerBatch banner_batch = 26;
+    BannerMatchBatch banner_match_batch = 27;
   }
 }
 
@@ -310,4 +312,32 @@ message StartRemoteCapture {
 
 message PcapngBlock {
   // TODO(add-host-network-visibility-sidecar Phase 5): define pcapng block fields.
+}
+
+message BannerObservation {
+  uint64 observation_id = 1;
+  string host = 2;
+  uint32 port = 3;
+  string protocol = 4;
+  bytes banner_bytes = 5;
+  int64 observed_at = 6;
+  string source = 7;
+}
+
+message BannerBatch {
+  repeated BannerObservation observations = 1;
+}
+
+message BannerMatch {
+  uint64 observation_id = 1;
+  string corpus_label = 2;
+  string os_family = 3;
+  string product = 4;
+  string version = 5;
+  double confidence = 6;
+  string raw_pattern_id = 7;
+}
+
+message BannerMatchBatch {
+  repeated BannerMatch matches = 1;
 }
