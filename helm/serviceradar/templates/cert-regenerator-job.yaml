@@ -80,7 +80,8 @@ spec:
         - name: FORCE_REGENERATE
           value: "true"
         - name: DEFAULT_PARTITION_ID
-          value: {{ default "default" (default (dict) .Values.agent).partitionId | quote }}
+          # B-5 partition_id coalesce chain — keep in sync with nats.yaml
+          value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: DEFAULT_AGENT_COMPONENT_ID
           value: {{ default "k8s-agent" (default (dict) .Values.agent).agentId | quote }}
         - name: RUNTIME_CERT_LAYOUT_VERSION

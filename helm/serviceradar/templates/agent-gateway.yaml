@@ -77,7 +77,8 @@ spec:
         - name: ERL_FLAGS
           value: "-kernel inet_dist_listen_min 9100 -kernel inet_dist_listen_max 9155"
         - name: GATEWAY_PARTITION_ID
-          value: {{ default "default" $gateway.partitionId | quote }}
+          # B-5 partition_id coalesce chain — keep in sync with nats.yaml
+          value: {{ coalesce $gateway.partitionId .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: GATEWAY_ID
           value: {{ default "gateway-platform" $gateway.gatewayId | quote }}
         - name: GATEWAY_DOMAIN
