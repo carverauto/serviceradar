@@ -38,10 +38,13 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   @attributed_flow_event_type "attributed_flow"
   @attributed_flow_subject_prefix "flow.attributed."
 
-  # Attribution payload caps (Mi-85)
-  @comm_max_length 16
-  @container_id_max_length 64
-  @redacted_cmdline_max_length 512
+  # Attribution payload caps in BYTES (Mi-85, proto/flow/flow.proto:132-142).
+  # Producers MUST cap redacted_cmdline at 256 bytes; comm/container_id are
+  # byte-capped at their natural kernel/runtime limits (TASK_COMM_LEN and the
+  # full Docker/containerd ID hex length, respectively).
+  @comm_max_bytes 16
+  @container_id_max_bytes 64
+  @redacted_cmdline_max_bytes 256
 
   # Telemetry event names
   @telemetry_partition_mismatch [
@@ -536,14 +539,14 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     comm =
       attribution.comm
       |> blank_to_nil()
-      |> cap_string("comm", @comm_max_length, subject, partition)
+      |> cap_bytes("comm", @comm_max_bytes, subject, partition)
 
     redacted_cmdline =
       attribution.redacted_cmdline
       |> blank_to_nil()
-      |> cap_string(
+      |> cap_bytes(
         "redacted_cmdline",
-        @redacted_cmdline_max_length,
+        @redacted_cmdline_max_bytes,
         subject,
         partition
       )
@@ -551,7 +554,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     container_id =
       attribution.container_id
       |> blank_to_nil()
-      |> cap_string("container_id", @container_id_max_length, subject, partition)
+      |> cap_bytes("container_id", @container_id_max_bytes, subject, partition)
 
     %{}
     |> put_if_present("pid", zero_to_nil(attribution.pid))
@@ -567,15 +570,25 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
 
   defp attribution_payload(_, _, _), do: nil
 
-  defp cap_string(nil, _field, _max, _subject, _partition), do: nil
+  # UTF-8-safe byte capper. The proto contract is expressed in bytes (see
+  # proto/flow/flow.proto:132-142), so we measure with byte_size/1 and slice
+  # via binary_part/3, then walk backwards at most 3 bytes to land on a valid
+  # UTF-8 codepoint boundary (UTF-8 codepoints are 1-4 bytes).
+  defp cap_bytes(nil, _field, _max, _subject, _partition), do: nil
 
-  defp cap_string(value, field, max, subject, partition) when is_binary(value) do
-    if String.length(value) > max do
-      truncated = String.slice(value, 0, max)
+  defp cap_bytes(value, field, max, subject, partition) when is_binary(value) do
+    original_bytes = byte_size(value)
+
+    if original_bytes > max do
+      truncated = trim_to_utf8_boundary(binary_part(value, 0, max))
 
       :telemetry.execute(
         @telemetry_attribution_truncated,
-        %{count: 1, original_length: String.length(value), truncated_length: max},
+        %{
+          count: 1,
+          original_bytes: original_bytes,
+          truncated_bytes: byte_size(truncated)
+        },
         %{field: field, subject: subject, partition: partition}
       )
 
@@ -585,7 +598,17 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
     end
   end
 
-  defp cap_string(value, _field, _max, _subject, _partition), do: value
+  defp cap_bytes(value, _field, _max, _subject, _partition), do: value
+
+  defp trim_to_utf8_boundary(<<>>), do: <<>>
+
+  defp trim_to_utf8_boundary(bin) when is_binary(bin) do
+    if String.valid?(bin) do
+      bin
+    else
+      trim_to_utf8_boundary(binary_part(bin, 0, byte_size(bin) - 1))
+    end
+  end
 
   defp resolve_partition(%AttributedFlowMessage{} = message, metadata) do
     subject = metadata[:subject]
