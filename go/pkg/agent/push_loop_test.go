@@ -243,6 +243,60 @@ func TestSweepBannerGrabCapabilityStatusReasons(t *testing.T) {
 	}
 }
 
+func TestSweepBannerGrabCapabilityAdvertisementTransitionsUnavailableWhenNetprobeStops(t *testing.T) {
+	t.Parallel()
+
+	cfg := &ServerConfig{AgentID: desktopConsoleAgentID, Partition: "default"}
+	pl := NewPushLoop(
+		&Server{
+			config:   cfg,
+			services: []Service{&bannerGrabConfigMockService{enabled: true}},
+		},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	loadedCorpus := agentnetprobe.CorpusRevisions{RecogCorpusLoaded: true}
+
+	runningSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateRunning)}}
+	availableStatus := pl.sweepBannerGrabCapabilityStatus(runningSidecars, loadedCorpus)
+	availablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
+		agentCapabilitiesForStatusWithBannerGrab(cfg, runningSidecars, availableStatus.Status == capabilityStatusAvailable),
+		runningSidecars,
+		false,
+		loadedCorpus,
+		availableStatus,
+	))
+
+	if availablePayload.Sweep.BannerGrab.Status != capabilityStatusAvailable {
+		t.Fatalf("available banner grab status = %#v", availablePayload.Sweep.BannerGrab)
+	}
+	if !containsCapability(availablePayload.Capabilities, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("available capabilities missing banner grab availability: %#v", availablePayload.Capabilities)
+	}
+
+	stoppedSidecars := []*proto.SidecarStatus{{Name: "netprobe", State: string(sidecar.StateStopped)}}
+	unavailableStatus := pl.sweepBannerGrabCapabilityStatus(stoppedSidecars, loadedCorpus)
+	unavailablePayload := decodeAgentCapabilityPayload(t, buildAgentCapabilityStatusResponse(
+		agentCapabilitiesForStatusWithBannerGrab(cfg, stoppedSidecars, unavailableStatus.Status == capabilityStatusAvailable),
+		stoppedSidecars,
+		false,
+		loadedCorpus,
+		unavailableStatus,
+	))
+
+	if unavailablePayload.Sweep.BannerGrab.Status != capabilityStatusUnavailable ||
+		unavailablePayload.Sweep.BannerGrab.Reason != capabilityReasonNetprobeUnavailable {
+		t.Fatalf("stopped banner grab status = %#v, want unavailable/netprobe reason", unavailablePayload.Sweep.BannerGrab)
+	}
+	if containsCapability(unavailablePayload.Capabilities, capabilitySweepBannerGrabAvailable) {
+		t.Fatalf("stopped capabilities still advertise available banner grab: %#v", unavailablePayload.Capabilities)
+	}
+	if !containsCapability(unavailablePayload.Capabilities, capabilitySweepBannerGrabUnavailable) {
+		t.Fatalf("stopped capabilities missing unavailable banner grab marker: %#v", unavailablePayload.Capabilities)
+	}
+}
+
 type bannerGrabConfigMockService struct {
 	mockService
 	enabled bool
@@ -250,6 +304,17 @@ type bannerGrabConfigMockService struct {
 
 func (s *bannerGrabConfigMockService) BannerGrabEnabled() bool {
 	return s.enabled
+}
+
+func decodeAgentCapabilityPayload(t *testing.T, resp *proto.StatusResponse) agentCapabilityStatusPayload {
+	t.Helper()
+
+	var payload agentCapabilityStatusPayload
+	if err := json.Unmarshal(resp.GetMessage(), &payload); err != nil {
+		t.Fatalf("failed to decode capability payload: %v", err)
+	}
+
+	return payload
 }
 
 func TestEvaluateStatusPushHeartbeat(t *testing.T) {

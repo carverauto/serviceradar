@@ -81,6 +81,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     agent_id = Keyword.get(opts, :agent_id)
     config_version = Keyword.get(opts, :config_version)
     scanner_metrics = Keyword.get(opts, :scanner_metrics)
+    banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     chunk_index = Keyword.get(opts, :chunk_index)
     total_chunks = Keyword.get(opts, :total_chunks)
@@ -119,6 +120,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           total_count,
           start_time,
           expected_total_hosts: expected_total_hosts,
+          banner_grab_summary: banner_grab_summary,
           chunk_index: chunk_index,
           total_chunks: total_chunks,
           is_final: is_final
@@ -1163,8 +1165,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     UPDATE ocsf_devices
     SET
       is_available = true,
-      last_seen_time = $2,
-      modified_time = $2,
+      last_seen_time = $2::timestamptz,
+      modified_time = $2::timestamptz,
       metadata = jsonb_set(
         jsonb_set(
           COALESCE(metadata, '{}'::jsonb),
