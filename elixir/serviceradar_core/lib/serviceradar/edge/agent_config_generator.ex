@@ -421,8 +421,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       binary_path: addon_binary_path(package),
       args: assignment.args || [],
       params: normalize_map(assignment.params),
-      capabilities: package.capabilities || []
+      capabilities: effective_addon_capabilities(package),
+      delivery: package.delivery,
+      supervision: package.supervision
     }
+  end
+
+  # Prefer the operator-approved capability subset when set (mirrors plugin
+  # effective_capabilities); fall back to the package's full manifest list.
+  defp effective_addon_capabilities(%AddonPackage{} = package) do
+    case package.approved_capabilities || [] do
+      [] -> package.capabilities || []
+      approved -> approved
+    end
   end
 
   defp addon_binary_path(%AddonPackage{binary: binary, install_path: install_path})
@@ -1010,12 +1021,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     "v" <> Compiler.content_hash(version_payload)
   end
 
-  defp stable_addon_assignment(assignment) when is_map(assignment) do
-    # binary_path is derived from the package and resolved per agent; drop it so
-    # config_version reflects the assignment/config, not deployment-path changes.
-    Map.delete(assignment, :binary_path)
-  end
-
+  # The add-on assignment map carries no volatile/derived fields (unlike plugin
+  # assignments, which strip per-poll download tokens), so the whole map joins the
+  # config version hash. binary_path is included intentionally: a binary/install_path
+  # (or per-arch artifact) change must re-version so a polling agent stops getting
+  # `not_modified` and relaunches the new executable.
   defp stable_addon_assignment(assignment), do: assignment
 
   defp stable_config_fragment(%{} = map) do
@@ -1060,12 +1070,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         binary_path: assignment_string(addon[:binary_path]),
         args: addon[:args] || [],
         config_json: encode_json(normalize_map(addon[:params])),
-        capabilities: addon[:capabilities] || []
+        capabilities: addon[:capabilities] || [],
+        delivery: assignment_enum_string(addon[:delivery]),
+        supervision: assignment_enum_string(addon[:supervision])
       }
     end)
   end
 
   defp to_proto_addons(_), do: []
+
+  # Add-on delivery/supervision are Ash atoms (e.g. :pushed_artifact); the proto
+  # field is a string, so stringify (and tolerate a pre-stringified value).
+  defp assignment_enum_string(nil), do: ""
+  defp assignment_enum_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp assignment_enum_string(value) when is_binary(value), do: value
+  defp assignment_enum_string(_), do: ""
 
   defp to_proto_plugin_engine_limits(engine_limits) do
     %Monitoring.PluginEngineLimits{

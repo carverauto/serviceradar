@@ -2317,6 +2317,8 @@ type AddonAssignmentConfig struct {
 	Args          []string               `protobuf:"bytes,5,rep,name=args,proto3" json:"args,omitempty"`                               // Optional extra arguments for the plugin binary
 	ConfigJson    []byte                 `protobuf:"bytes,6,opt,name=config_json,json=configJson,proto3" json:"config_json,omitempty"` // Operator-selected config (validated against config.schema.json)
 	Capabilities  []string               `protobuf:"bytes,7,rep,name=capabilities,proto3" json:"capabilities,omitempty"`               // Capability identifiers the add-on advertises
+	Delivery      string                 `protobuf:"bytes,8,opt,name=delivery,proto3" json:"delivery,omitempty"`                       // Delivery model: compiled_in | pushed_artifact | os_package
+	Supervision   string                 `protobuf:"bytes,9,opt,name=supervision,proto3" json:"supervision,omitempty"`                 // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2398,6 +2400,20 @@ func (x *AddonAssignmentConfig) GetCapabilities() []string {
 		return x.Capabilities
 	}
 	return nil
+}
+
+func (x *AddonAssignmentConfig) GetDelivery() string {
+	if x != nil {
+		return x.Delivery
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetSupervision() string {
+	if x != nil {
+		return x.Supervision
+	}
+	return ""
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
@@ -5528,7 +5544,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x11visibility_config\x18\n" +
 	" \x01(\v2\x1c.monitoring.VisibilityConfigR\x10visibilityConfig\x12=\n" +
 	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\x129\n" +
-	"\x06addons\x18\f \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\xe0\x01\n" +
+	"\x06addons\x18\f \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\x9e\x02\n" +
 	"\x15AddonAssignmentConfig\x12\x19\n" +
 	"\baddon_id\x18\x01 \x01(\tR\aaddonId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
@@ -5538,7 +5554,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x04args\x18\x05 \x03(\tR\x04args\x12\x1f\n" +
 	"\vconfig_json\x18\x06 \x01(\fR\n" +
 	"configJson\x12\"\n" +
-	"\fcapabilities\x18\a \x03(\tR\fcapabilities\"\xc2\x02\n" +
+	"\fcapabilities\x18\a \x03(\tR\fcapabilities\x12\x1a\n" +
+	"\bdelivery\x18\b \x01(\tR\bdelivery\x12 \n" +
+	"\vsupervision\x18\t \x01(\tR\vsupervision\"\xc2\x02\n" +
 	"\x10AgentConfigChunk\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +

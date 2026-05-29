@@ -3039,6 +3039,14 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 	return ""
 }
 
+// Add-on delivery/supervision identifiers carried in AddonAssignmentConfig.
+// These mirror the control-plane Ash enums; only the agent_sidecar supervision
+// model is supervised here today (others are logged and skipped explicitly).
+const (
+	addonDeliveryPushedArtifact  = "pushed_artifact"
+	addonSupervisionAgentSidecar = "agent_sidecar"
+)
+
 // applyAddonAssignments reconciles the agent's supervised native add-ons to the
 // assignments delivered in the gateway config. Enabled assignments are launched
 // and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
@@ -3059,10 +3067,39 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		if a == nil || !a.GetEnabled() {
 			continue
 		}
-		if a.GetBinaryPath() == "" {
-			p.logger.Warn().Str("addon", a.GetAddonId()).Msg("Skipping add-on assignment without a binary path")
+
+		// Default to the only delivery/supervision pair this agent implements so
+		// an older control plane that omits these fields keeps working.
+		delivery := a.GetDelivery()
+		if delivery == "" {
+			delivery = addonDeliveryPushedArtifact
+		}
+		supervision := a.GetSupervision()
+		if supervision == "" {
+			supervision = addonSupervisionAgentSidecar
+		}
+
+		// Only agent_sidecar add-ons run as supervised go-plugin subprocesses.
+		// compiled_in / config_toggle / systemd_* / ephemeral_helper are not yet
+		// handled here; log explicitly rather than silently skipping so the
+		// desired-vs-observed gap is visible instead of looking like a no-op.
+		if supervision != addonSupervisionAgentSidecar {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Str("supervision", supervision).
+				Msg("Add-on supervision model not supported by this agent; assignment not applied")
 			continue
 		}
+
+		if a.GetBinaryPath() == "" {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Msg("Add-on sidecar assignment missing a binary path; not applied")
+			continue
+		}
+
 		specs = append(specs, agentaddon.Spec{
 			ID:           a.GetAddonId(),
 			Version:      a.GetVersion(),

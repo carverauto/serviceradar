@@ -457,6 +457,8 @@ defmodule Monitoring.AddonAssignmentConfig do
   field(:args, 5, repeated: true, type: :string)
   field(:config_json, 6, type: :bytes, json_name: "configJson")
   field(:capabilities, 7, repeated: true, type: :string)
+  field(:delivery, 8, type: :string)
+  field(:supervision, 9, type: :string)
 end
 
 defmodule Monitoring.AgentConfigChunk do

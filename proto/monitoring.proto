@@ -328,6 +328,8 @@ message AddonAssignmentConfig {
   repeated string args = 5;         // Optional extra arguments for the plugin binary
   bytes config_json = 6;            // Operator-selected config (validated against config.schema.json)
   repeated string capabilities = 7; // Capability identifiers the add-on advertises
+  string delivery = 8;              // Delivery model: compiled_in | pushed_artifact | os_package
+  string supervision = 9;           // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

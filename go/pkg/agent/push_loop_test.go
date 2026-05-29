@@ -156,7 +156,7 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 		logger.NewTestLogger(),
 	)
 
-	status := pl.buildAgentCapabilityGatewayStatus(pl.server.config, pl.server.sidecarStatus)
+	status := pl.buildAgentCapabilityGatewayStatus(pl.server.config, pl.server.sidecarStatus, pl.server.addonManager)
 	if status == nil {
 		t.Fatal("expected agent capability gateway status")
 	}
