@@ -1,0 +1,235 @@
+use std::{env, path::Path, sync::OnceLock};
+
+use crate::{
+    proto::netprobe::{BannerBatch, BannerMatch, BannerMatchBatch, BannerObservation},
+    recog::{self, RecogLabel, RecogService},
+    satori::{SatoriCorpus, SatoriMatch},
+};
+
+const RECOG_CONFIDENCE: f64 = 0.86;
+const SATORI_CONFIDENCE: f64 = 0.78;
+
+static SATORI_CORPUS: OnceLock<Result<SatoriCorpus, String>> = OnceLock::new();
+
+pub fn match_banner_batch(batch: &BannerBatch) -> BannerMatchBatch {
+    let satori = default_satori_corpus();
+    let matches = batch
+        .observations
+        .iter()
+        .map(|observation| match_observation(observation, satori))
+        .collect();
+
+    BannerMatchBatch { matches }
+}
+
+fn match_observation(
+    observation: &BannerObservation,
+    satori: Option<&'static SatoriCorpus>,
+) -> BannerMatch {
+    let protocol = observation.protocol.trim().to_ascii_lowercase();
+    let banner = String::from_utf8_lossy(&observation.banner_bytes);
+    let mut candidates = Vec::new();
+
+    if let Some(service) = recog_service(&protocol) {
+        if let Some(label) = recog::match_recog(service, &banner) {
+            candidates.push(recog_match(observation.observation_id, label));
+        }
+    }
+
+    if let Some(corpus) = satori {
+        if let Some(label) = satori_match(&protocol, &banner, corpus) {
+            candidates.push(satori_banner_match(observation.observation_id, label));
+        }
+    }
+
+    candidates
+        .into_iter()
+        .max_by(|left, right| {
+            left.confidence
+                .partial_cmp(&right.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .unwrap_or_else(|| unknown_match(observation.observation_id))
+}
+
+fn recog_service(protocol: &str) -> Option<RecogService> {
+    match protocol {
+        "http" => Some(RecogService::HttpServer),
+        "ssh" => Some(RecogService::SshBanner),
+        "smb" => Some(RecogService::SmbVersion),
+        "ftp" => Some(RecogService::FtpBanner),
+        "telnet" => Some(RecogService::TelnetBanner),
+        "smtp" => Some(RecogService::SmtpBanner),
+        "sip" => Some(RecogService::SipBanner),
+        "rdp" => Some(RecogService::RdpBanner),
+        "dns" => Some(RecogService::DnsVersion),
+        _ => None,
+    }
+}
+
+fn satori_match(protocol: &str, banner: &str, corpus: &SatoriCorpus) -> Option<SatoriMatch> {
+    match protocol {
+        "http" => corpus
+            .match_http_server(banner)
+            .or_else(|| corpus.match_http_user_agent(banner)),
+        "ssh" => corpus.match_ssh(banner),
+        "smb" => corpus.match_smb(None, Some(banner)),
+        "sip" => corpus.match_sip(banner),
+        "dns" => corpus.match_dns(banner),
+        "ntp" => corpus.match_ntp(banner),
+        _ => None,
+    }
+}
+
+fn recog_match(observation_id: u64, label: RecogLabel) -> BannerMatch {
+    BannerMatch {
+        observation_id,
+        corpus_label: format!("recog:{}", label.source),
+        os_family: label.os_family.or(label.os_product).unwrap_or_default(),
+        product: label.product.unwrap_or_default(),
+        version: label.version.unwrap_or_default(),
+        confidence: RECOG_CONFIDENCE,
+        raw_pattern_id: label.pattern.to_string(),
+    }
+}
+
+fn satori_banner_match(observation_id: u64, label: SatoriMatch) -> BannerMatch {
+    BannerMatch {
+        observation_id,
+        corpus_label: format!("satori:{}", label.source),
+        os_family: label.os_class.or(label.os_name).unwrap_or_default(),
+        product: label.device_type.unwrap_or_default(),
+        version: String::new(),
+        confidence: SATORI_CONFIDENCE,
+        raw_pattern_id: label.label,
+    }
+}
+
+fn unknown_match(observation_id: u64) -> BannerMatch {
+    BannerMatch {
+        observation_id,
+        corpus_label: "unknown".to_string(),
+        os_family: String::new(),
+        product: String::new(),
+        version: String::new(),
+        confidence: 0.0,
+        raw_pattern_id: String::new(),
+    }
+}
+
+fn default_satori_corpus() -> Option<&'static SatoriCorpus> {
+    SATORI_CORPUS
+        .get_or_init(load_default_satori_corpus)
+        .as_ref()
+        .ok()
+}
+
+fn load_default_satori_corpus() -> Result<SatoriCorpus, String> {
+    for dir in candidate_satori_dirs() {
+        if dir.exists() {
+            return SatoriCorpus::load_from_dir(dir).map_err(|error| error.to_string());
+        }
+    }
+
+    Err("Satori corpus directory not found".to_string())
+}
+
+fn candidate_satori_dirs() -> Vec<std::path::PathBuf> {
+    let mut dirs = Vec::new();
+
+    if let Ok(path) = env::var("SERVICERADAR_SATORI_CORPUS_DIR") {
+        dirs.push(path.into());
+    }
+    if let Ok(manifest_dir) = env::var("CARGO_MANIFEST_DIR") {
+        dirs.push(Path::new(&manifest_dir).join("satori-corpus/xml"));
+    }
+
+    dirs.push(Path::new("satori-corpus/xml").into());
+    dirs.push(Path::new("rust/netprobe/satori-corpus/xml").into());
+    dirs.push(Path::new("/usr/share/serviceradar/netprobe/satori-corpus/xml").into());
+
+    dirs
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{match_banner_batch, satori_match};
+    use crate::{
+        proto::netprobe::{BannerBatch, BannerObservation},
+        satori::SatoriCorpus,
+    };
+
+    #[test]
+    fn matches_recog_http_banner_and_preserves_order() {
+        let batch = BannerBatch {
+            observations: vec![
+                observation(10, "http", b"Apache/2.4.58 (Ubuntu)"),
+                observation(11, "ssh", b"not-a-known-banner"),
+            ],
+        };
+
+        let matches = match_banner_batch(&batch).matches;
+
+        assert_eq!(matches.len(), 2);
+        assert_eq!(matches[0].observation_id, 10);
+        assert!(matches[0].corpus_label.starts_with("recog:"));
+        assert_eq!(matches[0].product, "HTTPD");
+        assert_eq!(matches[0].version, "2.4.58");
+        assert_eq!(matches[1].observation_id, 11);
+        assert_eq!(matches[1].corpus_label, "unknown");
+        assert_eq!(matches[1].confidence, 0.0);
+    }
+
+    #[test]
+    fn covers_configured_banner_protocol_fixtures() {
+        let batch = BannerBatch {
+            observations: vec![
+                observation(1, "http", b"Apache/2.4.58 (Ubuntu)"),
+                observation(2, "ssh", b"OpenSSH_8.9p1 Ubuntu-3ubuntu0.10"),
+                observation(3, "smb", b"Samba 4.13.17"),
+                observation(4, "ftp", b"foo.bar Microsoft FTP Service (Version 5.0)."),
+                observation(5, "telnet", b"Password required, but none set"),
+                observation(6, "smtp", b"foo.bar ESMTP Postfix 2.7.1"),
+                observation(7, "sip", b"Cisco-SIPGateway/IOS-15.2.4.M3"),
+                observation(8, "dns", b"9.9.4-RedHat-9.9.4-38.el7_3.3"),
+                observation(9, "ntp", b"client;123,0,4,0,unset,0,random,0"),
+                observation(10, "rdp", b"RDP fixture"),
+            ],
+        };
+
+        let matches = match_banner_batch(&batch).matches;
+
+        assert_eq!(matches.len(), batch.observations.len());
+        for (index, matched) in matches.iter().enumerate() {
+            assert_eq!(matched.observation_id, (index + 1) as u64);
+        }
+
+        for matched in matches.iter().take(9) {
+            assert_ne!(matched.corpus_label, "unknown");
+        }
+        assert_eq!(matches[9].corpus_label, "unknown");
+    }
+
+    #[test]
+    fn matches_satori_ssh_banner_candidate() {
+        let corpus = SatoriCorpus::load_from_dir("satori-corpus/xml")
+            .or_else(|_| SatoriCorpus::load_from_dir("rust/netprobe/satori-corpus/xml"))
+            .expect("Satori corpus loads");
+        let matched = satori_match("ssh", "SSH-2.0-Cisco-1.25", &corpus)
+            .expect("Cisco SSH Satori banner matches");
+
+        assert_eq!(matched.label, "Cisco Router");
+    }
+
+    fn observation(id: u64, protocol: &str, banner: &[u8]) -> BannerObservation {
+        BannerObservation {
+            observation_id: id,
+            host: "192.0.2.10".to_string(),
+            port: 22,
+            protocol: protocol.to_string(),
+            banner_bytes: banner.to_vec(),
+            observed_at: 1_700_000_000,
+            source: "sweep_active".to_string(),
+        }
+    }
+}

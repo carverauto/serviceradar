@@ -22,6 +22,7 @@ use crate::{
         SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
     },
     framing::{read_frame, write_frame, write_frame_with_buffer},
+    ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, FingerprintEvent, FlowAttributionEvent,
@@ -282,6 +283,12 @@ fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> N
                 },
             }
         }
+        Some(netprobe_frame::Payload::BannerBatch(batch)) => NetprobeFrame {
+            sequence: frame.sequence,
+            payload: Some(netprobe_frame::Payload::BannerMatchBatch(
+                match_banner::match_banner_batch(&batch),
+            )),
+        },
         _ => NetprobeFrame {
             sequence: frame.sequence,
             payload: Some(netprobe_frame::Payload::Error(ErrorFrame {

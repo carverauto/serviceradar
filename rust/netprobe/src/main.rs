@@ -21,6 +21,7 @@ mod fingerprint;
 mod framing;
 #[allow(dead_code)]
 mod hassh;
+mod ipc;
 #[allow(dead_code)]
 mod ja4;
 mod kernel;

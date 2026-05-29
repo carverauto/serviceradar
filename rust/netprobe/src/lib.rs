@@ -18,6 +18,7 @@ pub mod fingerprint;
 pub mod framing;
 #[allow(dead_code)]
 pub mod hassh;
+pub mod ipc;
 #[allow(dead_code)]
 pub mod ja4;
 pub mod kernel;
