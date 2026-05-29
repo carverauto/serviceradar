@@ -188,3 +188,52 @@ func TestManagerApplyAfterStopFails(t *testing.T) {
 		t.Fatalf("expected ErrManagerClosed after Stop")
 	}
 }
+
+func TestManagerRestartsOnBinaryChange(t *testing.T) {
+	requireSampleAddon(t)
+
+	// A second copy of the reference binary at a different path.
+	dir := t.TempDir()
+	bin2 := filepath.Join(dir, "serviceradar-sample-addon-v2")
+	data, err := os.ReadFile(sampleAddonBin)
+	if err != nil {
+		t.Fatalf("read sample addon: %v", err)
+	}
+	if err := os.WriteFile(bin2, data, 0o755); err != nil {
+		t.Fatalf("write sample addon copy: %v", err)
+	}
+
+	mgr := NewManager(testConfig(t))
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	if err := mgr.Apply(context.Background(), []Spec{{
+		ID:         "sample",
+		BinaryPath: sampleAddonBin,
+		ConfigJSON: []byte("{}"),
+	}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	s1 := waitForState(t, mgr, "sample", StateRunning, 15*time.Second)
+	if s1.PID == 0 {
+		t.Skip("go-plugin did not report a PID; cannot assert relaunch")
+	}
+
+	// Changing the binary path must relaunch the subprocess, not reconfigure the
+	// old one (the regression: a binary upgrade silently kept the old process).
+	if err := mgr.Apply(context.Background(), []Spec{{
+		ID:         "sample",
+		BinaryPath: bin2,
+		ConfigJSON: []byte("{}"),
+	}}); err != nil {
+		t.Fatalf("apply v2: %v", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if s, ok := statusByID(mgr, "sample"); ok && s.State == StateRunning && s.PID != 0 && s.PID != s1.PID {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected relaunch with a new PID after binary change; old pid=%d, status=%+v", s1.PID, mgr.Status())
+}

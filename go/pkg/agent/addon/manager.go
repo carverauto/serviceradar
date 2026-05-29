@@ -108,12 +108,14 @@ func NewManager(cfg Config) *Manager {
 	}
 }
 
-// Apply reconciles the supervised add-ons to the desired set.
+// Apply reconciles the supervised add-ons to the desired set: it launches new
+// add-ons, restarts ones whose binary/args changed or whose supervisor has exited
+// (e.g. after the restart circuit breaker tripped), reconfigures config-only
+// changes, and stops removed ones.
 func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	if m.closed {
+		m.mu.Unlock()
 		return ErrManagerClosed
 	}
 
@@ -122,28 +124,51 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 		desired[s.ID] = s
 	}
 
-	// Stop add-ons no longer desired.
+	// Collect runners to tear down and shut them down AFTER releasing the lock:
+	// shutdown blocks on the go-plugin client Kill (seconds), and Status()/Stop()
+	// take the same mutex.
+	var toStop []*runner
+
 	for id, r := range m.runners {
 		if _, ok := desired[id]; !ok {
-			r.shutdown()
+			toStop = append(toStop, r)
 			delete(m.runners, id)
 		}
 	}
 
-	// Start new add-ons and reconfigure existing ones.
 	for id, spec := range desired {
-		if r, ok := m.runners[id]; ok {
+		r, ok := m.runners[id]
+		switch {
+		case !ok:
+			m.startRunnerLocked(spec)
+		case r.finished() || r.needsRestart(spec):
+			// Supervisor exited (circuit breaker) or a restart-boundary field
+			// (binary/args) changed: replace the runner so the new binary/args
+			// actually launch instead of reconfiguring the old process.
+			toStop = append(toStop, r)
+			delete(m.runners, id)
+			m.startRunnerLocked(spec)
+		default:
 			r.update(spec)
-			continue
 		}
-		r := newRunner(spec, m.cfg)
-		m.runners[id] = r
-		ctx, cancel := context.WithCancel(context.Background())
-		r.cancel = cancel
-		go r.run(ctx)
+	}
+
+	m.mu.Unlock()
+
+	for _, r := range toStop {
+		r.shutdown()
 	}
 
 	return nil
+}
+
+// startRunnerLocked creates and starts a supervisor for spec. The caller holds m.mu.
+func (m *Manager) startRunnerLocked(spec Spec) {
+	r := newRunner(spec, m.cfg)
+	m.runners[spec.ID] = r
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	go r.run(ctx)
 }
 
 // Status returns a stable snapshot of every supervised add-on.
@@ -215,12 +240,12 @@ func newRunner(spec Spec, cfg Config) *runner {
 	}
 }
 
-// update applies a new spec to a running add-on, signalling reconfiguration when
-// the delivered configuration changed.
+// update applies a config-only spec change to a running add-on, signalling
+// reconfiguration when the delivered configuration changed. Binary/args changes
+// are restart boundaries handled by Apply (relaunch), not here.
 func (r *runner) update(spec Spec) {
 	r.mu.Lock()
-	changed := !bytes.Equal(r.spec.ConfigJSON, spec.ConfigJSON) ||
-		r.spec.BinaryPath != spec.BinaryPath
+	changed := !bytes.Equal(r.spec.ConfigJSON, spec.ConfigJSON)
 	r.spec = spec
 	r.mu.Unlock()
 
@@ -230,6 +255,37 @@ func (r *runner) update(spec Spec) {
 		default:
 		}
 	}
+}
+
+// finished reports whether the runner's supervisor goroutine has exited (stopped
+// or circuit-broken), so Apply can replace it instead of issuing a dead reconfigure.
+func (r *runner) finished() bool {
+	select {
+	case <-r.done:
+		return true
+	default:
+		return false
+	}
+}
+
+// needsRestart reports whether a restart-boundary field changed (the binary path
+// or its args), which requires relaunching the subprocess rather than reconfiguring.
+func (r *runner) needsRestart(spec Spec) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.spec.BinaryPath != spec.BinaryPath || !equalStrings(r.spec.Args, spec.Args)
+}
+
+func equalStrings(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 // shutdown cancels the runner and waits for its supervisor loop to exit.
