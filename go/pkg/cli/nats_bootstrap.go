@@ -589,9 +589,40 @@ func generatePlatformAccount(
 		return nil, "", err
 	}
 
+	// Subject-scoping model (B-5): the platform-services credential is the
+	// shared core/admin identity used by ServiceRadar control-plane
+	// components. It needs broad read access on flow.> and write access on
+	// the attributed-flow + control subjects, but must NOT publish raw
+	// host-slice telemetry (that is the flow-collector's role) and must NOT
+	// touch $SYS.> (system-account exclusive).
+	//
+	// Per-agent credentials (per-host flow-collector JWTs) should be issued
+	// with GenerateAgentFlowCollectorCreds, which scopes publish to a
+	// single flow.host-slice.<agent_id> subject.
 	permissions := &accounts.UserPermissions{
-		PublishAllow:   []string{">"},
-		SubscribeAllow: []string{">"},
+		PublishAllow: []string{
+			"flow.attributed.>",
+			"flow.raw.>",
+			"logs.>",
+			"events.>",
+			"config.>",
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+		},
+		PublishDeny: []string{"$SYS.>"},
+		SubscribeAllow: []string{
+			"flow.host-slice.>",
+			"flow.attributed.>",
+			"flow.raw.>",
+			"logs.>",
+			"events.>",
+			"config.>",
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+		},
+		SubscribeDeny:  []string{"$SYS.>"},
 		AllowResponses: true,
 		MaxResponses:   1000,
 	}
@@ -613,6 +644,86 @@ func generatePlatformAccount(
 	}
 
 	return account, creds.CredsFileContent, nil
+}
+
+// GenerateAgentFlowCollectorCreds issues a NATS user JWT scoped to a single
+// agent's host-slice subject. This is the B-5 building block for true
+// per-agent NATS subject ACLs: each flow-collector instance receives a
+// credential that can only publish to flow.host-slice.<agentID> (and the
+// JetStream control / inbox subjects required to operate). Subscribing to
+// any flow.* subject is denied, so a compromised agent cannot read peer
+// telemetry.
+//
+// Callers should provision per-agent creds at agent enrollment and rotate
+// them on the standard JWT expiration cadence. The accountSeed is the
+// platform account's seed, typically held by core and never written to
+// agent disk in cleartext.
+func GenerateAgentFlowCollectorCreds(
+	accountName string,
+	accountSeed string,
+	agentID string,
+	expirationSeconds int64,
+) (*accounts.UserCredentials, error) {
+	if strings.TrimSpace(agentID) == "" {
+		return nil, fmt.Errorf("agent id required for per-agent flow-collector creds")
+	}
+	if !isSafeSubjectToken(agentID) {
+		return nil, fmt.Errorf("agent id %q contains characters disallowed in NATS subjects", agentID)
+	}
+
+	subject := "flow.host-slice." + agentID
+
+	permissions := &accounts.UserPermissions{
+		PublishAllow: []string{
+			subject,
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+		},
+		PublishDeny: []string{"$SYS.>", "flow.attributed.>"},
+		SubscribeAllow: []string{
+			"$JS.API.>",
+			"$JS.ACK.>",
+			"_INBOX.>",
+			"config.flow-collector." + agentID + ".>",
+		},
+		SubscribeDeny:  []string{"$SYS.>", "flow.host-slice.>", "flow.attributed.>"},
+		AllowResponses: true,
+		MaxResponses:   16,
+	}
+
+	userName := "flow-collector-" + agentID
+
+	return accounts.GenerateUserCredentials(
+		accountName,
+		accountSeed,
+		userName,
+		accounts.CredentialTypeService,
+		permissions,
+		expirationSeconds,
+	)
+}
+
+// isSafeSubjectToken mirrors the validation applied to host_slice agent_id
+// values in rust/flow-collector/src/host_slice.rs so per-agent JWTs can
+// only be issued for tokens that are safe to embed in a NATS subject.
+func isSafeSubjectToken(token string) bool {
+	if token == "" {
+		return false
+	}
+	for _, r := range token {
+		switch {
+		case r >= 'a' && r <= 'z',
+			r >= 'A' && r <= 'Z',
+			r >= '0' && r <= '9',
+			r == '-',
+			r == '_':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func runNatsBootstrapVerify(cfg *CmdConfig) error {

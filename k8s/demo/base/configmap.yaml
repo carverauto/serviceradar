@@ -867,14 +867,30 @@ data:
               }
             }
           },
+          # Flow-collector (B-5 subject-scoping): publishes per-agent host
+          # slices on flow.host-slice.<agent_id> and the raw aggregate
+          # flow.raw.> stream. Subscribing to any flow.* subject is
+          # denied — slice consumption is a core-only role. $SYS.> is
+          # denied for all CN users.
           {
             user: "CN=serviceradar-flow-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
-                allow: ["flows.raw.>", "$JS.API.STREAM.INFO.events", "$JS.API.STREAM.CREATE.events", "$JS.API.>"]
+                allow: [
+                  "flow.host-slice.>",
+                  "flow.raw.>",
+                  "flows.raw.>",
+                  "$JS.API.STREAM.INFO.events",
+                  "$JS.API.STREAM.CREATE.events",
+                  "$JS.API.>",
+                  "$JS.ACK.>",
+                  "_INBOX.>"
+                ]
+                deny: ["$SYS.>", "flow.attributed.>"]
               }
               subscribe: {
-                allow: ["$JS.API.>", "_INBOX.>"]
+                allow: ["$JS.API.>", "$JS.ACK.>", "_INBOX.>", "config.flow-collector.>"]
+                deny: ["$SYS.>", "flow.host-slice.>", "flow.attributed.>"]
               }
             }
           },
