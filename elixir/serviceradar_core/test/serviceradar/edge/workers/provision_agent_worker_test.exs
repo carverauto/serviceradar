@@ -2,8 +2,9 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
   @moduledoc """
   ExUnit coverage for `ProvisionAgentWorker.perform/1`.
 
-  This file covers Pass 15 / Pass 16 task §20.16 (B-5 sub-issue 4): every
-  `:discard` branch of `perform/1`.
+  This file covers Pass 15 / Pass 16 task §20.16 (B-5 sub-issue 4): the
+  success path, retryable account-client failures, and every `:discard`
+  branch of `perform/1`.
 
   ## Scope
 
@@ -16,13 +17,10 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
     * `:nats_not_configured`
     * `:account_seed_not_found`
 
-  The remaining branches (`{:grpc_error, _}`, `:not_connected`, catch-all
-  `{:error, _}`) require either a live datasvc gRPC channel or an injection
-  seam in `mint_credentials/3` that the worker source does not currently
-  expose. Those are deferred per the recon brief and tracked back to
-  Pass 15 — adding them needs either (a) a `:account_client` keyword
-  option on `mint_credentials/3`, mirroring the `:awx_client` pattern in
-  `controller_health_worker.ex`, or (b) datasvc-up integration tests.
+  `perform/2` accepts an `:account_client` test seam, mirroring the
+  `:awx_client` pattern in `controller_health_worker.ex`, so the tests can
+  exercise the happy path and retryable account-client errors without a live
+  datasvc gRPC channel.
 
   ## Why no `use Oban.Testing`
 
@@ -43,6 +41,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.NatsCredential
   alias ServiceRadar.Edge.OnboardingPackage
   alias ServiceRadar.Edge.Workers.ProvisionAgentWorker
   alias ServiceRadar.Repo
@@ -177,7 +176,152 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorkerTest do
     end
   end
 
+  # --- mint + persist branches ---------------------------------------------
+
+  describe "perform/2 account-client branch coverage" do
+    test "mints credentials, creates a credential row, and attaches encrypted creds", %{
+      actor: actor,
+      unique_id: u
+    } do
+      configure_nats!()
+
+      pkg = create_gateway_package!(actor, u)
+      force_agent_component!(pkg.id, "agent_#{u}")
+
+      assert :ok =
+               ProvisionAgentWorker.perform(build_job(pkg.id),
+                 account_client: __MODULE__.SuccessfulAccountClient
+               )
+
+      expected_user_name = "flow-collector-agent_#{u}"
+
+      assert_receive {:generate_user_credentials, "TEST_ACCOUNT", "SEED_PLACEHOLDER",
+                      ^expected_user_name, opts}
+
+      assert opts[:expiration_seconds] == 30 * 24 * 60 * 60
+      assert opts[:permissions]
+
+      package = Ash.get!(OnboardingPackage, pkg.id, actor: actor)
+      assert package.nats_credential_id
+      assert encrypted_nats_creds_present?(package.id)
+
+      credential = Ash.get!(NatsCredential, package.nats_credential_id, actor: actor)
+      assert credential.user_name == expected_user_name
+      assert credential.credential_type == :service
+      assert credential.status == :active
+      assert metadata_value(credential.metadata, "agent_id") == "agent_#{u}"
+      assert metadata_value(credential.metadata, "partition_id") == "p-#{u}"
+      assert metadata_value(credential.metadata, "site") == "s-#{u}"
+    end
+
+    test "returns grpc errors so Oban can retry", %{actor: actor, unique_id: u} do
+      configure_nats!()
+
+      pkg = create_gateway_package!(actor, u)
+      force_agent_component!(pkg.id, "agent_#{u}")
+
+      assert {:error, {:grpc_error, "datasvc unavailable"}} =
+               ProvisionAgentWorker.perform(build_job(pkg.id),
+                 account_client: __MODULE__.GrpcErrorAccountClient
+               )
+    end
+
+    test "returns not_connected so Oban can retry", %{actor: actor, unique_id: u} do
+      configure_nats!()
+
+      pkg = create_gateway_package!(actor, u)
+      force_agent_component!(pkg.id, "agent_#{u}")
+
+      assert {:error, :not_connected} =
+               ProvisionAgentWorker.perform(build_job(pkg.id),
+                 account_client: __MODULE__.NotConnectedAccountClient
+               )
+    end
+
+    test "returns unexpected account-client errors so Oban can retry", %{
+      actor: actor,
+      unique_id: u
+    } do
+      configure_nats!()
+
+      pkg = create_gateway_package!(actor, u)
+      force_agent_component!(pkg.id, "agent_#{u}")
+
+      assert {:error, :unexpected_account_error} =
+               ProvisionAgentWorker.perform(build_job(pkg.id),
+                 account_client: __MODULE__.UnexpectedErrorAccountClient
+               )
+    end
+  end
+
   # --- helpers --------------------------------------------------------------
+
+  defmodule SuccessfulAccountClient do
+    @moduledoc false
+
+    def generate_user_credentials(account_name, account_seed, user_name, :service, opts) do
+      send(self(), {:generate_user_credentials, account_name, account_seed, user_name, opts})
+
+      {:ok,
+       %{
+         user_public_key: "U#{System.unique_integer([:positive])}",
+         user_jwt: "test-user-jwt",
+         creds_file_content:
+           "-----BEGIN NATS USER JWT-----\ntest-user-jwt\n------END NATS USER JWT------",
+         expires_at: DateTime.add(DateTime.utc_now(), 3600, :second)
+       }}
+    end
+  end
+
+  defmodule GrpcErrorAccountClient do
+    @moduledoc false
+
+    def generate_user_credentials(_account_name, _account_seed, _user_name, :service, _opts),
+      do: {:error, {:grpc_error, "datasvc unavailable"}}
+  end
+
+  defmodule NotConnectedAccountClient do
+    @moduledoc false
+
+    def generate_user_credentials(_account_name, _account_seed, _user_name, :service, _opts),
+      do: {:error, :not_connected}
+  end
+
+  defmodule UnexpectedErrorAccountClient do
+    @moduledoc false
+
+    def generate_user_credentials(_account_name, _account_seed, _user_name, :service, _opts),
+      do: {:error, :unexpected_account_error}
+  end
+
+  defp configure_nats! do
+    Application.put_env(:serviceradar, :nats_account_name, "TEST_ACCOUNT")
+    Application.put_env(:serviceradar, :nats_account_seed, "SEED_PLACEHOLDER")
+  end
+
+  defp metadata_value(metadata, "agent_id"),
+    do: Map.get(metadata, "agent_id") || Map.get(metadata, :agent_id)
+
+  defp metadata_value(metadata, "partition_id"),
+    do: Map.get(metadata, "partition_id") || Map.get(metadata, :partition_id)
+
+  defp metadata_value(metadata, "site"), do: Map.get(metadata, "site") || Map.get(metadata, :site)
+
+  defp encrypted_nats_creds_present?(package_id) do
+    {:ok, uuid_bin} = Ecto.UUID.dump(package_id)
+
+    %{rows: [[ciphertext]]} =
+      Repo.query!(
+        """
+        SELECT encrypted_nats_creds_ciphertext
+          FROM platform.edge_onboarding_packages
+         WHERE package_id = $1
+        """,
+        [uuid_bin]
+      )
+
+    is_binary(ciphertext) and byte_size(ciphertext) > 0
+  end
 
   defp build_job(package_id) do
     %Oban.Job{

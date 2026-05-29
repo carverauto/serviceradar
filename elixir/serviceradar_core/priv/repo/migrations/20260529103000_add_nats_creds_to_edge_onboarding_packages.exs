@@ -13,7 +13,9 @@ defmodule ServiceRadar.Repo.Migrations.AddNatsCredsToEdgeOnboardingPackages do
   def up do
     alter table(:edge_onboarding_packages, prefix: @prefix) do
       add(:nats_credential_id, :uuid, null: true)
-      add(:nats_creds_ciphertext, :binary, null: true)
+      # AshCloak stores attribute `:nats_creds_ciphertext` in the
+      # `encrypted_nats_creds_ciphertext` physical column.
+      add(:encrypted_nats_creds_ciphertext, :binary, null: true)
     end
 
     create(
@@ -34,7 +36,7 @@ defmodule ServiceRadar.Repo.Migrations.AddNatsCredsToEdgeOnboardingPackages do
 
     alter table(:edge_onboarding_packages, prefix: @prefix) do
       remove(:nats_credential_id)
-      remove(:nats_creds_ciphertext)
+      remove(:encrypted_nats_creds_ciphertext)
     end
   end
 end

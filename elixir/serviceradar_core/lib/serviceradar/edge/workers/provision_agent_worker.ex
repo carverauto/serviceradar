@@ -76,7 +76,15 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorker do
   end
 
   @impl Oban.Worker
-  def perform(%Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max}) do
+  def perform(job), do: perform(job, [])
+
+  @doc false
+  def perform(
+        %Oban.Job{args: %{"package_id" => package_id}, attempt: attempt, max_attempts: max},
+        opts
+      ) do
+    account_client = Keyword.get(opts, :account_client, AccountClient)
+
     Logger.info(
       "Provisioning flow-collector NATS creds for agent package #{package_id} " <>
         "(attempt #{attempt}/#{max})"
@@ -87,7 +95,7 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorker do
          {:ok, agent_id} <- resolve_agent_id(package),
          {:ok, permissions} <- build_permissions(agent_id),
          {:ok, nats_config} <- get_nats_config(),
-         {:ok, user_creds} <- mint_credentials(nats_config, agent_id, permissions),
+         {:ok, user_creds} <- mint_credentials(nats_config, agent_id, permissions, account_client),
          {:ok, credential} <- create_credential_record(package, agent_id, user_creds),
          {:ok, _package} <- attach_creds(package, credential.id, user_creds.creds_file_content) do
       Logger.info(
@@ -186,8 +194,8 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorker do
     end
   end
 
-  defp mint_credentials(nats_config, agent_id, permissions) do
-    AccountClient.generate_user_credentials(
+  defp mint_credentials(nats_config, agent_id, permissions, account_client) do
+    account_client.generate_user_credentials(
       nats_config.account_name,
       nats_config.account_seed,
       AgentFlowCollectorPermissions.user_name(agent_id),
@@ -223,12 +231,12 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorker do
           agent_id: agent_id,
           partition_id: package.partition_id,
           site: package.site
-        }
+        },
+        user_public_key: user_creds.user_public_key,
+        onboarding_package_id: package.id
       },
       actor: actor
     )
-    |> Ash.Changeset.set_argument(:user_public_key, user_creds.user_public_key)
-    |> Ash.Changeset.set_argument(:onboarding_package_id, package.id)
     |> Ash.create()
   end
 
@@ -236,9 +244,14 @@ defmodule ServiceRadar.Edge.Workers.ProvisionAgentWorker do
     actor = SystemActor.system(:provision_agent)
 
     package
-    |> Ash.Changeset.for_update(:attach_nats_creds, %{}, actor: actor)
-    |> Ash.Changeset.set_argument(:nats_credential_id, credential_id)
-    |> Ash.Changeset.set_argument(:nats_creds_content, creds_content)
+    |> Ash.Changeset.for_update(
+      :attach_nats_creds,
+      %{
+        nats_credential_id: credential_id,
+        nats_creds_content: creds_content
+      },
+      actor: actor
+    )
     |> Ash.update()
   end
 
