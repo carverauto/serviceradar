@@ -30,7 +30,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
   alias ServiceRadar.Automation.Northbound.History, as: NorthboundHistory
   alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
-  alias ServiceRadar.Camera.RelaySession
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
@@ -42,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
+  alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
@@ -63,7 +63,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @interfaces_limit 200
   @flows_limit 50
   @logs_limit 50
-  @camera_relay_poll_interval_ms 1_000
   @details_supplemental_timeout_ms 3_000
   @tab_supplemental_timeout_ms 15_000
   @slow_device_task_ms 1_500
@@ -308,28 +307,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_info({:command_progress, _progress}, socket), do: {:noreply, socket}
 
   def handle_info({:refresh_camera_relay_session, relay_session_id}, socket) do
-    active_session = socket.assigns.active_camera_relay_session
-
-    cond do
-      is_nil(active_session) ->
-        {:noreply, socket}
-
-      active_session.id != relay_session_id ->
-        {:noreply, socket}
-
-      true ->
-        case fetch_camera_relay_session(socket.assigns.current_scope, relay_session_id) do
-          {:ok, nil} ->
-            {:noreply, clear_active_camera_relay_session(socket)}
-
-          {:ok, session} ->
-            {:noreply, apply_camera_relay_session_update(socket, session)}
-
-          {:error, _reason} ->
-            schedule_camera_relay_refresh(relay_session_id)
-            {:noreply, socket}
-        end
-    end
+    {:noreply, CameraRelayRuntime.refresh_session(socket, relay_session_id)}
   end
 
   def handle_info(msg, socket) do
@@ -789,8 +767,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {results, error, viz} = execute_srql_query(srql_module, query, scope)
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
-    active_camera_relay_session = preserve_camera_relay_session(socket, uid)
-    last_camera_relay_session = preserve_last_camera_relay_session(socket, uid)
+    active_camera_relay_session = CameraRelayRuntime.preserve_active_session(socket, uid)
+    last_camera_relay_session = CameraRelayRuntime.preserve_last_session(socket, uid)
 
     base_srql =
       Map.merge(socket.assigns.srql, %{
@@ -1565,25 +1543,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply, put_flash(socket, :error, "Close the current camera relay before starting another")}
 
       true ->
-        with {:ok, camera_source_id} <- normalize_uuid_param(camera_source_id),
-             {:ok, stream_profile_id} <- normalize_uuid_param(stream_profile_id),
-             {:ok, session} <-
-               relay_session_manager().request_open(
-                 camera_source_id,
-                 stream_profile_id,
-                 scope: scope,
-                 insecure_skip_verify: insecure_skip_verify
-               ) do
-          {:noreply,
-           socket
-           |> clear_flash(:error)
-           |> assign(:active_camera_relay_session, session)
-           |> assign(:last_camera_relay_session, nil)
-           |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
-           |> put_flash(:info, "Camera relay requested")}
-        else
+        case CameraRelayRuntime.request_open(camera_source_id, stream_profile_id, scope, insecure_skip_verify) do
+          {:ok, session} ->
+            {:noreply,
+             socket
+             |> clear_flash(:error)
+             |> assign(:active_camera_relay_session, session)
+             |> assign(:last_camera_relay_session, nil)
+             |> tap(fn _socket -> CameraRelayRuntime.schedule_refresh(session.id) end)
+             |> put_flash(:info, "Camera relay requested")}
+
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, format_camera_relay_error(reason))}
+            {:noreply, put_flash(socket, :error, CameraRelayRuntime.format_error(reason, &format_ash_error/1))}
         end
     end
   end
@@ -1600,20 +1571,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply, socket}
 
       true ->
-        case relay_session_manager().request_close(
-               active_session.id,
-               reason: "viewer closed device details",
-               scope: scope
-             ) do
+        case CameraRelayRuntime.request_close(active_session.id, scope) do
           {:ok, session} ->
             {:noreply,
              socket
              |> assign(:active_camera_relay_session, session)
-             |> tap(fn _socket -> schedule_camera_relay_refresh(session.id) end)
+             |> tap(fn _socket -> CameraRelayRuntime.schedule_refresh(session.id) end)
              |> put_flash(:info, "Camera relay closing")}
 
           {:error, reason} ->
-            {:noreply, put_flash(socket, :error, format_camera_relay_error(reason))}
+            {:noreply, put_flash(socket, :error, CameraRelayRuntime.format_error(reason, &format_ash_error/1))}
         end
     end
   end
@@ -3151,18 +3118,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp deleted_device?(_), do: false
 
-  defp preserve_camera_relay_session(socket, device_uid) do
-    if socket.assigns.device_uid == device_uid do
-      socket.assigns.active_camera_relay_session
-    end
-  end
-
-  defp preserve_last_camera_relay_session(socket, device_uid) do
-    if socket.assigns.device_uid == device_uid do
-      socket.assigns.last_camera_relay_session
-    end
-  end
-
   defp load_device(scope, device_uid) do
     case Device.get_by_uid(device_uid, true, scope: scope) do
       {:ok, nil} -> {:error, :not_found}
@@ -3188,111 +3143,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_put_param(params, _key, value) when value in [nil, ""], do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
-
-  defp fetch_camera_relay_session(scope, relay_session_id) do
-    fetcher =
-      Application.get_env(
-        :serviceradar_web_ng,
-        :camera_relay_session_fetcher,
-        fn session_id, ash_opts -> RelaySession.get_by_id(session_id, ash_opts) end
-      )
-
-    fetcher.(relay_session_id, scope: scope)
-  end
-
-  defp apply_camera_relay_session_update(socket, session) do
-    current_session =
-      socket.assigns.active_camera_relay_session || socket.assigns.last_camera_relay_session
-
-    session = prefer_camera_relay_session(current_session, session)
-
-    if relay_session_terminal?(session) do
-      socket
-      |> assign(:active_camera_relay_session, nil)
-      |> assign(:last_camera_relay_session, session)
-    else
-      schedule_camera_relay_refresh(session.id)
-
-      socket
-      |> assign(:active_camera_relay_session, session)
-      |> assign(:last_camera_relay_session, nil)
-    end
-  end
-
-  defp clear_active_camera_relay_session(socket) do
-    assign(socket, :active_camera_relay_session, nil)
-  end
-
-  defp prefer_camera_relay_session(current_session, incoming_session) do
-    if relay_session_regresses?(current_session, incoming_session) do
-      current_session
-    else
-      incoming_session
-    end
-  end
-
-  defp relay_session_regresses?(%{id: current_id} = current_session, %{id: incoming_id} = incoming_session)
-       when is_binary(current_id) and current_id == incoming_id do
-    relay_status_rank(incoming_session) < relay_status_rank(current_session)
-  end
-
-  defp relay_session_regresses?(_current_session, _incoming_session), do: false
-
-  defp relay_status_rank(%{status: status}) do
-    case status do
-      value when value in [:requested, "requested"] -> 0
-      value when value in [:opening, "opening"] -> 1
-      value when value in [:active, "active"] -> 2
-      value when value in [:closing, "closing"] -> 3
-      value when value in [:closed, "closed"] -> 4
-      value when value in [:failed, "failed"] -> 4
-      _other -> 0
-    end
-  end
-
-  defp schedule_camera_relay_refresh(relay_session_id) when is_binary(relay_session_id) do
-    Process.send_after(
-      self(),
-      {:refresh_camera_relay_session, relay_session_id},
-      camera_relay_poll_interval_ms()
-    )
-  end
-
-  defp schedule_camera_relay_refresh(_relay_session_id), do: :ok
-
-  defp camera_relay_poll_interval_ms do
-    case Application.get_env(
-           :serviceradar_web_ng,
-           :camera_relay_poll_interval_ms,
-           @camera_relay_poll_interval_ms
-         ) do
-      value when is_integer(value) and value >= 0 -> value
-      _other -> @camera_relay_poll_interval_ms
-    end
-  end
-
-  defp relay_session_manager do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :camera_relay_session_manager,
-      ServiceRadar.Camera.RelaySessionManager
-    )
-  end
-
-  defp normalize_uuid_param(value) when is_binary(value) do
-    case Ecto.UUID.cast(String.trim(value)) do
-      {:ok, uuid} -> {:ok, uuid}
-      :error -> {:error, :invalid_uuid}
-    end
-  end
-
-  defp normalize_uuid_param(_value), do: {:error, :invalid_uuid}
-
-  defp format_camera_relay_error({:agent_offline, _agent_id}), do: "Assigned agent is offline for this camera source"
-
-  defp format_camera_relay_error(:invalid_uuid), do: "Invalid camera relay request"
-  defp format_camera_relay_error(reason) when is_binary(reason), do: reason
-  defp format_camera_relay_error(reason), do: format_ash_error(reason)
 
   # Update device via Ash
   defp update_device(scope, device_uid, params) do
