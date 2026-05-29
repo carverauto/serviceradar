@@ -202,9 +202,25 @@ fn recog_observations(payload: &[u8], context: DpiPayloadContext) -> Vec<RecogOb
             push_recog_match(&mut observations, RecogService::TelnetBanner, telnet);
         }
     }
+    if context.transport_protocol == "tcp" && [139, 445].iter().any(|port| has_port(context, *port))
+    {
+        if let Some(smb) = first_text_line(payload) {
+            push_recog_match(&mut observations, RecogService::SmbVersion, smb);
+        }
+    }
+    if context.transport_protocol == "udp" && has_port(context, 161) {
+        if let Some(snmp) = first_text_line(payload) {
+            push_recog_match(&mut observations, RecogService::SnmpBanner, snmp);
+        }
+    }
     if has_port(context, 5060) {
         if let Some(sip) = sip_banner(payload) {
             push_recog_match(&mut observations, RecogService::SipBanner, sip);
+        }
+    }
+    if context.transport_protocol == "tcp" && has_port(context, 3389) {
+        if let Some(rdp) = first_text_line(payload) {
+            push_recog_match(&mut observations, RecogService::RdpBanner, rdp);
         }
     }
     if has_port(context, 53) {
@@ -1785,6 +1801,105 @@ mod p0f_ring_tests {
     }
 
     #[test]
+    fn accumulates_recog_text_banner_services() {
+        let accumulator = FingerprintAccumulator::default();
+        let cases = [
+            (
+                fixture_flow_key(23, 49_154),
+                DpiPayloadContext {
+                    flow_key: fixture_flow_key(23, 49_154),
+                    source_port: 23,
+                    destination_port: 49_154,
+                    transport_protocol: "tcp",
+                },
+                b"Password required, but none set\r\n".as_slice(),
+                RecogService::TelnetBanner,
+                Some("Cisco"),
+            ),
+            (
+                fixture_flow_key(445, 49_155),
+                DpiPayloadContext {
+                    flow_key: fixture_flow_key(445, 49_155),
+                    source_port: 445,
+                    destination_port: 49_155,
+                    transport_protocol: "tcp",
+                },
+                b"Samba 4.13.17\r\n".as_slice(),
+                RecogService::SmbVersion,
+                Some("Samba"),
+            ),
+            (
+                fixture_udp_flow_key(161, 49_156),
+                DpiPayloadContext {
+                    flow_key: fixture_udp_flow_key(161, 49_156),
+                    source_port: 161,
+                    destination_port: 49_156,
+                    transport_protocol: "udp",
+                },
+                b"3Com IntelliJack NJ220\n".as_slice(),
+                RecogService::SnmpBanner,
+                Some("3Com"),
+            ),
+            (
+                fixture_udp_flow_key(5060, 49_157),
+                DpiPayloadContext {
+                    flow_key: fixture_udp_flow_key(5060, 49_157),
+                    source_port: 5060,
+                    destination_port: 49_157,
+                    transport_protocol: "udp",
+                },
+                b"SIP/2.0 200 OK\r\nServer: Cisco-SIPGateway/IOS-15.2.4.M3\r\n\r\n".as_slice(),
+                RecogService::SipBanner,
+                Some("Cisco"),
+            ),
+        ];
+
+        for (flow_key, context, payload, service, expected_vendor) in cases {
+            accumulator.observe_dpi_payload_with_context(context, payload, 124);
+            let snapshot = accumulator
+                .snapshot(&flow_key, 124)
+                .expect("expected Recog match");
+            assert_eq!(
+                snapshot
+                    .recog_matches
+                    .iter()
+                    .find(|matched| matched.service == service)
+                    .and_then(|matched| matched.label.vendor.as_deref()),
+                expected_vendor
+            );
+        }
+    }
+
+    #[test]
+    fn accumulates_recog_dns_version_bind_match() {
+        let flow_key = fixture_udp_flow_key(53, 49_158);
+        let accumulator = FingerprintAccumulator::default();
+
+        accumulator.observe_dpi_payload_with_context(
+            DpiPayloadContext {
+                flow_key,
+                source_port: 53,
+                destination_port: 49_158,
+                transport_protocol: "udp",
+            },
+            &dns_version_bind_response("9.9.4-RedHat-9.9.4-38.el7_3.3"),
+            124,
+        );
+
+        let snapshot = accumulator
+            .snapshot(&flow_key, 124)
+            .expect("expected DNS Recog match");
+        let matched = snapshot
+            .recog_matches
+            .iter()
+            .find(|matched| matched.service == RecogService::DnsVersion)
+            .expect("expected DNS version Recog match");
+
+        assert_eq!(matched.label.product.as_deref(), Some("BIND"));
+        assert_eq!(matched.label.version.as_deref(), Some("9.9.4"));
+    }
+
+    #[test]
     fn rejects_malformed_p0f_ring_records() {
         assert!(parse_p0f_ring_record(&[0; P0F_RING_RECORD_LEN - 1]).is_none());
 
@@ -1809,6 +1924,17 @@ mod p0f_ring_tests {
         FlowKey {
             address_family: AF_INET,
             transport_protocol: 6,
+            endpoint_a_port,
+            endpoint_b_port,
+            endpoint_a_addr: ipv4_addr([192, 0, 2, 10]),
+            endpoint_b_addr: ipv4_addr([198, 51, 100, 20]),
+        }
+    }
+
+    fn fixture_udp_flow_key(endpoint_a_port: u16, endpoint_b_port: u16) -> FlowKey {
+        FlowKey {
+            address_family: AF_INET,
+            transport_protocol: 17,
             endpoint_a_port,
             endpoint_b_port,
             endpoint_a_addr: ipv4_addr([192, 0, 2, 10]),
@@ -1895,6 +2021,31 @@ mod p0f_ring_tests {
     fn push_name_list(out: &mut Vec<u8>, value: &str) {
         out.extend_from_slice(&(value.len() as u32).to_be_bytes());
         out.extend_from_slice(value.as_bytes());
+    }
+
+    fn dns_version_bind_response(version: &str) -> Vec<u8> {
+        let mut message = Vec::new();
+        message.extend_from_slice(&0x1234u16.to_be_bytes());
+        message.extend_from_slice(&0x8180u16.to_be_bytes());
+        message.extend_from_slice(&1u16.to_be_bytes());
+        message.extend_from_slice(&1u16.to_be_bytes());
+        message.extend_from_slice(&0u16.to_be_bytes());
+        message.extend_from_slice(&0u16.to_be_bytes());
+        message.extend_from_slice(&[
+            7, b'v', b'e', b'r', b's', b'i', b'o', b'n', 4, b'b', b'i', b'n', b'd', 0,
+        ]);
+        message.extend_from_slice(&16u16.to_be_bytes());
+        message.extend_from_slice(&3u16.to_be_bytes());
+        message.extend_from_slice(&[0xc0, 0x0c]);
+        message.extend_from_slice(&16u16.to_be_bytes());
+        message.extend_from_slice(&3u16.to_be_bytes());
+        message.extend_from_slice(&0u32.to_be_bytes());
+        let txt_len = version.len().min(255);
+        let rdlen = txt_len + 1;
+        message.extend_from_slice(&(rdlen as u16).to_be_bytes());
+        message.push(txt_len as u8);
+        message.extend_from_slice(&version.as_bytes()[..txt_len]);
+        message
     }
 }
 
