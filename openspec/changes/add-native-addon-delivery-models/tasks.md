@@ -23,11 +23,15 @@
   install). (§3.2)
 
 ## 2. Delivery dispatch
-- [ ] 2.1 Agent add-on manager dispatches an assignment to its delivery model:
+- [x] 2.1 Agent add-on manager dispatches an assignment to its delivery model:
   `config-toggle` / `pushed-artifact` fetch+verify+activate / `os-package`
   activate. (§6.1)
-  — Status: partial — `pushed_artifact` is dispatched (fetch+verify+activate); the
-  `config-toggle` and `os-package` branches still fall through to `binary_path`.
+  — classifyAddonSupervision routes each supervision model explicitly:
+  `agent_sidecar` stages (pushed_artifact) or runs the on-host binary (os_package) as
+  a go-plugin; `config_toggle` is acknowledged as a compiled-in capability (no
+  subprocess); `systemd_*`/`ephemeral_helper` are recognized but their supervision is
+  not yet implemented (see 3.1/3.2); unknown models are reported unsupported. No model
+  is silently mislabeled anymore.
 - [ ] 2.2 `pushed-artifact` activation: reuse `release_runtime.go` staged-dir +
   `current`-symlink + rollback; verify `sha256` + signature; apply file capabilities
   per `requires.os_capabilities` via the root-owned `agent-updater`. (§6.5)
@@ -38,7 +42,12 @@
 
 ## 3. Supervision models
 - [ ] 3.1 Wire `systemd-service` and `systemd-timer` (spool ingest). (§6.6)
+  — Status: not started — recognized by the dispatcher (logged as not-yet-implemented);
+  installing units / ingesting the timer spool needs systemd + root to build and test.
 - [ ] 3.2 Wire `ephemeral-helper` and `config-toggle`. (§6.6)
+  — Status: partial — `config_toggle` is handled (acknowledged as a compiled-in
+  capability, no subprocess launched); `ephemeral_helper` is recognized but the
+  one-shot run is not yet implemented.
 
 ## 4. Resilience
 - [x] 4.1 Last-known-good cache + local override for add-on assignments (mirror the

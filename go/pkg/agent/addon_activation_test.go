@@ -371,6 +371,22 @@ func TestAddonLastGoodSpecCache(t *testing.T) {
 	}
 }
 
+func TestClassifyAddonSupervision(t *testing.T) {
+	cases := map[string]addonDispatch{
+		addonSupervisionAgentSidecar:    addonDispatchSidecar,
+		addonSupervisionConfigToggle:    addonDispatchConfigToggle,
+		addonSupervisionSystemdService:  addonDispatchExternalUnimplemented,
+		addonSupervisionSystemdTimer:    addonDispatchExternalUnimplemented,
+		addonSupervisionEphemeralHelper: addonDispatchExternalUnimplemented,
+		"something_new":                 addonDispatchUnsupported,
+	}
+	for sup, want := range cases {
+		if got := classifyAddonSupervision(sup); got != want {
+			t.Fatalf("classifyAddonSupervision(%q) = %d, want %d", sup, got, want)
+		}
+	}
+}
+
 func TestPruneAddonCache(t *testing.T) {
 	pl := &PushLoop{}
 	pl.rememberAddonSpec(agentaddon.Spec{ID: "keep", BinaryPath: "/run/keep"})

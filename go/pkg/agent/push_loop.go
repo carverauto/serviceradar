@@ -3148,12 +3148,47 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 }
 
 // Add-on delivery/supervision identifiers carried in AddonAssignmentConfig.
-// These mirror the control-plane Ash enums; only the agent_sidecar supervision
-// model is supervised here today (others are logged and skipped explicitly).
+// These mirror the control-plane Ash enums.
 const (
-	addonDeliveryPushedArtifact  = "pushed_artifact"
-	addonSupervisionAgentSidecar = "agent_sidecar"
+	addonDeliveryPushedArtifact = "pushed_artifact"
+
+	addonSupervisionAgentSidecar    = "agent_sidecar"
+	addonSupervisionConfigToggle    = "config_toggle"
+	addonSupervisionSystemdService  = "systemd_service"
+	addonSupervisionSystemdTimer    = "systemd_timer"
+	addonSupervisionEphemeralHelper = "ephemeral_helper"
 )
+
+// addonDispatch classifies how the agent handles an assignment's supervision model.
+type addonDispatch int
+
+const (
+	// addonDispatchSidecar: run as a supervised go-plugin subprocess.
+	addonDispatchSidecar addonDispatch = iota
+	// addonDispatchConfigToggle: a capability compiled into the agent; the assignment
+	// only selects it, and the capability self-configures from agent config, so there
+	// is nothing for the add-on supervisor to launch.
+	addonDispatchConfigToggle
+	// addonDispatchExternalUnimplemented: a recognized model (systemd-*/ephemeral) that
+	// this agent build does not yet manage.
+	addonDispatchExternalUnimplemented
+	// addonDispatchUnsupported: an unknown supervision model.
+	addonDispatchUnsupported
+)
+
+// classifyAddonSupervision maps a supervision model to how this agent dispatches it.
+func classifyAddonSupervision(supervision string) addonDispatch {
+	switch supervision {
+	case addonSupervisionAgentSidecar:
+		return addonDispatchSidecar
+	case addonSupervisionConfigToggle:
+		return addonDispatchConfigToggle
+	case addonSupervisionSystemdService, addonSupervisionSystemdTimer, addonSupervisionEphemeralHelper:
+		return addonDispatchExternalUnimplemented
+	default:
+		return addonDispatchUnsupported
+	}
+}
 
 // rememberAddonSpec records a freshly staged, fully verified add-on spec as the
 // last-known-good for its id, so a later transient delivery failure can reuse it.
@@ -3240,16 +3275,36 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			supervision = addonSupervisionAgentSidecar
 		}
 
-		// Only agent_sidecar add-ons run as supervised go-plugin subprocesses.
-		// compiled_in / config_toggle / systemd_* / ephemeral_helper are not yet
-		// handled here; log explicitly rather than silently skipping so the
-		// desired-vs-observed gap is visible instead of looking like a no-op.
-		if supervision != addonSupervisionAgentSidecar {
+		// Dispatch by supervision model. Only agent_sidecar runs as a supervised
+		// go-plugin subprocess; the others are recognized explicitly so a legitimate
+		// model is not mislabeled "unsupported" and the desired-vs-observed gap is
+		// honest.
+		switch classifyAddonSupervision(supervision) {
+		case addonDispatchSidecar:
+			// Handled below: stage (if needed) and build a supervised spec.
+		case addonDispatchConfigToggle:
+			// Compiled-in capability selected by this assignment; it self-configures
+			// from agent config, so there is nothing for the supervisor to launch.
+			p.logger.Info().
+				Str("addon", a.GetAddonId()).
+				Msg("Config-toggle add-on acknowledged; capability is compiled into the agent")
+
+			continue
+		case addonDispatchExternalUnimplemented:
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Str("supervision", supervision).
+				Msg("Add-on supervision model recognized but not yet implemented by this agent; assignment not applied")
+
+			continue
+		case addonDispatchUnsupported:
 			p.logger.Warn().
 				Str("addon", a.GetAddonId()).
 				Str("delivery", delivery).
 				Str("supervision", supervision).
 				Msg("Add-on supervision model not supported by this agent; assignment not applied")
+
 			continue
 		}
 
