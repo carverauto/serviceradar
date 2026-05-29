@@ -4,13 +4,20 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   """
   use ServiceRadarWebNGWeb, :controller
 
+  alias ServiceRadar.Inventory.BumblebeeDevicePosture
+  alias ServiceRadar.Inventory.BumblebeeFinding
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceRiskContribution
 
   require Ash.Query
+  require Logger
 
   @default_limit 100
   @max_limit 500
   @max_offset 100_000
+  @bumblebee_posture_limit 8
+  @bumblebee_finding_limit 25
+  @risk_contribution_limit 20
 
   def index(conn, params) do
     case parse_index_params(params) do
@@ -36,7 +43,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
 
         case Device.get_by_uid(parsed_uid, false, scope: scope) do
           {:ok, device} ->
-            json(conn, %{"data" => device_to_map(device)})
+            json(conn, %{"data" => device_to_map(device, scope)})
 
           {:error, %Ash.Error.Query.NotFound{}} ->
             conn
@@ -421,55 +428,52 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
     }
   end
 
-  defp device_to_map(device) do
-    %{
-      # Primary identifier (OCSF uid)
-      "uid" => device.uid,
-      # OCSF Core Identity
-      "type_id" => device.type_id,
-      "type" => device.type,
-      "name" => device.name,
-      "hostname" => device.hostname,
-      "ip" => device.ip,
-      "mac" => device.mac,
-      # OCSF Extended Identity
-      "uid_alt" => device.uid_alt,
-      "vendor_name" => device.vendor_name,
-      "model" => device.model,
-      "domain" => device.domain,
-      "zone" => device.zone,
-      "subnet_uid" => device.subnet_uid,
-      "vlan_uid" => device.vlan_uid,
-      "region" => device.region,
-      # OCSF Temporal (with backward-compatible aliases)
-      "first_seen_time" => normalize_value(device.first_seen_time),
-      "last_seen_time" => normalize_value(device.last_seen_time),
-      "first_seen" => normalize_value(device.first_seen_time),
-      "last_seen" => normalize_value(device.last_seen_time),
-      "created_time" => normalize_value(device.created_time),
-      "modified_time" => normalize_value(device.modified_time),
-      # OCSF Risk and Compliance
-      "risk_level_id" => device.risk_level_id,
-      "risk_level" => device.risk_level,
-      "risk_score" => device.risk_score,
-      "is_managed" => device.is_managed,
-      "is_compliant" => device.is_compliant,
-      "is_trusted" => device.is_trusted,
-      # OCSF Nested Objects
-      "os" => device.os,
-      "hw_info" => device.hw_info,
-      "network_interfaces" => device.network_interfaces,
-      "owner" => device.owner,
-      "org" => device.org,
-      "groups" => device.groups,
-      "agent_list" => device.agent_list,
-      # ServiceRadar-specific fields
-      "gateway_id" => device.gateway_id,
-      "agent_id" => device.agent_id,
-      "discovery_sources" => device.discovery_sources,
-      "is_available" => device.is_available,
-      "metadata" => device.metadata
-    }
+  defp device_to_map(device, scope \\ nil) do
+    maybe_put_bumblebee_exposure(
+      %{
+        "uid" => device.uid,
+        "type_id" => device.type_id,
+        "type" => device.type,
+        "name" => device.name,
+        "hostname" => device.hostname,
+        "ip" => device.ip,
+        "mac" => device.mac,
+        "uid_alt" => device.uid_alt,
+        "vendor_name" => device.vendor_name,
+        "model" => device.model,
+        "domain" => device.domain,
+        "zone" => device.zone,
+        "subnet_uid" => device.subnet_uid,
+        "vlan_uid" => device.vlan_uid,
+        "region" => device.region,
+        "first_seen_time" => normalize_value(device.first_seen_time),
+        "last_seen_time" => normalize_value(device.last_seen_time),
+        "first_seen" => normalize_value(device.first_seen_time),
+        "last_seen" => normalize_value(device.last_seen_time),
+        "created_time" => normalize_value(device.created_time),
+        "modified_time" => normalize_value(device.modified_time),
+        "risk_level_id" => device.risk_level_id,
+        "risk_level" => device.risk_level,
+        "risk_score" => device.risk_score,
+        "is_managed" => device.is_managed,
+        "is_compliant" => device.is_compliant,
+        "is_trusted" => device.is_trusted,
+        "os" => device.os,
+        "hw_info" => device.hw_info,
+        "network_interfaces" => device.network_interfaces,
+        "owner" => device.owner,
+        "org" => device.org,
+        "groups" => device.groups,
+        "agent_list" => device.agent_list,
+        "gateway_id" => device.gateway_id,
+        "agent_id" => device.agent_id,
+        "discovery_sources" => device.discovery_sources,
+        "is_available" => device.is_available,
+        "metadata" => device.metadata
+      },
+      scope,
+      device.uid
+    )
   end
 
   defp normalize_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
@@ -477,4 +481,214 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   defp normalize_value(%Date{} = value), do: Date.to_iso8601(value)
   defp normalize_value(%Time{} = value), do: Time.to_iso8601(value)
   defp normalize_value(value), do: value
+
+  defp maybe_put_bumblebee_exposure(data, nil, _device_uid), do: data
+
+  defp maybe_put_bumblebee_exposure(data, scope, device_uid) do
+    Map.put(data, "bumblebee", bumblebee_exposure_to_map(scope, device_uid))
+  end
+
+  defp bumblebee_exposure_to_map(scope, device_uid) do
+    with {:ok, postures} <- read_bumblebee_postures(scope, device_uid),
+         {:ok, findings} <- read_bumblebee_findings(scope, device_uid),
+         {:ok, contributions} <- read_device_risk_contributions(scope, device_uid) do
+      bumblebee_exposure_map(postures, findings, contributions)
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to load API Bumblebee exposure for #{device_uid}: #{inspect(reason)}")
+
+        %{
+          "summary" => bumblebee_empty_summary(),
+          "postures" => [],
+          "active_findings" => [],
+          "risk_contribution" => nil,
+          "error" => "bumblebee exposure unavailable"
+        }
+    end
+  end
+
+  defp read_bumblebee_postures(scope, device_uid) do
+    BumblebeeDevicePosture
+    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(@bumblebee_posture_limit)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp read_bumblebee_findings(scope, device_uid) do
+    BumblebeeFinding
+    |> Ash.Query.for_read(:active_by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(@bumblebee_finding_limit)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp read_device_risk_contributions(scope, device_uid) do
+    DeviceRiskContribution
+    |> Ash.Query.for_read(:by_device, %{device_uid: device_uid}, scope: scope)
+    |> Ash.Query.limit(@risk_contribution_limit)
+    |> Ash.read(scope: scope)
+    |> normalize_ash_list_result()
+  end
+
+  defp normalize_ash_list_result({:ok, %Ash.Page.Keyset{results: results}}), do: {:ok, results}
+  defp normalize_ash_list_result({:ok, results}) when is_list(results), do: {:ok, results}
+  defp normalize_ash_list_result({:error, reason}), do: {:error, reason}
+
+  defp bumblebee_exposure_map(postures, findings, contributions) do
+    contribution =
+      Enum.find(contributions, &(resource_value(&1, :source) == "bumblebee" and resource_value(&1, :active) != false))
+
+    %{
+      "summary" => bumblebee_summary(postures, findings, contribution),
+      "postures" => Enum.map(postures, &bumblebee_posture_to_map/1),
+      "active_findings" => Enum.map(findings, &bumblebee_finding_to_map/1),
+      "risk_contribution" => risk_contribution_to_map(contribution)
+    }
+  end
+
+  defp bumblebee_summary([], findings, contribution) do
+    bumblebee_empty_summary()
+    |> Map.put("active_finding_count", length(findings))
+    |> Map.put("finding_count", length(findings))
+    |> Map.put("risk_score", resource_value(contribution, :score) || 0)
+    |> Map.put("risk_level", resource_value(contribution, :risk_level))
+    |> Map.put("risk_reason", resource_value(contribution, :reason))
+  end
+
+  defp bumblebee_summary(postures, findings, contribution) do
+    latest = List.first(postures)
+    skipped_roots = Enum.flat_map(postures, &(resource_value(&1, :skipped_roots) || []))
+    active_count = max(sum_resource_int(postures, :active_finding_count), length(findings))
+
+    %{
+      "state" => resource_value(latest, :state) || "not_scanned",
+      "coverage_state" => resource_value(latest, :coverage_state) || "not_scanned",
+      "catalog_snapshot_ref" => resource_value(latest, :catalog_snapshot_ref),
+      "catalog_version" => bumblebee_catalog_version(latest),
+      "last_scan_time" => normalize_value(resource_value(latest, :last_scan_at)),
+      "last_successful_scan_time" => normalize_value(resource_value(latest, :last_successful_scan_at)),
+      "active_finding_count" => active_count,
+      "skipped_root_count" => sum_resource_int(postures, :skipped_root_count),
+      "skipped_roots" => skipped_roots,
+      "posture_count" => length(postures),
+      "finding_count" => length(findings),
+      "risk_score" => resource_value(contribution, :score) || resource_value(latest, :risk_score) || 0,
+      "risk_level" => resource_value(contribution, :risk_level),
+      "risk_reason" => resource_value(contribution, :reason)
+    }
+  end
+
+  defp bumblebee_empty_summary do
+    %{
+      "state" => "not_scanned",
+      "coverage_state" => "not_scanned",
+      "catalog_snapshot_ref" => nil,
+      "catalog_version" => nil,
+      "last_scan_time" => nil,
+      "last_successful_scan_time" => nil,
+      "active_finding_count" => 0,
+      "skipped_root_count" => 0,
+      "skipped_roots" => [],
+      "posture_count" => 0,
+      "finding_count" => 0,
+      "risk_score" => 0,
+      "risk_level" => nil,
+      "risk_reason" => nil
+    }
+  end
+
+  defp bumblebee_posture_to_map(posture) do
+    %{
+      "agent_id" => resource_value(posture, :agent_id),
+      "run_id" => resource_value(posture, :run_id),
+      "catalog_snapshot_ref" => resource_value(posture, :catalog_snapshot_ref),
+      "catalog_version" => bumblebee_catalog_version(posture),
+      "scanner_version" => resource_value(posture, :scanner_version),
+      "state" => resource_value(posture, :state),
+      "coverage_state" => resource_value(posture, :coverage_state),
+      "attempted_root_count" => resource_value(posture, :attempted_root_count) || 0,
+      "scanned_root_count" => resource_value(posture, :scanned_root_count) || 0,
+      "skipped_root_count" => resource_value(posture, :skipped_root_count) || 0,
+      "root_covered" => resource_value(posture, :root_covered),
+      "skipped_roots" => resource_value(posture, :skipped_roots) || [],
+      "risk_score" => resource_value(posture, :risk_score) || 0,
+      "highest_severity" => resource_value(posture, :highest_severity),
+      "active_finding_count" => resource_value(posture, :active_finding_count) || 0,
+      "last_scan_time" => normalize_value(resource_value(posture, :last_scan_at)),
+      "last_successful_scan_time" => normalize_value(resource_value(posture, :last_successful_scan_at)),
+      "metadata" => resource_value(posture, :metadata) || %{}
+    }
+  end
+
+  defp bumblebee_finding_to_map(finding) do
+    %{
+      "finding_id" => resource_value(finding, :finding_id),
+      "agent_id" => resource_value(finding, :agent_id),
+      "run_id" => resource_value(finding, :run_id),
+      "catalog_id" => resource_value(finding, :catalog_id),
+      "catalog_snapshot_ref" => resource_value(finding, :catalog_snapshot_ref),
+      "scanner_version" => resource_value(finding, :scanner_version),
+      "severity" => resource_value(finding, :severity),
+      "risk_score" => resource_value(finding, :risk_score) || 0,
+      "ecosystem" => resource_value(finding, :ecosystem),
+      "package_name" => resource_value(finding, :package_name),
+      "package_version" => resource_value(finding, :package_version),
+      "evidence" => resource_value(finding, :evidence) || %{},
+      "confidence" => resource_value(finding, :confidence),
+      "status" => resource_value(finding, :status),
+      "first_seen_at" => normalize_value(resource_value(finding, :first_seen_at)),
+      "last_seen_at" => normalize_value(resource_value(finding, :last_seen_at)),
+      "resolved_at" => normalize_value(resource_value(finding, :resolved_at)),
+      "metadata" => resource_value(finding, :metadata) || %{}
+    }
+  end
+
+  defp risk_contribution_to_map(nil), do: nil
+
+  defp risk_contribution_to_map(contribution) do
+    %{
+      "source" => resource_value(contribution, :source),
+      "source_ref" => resource_value(contribution, :source_ref),
+      "score" => resource_value(contribution, :score),
+      "risk_level_id" => resource_value(contribution, :risk_level_id),
+      "risk_level" => resource_value(contribution, :risk_level),
+      "reason" => resource_value(contribution, :reason),
+      "active" => resource_value(contribution, :active),
+      "occurred_at" => normalize_value(resource_value(contribution, :occurred_at)),
+      "resolved_at" => normalize_value(resource_value(contribution, :resolved_at)),
+      "metadata" => resource_value(contribution, :metadata) || %{}
+    }
+  end
+
+  defp bumblebee_catalog_version(nil), do: nil
+
+  defp bumblebee_catalog_version(posture) do
+    metadata = resource_value(posture, :metadata) || %{}
+
+    Map.get(metadata, "catalog_version") ||
+      get_in(metadata, ["catalog", "version"]) ||
+      get_in(metadata, ["catalog", "catalog_version"])
+  end
+
+  defp sum_resource_int(resources, key) do
+    Enum.reduce(resources, 0, fn resource, acc ->
+      case resource_value(resource, key) do
+        value when is_integer(value) -> acc + value
+        _ -> acc
+      end
+    end)
+  end
+
+  defp resource_value(nil, _key), do: nil
+
+  defp resource_value(resource, key) when is_map(resource) do
+    string_key = Atom.to_string(key)
+
+    cond do
+      Map.has_key?(resource, key) -> Map.get(resource, key)
+      Map.has_key?(resource, string_key) -> Map.get(resource, string_key)
+      true -> nil
+    end
+  end
 end

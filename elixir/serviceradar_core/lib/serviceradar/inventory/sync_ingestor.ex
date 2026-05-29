@@ -19,6 +19,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.DpiPayload
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
@@ -206,6 +207,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         interface_records = apply_uid_remap_to_interface_records(interface_records, remap)
         resolved_updates = apply_uid_remap_to_resolved_updates(resolved_updates, remap)
 
+        risk_result = upsert_source_risk_contributions(resolved_updates)
         identifier_result = upsert_identifiers(identifier_records)
         interface_result = upsert_interfaces(interface_records)
         invalidate_identity_cache_for_identifier_records(identifier_records)
@@ -213,10 +215,16 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         _ = maybe_process_alias_conflicts(:ok, resolved_updates, actor)
         alias_result = maybe_process_alias_updates(:ok, resolved_updates, actor)
 
-        finalize_ingest_results(:ok, identifier_result, interface_result, alias_result)
+        finalize_ingest_results(
+          :ok,
+          risk_result,
+          identifier_result,
+          interface_result,
+          alias_result
+        )
 
       {:error, _} = error ->
-        finalize_ingest_results(error, :ok, :ok, :ok)
+        finalize_ingest_results(error, :ok, :ok, :ok, :ok)
     end
   end
 
@@ -320,6 +328,16 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   defp upsert_interfaces([]), do: :ok
   defp upsert_interfaces(records), do: bulk_upsert_interfaces(records)
 
+  defp upsert_source_risk_contributions(resolved_updates) do
+    resolved_updates
+    |> build_source_risk_contribution_records()
+    |> DeviceRiskReducer.upsert_contributions()
+  rescue
+    e ->
+      Logger.warning("SyncIngestor: Failed to update device risk contributions: #{inspect(e)}")
+      {:error, e}
+  end
+
   defp maybe_process_alias_conflicts(:ok, resolved_updates, actor) do
     process_alias_conflicts(resolved_updates, actor)
   end
@@ -332,13 +350,20 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   defp maybe_process_alias_updates(_result, _resolved_updates, _actor), do: :ok
 
-  defp finalize_ingest_results(device_result, identifier_result, interface_result, alias_result) do
-    case {device_result, identifier_result, interface_result, alias_result} do
-      {:ok, :ok, :ok, :ok} -> :ok
-      {{:error, _} = error, _, _, _} -> error
-      {_, {:error, _} = error, _, _} -> error
-      {_, _, {:error, _} = error, _} -> error
-      {_, _, _, {:error, _} = error} -> error
+  defp finalize_ingest_results(
+         device_result,
+         risk_result,
+         identifier_result,
+         interface_result,
+         alias_result
+       ) do
+    case {device_result, risk_result, identifier_result, interface_result, alias_result} do
+      {:ok, :ok, :ok, :ok, :ok} -> :ok
+      {{:error, _} = error, _, _, _, _} -> error
+      {_, {:error, _} = error, _, _, _} -> error
+      {_, _, {:error, _} = error, _, _} -> error
+      {_, _, _, {:error, _} = error, _} -> error
+      {_, _, _, _, {:error, _} = error} -> error
     end
   end
 
@@ -547,8 +572,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: device_type_id,
         vendor_name: vendor_name,
         model: model,
-        risk_level: infer_risk_level(metadata),
-        risk_score: infer_risk_score(metadata),
         os: merge_inferred_map(update.os, infer_os(metadata, vendor_name, classification)),
         hw_info: merge_inferred_map(update.hw_info, infer_hw_info(metadata)),
         network_interfaces: update.network_interfaces || [],
@@ -765,8 +788,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         type_id: prefer_positive_int(incoming.type_id, existing.type_id),
         vendor_name: prefer_non_empty(incoming.vendor_name, existing.vendor_name),
         model: prefer_non_empty(incoming.model, existing.model),
-        risk_level: prefer_non_empty(incoming.risk_level, existing.risk_level),
-        risk_score: prefer_positive_int(incoming.risk_score, existing.risk_score),
         os: merged_os,
         hw_info: merged_hw_info,
         is_available: prefer_non_nil(incoming.is_available, existing.is_available),
@@ -787,6 +808,54 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     |> Kernel.++(incoming_sources || [])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.uniq()
+  end
+
+  defp build_source_risk_contribution_records(resolved_updates) do
+    resolved_updates
+    |> Enum.map(fn {update, device_id} ->
+      metadata = update.metadata || %{}
+      score = infer_risk_score(metadata)
+
+      if is_integer(score) and score >= 0 do
+        source = normalize_risk_source(update.source)
+
+        %{
+          device_uid: device_id,
+          source: source,
+          source_ref: "current",
+          score: score,
+          reason: "#{source} inventory risk",
+          occurred_at: update.timestamp || update.last_seen_time || DateTime.utc_now(),
+          metadata: %{
+            "source" => source,
+            "source_risk_level" => infer_risk_level(metadata),
+            "ingested_by" => "sync_ingestor"
+          }
+        }
+      end
+    end)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce(%{}, fn contribution, acc ->
+      key = {contribution.device_uid, contribution.source, contribution.source_ref}
+
+      Map.update(acc, key, contribution, fn existing ->
+        if contribution.score >= existing.score, do: contribution, else: existing
+      end)
+    end)
+    |> Map.values()
+  end
+
+  defp normalize_risk_source(source) when source in [nil, ""], do: "unknown"
+
+  defp normalize_risk_source(source) do
+    source
+    |> to_string()
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> "unknown"
+      value -> value
+    end
   end
 
   defp prefer_non_empty(new_value, old_value) when new_value in [nil, ""], do: old_value
@@ -829,8 +898,6 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
             ),
           vendor_name: fragment("COALESCE(EXCLUDED.vendor_name, ?)", d.vendor_name),
           model: fragment("COALESCE(EXCLUDED.model, ?)", d.model),
-          risk_level: fragment("COALESCE(EXCLUDED.risk_level, ?)", d.risk_level),
-          risk_score: fragment("COALESCE(EXCLUDED.risk_score, ?)", d.risk_score),
           os:
             fragment(
               "COALESCE(?, '{}'::jsonb) || COALESCE(EXCLUDED.os, '{}'::jsonb)",

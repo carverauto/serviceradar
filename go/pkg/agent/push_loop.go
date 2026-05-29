@@ -32,11 +32,13 @@ import (
 	"syscall"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	agentgateway "github.com/carverauto/serviceradar/go/pkg/agentgateway"
+	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
@@ -1260,9 +1262,10 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	sysmonSvc := p.server.sysmonService
 	cfg := p.server.config
 	sidecarStatus := p.server.sidecarStatus
+	addonManager := p.server.addonManager
 	p.server.mu.RUnlock()
 
-	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus); status != nil {
+	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus, addonManager); status != nil {
 		statuses = append(statuses, status)
 	}
 
@@ -1277,7 +1280,18 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Str("service", svc.Name()).Msg("Status provider returned nil response")
 				continue
 			}
-			converted := p.convertToGatewayStatus(status, svc.Name(), sweepType)
+			serviceType := sweepType
+			source := "status"
+			if routing, ok := svc.(StatusRoutingProvider); ok {
+				if value := strings.TrimSpace(routing.StatusServiceType()); value != "" {
+					serviceType = value
+				}
+				if value := strings.TrimSpace(routing.StatusSource()); value != "" {
+					source = value
+				}
+			}
+
+			converted := p.convertToGatewayStatusWithSource(status, svc.Name(), serviceType, source)
 			if converted == nil {
 				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
 				continue
@@ -1308,18 +1322,42 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	cfg *ServerConfig,
 	sidecarStatus sidecarStatusProvider,
+	addonManager agentaddon.AddonManager,
 ) *proto.GatewayServiceStatus {
 	sidecars := sidecarStatusesForStatus(sidecarStatus)
+
+	var addonStatuses []agentaddon.Status
+	if addonManager != nil {
+		addonStatuses = addonManager.Status()
+	}
+	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
+
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
+	capabilities := agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, sweepBannerGrab.Status == capabilityStatusAvailable)
+	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
+
 	resp := buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, sweepBannerGrab.Status == capabilityStatusAvailable),
+		capabilities,
 		sidecars,
 		p.netprobeRunningAsRoot(),
 		corpusRevisions,
 		sweepBannerGrab,
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
+}
+
+// addonCapabilities returns the capability identifiers advertised by add-ons that
+// are currently running, so the control plane can reconcile active add-ons.
+func addonCapabilities(statuses []agentaddon.Status) []string {
+	var capabilities []string
+	for _, status := range statuses {
+		if status.State != agentaddon.StateRunning {
+			continue
+		}
+		capabilities = append(capabilities, status.Capabilities...)
+	}
+	return capabilities
 }
 
 func buildAgentCapabilityStatusResponse(
@@ -1397,6 +1435,15 @@ func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 
 // convertToGatewayStatus converts a StatusResponse to a GatewayServiceStatus.
 func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceName, serviceType string) *proto.GatewayServiceStatus {
+	return p.convertToGatewayStatusWithSource(resp, serviceName, serviceType, "status")
+}
+
+func (p *PushLoop) convertToGatewayStatusWithSource(
+	resp *proto.StatusResponse,
+	serviceName string,
+	serviceType string,
+	source string,
+) *proto.GatewayServiceStatus {
 	if resp == nil {
 		return nil
 	}
@@ -1417,7 +1464,7 @@ func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceNam
 		AgentId:      agentID,
 		GatewayId:    gatewayID,
 		Partition:    partition,
-		Source:       "status",
+		Source:       source,
 		KvStoreId:    kvStoreID,
 	}
 }
@@ -1928,6 +1975,13 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	p.applySweepConfig(ctx, configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
+	if !p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because Bumblebee config did not apply")
+		return false
+	}
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
@@ -1959,6 +2013,9 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
+	// Apply native add-on (feature set) assignments if present.
+	p.applyAddonAssignments(ctx, configResp.GetAddons())
+
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
 
@@ -1968,6 +2025,83 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		Str("version", p.getConfigVersion()).
 		Str("source", source).
 		Msg("Applied new config from gateway")
+
+	return true
+}
+
+func (p *PushLoop) applyBumblebeeConfig(
+	ctx context.Context,
+	protoConfig *proto.BumblebeeConfig,
+	configJSON []byte,
+) bool {
+	cfg, err := resolveGatewayBumblebeeConfig(protoConfig, configJSON)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to parse Bumblebee config from gateway")
+		return false
+	}
+	if cfg == nil {
+		return true
+	}
+	if p.server == nil {
+		p.logger.Warn().Msg("Cannot apply Bumblebee config without agent server")
+		return false
+	}
+
+	p.server.mu.RLock()
+	objectStore := p.server.objectStore
+	serverConfig := p.server.config
+	p.server.mu.RUnlock()
+
+	agentID := ""
+	catalogPath := bumblebee.DefaultConfig().CatalogPath
+	profilePath := bumblebee.DefaultConfig().ProfilePath
+	tmpDir := bumblebee.DefaultConfig().TmpDir
+	if serverConfig != nil {
+		agentID = serverConfig.AgentID
+	}
+	if serverConfig != nil && serverConfig.Bumblebee != nil {
+		catalogPath = serverConfig.Bumblebee.effectiveCatalogPath()
+		profilePath = serverConfig.Bumblebee.effectiveProfilePath()
+		tmpDir = serverConfig.Bumblebee.effectiveTmpDir()
+	}
+
+	if cfg.Enabled {
+		if cfg.Catalog == nil {
+			p.logger.Warn().Msg("Bumblebee config is enabled but has no catalog assignment")
+			return false
+		}
+
+		result, err := bumblebee.StageCatalogAssignment(ctx, objectStore, catalogPath, tmpDir, *cfg.Catalog)
+		if err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("snapshot_ref", cfg.Catalog.SnapshotRef).
+				Str("object_key", cfg.Catalog.ObjectKey).
+				Msg("Failed to stage Bumblebee catalog assignment")
+			return false
+		}
+
+		if result.Changed {
+			p.logger.Info().
+				Str("snapshot_ref", result.SnapshotRef).
+				Str("path", result.Path).
+				Str("sha256", result.SHA256).
+				Msg("Staged Bumblebee catalog assignment")
+		}
+	}
+
+	if changed, err := bumblebee.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("profile_path", profilePath).
+			Msg("Failed to write Bumblebee runtime profile")
+		return false
+	} else if changed {
+		p.logger.Info().
+			Str("profile_path", profilePath).
+			Bool("enabled", cfg.Enabled).
+			Msg("Wrote Bumblebee runtime profile")
+	}
 
 	return true
 }
@@ -2103,6 +2237,87 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 	}
 
 	return ""
+}
+
+// Add-on delivery/supervision identifiers carried in AddonAssignmentConfig.
+// These mirror the control-plane Ash enums; only the agent_sidecar supervision
+// model is supervised here today (others are logged and skipped explicitly).
+const (
+	addonDeliveryPushedArtifact  = "pushed_artifact"
+	addonSupervisionAgentSidecar = "agent_sidecar"
+)
+
+// applyAddonAssignments reconciles the agent's supervised native add-ons to the
+// assignments delivered in the gateway config. Enabled assignments are launched
+// and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
+func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) {
+	if p.server == nil {
+		return
+	}
+
+	p.server.mu.RLock()
+	manager := p.server.addonManager
+	p.server.mu.RUnlock()
+	if manager == nil {
+		return
+	}
+
+	specs := make([]agentaddon.Spec, 0, len(assignments))
+	for _, a := range assignments {
+		if a == nil || !a.GetEnabled() {
+			continue
+		}
+
+		// Default to the only delivery/supervision pair this agent implements so
+		// an older control plane that omits these fields keeps working.
+		delivery := a.GetDelivery()
+		if delivery == "" {
+			delivery = addonDeliveryPushedArtifact
+		}
+		supervision := a.GetSupervision()
+		if supervision == "" {
+			supervision = addonSupervisionAgentSidecar
+		}
+
+		// Only agent_sidecar add-ons run as supervised go-plugin subprocesses.
+		// compiled_in / config_toggle / systemd_* / ephemeral_helper are not yet
+		// handled here; log explicitly rather than silently skipping so the
+		// desired-vs-observed gap is visible instead of looking like a no-op.
+		if supervision != addonSupervisionAgentSidecar {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Str("supervision", supervision).
+				Msg("Add-on supervision model not supported by this agent; assignment not applied")
+			continue
+		}
+
+		if a.GetBinaryPath() == "" {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Msg("Add-on sidecar assignment missing a binary path; not applied")
+			continue
+		}
+
+		specs = append(specs, agentaddon.Spec{
+			ID:           a.GetAddonId(),
+			Version:      a.GetVersion(),
+			BinaryPath:   a.GetBinaryPath(),
+			Args:         a.GetArgs(),
+			ConfigJSON:   a.GetConfigJson(),
+			Capabilities: a.GetCapabilities(),
+		})
+	}
+
+	if err := manager.Apply(ctx, specs); err != nil {
+		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
+		return
+	}
+
+	if len(specs) > 0 {
+		p.logger.Info().Int("addons", len(specs)).Msg("Applied native add-on assignments")
+	}
 }
 
 func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {
@@ -2814,6 +3029,7 @@ type agentCapabilityOptions struct {
 	desktopRDP                              bool
 	hostNetworkVisibilityFingerprintEnabled bool
 	sweepBannerGrabAvailable                bool
+	bumblebee                               bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -2898,6 +3114,7 @@ func getAgentCapabilitiesForSidecars(
 		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
+		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
 	})
 }
 
@@ -2933,6 +3150,10 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 		capabilities = append(capabilities, capabilitySweepBannerGrabAvailable)
 	} else {
 		capabilities = append(capabilities, capabilitySweepBannerGrabUnavailable)
+	}
+
+	if options.bumblebee {
+		capabilities = append(capabilities, "bumblebee")
 	}
 
 	if options.enhancedBPF {

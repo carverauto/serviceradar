@@ -16,6 +16,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
 
@@ -107,6 +109,29 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
         action_names: [:update, :approve, :revoke, :destroy],
         description:
           "Plugin package approval or artifact changes can alter assigned plugin payloads."
+      },
+      %Entry{
+        id: :addon_assignment_agent_config,
+        resource: AddonAssignment,
+        config_type: :agent,
+        generator: AgentConfigGenerator,
+        affected_agents: {DependencyResolvers, :record_agent_id, []},
+        dispatch: :push_affected_agents,
+        action_names: [:create, :update, :destroy],
+        secret_fields: [:params, "params"],
+        description:
+          "Add-on (feature set) assignments are delivered in the unified addons section."
+      },
+      %Entry{
+        id: :addon_package_agent_config,
+        resource: AddonPackage,
+        config_type: :agent,
+        generator: AgentConfigGenerator,
+        affected_agents: {DependencyResolvers, :all_online, []},
+        dispatch: :push_config_for_type,
+        action_names: [:update, :approve, :revoke, :destroy],
+        description:
+          "Add-on package approval or artifact changes can alter assigned add-on payloads."
       },
       %Entry{
         id: :agent_engine_limits_config,
@@ -292,6 +317,8 @@ defmodule ServiceRadar.AgentConfig.DependencyCatalog do
           ServiceCheck,
           PluginAssignment,
           PluginPackage,
+          AddonAssignment,
+          AddonPackage,
           ServiceRadar.Infrastructure.Agent
         ]
     )

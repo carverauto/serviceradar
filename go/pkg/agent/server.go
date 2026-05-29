@@ -27,9 +27,11 @@ import (
 	"strings"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/config"
+	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/sweeper"
@@ -62,8 +64,10 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		return nil, fmt.Errorf("failed to load configurations: %w", err)
 	}
 
+	s.initObjectStore(ctx)
 	s.initPluginManager(ctx)
 	s.initNetprobeSidecarStatus()
+	s.initAddonManager()
 
 	// Initialize embedded sysmon service
 	if err := s.initSysmonService(ctx); err != nil {
@@ -221,7 +225,50 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 		s.services = append(s.services, service)
 	}
 
+	if s.config.Bumblebee != nil && s.config.Bumblebee.Enabled {
+		s.services = append(s.services, NewBumblebeeSpoolService(s.config.AgentID, s.config.Bumblebee))
+	}
+
 	return nil
+}
+
+func (s *Server) initObjectStore(ctx context.Context) {
+	if s == nil || s.config == nil || strings.TrimSpace(s.config.KVAddress) == "" {
+		return
+	}
+
+	security := s.config.KVSecurity
+	if security == nil {
+		security = s.config.Security
+	}
+	if security == nil {
+		s.logger.Warn().Str("addr", s.config.KVAddress).Msg("Skipping object store client: no security config")
+		return
+	}
+
+	provider, err := srgrpc.NewSecurityProvider(ctx, security, s.logger)
+	if err != nil {
+		s.logger.Warn().Err(err).Str("addr", s.config.KVAddress).Msg("Failed to initialize object store security")
+		return
+	}
+
+	client, err := srgrpc.NewClient(ctx, srgrpc.ClientConfig{
+		Address:          s.config.KVAddress,
+		SecurityProvider: provider,
+		MaxRetries:       3,
+		Logger:           s.logger,
+	})
+	if err != nil {
+		_ = provider.Close()
+		s.logger.Warn().Err(err).Str("addr", s.config.KVAddress).Msg("Failed to connect object store client")
+		return
+	}
+
+	s.objectStore = &grpcRemoteStore{
+		configClient: proto.NewKVServiceClient(client.GetConnection()),
+		objectClient: proto.NewDataServiceClient(client.GetConnection()),
+		conn:         client,
+	}
 }
 
 func (s *Server) initNetprobeSidecarStatus() {
@@ -241,6 +288,14 @@ func (s *Server) initNetprobeSidecarStatus() {
 	s.sidecarStatus = manager
 	s.sidecarManager = manager
 	s.netprobeSidecar = netprobeSidecar
+}
+
+// initAddonManager creates the native add-on (feature set) manager that supervises
+// add-ons delivered via agent configuration as go-plugin subprocesses.
+func (s *Server) initAddonManager() {
+	s.addonManager = agentaddon.NewManager(agentaddon.Config{
+		Logger: s.logger.WithComponent("agent.addon"),
+	})
 }
 
 // initSysmonService creates and initializes the embedded sysmon service.
@@ -465,6 +520,12 @@ func (s *Server) Stop(_ context.Context) error {
 		s.flowPublisher.Close()
 	}
 
+	if s.addonManager != nil {
+		if err := s.addonManager.Stop(context.Background()); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to stop addon manager")
+		}
+	}
+
 	// Stop sysmon service if running
 	if s.sysmonService != nil {
 		if err := s.sysmonService.Stop(context.Background()); err != nil {
@@ -488,6 +549,12 @@ func (s *Server) Stop(_ context.Context) error {
 
 	if s.pluginManager != nil {
 		s.pluginManager.Stop()
+	}
+
+	if closer, ok := s.objectStore.(interface{ Close() error }); ok {
+		if err := closer.Close(); err != nil {
+			s.logger.Error().Err(err).Msg("Failed to close object store client")
+		}
 	}
 
 	for _, svc := range s.services {

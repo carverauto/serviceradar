@@ -43,3 +43,6 @@ linters:
     - unused
     - usestdlibvars
     - whitespace
+  exclusions:
+    paths:
+      - go/pkg/bumblebee/upstream/.*

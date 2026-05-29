@@ -11,6 +11,8 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadarWebNG.RBAC
 
@@ -37,6 +39,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:srql, %{enabled: false, page_path: "/agents"})
      |> assign(:checks, [])
      |> assign(:plugin_assignments, [])
+     |> assign(:addon_assignments, [])
      |> assign(:release_targets, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
@@ -114,6 +117,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
     checks = load_checks_for_agent(uid, scope)
     plugin_assignments = load_plugin_assignments_for_agent(uid, scope)
+    addon_assignments = load_addon_assignments_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
     agent = hydrate_agent_release_fields(agent, release_targets)
 
@@ -124,6 +128,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:error, error)
      |> assign(:checks, checks)
      |> assign(:plugin_assignments, plugin_assignments)
+     |> assign(:addon_assignments, addon_assignments)
      |> assign(:release_targets, release_targets)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
@@ -218,6 +223,22 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
       {:error, reason} ->
         Logger.warning("Failed to load plugin assignments for #{agent_uid}: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp load_addon_assignments_for_agent(agent_uid, scope) do
+    AddonAssignment
+    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
+    |> Ash.Query.load(:addon_package)
+    |> Ash.Query.sort(inserted_at: :desc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, assignments} ->
+        assignments
+
+      {:error, reason} ->
+        Logger.warning("Failed to load addon assignments for #{agent_uid}: #{inspect(reason)}")
         []
     end
   end
@@ -361,6 +382,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           />
           <.registration_info agent={@agent} />
           <.plugin_assignments_card assignments={@plugin_assignments} />
+          <.addon_assignments_card assignments={@addon_assignments} />
           <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
         </div>
       </div>
@@ -835,6 +857,86 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     </div>
     """
   end
+
+  attr :assignments, :list, required: true
+
+  defp addon_assignments_card(assigns) do
+    ~H"""
+    <div id="addons" class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
+        <div>
+          <span class="text-sm font-semibold">Add-on Assignments</span>
+          <span :if={@assignments != []} class="ml-2 badge badge-ghost badge-sm">
+            {length(@assignments)}
+          </span>
+        </div>
+        <.link navigate={~p"/settings/agents/addons"} class="btn btn-xs btn-ghost">
+          Manage Add-ons
+        </.link>
+      </div>
+
+      <div :if={@assignments == []} class="p-4">
+        <p class="text-sm text-base-content/60">No add-ons assigned to this agent.</p>
+      </div>
+
+      <div :if={@assignments != []} class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr class="text-xs uppercase tracking-wide text-base-content/60">
+              <th>Add-on</th>
+              <th>Version</th>
+              <th>Status</th>
+              <th>Capabilities</th>
+            </tr>
+          </thead>
+          <tbody>
+            <%= for assignment <- @assignments do %>
+              <% package = addon_assignment_package(assignment) %>
+              <tr>
+                <td>
+                  <div class="font-medium">{addon_package_name(package, assignment)}</div>
+                  <div class="text-xs font-mono text-base-content/60">{assignment.addon_id}</div>
+                </td>
+                <td class="text-xs font-mono">{addon_package_version(package)}</td>
+                <td>
+                  <.ui_badge variant={if assignment.enabled, do: "success", else: "ghost"} size="xs">
+                    {if assignment.enabled, do: "enabled", else: "disabled"}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <div class="flex max-w-md flex-wrap gap-1">
+                    <%= for cap <- addon_package_capabilities(package) do %>
+                      <span class="badge badge-ghost badge-xs font-mono">{cap}</span>
+                    <% end %>
+                    <span
+                      :if={addon_package_capabilities(package) == []}
+                      class="text-xs text-base-content/50"
+                    >
+                      —
+                    </span>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  defp addon_assignment_package(%{addon_package: %AddonPackage{} = package}), do: package
+  defp addon_assignment_package(_assignment), do: nil
+
+  defp addon_package_name(%AddonPackage{name: name}, _assignment) when is_binary(name) and name != "", do: name
+
+  defp addon_package_name(_package, assignment), do: assignment.addon_id
+
+  defp addon_package_version(%AddonPackage{version: version}) when is_binary(version), do: version
+  defp addon_package_version(_package), do: "—"
+
+  defp addon_package_capabilities(%AddonPackage{capabilities: caps}) when is_list(caps), do: caps
+  defp addon_package_capabilities(_package), do: []
 
   attr :assignments, :list, required: true
 

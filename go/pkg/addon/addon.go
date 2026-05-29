@@ -1,0 +1,144 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+// Package addon defines the language-agnostic contract shared by the agent
+// (the go-plugin client) and native add-ons (the go-plugin servers) for issue
+// 3425's selectable add-on framework. It carries the HashiCorp go-plugin
+// handshake, the clean Go Addon interface, and the gRPC adapters that bridge that
+// interface to the generated proto/agent/addon/v1 service. Both the agent-side
+// manager (go/pkg/agent/addon) and the author-facing SDK (go/pkg/addon/sdk) import
+// this package; neither imports a specific add-on's implementation, preserving the
+// base agent's dependency isolation.
+package addon
+
+import (
+	"context"
+
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	goplugin "github.com/hashicorp/go-plugin"
+)
+
+const (
+	// ProtocolVersion is the go-plugin protocol version negotiated between the
+	// agent and add-ons. Bump on incompatible transport changes.
+	ProtocolVersion = 1
+
+	// PluginName is the dispense key under which the Addon service is served.
+	PluginName = "addon"
+
+	// magicCookieKey/Value are a basic guard so the agent only treats deliberate
+	// add-on binaries as plugins (not a security boundary; AutoMTLS provides that).
+	magicCookieKey   = "SERVICERADAR_ADDON_PLUGIN"
+	magicCookieValue = "serviceradar-addon-v1"
+)
+
+// Handshake is the go-plugin handshake shared by the agent and every add-on.
+//
+//nolint:gochecknoglobals // go-plugin requires a package-level handshake config shared by the host and every plugin binary.
+var Handshake = goplugin.HandshakeConfig{
+	ProtocolVersion:  ProtocolVersion,
+	MagicCookieKey:   magicCookieKey,
+	MagicCookieValue: magicCookieValue,
+}
+
+// Addon is the clean Go contract an add-on implements and the agent consumes.
+type Addon interface {
+	// Info reports the add-on's stable identity, version, and advertised
+	// capabilities.
+	Info(ctx context.Context) (Info, error)
+	// Configure applies operator-selected configuration (validated by the control
+	// plane against the add-on's config.schema.json) and returns a stable hash.
+	Configure(ctx context.Context, configJSON []byte) (ConfigureResult, error)
+	// Health is the readiness probe the agent polls; a non-healthy status carries
+	// a bounded degradation reason.
+	Health(ctx context.Context) (Health, error)
+}
+
+// Info describes a running add-on.
+type Info struct {
+	ID           string
+	Version      string
+	Capabilities []string
+}
+
+// ConfigureResult is returned from a Configure call.
+type ConfigureResult struct {
+	ConfigHash string
+	Accepted   bool
+	Error      string
+}
+
+// HealthStatus is the coarse health of an add-on.
+type HealthStatus int
+
+const (
+	HealthUnspecified HealthStatus = iota
+	HealthHealthy
+	HealthDegraded
+	HealthUnhealthy
+)
+
+func (s HealthStatus) String() string {
+	switch s {
+	case HealthHealthy:
+		return "healthy"
+	case HealthDegraded:
+		return "degraded"
+	case HealthUnhealthy:
+		return "unhealthy"
+	case HealthUnspecified:
+		return "unspecified"
+	default:
+		return "unspecified"
+	}
+}
+
+// Health is the result of a Health probe.
+type Health struct {
+	Status            HealthStatus
+	Version           string
+	DegradationReason string
+}
+
+func healthStatusToProto(s HealthStatus) addonpb.HealthResponse_Status {
+	switch s {
+	case HealthHealthy:
+		return addonpb.HealthResponse_STATUS_HEALTHY
+	case HealthDegraded:
+		return addonpb.HealthResponse_STATUS_DEGRADED
+	case HealthUnhealthy:
+		return addonpb.HealthResponse_STATUS_UNHEALTHY
+	case HealthUnspecified:
+		return addonpb.HealthResponse_STATUS_UNSPECIFIED
+	default:
+		return addonpb.HealthResponse_STATUS_UNSPECIFIED
+	}
+}
+
+func healthStatusFromProto(s addonpb.HealthResponse_Status) HealthStatus {
+	switch s {
+	case addonpb.HealthResponse_STATUS_HEALTHY:
+		return HealthHealthy
+	case addonpb.HealthResponse_STATUS_DEGRADED:
+		return HealthDegraded
+	case addonpb.HealthResponse_STATUS_UNHEALTHY:
+		return HealthUnhealthy
+	case addonpb.HealthResponse_STATUS_UNSPECIFIED:
+		return HealthUnspecified
+	default:
+		return HealthUnspecified
+	}
+}

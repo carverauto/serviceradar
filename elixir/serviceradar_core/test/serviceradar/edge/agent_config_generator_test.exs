@@ -7,11 +7,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.AgentConfig.ConfigInstance
   alias ServiceRadar.Edge.AgentConfigGenerator
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.IntegrationSource
+  alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -122,6 +126,61 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert credentials["api_key"] == "agent-config-api-key"
       assert credentials["api_secret"] == "agent-config-api-secret"
       assert credentials["secret_key"] == "agent-config-api-secret"
+    end
+
+    test "does not enable bumblebee without an agent-specific opt-in", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      create_active_bumblebee_snapshot!(actor, unique_id)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      assert payload["bumblebee"] == %{"enabled" => false}
+      refute config.bumblebee_config.enabled
+    end
+
+    test "attaches active bumblebee catalog only to opted-in agents", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      snapshot = create_active_bumblebee_snapshot!(actor, unique_id)
+      other_agent_uid = "bumblebee-other-agent-#{unique_id}"
+
+      create_bumblebee_config_instance!(actor, agent_uid, %{
+        "enabled" => true,
+        "scan_profile" => "workstations",
+        "root_discovery_mode" => "explicit",
+        "explicit_roots" => ["/opt/service"],
+        "exclude_roots" => ["/opt/service/cache"],
+        "ecosystems" => ["npm"],
+        "scan_timeout" => "5m",
+        "max_findings" => 25,
+        "max_output_bytes" => 1_048_576,
+        "cadence" => "12h",
+        "findings_only" => true
+      })
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+      payload = Jason.decode!(config.config_json)
+
+      assert payload["bumblebee"]["enabled"] == true
+      assert payload["bumblebee"]["agent_id"] == agent_uid
+      assert payload["bumblebee"]["scan_profile"] == "workstations"
+      assert payload["bumblebee"]["root_discovery_mode"] == "explicit"
+      assert payload["bumblebee"]["catalog"]["snapshot_ref"] == snapshot.snapshot_ref
+      assert payload["bumblebee"]["catalog"]["sha256"] == snapshot.content_sha256
+      assert config.bumblebee_config.enabled
+      assert config.bumblebee_config.catalog.snapshot_ref == snapshot.snapshot_ref
+
+      {:ok, other_config} = AgentConfigGenerator.generate_config(other_agent_uid)
+      other_payload = Jason.decode!(other_config.config_json)
+
+      assert other_payload["bumblebee"] == %{"enabled" => false}
+      refute other_config.bumblebee_config.enabled
     end
 
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
@@ -1072,6 +1131,35 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       unique_id: unique_id
     } do
       agent_uid = "version-sweep-agent-#{unique_id}"
+      octet = rem(unique_id, 200) + 1
+
+      {:ok, _initial_target} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "version-sweep-initial-device-#{unique_id}",
+            ip: "10.#{octet}.0.1",
+            hostname: "version-sweep-initial-#{unique_id}",
+            discovery_sources: ["sweep"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
+
+      {:ok, _updated_target} =
+        Device
+        |> Ash.Changeset.for_create(
+          :create,
+          %{
+            uid: "version-sweep-updated-device-#{unique_id}",
+            ip: "172.16.#{octet}.1",
+            hostname: "version-sweep-updated-#{unique_id}",
+            discovery_sources: ["sweep"]
+          },
+          actor: actor
+        )
+        |> Ash.create()
 
       {:ok, group} =
         SweepGroup
@@ -1197,6 +1285,171 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     end
   end
 
+  describe "native add-on assignments" do
+    test "compiled add-on carries delivery, supervision, and the approved capability subset", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess", "diagnostics"],
+          approved_capabilities: ["remoteaccess"]
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.addon_id == package.addon_id
+      assert addon.enabled == true
+      assert addon.delivery == :pushed_artifact
+      assert addon.supervision == :agent_sidecar
+      # The operator-approved subset wins over the package's full manifest list.
+      assert addon.capabilities == ["remoteaccess"]
+      assert addon.binary_path == "/opt/sr/bin/sample-addon-#{unique_id}"
+    end
+
+    test "capabilities fall back to the package manifest when none are approved", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess", "diagnostics"],
+          approved_capabilities: []
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.capabilities == ["remoteaccess", "diagnostics"]
+    end
+
+    test "a binary/install-path change re-versions the agent config", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"]
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, before} = AgentConfigGenerator.generate_config(agent_uid)
+
+      # An executable upgrade (new install_path) must change config_version so a
+      # polling agent stops receiving :not_modified and relaunches the new binary.
+      {:ok, _updated} =
+        package
+        |> Ash.Changeset.for_update(:update, %{install_path: "/opt/sr/bin/v2"}, actor: actor)
+        |> Ash.update()
+
+      {:ok, after_change} = AgentConfigGenerator.generate_config(agent_uid)
+
+      refute before.config_version == after_change.config_version
+    end
+
+    test "rejects assignment params that violate the package config schema", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"],
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{"port" => %{"type" => "integer"}},
+            "required" => ["port"]
+          }
+        )
+
+      # Invalid params must be rejected at the control plane, not pushed to the
+      # agent to fail later as a Configure rejection.
+      assert {:error, error} = assign_addon(actor, agent_uid, package, %{"port" => "not-an-int"})
+      assert inspect(error) =~ "params"
+    end
+
+    test "accepts assignment params that satisfy the package config schema", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"],
+          config_schema: %{
+            "type" => "object",
+            "properties" => %{"port" => %{"type" => "integer"}},
+            "required" => ["port"]
+          }
+        )
+
+      assert {:ok, _assignment} = assign_addon(actor, agent_uid, package, %{"port" => 8080})
+    end
+  end
+
+  defp create_approved_addon_package(actor, unique_id, opts) do
+    capabilities = Keyword.get(opts, :capabilities, [])
+    approved = Keyword.get(opts, :approved_capabilities, [])
+    config_schema = Keyword.get(opts, :config_schema, %{})
+
+    {:ok, package} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "sample-addon-#{unique_id}",
+          version: "1.0.0",
+          name: "Sample Addon #{unique_id}",
+          binary: "sample-addon-#{unique_id}",
+          install_path: "/opt/sr/bin",
+          capabilities: capabilities,
+          config_schema: config_schema
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    package
+    |> Ash.Changeset.for_update(
+      :approve,
+      %{approved_capabilities: approved, approved_by: "test@serviceradar.local"},
+      actor: actor
+    )
+    |> Ash.update()
+  end
+
+  defp assign_addon(actor, agent_uid, package, params \\ %{}) do
+    AddonAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{agent_uid: agent_uid, addon_package_id: package.id, enabled: true, params: params},
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
   defp create_connected_agent(actor, agent_uid) do
     Agent
     |> Ash.Changeset.for_create(
@@ -1210,6 +1463,61 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       actor: actor
     )
     |> Ash.create()
+  end
+
+  defp create_active_bumblebee_snapshot!(actor, unique_id) do
+    {:ok, snapshot} =
+      BumblebeeCatalogSnapshot
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          snapshot_ref: "bumblebee:test:#{unique_id}",
+          source_revision: "rev-#{unique_id}",
+          catalog_version: "catalog-#{unique_id}",
+          schema_version: "serviceradar.bumblebee.catalog.v1",
+          status: "candidate",
+          entry_count: 1,
+          content_sha256: "sha-#{unique_id}",
+          object_key: "bumblebee/catalogs/#{unique_id}/catalog.json",
+          object_size_bytes: 42,
+          validation_result: %{"status" => "valid"},
+          artifact_metadata: %{},
+          metadata: %{}
+        },
+        actor: actor
+      )
+      |> Ash.create(actor: actor)
+
+    snapshot
+    |> Ash.Changeset.for_update(
+      :promote,
+      %{
+        entry_count: 1,
+        content_sha256: "sha-#{unique_id}",
+        object_key: "bumblebee/catalogs/#{unique_id}/catalog.json",
+        object_size_bytes: 42,
+        validation_result: %{"status" => "valid"},
+        artifact_metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.update!(actor: actor)
+  end
+
+  defp create_bumblebee_config_instance!(actor, agent_uid, compiled_config) do
+    ConfigInstance
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        config_type: :bumblebee,
+        partition: "default",
+        agent_id: agent_uid,
+        compiled_config: compiled_config,
+        source_ids: []
+      },
+      actor: actor
+    )
+    |> Ash.create!(actor: actor)
   end
 
   defp unique_ip(seed) when is_binary(seed) do

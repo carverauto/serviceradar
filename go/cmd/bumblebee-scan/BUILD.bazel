@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "bumblebee_scan_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/bumblebee-scan",
+    visibility = ["//visibility:private"],
+    deps = ["//go/pkg/bumblebee"],
+)
+
+go_binary(
+    name = "bumblebee_scan",
+    embed = [":bumblebee_scan_lib"],
+    visibility = ["//visibility:public"],
+)
