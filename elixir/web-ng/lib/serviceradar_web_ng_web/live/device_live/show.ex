@@ -7,11 +7,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [active_fingerprint_tab_visible?: 2]
 
   alias Ash.Error.Invalid
-  alias ServiceRadar.Automation.Northbound.Catalog, as: NorthboundCatalog
-  alias ServiceRadar.Automation.Northbound.InvocationService, as: NorthboundInvocationService
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
-  alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
@@ -31,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.NorthboundHistoryData
+  alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
@@ -566,25 +564,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_load_northbound_interface_actions(socket) do
-    cond do
-      not connected?(socket) ->
-        socket
-
-      Map.get(socket.assigns, :northbound_interface_actions_loading) == true ->
-        socket
-
-      Map.get(socket.assigns, :northbound_interface_actions_loaded) == true ->
-        socket
-
-      true ->
-        scope = socket.assigns.current_scope
-
-        socket
-        |> assign(:northbound_interface_actions_loading, true)
-        |> start_async(:northbound_interface_actions, fn ->
-          northbound_catalog_module().eligible_interface_actions(scope)
-        end)
-    end
+    NorthboundInterfaceRuntime.maybe_load_actions(socket)
   end
 
   defp handle_same_device_params(socket, uid, limit, requested_tab, cursor) do
@@ -1762,8 +1742,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("run_task_for_interface_selection", _params, socket) do
     cond do
-      not can_launch_northbound_actions?(socket.assigns.current_scope) ->
-        {:noreply, put_flash(socket, :error, northbound_launch_permission_error())}
+      not NorthboundInterfaceRuntime.can_launch?(socket.assigns.current_scope) ->
+        {:noreply, put_flash(socket, :error, NorthboundInterfaceRuntime.launch_permission_error())}
 
       MapSet.size(socket.assigns.selected_interfaces) == 0 ->
         {:noreply, put_flash(socket, :error, "Select at least one interface before Run Task.")}
@@ -1773,62 +1753,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       true ->
         action = List.first(socket.assigns.northbound_interface_actions)
-        {:noreply, open_northbound_interface_action_modal(socket, action)}
+        {:noreply, NorthboundInterfaceRuntime.open_modal(socket, action)}
     end
   end
 
   def handle_event("close_northbound_interface_action_modal", _params, socket) do
-    {:noreply, close_northbound_interface_action_modal(socket)}
+    {:noreply, NorthboundInterfaceRuntime.close_modal(socket)}
   end
 
   def handle_event("northbound_interface_action_change", %{"action" => params}, socket) do
-    action =
-      params
-      |> Map.get("action_id")
-      |> find_northbound_action(socket.assigns.northbound_interface_actions)
-
-    params = NorthboundActionForm.ensure_params(params, action)
-
-    {:noreply,
-     socket
-     |> assign(:northbound_interface_launch_action, action)
-     |> assign(:northbound_interface_action_form, to_form(params, as: :action))
-     |> assign(:northbound_interface_action_error, nil)}
+    {:noreply, NorthboundInterfaceRuntime.change_action(socket, params)}
   end
 
   def handle_event("launch_northbound_interface_action", %{"action" => params}, socket) do
-    with {:ok, action} <-
-           selected_northbound_action(params, socket.assigns.northbound_interface_actions),
-         {:ok, input_values} <- NorthboundActionForm.parse_input(action, params),
-         {:ok, targets} <- selected_interface_action_targets(socket),
-         {:ok, invocation} <- create_northbound_invocation(socket, action, targets, input_values) do
-      {history, history_error} =
-        NorthboundHistoryData.load(socket.assigns.current_scope, socket.assigns.device_uid)
-
-      {:noreply,
-       socket
-       |> close_northbound_interface_action_modal()
-       |> assign(:selected_interfaces, MapSet.new())
-       |> assign(:northbound_device_history, history)
-       |> assign(:northbound_device_history_error, history_error)
-       |> assign(:northbound_launch_notice, %{
-         title: "Task dispatched for #{length(targets)} interface(s)",
-         invocation_id: invocation.id
-       })
-       |> put_flash(
-         :info,
-         "Task dispatched. Watch Task History for results."
-       )}
-    else
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> assign(:northbound_interface_action_form, to_form(params, as: :action))
-         |> assign(
-           :northbound_interface_action_error,
-           NorthboundActionForm.format_launch_error(reason, "interface")
-         )}
-    end
+    {:noreply, NorthboundInterfaceRuntime.launch(socket, params)}
   end
 
   def handle_event("open_interfaces_bulk_edit", _params, socket) do
@@ -1974,110 +1912,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
-
-  defp can_launch_northbound_actions?(scope) do
-    RBAC.can?(scope, "northbound.actions.launch")
-  end
-
-  defp northbound_launch_permission_error do
-    "You are not authorized to launch tasks. Missing permission: northbound.actions.launch."
-  end
-
-  defp open_northbound_interface_action_modal(socket, nil) do
-    put_flash(socket, :error, "No launchable interface task integration was selected.")
-  end
-
-  defp open_northbound_interface_action_modal(socket, action) do
-    params = NorthboundActionForm.default_params(action)
-
-    socket
-    |> assign(:show_northbound_interface_action_modal, true)
-    |> assign(:northbound_interface_launch_action, action)
-    |> assign(:northbound_interface_action_form, to_form(params, as: :action))
-    |> assign(:northbound_interface_action_error, nil)
-  end
-
-  defp close_northbound_interface_action_modal(socket) do
-    socket
-    |> assign(:show_northbound_interface_action_modal, false)
-    |> assign(:northbound_interface_launch_action, nil)
-    |> assign(:northbound_interface_action_form, to_form(%{}, as: :action))
-    |> assign(:northbound_interface_action_error, nil)
-  end
-
-  defp selected_northbound_action(params, actions) do
-    params
-    |> Map.get("action_id")
-    |> find_northbound_action(actions)
-    |> case do
-      nil -> {:error, :action_not_found}
-      action -> {:ok, action}
-    end
-  end
-
-  defp find_northbound_action(id, actions) when is_binary(id) and is_list(actions) do
-    Enum.find(actions, &(&1.id == id))
-  end
-
-  defp find_northbound_action(_id, actions) when is_list(actions), do: List.first(actions)
-  defp find_northbound_action(_id, _actions), do: nil
-
-  defp selected_interface_action_targets(socket) do
-    device_uid = socket.assigns.device_uid
-
-    targets =
-      socket.assigns.selected_interfaces
-      |> Enum.filter(&is_binary/1)
-      |> Enum.uniq()
-      |> Enum.map(&%{kind: "interface", device_uid: device_uid, interface_uid: &1})
-
-    if targets == [], do: {:error, :targets_required}, else: {:ok, targets}
-  end
-
-  defp create_northbound_invocation(socket, action, targets, input_values) do
-    northbound_invocation_service_module().create_and_dispatch(
-      %{
-        descriptor_id: Map.get(action, :descriptor_id),
-        targets: targets,
-        input_values: input_values,
-        source: :user,
-        metadata: %{
-          "ui_surface" => "device_interfaces",
-          "selected_target_count" => length(targets)
-        }
-      },
-      actor: northbound_scope_actor(socket.assigns.current_scope)
-    )
-  end
-
-  defp northbound_scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
-    permissions = fresh_northbound_permissions(user, permissions)
-
-    user
-    |> Map.take([:id, :email, :role, :role_profile_id])
-    |> Map.put(:permissions, permissions)
-  end
-
-  defp northbound_scope_actor(%{user: user}) when not is_nil(user), do: user
-  defp northbound_scope_actor(_scope), do: nil
-
-  defp fresh_northbound_permissions(%ServiceRadar.Identity.User{} = user, _permissions) do
-    ServiceRadar.Identity.RBAC.permissions_for_user(user, fresh?: true)
-  end
-
-  defp fresh_northbound_permissions(_user, permissions), do: permissions
-
-  defp northbound_catalog_module do
-    Application.get_env(:serviceradar_web_ng, :northbound_catalog_module, NorthboundCatalog)
-  end
-
-  defp northbound_invocation_service_module do
-    Application.get_env(
-      :serviceradar_web_ng,
-      :northbound_invocation_service_module,
-      NorthboundInvocationService
-    )
-  end
 
   defp to_safe_number(n) when is_number(n), do: n
   defp to_safe_number(nil), do: 0
