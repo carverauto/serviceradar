@@ -77,6 +77,12 @@ spec:
           value: "true"
         - name: LOG_LEVEL
           value: "info"
+        # Partition identity for this deployment. MUST match the value
+        # rendered into the NATS authorization block (templates/nats.yaml)
+        # so partition-scoped ACLs (e.g. flow.attributed.<id>) align with
+        # what datasvc publishes/consumes at runtime.
+        - name: SERVICERADAR_OTX_PARTITION
+          value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         {{- if .Values.spire.enabled }}
         - name: SPIFFE_ENDPOINT_SOCKET
           value: "unix:/run/spire/sockets/agent.sock"
