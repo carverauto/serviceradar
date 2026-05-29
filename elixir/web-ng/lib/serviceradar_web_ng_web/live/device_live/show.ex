@@ -42,6 +42,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
@@ -959,10 +960,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     metric_tasks =
       if include_metrics? do
         [
-          timed_device_task(:metrics, fn ->
+          DeviceTaskData.timed(@slow_device_task_ms, :metrics, fn ->
             SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope)
           end),
-          timed_device_task(:process, fn ->
+          DeviceTaskData.timed(@slow_device_task_ms, :process, fn ->
             SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope)
           end)
         ]
@@ -971,7 +972,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end
 
     parallel_results =
-      safe_yield_many(parallel_tasks ++ metric_tasks, supplemental_timeout_ms)
+      DeviceTaskData.yield_many(parallel_tasks ++ metric_tasks, supplemental_timeout_ms)
 
     {network_interfaces, interfaces_error} =
       extract_interface_results(parallel_results, load_interfaces_data?)
@@ -1096,15 +1097,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          load_logs_data?: load_logs_data?
        }) do
     base_tasks = [
-      timed_device_task(:availability, fn -> AvailabilityData.load_availability(srql_module, uid, scope) end),
-      timed_device_task(:agent_availability, fn -> AvailabilityData.load_agent_availability(scope, uid) end),
-      timed_device_task(:healthcheck, fn -> AvailabilityData.load_healthcheck_summary(srql_module, uid, scope) end),
-      timed_device_task(:sweep, fn ->
+      DeviceTaskData.timed(@slow_device_task_ms, :availability, fn ->
+        AvailabilityData.load_availability(srql_module, uid, scope)
+      end),
+      DeviceTaskData.timed(@slow_device_task_ms, :agent_availability, fn ->
+        AvailabilityData.load_agent_availability(scope, uid)
+      end),
+      DeviceTaskData.timed(@slow_device_task_ms, :healthcheck, fn ->
+        AvailabilityData.load_healthcheck_summary(srql_module, uid, scope)
+      end),
+      DeviceTaskData.timed(@slow_device_task_ms, :sweep, fn ->
         DiscoveryData.load_sweep_results(socket.assigns.current_scope, device_ip)
       end),
-      timed_device_task(:mapper, fn -> DiscoveryData.load_mapper_jobs_for_device(scope, device_row) end),
-      timed_device_task(:aliases, fn -> IpAliasData.load(scope, uid, show_stale) end),
-      timed_device_task(:northbound_history, fn -> NorthboundHistoryData.load(scope, uid) end)
+      DeviceTaskData.timed(@slow_device_task_ms, :mapper, fn ->
+        DiscoveryData.load_mapper_jobs_for_device(scope, device_row)
+      end),
+      DeviceTaskData.timed(@slow_device_task_ms, :aliases, fn -> IpAliasData.load(scope, uid, show_stale) end),
+      DeviceTaskData.timed(@slow_device_task_ms, :northbound_history, fn -> NorthboundHistoryData.load(scope, uid) end)
     ]
 
     base_tasks
@@ -1115,7 +1124,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_profile_task(tasks, "profiles", uid, scope) do
-    tasks ++ [timed_device_task(:profile, fn -> SysmonProfileData.load_profile_info(scope, uid) end)]
+    tasks ++
+      [DeviceTaskData.timed(@slow_device_task_ms, :profile, fn -> SysmonProfileData.load_profile_info(scope, uid) end)]
   end
 
   defp maybe_add_profile_task(tasks, _active_tab, _uid, _scope), do: tasks
@@ -1123,20 +1133,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_add_interface_tasks(tasks, true, srql_module, uid, scope) do
     tasks ++
       [
-        timed_device_task(:interfaces, fn -> InterfaceData.load_interfaces(srql_module, uid, scope) end),
-        timed_device_task(:iface_settings, fn -> InterfaceData.load_interface_settings(scope, uid) end)
+        DeviceTaskData.timed(@slow_device_task_ms, :interfaces, fn ->
+          InterfaceData.load_interfaces(srql_module, uid, scope)
+        end),
+        DeviceTaskData.timed(@slow_device_task_ms, :iface_settings, fn ->
+          InterfaceData.load_interface_settings(scope, uid)
+        end)
       ]
   end
 
   defp maybe_add_interface_tasks(tasks, false, srql_module, uid, scope) do
     tasks ++
-      [timed_device_task(:has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
+      [DeviceTaskData.timed(@slow_device_task_ms, :has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
   end
 
   defp maybe_add_flow_tasks(tasks, true, srql_module, uid, scope, params) do
     tasks ++
       [
-        timed_device_task(:flows, fn ->
+        DeviceTaskData.timed(@slow_device_task_ms, :flows, fn ->
           FlowData.load_flows(
             srql_module,
             uid,
@@ -1149,13 +1163,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp maybe_add_flow_tasks(tasks, false, srql_module, uid, scope, _params) do
-    tasks ++ [timed_device_task(:has_flows, fn -> detect_has_flows(srql_module, uid, scope) end)]
+    tasks ++ [DeviceTaskData.timed(@slow_device_task_ms, :has_flows, fn -> detect_has_flows(srql_module, uid, scope) end)]
   end
 
   defp maybe_add_log_tasks(tasks, true, srql_module, uid, scope, params) do
     tasks ++
       [
-        timed_device_task(:logs, fn ->
+        DeviceTaskData.timed(@slow_device_task_ms, :logs, fn ->
           QueryData.load_logs(
             srql_module,
             uid,
@@ -1974,7 +1988,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     stats_task =
       Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
 
-    results = safe_yield_many([flows_task, stats_task], 15_000)
+    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
@@ -2094,7 +2108,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           end
         end)
 
-      results = safe_yield_many([flows_task, stats_task], 15_000)
+      results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
 
       {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
@@ -2141,7 +2155,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     flows_task = Task.async(fn -> {:flows, FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)} end)
     stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope)} end)
 
-    results = safe_yield_many([flows_task, stats_task], 15_000)
+    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
@@ -2304,7 +2318,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     stats_task =
       Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
 
-    results = safe_yield_many([flows_task, stats_task], 15_000)
+    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
 
     {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
 
@@ -2778,55 +2792,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     </div>
     """
   end
-
-  defp timed_device_task(key, fun) when is_atom(key) and is_function(fun, 0) do
-    {key,
-     Task.async(fn ->
-       started_at = System.monotonic_time(:millisecond)
-       value = fun.()
-       elapsed_ms = System.monotonic_time(:millisecond) - started_at
-
-       if elapsed_ms >= @slow_device_task_ms do
-         Logger.warning("Device details task #{key} took #{elapsed_ms}ms")
-       end
-
-       {key, value}
-     end)}
-  end
-
-  # Returns a map of results; timed-out or crashed tasks are silently omitted.
-  defp safe_yield_many(tasks, timeout) do
-    keyed_tasks = Enum.map(tasks, &normalize_timed_task/1)
-    key_by_ref = Map.new(keyed_tasks, fn {key, task} -> {task.ref, key} end)
-
-    keyed_tasks
-    |> Enum.map(fn {_key, task} -> task end)
-    |> Task.yield_many(timeout)
-    |> Enum.map(fn {task, result} ->
-      key = Map.get(key_by_ref, task.ref)
-
-      case result do
-        {:ok, {key, value}} when is_atom(key) ->
-          {key, value}
-
-        {:ok, _unexpected} ->
-          nil
-
-        _ ->
-          if not is_nil(key) do
-            Logger.warning("Device details task #{key} timed out after #{timeout}ms")
-          end
-
-          Task.shutdown(task, :brutal_kill)
-          nil
-      end
-    end)
-    |> Enum.reject(&is_nil/1)
-    |> Map.new()
-  end
-
-  defp normalize_timed_task({key, %Task{} = task}) when is_atom(key), do: {key, task}
-  defp normalize_timed_task(%Task{} = task), do: {nil, task}
 
   defp drop_low_value_categories(panels) when is_list(panels) do
     Enum.reject(panels, &low_value_categories_panel?/1)
