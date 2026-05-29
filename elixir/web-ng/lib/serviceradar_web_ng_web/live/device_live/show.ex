@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
+  import ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
@@ -24,8 +25,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   import ServiceRadarWebNGWeb.NorthboundActionComponents,
     only: [northbound_action_history: 1, northbound_action_modal: 1]
-
-  import ServiceRadarWebNGWeb.UIComponents
 
   alias Ash.Error.Invalid
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
@@ -3440,6 +3439,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:device_ansible_managed, ansible_managed?(device_row))
       |> assign(:device_deleted, deleted_device?(device_row))
       |> assign(:device_active, device_active_state(device_row, row_metadata(device_row)))
+      |> assign(:device_display_name, device_display_name(device_row))
+      |> assign(:agent_device, agent_device?(device_row))
+      |> assign(:proxmox_console_target, proxmox_console_target?(Map.get(assigns, :virtualization_summary)))
+      |> assign(
+        :proxmox_console_path,
+        proxmox_console_path(assigns.device_uid, Map.get(assigns, :virtualization_summary))
+      )
+      |> assign(:proxmox_console_action_label, proxmox_console_action_label(Map.get(assigns, :virtualization_summary)))
+      |> assign(:rdp_target_path, rdp_target_new_path(assigns.device_uid, device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -3458,149 +3466,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ~H"""
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
-        <%!-- Breadcrumb --%>
-        <nav class="text-sm breadcrumbs mb-4">
-          <ul>
-            <li><.link navigate={~p"/devices"}>Devices</.link></li>
-            <li :if={@active_tab == "details"}>
-              <span class="text-base-content/70">{device_display_name(@device_row)}</span>
-            </li>
-            <li :if={@active_tab != "details"}>
-              <.link navigate={~p"/devices/#{@device_uid}"}>{device_display_name(@device_row)}</.link>
-            </li>
-            <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
-            <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
-            <li :if={@active_tab == "logs"} class="text-base-content/70">Logs</li>
-            <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>
-            <li :if={@active_tab == "active-fingerprint"} class="text-base-content/70">
-              Active Fingerprint
-            </li>
-            <li :if={@active_tab == "process-listeners"} class="text-base-content/70">
-              Process Listeners
-            </li>
-            <li :if={@active_tab == "sysmon"} class="text-base-content/70">System Monitor</li>
-            <li :if={@active_tab == "mtr"} class="text-base-content/70">MTR Diagnostics</li>
-          </ul>
-        </nav>
-
-        <.header>
-          Device
-          <:subtitle>
-            <span class="flex items-center gap-2">
-              <span class="font-mono text-xs">{@device_uid}</span>
-              <span
-                :if={agent_device?(@device_row)}
-                class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent"
-              >
-                <.icon name="hero-bolt" class="size-3" /> Agent
-              </span>
-              <span
-                :if={@device_deleted}
-                class="inline-flex items-center gap-1 rounded-full bg-base-200 px-2 py-0.5 text-[11px] font-semibold text-base-content/70"
-              >
-                <.icon name="hero-archive-box" class="size-3" /> Deleted
-              </span>
-              <span
-                :if={@device_active == false}
-                class="inline-flex items-center gap-1 rounded-full bg-warning/15 px-2 py-0.5 text-[11px] font-semibold text-warning"
-              >
-                <.icon name="hero-pause-circle" class="size-3" /> Out of service
-              </span>
-            </span>
-          </:subtitle>
-          <:actions>
-            <.ui_button
-              :if={@can_run_ansible and not @device_deleted and @device_ansible_managed}
-              href={~p"/ansible/launch?devices=#{@device_uid}"}
-              variant="primary"
-              size="sm"
-            >
-              <.icon name="hero-play" class="size-4" /> Run Task
-            </.ui_button>
-            <.ui_button
-              :if={
-                @can_console and not @device_deleted and
-                  proxmox_console_target?(@virtualization_summary)
-              }
-              href={proxmox_console_path(@device_uid, @virtualization_summary)}
-              variant="outline"
-              size="sm"
-            >
-              <.icon name="hero-command-line" class="size-4" />
-              {proxmox_console_action_label(@virtualization_summary)}
-            </.ui_button>
-            <.ui_button
-              :if={@can_remote_access and not @device_deleted}
-              href={~p"/devices/#{@device_uid}/remote-access/ssh"}
-              variant="outline"
-              size="sm"
-            >
-              <.icon name="hero-key" class="size-4" /> SSH
-            </.ui_button>
-            <.ui_button
-              :if={@can_remote_access_app and not @device_deleted}
-              href={~p"/remote-access/targets"}
-              variant="outline"
-              size="sm"
-            >
-              <.icon name="hero-window" class="size-4" /> Apps
-            </.ui_button>
-            <.ui_button
-              :if={@can_manage_rdp_targets and not @device_deleted}
-              href={rdp_target_new_path(@device_uid, @device_row)}
-              variant="outline"
-              size="sm"
-            >
-              <.icon name="hero-computer-desktop" class="size-4" /> Enable RDP
-            </.ui_button>
-            <.ui_button
-              :if={@can_edit and not @editing}
-              phx-click="toggle_edit"
-              variant="outline"
-              size="sm"
-            >
-              <.icon name="hero-pencil" class="size-4" /> Edit
-            </.ui_button>
-            <.ui_button
-              :if={@can_manage and @device_deleted}
-              phx-click="restore_device"
-              variant="outline"
-              size="sm"
-              phx-confirm="Restore this device to the active inventory?"
-            >
-              <.icon name="hero-arrow-path" class="size-4" /> Restore
-            </.ui_button>
-            <.ui_button
-              :if={@can_manage and not @device_deleted and @device_active == false}
-              phx-click="mark_device_active"
-              variant="outline"
-              size="sm"
-              phx-confirm="Return this device to service?"
-            >
-              <.icon name="hero-play-circle" class="size-4" /> In service
-            </.ui_button>
-            <.ui_button
-              :if={@can_manage and not @device_deleted and @device_active != false}
-              phx-click="mark_device_inactive"
-              variant="outline"
-              size="sm"
-              phx-confirm="Mark this device out of service? Operational events and alerts for it will be suppressed."
-            >
-              <.icon name="hero-pause-circle" class="size-4" /> Out of service
-            </.ui_button>
-            <.ui_button
-              :if={@can_manage and not @device_deleted}
-              phx-click="delete_device"
-              variant="outline"
-              class="btn-error"
-              size="sm"
-              phx-confirm="Delete this device? It will be hidden from inventory but can be restored later."
-            >
-              <.icon name="hero-trash" class="size-4" /> Delete
-            </.ui_button>
-            <.ui_button href={~p"/devices"} variant="ghost" size="sm">Back to devices</.ui_button>
-          </:actions>
-        </.header>
+        <.device_show_header
+          active_tab={@active_tab}
+          device_uid={@device_uid}
+          device_display_name={@device_display_name}
+          agent_device={@agent_device}
+          device_deleted={@device_deleted}
+          device_active={@device_active}
+          device_ansible_managed={@device_ansible_managed}
+          can_run_ansible={@can_run_ansible}
+          can_console={@can_console}
+          can_remote_access={@can_remote_access}
+          can_remote_access_app={@can_remote_access_app}
+          can_manage_rdp_targets={@can_manage_rdp_targets}
+          can_edit={@can_edit}
+          can_manage={@can_manage}
+          editing={@editing}
+          proxmox_console_target={@proxmox_console_target}
+          proxmox_console_path={@proxmox_console_path}
+          proxmox_console_action_label={@proxmox_console_action_label}
+          rdp_target_path={@rdp_target_path}
+        />
 
         <div class="grid grid-cols-1 gap-4">
           <div :if={is_nil(@device_row)} class="text-sm text-base-content/70 p-4">
