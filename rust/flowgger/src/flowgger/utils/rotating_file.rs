@@ -399,7 +399,7 @@ mod tests {
         let ts4 = new_date_time(2015, Month::August, 6, 11, 21, 28, 637);
 
         // Build the expected filenames that should be created in the test
-        let tmp_dir = TempDir::new("test_rotation_time_files_time")?;
+        let tmp_dir = TempDir::with_prefix("test_rotation_time_files_time")?;
         let file_base = tmp_dir.path().join("test_log.log");
         let file1 = tmp_dir.path().join("test_log-20150806T1115Z.log");
         let file2 = tmp_dir.path().join("test_log-20150806T1116Z.log");
@@ -470,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_rotation_files_size() -> Result<(), io::Error> {
-        let tmp_dir = TempDir::new("test_rotation_files_size")?;
+        let tmp_dir = TempDir::with_prefix("test_rotation_files_size")?;
         let file_base = tmp_dir.path().join("test_log.log");
         let file_rotated = tmp_dir.path().join("test_log.0");
         let file_rotated2 = tmp_dir.path().join("test_log.1");
