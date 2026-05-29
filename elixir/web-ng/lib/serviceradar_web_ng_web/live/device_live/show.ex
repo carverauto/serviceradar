@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
@@ -60,7 +61,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @default_limit 50
   @max_limit 200
-  @interfaces_limit 200
   @flows_limit 50
   @logs_limit 50
   @details_supplemental_timeout_ms 3_000
@@ -204,11 +204,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:last_params, params)
       |> assign(:last_uri, uri)
 
-    limit = parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
+    limit = QueryData.parse_limit(Map.get(params, "limit"), @default_limit, @max_limit)
     # Read tab from URL params, fall back to current or default
     url_tab = Map.get(params, "tab")
-    cursor = normalize_cursor(Map.get(params, "cursor"))
-    mtr_page = parse_positive_page(Map.get(params, "mtr_page"))
+    cursor = QueryData.normalize_cursor(Map.get(params, "cursor"))
+    mtr_page = QueryData.parse_positive_page(Map.get(params, "mtr_page"))
     mtr_page_size = MtrRuntime.default_page_size()
 
     requested_tab = normalize_requested_tab(url_tab, socket.assigns.active_tab)
@@ -511,16 +511,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp term_type(term) when is_bitstring(term), do: :bitstring
   defp term_type(_term), do: :unknown
 
-  defp normalize_cursor(nil), do: nil
-  defp normalize_cursor(""), do: nil
-
-  defp normalize_cursor(cursor) when is_binary(cursor) do
-    cursor = String.trim(cursor)
-    if cursor == "", do: nil, else: cursor
-  end
-
-  defp normalize_cursor(_), do: nil
-
   defp maybe_refresh_current_device(socket, uid) when is_binary(uid) do
     if uid == socket.assigns.device_uid do
       params =
@@ -529,7 +519,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         |> Map.put("uid", uid)
 
       uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
-      limit = parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
+      limit = QueryData.parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
       requested_tab = normalize_requested_tab(Map.get(params, "tab"), socket.assigns.active_tab)
 
       load_device_data(socket, uid, limit, requested_tab, params, uri)
@@ -627,7 +617,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
 
-    srql = srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
+    srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
 
     socket =
       socket
@@ -693,7 +683,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_start_logs_async(socket, uid, request_ref, srql_mod, scope, cursor) do
     if connected?(socket) do
       start_async(socket, {:device_logs, uid, request_ref}, fn ->
-        load_logs(srql_mod, uid, scope, cursor)
+        QueryData.load_logs(srql_mod, uid, scope, cursor, @logs_limit)
       end)
     else
       socket
@@ -747,16 +737,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp maybe_reload_profiles_for_active_tab(socket, _active_tab, _uid), do: socket
 
-  defp srql_for_tab_if_needed("interfaces", uid, limit, srql), do: srql_for_tab("interfaces", uid, limit, srql)
-
-  defp srql_for_tab_if_needed("flows", uid, limit, srql), do: srql_for_tab("flows", uid, limit, srql)
-
-  defp srql_for_tab_if_needed("logs", uid, limit, srql), do: srql_for_tab("logs", uid, limit, srql)
-
-  defp srql_for_tab_if_needed(_active_tab, _uid, _limit, srql), do: srql
-
   defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
-    default_query = default_device_query(uid, limit)
+    default_query = QueryData.default_device_query(uid, limit)
 
     query = normalized_device_query(params, default_query)
 
@@ -764,7 +746,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = Map.get(socket.assigns, :current_scope)
 
     # Phase 1: Main device query (must be first — everything depends on device_row)
-    {results, error, viz} = execute_srql_query(srql_module, query, scope)
+    {results, error, viz} = QueryData.execute(srql_module, query, scope)
 
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
     active_camera_relay_session = CameraRelayRuntime.preserve_active_session(socket, uid)
@@ -889,7 +871,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         )
         |> authorize_active_tab(device_row, scope)
 
-      srql = srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
+      srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
       {:noreply,
        socket
@@ -915,7 +897,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> maybe_reload_logs_for_active_tab(
          active_tab,
          uid,
-         normalize_cursor(Map.get(params, "cursor"))
+         QueryData.normalize_cursor(Map.get(params, "cursor"))
        )
        |> maybe_begin_flow_background_loads(
          active_tab,
@@ -1157,7 +1139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             srql_module,
             uid,
             scope,
-            normalize_cursor(Map.get(params, "cursor")),
+            QueryData.normalize_cursor(Map.get(params, "cursor")),
             @flows_limit
           )
         end)
@@ -1172,7 +1154,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     tasks ++
       [
         timed_device_task(:logs, fn ->
-          load_logs(srql_module, uid, scope, normalize_cursor(Map.get(params, "cursor")))
+          QueryData.load_logs(
+            srql_module,
+            uid,
+            scope,
+            QueryData.normalize_cursor(Map.get(params, "cursor")),
+            @logs_limit
+          )
         end)
       ]
   end
@@ -1260,7 +1248,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp detect_has_interfaces(srql_module, device_uid, scope) do
     query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
+      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d " <>
         "stats:count() as interface_count"
 
     case srql_module.query(query, %{scope: scope}) do
@@ -1283,7 +1271,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp legacy_detect_has_interfaces(srql_module, device_uid, scope) do
     query =
-      "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d limit:1"
+      "in:interfaces device_id:\"#{QueryData.escape_value(device_uid)}\" latest:true time:last_3d limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [_ | _]}} -> true
@@ -1292,7 +1280,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp detect_has_flows(srql_module, device_uid, scope) do
-    query = default_flows_query(device_uid) <> " limit:1"
+    query = QueryData.default_flows_query(device_uid) <> " limit:1"
 
     case srql_module.query(query, %{scope: scope}) do
       {:ok, %{"results" => [_ | _]}} -> true
@@ -1679,7 +1667,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
 
-    srql = srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+    srql = QueryData.srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
 
     # Update URL with tab parameter for shareable/bookmarkable links
     path =
@@ -1974,7 +1962,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     srql_mod = srql_module()
 
     base =
-      "in:flows device_id:\"#{escape_value(uid)}\" #{field}:\"#{escape_value(value)}\" time:last_24h"
+      "in:flows device_id:\"#{QueryData.escape_value(uid)}\" #{field}:\"#{QueryData.escape_value(value)}\" time:last_24h"
 
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: @flows_limit, cursor: nil}
@@ -2029,7 +2017,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     {flows, pagination, flows_error} = FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)
 
-    default_query = default_flows_query(uid)
+    default_query = QueryData.default_flows_query(uid)
     srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
 
     {:noreply,
@@ -2079,7 +2067,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       uid = socket.assigns.device_uid
       scope = socket.assigns.current_scope
       srql_mod = srql_module()
-      zoomed_base = "in:flows device_id:\"#{escape_value(uid)}\" time:[#{safe_start},#{safe_end}]"
+      zoomed_base = "in:flows device_id:\"#{QueryData.escape_value(uid)}\" time:[#{safe_start},#{safe_end}]"
       query = "#{zoomed_base} sort:time:desc"
       opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
@@ -2163,7 +2151,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
       )
 
-    default_query = default_flows_query(uid)
+    default_query = QueryData.default_flows_query(uid)
     srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
 
     {:noreply,
@@ -2303,30 +2291,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp format_tags_for_edit(_), do: ""
 
-  defp load_logs(srql_module, device_uid, scope, cursor) do
-    query = default_logs_query(device_uid)
-    opts = %{scope: scope, limit: @logs_limit, cursor: cursor}
-
-    case srql_module.query(query, opts) do
-      {:ok, %{"results" => results, "pagination" => pagination}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), pagination || %{}, nil}
-
-      {:ok, %{"results" => results}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), %{}, nil}
-
-      {:ok, %{"error" => error}} when is_binary(error) ->
-        {[], %{}, error}
-
-      {:ok, other} ->
-        Logger.warning("Unexpected SRQL logs response for #{device_uid}: #{inspect(other)}")
-        {[], %{}, "Failed to load logs"}
-
-      {:error, reason} ->
-        Logger.warning("Failed to load device logs for #{device_uid}: #{inspect(reason)}")
-        {[], %{}, "Failed to load logs"}
-    end
-  end
-
   defp reload_flows_with_facets(socket, uid, facets) do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
@@ -2335,10 +2299,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       facets
       |> Enum.filter(fn {field, _} -> field in @allowed_flow_filter_fields end)
       |> Enum.map_join(" ", fn {field, value} ->
-        "#{field}:\"#{escape_value(value)}\""
+        "#{field}:\"#{QueryData.escape_value(value)}\""
       end)
 
-    base = "in:flows device_id:\"#{escape_value(uid)}\" time:last_24h #{facet_tokens}"
+    base = "in:flows device_id:\"#{QueryData.escape_value(uid)}\" time:last_24h #{facet_tokens}"
     query = "#{base} sort:time:desc"
     opts = %{scope: scope, limit: @flows_limit, cursor: nil}
 
@@ -2459,7 +2423,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case Ash.read(query, scope: scope) do
       {:ok, aliases} -> {aliases, nil}
-      {:error, reason} -> {[], format_error(reason)}
+      {:error, reason} -> {[], QueryData.format_error(reason)}
     end
   end
 
@@ -2722,7 +2686,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               rdns_map={@rdns_map}
               geo_iso2_map={@geo_iso2_map}
               device_uid={@device_uid}
-              query={default_flows_query(@device_uid)}
+              query={QueryData.default_flows_query(@device_uid)}
               limit={@flows_limit}
               flow_stats={@flow_stats}
               flow_stats_loading={@flow_stats_loading}
@@ -2748,7 +2712,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
               loading={@logs_loading}
               pagination={@logs_pagination}
               device_uid={@device_uid}
-              query={default_logs_query(@device_uid)}
+              query={QueryData.default_logs_query(@device_uid)}
               limit={@logs_limit}
             />
           </div>
@@ -2859,33 +2823,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     """
   end
 
-  defp parse_limit(nil, default, _max), do: default
-
-  defp parse_limit(limit, default, max) when is_binary(limit) do
-    case Integer.parse(limit) do
-      {value, ""} -> parse_limit(value, default, max)
-      _ -> default
-    end
-  end
-
-  defp parse_limit(limit, _default, max) when is_integer(limit) and limit > 0 do
-    min(limit, max)
-  end
-
-  defp parse_limit(_limit, default, _max), do: default
-
-  defp parse_positive_page(nil), do: 1
-
-  defp parse_positive_page(page) when is_binary(page) do
-    case Integer.parse(page) do
-      {value, ""} when value > 0 -> value
-      _ -> 1
-    end
-  end
-
-  defp parse_positive_page(page) when is_integer(page) and page > 0, do: page
-  defp parse_positive_page(_), do: 1
-
   defp timed_device_task(key, fun) when is_atom(key) and is_function(fun, 0) do
     {key,
      Task.async(fn ->
@@ -2935,14 +2872,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp normalize_timed_task({key, %Task{} = task}) when is_atom(key), do: {key, task}
   defp normalize_timed_task(%Task{} = task), do: {nil, task}
 
-  defp escape_value(value) when is_binary(value) do
-    value
-    |> String.replace("\\", "\\\\")
-    |> String.replace("\"", "\\\"")
-  end
-
-  defp escape_value(other), do: escape_value(to_string(other))
-
   defp drop_low_value_categories(panels) when is_list(panels) do
     Enum.reject(panels, &low_value_categories_panel?/1)
   end
@@ -2974,25 +2903,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     Map.get(assigns, :sysmon_presence, false)
   end
 
-  defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
-  defp format_error(%ArgumentError{} = err), do: Exception.message(err)
-  defp format_error(reason) when is_binary(reason), do: reason
-  defp format_error(reason), do: inspect(reason)
-
-  defp execute_srql_query(srql_module, query, scope) do
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results} = resp} when is_list(results) ->
-        viz = if is_map(resp["viz"]), do: resp["viz"]
-        {results, nil, viz}
-
-      {:ok, other} ->
-        {[], "unexpected SRQL response: #{inspect(other)}", nil}
-
-      {:error, reason} ->
-        {[], "SRQL error: #{format_error(reason)}", nil}
-    end
-  end
-
   # ---------------------------------------------------------------------------
   # Data Loading Functions
   # ---------------------------------------------------------------------------
@@ -3000,69 +2910,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
-
-  defp default_device_query(device_uid, limit) do
-    "in:devices uid:\"#{escape_value(device_uid)}\" include_deleted:true limit:#{limit}"
-  end
-
-  defp default_interfaces_query(device_uid) do
-    "in:interfaces device_id:\"#{escape_value(device_uid)}\" latest:true time:last_3d " <>
-      "sort:if_name:asc limit:#{@interfaces_limit}"
-  end
-
-  defp default_flows_query(device_uid) do
-    "in:flows device_id:\"#{escape_value(device_uid)}\" time:last_24h sort:time:desc"
-  end
-
-  defp default_logs_query(device_uid) do
-    "in:logs device_id:\"#{escape_value(device_uid)}\" time:last_24h sort:timestamp:desc"
-  end
-
-  defp srql_for_tab("interfaces", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
-    query = default_interfaces_query(device_uid)
-
-    srql
-    |> Map.put(:entity, "interfaces")
-    |> Map.put(:query, query)
-    |> Map.put(:draft, query)
-    |> Map.put(:error, nil)
-    |> Map.put(:loading, false)
-  end
-
-  defp srql_for_tab("flows", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
-    query = default_flows_query(device_uid)
-
-    srql
-    |> Map.put(:entity, "flows")
-    |> Map.put(:query, query)
-    |> Map.put(:draft, query)
-    |> Map.put(:error, nil)
-    |> Map.put(:loading, false)
-  end
-
-  defp srql_for_tab("logs", device_uid, _limit, srql) when is_binary(device_uid) and device_uid != "" do
-    query = default_logs_query(device_uid)
-
-    srql
-    |> Map.put(:entity, "logs")
-    |> Map.put(:query, query)
-    |> Map.put(:draft, query)
-    |> Map.put(:error, nil)
-    |> Map.put(:loading, false)
-  end
-
-  defp srql_for_tab(_tab, device_uid, limit, srql) when is_binary(device_uid) and device_uid != "" do
-    query = default_device_query(device_uid, limit)
-
-    srql
-    |> Map.put(:entity, "devices")
-    |> Map.put(:query, query)
-    |> Map.put(:draft, query)
-    |> Map.put(:error, nil)
-    |> Map.put(:loading, false)
-  end
-
-  defp srql_for_tab(_tab, _device_uid, _limit, srql), do: srql
 
   # ---------------------------------------------------------------------------
   # MTR Traces
