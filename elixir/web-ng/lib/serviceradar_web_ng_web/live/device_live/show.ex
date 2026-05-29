@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.DeviceLive.LogComponents
   import ServiceRadarWebNGWeb.DeviceLive.MtrComponents
   import ServiceRadarWebNGWeb.DeviceLive.OcsfComponents
+  import ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents
   import ServiceRadarWebNGWeb.DeviceLive.SweepComponents
   import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
@@ -4735,79 +4736,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     _ -> %{}
   end
 
-  # ---------------------------------------------------------------------------
-  # Process Metrics Section
-  # ---------------------------------------------------------------------------
-
-  attr(:metrics, :list, required: true)
-
-  defp process_metrics_section(assigns) do
-    ~H"""
-    <% rows = @metrics || [] %>
-    <% row_count = length(rows) %>
-    <% last_sampled =
-      rows
-      |> Enum.max_by(&timestamp_sort_key/1, fn -> nil end)
-      |> case do
-        nil -> nil
-        row -> Map.get(row, "timestamp")
-      end %>
-    <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-command-line" class="size-4 text-accent" />
-          <span class="text-sm font-semibold">Processes</span>
-          <span class="text-xs text-base-content/50">
-            last 15m{if row_count > 0, do: " · top #{row_count} by CPU", else: ""}
-          </span>
-        </div>
-        <div class="text-xs text-base-content/50">
-          <span :if={row_count > 0} class="font-mono">{format_timestamp(last_sampled)}</span>
-        </div>
-      </div>
-
-      <div :if={row_count == 0} class="p-6 text-center">
-        <.icon name="hero-command-line" class="size-10 text-base-content/20 mx-auto" />
-        <p class="text-sm text-base-content/70 mt-2">No process metrics collected.</p>
-        <p class="text-xs text-base-content/50 mt-1">
-          Enable process collection in the sysmon profile and wait for samples.
-        </p>
-      </div>
-
-      <div :if={row_count > 0} class="p-4 overflow-x-auto">
-        <table class="table table-xs">
-          <thead>
-            <tr>
-              <th>Process</th>
-              <th class="text-right">PID</th>
-              <th class="text-right">CPU %</th>
-              <th class="text-right">Memory</th>
-              <th>Status</th>
-              <th>Sampled</th>
-            </tr>
-          </thead>
-          <tbody>
-            <%= for row <- rows do %>
-              <tr class="hover">
-                <td class="text-xs font-medium">{format_value(Map.get(row, "name"))}</td>
-                <td class="text-xs font-mono text-right">{format_value(Map.get(row, "pid"))}</td>
-                <td class="text-xs font-mono text-right">
-                  {format_pct(parse_number(Map.get(row, "cpu_usage")))}%
-                </td>
-                <td class="text-xs font-mono text-right">
-                  {format_bytes(Map.get(row, "memory_usage"))}
-                </td>
-                <td class="text-xs">{format_value(Map.get(row, "status"))}</td>
-                <td class="text-xs font-mono">{format_timestamp(Map.get(row, "timestamp"))}</td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-    </div>
-    """
-  end
-
   attr(:label, :string, required: true)
   attr(:value, :any, default: nil)
 
@@ -5925,18 +5853,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp load_agent_availability(_scope, _device_uid), do: []
-
-  defp format_bytes(bytes) when is_number(bytes) do
-    cond do
-      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
-      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
-      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
-      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
-      true -> "#{bytes} B"
-    end
-  end
-
-  defp format_bytes(_), do: "—"
 
   defp load_healthcheck_summary(srql_module, device_uid, scope) do
     case service_query_for_device(device_uid) do
