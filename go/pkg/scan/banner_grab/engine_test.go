@@ -10,6 +10,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -299,6 +300,91 @@ func TestEngineKeepsLargeSyntheticStreamBounded(t *testing.T) {
 		if err := engine.SubmitResult(ctx, models.Result{
 			Target:    models.Target{Host: "198.51." + portString(i/254) + "." + portString((i%254)+1), Port: 22, Mode: models.ModeTCP},
 			Available: true,
+		}); err != nil {
+			t.Fatalf("SubmitResult(%d) error = %v", i, err)
+		}
+	}
+
+	engine.Stop()
+	<-drained
+
+	stats := engine.Stats()
+	if gotObservations.Load() != totalEligible {
+		t.Fatalf("observations = %d, want %d", gotObservations.Load(), totalEligible)
+	}
+	if stats.CandidatesTotal != totalEligible || stats.ProbesTotal != totalEligible {
+		t.Fatalf("stats candidates/probes = %d/%d, want %d/%d", stats.CandidatesTotal, stats.ProbesTotal, totalEligible, totalEligible)
+	}
+	if stats.MaxQueueDepth > maxCandidateQueue {
+		t.Fatalf("MaxQueueDepth = %d, want <= %d", stats.MaxQueueDepth, maxCandidateQueue)
+	}
+	if maxDials.Load() > maxGlobalConcurrency {
+		t.Fatalf("max concurrent dials = %d, want <= %d", maxDials.Load(), maxGlobalConcurrency)
+	}
+}
+
+func TestEngineKeepsMillionHostSyntheticStreamBounded(t *testing.T) {
+	if os.Getenv("SERVICERADAR_LARGE_BANNER_GRAB_TEST") != "1" {
+		t.Skip("set SERVICERADAR_LARGE_BANNER_GRAB_TEST=1 to run the 1M-host banner-grab validation")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	const (
+		totalHosts           = 1_000_000
+		totalEligible        = totalHosts / 2
+		maxGlobalConcurrency = 32
+		maxCandidateQueue    = 128
+	)
+
+	var (
+		currentDials atomic.Uint64
+		maxDials     atomic.Uint64
+	)
+
+	engine := New(Config{
+		Enabled:               true,
+		Protocols:             []string{ProtocolSSH},
+		Ports:                 map[string][]int{ProtocolSSH: {22}},
+		ConnectTimeout:        time.Second,
+		ReadTimeout:           time.Second,
+		MaxBannerBytes:        128,
+		MaxGlobalConcurrency:  maxGlobalConcurrency,
+		MaxCandidateQueue:     maxCandidateQueue,
+		MaxConcurrencyPerHost: 1,
+		MatchBatchSize:        1024,
+		PerHostRateLimit:      time.Nanosecond,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			inFlight := currentDials.Add(1)
+			recordMaxAtomic(&maxDials, inFlight)
+
+			return newScriptedConn([]byte("SSH-2.0-OpenSSH_9.6\r\n"), io.EOF, func() {
+				currentDials.Add(^uint64(0))
+			}), nil
+		},
+	})
+
+	observations := engine.Start(ctx)
+	var gotObservations atomic.Uint64
+	drained := make(chan struct{})
+
+	go func() {
+		defer close(drained)
+
+		for range observations {
+			gotObservations.Add(1)
+		}
+	}()
+
+	for i := 0; i < totalHosts; i++ {
+		if err := engine.SubmitResult(ctx, models.Result{
+			Target: models.Target{
+				Host: "10." + portString((i/(254*254))%254) + "." + portString((i/254)%254) + "." + portString((i%254)+1),
+				Port: 22,
+				Mode: models.ModeTCP,
+			},
+			Available: i%2 == 0,
 		}); err != nil {
 			t.Fatalf("SubmitResult(%d) error = %v", i, err)
 		}
