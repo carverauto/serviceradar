@@ -8,8 +8,12 @@ package banner_grab
 
 import (
 	"context"
+	"io"
 	"net"
 	"strings"
+	"sync"
+	"sync/atomic"
+	"syscall"
 	"testing"
 	"time"
 
@@ -132,6 +136,315 @@ func TestEngineFiltersFreshEligibleCandidatesAndStreamsObservations(t *testing.T
 	}
 }
 
+func TestDisabledEngineProducesNoOutboundTraffic(t *testing.T) {
+	t.Parallel()
+
+	var dials atomic.Uint64
+	engine := New(Config{
+		Enabled:              false,
+		Protocols:            []string{ProtocolSSH},
+		Ports:                map[string][]int{ProtocolSSH: {22}},
+		MaxGlobalConcurrency: 1,
+		MaxCandidateQueue:    2,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return newScriptedConn([]byte("SSH-2.0-OpenSSH_9.6\r\n"), io.EOF, nil), nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	observations := engine.Start(ctx)
+	if err := engine.SubmitResult(ctx, models.Result{
+		Target:    models.Target{Host: "192.0.2.10", Port: 22, Mode: models.ModeTCP},
+		Available: true,
+	}); err != nil {
+		t.Fatalf("SubmitResult() error = %v", err)
+	}
+
+	engine.Stop()
+	for range observations {
+	}
+
+	stats := engine.Stats()
+	if dials.Load() != 0 {
+		t.Fatalf("dials = %d, want 0", dials.Load())
+	}
+	if stats.CandidatesTotal != 0 || stats.ProbesTotal != 0 || stats.ObservationsTotal != 0 {
+		t.Fatalf(
+			"stats candidates/probes/observations = %d/%d/%d, want 0/0/0",
+			stats.CandidatesTotal,
+			stats.ProbesTotal,
+			stats.ObservationsTotal,
+		)
+	}
+}
+
+func TestSSHOnlyEngineProbesExactlyFreshLiveEndpoints(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	const expectedLiveSSH = 3
+
+	var dials atomic.Uint64
+	engine := New(Config{
+		Enabled:               true,
+		Protocols:             []string{ProtocolSSH},
+		Ports:                 map[string][]int{ProtocolSSH: {22}},
+		ConnectTimeout:        time.Second,
+		ReadTimeout:           time.Second,
+		MaxBannerBytes:        128,
+		MaxGlobalConcurrency:  2,
+		MaxCandidateQueue:     4,
+		MaxConcurrencyPerHost: 1,
+		PerHostRateLimit:      time.Nanosecond,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return newScriptedConn([]byte("SSH-2.0-OpenSSH_9.6\r\n"), io.EOF, nil), nil
+		},
+	})
+
+	observations := engine.Start(ctx)
+	liveHosts := map[int]bool{2: true, 3: true, 10: true}
+
+	for hostID := 1; hostID <= 14; hostID++ {
+		if err := engine.SubmitResult(ctx, models.Result{
+			Target:    models.Target{Host: "192.0.2." + portString(hostID), Port: 22, Mode: models.ModeTCP},
+			Available: liveHosts[hostID],
+		}); err != nil {
+			t.Fatalf("SubmitResult(%d) error = %v", hostID, err)
+		}
+	}
+
+	engine.Stop()
+
+	var gotObservations int
+	for range observations {
+		gotObservations++
+	}
+
+	stats := engine.Stats()
+	if dials.Load() != expectedLiveSSH {
+		t.Fatalf("dials = %d, want %d", dials.Load(), expectedLiveSSH)
+	}
+	if gotObservations != expectedLiveSSH {
+		t.Fatalf("observations = %d, want %d", gotObservations, expectedLiveSSH)
+	}
+	if stats.CandidatesTotal != expectedLiveSSH || stats.ProbesTotal != expectedLiveSSH {
+		t.Fatalf(
+			"stats candidates/probes = %d/%d, want %d/%d",
+			stats.CandidatesTotal,
+			stats.ProbesTotal,
+			expectedLiveSSH,
+			expectedLiveSSH,
+		)
+	}
+}
+
+func TestEngineKeepsLargeSyntheticStreamBounded(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	const (
+		totalEligible        = 10_000
+		maxGlobalConcurrency = 8
+		maxCandidateQueue    = 16
+	)
+
+	var (
+		currentDials atomic.Uint64
+		maxDials     atomic.Uint64
+	)
+
+	engine := New(Config{
+		Enabled:               true,
+		Protocols:             []string{ProtocolSSH},
+		Ports:                 map[string][]int{ProtocolSSH: {22}},
+		ConnectTimeout:        time.Second,
+		ReadTimeout:           time.Second,
+		MaxBannerBytes:        128,
+		MaxGlobalConcurrency:  maxGlobalConcurrency,
+		MaxCandidateQueue:     maxCandidateQueue,
+		MaxConcurrencyPerHost: 1,
+		MatchBatchSize:        512,
+		PerHostRateLimit:      time.Nanosecond,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			inFlight := currentDials.Add(1)
+			recordMaxAtomic(&maxDials, inFlight)
+
+			return newScriptedConn([]byte("SSH-2.0-OpenSSH_9.6\r\n"), io.EOF, func() {
+				currentDials.Add(^uint64(0))
+			}), nil
+		},
+	})
+
+	observations := engine.Start(ctx)
+	var gotObservations atomic.Uint64
+	drained := make(chan struct{})
+
+	go func() {
+		defer close(drained)
+
+		for range observations {
+			gotObservations.Add(1)
+		}
+	}()
+
+	for i := 0; i < totalEligible; i++ {
+		if err := engine.SubmitResult(ctx, models.Result{
+			Target:    models.Target{Host: "198.51." + portString(i/254) + "." + portString((i%254)+1), Port: 22, Mode: models.ModeTCP},
+			Available: true,
+		}); err != nil {
+			t.Fatalf("SubmitResult(%d) error = %v", i, err)
+		}
+	}
+
+	engine.Stop()
+	<-drained
+
+	stats := engine.Stats()
+	if gotObservations.Load() != totalEligible {
+		t.Fatalf("observations = %d, want %d", gotObservations.Load(), totalEligible)
+	}
+	if stats.CandidatesTotal != totalEligible || stats.ProbesTotal != totalEligible {
+		t.Fatalf("stats candidates/probes = %d/%d, want %d/%d", stats.CandidatesTotal, stats.ProbesTotal, totalEligible, totalEligible)
+	}
+	if stats.MaxQueueDepth > maxCandidateQueue {
+		t.Fatalf("MaxQueueDepth = %d, want <= %d", stats.MaxQueueDepth, maxCandidateQueue)
+	}
+	if maxDials.Load() > maxGlobalConcurrency {
+		t.Fatalf("max concurrent dials = %d, want <= %d", maxDials.Load(), maxGlobalConcurrency)
+	}
+}
+
+func TestHTTPDefaultsDoNotActivelyProbeTLSPort443(t *testing.T) {
+	t.Parallel()
+
+	var dials atomic.Uint64
+	engine := New(Config{
+		Enabled:              true,
+		Protocols:            []string{ProtocolHTTP},
+		MaxGlobalConcurrency: 1,
+		MaxCandidateQueue:    2,
+		DialContext: func(context.Context, string, string) (net.Conn, error) {
+			dials.Add(1)
+			return newScriptedConn([]byte("HTTP/1.1 200 OK\r\n\r\n"), io.EOF, nil), nil
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	observations := engine.Start(ctx)
+	if err := engine.SubmitResult(ctx, models.Result{
+		Target:    models.Target{Host: "192.0.2.10", Port: 443, Mode: models.ModeTCP},
+		Available: true,
+	}); err != nil {
+		t.Fatalf("SubmitResult() error = %v", err)
+	}
+
+	engine.Stop()
+	for range observations {
+	}
+
+	stats := engine.Stats()
+	if dials.Load() != 0 {
+		t.Fatalf("dials = %d, want 0", dials.Load())
+	}
+	if stats.CandidatesTotal != 0 || stats.ProbesTotal != 0 {
+		t.Fatalf("stats candidates/probes = %d/%d, want 0/0", stats.CandidatesTotal, stats.ProbesTotal)
+	}
+}
+
+func TestEngineProbeCountersForTimeoutResetAndPartialBanner(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		conn        net.Conn
+		wantTimeout uint64
+		wantReset   uint64
+		wantObs     uint64
+		wantErrors  uint64
+	}{
+		{
+			name:        "timeout",
+			conn:        newScriptedConn(nil, timeoutError{}, nil),
+			wantTimeout: 1,
+		},
+		{
+			name:      "reset",
+			conn:      newScriptedConn(nil, syscall.ECONNRESET, nil),
+			wantReset: 1,
+		},
+		{
+			name:    "partial banner",
+			conn:    newScriptedConn([]byte("SSH-2.0-partial"), io.EOF, nil),
+			wantObs: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			engine := New(Config{
+				Enabled:               true,
+				Protocols:             []string{ProtocolSSH},
+				Ports:                 map[string][]int{ProtocolSSH: {22}},
+				ConnectTimeout:        time.Second,
+				ReadTimeout:           time.Second,
+				MaxBannerBytes:        128,
+				MaxGlobalConcurrency:  1,
+				MaxCandidateQueue:     2,
+				MaxConcurrencyPerHost: 1,
+				PerHostRateLimit:      time.Nanosecond,
+				DialContext: func(context.Context, string, string) (net.Conn, error) {
+					return tt.conn, nil
+				},
+			})
+
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+
+			observations := engine.Start(ctx)
+			if err := engine.SubmitResult(ctx, models.Result{
+				Target:    models.Target{Host: "192.0.2.10", Port: 22, Mode: models.ModeTCP},
+				Available: true,
+			}); err != nil {
+				t.Fatalf("SubmitResult() error = %v", err)
+			}
+
+			engine.Stop()
+			for range observations {
+			}
+
+			stats := engine.Stats()
+			if stats.TimeoutTotal != tt.wantTimeout ||
+				stats.ConnectionResetTotal != tt.wantReset ||
+				stats.ObservationsTotal != tt.wantObs ||
+				stats.ErrorsTotal != tt.wantErrors {
+				t.Fatalf(
+					"stats timeout/reset/observations/errors = %d/%d/%d/%d, want %d/%d/%d/%d",
+					stats.TimeoutTotal,
+					stats.ConnectionResetTotal,
+					stats.ObservationsTotal,
+					stats.ErrorsTotal,
+					tt.wantTimeout,
+					tt.wantReset,
+					tt.wantObs,
+					tt.wantErrors,
+				)
+			}
+		})
+	}
+}
+
 func TestBatcherFlushesByBytesAndCount(t *testing.T) {
 	t.Parallel()
 
@@ -146,6 +459,102 @@ func TestBatcherFlushesByBytesAndCount(t *testing.T) {
 	batch, ok := batcher.Add(second)
 	if !ok || len(batch) != 2 {
 		t.Fatalf("second Add batch len=%d ok=%v, want count flush", len(batch), ok)
+	}
+}
+
+type scriptedConn struct {
+	readBytes []byte
+	readErr   error
+	onClose   func()
+	closeOnce sync.Once
+	readOnce  bool
+}
+
+func newScriptedConn(readBytes []byte, readErr error, onClose func()) *scriptedConn {
+	return &scriptedConn{
+		readBytes: append([]byte(nil), readBytes...),
+		readErr:   readErr,
+		onClose:   onClose,
+	}
+}
+
+func (c *scriptedConn) Read(p []byte) (int, error) {
+	if c.readOnce {
+		if c.readErr != nil {
+			return 0, c.readErr
+		}
+
+		return 0, io.EOF
+	}
+
+	c.readOnce = true
+	n := copy(p, c.readBytes)
+
+	if c.readErr != nil {
+		return n, c.readErr
+	}
+
+	return n, nil
+}
+
+func (c *scriptedConn) Write(p []byte) (int, error) {
+	return len(p), nil
+}
+
+func (c *scriptedConn) Close() error {
+	c.closeOnce.Do(func() {
+		if c.onClose != nil {
+			c.onClose()
+		}
+	})
+
+	return nil
+}
+
+func (c *scriptedConn) LocalAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 49152}
+}
+
+func (c *scriptedConn) RemoteAddr() net.Addr {
+	return &net.TCPAddr{IP: net.IPv4(192, 0, 2, 10), Port: 22}
+}
+
+func (c *scriptedConn) SetDeadline(time.Time) error {
+	return nil
+}
+
+func (c *scriptedConn) SetReadDeadline(time.Time) error {
+	return nil
+}
+
+func (c *scriptedConn) SetWriteDeadline(time.Time) error {
+	return nil
+}
+
+type timeoutError struct{}
+
+func (timeoutError) Error() string {
+	return "read timeout"
+}
+
+func (timeoutError) Timeout() bool {
+	return true
+}
+
+func (timeoutError) Temporary() bool {
+	return true
+}
+
+func recordMaxAtomic(max *atomic.Uint64, candidate uint64) {
+	for {
+		current := max.Load()
+		if candidate <= current {
+			return
+		}
+
+		if max.CompareAndSwap(current, candidate) {
+			return
+		}
 	}
 }
 
