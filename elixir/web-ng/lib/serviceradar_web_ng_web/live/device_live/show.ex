@@ -39,7 +39,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Inventory.DeviceSNMPCredential
-  alias ServiceRadar.Inventory.InterfaceSettings
   alias ServiceRadar.Observability.IpGeoEnrichmentCache
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.MtrAutomationDispatcher
@@ -55,6 +54,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.DiagnosticsLive.MtrData
@@ -66,8 +66,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   @default_limit 50
   @max_limit 200
-  @metrics_limit 300
-  @snmp_metrics_limit @metrics_limit * 12
   @interfaces_limit 200
   @flows_limit 50
   @mtr_device_limit 50
@@ -735,15 +733,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
 
-    {network_interfaces, interfaces_error} = load_interfaces(srql_mod, uid, scope)
+    {network_interfaces, interfaces_error} = InterfaceData.load_interfaces(srql_mod, uid, scope)
 
     interface_settings =
-      load_interface_settings(scope, uid)
+      InterfaceData.load_interface_settings(scope, uid)
 
-    network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
+    network_interfaces = InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
     interface_metrics =
-      load_interface_metrics(
+      InterfaceData.load_interface_metrics(
         srql_mod,
         uid,
         interface_settings.favorited,
@@ -1032,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     discovery_jobs = Map.get(parallel_results, :mapper, [])
     discovery_job = DiscoveryData.pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
-    network_interfaces = filter_interfaces_for_display(network_interfaces, device_row)
+    network_interfaces = InterfaceData.filter_interfaces_for_display(network_interfaces, device_row)
 
     interface_settings = extract_interface_settings(parallel_results, load_interfaces_data?)
     favorited_interfaces = interface_settings.favorited
@@ -1049,7 +1047,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         scope
       )
 
-    network_interfaces = apply_interface_settings(network_interfaces, interface_settings.by_uid)
+    network_interfaces = InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
     has_ifaces =
       determine_has_ifaces(
@@ -1170,8 +1168,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp maybe_add_interface_tasks(tasks, true, srql_module, uid, scope) do
     tasks ++
       [
-        timed_device_task(:interfaces, fn -> load_interfaces(srql_module, uid, scope) end),
-        timed_device_task(:iface_settings, fn -> load_interface_settings(scope, uid) end)
+        timed_device_task(:interfaces, fn -> InterfaceData.load_interfaces(srql_module, uid, scope) end),
+        timed_device_task(:iface_settings, fn -> InterfaceData.load_interface_settings(scope, uid) end)
       ]
   end
 
@@ -1236,7 +1234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp extract_interface_settings(_parallel_results, false) do
-    %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}}
+    InterfaceData.empty_interface_settings()
   end
 
   defp maybe_load_interface_metrics(
@@ -1248,7 +1246,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          network_interfaces,
          scope
        ) do
-    load_interface_metrics(
+    InterfaceData.load_interface_metrics(
       srql_module,
       uid,
       favorited_interfaces,
@@ -1919,7 +1917,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "favorite" ->
           # Add all selected to favorites and persist
           {count, new_favorites} =
-            bulk_update_favorites(
+            InterfaceData.bulk_update_favorites(
               scope,
               device_uid,
               selected,
@@ -1932,7 +1930,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         "unfavorite" ->
           # Remove all selected from favorites and persist
           {count, new_favorites} =
-            bulk_update_favorites(
+            InterfaceData.bulk_update_favorites(
               scope,
               device_uid,
               selected,
@@ -1944,23 +1942,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
         "enable_metrics" ->
           # Enable metrics collection for all selected interfaces
-          count = bulk_update_metrics(scope, device_uid, selected, true)
+          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, true)
           {socket, count, "enabled for metrics collection"}
 
         "disable_metrics" ->
           # Disable metrics collection for all selected interfaces
-          count = bulk_update_metrics(scope, device_uid, selected, false)
+          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, false)
           {socket, count, "disabled for metrics collection"}
 
         "add_tags" ->
           # Add tags to all selected interfaces
           tags_string = Map.get(params, "tags", "")
-          tags = parse_tags(tags_string)
+          tags = InterfaceData.parse_tags(tags_string)
 
           if tags == [] do
             {socket, 0, "tagged (no tags provided)"}
           else
-            count = bulk_update_tags(scope, device_uid, selected, tags)
+            count = InterfaceData.bulk_update_tags(scope, device_uid, selected, tags)
             {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
           end
 
@@ -1983,7 +1981,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     new_favorite_state = not MapSet.member?(favorited, uid)
 
     # Persist to backend
-    case upsert_interface_setting(scope, device_uid, uid, %{favorited: new_favorite_state}) do
+    case InterfaceData.upsert_interface_setting(scope, device_uid, uid, %{favorited: new_favorite_state}) do
       {:ok, _setting} ->
         updated =
           if new_favorite_state do
@@ -2533,21 +2531,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end)
   end
 
-  defp load_interfaces(srql_module, device_uid, scope) do
-    query = default_interfaces_query(device_uid)
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        {Enum.filter(results, &is_map/1), nil}
-
-      {:ok, other} ->
-        {[], "unexpected SRQL response: #{inspect(other)}"}
-
-      {:error, reason} ->
-        {[], "SRQL error: #{format_error(reason)}"}
-    end
-  end
-
   defp load_logs(srql_module, device_uid, scope, cursor) do
     query = default_logs_query(device_uid)
     opts = %{scope: scope, limit: @logs_limit, cursor: cursor}
@@ -2690,348 +2673,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp to_safe_number(_), do: 0
-
-  defp filter_interfaces_for_display(interfaces, device_row) when is_list(interfaces) and is_map(device_row) do
-    if switch_device?(device_row) do
-      front_panel = Enum.filter(interfaces, &front_panel_switch_interface?/1)
-
-      # Keep the full list unless we found a meaningful front-panel subset.
-      if length(front_panel) >= 8 and length(front_panel) < length(interfaces) do
-        Enum.sort_by(front_panel, &Map.get(&1, "if_index"))
-      else
-        interfaces
-      end
-    else
-      interfaces
-    end
-  end
-
-  defp filter_interfaces_for_display(interfaces, _device_row), do: interfaces
-
-  defp switch_device?(device_row) when is_map(device_row) do
-    type =
-      device_row
-      |> Map.get("type", "")
-      |> to_string()
-      |> String.downcase()
-      |> String.trim()
-
-    type_id = Map.get(device_row, "type_id")
-    type in ["switch", "l2 switch"] or type_id == 10
-  end
-
-  defp front_panel_switch_interface?(iface) when is_map(iface) do
-    if_index = Map.get(iface, "if_index")
-    if_name = normalize_interface_label(Map.get(iface, "if_name"))
-    if_descr = normalize_interface_label(Map.get(iface, "if_descr"))
-
-    is_integer(if_index) and if_index > 0 and if_index <= 256 and
-      (numeric_port_label?(if_name) or numeric_port_label?(if_descr))
-  end
-
-  defp front_panel_switch_interface?(_), do: false
-
-  defp normalize_interface_label(nil), do: ""
-
-  defp normalize_interface_label(value) do
-    value
-    |> to_string()
-    |> String.trim()
-  end
-
-  defp numeric_port_label?(label) when is_binary(label) do
-    label != "" and String.match?(label, ~r/^(?:port\s*)?\d+$/i)
-  end
-
-  defp load_interface_settings(_scope, nil), do: empty_interface_settings()
-
-  defp load_interface_settings(scope, device_uid) do
-    case InterfaceSettings.list_by_device(device_uid, scope: scope) do
-      {:ok, settings} ->
-        by_uid = Map.new(settings, &{&1.interface_uid, &1})
-
-        favorited =
-          settings
-          |> Enum.filter(& &1.favorited)
-          |> MapSet.new(& &1.interface_uid)
-
-        metrics_enabled =
-          settings
-          |> Enum.filter(&metrics_enabled_setting?/1)
-          |> MapSet.new(& &1.interface_uid)
-
-        %{favorited: favorited, metrics_enabled: metrics_enabled, by_uid: by_uid}
-
-      {:error, _reason} ->
-        empty_interface_settings()
-    end
-  end
-
-  defp empty_interface_settings do
-    %{favorited: MapSet.new(), metrics_enabled: MapSet.new(), by_uid: %{}}
-  end
-
-  defp metrics_enabled_setting?(setting) do
-    setting.metrics_enabled == true and is_list(setting.metrics_selected) and
-      setting.metrics_selected != []
-  end
-
-  defp apply_interface_settings(interfaces, settings_by_uid) when is_list(interfaces) do
-    Enum.map(interfaces, fn iface ->
-      uid = Map.get(iface, "interface_uid")
-
-      case Map.get(settings_by_uid, uid) do
-        nil ->
-          iface
-
-        setting ->
-          iface
-          |> Map.put("metrics_enabled", metrics_enabled_setting?(setting))
-          |> Map.put("favorited", setting.favorited)
-      end
-    end)
-  end
-
-  defp apply_interface_settings(interfaces, _settings_by_uid), do: interfaces
-
-  defp load_interface_metrics(_srql_module, _device_uid, favorited, _metrics_enabled, _interfaces, _scope)
-       when map_size(favorited) == 0 do
-    %{
-      has_favorited: false,
-      panels: [],
-      error: nil,
-      favorited_count: 0
-    }
-  end
-
-  defp load_interface_metrics(srql_module, device_uid, favorited_uids, metrics_enabled_uids, interfaces, scope) do
-    total_favorited = MapSet.size(favorited_uids)
-    enabled_favorited_uids = MapSet.intersection(favorited_uids, metrics_enabled_uids)
-
-    if MapSet.size(enabled_favorited_uids) == 0 do
-      %{
-        has_favorited: total_favorited > 0,
-        panels: [],
-        error: nil,
-        favorited_count: total_favorited,
-        message: "Metrics collection is disabled for favorited interfaces."
-      }
-    else
-      build_favorited_interface_metrics(
-        srql_module,
-        device_uid,
-        enabled_favorited_uids,
-        interfaces,
-        scope,
-        total_favorited
-      )
-    end
-  end
-
-  defp build_favorited_interface_metrics(
-         srql_module,
-         device_uid,
-         enabled_favorited_uids,
-         interfaces,
-         scope,
-         total_favorited
-       ) do
-    # Get the favorited interfaces with their if_index, name, and speed
-    favorited_interfaces =
-      interfaces
-      |> Enum.filter(fn iface ->
-        uid = Map.get(iface, "interface_uid")
-
-        is_binary(uid) and MapSet.member?(enabled_favorited_uids, uid) and
-          is_integer(Map.get(iface, "if_index"))
-      end)
-      |> Enum.map(fn iface ->
-        # Get interface speed for proper graph scaling (bps -> bytes per second)
-        if_speed_bps = Map.get(iface, "speed_bps") || Map.get(iface, "if_speed")
-        if_speed_bytes_per_sec = if is_number(if_speed_bps), do: if_speed_bps / 8
-
-        %{
-          if_index: Map.get(iface, "if_index"),
-          name:
-            Map.get(iface, "if_name") || Map.get(iface, "if_descr") ||
-              "Interface #{Map.get(iface, "if_index")}",
-          max_speed_bytes_per_sec: if_speed_bytes_per_sec
-        }
-      end)
-
-    if favorited_interfaces == [] do
-      %{
-        has_favorited: total_favorited > 0,
-        panels: [],
-        error: nil,
-        favorited_count: total_favorited,
-        message: "No interface metrics available. Favorited interfaces may not have SNMP indices."
-      }
-    else
-      # Query SNMP metrics for each favorited interface separately and build panels per interface
-      # Use agg:max to pull the latest counter values per bucket; rate deltas are calculated in UI
-      {all_panels, errors} =
-        Enum.reduce(favorited_interfaces, {[], []}, fn fav_iface, {panels_acc, errs} ->
-          query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs)
-        end)
-
-      cond do
-        all_panels != [] ->
-          %{
-            has_favorited: total_favorited > 0,
-            panels: all_panels,
-            error: nil,
-            favorited_count: total_favorited
-          }
-
-        errors != [] ->
-          %{
-            has_favorited: total_favorited > 0,
-            panels: [],
-            error: "Failed to load metrics: #{Enum.join(Enum.uniq(errors), "; ")}",
-            favorited_count: total_favorited
-          }
-
-        true ->
-          %{
-            has_favorited: total_favorited > 0,
-            panels: [],
-            error: nil,
-            favorited_count: total_favorited,
-            message: "No metrics data available yet. Ensure SNMP polling is configured for this device."
-          }
-      end
-    end
-  end
-
-  # Helper to query metrics for a single interface (extracted to reduce nesting depth)
-  defp query_interface_metrics(srql_module, device_uid, fav_iface, scope, panels_acc, errs) do
-    %{if_index: if_index, name: iface_name, max_speed_bytes_per_sec: max_speed} = fav_iface
-
-    query =
-      "in:snmp_metrics device_id:\"#{escape_value(device_uid)}\" if_index:#{if_index} " <>
-        "time:last_24h bucket:5m agg:max series:metric_name limit:#{@snmp_metrics_limit}"
-
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results} = response} when is_list(results) and results != [] ->
-        interface_panels = build_interface_panels(response, iface_name, if_index, max_speed)
-        {panels_acc ++ interface_panels, errs}
-
-      {:ok, %{"results" => []}} ->
-        {panels_acc, errs}
-
-      {:error, reason} ->
-        {panels_acc, [format_error(reason) | errs]}
-
-      _ ->
-        {panels_acc, errs}
-    end
-  end
-
-  # Build panels for interface metrics (extracted to reduce nesting depth)
-  # Takes full SRQL response (including viz) to properly handle series grouping
-  defp build_interface_panels(srql_response, iface_name, if_index, max_speed) do
-    srql_response
-    |> Engine.build_panels()
-    |> Enum.reject(&(&1.plugin == TablePlugin))
-    |> Enum.map(fn panel ->
-      assigns =
-        panel.assigns
-        |> Map.put(:interface_label, "#{iface_name} (ifIndex: #{if_index})")
-        |> Map.put(:max_speed_bytes_per_sec, max_speed)
-        # Enable combined chart mode for traffic metrics (inbound + outbound on same chart)
-        |> Map.put(:chart_mode, :combined)
-        |> Map.put(:rate_mode, :counter)
-
-      %{panel | assigns: assigns}
-    end)
-  end
-
-  defp upsert_interface_setting(_scope, nil, _interface_uid, _attrs), do: {:error, :no_device}
-  defp upsert_interface_setting(_scope, _device_uid, nil, _attrs), do: {:error, :no_interface}
-
-  defp upsert_interface_setting(scope, device_uid, interface_uid, attrs) do
-    InterfaceSettings.upsert(device_uid, interface_uid, attrs, scope: scope)
-  end
-
-  defp bulk_update_favorites(scope, device_uid, selected_uids, favorited, current_favorites) do
-    # Persist each selected interface's favorite status
-    results =
-      selected_uids
-      |> MapSet.to_list()
-      |> Enum.map(fn uid ->
-        case upsert_interface_setting(scope, device_uid, uid, %{favorited: favorited}) do
-          {:ok, _} -> {:ok, uid}
-          {:error, _} -> {:error, uid}
-        end
-      end)
-
-    success_count = Enum.count(results, fn {status, _} -> status == :ok end)
-
-    # Update the MapSet based on success
-    successful_uids =
-      results
-      |> Enum.filter(fn {status, _} -> status == :ok end)
-      |> MapSet.new(fn {_, uid} -> uid end)
-
-    new_favorites =
-      if favorited do
-        MapSet.union(current_favorites, successful_uids)
-      else
-        MapSet.difference(current_favorites, successful_uids)
-      end
-
-    {success_count, new_favorites}
-  end
-
-  defp bulk_update_metrics(scope, device_uid, selected_uids, metrics_enabled) do
-    # Persist each selected interface's metrics_enabled status
-    results =
-      selected_uids
-      |> MapSet.to_list()
-      |> Enum.map(fn uid ->
-        case upsert_interface_setting(scope, device_uid, uid, %{metrics_enabled: metrics_enabled}) do
-          {:ok, _} -> :ok
-          {:error, _} -> :error
-        end
-      end)
-
-    Enum.count(results, &(&1 == :ok))
-  end
-
-  defp bulk_update_tags(scope, device_uid, selected_uids, tags) do
-    # Add tags to each selected interface (preserving existing tags)
-    results =
-      selected_uids
-      |> MapSet.to_list()
-      |> Enum.map(fn uid ->
-        # First get existing settings to merge tags
-        existing_tags =
-          case InterfaceSettings.get_by_interface(device_uid, uid, scope: scope) do
-            {:ok, settings} -> settings.tags || []
-            _ -> []
-          end
-
-        merged_tags = Enum.uniq(existing_tags ++ tags)
-
-        case upsert_interface_setting(scope, device_uid, uid, %{tags: merged_tags}) do
-          {:ok, _} -> :ok
-          {:error, _} -> :error
-        end
-      end)
-
-    Enum.count(results, &(&1 == :ok))
-  end
-
-  defp parse_tags(tags_string) when is_binary(tags_string) do
-    tags_string
-    |> String.split(",")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.uniq()
-  end
-
-  defp parse_tags(_), do: []
 
   defp load_ip_aliases(_scope, nil, _show_stale), do: {[], nil}
   defp load_ip_aliases(nil, _device_uid, _show_stale), do: {[], "Scope unavailable"}
