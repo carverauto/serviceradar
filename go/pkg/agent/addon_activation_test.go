@@ -34,6 +34,8 @@ import (
 
 var errFakeObjectNotFound = errors.New("fake object store: key not found")
 
+const testPushedBinaryA = "/pushed/a"
+
 type fakeObjectStore struct {
 	data map[string][]byte
 	err  error
@@ -146,64 +148,64 @@ func TestStageAddonArtifactIncomplete(t *testing.T) {
 	}
 }
 
-func TestLastKnownGoodAddonBinaryFallback(t *testing.T) {
+func TestStageAddonArtifactBinaryPathTraversalFallsBack(t *testing.T) {
 	root := t.TempDir()
-	payload := []byte("addon-v1-binary")
-	key := "addons/lkg/linux-amd64"
+	payload := []byte("bin")
+	key := "addons/dd"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	// A crafted binary_path basename of ".." must NOT escape the version dir: the
+	// derived name falls back to the safe synthesized name instead.
 	a := &proto.AddonAssignmentConfig{
-		AddonId:           "lkg",
+		AddonId:           "dd",
 		Version:           "1.0.0",
-		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-lkg-addon",
+		BinaryPath:        "..",
 		ArtifactObjectKey: key,
 		ArtifactSha256:    sha256Hex(payload),
 	}
 
-	// Nothing staged yet: no last-known-good.
-	if _, ok := lastKnownGoodAddonBinary(root, a); ok {
-		t.Fatal("expected no last-known-good before any staging")
-	}
-
-	// Stage once successfully.
-	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
-	good, err := stageAddonArtifact(context.Background(), store, root, a)
+	got, err := stageAddonArtifact(context.Background(), store, root, a)
 	if err != nil {
-		t.Fatalf("initial stage: %v", err)
+		t.Fatalf("stage: %v", err)
+	}
+	if filepath.Base(got) != "serviceradar-dd-addon" {
+		t.Fatalf("binary_path %q should fall back to synthesized name, got base %q", "..", filepath.Base(got))
 	}
 
-	lkg, ok := lastKnownGoodAddonBinary(root, a)
-	if !ok {
-		t.Fatal("expected last-known-good after a successful stage")
+	// The real staged file must live under the version dir (not its parent), and the
+	// returned current-symlink path must resolve to it.
+	if _, err := os.Stat(filepath.Join(root, "dd", addonVersionsDir, "1.0.0", "serviceradar-dd-addon")); err != nil {
+		t.Fatalf("staged binary not under version dir: %v", err)
 	}
-	if lkg != good {
-		t.Fatalf("last-known-good = %q, want %q", lkg, good)
-	}
-
-	// A later delivery that fails (object store down) must leave the
-	// last-known-good binary intact for the caller to fall back to.
-	failing := &fakeObjectStore{err: errFakeObjectNotFound}
-	if _, err := stageAddonArtifact(context.Background(), failing, root, a); err == nil {
-		t.Fatal("expected staging to fail with a failing object store")
-	}
-
-	again, ok := lastKnownGoodAddonBinary(root, a)
-	if !ok || again != good {
-		t.Fatalf("last-known-good lost after a failed delivery: ok=%v path=%q", ok, again)
-	}
-
-	data, err := os.ReadFile(again)
+	data, err := os.ReadFile(got)
 	if err != nil || !bytes.Equal(data, payload) {
-		t.Fatalf("last-known-good binary not intact: err=%v", err)
+		t.Fatalf("staged binary not readable via current symlink: %v", err)
+	}
+}
+
+func TestAddonBinaryNameRejectsUnsafeBase(t *testing.T) {
+	cases := map[string]string{
+		"..":            "serviceradar-x-addon", // traversal -> fallback
+		"/":             "serviceradar-x-addon",
+		"":              "serviceradar-x-addon", // empty binary_path -> fallback
+		"/usr/bin/real": "real",                 // normal case keeps the basename
+	}
+	for bp, want := range cases {
+		a := &proto.AddonAssignmentConfig{AddonId: "x", BinaryPath: bp}
+		if got := addonBinaryName(a); got != want {
+			t.Fatalf("addonBinaryName(binary_path=%q) = %q, want %q", bp, got, want)
+		}
 	}
 }
 
 func TestApplyLocalAddonOverridesMissingFileIsNoop(t *testing.T) {
-	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a"}}
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: testPushedBinaryA}}
 
 	got, err := applyLocalAddonOverrides(pushed, filepath.Join(t.TempDir(), "absent.json"))
 	if err != nil {
 		t.Fatalf("missing file should be a no-op, got %v", err)
 	}
-	if len(got) != 1 || got[0].GetBinaryPath() != "/pushed/a" {
+	if len(got) != 1 || got[0].GetBinaryPath() != testPushedBinaryA {
 		t.Fatalf("pushed assignments changed by missing override: %#v", got)
 	}
 }
@@ -221,7 +223,9 @@ func TestApplyLocalAddonOverridesReplacesAndAppends(t *testing.T) {
 	}
 
 	pushed := []*proto.AddonAssignmentConfig{
-		{AddonId: "a", BinaryPath: "/pushed/a", Enabled: true},
+		// 'a' carries config + capabilities the override does NOT mention; they must
+		// be inherited (the override patches binary_path only).
+		{AddonId: "a", BinaryPath: testPushedBinaryA, Enabled: true, ConfigJson: []byte(`{"k":1}`), Capabilities: []string{"cap-a"}},
 		{AddonId: "b", BinaryPath: "/pushed/b", Enabled: true},
 	}
 
@@ -239,7 +243,11 @@ func TestApplyLocalAddonOverridesReplacesAndAppends(t *testing.T) {
 		t.Fatalf("merged length = %d, want 3 (%#v)", len(got), got)
 	}
 	if byID["a"].GetBinaryPath() != "/local/a" {
-		t.Fatalf("local override did not replace pushed 'a': %q", byID["a"].GetBinaryPath())
+		t.Fatalf("local override did not patch pushed 'a' binary_path: %q", byID["a"].GetBinaryPath())
+	}
+	// Merge, not replace: fields the override omitted are inherited from pushed.
+	if string(byID["a"].GetConfigJson()) != `{"k":1}` || len(byID["a"].GetCapabilities()) != 1 {
+		t.Fatalf("override should inherit pushed config/capabilities for 'a': %#v", byID["a"])
 	}
 	if byID["b"].GetBinaryPath() != "/pushed/b" {
 		t.Fatalf("pushed 'b' should be untouched: %q", byID["b"].GetBinaryPath())
@@ -256,13 +264,13 @@ func TestApplyLocalAddonOverridesMalformedReturnsPushed(t *testing.T) {
 		t.Fatalf("write override: %v", err)
 	}
 
-	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a"}}
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: testPushedBinaryA}}
 
 	got, err := applyLocalAddonOverrides(pushed, path)
 	if err == nil {
 		t.Fatal("expected an error for malformed override")
 	}
-	if len(got) != 1 || got[0].GetBinaryPath() != "/pushed/a" {
+	if len(got) != 1 || got[0].GetBinaryPath() != testPushedBinaryA {
 		t.Fatalf("malformed override must return pushed unchanged: %#v", got)
 	}
 }
@@ -336,14 +344,15 @@ func TestApplyLocalAddonOverridesCanDisable(t *testing.T) {
 		t.Fatalf("write override: %v", err)
 	}
 
-	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a", Enabled: true}}
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: testPushedBinaryA, Enabled: true}}
 
 	got, err := applyLocalAddonOverrides(pushed, path)
 	if err != nil {
 		t.Fatalf("apply overrides: %v", err)
 	}
-	if len(got) != 1 || got[0].GetEnabled() {
-		t.Fatalf("local override enabled=false should disable the pushed add-on: %#v", got)
+	// enabled=false disables it, but the pushed binary_path is still inherited (merge).
+	if len(got) != 1 || got[0].GetEnabled() || got[0].GetBinaryPath() != testPushedBinaryA {
+		t.Fatalf("local override enabled=false should disable but preserve the pushed add-on: %#v", got)
 	}
 }
 
@@ -359,6 +368,23 @@ func TestAddonLastGoodSpecCache(t *testing.T) {
 	got, ok := pl.lastGoodAddonSpec("a")
 	if !ok || got.BinaryPath != "/run/a" || got.Version != "1.0.0" {
 		t.Fatalf("cache did not return the remembered spec: ok=%v spec=%#v", ok, got)
+	}
+}
+
+func TestPruneAddonCache(t *testing.T) {
+	pl := &PushLoop{}
+	pl.rememberAddonSpec(agentaddon.Spec{ID: "keep", BinaryPath: "/run/keep"})
+	pl.rememberAddonSpec(agentaddon.Spec{ID: "drop", BinaryPath: "/run/drop"})
+
+	// Only "keep" is still assigned; "drop" must be evicted so a re-add cannot fall
+	// back to its stale spec.
+	pl.pruneAddonCache(map[string]bool{"keep": true})
+
+	if _, ok := pl.lastGoodAddonSpec("keep"); !ok {
+		t.Fatal("expected 'keep' to survive prune")
+	}
+	if _, ok := pl.lastGoodAddonSpec("drop"); ok {
+		t.Fatal("expected 'drop' to be evicted by prune")
 	}
 }
 

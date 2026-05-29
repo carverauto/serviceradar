@@ -3178,6 +3178,19 @@ func (p *PushLoop) lastGoodAddonSpec(id string) (agentaddon.Spec, bool) {
 	return spec, ok
 }
 
+// pruneAddonCache drops last-known-good entries for add-on ids not in keep, so a
+// removed add-on does not retain a stale spec that a later re-add could fall back to.
+func (p *PushLoop) pruneAddonCache(keep map[string]bool) {
+	p.addonLastGoodMu.Lock()
+	defer p.addonLastGoodMu.Unlock()
+
+	for id := range p.addonLastGood {
+		if !keep[id] {
+			delete(p.addonLastGood, id)
+		}
+	}
+}
+
 // applyAddonAssignments reconciles the agent's supervised native add-ons to the
 // assignments delivered in the gateway config. Enabled assignments are launched
 // and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
@@ -3196,15 +3209,18 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 	// Merge an operator-managed local override (break-glass / dev) over the pushed
 	// assignments before reconciling. A malformed file is ignored so a bad local edit
-	// cannot break pushed delivery.
-	overridePath := addonLocalOverridePath(configDir)
-	if merged, err := applyLocalAddonOverrides(assignments, overridePath); err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("path", overridePath).
-			Msg("Ignoring malformed local add-on override file")
-	} else {
-		assignments = merged
+	// cannot break pushed delivery. Skip when no config dir is known (avoid reading a
+	// relative path from the process working directory).
+	if configDir != "" {
+		overridePath := addonLocalOverridePath(configDir)
+		if merged, err := applyLocalAddonOverrides(assignments, overridePath); err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("path", overridePath).
+				Msg("Ignoring malformed local add-on override file")
+		} else {
+			assignments = merged
+		}
 	}
 
 	specs := make([]agentaddon.Spec, 0, len(assignments))
@@ -3252,28 +3268,19 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 			resolved, err := stageAddonArtifact(ctx, store, root, a)
 			if err != nil {
-				// Delivery/verification failed. Prefer the cached last-known-good spec
-				// so the add-on keeps running exactly as it was (same binary, args, and
-				// config) rather than applying the new assignment's config to the old
-				// binary. Skip only when nothing good has been applied before.
-				if cached, hit := p.lastGoodAddonSpec(a.GetAddonId()); hit {
-					p.logger.Warn().
-						Err(err).
-						Str("addon", a.GetAddonId()).
-						Msg("Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
-
-					specs = append(specs, cached)
-
-					continue
-				}
-
-				lkg, ok := lastKnownGoodAddonBinary(root, a)
-				if !ok {
+				// Delivery/verification failed. Reuse the cached last-known-good spec
+				// so a running add-on keeps running exactly as it was (same binary,
+				// args, and config) rather than pairing an old binary with new config.
+				// A running add-on always has a cache entry (set when it last staged
+				// successfully); with no entry the add-on was not running here, so skip
+				// it until delivery succeeds rather than guess at an on-disk binary.
+				cached, hit := p.lastGoodAddonSpec(a.GetAddonId())
+				if !hit {
 					p.logger.Warn().
 						Err(err).
 						Str("addon", a.GetAddonId()).
 						Str("object_key", a.GetArtifactObjectKey()).
-						Msg("Failed to stage pushed-artifact add-on and no last-known-good version; assignment not applied")
+						Msg("Failed to stage pushed-artifact add-on and no last-known-good assignment; not applied")
 
 					continue
 				}
@@ -3281,20 +3288,21 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 				p.logger.Warn().
 					Err(err).
 					Str("addon", a.GetAddonId()).
-					Str("binary_path", lkg).
-					Msg("Pushed-artifact add-on delivery failed; reusing last-known-good staged binary")
+					Msg("Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
 
-				binaryPath = lkg
-			} else {
-				if a.GetArtifactSignature() == "" {
-					p.logger.Warn().
-						Str("addon", a.GetAddonId()).
-						Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
-				}
+				specs = append(specs, cached)
 
-				binaryPath = resolved
-				freshlyStaged = true
+				continue
 			}
+
+			if a.GetArtifactSignature() == "" {
+				p.logger.Warn().
+					Str("addon", a.GetAddonId()).
+					Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
+			}
+
+			binaryPath = resolved
+			freshlyStaged = true
 		}
 
 		if binaryPath == "" {
@@ -3322,6 +3330,16 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 		specs = append(specs, spec)
 	}
+
+	// Evict last-known-good cache entries for add-ons no longer assigned, so a removed
+	// then re-added add-on cannot fall back to a stale spec on a transient failure.
+	present := make(map[string]bool, len(assignments))
+	for _, a := range assignments {
+		if a != nil {
+			present[a.GetAddonId()] = true
+		}
+	}
+	p.pruneAddonCache(present)
 
 	if err := manager.Apply(ctx, specs); err != nil {
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")

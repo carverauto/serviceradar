@@ -44,14 +44,18 @@
 - [x] 4.1 Last-known-good cache + local override for add-on assignments (mirror the
   existing config override/cache pattern); fall back to last good on delivery or
   verification failure. (§6.7)
-  — Last-known-good: the versioned staging dir doubles as the cache — on a
-  delivery/verification failure the agent reuses the existing `current` staged binary
-  (lastKnownGoodAddonBinary) instead of tearing down a running add-on, so a transient
-  object-store/signature failure is non-fatal and a reboot can relaunch from the
-  last-good binary while the store is unavailable. Local override: `addons.local.json`
-  in the agent config dir (applyLocalAddonOverrides) takes precedence over pushed
-  assignments by addon_id and appends local-only entries; a malformed file is ignored
-  so it cannot break pushed delivery.
+  — Last-known-good: the agent caches the last fully-verified spec per add-on
+  (rememberAddonSpec) and, on a delivery/verification failure, reuses it verbatim
+  (same binary, args, and config) instead of tearing down a running add-on or pairing
+  an old binary with new config; with no cached spec the add-on was not running, so it
+  is skipped until delivery succeeds. The cache is pruned to currently-assigned ids so
+  a removed/re-added add-on cannot reuse a stale spec. (Reboot survivability while the
+  store is down — persisting the spec to disk — is a follow-up.) Local override:
+  `addons.local.json` in the agent config dir (applyLocalAddonOverrides) patches the
+  fields it specifies onto the matching pushed assignment (others inherited) and
+  appends local-only entries; a malformed file is ignored so it cannot break pushed
+  delivery. Hardened per an adversarial review: path-segment validation on
+  addon_id/version/binary-name blocks staging-path traversal.
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-delivery-models --strict` passes.

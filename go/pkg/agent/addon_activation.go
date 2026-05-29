@@ -163,29 +163,6 @@ func stageAddonArtifact(
 	return filepath.Join(addonDir, addonCurrentLink, binName), nil
 }
 
-// lastKnownGoodAddonBinary returns the path to the previously activated binary for
-// the add-on (the target of its `current` symlink) when it still resolves to a
-// regular file. The versioned staging directory doubles as the last-known-good
-// cache: when a fresh delivery or verification fails, the caller falls back to this
-// path so a transient object-store/signature failure does not tear down a running
-// add-on. Returns ("", false) when nothing has been staged yet.
-func lastKnownGoodAddonBinary(root string, a *proto.AddonAssignmentConfig) (string, bool) {
-	addonID := strings.TrimSpace(a.GetAddonId())
-	if !safeAddonSegment(addonID) {
-		return "", false
-	}
-
-	binPath := filepath.Join(root, addonID, addonCurrentLink, addonBinaryName(a))
-
-	// os.Stat follows the current -> versions/<v> symlink, so this confirms the
-	// real staged binary still exists.
-	if info, err := os.Stat(binPath); err == nil && info.Mode().IsRegular() {
-		return binPath, true
-	}
-
-	return "", false
-}
-
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes
 // using the agent release trust root (reused per the 3425 decision to share the
 // existing signing key); the build/signing pipeline finalizes key management.
@@ -222,10 +199,12 @@ func addonStagedVersion(a *proto.AddonAssignmentConfig, sha string) string {
 }
 
 // addonBinaryName derives the staged binary filename from the assignment's
-// binary_path basename, falling back to a name derived from the add-on id.
+// binary_path basename, falling back to a name derived from the add-on id. The
+// basename must itself be a safe single path segment (rejecting "..", separators,
+// etc.) so a crafted binary_path cannot escape the staging dir.
 func addonBinaryName(a *proto.AddonAssignmentConfig) string {
 	if bp := strings.TrimSpace(a.GetBinaryPath()); bp != "" {
-		if base := filepath.Base(bp); base != "." && base != string(filepath.Separator) {
+		if base := filepath.Base(bp); safeAddonSegment(base) {
 			return base
 		}
 	}
@@ -303,40 +282,84 @@ type localAddonAssignment struct {
 	TargetArch        string          `json:"target_arch"`
 }
 
+// toProto builds a proto assignment for a local-only override (no pushed assignment
+// to inherit from); it defaults to enabled.
 func (o localAddonAssignment) toProto() *proto.AddonAssignmentConfig {
-	enabled := true
-	if o.Enabled != nil {
-		enabled = *o.Enabled
-	}
-
-	var configJSON []byte
-	if len(o.ConfigJSON) > 0 {
-		configJSON = []byte(o.ConfigJSON)
-	}
-
-	return &proto.AddonAssignmentConfig{
-		AddonId:           o.AddonID,
-		Version:           o.Version,
-		Enabled:           enabled,
-		BinaryPath:        o.BinaryPath,
-		Args:              o.Args,
-		ConfigJson:        configJSON,
-		Capabilities:      o.Capabilities,
-		Delivery:          o.Delivery,
-		Supervision:       o.Supervision,
-		ArtifactObjectKey: o.ArtifactObjectKey,
-		ArtifactSha256:    o.ArtifactSha256,
-		ArtifactSignature: o.ArtifactSignature,
-		TargetOs:          o.TargetOS,
-		TargetArch:        o.TargetArch,
-	}
+	return o.mergeOnto(&proto.AddonAssignmentConfig{AddonId: strings.TrimSpace(o.AddonID), Enabled: true})
 }
 
-// applyLocalAddonOverrides merges an operator-managed local override file into the
-// pushed add-on assignments. Local entries take precedence over a pushed assignment
-// with the same addon_id, and local-only entries are appended (preserving file
-// order). A missing file is a no-op; a malformed file returns the pushed assignments
-// unchanged plus an error so the caller can log it without breaking pushed delivery.
+// mergeOnto returns base patched with the fields the override actually specifies. An
+// omitted field (empty string, nil pointer, or empty list) leaves the base value
+// intact, so an operator can pin a single field (e.g. binary_path to a dev build)
+// without silently blanking the pushed config, capabilities, or artifact reference.
+func (o localAddonAssignment) mergeOnto(base *proto.AddonAssignmentConfig) *proto.AddonAssignmentConfig {
+	merged := &proto.AddonAssignmentConfig{
+		AddonId:           base.GetAddonId(),
+		Version:           base.GetVersion(),
+		Enabled:           base.GetEnabled(),
+		BinaryPath:        base.GetBinaryPath(),
+		Args:              base.GetArgs(),
+		ConfigJson:        base.GetConfigJson(),
+		Capabilities:      base.GetCapabilities(),
+		Delivery:          base.GetDelivery(),
+		Supervision:       base.GetSupervision(),
+		ArtifactObjectKey: base.GetArtifactObjectKey(),
+		ArtifactSha256:    base.GetArtifactSha256(),
+		ArtifactSignature: base.GetArtifactSignature(),
+		TargetOs:          base.GetTargetOs(),
+		TargetArch:        base.GetTargetArch(),
+	}
+
+	if o.Enabled != nil {
+		merged.Enabled = *o.Enabled
+	}
+	if o.Version != "" {
+		merged.Version = o.Version
+	}
+	if o.BinaryPath != "" {
+		merged.BinaryPath = o.BinaryPath
+	}
+	if len(o.Args) > 0 {
+		merged.Args = o.Args
+	}
+	if len(o.ConfigJSON) > 0 {
+		merged.ConfigJson = []byte(o.ConfigJSON)
+	}
+	if len(o.Capabilities) > 0 {
+		merged.Capabilities = o.Capabilities
+	}
+	if o.Delivery != "" {
+		merged.Delivery = o.Delivery
+	}
+	if o.Supervision != "" {
+		merged.Supervision = o.Supervision
+	}
+	if o.ArtifactObjectKey != "" {
+		merged.ArtifactObjectKey = o.ArtifactObjectKey
+	}
+	if o.ArtifactSha256 != "" {
+		merged.ArtifactSha256 = o.ArtifactSha256
+	}
+	if o.ArtifactSignature != "" {
+		merged.ArtifactSignature = o.ArtifactSignature
+	}
+	if o.TargetOS != "" {
+		merged.TargetOs = o.TargetOS
+	}
+	if o.TargetArch != "" {
+		merged.TargetArch = o.TargetArch
+	}
+
+	return merged
+}
+
+// applyLocalAddonOverrides patches an operator-managed local override file onto the
+// pushed add-on assignments. For a matching addon_id the override patches only the
+// fields it specifies (others are inherited from the pushed assignment); local-only
+// entries are appended, preserving file order (the last entry wins for a duplicate
+// addon_id). A missing file is a no-op; a malformed file returns the pushed
+// assignments unchanged plus an error so the caller can log it without breaking
+// pushed delivery.
 func applyLocalAddonOverrides(
 	pushed []*proto.AddonAssignmentConfig,
 	path string,
@@ -359,7 +382,7 @@ func applyLocalAddonOverrides(
 		return pushed, nil
 	}
 
-	overrides := make(map[string]*proto.AddonAssignmentConfig, len(file.Addons))
+	overrides := make(map[string]localAddonAssignment, len(file.Addons))
 	order := make([]string, 0, len(file.Addons))
 
 	for _, o := range file.Addons {
@@ -372,11 +395,11 @@ func applyLocalAddonOverrides(
 			order = append(order, id)
 		}
 
-		overrides[id] = o.toProto()
+		overrides[id] = o
 	}
 
 	merged := make([]*proto.AddonAssignmentConfig, 0, len(pushed)+len(order))
-	replaced := make(map[string]bool, len(order))
+	used := make(map[string]bool, len(order))
 
 	for _, a := range pushed {
 		if a == nil {
@@ -384,8 +407,8 @@ func applyLocalAddonOverrides(
 		}
 
 		if ov, ok := overrides[a.GetAddonId()]; ok {
-			merged = append(merged, ov)
-			replaced[a.GetAddonId()] = true
+			merged = append(merged, ov.mergeOnto(a))
+			used[a.GetAddonId()] = true
 
 			continue
 		}
@@ -394,8 +417,8 @@ func applyLocalAddonOverrides(
 	}
 
 	for _, id := range order {
-		if !replaced[id] {
-			merged = append(merged, overrides[id])
+		if !used[id] {
+			merged = append(merged, overrides[id].toProto())
 		}
 	}
 
