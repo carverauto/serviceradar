@@ -25,7 +25,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
-  alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
+  alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
@@ -630,8 +630,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     |> assign(:device_flows, flows)
     |> assign(:flows_pagination, pagination)
     |> assign(:flows_error, flows_error)
-    |> begin_flow_stats_refresh(uid)
-    |> begin_flow_ip_enrichment(uid, flows)
+    |> FlowRuntime.begin_stats_refresh(uid, srql_mod)
+    |> FlowRuntime.begin_ip_enrichment(uid, flows)
   end
 
   defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
@@ -881,10 +881,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
          uid,
          QueryData.normalize_cursor(Map.get(params, "cursor"))
        )
-       |> maybe_begin_flow_background_loads(
+       |> FlowRuntime.begin_background_loads(
          active_tab,
          uid,
-         Map.get(supplemental_assigns, :device_flows, [])
+         Map.get(supplemental_assigns, :device_flows, []),
+         srql_module
        )}
     end
   end
@@ -1944,223 +1945,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("topn_filter", %{"field" => field, "value" => value}, socket)
       when field in @allowed_flow_filter_fields do
-    uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    base =
-      "in:flows device_id:\"#{QueryData.escape_value(uid)}\" #{field}:\"#{QueryData.escape_value(value)}\" time:last_24h"
-
-    query = "#{base} sort:time:desc"
-    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
-
-    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
-
-    stats_task =
-      Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
-
-    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
-
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets} =
-      Map.get(
-        results,
-        :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
-      )
-
-    srql = socket.assigns.srql |> Map.put(:query, base) |> Map.put(:draft, base)
-
-    {:noreply,
-     socket
-     |> assign(:srql, srql)
-     |> assign(:flow_zoom_range, nil)
-     |> assign(:flow_active_facets, %{})
-     |> assign(:device_flows, flows)
-     |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)
-     |> assign(:flow_stats, flow_stats)
-     |> assign(:flow_sparkline_json, sparkline_json)
-     |> assign(:flow_proto_json, proto_json)
-     |> assign(:flow_chart_keys_json, chart_keys)
-     |> assign(:flow_chart_points_json, chart_points)
-     |> assign(:flow_top_talkers_json, top_talkers_json)
-     |> assign(:flow_top_destinations_json, top_destinations_json)
-     |> assign(:flow_top_ports_json, top_ports_json)
-     |> assign(:flow_top_protocols_json, top_protocols_json)
-     |> assign(:flow_facets, facets)
-     |> assign(:flow_active_topn, %{field: field, value: value})
-     |> FlowIpEnrichment.enrich_socket()}
+    {:noreply, FlowRuntime.apply_topn_filter(socket, %{"field" => field, "value" => value}, srql_module(), @flows_limit)}
   end
 
   def handle_event("topn_filter", _params, socket), do: {:noreply, socket}
 
   def handle_event("clear_topn_filter", _params, socket) do
-    uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    {flows, pagination, flows_error} = FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)
-
-    default_query = QueryData.default_flows_query(uid)
-    srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
-
-    {:noreply,
-     socket
-     |> assign(:srql, srql)
-     |> assign(:flow_active_topn, nil)
-     |> assign(:device_flows, flows)
-     |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)
-     |> FlowIpEnrichment.enrich_socket()}
+    {:noreply, FlowRuntime.clear_topn_filter(socket, srql_module(), @flows_limit)}
   end
 
   def handle_event("facet_toggle", %{"field" => field, "value" => value}, socket)
       when field in @allowed_flow_filter_fields do
-    uid = socket.assigns.device_uid
-    active = socket.assigns.flow_active_facets
-
-    # Toggle: if same facet+value is active, remove it; otherwise set it
-    updated =
-      if Map.get(active, field) == value,
-        do: Map.delete(active, field),
-        else: Map.put(active, field, value)
-
-    {:noreply,
-     socket
-     |> assign(:flow_active_facets, updated)
-     |> reload_flows_with_facets(uid, updated)}
+    {:noreply, FlowRuntime.toggle_facet(socket, %{"field" => field, "value" => value}, srql_module(), @flows_limit)}
   end
 
   def handle_event("facet_toggle", _params, socket), do: {:noreply, socket}
 
   def handle_event("facet_clear", _params, socket) do
-    uid = socket.assigns.device_uid
-
-    {:noreply,
-     socket
-     |> assign(:flow_active_facets, %{})
-     |> reload_flows_with_facets(uid, %{})}
+    {:noreply, FlowRuntime.clear_facets(socket, srql_module(), @flows_limit)}
   end
 
-  def handle_event("chart_zoom", %{"start" => start, "end" => end_t}, socket) do
-    with {:ok, start_dt, _} <- DateTime.from_iso8601(start),
-         {:ok, end_dt, _} <- DateTime.from_iso8601(end_t),
-         :lt <- DateTime.compare(start_dt, end_dt) do
-      safe_start = DateTime.to_iso8601(start_dt)
-      safe_end = DateTime.to_iso8601(end_dt)
-      uid = socket.assigns.device_uid
-      scope = socket.assigns.current_scope
-      srql_mod = srql_module()
-      zoomed_base = "in:flows device_id:\"#{QueryData.escape_value(uid)}\" time:[#{safe_start},#{safe_end}]"
-      query = "#{zoomed_base} sort:time:desc"
-      opts = %{scope: scope, limit: @flows_limit, cursor: nil}
-
-      # Reload flows table and stats in parallel for the zoomed range
-      flows_task =
-        Task.async(fn ->
-          try do
-            {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)}
-          rescue
-            _ -> {:flows, {[], %{}, "Failed to load flows for selected range"}}
-          end
-        end)
-
-      stats_task =
-        Task.async(fn ->
-          try do
-            {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, zoomed_base)}
-          rescue
-            _ ->
-              {:stats,
-               {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}}
-          end
-        end)
-
-      results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
-
-      {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
-
-      {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-       top_ports_json, top_protocols_json, facets} =
-        Map.get(
-          results,
-          :stats,
-          {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
-        )
-
-      srql = socket.assigns.srql |> Map.put(:query, zoomed_base) |> Map.put(:draft, zoomed_base)
-
-      {:noreply,
-       socket
-       |> assign(:srql, srql)
-       |> assign(:device_flows, flows)
-       |> assign(:flows_pagination, pagination)
-       |> assign(:flows_error, flows_error)
-       |> assign(:flow_zoom_range, %{start: safe_start, end: safe_end})
-       |> assign(:flow_stats, flow_stats)
-       |> assign(:flow_sparkline_json, sparkline_json)
-       |> assign(:flow_proto_json, proto_json)
-       |> assign(:flow_chart_keys_json, chart_keys)
-       |> assign(:flow_chart_points_json, chart_points)
-       |> assign(:flow_top_talkers_json, top_talkers_json)
-       |> assign(:flow_top_destinations_json, top_destinations_json)
-       |> assign(:flow_top_ports_json, top_ports_json)
-       |> assign(:flow_top_protocols_json, top_protocols_json)
-       |> assign(:flow_facets, facets)
-       |> assign(:flow_active_facets, %{})
-       |> assign(:flow_active_topn, nil)
-       |> FlowIpEnrichment.enrich_socket()}
-    else
-      _ -> {:noreply, socket}
-    end
+  def handle_event("chart_zoom", params, socket) do
+    {:noreply, FlowRuntime.apply_chart_zoom(socket, params, srql_module(), @flows_limit)}
   end
 
   def handle_event("clear_zoom", _params, socket) do
-    uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    flows_task = Task.async(fn -> {:flows, FlowData.load_flows(srql_mod, uid, scope, nil, @flows_limit)} end)
-    stats_task = Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
-
-    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
-
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets} =
-      Map.get(
-        results,
-        :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
-      )
-
-    default_query = QueryData.default_flows_query(uid)
-    srql = socket.assigns.srql |> Map.put(:query, default_query) |> Map.put(:draft, default_query)
-
-    {:noreply,
-     socket
-     |> assign(:srql, srql)
-     |> assign(:flow_zoom_range, nil)
-     |> assign(:device_flows, flows)
-     |> assign(:flows_pagination, pagination)
-     |> assign(:flows_error, flows_error)
-     |> assign(:flow_stats, flow_stats)
-     |> assign(:flow_sparkline_json, sparkline_json)
-     |> assign(:flow_proto_json, proto_json)
-     |> assign(:flow_chart_keys_json, chart_keys)
-     |> assign(:flow_chart_points_json, chart_points)
-     |> assign(:flow_top_talkers_json, top_talkers_json)
-     |> assign(:flow_top_destinations_json, top_destinations_json)
-     |> assign(:flow_top_ports_json, top_ports_json)
-     |> assign(:flow_top_protocols_json, top_protocols_json)
-     |> assign(:flow_facets, facets)
-     |> assign(:flow_active_facets, %{})
-     |> assign(:flow_active_topn, nil)
-     |> FlowIpEnrichment.enrich_socket()}
+    {:noreply, FlowRuntime.clear_zoom(socket, srql_module(), @flows_limit)}
   end
 
   def handle_event(_event, _params, socket), do: {:noreply, socket}
@@ -2267,111 +2077,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       :northbound_invocation_service_module,
       NorthboundInvocationService
     )
-  end
-
-  defp reload_flows_with_facets(socket, uid, facets) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    facet_tokens =
-      facets
-      |> Enum.filter(fn {field, _} -> field in @allowed_flow_filter_fields end)
-      |> Enum.map_join(" ", fn {field, value} ->
-        "#{field}:\"#{QueryData.escape_value(value)}\""
-      end)
-
-    base = "in:flows device_id:\"#{QueryData.escape_value(uid)}\" time:last_24h #{facet_tokens}"
-    query = "#{base} sort:time:desc"
-    opts = %{scope: scope, limit: @flows_limit, cursor: nil}
-
-    flows_task = Task.async(fn -> {:flows, FlowData.load_zoomed_flows(srql_mod, query, opts)} end)
-
-    stats_task =
-      Task.async(fn -> {:stats, FlowData.load_device_flow_stats(srql_mod, uid, scope, base)} end)
-
-    results = DeviceTaskData.yield_many([flows_task, stats_task], 15_000)
-
-    {flows, pagination, flows_error} = Map.get(results, :flows, {[], %{}, nil})
-
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facet_data} =
-      Map.get(
-        results,
-        :stats,
-        {%{}, "[]", "[]", "[]", "[]", "[]", "[]", "[]", "[]", %{protocols: [], directions: [], services: []}}
-      )
-
-    socket
-    |> assign(:device_flows, flows)
-    |> assign(:flows_pagination, pagination)
-    |> assign(:flows_error, flows_error)
-    |> assign(:flow_stats, flow_stats)
-    |> assign(:flow_sparkline_json, sparkline_json)
-    |> assign(:flow_proto_json, proto_json)
-    |> assign(:flow_chart_keys_json, chart_keys)
-    |> assign(:flow_chart_points_json, chart_points)
-    |> assign(:flow_top_talkers_json, top_talkers_json)
-    |> assign(:flow_top_destinations_json, top_destinations_json)
-    |> assign(:flow_top_ports_json, top_ports_json)
-    |> assign(:flow_top_protocols_json, top_protocols_json)
-    |> assign(:flow_facets, facet_data)
-    |> FlowIpEnrichment.enrich_socket()
-  end
-
-  defp maybe_begin_flow_background_loads(socket, "flows", uid, flows) do
-    socket
-    |> begin_flow_stats_refresh(uid)
-    |> begin_flow_ip_enrichment(uid, flows)
-  end
-
-  defp maybe_begin_flow_background_loads(socket, _active_tab, _uid, _flows), do: socket
-
-  defp begin_flow_stats_refresh(socket, uid) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-    request_ref = make_ref()
-
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets} =
-      FlowData.empty_flow_stats_bundle()
-
-    socket
-    |> assign(:flow_stats_request_ref, request_ref)
-    |> assign(:flow_stats, flow_stats)
-    |> assign(:flow_stats_loading, true)
-    |> assign(:flow_sparkline_json, sparkline_json)
-    |> assign(:flow_proto_json, proto_json)
-    |> assign(:flow_chart_keys_json, chart_keys)
-    |> assign(:flow_chart_points_json, chart_points)
-    |> assign(:flow_top_talkers_json, top_talkers_json)
-    |> assign(:flow_top_destinations_json, top_destinations_json)
-    |> assign(:flow_top_ports_json, top_ports_json)
-    |> assign(:flow_top_protocols_json, top_protocols_json)
-    |> assign(:flow_facets, facets)
-    |> start_async({:flow_stats, uid, request_ref}, fn ->
-      FlowData.load_device_flow_stats(srql_mod, uid, scope)
-    end)
-  end
-
-  defp begin_flow_ip_enrichment(socket, uid, flows) do
-    request_ref = make_ref()
-    scope = Map.get(socket.assigns, :current_scope)
-    ips = FlowIpEnrichment.ips(flows)
-
-    if ips == [] do
-      socket
-      |> assign(:flow_ip_request_ref, request_ref)
-      |> assign(:rdns_map, %{})
-      |> assign(:geo_iso2_map, %{})
-    else
-      socket
-      |> assign(:flow_ip_request_ref, request_ref)
-      |> assign(:rdns_map, %{})
-      |> assign(:geo_iso2_map, %{})
-      |> start_async({:flow_ip_enrichment, uid, request_ref}, fn ->
-        FlowIpEnrichment.load_maps(ips, scope)
-      end)
-    end
   end
 
   defp to_safe_number(n) when is_number(n), do: n
