@@ -167,7 +167,7 @@ type ServerConfig struct {
 	// When empty, the agent skips NATS publishing entirely.
 	NATSURL string `json:"nats_url,omitempty"`
 	// NATSCredsFile is the on-disk path to the per-agent flow-collector
-	// .creds file (typically /etc/serviceradar/creds/nats.creds). When
+	// .creds file (typically /etc/serviceradar/creds/nats-agent.creds). When
 	// non-empty, it is passed to nats.UserCredentials at connect time so
 	// the agent authenticates under the per-agent JWT (host-slice publish
 	// subject `flow.host-slice.<agent-id>`). When empty, the agent falls

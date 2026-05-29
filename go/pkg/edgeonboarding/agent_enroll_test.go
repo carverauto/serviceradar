@@ -9,6 +9,9 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -78,6 +81,133 @@ func TestResolveAgentNATSCredsPathFallsBackToDefault(t *testing.T) {
 	assert.Equal(t, defaultAgentNATSCredsPath, resolveAgentNATSCredsPath(""))
 	assert.Equal(t, defaultAgentNATSCredsPath, resolveAgentNATSCredsPath("   "))
 	assert.Equal(t, "/var/run/sr/nats.creds", resolveAgentNATSCredsPath("/var/run/sr/nats.creds"))
+}
+
+func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "agent.json")
+	certDir := filepath.Join(dir, "certs")
+	credsPath := filepath.Join(dir, "creds", "nats-agent.creds")
+
+	require.NoError(t, os.MkdirAll(filepath.Dir(credsPath), 0o755))
+	require.NoError(t, os.WriteFile(credsPath, []byte("existing-creds"), 0o600))
+	require.NoError(t, os.WriteFile(configPath, []byte(`{
+  "agent_id": "agent-1",
+  "nats_url": "nats://existing:4222",
+  "nats_creds_file": "`+credsPath+`"
+}`), 0o644))
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/edge-packages/pkg-1/bundle", r.URL.Path)
+		assert.Equal(t, "download-token", r.Header.Get(downloadTokenHeader))
+		_, err := testAgentBundle(t, "").WriteTo(w)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	token, err := EncodeToken("pkg-1", "download-token", server.URL)
+	require.NoError(t, err)
+
+	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
+		Token:         token,
+		ConfigPath:    configPath,
+		CertDir:       certDir,
+		NATSCredsPath: credsPath,
+		HTTPClient:    server.Client(),
+	})
+	require.NoError(t, err)
+
+	var config map[string]interface{}
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &config))
+
+	assert.Equal(t, "nats://existing:4222", config["nats_url"])
+	assert.Equal(t, credsPath, config["nats_creds_file"])
+
+	creds, err := os.ReadFile(credsPath)
+	require.NoError(t, err)
+	assert.Equal(t, "existing-creds", string(creds))
+}
+
+func TestEnrollAgentWritesReplacementNATSCredsToRoleScopedPath(t *testing.T) {
+	t.Setenv(onboardingTokenPrivateKeyEnv, testOnboardingTokenPrivateKey)
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "agent.json")
+	certDir := filepath.Join(dir, "certs")
+	credsPath := filepath.Join(dir, "creds", "nats-agent.creds")
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/edge-packages/pkg-1/bundle", r.URL.Path)
+		_, err := testAgentBundleWith(t, withNATSCreds("replacement-creds")).WriteTo(w)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	token, err := EncodeToken("pkg-1", "download-token", server.URL)
+	require.NoError(t, err)
+
+	err = EnrollAgentFromToken(context.Background(), EnrollOptions{
+		Token:         token,
+		ConfigPath:    configPath,
+		CertDir:       certDir,
+		NATSCredsPath: credsPath,
+		HTTPClient:    server.Client(),
+	})
+	require.NoError(t, err)
+
+	creds, err := os.ReadFile(credsPath)
+	require.NoError(t, err)
+	assert.Equal(t, "replacement-creds", string(creds))
+
+	var config map[string]interface{}
+	data, err := os.ReadFile(configPath)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(data, &config))
+	assert.Equal(t, credsPath, config["nats_creds_file"])
+}
+
+func TestEnrollCollectorInstallsRoleScopedNATSCredsAndRewritesConfig(t *testing.T) {
+	t.Setenv(onboardingTokenPublicKeyEnv, testOnboardingTokenPublicKey)
+
+	dir := t.TempDir()
+	configDir := filepath.Join(dir, "config")
+	certsDir := filepath.Join(dir, "certs")
+	credsDir := filepath.Join(dir, "creds")
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/api/collectors/collector-pkg/bundle", r.URL.Path)
+		assert.Equal(t, "collector-secret", r.Header.Get(downloadTokenHeader))
+		_, err := testCollectorBundle(t).WriteTo(w)
+		require.NoError(t, err)
+	}))
+	defer server.Close()
+
+	token := signedCollectorToken(t, server.URL, "collector-pkg", "collector-secret")
+	err := EnrollCollectorFromToken(context.Background(), CollectorEnrollOptions{
+		Token:      token,
+		ConfigDir:  configDir,
+		CertsDir:   certsDir,
+		CredsDir:   credsDir,
+		HTTPClient: server.Client(),
+	})
+	require.NoError(t, err)
+
+	scopedCredsPath := filepath.Join(credsDir, defaultCollectorNATSCredsName)
+	creds, err := os.ReadFile(scopedCredsPath)
+	require.NoError(t, err)
+	assert.Equal(t, "collector-creds", string(creds))
+	assert.False(t, fileExists(filepath.Join(credsDir, bundleCollectorNATSCredsName)))
+
+	config, err := os.ReadFile(filepath.Join(configDir, "collector.toml"))
+	require.NoError(t, err)
+	assert.Contains(t, string(config), scopedCredsPath)
+	assert.NotContains(t, string(config), legacySharedNATSCredsPath)
 }
 
 func TestExtractEnvOverridesRejectsProtectedKeys(t *testing.T) {
@@ -210,6 +340,38 @@ func testAgentBundleWith(t *testing.T, options ...agentBundleOpt) *bytes.Reader 
 	if spec.natsCreds != "" {
 		writeBundleFile("edge-package-test/creds/nats.creds", []byte(spec.natsCreds))
 	}
+
+	require.NoError(t, tw.Close())
+	require.NoError(t, gzw.Close())
+
+	return bytes.NewReader(archive.Bytes())
+}
+
+func testCollectorBundle(t *testing.T) *bytes.Reader {
+	t.Helper()
+
+	var archive bytes.Buffer
+	gzw := gzip.NewWriter(&archive)
+	tw := tar.NewWriter(gzw)
+
+	writeBundleFile := func(name string, body []byte) {
+		t.Helper()
+
+		hdr := &tar.Header{
+			Name: name,
+			Size: int64(len(body)),
+			Mode: 0o600,
+		}
+		require.NoError(t, tw.WriteHeader(hdr))
+		_, err := tw.Write(body)
+		require.NoError(t, err)
+	}
+
+	writeBundleFile("collector-package/config/collector.toml", []byte(`nats_creds_file = "/etc/serviceradar/creds/nats.creds"`))
+	writeBundleFile("collector-package/certs/collector.pem", []byte("cert"))
+	writeBundleFile("collector-package/certs/collector-key.pem", []byte("key"))
+	writeBundleFile("collector-package/certs/ca-chain.pem", []byte("ca"))
+	writeBundleFile("collector-package/creds/nats.creds", []byte("collector-creds"))
 
 	require.NoError(t, tw.Close())
 	require.NoError(t, gzw.Close())

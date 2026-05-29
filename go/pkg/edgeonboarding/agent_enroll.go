@@ -42,9 +42,12 @@ const (
 
 	// defaultAgentNATSCredsPath is where the agent NATS client expects
 	// to load the per-agent flow-collector creds via
-	// `nats.UserCredentials(path)`. Mirrors the collector layout (see
-	// go/pkg/edgeonboarding/collector_enroll.go).
-	defaultAgentNATSCredsPath = "/etc/serviceradar/creds/nats.creds"
+	// `nats.UserCredentials(path)`. Keep this role-scoped so co-located
+	// collector enrollment cannot overwrite agent credentials.
+	defaultAgentNATSCredsPath = "/etc/serviceradar/creds/nats-agent.creds"
+
+	agentConfigKeyNATSURL       = "nats_url"
+	agentConfigKeyNATSCredsFile = "nats_creds_file"
 )
 
 // EnrollOptions controls the agent enrollment workflow.
@@ -57,7 +60,7 @@ type EnrollOptions struct {
 	OverridesPath string
 	// NATSCredsPath is where a per-agent flow-collector NATS .creds file
 	// (if shipped in the bundle) lands on disk. When empty, defaults to
-	// defaultAgentNATSCredsPath ("/etc/serviceradar/creds/nats.creds").
+	// defaultAgentNATSCredsPath ("/etc/serviceradar/creds/nats-agent.creds").
 	NATSCredsPath string
 	HTTPClient    *http.Client
 	Logf          func(string, ...interface{})
@@ -117,6 +120,15 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 	overridesPath := resolveAgentOverridesPath(opts.OverridesPath)
 	overrideUpdates := extractEnvOverrides(bundle.EnvOverrides)
 	natsCredsPath := resolveAgentNATSCredsPath(opts.NATSCredsPath)
+	updatedConfig, err = mergeAgentNATSConfig(
+		updatedConfig,
+		opts.ConfigPath,
+		natsCredsPath,
+		len(bundle.NATSCreds) > 0,
+	)
+	if err != nil {
+		return err
+	}
 
 	if opts.SkipOverwrite {
 		if fileExists(opts.ConfigPath) {
@@ -323,6 +335,72 @@ func resolveAgentNATSCredsPath(path string) string {
 	}
 
 	return strings.TrimSpace(path)
+}
+
+func mergeAgentNATSConfig(configJSON []byte, liveConfigPath, natsCredsPath string, hasReplacementCreds bool) ([]byte, error) {
+	var next map[string]interface{}
+	if err := json.Unmarshal(configJSON, &next); err != nil {
+		return nil, fmt.Errorf("parse updated agent config: %w", err)
+	}
+
+	live, err := readAgentConfigMap(liveConfigPath)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasReplacementCreds {
+		next[agentConfigKeyNATSCredsFile] = natsCredsPath
+	} else if value := stringConfigValue(live, agentConfigKeyNATSCredsFile); value != "" &&
+		stringConfigValue(next, agentConfigKeyNATSCredsFile) == "" {
+		next[agentConfigKeyNATSCredsFile] = value
+	}
+
+	if value := stringConfigValue(live, agentConfigKeyNATSURL); value != "" &&
+		stringConfigValue(next, agentConfigKeyNATSURL) == "" {
+		next[agentConfigKeyNATSURL] = value
+	}
+
+	updated, err := json.MarshalIndent(next, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("serialize agent config: %w", err)
+	}
+
+	return updated, nil
+}
+
+func readAgentConfigMap(path string) (map[string]interface{}, error) {
+	if strings.TrimSpace(path) == "" {
+		return nil, nil
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+
+		return nil, fmt.Errorf("read existing agent config: %w", err)
+	}
+
+	var config map[string]interface{}
+	if err := json.Unmarshal(data, &config); err != nil {
+		return nil, fmt.Errorf("parse existing agent config: %w", err)
+	}
+
+	return config, nil
+}
+
+func stringConfigValue(config map[string]interface{}, key string) string {
+	if len(config) == 0 {
+		return ""
+	}
+
+	value, ok := config[key].(string)
+	if !ok {
+		return ""
+	}
+
+	return strings.TrimSpace(value)
 }
 
 func extractEnvOverrides(content []byte) map[string]string {
