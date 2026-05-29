@@ -585,6 +585,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
               String.starts_with?(path, "/settings/agents/plugins") or
                 String.starts_with?(path, "/admin/plugins"),
             show: can_plugins
+          },
+          %{
+            label: "Add-ons",
+            navigate: ~p"/settings/agents/addons",
+            active:
+              String.starts_with?(path, "/settings/agents/addons") or
+                String.starts_with?(path, "/admin/addons"),
+            show: can_plugins
           }
         ],
         &Map.get(&1, :show, true)
@@ -655,6 +663,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           active:
             String.starts_with?(path, "/settings/agents/plugins") or
               String.starts_with?(path, "/admin/plugins"),
+          show: can_plugins
+        },
+        %{
+          label: "Add-ons",
+          href: ~p"/settings/agents/addons",
+          active:
+            String.starts_with?(path, "/settings/agents/addons") or
+              String.starts_with?(path, "/admin/addons"),
           show: can_plugins
         }
       ],

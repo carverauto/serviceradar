@@ -8,6 +8,8 @@ defmodule ServiceRadarWebNG.Plugins do
     deps: [ServiceRadarWebNG, ServiceRadarWebNG.Web],
     exports: :all
 
+  alias ServiceRadarWebNG.Plugins.AddonAssignments
+  alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Registry
@@ -31,4 +33,11 @@ defmodule ServiceRadarWebNG.Plugins do
   defdelegate create_assignment(attrs, opts \\ []), to: Assignments, as: :create
   defdelegate update_assignment(id, attrs, opts \\ []), to: Assignments, as: :update
   defdelegate delete_assignment(id, opts \\ []), to: Assignments, as: :delete
+
+  defdelegate list_addon_packages(filters \\ %{}, opts \\ []), to: AddonPackages, as: :list
+  defdelegate list_approved_addon_packages(opts \\ []), to: AddonPackages, as: :list_approved
+  defdelegate get_addon_package(id, opts \\ []), to: AddonPackages, as: :get
+  defdelegate list_addon_assignments(filters \\ %{}, opts \\ []), to: AddonAssignments, as: :list
+  defdelegate create_addon_assignment(attrs, opts \\ []), to: AddonAssignments, as: :create
+  defdelegate delete_addon_assignment(id, opts \\ []), to: AddonAssignments, as: :delete
 end
