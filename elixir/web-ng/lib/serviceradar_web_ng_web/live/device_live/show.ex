@@ -42,6 +42,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceFormData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowIpEnrichment
@@ -1385,7 +1387,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
             "model" => Map.get(device_row, "model", ""),
             "is_managed" => Map.get(device_row, "is_managed", false),
             "is_trusted" => Map.get(device_row, "is_trusted", false),
-            "tags" => format_tags_for_edit(Map.get(device_row, "tags"))
+            "tags" => DeviceFormData.format_tags(Map.get(device_row, "tags"))
           }
         else
           %{}
@@ -1409,7 +1411,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     case load_device(scope, device_uid) do
       {:ok, device} ->
-        deleted_by = deleted_by_from_scope(scope)
+        deleted_by = DeviceStateData.deleted_by_from_scope(scope)
 
         case Device.soft_delete(device, "ui_delete", deleted_by, scope: scope) do
           {:ok, _} ->
@@ -1521,7 +1523,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         socket
       ) do
     scope = socket.assigns.current_scope
-    insecure_skip_verify = parse_bool_param(params["insecure_skip_verify"]) == true
+    insecure_skip_verify = DeviceFormData.parse_bool(params["insecure_skip_verify"]) == true
 
     cond do
       not can_view_device?(scope) ->
@@ -2282,15 +2284,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     )
   end
 
-  defp format_tags_for_edit(nil), do: ""
-  defp format_tags_for_edit(tags) when is_list(tags), do: Enum.join(tags, "\n")
-
-  defp format_tags_for_edit(tags) when is_map(tags) do
-    Enum.map_join(tags, "\n", fn {k, v} -> if v, do: "#{k}=#{v}", else: k end)
-  end
-
-  defp format_tags_for_edit(_), do: ""
-
   defp reload_flows_with_facets(socket, uid, facets) do
     scope = socket.assigns.current_scope
     srql_mod = srql_module()
@@ -2472,17 +2465,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         :can_view_northbound_history,
         RBAC.can?(assigns.current_scope, "northbound.actions.view")
       )
-      |> assign(:device_ansible_managed, ansible_managed?(device_row))
-      |> assign(:device_deleted, deleted_device?(device_row))
+      |> assign(:device_ansible_managed, DeviceStateData.ansible_managed?(device_row))
+      |> assign(:device_deleted, DeviceStateData.deleted?(device_row))
       |> assign(:device_active, device_active_state(device_row, MetadataData.row_metadata(device_row)))
-      |> assign(:device_display_name, device_display_name(device_row))
-      |> assign(:agent_device, agent_device?(device_row))
-      |> assign(:proxmox_console_target, proxmox_console_target?(Map.get(assigns, :virtualization_summary)))
+      |> assign(:device_display_name, DeviceStateData.display_name(device_row))
+      |> assign(:agent_device, DeviceStateData.agent?(device_row))
+      |> assign(
+        :proxmox_console_target,
+        DeviceStateData.proxmox_console_target?(Map.get(assigns, :virtualization_summary))
+      )
       |> assign(
         :proxmox_console_path,
-        proxmox_console_path(assigns.device_uid, Map.get(assigns, :virtualization_summary))
+        DeviceStateData.proxmox_console_path(assigns.device_uid, Map.get(assigns, :virtualization_summary))
       )
-      |> assign(:proxmox_console_action_label, proxmox_console_action_label(Map.get(assigns, :virtualization_summary)))
+      |> assign(
+        :proxmox_console_action_label,
+        DeviceStateData.proxmox_console_action_label(Map.get(assigns, :virtualization_summary))
+      )
       |> assign(:rdp_target_path, RemoteAccessData.rdp_target_new_path(assigns.device_uid, device_row))
       |> assign(
         :active_fingerprint_tab_visible,
@@ -2940,31 +2939,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
 
-  defp ansible_managed?(%{ansible_managed: true}), do: true
-  defp ansible_managed?(%{"ansible_managed" => true}), do: true
-  defp ansible_managed?(_), do: false
-
-  defp proxmox_console_target?(%{kind: :host, host: %{provider: "proxmox"}}), do: true
-
-  defp proxmox_console_target?(_summary), do: false
-
-  defp proxmox_console_action_label(%{kind: :host}), do: "Open PVE shell"
-
-  defp proxmox_console_action_label(_summary), do: "Open console"
-
-  defp proxmox_console_path(device_uid, %{kind: :host}) do
-    ~p"/devices/#{device_uid}/proxmox-console?#{[target_kind: "pve_host", console_mode: "proxmox_termproxy"]}"
-  end
-
-  defp proxmox_console_path(device_uid, _summary), do: ~p"/devices/#{device_uid}/proxmox-console"
-
-  defp deleted_device?(row) when is_map(row) do
-    value = Map.get(row, "deleted_at")
-    not is_nil(value) and value != ""
-  end
-
-  defp deleted_device?(_), do: false
-
   defp load_device(scope, device_uid) do
     case Device.get_by_uid(device_uid, true, scope: scope) do
       {:ok, nil} -> {:error, :not_found}
@@ -3000,9 +2974,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         ip: params["ip"],
         vendor_name: params["vendor_name"],
         model: params["model"],
-        is_managed: parse_bool_param(params["is_managed"]),
-        is_trusted: parse_bool_param(params["is_trusted"]),
-        tags: parse_tags_input(params["tags"])
+        is_managed: DeviceFormData.parse_bool(params["is_managed"]),
+        is_trusted: DeviceFormData.parse_bool(params["is_trusted"]),
+        tags: DeviceFormData.parse_tags(params["tags"])
       }
       |> Enum.reject(fn {_k, v} -> is_nil(v) or v == "" end)
       |> Map.new()
@@ -3019,64 +2993,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  defp parse_tags_input(nil), do: %{}
-  defp parse_tags_input(""), do: %{}
-
-  defp parse_tags_input(tags_string) when is_binary(tags_string) do
-    tags_string
-    |> String.split("\n")
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.reduce(%{}, fn line, acc ->
-      case String.split(line, "=", parts: 2) do
-        [key, value] -> Map.put(acc, String.trim(key), String.trim(value))
-        [key] -> Map.put(acc, String.trim(key), nil)
-      end
-    end)
-  end
-
-  defp parse_bool_param(value) when value in [true, false], do: value
-  defp parse_bool_param("true"), do: true
-  defp parse_bool_param("false"), do: false
-  defp parse_bool_param("on"), do: true
-  defp parse_bool_param("1"), do: true
-  defp parse_bool_param("0"), do: false
-  defp parse_bool_param(_), do: nil
-
-  defp agent_device?(row) when is_map(row) do
-    row
-    |> linked_agent_list()
-    |> Enum.any?()
-  end
-
-  defp agent_device?(_), do: false
-
-  defp linked_agent_list(row) when is_map(row) do
-    row
-    |> agent_list()
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp linked_agent_list(_), do: []
-
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
-
-  defp device_display_name(nil), do: "Device"
-
-  defp device_display_name(row) when is_map(row) do
-    hostname = Map.get(row, "hostname")
-    ip = Map.get(row, "ip")
-
-    cond do
-      is_binary(hostname) and hostname != "" -> hostname
-      is_binary(ip) and ip != "" -> ip
-      true -> "Device"
-    end
-  end
-
-  defp device_display_name(_), do: "Device"
-
   defp format_ash_error(%Invalid{errors: errors}) do
     Enum.map_join(errors, ", ", &format_single_ash_error/1)
   end
@@ -3090,12 +3006,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp format_single_ash_error(%{message: msg}) when is_binary(msg), do: msg
 
   defp format_single_ash_error(err), do: inspect(err)
-
-  defp deleted_by_from_scope(%{user: user}) when is_map(user) do
-    Map.get(user, :email) || Map.get(user, :id)
-  end
-
-  defp deleted_by_from_scope(_), do: nil
 
   defp stale_record_error?(%Invalid{errors: errors}) when is_list(errors) do
     Enum.any?(errors, &match?(%Ash.Error.Changes.StaleRecord{}, &1))
