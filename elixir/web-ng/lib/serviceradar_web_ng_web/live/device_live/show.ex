@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
+  import ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
   import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
@@ -3607,111 +3608,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           </div>
 
     <!-- View Mode -->
-          <div
+          <.device_summary_section
             :if={is_map(@device_row) and not @editing}
-            class="rounded-xl border border-base-200 bg-base-100 p-4"
-          >
-            <div class="grid grid-cols-1 xl:grid-cols-3 gap-3">
-              <div class="card bg-base-100 border border-base-300">
-                <div class="card-body p-4 gap-2">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-identification" class="size-4 text-primary" />
-                    <h3 class="text-sm font-semibold">Identity</h3>
-                  </div>
-                  <div class="space-y-1 text-sm">
-                    <.kv_inline label="Hostname" value={Map.get(@device_row, "hostname")} />
-                    <.kv_inline label="IP" value={Map.get(@device_row, "ip")} mono />
-                    <.kv_inline label="Type" value={device_type_label(@device_row)} />
-                    <.kv_inline label="Vendor" value={Map.get(@device_row, "vendor_name")} />
-                    <.kv_inline
-                      :if={present?(Map.get(@device_row, "model"))}
-                      label="Model"
-                      value={Map.get(@device_row, "model")}
-                    />
-                    <.kv_inline
-                      label="Classification"
-                      value={classification_provenance_label(@device_row)}
-                    />
-                    <.kv_inline
-                      :if={agent_device?(@device_row)}
-                      label="Agent"
-                      value={agent_label(@device_row)}
-                      mono
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div class="card bg-base-100 border border-base-300">
-                <div class="card-body p-4 gap-2">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-signal" class="size-4 text-info" />
-                    <h3 class="text-sm font-semibold">SNMP</h3>
-                  </div>
-                  <div class="space-y-1 text-sm">
-                    <.kv_inline
-                      label="SNMP Name"
-                      value={snmp_metadata_value(@device_row, "snmp_name", "sys_name")}
-                    />
-                    <.kv_inline
-                      label="SNMP Owner"
-                      value={snmp_owner(@device_row)}
-                    />
-                    <.kv_inline
-                      label="SNMP Location"
-                      value={snmp_metadata_value(@device_row, "snmp_location", "sys_location")}
-                    />
-                    <.kv_inline
-                      label="SNMP Description"
-                      value={snmp_metadata_value(@device_row, "snmp_description", "sys_descr")}
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div class="card bg-base-100 border border-base-300">
-                <div class="card-body p-4 gap-2">
-                  <div class="flex items-center gap-2">
-                    <.icon name="hero-clock" class="size-4 text-success" />
-                    <h3 class="text-sm font-semibold">Status</h3>
-                  </div>
-                  <div class="space-y-1 text-sm">
-                    <.kv_inline
-                      :if={present?(Map.get(@device_row, "gateway_id"))}
-                      label="Gateway"
-                      value={Map.get(@device_row, "gateway_id")}
-                      mono
-                    />
-                    <.kv_inline
-                      label="Last Seen"
-                      value={
-                        format_timestamp(
-                          Map.get(@device_row, "last_seen") || Map.get(@device_row, "last_seen_time")
-                        )
-                      }
-                      mono
-                    />
-                    <.kv_inline
-                      :if={@device_deleted}
-                      label="Deleted At"
-                      value={Map.get(@device_row, "deleted_at")}
-                      mono
-                    />
-                    <.kv_inline
-                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_by"))}
-                      label="Deleted By"
-                      value={Map.get(@device_row, "deleted_by")}
-                    />
-                    <.kv_inline
-                      :if={@device_deleted and present?(Map.get(@device_row, "deleted_reason"))}
-                      label="Deleted Reason"
-                      value={Map.get(@device_row, "deleted_reason")}
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+            device_row={@device_row}
+            device_deleted={@device_deleted}
+            editing={@editing}
+          />
 
     <!-- Edit Mode -->
           <.device_edit_section
@@ -4125,107 +4027,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp metadata_value(_row, _key), do: nil
-
-  defp snmp_metadata_value(row, primary_key, fallback_key) when is_map(row) do
-    metadata_value(row, primary_key) || metadata_value(row, fallback_key)
-  end
-
-  defp snmp_metadata_value(_row, _primary_key, _fallback_key), do: nil
-
-  defp snmp_owner(row) when is_map(row) do
-    owner_name =
-      case Map.get(row, "owner") do
-        %{"name" => name} when is_binary(name) and name != "" -> name
-        _ -> nil
-      end
-
-    owner_name ||
-      metadata_value(row, "snmp_owner") ||
-      metadata_value(row, "sys_owner") ||
-      metadata_value(row, "sys_contact")
-  end
-
-  defp snmp_owner(_row), do: nil
-
-  defp classification_provenance_label(row) when is_map(row) do
-    source = row |> metadata_value("classification_source") |> normalize_metadata_source()
-    rule_id = metadata_value(row, "classification_rule_id")
-
-    cond do
-      present?(rule_id) ->
-        "Rule-based (#{rule_id})"
-
-      source in ["snmp_fallback", "snmp_fingerprint_fallback"] or snmp_fallback_derived?(row) ->
-        "SNMP fallback-derived"
-
-      true ->
-        "Unspecified"
-    end
-  end
-
-  defp classification_provenance_label(_row), do: "Unspecified"
-
-  defp device_type_label(row) when is_map(row) do
-    first_present([
-      Map.get(row, "type"),
-      metadata_value(row, "armis_type"),
-      metadata_value(row, "device_type"),
-      metadata_value(row, "type"),
-      metadata_value(row, "armis_category"),
-      metadata_value(row, "category"),
-      device_type_name(Map.get(row, "type_id"))
-    ])
-  end
-
-  defp device_type_label(_row), do: nil
-
-  defp device_type_name(0), do: "Unknown"
-  defp device_type_name(1), do: "Server"
-  defp device_type_name(2), do: "Desktop"
-  defp device_type_name(3), do: "Laptop"
-  defp device_type_name(4), do: "Tablet"
-  defp device_type_name(5), do: "Mobile"
-  defp device_type_name(6), do: "Virtual"
-  defp device_type_name(7), do: "IOT"
-  defp device_type_name(8), do: "Browser"
-  defp device_type_name(9), do: "Firewall"
-  defp device_type_name(10), do: "Switch"
-  defp device_type_name(11), do: "Hub"
-  defp device_type_name(12), do: "Router"
-  defp device_type_name(13), do: "IDS"
-  defp device_type_name(14), do: "IPS"
-  defp device_type_name(15), do: "Load Balancer"
-  defp device_type_name(99), do: "Other"
-  defp device_type_name(_type_id), do: nil
-
-  defp snmp_fallback_derived?(row) when is_map(row) do
-    metadata = row_metadata(row)
-    has_rule = present?(metadata_value(row, "classification_rule_id"))
-
-    has_display_values =
-      present?(Map.get(row, "type")) or present?(Map.get(row, "vendor_name")) or
-        present?(Map.get(row, "model"))
-
-    has_snmp_evidence =
-      is_map(Map.get(metadata, "snmp_fingerprint")) or
-        present?(Map.get(metadata, "sys_object_id")) or
-        present?(Map.get(metadata, "sys_descr")) or
-        present?(Map.get(metadata, "sys_name")) or
-        present?(Map.get(metadata, "snmp_description")) or
-        present?(Map.get(metadata, "snmp_name")) or
-        present?(Map.get(metadata, "ip_forwarding"))
-
-    not has_rule and has_display_values and has_snmp_evidence
-  end
-
-  defp normalize_metadata_source(nil), do: ""
-
-  defp normalize_metadata_source(value) do
-    value
-    |> to_string()
-    |> String.trim()
-    |> String.downcase()
-  end
 
   defp metadata_first_value(metadata, keys) when is_map(metadata) and is_list(keys) do
     Enum.find_value(keys, fn key ->
@@ -4734,15 +4535,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp parse_datetime(_), do: {:error, :invalid_datetime}
-
-  defp format_timestamp(nil), do: "—"
-
-  defp format_timestamp(value) do
-    case parse_datetime(value) do
-      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
-      _ -> "—"
-    end
-  end
 
   defp first_present(values) when is_list(values) do
     Enum.find_value(values, fn
@@ -6448,23 +6240,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp agent_device?(_), do: false
 
-  defp agent_label(row) do
-    row
-    |> linked_agent_list()
-    |> List.first()
-    |> case do
-      %{} = agent ->
-        agent_value(agent, "name") || agent_value(agent, "uid") || agent_value(agent, "agent_id") ||
-          "Agent"
-
-      value when is_binary(value) and value != "" ->
-        value
-
-      _ ->
-        "Agent"
-    end
-  end
-
   defp linked_agent_list(row) when is_map(row) do
     row
     |> agent_list()
@@ -6475,16 +6250,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp linked_agent_list(_), do: []
 
   defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
-
-  defp agent_value(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || agent_atom_value(map, key)
-  end
-
-  defp agent_atom_value(map, key) do
-    Map.get(map, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> nil
-  end
 
   defp device_display_name(nil), do: "Device"
 
