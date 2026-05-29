@@ -1,32 +1,56 @@
 #!/bin/sh
 set -e
 
+postinstall_root="${SERVICERADAR_POSTINSTALL_ROOT:-}"
+
+root_path() {
+    printf '%s%s' "$postinstall_root" "$1"
+}
+
+serviceradar_etc_dir="$(root_path /etc/serviceradar)"
+serviceradar_var_dir="$(root_path /var/lib/serviceradar)"
+
+validate_partition_id() {
+    case "$1" in
+        ""|*[!A-Za-z0-9_.-]*)
+            echo "Error: SERVICERADAR_OTX_PARTITION must match [A-Za-z0-9_.-]+" >&2
+            return 1
+            ;;
+    esac
+}
+
 # Create serviceradar group if it doesn't exist
-if ! getent group serviceradar >/dev/null; then
-    groupadd --system serviceradar
-fi
+if [ -z "$postinstall_root" ]; then
+    if ! getent group serviceradar >/dev/null; then
+        groupadd --system serviceradar
+    fi
 
-# Create serviceradar user if it doesn't exist
-if ! id -u serviceradar >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar serviceradar
-fi
+    # Create serviceradar user if it doesn't exist
+    if ! id -u serviceradar >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar serviceradar
+    fi
 
-# Create NATS user if it doesn't exist
-if ! id -u nats >/dev/null 2>&1; then
-    useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar nats
+    # Create NATS user if it doesn't exist
+    if ! id -u nats >/dev/null 2>&1; then
+        useradd --system --no-create-home --shell /usr/sbin/nologin -g serviceradar nats
+    fi
 fi
 
 # Create required directories
-mkdir -p /etc/serviceradar
-mkdir -p /var/lib/serviceradar
+mkdir -p "$serviceradar_etc_dir"
+mkdir -p "$serviceradar_var_dir"
 
 # Set permissions
-chown -R serviceradar:serviceradar /etc/serviceradar
-chmod -R 755 /etc/serviceradar
+if [ -z "$postinstall_root" ]; then
+    chown -R serviceradar:serviceradar "$serviceradar_etc_dir"
+fi
+chmod -R 755 "$serviceradar_etc_dir"
 # if the certs dir exists, set permissions
-if [ -d "/etc/serviceradar/certs" ]; then
-    chown -R serviceradar:serviceradar /etc/serviceradar/certs
-    chmod -R 755 /etc/serviceradar/certs
+if [ -d "$serviceradar_etc_dir/certs" ]; then
+    if [ -z "$postinstall_root" ]; then
+        chown -R serviceradar:serviceradar "$serviceradar_etc_dir/certs"
+    fi
+    chmod -R 755 "$serviceradar_etc_dir/certs"
 fi
 
 # Render the partition_id placeholder in the NATS server / cloud-template
@@ -45,26 +69,30 @@ fi
 # value defaults to "default" — the same fallback used by
 # elixir/serviceradar_core/config/runtime.exs and go/pkg/cli/nats_bootstrap.go.
 #
-# We use `sed -i` (in coreutils on every base distro) rather than envsubst
-# (which lives in gettext-base / gettext-envsubst and would add a package
-# dep) because (a) the placeholder is a single literal token chosen to be
-# sed-safe and (b) /etc/nats/nats-server.conf ships as config(noreplace),
-# so on upgrade the operator-edited file is preserved. The `grep -q` guard
-# makes substitution idempotent: once the placeholder is gone, re-runs
-# (e.g. apt reinstall) are no-ops and will not clobber a rendered file.
-if [ -f /etc/serviceradar/nats.env ]; then
+# We use `sed` rather than envsubst (which lives in gettext-base /
+# gettext-envsubst and would add a package dep) because the placeholder is
+# a single literal token chosen to be sed-safe. The rendered file is written
+# through the existing inode so /etc/nats/nats-server.conf keeps its package
+# config(noreplace) ownership and mode. The `grep -q` guard makes
+# substitution idempotent: once the placeholder is gone, re-runs (e.g. apt
+# reinstall) are no-ops and will not clobber a rendered file.
+if [ -f "$serviceradar_etc_dir/nats.env" ]; then
     # shellcheck disable=SC1091
-    . /etc/serviceradar/nats.env
+    . "$serviceradar_etc_dir/nats.env"
 fi
 : "${SERVICERADAR_OTX_PARTITION:=default}"
-for nats_conf in /etc/nats/nats-server.conf /etc/nats/templates/nats-cloud.conf; do
+validate_partition_id "$SERVICERADAR_OTX_PARTITION"
+for nats_conf in "$(root_path /etc/nats/nats-server.conf)" "$(root_path /etc/nats/templates/nats-cloud.conf)"; do
     if [ -f "$nats_conf" ] && grep -q '__SERVICERADAR_PARTITION_ID__' "$nats_conf"; then
-        sed -i "s|__SERVICERADAR_PARTITION_ID__|${SERVICERADAR_OTX_PARTITION}|g" "$nats_conf"
+        tmp_conf="${nats_conf}.tmp.$$"
+        sed "s|__SERVICERADAR_PARTITION_ID__|${SERVICERADAR_OTX_PARTITION}|g" "$nats_conf" > "$tmp_conf"
+        cat "$tmp_conf" > "$nats_conf"
+        rm -f "$tmp_conf"
     fi
 done
 
 # Only try to manage service if it exists
-if [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
+if [ -z "$postinstall_root" ] && [ -f "/lib/systemd/system/serviceradar-${component_dir}.service" ]; then
     # Reload systemd
     systemctl daemon-reload
 
