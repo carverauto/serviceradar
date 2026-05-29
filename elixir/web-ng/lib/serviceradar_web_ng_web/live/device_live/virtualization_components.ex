@@ -1,0 +1,463 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents do
+  @moduledoc false
+
+  use ServiceRadarWebNGWeb, :html
+
+  alias ServiceRadarWebNGWeb.Helpers.VirtualizationLabels
+
+  # ---------------------------------------------------------------------------
+  # Virtualization Section
+  # ---------------------------------------------------------------------------
+
+  attr(:summary, :map, required: true)
+
+  def virtualization_guests_tab(assigns) do
+    guests =
+      case assigns.summary do
+        summary when is_map(summary) -> Map.get(summary, :guests, [])
+        _ -> []
+      end
+
+    running_count = Enum.count(guests, &(to_string(&1.status) == "running"))
+
+    assigns =
+      assigns
+      |> assign(:guests, guests)
+      |> assign(:running_count, running_count)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-squares-2x2" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Guests</span>
+          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            {length(@guests)} total
+          </span>
+        </div>
+        <span class="text-xs text-base-content/60">{@running_count} running</span>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Type</th>
+              <th>VMID</th>
+              <th>Status</th>
+              <th class="text-right">CPU</th>
+              <th class="text-right">Memory</th>
+              <th class="text-right">Disk</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={guest <- @guests}>
+              <td class="font-medium">{guest.name || guest.provider_ref}</td>
+              <td>{virtualization_guest_type_label(guest.guest_type)}</td>
+              <td class="font-mono">{guest.vmid || "—"}</td>
+              <td><.virtualization_health_badge value={guest.status} /></td>
+              <td class="text-right font-mono">{format_virtualization_pct(guest.cpu_ratio)}</td>
+              <td class="text-right font-mono">
+                {format_bytes(guest.memory_used_bytes)}
+                <span class="text-base-content/40">/ {format_bytes(guest.memory_total_bytes)}</span>
+              </td>
+              <td class="text-right font-mono">
+                {virtualization_guest_disk_value(guest)}
+                <span class="text-base-content/40">{virtualization_guest_disk_subvalue(guest)}</span>
+              </td>
+              <td class="text-right">
+                <.link
+                  :if={is_binary(guest.device_uid) and guest.device_uid != ""}
+                  navigate={~p"/devices/#{guest.device_uid}"}
+                  class="btn btn-ghost btn-xs"
+                >
+                  Open
+                </.link>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:summary, :map, required: true)
+
+  def virtualization_section(assigns) do
+    summary = assigns.summary
+    host = Map.get(summary, :host)
+    cluster = Map.get(summary, :cluster)
+    guest = Map.get(summary, :guest)
+    datastores = Map.get(summary, :datastores, [])
+    disks = Map.get(summary, :disks, [])
+    network_interfaces = Map.get(summary, :network_interfaces, [])
+    storage_systems = Map.get(summary, :storage_systems, [])
+    guests = Map.get(summary, :guests, [])
+    storage_total = Enum.sum(Enum.map(datastores, &(&1.total_bytes || 0)))
+    storage_used = Enum.sum(Enum.map(datastores, &(&1.used_bytes || 0)))
+    storage_pct = percent_of(storage_used, storage_total)
+    running_guests = Enum.count(guests, &(to_string(&1.status) == "running"))
+    ceph = Enum.find(storage_systems, &(to_string(&1.storage_system_type) == "ceph"))
+    observed_at = observed_at_for_virtualization(host, guest)
+    provider_label = VirtualizationLabels.provider_label(host || guest)
+
+    assigns =
+      assigns
+      |> assign(:host, host)
+      |> assign(:cluster, cluster)
+      |> assign(:guest, guest)
+      |> assign(:datastores, datastores)
+      |> assign(:disks, disks)
+      |> assign(:network_interfaces, network_interfaces)
+      |> assign(:storage_systems, storage_systems)
+      |> assign(:guests, guests)
+      |> assign(:storage_total, storage_total)
+      |> assign(:storage_used, storage_used)
+      |> assign(:storage_pct, storage_pct)
+      |> assign(:running_guests, running_guests)
+      |> assign(:ceph, ceph)
+      |> assign(:observed_at, observed_at)
+      |> assign(:provider_label, provider_label)
+
+    ~H"""
+    <div class="rounded-xl border border-base-200 bg-base-100">
+      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
+        <div class="flex items-center gap-2">
+          <.icon name="hero-server-stack" class="size-4 text-primary" />
+          <span class="text-sm font-semibold">Virtualization</span>
+          <span class="rounded-full bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+            {@provider_label}
+          </span>
+        </div>
+        <span class="text-xs text-base-content/50 font-mono">{format_timestamp(@observed_at)}</span>
+      </div>
+
+      <div class="p-4 space-y-4">
+        <div :if={@host} class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <.virtualization_stat
+            icon="hero-cpu-chip"
+            label="CPU"
+            value={format_virtualization_pct(@host.cpu_ratio)}
+            subvalue={@host.status}
+          />
+          <.virtualization_stat
+            icon="hero-circle-stack"
+            label="Memory"
+            value={format_bytes(@host.memory_used_bytes)}
+            subvalue={"of #{format_bytes(@host.memory_total_bytes)}"}
+          />
+          <.virtualization_stat
+            icon="hero-square-3-stack-3d"
+            label="Storage"
+            value={format_bytes(@storage_used)}
+            subvalue={"#{format_pct(@storage_pct)}% of #{format_bytes(@storage_total)}"}
+          />
+          <.virtualization_stat
+            icon="hero-squares-2x2"
+            label="Guests"
+            value={Integer.to_string(length(@guests))}
+            subvalue={"#{@running_guests} running"}
+          />
+        </div>
+
+        <div :if={@cluster} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0 flex items-center gap-2">
+              <.icon name="hero-cube-transparent" class="size-4 text-info" />
+              <span class="truncate text-sm font-medium">{@cluster.name}</span>
+            </div>
+            <div class="flex items-center gap-2">
+              <span :if={@cluster.version} class="font-mono text-xs text-base-content/60">
+                {@cluster.version}
+              </span>
+              <.virtualization_health_badge value={@cluster.status} />
+            </div>
+          </div>
+        </div>
+
+        <div :if={@guest} class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+          <.virtualization_stat
+            icon="hero-squares-2x2"
+            label="Guest Type"
+            value={virtualization_guest_type_label(@guest.guest_type)}
+            subvalue={@guest.status}
+          />
+          <.virtualization_stat
+            icon="hero-cpu-chip"
+            label="CPU"
+            value={format_virtualization_pct(@guest.cpu_ratio)}
+          />
+          <.virtualization_stat
+            icon="hero-circle-stack"
+            label="Memory"
+            value={format_bytes(@guest.memory_used_bytes)}
+            subvalue={"of #{format_bytes(@guest.memory_total_bytes)}"}
+          />
+          <.virtualization_stat
+            icon="hero-square-3-stack-3d"
+            label="Disk"
+            value={virtualization_guest_disk_value(@guest)}
+            subvalue={virtualization_guest_disk_subvalue(@guest)}
+          />
+        </div>
+
+        <div :if={@ceph} class="rounded-lg border border-base-200 bg-base-200/30 px-3 py-2">
+          <div class="flex items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <.icon name="hero-circle-stack" class="size-4 text-info" />
+              <span class="text-sm font-medium">Ceph</span>
+            </div>
+            <.virtualization_health_badge value={@ceph.health || @ceph.status} />
+          </div>
+        </div>
+
+        <div :if={@datastores != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Datastores</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th class="text-right">Used</th>
+                  <th class="text-right">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={store <- Enum.take(@datastores, 8)}>
+                  <td class="font-medium">{store.name}</td>
+                  <td>{store.storage_type || "—"}</td>
+                  <td>
+                    <span class={["badge badge-xs", store.active && "badge-success"]}>
+                      {virtualization_datastore_status(store)}
+                    </span>
+                  </td>
+                  <td class="text-right font-mono">{format_bytes(store.used_bytes)}</td>
+                  <td class="text-right font-mono">{format_bytes(store.total_bytes)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div :if={@disks != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Host Disks</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Path</th>
+                  <th>Model</th>
+                  <th>Type</th>
+                  <th>Health</th>
+                  <th class="text-right">Size</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={disk <- Enum.take(@disks, 8)}>
+                  <td class="font-mono">{disk.path || disk.by_id || "—"}</td>
+                  <td>{disk.model || "—"}</td>
+                  <td>{disk.disk_type || "—"}</td>
+                  <td><.virtualization_health_badge value={disk.health} /></td>
+                  <td class="text-right font-mono">{format_bytes(disk.size_bytes)}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div :if={@network_interfaces != []} class="space-y-2">
+          <h4 class="text-xs font-semibold uppercase text-base-content/50">Network</h4>
+          <div class="overflow-x-auto">
+            <table class="table table-xs">
+              <thead>
+                <tr>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>State</th>
+                  <th>Address</th>
+                  <th>Bridge Ports</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr :for={iface <- Enum.take(@network_interfaces, 8)}>
+                  <td class="font-medium">{iface.name}</td>
+                  <td>{iface.interface_type || "—"}</td>
+                  <td>
+                    <span class={["badge badge-xs", iface.active && "badge-success"]}>
+                      {if iface.active, do: "active", else: "inactive"}
+                    </span>
+                  </td>
+                  <td class="font-mono">{virtualization_interface_address(iface)}</td>
+                  <td>{iface.bridge_ports || "—"}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:icon, :string, required: true)
+  attr(:label, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:subvalue, :string, default: nil)
+
+  defp virtualization_stat(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+      <div class="flex items-center gap-2 text-xs text-base-content/60">
+        <.icon name={@icon} class="size-4" />
+        <span>{@label}</span>
+      </div>
+      <div class="mt-2 text-lg font-semibold">{@value}</div>
+      <div :if={present?(@subvalue)} class="text-xs text-base-content/50">{@subvalue}</div>
+    </div>
+    """
+  end
+
+  attr(:value, :any, default: nil)
+
+  defp virtualization_health_badge(assigns) do
+    label = assigns.value |> to_string() |> String.trim() |> blank_to_value("unknown")
+
+    assigns =
+      assigns
+      |> assign(:label, label)
+      |> assign(:class, virtualization_health_class(label))
+
+    ~H"""
+    <span class={["badge badge-xs", @class]}>{@label}</span>
+    """
+  end
+
+  defp observed_at_for_virtualization(%{observed_at: observed_at}, _guest), do: observed_at
+  defp observed_at_for_virtualization(_host, %{observed_at: observed_at}), do: observed_at
+  defp observed_at_for_virtualization(_host, _guest), do: nil
+
+  defp percent_of(_used, total) when total in [nil, 0], do: nil
+  defp percent_of(used, total) when is_number(used) and is_number(total), do: used / total * 100.0
+  defp percent_of(_used, _total), do: nil
+
+  defp format_virtualization_pct(value) when is_number(value), do: "#{format_pct(value * 100.0)}%"
+  defp format_virtualization_pct(_value), do: "—"
+
+  defp virtualization_guest_type_label("vm"), do: "VM"
+  defp virtualization_guest_type_label("container"), do: "LXC"
+  defp virtualization_guest_type_label(value) when is_binary(value), do: String.upcase(value)
+  defp virtualization_guest_type_label(_value), do: "Guest"
+
+  defp virtualization_guest_disk_value(%{disk_used_bytes: used}) when is_integer(used) and used > 0 do
+    format_bytes(used)
+  end
+
+  defp virtualization_guest_disk_value(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
+    "Usage unavailable"
+  end
+
+  defp virtualization_guest_disk_value(_guest), do: "—"
+
+  defp virtualization_guest_disk_subvalue(%{disk_used_bytes: used, disk_total_bytes: total})
+       when is_integer(used) and used > 0 and is_integer(total) and total > 0 do
+    "of #{format_bytes(total)}"
+  end
+
+  defp virtualization_guest_disk_subvalue(%{disk_total_bytes: total}) when is_integer(total) and total > 0 do
+    "provisioned #{format_bytes(total)}"
+  end
+
+  defp virtualization_guest_disk_subvalue(_guest), do: nil
+
+  defp virtualization_datastore_status(%{active: true, enabled: false}), do: "disabled"
+  defp virtualization_datastore_status(%{active: true}), do: "active"
+  defp virtualization_datastore_status(%{enabled: false}), do: "disabled"
+  defp virtualization_datastore_status(_store), do: "inactive"
+
+  defp virtualization_interface_address(%{ip_addresses: [first | rest]}) when is_binary(first) do
+    suffix = if rest == [], do: "", else: " +#{length(rest)}"
+    "#{first}#{suffix}"
+  end
+
+  defp virtualization_interface_address(%{address: address}) when is_binary(address) and address != "", do: address
+
+  defp virtualization_interface_address(%{cidr: cidr}) when is_binary(cidr) and cidr != "", do: cidr
+
+  defp virtualization_interface_address(_iface), do: "—"
+
+  def virtualization_guests?(%{guests: guests}) when is_list(guests), do: guests != []
+  def virtualization_guests?(_summary), do: false
+
+  defp virtualization_health_class(value) do
+    normalized = value |> to_string() |> String.downcase()
+
+    cond do
+      normalized in ["passed", "ok", "health_ok", "online"] ->
+        "badge-success"
+
+      String.contains?(normalized, "warn") ->
+        "badge-warning"
+
+      String.contains?(normalized, "fail") or String.contains?(normalized, "crit") ->
+        "badge-error"
+
+      true ->
+        "badge-ghost"
+    end
+  end
+
+  defp blank_to_value("", fallback), do: fallback
+  defp blank_to_value(nil, fallback), do: fallback
+  defp blank_to_value(value, _fallback), do: value
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(value), do: not is_nil(value)
+
+  defp format_timestamp(nil), do: "—"
+
+  defp format_timestamp(value) do
+    case parse_datetime(value) do
+      {:ok, %DateTime{} = dt} -> Calendar.strftime(dt, "%Y-%m-%d %H:%M:%S")
+      _ -> "—"
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = dt), do: {:ok, dt}
+
+  defp parse_datetime(%NaiveDateTime{} = ndt) do
+    {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+  end
+
+  defp parse_datetime(value) when is_binary(value) do
+    with {:error, _} <- DateTime.from_iso8601(value),
+         {:ok, ndt} <- NaiveDateTime.from_iso8601(value) do
+      {:ok, DateTime.from_naive!(ndt, "Etc/UTC")}
+    else
+      {:ok, dt, _offset} -> {:ok, dt}
+      {:error, _} -> {:error, :invalid_datetime}
+    end
+  end
+
+  defp parse_datetime(_), do: {:error, :invalid_datetime}
+
+  defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
+  defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
+  defp format_pct(_), do: "—"
+
+  defp format_bytes(bytes) when is_number(bytes) do
+    cond do
+      bytes >= 1_099_511_627_776 -> "#{Float.round(bytes / 1_099_511_627_776 * 1.0, 1)} TB"
+      bytes >= 1_073_741_824 -> "#{Float.round(bytes / 1_073_741_824 * 1.0, 1)} GB"
+      bytes >= 1_048_576 -> "#{Float.round(bytes / 1_048_576 * 1.0, 1)} MB"
+      bytes >= 1024 -> "#{Float.round(bytes / 1024 * 1.0, 1)} KB"
+      true -> "#{bytes} B"
+    end
+  end
+
+  defp format_bytes(_), do: "—"
+end
