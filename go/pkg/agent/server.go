@@ -75,6 +75,14 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 		log.Warn().Err(err).Msg("Failed to initialize SNMP service, continuing without it")
 	}
 
+	// Initialize flow publisher (NATS connection for `flow.host-slice.<agent-id>`).
+	// Optional: only connects when nats_url + nats_creds_file are present in the
+	// bootstrap config (written by edge-bundle generator for :agent packages).
+	// Backwards-compatible: when keys are absent, the agent runs without it.
+	if err := s.initFlowPublisher(ctx); err != nil {
+		log.Warn().Err(err).Msg("Failed to initialize flow publisher, continuing without it")
+	}
+
 	return s, nil
 }
 
@@ -440,6 +448,11 @@ func (s *Server) Stop(_ context.Context) error {
 		if err := s.sidecarManager.Stop(context.Background()); err != nil {
 			s.logger.Error().Err(err).Msg("Failed to stop sidecar manager")
 		}
+	}
+
+	// Drain and close the NATS flow publisher connection if present.
+	if s.flowPublisher != nil {
+		s.flowPublisher.Close()
 	}
 
 	// Stop sysmon service if running
