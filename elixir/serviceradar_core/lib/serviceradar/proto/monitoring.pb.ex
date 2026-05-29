@@ -460,6 +460,11 @@ defmodule Monitoring.AddonAssignmentConfig do
   field(:capabilities, 7, repeated: true, type: :string)
   field(:delivery, 8, type: :string)
   field(:supervision, 9, type: :string)
+  field(:artifact_object_key, 10, type: :string, json_name: "artifactObjectKey")
+  field(:artifact_sha256, 11, type: :string, json_name: "artifactSha256")
+  field(:artifact_signature, 12, type: :string, json_name: "artifactSignature")
+  field(:target_os, 13, type: :string, json_name: "targetOs")
+  field(:target_arch, 14, type: :string, json_name: "targetArch")
 end
 
 defmodule Monitoring.AgentConfigChunk do

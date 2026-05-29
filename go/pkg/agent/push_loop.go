@@ -3197,7 +3197,37 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			continue
 		}
 
-		if a.GetBinaryPath() == "" {
+		binaryPath := a.GetBinaryPath()
+
+		// For pushed_artifact delivery, fetch + verify + stage the signed artifact
+		// from object storage and run the resolved staged binary. compiled_in /
+		// os_package rely on binary_path already being present on the host.
+		if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" {
+			p.server.mu.RLock()
+			store := p.server.objectStore
+			p.server.mu.RUnlock()
+
+			resolved, err := stageAddonArtifact(ctx, store, resolveAddonArtifactRoot(""), a)
+			if err != nil {
+				p.logger.Warn().
+					Err(err).
+					Str("addon", a.GetAddonId()).
+					Str("object_key", a.GetArtifactObjectKey()).
+					Msg("Failed to stage pushed-artifact add-on; assignment not applied")
+
+				continue
+			}
+
+			if a.GetArtifactSignature() == "" {
+				p.logger.Warn().
+					Str("addon", a.GetAddonId()).
+					Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
+			}
+
+			binaryPath = resolved
+		}
+
+		if binaryPath == "" {
 			p.logger.Warn().
 				Str("addon", a.GetAddonId()).
 				Str("delivery", delivery).
@@ -3208,7 +3238,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		specs = append(specs, agentaddon.Spec{
 			ID:           a.GetAddonId(),
 			Version:      a.GetVersion(),
-			BinaryPath:   a.GetBinaryPath(),
+			BinaryPath:   binaryPath,
 			Args:         a.GetArgs(),
 			ConfigJSON:   a.GetConfigJson(),
 			Capabilities: a.GetCapabilities(),
