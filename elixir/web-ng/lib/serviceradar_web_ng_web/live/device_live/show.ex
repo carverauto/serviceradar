@@ -2,7 +2,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents, only: [normalize_interface_metrics_layout: 1]
   import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents, only: [virtualization_guests?: 1]
   import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [active_fingerprint_tab_visible?: 2]
 
@@ -24,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
@@ -1707,54 +1707,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   # ---------------------------------------------------------------------------
 
   def handle_event("toggle_interface_select", %{"uid" => uid}, socket) do
-    selected = socket.assigns.selected_interfaces
-
-    updated =
-      if MapSet.member?(selected, uid) do
-        MapSet.delete(selected, uid)
-      else
-        MapSet.put(selected, uid)
-      end
-
-    {:noreply, assign(socket, :selected_interfaces, updated)}
+    {:noreply, InterfaceRuntime.toggle_select(socket, uid)}
   end
 
   def handle_event("toggle_select_all_interfaces", _params, socket) do
-    interfaces = socket.assigns.network_interfaces
-    selected = socket.assigns.selected_interfaces
-
-    all_uids =
-      interfaces |> Enum.map(&Map.get(&1, "interface_uid")) |> Enum.filter(& &1) |> MapSet.new()
-
-    updated =
-      if MapSet.size(selected) == MapSet.size(all_uids) and MapSet.equal?(selected, all_uids) do
-        MapSet.new()
-      else
-        all_uids
-      end
-
-    {:noreply, assign(socket, :selected_interfaces, updated)}
+    {:noreply, InterfaceRuntime.toggle_select_all(socket)}
   end
 
   def handle_event("clear_interface_selection", _params, socket) do
-    {:noreply, assign(socket, :selected_interfaces, MapSet.new())}
+    {:noreply, InterfaceRuntime.clear_selection(socket)}
   end
 
   def handle_event("run_task_for_interface_selection", _params, socket) do
-    cond do
-      not NorthboundInterfaceRuntime.can_launch?(socket.assigns.current_scope) ->
-        {:noreply, put_flash(socket, :error, NorthboundInterfaceRuntime.launch_permission_error())}
-
-      MapSet.size(socket.assigns.selected_interfaces) == 0 ->
-        {:noreply, put_flash(socket, :error, "Select at least one interface before Run Task.")}
-
-      socket.assigns.northbound_interface_actions == [] ->
-        {:noreply, put_flash(socket, :error, "No launchable interface task integrations are configured.")}
-
-      true ->
-        action = List.first(socket.assigns.northbound_interface_actions)
-        {:noreply, NorthboundInterfaceRuntime.open_modal(socket, action)}
-    end
+    {:noreply, InterfaceRuntime.run_task_for_selection(socket)}
   end
 
   def handle_event("close_northbound_interface_action_modal", _params, socket) do
@@ -1770,109 +1735,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("open_interfaces_bulk_edit", _params, socket) do
-    {:noreply, assign(socket, :show_interfaces_bulk_edit, true)}
+    {:noreply, InterfaceRuntime.open_bulk_edit(socket)}
   end
 
   def handle_event("close_interfaces_bulk_edit", _params, socket) do
-    {:noreply,
-     socket
-     |> assign(:show_interfaces_bulk_edit, false)
-     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))}
+    {:noreply, InterfaceRuntime.close_bulk_edit(socket)}
   end
 
   def handle_event("apply_interfaces_bulk_edit", %{"bulk" => params}, socket) do
-    selected = socket.assigns.selected_interfaces
-    device_uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    action = Map.get(params, "action", "favorite")
-
-    {socket, success_count, action_label} =
-      case action do
-        "favorite" ->
-          # Add all selected to favorites and persist
-          {count, new_favorites} =
-            InterfaceData.bulk_update_favorites(
-              scope,
-              device_uid,
-              selected,
-              true,
-              socket.assigns.favorited_interfaces
-            )
-
-          {assign(socket, :favorited_interfaces, new_favorites), count, "added to favorites"}
-
-        "unfavorite" ->
-          # Remove all selected from favorites and persist
-          {count, new_favorites} =
-            InterfaceData.bulk_update_favorites(
-              scope,
-              device_uid,
-              selected,
-              false,
-              socket.assigns.favorited_interfaces
-            )
-
-          {assign(socket, :favorited_interfaces, new_favorites), count, "removed from favorites"}
-
-        "enable_metrics" ->
-          # Enable metrics collection for all selected interfaces
-          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, true)
-          {socket, count, "enabled for metrics collection"}
-
-        "disable_metrics" ->
-          # Disable metrics collection for all selected interfaces
-          count = InterfaceData.bulk_update_metrics(scope, device_uid, selected, false)
-          {socket, count, "disabled for metrics collection"}
-
-        "add_tags" ->
-          # Add tags to all selected interfaces
-          tags_string = Map.get(params, "tags", "")
-          tags = InterfaceData.parse_tags(tags_string)
-
-          if tags == [] do
-            {socket, 0, "tagged (no tags provided)"}
-          else
-            count = InterfaceData.bulk_update_tags(scope, device_uid, selected, tags)
-            {socket, count, "tagged with: #{Enum.join(tags, ", ")}"}
-          end
-
-        _ ->
-          {socket, 0, "updated"}
-      end
-
-    {:noreply,
-     socket
-     |> assign(:show_interfaces_bulk_edit, false)
-     |> assign(:selected_interfaces, MapSet.new())
-     |> assign(:interfaces_bulk_edit_form, to_form(%{"action" => "favorite"}, as: :bulk))
-     |> put_flash(:info, "#{success_count} interface(s) #{action_label}")}
+    {:noreply, InterfaceRuntime.apply_bulk_edit(socket, params)}
   end
 
   def handle_event("toggle_interface_favorite", %{"uid" => uid}, socket) do
-    favorited = socket.assigns.favorited_interfaces
-    device_uid = socket.assigns.device_uid
-    scope = socket.assigns.current_scope
-    new_favorite_state = not MapSet.member?(favorited, uid)
-
-    # Persist to backend
-    case InterfaceData.upsert_interface_setting(scope, device_uid, uid, %{favorited: new_favorite_state}) do
-      {:ok, _setting} ->
-        updated =
-          if new_favorite_state do
-            MapSet.put(favorited, uid)
-          else
-            MapSet.delete(favorited, uid)
-          end
-
-        {:noreply, assign(socket, :favorited_interfaces, updated)}
-
-      {:error, _reason} ->
-        {:noreply, put_flash(socket, :error, "Failed to update favorite status")}
-    end
+    {:noreply, InterfaceRuntime.toggle_favorite(socket, uid)}
   end
 
   def handle_event("set_interface_metrics_layout", %{"layout" => layout}, socket) do
-    {:noreply, assign(socket, :interface_metrics_layout, normalize_interface_metrics_layout(layout))}
+    {:noreply, InterfaceRuntime.set_metrics_layout(socket, layout)}
   end
 
   @allowed_flow_filter_fields ~w(
