@@ -3,6 +3,7 @@
   "agent_id": "default-agent",
   "catalog_path": "/var/lib/serviceradar/bumblebee/catalog/current",
   "catalog_snapshot_ref": "",
+  "profile_path": "/var/lib/serviceradar/bumblebee/profile/runtime.json",
   "spool_dir": "/var/lib/serviceradar/bumblebee/spool",
   "tmp_dir": "/var/lib/serviceradar/bumblebee/tmp",
   "scan_timeout": "10m",

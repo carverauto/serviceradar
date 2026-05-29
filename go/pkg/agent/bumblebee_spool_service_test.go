@@ -35,6 +35,27 @@ func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	if payload.Metadata["reason"] != "spool_not_found" {
 		t.Fatalf("unexpected metadata: %#v", payload.Metadata)
 	}
+	if !payload.LastScanAt.IsZero() {
+		t.Fatalf("not-scanned payload should not stamp volatile last_scan_at, got %s", payload.LastScanAt)
+	}
+}
+
+func TestBumblebeeSpoolServiceMissingSpoolStatusIsStable(t *testing.T) {
+	spoolPath := filepath.Join(t.TempDir(), "missing.json")
+	service := NewBumblebeeSpoolService(bumblebeeSpoolTestAgentID, &BumblebeeStatusConfig{SpoolPath: spoolPath})
+
+	first, err := service.GetStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := service.GetStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(first.Message) != string(second.Message) {
+		t.Fatalf("missing-spool status should be stable:\nfirst=%s\nsecond=%s", first.Message, second.Message)
+	}
 }
 
 func TestBumblebeeSpoolServiceInjectsMissingAgentID(t *testing.T) {
@@ -63,7 +84,7 @@ func TestBumblebeeSpoolServiceInjectsMissingAgentID(t *testing.T) {
 	}
 }
 
-func TestBumblebeeSpoolServicePreservesExistingAgentID(t *testing.T) {
+func TestBumblebeeSpoolServiceOverridesExistingAgentID(t *testing.T) {
 	tmpDir := t.TempDir()
 	spoolPath := filepath.Join(tmpDir, "latest.json")
 	if err := os.WriteFile(spoolPath, []byte(`{"agent_id":"agent-original","schema_version":"serviceradar.bumblebee.scan.v1","run_id":"run-1","state":"scanned","coverage_state":"complete","findings":[]}`), 0600); err != nil {
@@ -80,7 +101,7 @@ func TestBumblebeeSpoolServicePreservesExistingAgentID(t *testing.T) {
 	if err := json.Unmarshal(status.Message, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload["agent_id"] != "agent-original" {
-		t.Fatalf("agent_id = %#v, want agent-original", payload["agent_id"])
+	if payload["agent_id"] != bumblebeeSpoolTestAgentID {
+		t.Fatalf("agent_id = %#v, want %s", payload["agent_id"], bumblebeeSpoolTestAgentID)
 	}
 }

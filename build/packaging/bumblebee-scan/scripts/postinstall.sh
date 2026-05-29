@@ -10,12 +10,13 @@ if ! id -u serviceradar >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 /etc/serviceradar
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee/cache
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee/catalog
+install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/bumblebee
+install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/bumblebee/cache
+install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/bumblebee/catalog
+install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/bumblebee/profile
 install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee/spool
 install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee/spool/runs
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/bumblebee/tmp
+install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/bumblebee/tmp
 
 if [ -f /etc/serviceradar/bumblebee-scan.json ]; then
     chown root:serviceradar /etc/serviceradar/bumblebee-scan.json

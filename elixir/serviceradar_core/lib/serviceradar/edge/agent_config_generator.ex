@@ -1295,7 +1295,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put("enabled", true)
       |> Map.put("agent_id", agent_id)
       |> Map.put_new("scan_profile", "default")
-      |> Map.put_new("root_discovery_mode", "explicit")
+      |> Map.put_new("root_discovery_mode", "all")
       |> Map.put_new("explicit_roots", [])
       |> Map.put_new("exclude_roots", [])
       |> Map.put_new("ecosystems", [])

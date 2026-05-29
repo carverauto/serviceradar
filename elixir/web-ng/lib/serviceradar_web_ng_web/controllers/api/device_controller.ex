@@ -550,6 +550,7 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceController do
   defp bumblebee_summary([], findings, contribution) do
     bumblebee_empty_summary()
     |> Map.put("active_finding_count", length(findings))
+    |> Map.put("finding_count", length(findings))
     |> Map.put("risk_score", resource_value(contribution, :score) || 0)
     |> Map.put("risk_level", resource_value(contribution, :risk_level))
     |> Map.put("risk_reason", resource_value(contribution, :reason))

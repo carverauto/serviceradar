@@ -1,6 +1,7 @@
 package bumblebee
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -41,6 +42,103 @@ func TestDiscoverRootsIncludesRootAndAllExistingHomes(t *testing.T) {
 	}
 	if len(skipped) != 1 || skipped[0].Path != filepath.Join(tmpDir, "missing") {
 		t.Fatalf("unexpected skipped roots: %#v", skipped)
+	}
+}
+
+func boolPtr(value bool) *bool    { return &value }
+func intPtr(value int) *int       { return &value }
+func int64Ptr(value int64) *int64 { return &value }
+
+func TestRootCoverageNotRequiredWhenRootDisabled(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.IncludeRoot = false
+
+	if rootCoverageRequired(cfg) {
+		t.Fatal("root coverage should not be required when include_root is false")
+	}
+
+	cfg.IncludeRoot = true
+	cfg.ExcludeRoots = []string{"/root"}
+	if rootCoverageRequired(cfg) {
+		t.Fatal("root coverage should not be required when /root is excluded")
+	}
+}
+
+func TestAppendDedupedFindingsAppliesLimitAfterDedup(t *testing.T) {
+	existing := make([]Finding, 0, 3)
+
+	firstRoot := []Finding{
+		{FindingID: "duplicate", PackageName: "pkg-a"},
+		{FindingID: "duplicate", PackageName: "pkg-a"},
+		{FindingID: "unique-1", PackageName: "pkg-b"},
+	}
+	secondRoot := []Finding{
+		{FindingID: "unique-2", PackageName: "pkg-c"},
+		{FindingID: "unique-3", PackageName: "pkg-d"},
+	}
+
+	findings := appendDedupedFindings(existing, firstRoot)
+	if len(findings) != 2 {
+		t.Fatalf("len(findings) after first root = %d, want 2", len(findings))
+	}
+
+	findings = appendDedupedFindings(findings, secondRoot)
+	if len(findings) < 3 {
+		t.Fatalf("dedupe should leave room for later unique findings, got %#v", findings)
+	}
+}
+
+func TestLoadConfigAppliesRuntimeProfile(t *testing.T) {
+	dir := t.TempDir()
+	profilePath := filepath.Join(dir, "profile", "runtime.json")
+	if err := os.MkdirAll(filepath.Dir(profilePath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	profile := RuntimeProfile{
+		Enabled:          boolPtr(true),
+		AgentID:          "agent-runtime",
+		ScanTimeout:      "2m",
+		IncludeHomeRoots: boolPtr(false),
+		IncludeRoot:      boolPtr(false),
+		ExplicitRoots:    []string{dir},
+		Ecosystems:       []string{"npm"},
+		MaxFindings:      intPtr(7),
+		MaxOutputBytes:   int64Ptr(1024),
+	}
+	data, err := json.Marshal(profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(profilePath, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	configPath := filepath.Join(dir, "bumblebee-scan.json")
+	base := DefaultConfig()
+	base.ProfilePath = profilePath
+	base.Enabled = false
+	base.AgentID = "base-agent"
+	base.ExplicitRoots = nil
+	configData, err := json.Marshal(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, configData, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if !cfg.Enabled || cfg.AgentID != "agent-runtime" {
+		t.Fatalf("runtime profile did not override enablement/agent: %#v", cfg)
+	}
+	if cfg.IncludeHomeRoots || cfg.IncludeRoot {
+		t.Fatalf("runtime profile did not override root discovery: %#v", cfg)
+	}
+	if cfg.ScanTimeout != "2m" || cfg.MaxFindings != 7 || cfg.MaxOutputBytes != 1024 {
+		t.Fatalf("runtime profile did not override limits: %#v", cfg)
 	}
 }
 

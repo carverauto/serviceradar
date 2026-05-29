@@ -21,7 +21,6 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
-	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -76,16 +75,14 @@ func (s *BumblebeeSpoolService) GetStatus(context.Context) (*proto.StatusRespons
 }
 
 func (s *BumblebeeSpoolService) notScannedStatus() *proto.StatusResponse {
-	now := time.Now().UTC()
-	payload := bumblebee.ScanPayload{
-		SchemaVersion: bumblebee.SchemaVersion,
-		AgentID:       s.agentID,
-		RunID:         "bumblebee-not-scanned",
-		State:         "not_scanned",
-		CoverageState: "not_scanned",
-		LastScanAt:    now,
-		Findings:      []bumblebee.Finding{},
-		Metadata: map[string]any{
+	payload := map[string]any{
+		"schema_version": bumblebee.SchemaVersion,
+		"agent_id":       s.agentID,
+		"run_id":         "bumblebee-not-scanned",
+		"state":          "not_scanned",
+		"coverage_state": "not_scanned",
+		"findings":       []bumblebee.Finding{},
+		"metadata": map[string]any{
 			"spool_path": s.spoolPath,
 			"reason":     "spool_not_found",
 		},
@@ -108,9 +105,6 @@ func ensureBumblebeeAgentID(data []byte, agentID string) []byte {
 
 	var payload map[string]any
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return data
-	}
-	if value, ok := payload["agent_id"].(string); ok && value != "" {
 		return data
 	}
 

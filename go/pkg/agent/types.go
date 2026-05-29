@@ -148,6 +148,7 @@ type BumblebeeStatusConfig struct {
 	Enabled     bool   `json:"enabled"`
 	SpoolPath   string `json:"spool_path,omitempty"`
 	CatalogPath string `json:"catalog_path,omitempty"`
+	ProfilePath string `json:"profile_path,omitempty"`
 	TmpDir      string `json:"tmp_dir,omitempty"`
 }
 
@@ -165,6 +166,14 @@ func (c *BumblebeeStatusConfig) effectiveCatalogPath() string {
 	}
 
 	return c.CatalogPath
+}
+
+func (c *BumblebeeStatusConfig) effectiveProfilePath() string {
+	if c == nil || c.ProfilePath == "" {
+		return bumblebee.DefaultConfig().ProfilePath
+	}
+
+	return c.ProfilePath
 }
 
 func (c *BumblebeeStatusConfig) effectiveTmpDir() string {

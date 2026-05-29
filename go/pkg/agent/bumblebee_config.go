@@ -28,9 +28,19 @@ type bumblebeeConfigEnvelope struct {
 }
 
 type bumblebeeConfigPayload struct {
-	Enabled bool                         `json:"enabled"`
-	AgentID string                       `json:"agent_id,omitempty"`
-	Catalog *bumblebee.CatalogAssignment `json:"catalog,omitempty"`
+	Enabled           bool                         `json:"enabled"`
+	AgentID           string                       `json:"agent_id,omitempty"`
+	ScanProfile       string                       `json:"scan_profile,omitempty"`
+	RootDiscoveryMode string                       `json:"root_discovery_mode,omitempty"`
+	ExplicitRoots     []string                     `json:"explicit_roots,omitempty"`
+	ExcludeRoots      []string                     `json:"exclude_roots,omitempty"`
+	Ecosystems        []string                     `json:"ecosystems,omitempty"`
+	ScanTimeout       string                       `json:"scan_timeout,omitempty"`
+	MaxFindings       int32                        `json:"max_findings,omitempty"`
+	MaxOutputBytes    int64                        `json:"max_output_bytes,omitempty"`
+	Cadence           string                       `json:"cadence,omitempty"`
+	FindingsOnly      bool                         `json:"findings_only,omitempty"`
+	Catalog           *bumblebee.CatalogAssignment `json:"catalog,omitempty"`
 }
 
 func parseGatewayBumblebeeConfig(configJSON []byte) (*bumblebeeConfigPayload, error) {
@@ -56,8 +66,18 @@ func bumblebeeConfigFromProto(cfg *monitoringpb.BumblebeeConfig) *bumblebeeConfi
 	}
 
 	payload := &bumblebeeConfigPayload{
-		Enabled: cfg.GetEnabled(),
-		AgentID: cfg.GetAgentId(),
+		Enabled:           cfg.GetEnabled(),
+		AgentID:           cfg.GetAgentId(),
+		ScanProfile:       cfg.GetScanProfile(),
+		RootDiscoveryMode: cfg.GetRootDiscoveryMode(),
+		ExplicitRoots:     cfg.GetExplicitRoots(),
+		ExcludeRoots:      cfg.GetExcludeRoots(),
+		Ecosystems:        cfg.GetEcosystems(),
+		ScanTimeout:       cfg.GetScanTimeout(),
+		MaxFindings:       cfg.GetMaxFindings(),
+		MaxOutputBytes:    cfg.GetMaxOutputBytes(),
+		Cadence:           cfg.GetCadence(),
+		FindingsOnly:      cfg.GetFindingsOnly(),
 	}
 
 	if catalog := cfg.GetCatalog(); catalog != nil {
@@ -73,6 +93,57 @@ func bumblebeeConfigFromProto(cfg *monitoringpb.BumblebeeConfig) *bumblebeeConfi
 	}
 
 	return payload
+}
+
+func (p *bumblebeeConfigPayload) runtimeProfile(agentID string) bumblebee.RuntimeProfile {
+	if p == nil {
+		return bumblebee.RuntimeProfile{}
+	}
+
+	enabled := p.Enabled
+	profile := bumblebee.RuntimeProfile{
+		Enabled:       &enabled,
+		AgentID:       agentID,
+		ScanTimeout:   p.ScanTimeout,
+		ExplicitRoots: append([]string(nil), p.ExplicitRoots...),
+		ExcludeRoots:  append([]string(nil), p.ExcludeRoots...),
+		Ecosystems:    append([]string(nil), p.Ecosystems...),
+	}
+
+	if p.Catalog != nil {
+		profile.CatalogSnapshotRef = p.Catalog.SnapshotRef
+	}
+	if p.MaxFindings > 0 {
+		maxFindings := int(p.MaxFindings)
+		profile.MaxFindings = &maxFindings
+	}
+	if p.MaxOutputBytes > 0 {
+		maxOutputBytes := p.MaxOutputBytes
+		profile.MaxOutputBytes = &maxOutputBytes
+	}
+
+	includeHomes, includeRoot, ok := rootDiscoveryBooleans(p.RootDiscoveryMode)
+	if ok {
+		profile.IncludeHomeRoots = &includeHomes
+		profile.IncludeRoot = &includeRoot
+	}
+
+	return profile
+}
+
+func rootDiscoveryBooleans(mode string) (bool, bool, bool) {
+	switch mode {
+	case "", "all", "system":
+		return true, true, mode != ""
+	case "home", "homes", "home_roots":
+		return true, false, true
+	case "root":
+		return false, true, true
+	case "explicit":
+		return false, false, true
+	default:
+		return false, false, false
+	}
 }
 
 func resolveGatewayBumblebeeConfig(

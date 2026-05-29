@@ -126,6 +126,42 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestorTest do
     assert contribution.score == 40
   end
 
+  test "resolves stale bumblebee risk contribution when an agent moves devices", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    original_device = create_device!(actor, "bumblebee-original-device-#{unique}")
+    new_device = create_device!(actor, "bumblebee-new-device-#{unique}")
+    agent_id = "bumblebee-moved-agent-#{unique}"
+    agent = create_agent!(actor, agent_id, original_device.uid)
+
+    assert {:ok, first_result} =
+             BumblebeeIngestor.ingest_scan(scan_payload(agent_id, unique), actor: actor)
+
+    assert first_result.device_uid == original_device.uid
+
+    assert {:ok, [original_contribution]} =
+             DeviceRiskContribution.list_active_by_device(original_device.uid, actor: actor)
+
+    assert original_contribution.source == "bumblebee"
+
+    agent
+    |> Ash.Changeset.for_update(:reassign_device, %{device_uid: new_device.uid}, actor: actor)
+    |> Ash.update!(actor: actor)
+
+    assert {:ok, second_result} =
+             BumblebeeIngestor.ingest_scan(scan_payload(agent_id, unique + 1), actor: actor)
+
+    assert second_result.device_uid == new_device.uid
+
+    assert {:ok, []} =
+             DeviceRiskContribution.list_active_by_device(original_device.uid, actor: actor)
+
+    assert {:ok, [new_contribution]} =
+             DeviceRiskContribution.list_active_by_device(new_device.uid, actor: actor)
+
+    assert new_contribution.source == "bumblebee"
+    assert new_contribution.metadata["run_id"] == "run-#{unique + 1}"
+  end
+
   test "backfills pending findings when an agent later resolves without re-reporting them", %{
     actor: actor
   } do

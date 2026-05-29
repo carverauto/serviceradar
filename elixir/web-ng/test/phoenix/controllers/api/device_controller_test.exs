@@ -105,4 +105,48 @@ defmodule ServiceRadarWebNGWeb.Api.DeviceControllerTest do
     assert bumblebee["risk_contribution"]["source"] == "bumblebee"
     assert bumblebee["risk_contribution"]["score"] == 80
   end
+
+  test "show reports finding count when posture has not arrived yet", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    device = device_fixture(%{uid: "bumblebee-api-no-posture-device-#{unique}"})
+    now = DateTime.utc_now()
+
+    BumblebeeFinding
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        device_uid: device.uid,
+        agent_id: "agent-#{unique}",
+        run_id: "run-#{unique}",
+        finding_id: "finding-#{unique}",
+        catalog_id: "catalog-entry-#{unique}",
+        catalog_snapshot_ref: "snapshot-#{unique}",
+        scanner_version: "serviceradar-bumblebee-test",
+        severity: "medium",
+        risk_score: 60,
+        ecosystem: "python",
+        package_name: "debug-console",
+        package_version: "4.5.6",
+        evidence: %{"path" => "/home/user/app/requirements.txt"},
+        confidence: "medium",
+        status: "active",
+        first_seen_at: now,
+        last_seen_at: now,
+        metadata: %{}
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
+
+    conn =
+      conn
+      |> assign(:current_scope, scope)
+      |> DeviceController.show(%{"uid" => device.uid})
+
+    summary = json_response(conn, 200)["data"]["bumblebee"]["summary"]
+
+    assert summary["state"] == "not_scanned"
+    assert summary["active_finding_count"] == 1
+    assert summary["finding_count"] == 1
+  end
 end
