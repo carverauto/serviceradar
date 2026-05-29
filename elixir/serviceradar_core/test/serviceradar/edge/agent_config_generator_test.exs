@@ -12,6 +12,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
   alias ServiceRadar.Integrations.IntegrationSource
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
@@ -1194,6 +1196,124 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       refute "Other Agent Should Not Receive #{unique_id}" in group_names
     end
+  end
+
+  describe "native add-on assignments" do
+    test "compiled add-on carries delivery, supervision, and the approved capability subset", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess", "diagnostics"],
+          approved_capabilities: ["remoteaccess"]
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.addon_id == package.addon_id
+      assert addon.enabled == true
+      assert addon.delivery == :pushed_artifact
+      assert addon.supervision == :agent_sidecar
+      # The operator-approved subset wins over the package's full manifest list.
+      assert addon.capabilities == ["remoteaccess"]
+      assert addon.binary_path == "/opt/sr/bin/sample-addon-#{unique_id}"
+    end
+
+    test "capabilities fall back to the package manifest when none are approved", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess", "diagnostics"],
+          approved_capabilities: []
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.capabilities == ["remoteaccess", "diagnostics"]
+    end
+
+    test "a binary/install-path change re-versions the agent config", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["remoteaccess"],
+          approved_capabilities: ["remoteaccess"]
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, before} = AgentConfigGenerator.generate_config(agent_uid)
+
+      # An executable upgrade (new install_path) must change config_version so a
+      # polling agent stops receiving :not_modified and relaunches the new binary.
+      {:ok, _updated} =
+        package
+        |> Ash.Changeset.for_update(:update, %{install_path: "/opt/sr/bin/v2"}, actor: actor)
+        |> Ash.update()
+
+      {:ok, after_change} = AgentConfigGenerator.generate_config(agent_uid)
+
+      refute before.config_version == after_change.config_version
+    end
+  end
+
+  defp create_approved_addon_package(actor, unique_id, opts) do
+    capabilities = Keyword.get(opts, :capabilities, [])
+    approved = Keyword.get(opts, :approved_capabilities, [])
+
+    {:ok, package} =
+      AddonPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          addon_id: "sample-addon-#{unique_id}",
+          version: "1.0.0",
+          name: "Sample Addon #{unique_id}",
+          binary: "sample-addon-#{unique_id}",
+          install_path: "/opt/sr/bin",
+          capabilities: capabilities
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    package
+    |> Ash.Changeset.for_update(
+      :approve,
+      %{approved_capabilities: approved, approved_by: "test@serviceradar.local"},
+      actor: actor
+    )
+    |> Ash.update()
+  end
+
+  defp assign_addon(actor, agent_uid, package) do
+    AddonAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{agent_uid: agent_uid, addon_package_id: package.id, enabled: true},
+      actor: actor
+    )
+    |> Ash.create()
   end
 
   defp create_connected_agent(actor, agent_uid) do
