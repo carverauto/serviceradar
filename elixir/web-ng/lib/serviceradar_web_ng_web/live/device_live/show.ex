@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   import ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents
+  import ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
   import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
@@ -3448,6 +3449,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       )
       |> assign(:proxmox_console_action_label, proxmox_console_action_label(Map.get(assigns, :virtualization_summary)))
       |> assign(:rdp_target_path, rdp_target_new_path(assigns.device_uid, device_row))
+      |> assign(
+        :active_fingerprint_tab_visible,
+        active_fingerprint_tab_visible?(device_row, assigns.current_scope)
+      )
+      |> assign(:process_listeners_tab_visible, process_listeners_tab_visible?(device_row))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -3511,91 +3517,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
           />
 
     <!-- Tabs Navigation -->
-          <div
+          <.device_tabs
             :if={is_map(@device_row)}
-            class="tabs tabs-box"
-          >
-            <button
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="details"
-              class={["tab", @active_tab == "details" && "tab-active"]}
-            >
-              <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
-            </button>
-            <button
-              :if={@has_virtualization_guests}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="guests"
-              class={["tab", @active_tab == "guests" && "tab-active"]}
-            >
-              <.icon name="hero-squares-2x2" class="size-4 mr-1.5" /> Guests
-            </button>
-            <button
-              :if={@has_ifaces}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="interfaces"
-              class={["tab", @active_tab == "interfaces" && "tab-active"]}
-            >
-              <.icon name="hero-server-stack" class="size-4 mr-1.5" /> Interfaces
-            </button>
-            <button
-              :if={@has_flows}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="flows"
-              class={["tab", @active_tab == "flows" && "tab-active"]}
-            >
-              <.icon name="hero-arrows-right-left" class="size-4 mr-1.5" /> Flows
-            </button>
-            <button
-              :if={@has_logs}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="logs"
-              class={["tab", @active_tab == "logs" && "tab-active"]}
-            >
-              <.icon name="hero-clipboard-document-list" class="size-4 mr-1.5" /> Logs
-            </button>
-            <button
-              :if={@sysmon_presence}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="profiles"
-              class={["tab", @active_tab == "profiles" && "tab-active"]}
-            >
-              <.icon name="hero-cog-6-tooth" class="size-4 mr-1.5" /> Profiles
-            </button>
-            <button
-              :if={active_fingerprint_tab_visible?(@device_row, @current_scope)}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="active-fingerprint"
-              class={["tab", @active_tab == "active-fingerprint" && "tab-active"]}
-            >
-              <.icon name="hero-finger-print" class="size-4 mr-1.5" /> Active Fingerprint
-            </button>
-            <button
-              :if={process_listeners_tab_visible?(@device_row)}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="process-listeners"
-              class={["tab", @active_tab == "process-listeners" && "tab-active"]}
-            >
-              <.icon name="hero-command-line" class="size-4 mr-1.5" /> Process Listeners
-            </button>
-            <button
-              :if={@has_mtr}
-              type="button"
-              phx-click="switch_tab"
-              phx-value-tab="mtr"
-              class={["tab", @active_tab == "mtr" && "tab-active"]}
-            >
-              <.icon name="hero-signal" class="size-4 mr-1.5" /> MTR
-            </button>
-          </div>
+            device_row={@device_row}
+            active_tab={@active_tab}
+            has_virtualization_guests={@has_virtualization_guests}
+            has_ifaces={@has_ifaces}
+            has_flows={@has_flows}
+            has_logs={@has_logs}
+            sysmon_presence={@sysmon_presence}
+            active_fingerprint_tab_visible={@active_fingerprint_tab_visible}
+            process_listeners_tab_visible={@process_listeners_tab_visible}
+            has_mtr={@has_mtr}
+          />
 
     <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
