@@ -31,6 +31,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/config"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -53,7 +54,7 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	s := initializeServer(configDir, cfg, log)
 
 	s.createSweepService = func(ctx context.Context, sweepConfig *SweepConfig) (Service, error) {
-		return createSweepService(ctx, sweepConfig, cfg, log)
+		return createSweepService(ctx, sweepConfig, cfg, log, sweeper.WithBannerObservationHandler(s.handleBannerObservations))
 	}
 
 	if err := s.loadConfigurations(ctx, cfgLoader); err != nil {
@@ -94,13 +95,14 @@ func createSweepService(
 	sweepConfig *SweepConfig,
 	cfg *ServerConfig,
 	log logger.Logger,
+	opts ...sweeper.Option,
 ) (Service, error) {
 	if sweepConfig == nil {
 		return nil, errSweepConfigNil
 	}
 
 	groupConfig := sweepGroupConfigFromSweepConfig(sweepConfig)
-	service, err := NewMultiSweepService(cfg, []SweepGroupConfig{groupConfig}, log)
+	service, err := NewMultiSweepService(cfg, []SweepGroupConfig{groupConfig}, log, opts...)
 	if err != nil {
 		return nil, err
 	}

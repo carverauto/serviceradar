@@ -76,7 +76,7 @@ func TestProcessResultsStreamSubmitsBannerGrabCandidates(t *testing.T) {
 		store:     mockStore,
 		processor: mockProcessor,
 		logger:    logger.NewTestLogger(),
-		bannerHandler: func(_ context.Context, stream <-chan banner_grab.BannerObservation) error {
+		bannerHandler: func(_ context.Context, _ models.BannerGrab, stream <-chan banner_grab.BannerObservation) error {
 			for observation := range stream {
 				mu.Lock()
 				observations = append(observations, observation)

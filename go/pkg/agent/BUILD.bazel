@@ -4,6 +4,7 @@ go_library(
     name = "agent",
     srcs = [
         "app_tcp_route.go",
+        "banner_grab_handler.go",
         "camera_relay.go",
         "camera_relay_rtsp.go",
         "credential_broker_resolver.go",
@@ -70,6 +71,7 @@ go_library(
         "//go/pkg/mtr",
         "//go/pkg/models",
         "//go/pkg/scan",
+        "//go/pkg/scan/banner_grab",
         "//go/pkg/sweeper",
         "//go/pkg/sysmon",
         "//proto",

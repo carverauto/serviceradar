@@ -207,6 +207,35 @@ func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAge
 	}
 }
 
+func (s *Sidecar) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
+	ticker := time.NewTicker(defaultApplyWaitInterval)
+	defer ticker.Stop()
+
+	for {
+		client := s.currentClient()
+		if client != nil {
+			return client.MatchBanners(ctx, batch)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Sidecar) EnqueueFingerprintEvent(event *netprobepb.FingerprintEvent) {
+	if event == nil {
+		return
+	}
+
+	select {
+	case s.events <- event:
+	default:
+	}
+}
+
 func (s *Sidecar) DrainEvents(max int) []*netprobepb.FingerprintEvent {
 	if max <= 0 {
 		max = defaultSidecarEventBuffer

@@ -255,6 +255,63 @@ func TestClientDropsDPIEventsOnBackpressure(t *testing.T) {
 	<-serverDone
 }
 
+func TestClientMatchBanners(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		handleTestFrame(t, serverConn, func(frame *netprobepb.NetprobeFrame) *netprobepb.NetprobeFrame {
+			batch := frame.GetBannerBatch()
+			if batch == nil || len(batch.GetObservations()) != 1 {
+				t.Errorf("frame payload = %T, want one banner observation", frame.GetPayload())
+				return errorResponse(frame.GetSequence(), "unexpected_frame", "expected banner_batch")
+			}
+
+			return &netprobepb.NetprobeFrame{
+				Sequence: frame.GetSequence(),
+				Payload: &netprobepb.NetprobeFrame_BannerMatchBatch{
+					BannerMatchBatch: &netprobepb.BannerMatchBatch{
+						Matches: []*netprobepb.BannerMatch{{
+							ObservationId: batch.GetObservations()[0].GetObservationId(),
+							CorpusLabel:   "recog",
+							Product:       "OpenSSH",
+							Confidence:    0.95,
+						}},
+					},
+				},
+			}
+		})
+	}()
+
+	client := NewClient(clientConn, 1)
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	matches, err := client.MatchBanners(ctx, &netprobepb.BannerBatch{
+		Observations: []*netprobepb.BannerObservation{{
+			ObservationId: 7,
+			Host:          "192.0.2.10",
+			Port:          22,
+			Protocol:      "ssh",
+			BannerBytes:   []byte("SSH-2.0-OpenSSH_9.6"),
+			Source:        "sweep_active",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("MatchBanners() error = %v", err)
+	}
+	if len(matches.GetMatches()) != 1 || matches.GetMatches()[0].GetObservationId() != 7 {
+		t.Fatalf("matches = %#v, want observation 7", matches.GetMatches())
+	}
+
+	_ = client.Close()
+	<-serverDone
+}
+
 func TestClientDropsFlowAttributionEventsOnBackpressure(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()

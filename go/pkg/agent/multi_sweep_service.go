@@ -29,6 +29,7 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/go/pkg/sweeper"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -49,10 +50,16 @@ type MultiSweepService struct {
 	startCtx       context.Context
 	logger         logger.Logger
 	serverConfig   *ServerConfig
+	sweepOptions   []sweeper.Option
 }
 
 // NewMultiSweepService creates a new MultiSweepService from sweep group configs.
-func NewMultiSweepService(cfg *ServerConfig, groups []SweepGroupConfig, log logger.Logger) (*MultiSweepService, error) {
+func NewMultiSweepService(
+	cfg *ServerConfig,
+	groups []SweepGroupConfig,
+	log logger.Logger,
+	opts ...sweeper.Option,
+) (*MultiSweepService, error) {
 	service := &MultiSweepService{
 		groups:         make(map[string]*SweepService),
 		groupConfigs:   make(map[string]SweepGroupConfig),
@@ -61,6 +68,7 @@ func NewMultiSweepService(cfg *ServerConfig, groups []SweepGroupConfig, log logg
 		configHash:     "",
 		logger:         log,
 		serverConfig:   cfg,
+		sweepOptions:   append([]sweeper.Option(nil), opts...),
 	}
 
 	if cfg == nil {
@@ -257,7 +265,7 @@ func (s *MultiSweepService) UpdateSweepGroups(config *SweepGroupsConfig) error {
 			continue
 		}
 
-		sweepSvc, err := NewSweepService(context.Background(), modelConfig, s.logger)
+		sweepSvc, err := NewSweepService(context.Background(), modelConfig, s.logger, s.sweepOptions...)
 		if err != nil {
 			s.logger.Error().Err(err).Str("sweep_group_id", groupID).Msg("Failed to create sweep group service")
 			continue

@@ -35,7 +35,7 @@ import (
 type Option func(*NetworkSweeper)
 
 // BannerObservationHandler consumes successful active banner observations.
-type BannerObservationHandler func(context.Context, <-chan banner_grab.BannerObservation) error
+type BannerObservationHandler func(context.Context, models.BannerGrab, <-chan banner_grab.BannerObservation) error
 
 // WithBannerObservationHandler wires banner observations to the agent-owned
 // netprobe IPC batcher. When unset, the sweeper drains observations and logs
@@ -1087,7 +1087,7 @@ func (s *NetworkSweeper) startBannerGrabPhase(ctx context.Context) *activeBanner
 
 	done := make(chan error, 1)
 	go func() {
-		done <- handler(ctx, observations)
+		done <- handler(ctx, s.config.BannerGrab, observations)
 	}()
 
 	s.bannerMu.Lock()
@@ -1161,7 +1161,11 @@ func (s *NetworkSweeper) submitBannerGrabCandidate(ctx context.Context, result m
 	return engine.SubmitResult(ctx, result)
 }
 
-func (s *NetworkSweeper) drainBannerGrabObservations(ctx context.Context, observations <-chan banner_grab.BannerObservation) error {
+func (s *NetworkSweeper) drainBannerGrabObservations(
+	ctx context.Context,
+	_ models.BannerGrab,
+	observations <-chan banner_grab.BannerObservation,
+) error {
 	count := 0
 
 	for {

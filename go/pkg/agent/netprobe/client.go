@@ -202,6 +202,25 @@ func (c *Client) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAgen
 	return ack.GetConfigHash(), nil
 }
 
+// MatchBanners sends active sweep banner observations to netprobe for corpus matching.
+func (c *Client) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
+	frame, err := c.request(ctx, &netprobepb.NetprobeFrame{
+		Payload: &netprobepb.NetprobeFrame_BannerBatch{
+			BannerBatch: batch,
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	matches := frame.GetBannerMatchBatch()
+	if matches == nil {
+		return nil, fmt.Errorf("%w: expected banner_match_batch", ErrUnexpectedFrame)
+	}
+
+	return matches, nil
+}
+
 // Events returns the bounded stream of fingerprint events from netprobe.
 func (c *Client) Events() <-chan *netprobepb.FingerprintEvent {
 	return c.events

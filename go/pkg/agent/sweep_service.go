@@ -56,13 +56,14 @@ func NewSweepService(
 	ctx context.Context,
 	config *models.Config,
 	log logger.Logger,
+	opts ...sweeper.Option,
 ) (Service, error) {
 	config = applyDefaultConfig(config)
 	processor := sweeper.NewBaseProcessor(config, log)
 	storeOptions := sweeper.StoreOptionsForConfig(config)
 	store := sweeper.NewInMemoryStore(processor, log, storeOptions...)
 
-	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log)
+	sweeperInstance, err := sweeper.NewNetworkSweeper(config, store, processor, nil, log, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create network sweeper: %w", err)
 	}

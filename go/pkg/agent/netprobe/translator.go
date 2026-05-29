@@ -354,11 +354,55 @@ func addEvidenceMetadata(metadata map[string]string, event *netprobepb.Fingerpri
 		metadata[metadataPassiveFingerprintBase+".http.user_agent"] = strings.TrimSpace(http.GetUserAgent())
 		metadata[metadataPassiveFingerprintBase+".http.server"] = strings.TrimSpace(http.GetServer())
 		metadata[metadataPassiveFingerprintBase+".http.accept_language"] = strings.TrimSpace(http.GetAcceptLanguage())
+	case *netprobepb.FingerprintEvent_LicenseClean:
+		addLicenseCleanMetadata(metadata, evidence.LicenseClean)
 	default:
 		return fmt.Errorf("%w: evidence", ErrFingerprintEventMissing)
 	}
 
 	return nil
+}
+
+func addLicenseCleanMetadata(metadata map[string]string, fingerprint *netprobepb.LicenseCleanFingerprint) {
+	if fingerprint == nil {
+		return
+	}
+
+	metadata[metadataPassiveFingerprintBase+".protocol"] = "license_clean"
+	if osMatch := fingerprint.GetOsMatch(); osMatch != nil {
+		metadata[metadataPassiveFingerprintBase+".os.name"] = strings.TrimSpace(osMatch.GetName())
+		metadata[metadataPassiveFingerprintBase+".os.version_range"] = strings.TrimSpace(osMatch.GetVersionRange())
+		metadata[metadataPassiveFingerprintBase+".os.family"] = strings.TrimSpace(osMatch.GetOsFamily())
+		metadata[metadataPassiveFingerprintBase+".os.confidence"] = strconv.FormatFloat(float64(osMatch.GetConfidence()), 'f', 3, 32)
+	}
+	if recog := fingerprint.GetRecogHttp(); recog != nil {
+		addRecogMetadata(metadata, "http", recog)
+	}
+	if recog := fingerprint.GetRecogSsh(); recog != nil {
+		addRecogMetadata(metadata, "ssh", recog)
+	}
+	if recog := fingerprint.GetRecogSmb(); recog != nil {
+		addRecogMetadata(metadata, "smb", recog)
+	}
+	if recog := fingerprint.GetRecogFtp(); recog != nil {
+		addRecogMetadata(metadata, "ftp", recog)
+	}
+	if recog := fingerprint.GetRecogTelnet(); recog != nil {
+		addRecogMetadata(metadata, "telnet", recog)
+	}
+	if recog := fingerprint.GetRecogRdp(); recog != nil {
+		addRecogMetadata(metadata, "rdp", recog)
+	}
+	if recog := fingerprint.GetRecogDns(); recog != nil {
+		addRecogMetadata(metadata, "dns", recog)
+	}
+}
+
+func addRecogMetadata(metadata map[string]string, protocol string, match *netprobepb.RecogFingerprintMatch) {
+	base := metadataPassiveFingerprintBase + ".recog." + protocol
+	metadata[base+".product"] = strings.TrimSpace(match.GetProduct())
+	metadata[base+".version"] = strings.TrimSpace(match.GetVersion())
+	metadata[base+".os_family"] = strings.TrimSpace(match.GetOsFamily())
 }
 
 func sanitizeSniRedacted(value string) string {
