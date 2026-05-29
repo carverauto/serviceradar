@@ -3162,9 +3162,23 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 	p.server.mu.RLock()
 	manager := p.server.addonManager
+	configDir := p.server.configDir
 	p.server.mu.RUnlock()
 	if manager == nil {
 		return
+	}
+
+	// Merge an operator-managed local override (break-glass / dev) over the pushed
+	// assignments before reconciling. A malformed file is ignored so a bad local edit
+	// cannot break pushed delivery.
+	overridePath := addonLocalOverridePath(configDir)
+	if merged, err := applyLocalAddonOverrides(assignments, overridePath); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("path", overridePath).
+			Msg("Ignoring malformed local add-on override file")
+	} else {
+		assignments = merged
 	}
 
 	specs := make([]agentaddon.Spec, 0, len(assignments))

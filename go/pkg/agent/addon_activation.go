@@ -28,6 +28,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -43,6 +44,11 @@ const (
 	addonVersionsDir = "versions"
 	addonCurrentLink = "current"
 	addonBinaryMode  = 0o755
+
+	// addonLocalOverrideFile is the operator-managed local override (break-glass /
+	// dev) read from the agent config dir; its entries take precedence over pushed
+	// assignments with the same addon_id.
+	addonLocalOverrideFile = "addons.local.json"
 )
 
 var (
@@ -236,4 +242,134 @@ func switchAddonCurrentSymlink(addonDir, target string) error {
 	}
 
 	return nil
+}
+
+// addonLocalOverridePath returns the path to the local add-on override file within
+// the agent config directory.
+func addonLocalOverridePath(configDir string) string {
+	return filepath.Join(configDir, addonLocalOverrideFile)
+}
+
+// localAddonAssignmentsFile is the on-disk schema of the local override file.
+type localAddonAssignmentsFile struct {
+	Addons []localAddonAssignment `json:"addons"`
+}
+
+// localAddonAssignment mirrors AddonAssignmentConfig in operator-friendly JSON for
+// the local override file. Enabled is a pointer so an omitted value defaults to true
+// (an override entry is normally present to enable an add-on).
+type localAddonAssignment struct {
+	AddonID           string          `json:"addon_id"`
+	Version           string          `json:"version"`
+	Enabled           *bool           `json:"enabled"`
+	BinaryPath        string          `json:"binary_path"`
+	Args              []string        `json:"args"`
+	ConfigJSON        json.RawMessage `json:"config_json"`
+	Capabilities      []string        `json:"capabilities"`
+	Delivery          string          `json:"delivery"`
+	Supervision       string          `json:"supervision"`
+	ArtifactObjectKey string          `json:"artifact_object_key"`
+	ArtifactSha256    string          `json:"artifact_sha256"`
+	ArtifactSignature string          `json:"artifact_signature"`
+	TargetOS          string          `json:"target_os"`
+	TargetArch        string          `json:"target_arch"`
+}
+
+func (o localAddonAssignment) toProto() *proto.AddonAssignmentConfig {
+	enabled := true
+	if o.Enabled != nil {
+		enabled = *o.Enabled
+	}
+
+	var configJSON []byte
+	if len(o.ConfigJSON) > 0 {
+		configJSON = []byte(o.ConfigJSON)
+	}
+
+	return &proto.AddonAssignmentConfig{
+		AddonId:           o.AddonID,
+		Version:           o.Version,
+		Enabled:           enabled,
+		BinaryPath:        o.BinaryPath,
+		Args:              o.Args,
+		ConfigJson:        configJSON,
+		Capabilities:      o.Capabilities,
+		Delivery:          o.Delivery,
+		Supervision:       o.Supervision,
+		ArtifactObjectKey: o.ArtifactObjectKey,
+		ArtifactSha256:    o.ArtifactSha256,
+		ArtifactSignature: o.ArtifactSignature,
+		TargetOs:          o.TargetOS,
+		TargetArch:        o.TargetArch,
+	}
+}
+
+// applyLocalAddonOverrides merges an operator-managed local override file into the
+// pushed add-on assignments. Local entries take precedence over a pushed assignment
+// with the same addon_id, and local-only entries are appended (preserving file
+// order). A missing file is a no-op; a malformed file returns the pushed assignments
+// unchanged plus an error so the caller can log it without breaking pushed delivery.
+func applyLocalAddonOverrides(
+	pushed []*proto.AddonAssignmentConfig,
+	path string,
+) ([]*proto.AddonAssignmentConfig, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return pushed, nil
+		}
+
+		return pushed, fmt.Errorf("read addon override %q: %w", path, err)
+	}
+
+	var file localAddonAssignmentsFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return pushed, fmt.Errorf("parse addon override %q: %w", path, err)
+	}
+
+	if len(file.Addons) == 0 {
+		return pushed, nil
+	}
+
+	overrides := make(map[string]*proto.AddonAssignmentConfig, len(file.Addons))
+	order := make([]string, 0, len(file.Addons))
+
+	for _, o := range file.Addons {
+		id := strings.TrimSpace(o.AddonID)
+		if id == "" {
+			continue
+		}
+
+		if _, seen := overrides[id]; !seen {
+			order = append(order, id)
+		}
+
+		overrides[id] = o.toProto()
+	}
+
+	merged := make([]*proto.AddonAssignmentConfig, 0, len(pushed)+len(order))
+	replaced := make(map[string]bool, len(order))
+
+	for _, a := range pushed {
+		if a == nil {
+			continue
+		}
+
+		if ov, ok := overrides[a.GetAddonId()]; ok {
+			merged = append(merged, ov)
+			replaced[a.GetAddonId()] = true
+
+			continue
+		}
+
+		merged = append(merged, a)
+	}
+
+	for _, id := range order {
+		if !replaced[id] {
+			merged = append(merged, overrides[id])
+		}
+	}
+
+	return merged, nil
 }

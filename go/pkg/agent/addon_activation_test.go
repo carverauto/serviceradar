@@ -195,6 +195,77 @@ func TestLastKnownGoodAddonBinaryFallback(t *testing.T) {
 	}
 }
 
+func TestApplyLocalAddonOverridesMissingFileIsNoop(t *testing.T) {
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a"}}
+
+	got, err := applyLocalAddonOverrides(pushed, filepath.Join(t.TempDir(), "absent.json"))
+	if err != nil {
+		t.Fatalf("missing file should be a no-op, got %v", err)
+	}
+	if len(got) != 1 || got[0].GetBinaryPath() != "/pushed/a" {
+		t.Fatalf("pushed assignments changed by missing override: %#v", got)
+	}
+}
+
+func TestApplyLocalAddonOverridesReplacesAndAppends(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, addonLocalOverrideFile)
+	// Override "a" (local binary), add local-only "c"; leave pushed "b" untouched.
+	content := `{"addons":[
+	  {"addon_id":"a","binary_path":"/local/a","enabled":true},
+	  {"addon_id":"c","binary_path":"/local/c"}
+	]}`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	pushed := []*proto.AddonAssignmentConfig{
+		{AddonId: "a", BinaryPath: "/pushed/a", Enabled: true},
+		{AddonId: "b", BinaryPath: "/pushed/b", Enabled: true},
+	}
+
+	got, err := applyLocalAddonOverrides(pushed, path)
+	if err != nil {
+		t.Fatalf("apply overrides: %v", err)
+	}
+
+	byID := map[string]*proto.AddonAssignmentConfig{}
+	for _, a := range got {
+		byID[a.GetAddonId()] = a
+	}
+
+	if len(got) != 3 {
+		t.Fatalf("merged length = %d, want 3 (%#v)", len(got), got)
+	}
+	if byID["a"].GetBinaryPath() != "/local/a" {
+		t.Fatalf("local override did not replace pushed 'a': %q", byID["a"].GetBinaryPath())
+	}
+	if byID["b"].GetBinaryPath() != "/pushed/b" {
+		t.Fatalf("pushed 'b' should be untouched: %q", byID["b"].GetBinaryPath())
+	}
+	if byID["c"].GetBinaryPath() != "/local/c" || !byID["c"].GetEnabled() {
+		t.Fatalf("local-only 'c' missing or not enabled-by-default: %#v", byID["c"])
+	}
+}
+
+func TestApplyLocalAddonOverridesMalformedReturnsPushed(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, addonLocalOverrideFile)
+	if err := os.WriteFile(path, []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("write override: %v", err)
+	}
+
+	pushed := []*proto.AddonAssignmentConfig{{AddonId: "a", BinaryPath: "/pushed/a"}}
+
+	got, err := applyLocalAddonOverrides(pushed, path)
+	if err == nil {
+		t.Fatal("expected an error for malformed override")
+	}
+	if len(got) != 1 || got[0].GetBinaryPath() != "/pushed/a" {
+		t.Fatalf("malformed override must return pushed unchanged: %#v", got)
+	}
+}
+
 func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {
