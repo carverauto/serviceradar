@@ -34,7 +34,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DevicePubSub
-  alias ServiceRadar.Inventory.DeviceSNMPCredential
   alias ServiceRadar.Observability.MtrPubSub
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
@@ -49,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
@@ -1407,7 +1407,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       device_snmp_credential =
         socket.assigns.device_snmp_credential ||
-          load_device_snmp_credential(scope, socket.assigns.device_uid)
+          SNMPCredentialData.load(scope, socket.assigns.device_uid)
 
       form_data =
         if device_row do
@@ -1432,7 +1432,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_form, to_form(form_data, as: :device))
        |> assign(
          :snmp_credential_form,
-         to_form(snmp_credential_form_data(device_snmp_credential), as: :snmp)
+         to_form(SNMPCredentialData.form_data(device_snmp_credential), as: :snmp)
        )}
     end
   end
@@ -1653,17 +1653,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     scope = socket.assigns.current_scope
     device_uid = socket.assigns.device_uid
     editing = not is_nil(socket.assigns.device_snmp_credential)
-    normalized = normalize_snmp_credential_params(params, editing)
+    normalized = SNMPCredentialData.normalize_params(params, editing)
 
-    if editing or snmp_params_present?(normalized) do
-      case DeviceSNMPCredential.upsert_for_device(device_uid, normalized, scope: scope) do
+    if editing or SNMPCredentialData.params_present?(normalized) do
+      case SNMPCredentialData.upsert(scope, device_uid, normalized) do
         {:ok, credential} ->
           {:noreply,
            socket
            |> assign(:device_snmp_credential, credential)
            |> assign(
              :snmp_credential_form,
-             to_form(snmp_credential_form_data(credential), as: :snmp)
+             to_form(SNMPCredentialData.form_data(credential), as: :snmp)
            )
            |> put_flash(:info, "SNMP credentials saved")}
 
@@ -1686,7 +1686,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         {:noreply, socket}
 
       credential ->
-        case Ash.destroy(credential, scope: scope) do
+        case SNMPCredentialData.destroy(credential, scope) do
           :ok ->
             {:noreply,
              socket
@@ -2335,96 +2335,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp format_tags_for_edit(_), do: ""
-
-  defp load_device_snmp_credential(_scope, nil), do: nil
-
-  defp load_device_snmp_credential(scope, device_uid) do
-    case DeviceSNMPCredential.get_by_device(device_uid, scope: scope) do
-      {:ok, credential} -> credential
-      {:error, _} -> nil
-    end
-  end
-
-  defp snmp_credential_form_data(nil) do
-    %{
-      "version" => "v2c",
-      "username" => "",
-      "security_level" => "no_auth_no_priv",
-      "auth_protocol" => "",
-      "priv_protocol" => ""
-    }
-  end
-
-  defp snmp_credential_form_data(%DeviceSNMPCredential{} = credential) do
-    %{
-      "version" => to_string(credential.version || :v2c),
-      "username" => credential.username || "",
-      "security_level" => to_string(credential.security_level || :no_auth_no_priv),
-      "auth_protocol" => to_string(credential.auth_protocol || ""),
-      "priv_protocol" => to_string(credential.priv_protocol || "")
-    }
-  end
-
-  defp normalize_snmp_credential_params(params, editing) do
-    params =
-      if editing do
-        drop_blank(params, ["community", "auth_password", "priv_password"])
-      else
-        params
-      end
-
-    params =
-      case Map.get(params, "version") do
-        nil -> Map.put(params, "version", "v2c")
-        "" -> Map.put(params, "version", "v2c")
-        _ -> params
-      end
-
-    case Map.get(params, "version") do
-      "v1" ->
-        Map.drop(params, [
-          "username",
-          "security_level",
-          "auth_protocol",
-          "auth_password",
-          "priv_protocol",
-          "priv_password"
-        ])
-
-      "v2c" ->
-        Map.drop(params, [
-          "username",
-          "security_level",
-          "auth_protocol",
-          "auth_password",
-          "priv_protocol",
-          "priv_password"
-        ])
-
-      "v3" ->
-        Map.delete(params, "community")
-
-      _ ->
-        params
-    end
-  end
-
-  defp snmp_params_present?(params) do
-    Enum.any?(["community", "username", "auth_password", "priv_password"], fn key ->
-      value = Map.get(params, key)
-      is_binary(value) and String.trim(value) != ""
-    end)
-  end
-
-  defp drop_blank(params, keys) do
-    Enum.reduce(keys, params, fn key, acc ->
-      case Map.get(acc, key) do
-        nil -> acc
-        "" -> Map.delete(acc, key)
-        _ -> acc
-      end
-    end)
-  end
 
   defp load_logs(srql_module, device_uid, scope, cursor) do
     query = default_logs_query(device_uid)
