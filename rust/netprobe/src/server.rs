@@ -17,8 +17,9 @@ use crate::{
     capabilities,
     event_queue::EventReceiver,
     fingerprint::{
-        FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, P0F_CORPUS_REVISION,
-        SERVICERADAR_ADDITIONS_REVISION,
+        FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
+        P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
+        SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
     },
     framing::{read_frame, write_frame, write_frame_with_buffer},
     metrics::Metrics,
@@ -253,6 +254,12 @@ fn response_for_frame(frame: NetprobeFrame, runtime_config: &RuntimeConfig) -> N
                 p0f_corpus_revision: P0F_CORPUS_REVISION.to_string(),
                 serviceradar_additions_revision: SERVICERADAR_ADDITIONS_REVISION.to_string(),
                 ja4_spec_revision: JA4_BASE_SPEC_REVISION.to_string(),
+                muonfp_corpus_revision: MUONFP_CORPUS_REVISION.to_string(),
+                recog_corpus_revision: RECOG_CORPUS_REVISION.to_string(),
+                satori_corpus_revision: SATORI_CORPUS_REVISION.to_string(),
+                serviceradar_recog_additions_revision: SERVICERADAR_RECOG_ADDITIONS_REVISION
+                    .to_string(),
+                recog_corpus_loaded: true,
             })),
         },
         Some(netprobe_frame::Payload::ApplyConfig(apply)) => {
@@ -304,7 +311,9 @@ mod tests {
     use crate::{
         config::Config,
         fingerprint::{
-            JA4_BASE_SPEC_REVISION, P0F_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
+            JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION, P0F_CORPUS_REVISION,
+            RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
+            SERVICERADAR_RECOG_ADDITIONS_REVISION,
         },
         framing::{read_frame, write_frame},
         metrics::Metrics,
@@ -362,6 +371,14 @@ mod tests {
             SERVICERADAR_ADDITIONS_REVISION
         );
         assert_eq!(ack.ja4_spec_revision, JA4_BASE_SPEC_REVISION);
+        assert_eq!(ack.muonfp_corpus_revision, MUONFP_CORPUS_REVISION);
+        assert_eq!(ack.recog_corpus_revision, RECOG_CORPUS_REVISION);
+        assert_eq!(ack.satori_corpus_revision, SATORI_CORPUS_REVISION);
+        assert_eq!(
+            ack.serviceradar_recog_additions_revision,
+            SERVICERADAR_RECOG_ADDITIONS_REVISION
+        );
+        assert!(ack.recog_corpus_loaded);
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();

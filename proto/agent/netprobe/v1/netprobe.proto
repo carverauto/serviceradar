@@ -67,6 +67,11 @@ message PingAck {
   string p0f_corpus_revision = 5;
   string serviceradar_additions_revision = 6;
   string ja4_spec_revision = 7;
+  string muonfp_corpus_revision = 8;
+  string recog_corpus_revision = 9;
+  string satori_corpus_revision = 10;
+  string serviceradar_recog_additions_revision = 11;
+  bool recog_corpus_loaded = 12;
 }
 
 message ErrorFrame {

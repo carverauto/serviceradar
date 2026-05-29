@@ -81,11 +81,12 @@ const (
 )
 
 type hostNetworkVisibilityCapabilityStatus struct {
-	Fingerprint     string `json:"fingerprint"`
-	DPI             string `json:"dpi"`
-	FlowAttribution string `json:"flow_attribution"`
-	ProcessSnapshot string `json:"process_snapshot"`
-	RunningAsRoot   bool   `json:"running_as_root,omitempty"`
+	Fingerprint     string                         `json:"fingerprint"`
+	DPI             string                         `json:"dpi"`
+	FlowAttribution string                         `json:"flow_attribution"`
+	ProcessSnapshot string                         `json:"process_snapshot"`
+	RunningAsRoot   bool                           `json:"running_as_root,omitempty"`
+	CorpusRevisions *agentnetprobe.CorpusRevisions `json:"corpus_revisions,omitempty"`
 }
 
 type agentCapabilityStatusPayload struct {
@@ -1939,11 +1940,22 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		agentCapabilitiesForStatus(cfg, sidecars),
 		sidecars,
 		p.netprobeRunningAsRoot(),
+		p.netprobeCorpusRevisions(),
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
 }
 
-func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus, runningAsRoot bool) *proto.StatusResponse {
+func buildAgentCapabilityStatusResponse(
+	capabilities []string,
+	sidecars []*proto.SidecarStatus,
+	runningAsRoot bool,
+	corpusRevisions agentnetprobe.CorpusRevisions,
+) *proto.StatusResponse {
+	corpusRevisionPayload := &corpusRevisions
+	if corpusRevisions == (agentnetprobe.CorpusRevisions{}) {
+		corpusRevisionPayload = nil
+	}
+
 	payload, err := json.Marshal(agentCapabilityStatusPayload{
 		Capabilities: append([]string(nil), capabilities...),
 		HostNetworkVisibility: hostNetworkVisibilityCapabilityStatus{
@@ -1952,6 +1964,7 @@ func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto
 			FlowAttribution: "unavailable",
 			ProcessSnapshot: "unavailable",
 			RunningAsRoot:   runningAsRoot,
+			CorpusRevisions: corpusRevisionPayload,
 		},
 		Sidecars: sidecars,
 	})
@@ -3719,6 +3732,21 @@ func (p *PushLoop) netprobeRunningAsRoot() bool {
 	}
 
 	return netprobeSidecar.RunningAsRoot()
+}
+
+func (p *PushLoop) netprobeCorpusRevisions() agentnetprobe.CorpusRevisions {
+	if p == nil || p.server == nil {
+		return agentnetprobe.CorpusRevisions{}
+	}
+
+	p.server.mu.RLock()
+	netprobeSidecar := p.server.netprobeSidecar
+	p.server.mu.RUnlock()
+	if netprobeSidecar == nil {
+		return agentnetprobe.CorpusRevisions{}
+	}
+
+	return netprobeSidecar.CorpusRevisions()
 }
 
 func getAgentCapabilitiesForSidecars(cfg *ServerConfig, sidecars []*proto.SidecarStatus) []string {

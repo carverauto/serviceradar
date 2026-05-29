@@ -63,10 +63,22 @@ type Sidecar struct {
 	unhealthy     atomic.Bool
 	runningAsRoot atomic.Bool
 	engineVersion atomic.Value
+	revisions     atomic.Value
 	lastError     atomic.Value
 }
 
 var _ sidecar.Sidecar = (*Sidecar)(nil)
+
+type CorpusRevisions struct {
+	P0f                   string `json:"p0f,omitempty"`
+	ServiceRadarAdditions string `json:"serviceradar_additions,omitempty"`
+	JA4                   string `json:"ja4,omitempty"`
+	MuonFP                string `json:"muonfp,omitempty"`
+	Recog                 string `json:"recog,omitempty"`
+	Satori                string `json:"satori,omitempty"`
+	ServiceRadarRecogAdds string `json:"serviceradar_recog_additions,omitempty"`
+	RecogCorpusLoaded     bool   `json:"recog_corpus_loaded,omitempty"`
+}
 
 // NewSidecar creates a netprobe sidecar adapter.
 func NewSidecar(cfg SidecarConfig) *Sidecar {
@@ -126,6 +138,16 @@ func (s *Sidecar) OnHealthy(client sidecar.Client) {
 	if netprobeClient, ok := client.(*Client); ok {
 		s.engineVersion.Store(netprobeClient.FingerprintEngineVersion())
 		s.runningAsRoot.Store(netprobeClient.RunningAsRoot())
+		s.revisions.Store(CorpusRevisions{
+			P0f:                   netprobeClient.P0fCorpusRevision(),
+			ServiceRadarAdditions: netprobeClient.ServiceRadarAdditionsRevision(),
+			JA4:                   netprobeClient.JA4SpecRevision(),
+			MuonFP:                netprobeClient.MuonFPCorpusRevision(),
+			Recog:                 netprobeClient.RecogCorpusRevision(),
+			Satori:                netprobeClient.SatoriCorpusRevision(),
+			ServiceRadarRecogAdds: netprobeClient.ServiceRadarRecogAdditionsRevision(),
+			RecogCorpusLoaded:     netprobeClient.RecogCorpusLoaded(),
+		})
 		s.setClient(netprobeClient)
 	}
 }
@@ -155,6 +177,16 @@ func (s *Sidecar) FingerprintEngineVersion() string {
 
 func (s *Sidecar) RunningAsRoot() bool {
 	return s.runningAsRoot.Load()
+}
+
+func (s *Sidecar) CorpusRevisions() CorpusRevisions {
+	value := s.revisions.Load()
+	if value == nil {
+		return CorpusRevisions{}
+	}
+	revisions, _ := value.(CorpusRevisions)
+
+	return revisions
 }
 
 func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAgentConfig) (string, error) {

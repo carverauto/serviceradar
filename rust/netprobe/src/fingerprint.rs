@@ -48,6 +48,13 @@ pub const SERVICERADAR_ADDITIONS_REVISION: &str =
     "serviceradar-additions.fp:sha256:2ab43ef6a172ec7329f77a5b8d01779c7c9b33e1f8e887981dbdb59e3debf68e";
 pub const JA4_BASE_SPEC_REVISION: &str =
     "foxio-ja4-base:LICENSE-JA4:sha256:094300333d31ef3da914a2e8894dc933a39fc1c538bf1b58f9b37d08701ab29f";
+pub const MUONFP_CORPUS_REVISION: &str =
+    "muonfp:fa507cc944ebbf63d6748cbdeda9f4c4b0680791:spec-sha256:955be749c4010bdc8bf52a3b4e3e95d062225c6d20fa222de2fe5b509f47363c";
+pub const RECOG_CORPUS_REVISION: &str =
+    "recog:v3.1.25:2d99f217e70aeca8f1c9a1fb298f88a2211292a3:xml-sha256:0e334bf22024b0490e75c9e0f4c7019ce2adee1789cd00cb986387c3d842ef29";
+pub const SATORI_CORPUS_REVISION: &str =
+    "satori:73fa88fe6549995c68760be10631382df4ec1d1c:xml-sha256:71f053ec3623b7aed65a18ee81980ff42872032b97141a808cf74044fc45b30b";
+pub const SERVICERADAR_RECOG_ADDITIONS_REVISION: &str = "serviceradar-recog-additions:none";
 #[allow(dead_code)]
 const EVENT_VERSION: u16 = 1;
 #[allow(dead_code)]

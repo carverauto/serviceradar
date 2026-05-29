@@ -96,6 +96,11 @@ type Client struct {
 	lastP0fCorpusRevision             atomic.Value
 	lastServiceRadarAdditionsRevision atomic.Value
 	lastJA4SpecRevision               atomic.Value
+	lastMuonFPCorpusRevision          atomic.Value
+	lastRecogCorpusRevision           atomic.Value
+	lastSatoriCorpusRevision          atomic.Value
+	lastServiceRadarRecogAdditionsRev atomic.Value
+	lastRecogCorpusLoaded             atomic.Bool
 	lastRunningAsRoot                 atomic.Bool
 
 	droppedFingerprintEvents atomic.Uint64
@@ -168,6 +173,11 @@ func (c *Client) Ping(ctx context.Context) error {
 	c.lastP0fCorpusRevision.Store(ack.GetP0FCorpusRevision())
 	c.lastServiceRadarAdditionsRevision.Store(ack.GetServiceradarAdditionsRevision())
 	c.lastJA4SpecRevision.Store(ack.GetJa4SpecRevision())
+	c.lastMuonFPCorpusRevision.Store(ack.GetMuonfpCorpusRevision())
+	c.lastRecogCorpusRevision.Store(ack.GetRecogCorpusRevision())
+	c.lastSatoriCorpusRevision.Store(ack.GetSatoriCorpusRevision())
+	c.lastServiceRadarRecogAdditionsRev.Store(ack.GetServiceradarRecogAdditionsRevision())
+	c.lastRecogCorpusLoaded.Store(ack.GetRecogCorpusLoaded())
 	c.lastRunningAsRoot.Store(ack.GetRunningAsRoot())
 
 	return nil
@@ -321,8 +331,38 @@ func (c *Client) JA4SpecRevision() string {
 	return revision
 }
 
+func (c *Client) MuonFPCorpusRevision() string {
+	return atomicString(&c.lastMuonFPCorpusRevision)
+}
+
+func (c *Client) RecogCorpusRevision() string {
+	return atomicString(&c.lastRecogCorpusRevision)
+}
+
+func (c *Client) SatoriCorpusRevision() string {
+	return atomicString(&c.lastSatoriCorpusRevision)
+}
+
+func (c *Client) ServiceRadarRecogAdditionsRevision() string {
+	return atomicString(&c.lastServiceRadarRecogAdditionsRev)
+}
+
+func (c *Client) RecogCorpusLoaded() bool {
+	return c.lastRecogCorpusLoaded.Load()
+}
+
 func (c *Client) RunningAsRoot() bool {
 	return c.lastRunningAsRoot.Load()
+}
+
+func atomicString(value *atomic.Value) string {
+	loaded := value.Load()
+	if loaded == nil {
+		return ""
+	}
+	stringValue, _ := loaded.(string)
+
+	return stringValue
 }
 
 // DroppedFingerprintEvents returns events dropped because the downstream consumer was slow.

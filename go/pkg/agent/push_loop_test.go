@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
@@ -92,6 +93,12 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintEnabled},
 		sidecars,
 		true,
+		agentnetprobe.CorpusRevisions{
+			P0f:               "p0f-rev",
+			Recog:             "recog-rev",
+			Satori:            "satori-rev",
+			RecogCorpusLoaded: true,
+		},
 	)
 
 	if !resp.GetAvailable() {
@@ -112,6 +119,11 @@ func TestBuildAgentCapabilityStatusResponseIncludesVisibilitySurfacesAndSidecars
 	if !payload.HostNetworkVisibility.RunningAsRoot {
 		t.Fatal("running_as_root = false, want true")
 	}
+	if payload.HostNetworkVisibility.CorpusRevisions == nil ||
+		payload.HostNetworkVisibility.CorpusRevisions.Recog != "recog-rev" ||
+		!payload.HostNetworkVisibility.CorpusRevisions.RecogCorpusLoaded {
+		t.Fatalf("corpus revisions = %#v, want recog revision and loaded flag", payload.HostNetworkVisibility.CorpusRevisions)
+	}
 	if payload.HostNetworkVisibility.DPI != testCapabilityUnavailable ||
 		payload.HostNetworkVisibility.FlowAttribution != testCapabilityUnavailable ||
 		payload.HostNetworkVisibility.ProcessSnapshot != testCapabilityUnavailable {
@@ -128,6 +140,7 @@ func TestBuildAgentCapabilityStatusResponseMarksFingerprintUnavailable(t *testin
 		[]string{capabilityHostNetworkVisibility, capabilityHostNetworkVisibilityFingerprintUnavailable},
 		[]*proto.SidecarStatus{{Name: "netprobe", State: "circuit_open"}},
 		false,
+		agentnetprobe.CorpusRevisions{},
 	)
 
 	var payload agentCapabilityStatusPayload

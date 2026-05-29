@@ -429,13 +429,18 @@ type PingAck struct {
 	AckedAtUnixNano int64                  `protobuf:"varint,2,opt,name=acked_at_unix_nano,json=ackedAtUnixNano,proto3" json:"acked_at_unix_nano,omitempty"`
 	// Deprecated: kept for one minor version while agents migrate to the
 	// license-clean corpus revision fields below.
-	FingerprintEngineVersion      string `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
-	RunningAsRoot                 bool   `protobuf:"varint,4,opt,name=running_as_root,json=runningAsRoot,proto3" json:"running_as_root,omitempty"`
-	P0FCorpusRevision             string `protobuf:"bytes,5,opt,name=p0f_corpus_revision,json=p0fCorpusRevision,proto3" json:"p0f_corpus_revision,omitempty"`
-	ServiceradarAdditionsRevision string `protobuf:"bytes,6,opt,name=serviceradar_additions_revision,json=serviceradarAdditionsRevision,proto3" json:"serviceradar_additions_revision,omitempty"`
-	Ja4SpecRevision               string `protobuf:"bytes,7,opt,name=ja4_spec_revision,json=ja4SpecRevision,proto3" json:"ja4_spec_revision,omitempty"`
-	unknownFields                 protoimpl.UnknownFields
-	sizeCache                     protoimpl.SizeCache
+	FingerprintEngineVersion           string `protobuf:"bytes,3,opt,name=fingerprint_engine_version,json=fingerprintEngineVersion,proto3" json:"fingerprint_engine_version,omitempty"`
+	RunningAsRoot                      bool   `protobuf:"varint,4,opt,name=running_as_root,json=runningAsRoot,proto3" json:"running_as_root,omitempty"`
+	P0FCorpusRevision                  string `protobuf:"bytes,5,opt,name=p0f_corpus_revision,json=p0fCorpusRevision,proto3" json:"p0f_corpus_revision,omitempty"`
+	ServiceradarAdditionsRevision      string `protobuf:"bytes,6,opt,name=serviceradar_additions_revision,json=serviceradarAdditionsRevision,proto3" json:"serviceradar_additions_revision,omitempty"`
+	Ja4SpecRevision                    string `protobuf:"bytes,7,opt,name=ja4_spec_revision,json=ja4SpecRevision,proto3" json:"ja4_spec_revision,omitempty"`
+	MuonfpCorpusRevision               string `protobuf:"bytes,8,opt,name=muonfp_corpus_revision,json=muonfpCorpusRevision,proto3" json:"muonfp_corpus_revision,omitempty"`
+	RecogCorpusRevision                string `protobuf:"bytes,9,opt,name=recog_corpus_revision,json=recogCorpusRevision,proto3" json:"recog_corpus_revision,omitempty"`
+	SatoriCorpusRevision               string `protobuf:"bytes,10,opt,name=satori_corpus_revision,json=satoriCorpusRevision,proto3" json:"satori_corpus_revision,omitempty"`
+	ServiceradarRecogAdditionsRevision string `protobuf:"bytes,11,opt,name=serviceradar_recog_additions_revision,json=serviceradarRecogAdditionsRevision,proto3" json:"serviceradar_recog_additions_revision,omitempty"`
+	RecogCorpusLoaded                  bool   `protobuf:"varint,12,opt,name=recog_corpus_loaded,json=recogCorpusLoaded,proto3" json:"recog_corpus_loaded,omitempty"`
+	unknownFields                      protoimpl.UnknownFields
+	sizeCache                          protoimpl.SizeCache
 }
 
 func (x *PingAck) Reset() {
@@ -515,6 +520,41 @@ func (x *PingAck) GetJa4SpecRevision() string {
 		return x.Ja4SpecRevision
 	}
 	return ""
+}
+
+func (x *PingAck) GetMuonfpCorpusRevision() string {
+	if x != nil {
+		return x.MuonfpCorpusRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetRecogCorpusRevision() string {
+	if x != nil {
+		return x.RecogCorpusRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetSatoriCorpusRevision() string {
+	if x != nil {
+		return x.SatoriCorpusRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetServiceradarRecogAdditionsRevision() string {
+	if x != nil {
+		return x.ServiceradarRecogAdditionsRevision
+	}
+	return ""
+}
+
+func (x *PingAck) GetRecogCorpusLoaded() bool {
+	if x != nil {
+		return x.RecogCorpusLoaded
+	}
+	return false
 }
 
 type ErrorFrame struct {
@@ -2642,7 +2682,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\vconfig_hash\x18\x01 \x01(\tR\n" +
 	"configHash\"1\n" +
 	"\x04Ping\x12)\n" +
-	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\xeb\x02\n" +
+	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\"\x8e\x05\n" +
 	"\aPingAck\x12)\n" +
 	"\x11sent_at_unix_nano\x18\x01 \x01(\x03R\x0esentAtUnixNano\x12+\n" +
 	"\x12acked_at_unix_nano\x18\x02 \x01(\x03R\x0fackedAtUnixNano\x12<\n" +
@@ -2650,7 +2690,13 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x0frunning_as_root\x18\x04 \x01(\bR\rrunningAsRoot\x12.\n" +
 	"\x13p0f_corpus_revision\x18\x05 \x01(\tR\x11p0fCorpusRevision\x12F\n" +
 	"\x1fserviceradar_additions_revision\x18\x06 \x01(\tR\x1dserviceradarAdditionsRevision\x12*\n" +
-	"\x11ja4_spec_revision\x18\a \x01(\tR\x0fja4SpecRevision\":\n" +
+	"\x11ja4_spec_revision\x18\a \x01(\tR\x0fja4SpecRevision\x124\n" +
+	"\x16muonfp_corpus_revision\x18\b \x01(\tR\x14muonfpCorpusRevision\x122\n" +
+	"\x15recog_corpus_revision\x18\t \x01(\tR\x13recogCorpusRevision\x124\n" +
+	"\x16satori_corpus_revision\x18\n" +
+	" \x01(\tR\x14satoriCorpusRevision\x12Q\n" +
+	"%serviceradar_recog_additions_revision\x18\v \x01(\tR\"serviceradarRecogAdditionsRevision\x12.\n" +
+	"\x13recog_corpus_loaded\x18\f \x01(\bR\x11recogCorpusLoaded\":\n" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +

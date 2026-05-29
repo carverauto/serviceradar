@@ -44,12 +44,17 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 				Sequence: frame.GetSequence(),
 				Payload: &netprobepb.NetprobeFrame_PingAck{
 					PingAck: &netprobepb.PingAck{
-						SentAtUnixNano:                ping.GetSentAtUnixNano(),
-						AckedAtUnixNano:               ping.GetSentAtUnixNano() + 1,
-						FingerprintEngineVersion:      "test-engine",
-						P0FCorpusRevision:             "p0f-rev",
-						ServiceradarAdditionsRevision: "sr-additions-rev",
-						Ja4SpecRevision:               "ja4-rev",
+						SentAtUnixNano:                     ping.GetSentAtUnixNano(),
+						AckedAtUnixNano:                    ping.GetSentAtUnixNano() + 1,
+						FingerprintEngineVersion:           "test-engine",
+						P0FCorpusRevision:                  "p0f-rev",
+						ServiceradarAdditionsRevision:      "sr-additions-rev",
+						Ja4SpecRevision:                    "ja4-rev",
+						MuonfpCorpusRevision:               "muonfp-rev",
+						RecogCorpusRevision:                "recog-rev",
+						SatoriCorpusRevision:               "satori-rev",
+						ServiceradarRecogAdditionsRevision: "sr-recog-rev",
+						RecogCorpusLoaded:                  true,
 					},
 				},
 			}
@@ -120,6 +125,21 @@ func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	}
 	if got := client.JA4SpecRevision(); got != "ja4-rev" {
 		t.Fatalf("JA4SpecRevision() = %q, want ja4-rev", got)
+	}
+	if got := client.MuonFPCorpusRevision(); got != "muonfp-rev" {
+		t.Fatalf("MuonFPCorpusRevision() = %q, want muonfp-rev", got)
+	}
+	if got := client.RecogCorpusRevision(); got != "recog-rev" {
+		t.Fatalf("RecogCorpusRevision() = %q, want recog-rev", got)
+	}
+	if got := client.SatoriCorpusRevision(); got != "satori-rev" {
+		t.Fatalf("SatoriCorpusRevision() = %q, want satori-rev", got)
+	}
+	if got := client.ServiceRadarRecogAdditionsRevision(); got != "sr-recog-rev" {
+		t.Fatalf("ServiceRadarRecogAdditionsRevision() = %q, want sr-recog-rev", got)
+	}
+	if !client.RecogCorpusLoaded() {
+		t.Fatal("RecogCorpusLoaded() = false, want true")
 	}
 
 	hash, err := client.ApplyConfig(ctx, &netprobepb.VisibilityAgentConfig{
