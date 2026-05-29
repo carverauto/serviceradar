@@ -215,12 +215,26 @@ Phase 3 replaces the libpcap-userspace continuous capture path with kernel-side 
 - [x] 20.2 Gate slice publication on a control-plane-managed allowlist so we never blanket-publish slices to unsubscribed agents.
 - [x] 20.3 Add `attributed_flow` event type to the flow pipeline contract.
 - [x] 20.4 Add per-slice observability metrics.
-- [x] 20.5 [B-5 sub-issue 1] Wire `GenerateAgentFlowCollectorCreds` into agent enrollment + bundle delivery: server-side mint via `ProvisionAgentWorker`, persist on `OnboardingPackage` (AshCloak), tar `creds/nats.creds` into the agent bundle, extract to `/etc/serviceradar/creds/nats.creds` mode 0600 in `agent_enroll.go`. Regression test: a creds file minted for agent A cannot publish to `flow.host-slice.<agent-B>`.
+- [x] 20.5 [B-5 sub-issue 1] Wire `GenerateAgentFlowCollectorCreds` into agent enrollment + bundle delivery: server-side mint via `ProvisionAgentWorker`, persist on `OnboardingPackage` (AshCloak), tar `creds/nats.creds` into the agent bundle, extract to `/etc/serviceradar/creds/nats.creds` mode 0600 in `agent_enroll.go`. Regression test: a creds file minted for agent A cannot publish to `flow.host-slice.<agent-B>`. (Commit 40dcd7bf8.)
+- [x] 20.6 [B-5 sub-issue 2] Scope core publish ACL to `flow.attributed.<partition>` rather than a blanket allow. Implementation: `GeneratePartitionCoreCreds` mints per-partition core creds; `nats-server.conf` and `nats-cloud.conf` declare subject-scoped publish ACLs; two ACL regression tests assert (a) core can publish to its own partition's attributed subject and (b) core cannot publish to a foreign partition's attributed subject. (Commit f0f2900fa.)
+- [x] 20.7 [B-5 follow-up #1] k8s/Helm partition templating: replace `allow: [">"]` with subject-scoped ACLs for `core` / `datasvc` / `agent` / `db-event-writer` / `zen` role CNs across `helm/serviceradar/values.yaml`, `helm/serviceradar/templates/nats.yaml`, `helm/serviceradar/templates/core.yaml`, and `k8s/demo/base/configmap.yaml`. Precedence: coalesce top-level `partitionId`, `agent.partitionId`, then fallback `"default"`. (Commit d043401e6.)
+- [x] 20.8 [B-5 follow-up #2] Substitute `__SERVICERADAR_PARTITION_ID__` in rpm/deb postinstall via `sed -i`, sourced from `SERVICERADAR_OTX_PARTITION` env or `/etc/serviceradar/nats.env`. Idempotent (safe to re-run on upgrade). (Commit 202c0dfdf.)
+- [x] 20.9 [B-5 follow-up #5] Agent NATS flow publisher consumes `nats_creds_file` from bundle config via `nats.UserCredentials(path)`; fails loud when configured but missing (no silent fallback to anonymous publish). (Commit 1fd5d82c9.)
+- [x] 20.10 [Mi-85 follow-up] Reconcile Elixir attribution caps to bytes (16 / 64 / 256) with UTF-8 codepoint boundary trim matching the proto contract; telemetry metadata renamed `original_bytes` / `truncated_bytes` (was character-count based). (Commit fcf0428cc.)
+- [x] 20.11 [B-5 follow-up #4] `datasvc.yaml` exports `SERVICERADAR_OTX_PARTITION` (mirrors the `core.yaml` env wiring) so datasvc resolves partition consistently with core.
+- [x] 20.12 [B-5 docs cleanup] `k8s/demo` configmap header recipe corrected: replace stale `envsubst` instructions with the `sed` substitution pattern that matches the deployed templating flow.
+- [x] 20.13 [Mi-87 docs cleanup] Strip stale `drop_policy` references from `docs/docs/troubleshooting-guide.md` and `docs/docs/netflow.md` (the field was removed but the docs still referenced it).
+- [x] 20.14 [Mi-85 proto contract] Add byte-cap doc comments for `comm` (16 bytes) and `container_id` (64 bytes) in `proto/flow/flow.proto` so the cap contract lives next to the proto field definitions.
+- [ ] 20.15 [B-5 #3, forward-looking] Producer-side validation in the Rust attribution bridge: enforce `redacted_cmdline` cap at 256 bytes before publish, and add a partition_id suffix / depth-2 guard so a misconfigured publisher cannot publish into a foreign partition's subject tree. Gated on §21.2 producer wiring landing.
+- [ ] 20.16 [B-5 #4] ExUnit coverage for `ProvisionAgentWorker.perform/1` — happy path plus every `:discard` branch (missing onboarding package, expired token, credential mint failure, etc.). Deferred pending Oban.Testing test-harness infrastructure landing in the `core-elx` test suite.
+- [ ] 20.17 [B-5 #6] Credential rotation worker: re-mint NATS creds at `expires_at - rotation_window`; push the refreshed creds via the `config.flow-collector.<agent_id>.>` subject so agents pick them up without a redeploy. Scoped out to a separate proposal — too much new infrastructure to land alongside the visibility sidecar.
+- [ ] 20.18 [Mi-85 #9] Add an Elixir proto regen Makefile target wrapping `protoc-gen-elixir` so the Elixir bindings cannot drift from `proto/flow/flow.proto` on subsequent proto changes.
 
 ### 21. [Phase 4] Sidecar + bridge + UI
 
 - [x] 21.1 Implement `IngestExternalFlows` client-streamed RPC consumer in `netprobe`.
 - [ ] 21.2 Annotate matched 5-tuples with PID / process / cmdline / uid / container-id; drop unmatched.
+  - Forward-looking: when this producer wiring lands, it MUST respect the §20.15 producer-side validation (256-byte `redacted_cmdline` cap + partition_id suffix / depth-2 guard) before publishing onto `flow.attributed.<partition>`.
 - [ ] 21.3 Add the Go bridge subscriber for `flow.host-slice.<agent-id>` and republish `attributed_flow` records.
 - [ ] 21.4 Add the "Attributed Flows" view to the Flows dashboard.
 
