@@ -14,6 +14,8 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     authorizers: [Ash.Policy.Authorizer]
 
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
+  alias ServiceRadar.Plugins.Validations.AddonPackageApproved
+  alias ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment
 
   @mutable_fields [
     :addon_package_id,
@@ -53,12 +55,16 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       accept @create_fields
 
       change SetAssignmentAddonId
+      validate AddonPackageApproved
+      validate NoDuplicateEnabledAddonAssignment
     end
 
     update :update do
       accept @mutable_fields
 
       change SetAssignmentAddonId
+      validate AddonPackageApproved
+      validate NoDuplicateEnabledAddonAssignment
     end
   end
 
