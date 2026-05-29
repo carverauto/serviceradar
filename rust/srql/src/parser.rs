@@ -57,6 +57,7 @@ pub enum Entity {
     Traces,
     Flows,
     Alerts,
+    AddonStatuses,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -486,6 +487,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
         "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
         "alerts" | "alert" => Ok(Entity::Alerts),
+        "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

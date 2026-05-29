@@ -17,10 +17,13 @@
   model with state, active, degradation_reason, pid, restart_count, last_health_at.
   `version`/`arch` columns exist but are nullable — the agent does not yet report them
   per add-on (task 7.1, agent-side enrichment).
-- [ ] 1.2 Surface per-agent add-on status via SRQL where relevant. (§7.2)
-  — Status: partial — the read model is an Ash resource (queryable via the Ash API);
-  registering a dedicated `addon_statuses` SRQL entity in the Rust SRQL service
-  (schema.rs + query executor + dispatch) is a follow-up.
+- [x] 1.2 Surface per-agent add-on status via SRQL where relevant. (§7.2)
+  — `in:addon_statuses` is a first-class SRQL entity in the Rust srql crate (the live
+  in-process NIF translate path): `Entity::AddonStatuses` + parse mapping (parser.rs),
+  the `addon_statuses` Diesel table (schema.rs), `AddonStatusRow` (models.rs), and a
+  `query/addon_statuses.rs` executor (filters: agent_uid/addon_id/state/version/arch;
+  default `reported_at` desc), wired into both dispatch matches and the viz metadata.
+  Verified by `cargo test` (translation is pure, no DB): full srql suite 179/0.
 
 ## 2. Edge Ops UI
 - [ ] 2.1 Approval-review surface for a staged `AddonPackage` (manifest, capabilities,

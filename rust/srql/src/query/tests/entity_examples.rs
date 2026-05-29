@@ -62,3 +62,27 @@ fn gateways_docs_example_health_and_status() {
         "expected bool + status filters in SQL, got: {sql}"
     );
 }
+
+#[test]
+fn addon_statuses_example_agent_and_state() {
+    let query = "in:addon_statuses agent_uid:agent-1 state:unhealthy sort:reported_at:desc";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::AddonStatuses));
+    let (sql, _) =
+        addon_statuses::to_sql_and_params(&plan).expect("should build addon_statuses SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"addon_statuses\""),
+        "expected query against addon_statuses, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"addon_statuses\".\"agent_uid\" =")
+            && lower.contains("\"addon_statuses\".\"state\" ="),
+        "expected agent_uid + state filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"addon_statuses\".\"reported_at\" desc"),
+        "expected reported_at desc ordering, got: {sql}"
+    );
+}

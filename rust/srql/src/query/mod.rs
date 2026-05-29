@@ -122,6 +122,7 @@ pub(crate) fn normalize_mac_value(raw: &str, allow_wildcards: bool) -> Result<St
     Ok(normalized)
 }
 
+mod addon_statuses;
 mod agents;
 mod alerts;
 mod bmp_events;
@@ -215,6 +216,7 @@ impl QueryEngine {
         } else {
             match plan.entity {
                 Entity::Agents => agents::execute(&mut conn, &plan).await?,
+                Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
                 Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
                 Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
@@ -769,6 +771,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
     } else {
         match plan.entity {
             Entity::Agents => agents::to_sql_and_params(&plan)?,
+            Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
