@@ -289,6 +289,28 @@ message FlowAttributionEvent {
   uint64 external_flow_id = 19;
 }
 
+// FlowAttributionEventBatch is the wire payload the agent ships to the
+// agent-gateway inside GatewayServiceStatus.message when
+// GatewayServiceStatus.source == "flow-attribution". It carries a batch of
+// FlowAttributionEvent records the agent drained from the netprobe sidecar
+// (see DrainFlowAttributionEvents). The gateway forwards these to core-elx,
+// where the 5-tuple join with host-slice flow records happens.
+//
+// batch_start_unix_nano / batch_end_unix_nano bracket the wall-clock window
+// during which the included events were drained from the sidecar IPC queue.
+// They are informational only — the join cache keys off the per-event
+// observed_at_unix_nano + 5-tuple, not the batch envelope.
+//
+// dropped_since_last surfaces backpressure from
+// client.DroppedFlowAttributionEvents so the receive path can emit telemetry
+// when the sidecar IPC queue overflowed between drains.
+message FlowAttributionEventBatch {
+  repeated FlowAttributionEvent events = 1;
+  int64 batch_start_unix_nano = 2;
+  int64 batch_end_unix_nano = 3;
+  uint32 dropped_since_last = 4;
+}
+
 message ProcessSnapshot {
   string fingerprint = 1;
   int64 observed_at_unix_nano = 2;

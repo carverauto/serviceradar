@@ -526,7 +526,8 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/data_service.proto \
 		proto/camera_media.proto \
 		proto/desktop_media.proto \
-		proto/identitymap/v1/identity_map.proto
+		proto/identitymap/v1/identity_map.proto \
+		proto/agent/netprobe/v1/netprobe.proto
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
 .PHONY: verify-proto-elixir
