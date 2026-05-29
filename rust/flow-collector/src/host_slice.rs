@@ -151,7 +151,7 @@ fn is_safe_subject_token(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{Config, DropPolicy, HostNetworkVisibilityStatus, ListenerConfig};
+    use crate::config::{Config, HostNetworkVisibilityStatus, ListenerConfig};
     use std::net::{IpAddr, Ipv4Addr};
 
     #[test]
@@ -279,7 +279,6 @@ mod tests {
             channel_size: 100,
             batch_size: 10,
             publish_timeout_ms: 1000,
-            drop_policy: DropPolicy::DropOldest,
             security: None,
             metrics_addr: None,
             host_slice_allowlist,
@@ -288,6 +287,7 @@ mod tests {
                 listen_addr: "127.0.0.1:6343".to_string(),
                 subject: "flows.raw.sflow".to_string(),
                 buffer_size: 1024,
+                channel_size: None,
                 max_samples_per_datagram: None,
             }],
         }

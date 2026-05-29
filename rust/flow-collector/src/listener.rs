@@ -2,7 +2,7 @@ use crate::config::ListenerConfig;
 use crate::error::GetCurrentTimeError;
 use crate::flowpb::FlowMessage;
 use crate::host_slice::HostSliceRouter;
-use crate::metrics::ListenerMetrics;
+use crate::metrics::{ListenerMetrics, SubjectDropRegistry};
 use crate::netflow::NetflowHandler;
 use crate::sflow::SflowHandler;
 use anyhow::Result;
@@ -72,13 +72,24 @@ pub struct Listener {
     handler: Box<dyn FlowHandler>,
     socket: UdpSocket,
     buffer_size: usize,
+    /// Per-listener bounded mpsc to the publisher fan-in. Each listener owns
+    /// its own sender so a noisy protocol cannot starve a quiet one when the
+    /// shared NATS publisher batches behind. The downstream consumer pattern
+    /// is `DropNewest` (tokio `mpsc::try_send` rejects the incoming message
+    /// when the channel is full); see `config.rs` for why we do not expose
+    /// a `DropOldest` policy.
     tx: mpsc::Sender<(String, Vec<u8>)>,
     subject: String,
     host_slice_router: Arc<HostSliceRouter>,
     metrics: Arc<ListenerMetrics>,
+    /// Records per-NATS-subject channel-full drops so operators can see
+    /// *which* listener and *which* subject is overflowing — not just an
+    /// aggregate counter.
+    subject_drops: Arc<SubjectDropRegistry>,
 }
 
 impl Listener {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         handler: Box<dyn FlowHandler>,
         socket: UdpSocket,
@@ -87,6 +98,7 @@ impl Listener {
         host_slice_router: Arc<HostSliceRouter>,
         tx: mpsc::Sender<(String, Vec<u8>)>,
         metrics: Arc<ListenerMetrics>,
+        subject_drops: Arc<SubjectDropRegistry>,
     ) -> Self {
         Self {
             handler,
@@ -96,6 +108,7 @@ impl Listener {
             subject,
             host_slice_router,
             metrics,
+            subject_drops,
         }
     }
 
@@ -149,12 +162,18 @@ impl Listener {
     ) -> Result<bool> {
         match self.tx.try_send((subject, encoded)) {
             Ok(_) => Ok(true),
-            Err(mpsc::error::TrySendError::Full(_)) => {
+            Err(mpsc::error::TrySendError::Full((dropped_subject, _))) => {
                 warn!(
-                    "[{}] Publisher channel full, dropping flow message",
-                    protocol
+                    "[{}] Publisher channel full, dropping flow message for subject '{}'",
+                    protocol, dropped_subject
                 );
-                self.metrics.flows_dropped.fetch_add(1, Ordering::Relaxed);
+                // `channel_full_drops` is kept distinct from `flows_dropped`
+                // (which still counts degenerate flows pre-channel) so
+                // operators can tell parser-side filtering from backpressure.
+                self.metrics
+                    .channel_full_drops
+                    .fetch_add(1, Ordering::Relaxed);
+                self.subject_drops.record_drop(&dropped_subject);
 
                 Ok(false)
             }
@@ -192,10 +211,10 @@ pub fn build_handler(
 mod tests {
     use super::*;
     use crate::config::{
-        Config, DropPolicy, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig,
+        Config, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig,
     };
     use std::net::{IpAddr, Ipv4Addr};
-    use tokio::time::{Duration, timeout};
+    use tokio::time::{Duration, sleep, timeout};
 
     struct StaticFlowHandler;
 
@@ -222,6 +241,7 @@ mod tests {
         let (tx, mut rx) = mpsc::channel(4);
         let metrics = Arc::new(ListenerMetrics::new("test", addr.to_string()));
         let router = Arc::new(HostSliceRouter::from_config(&config_with_slice()));
+        let subject_drops = Arc::new(SubjectDropRegistry::new());
 
         let listener = Listener::new(
             Box::new(StaticFlowHandler),
@@ -231,6 +251,7 @@ mod tests {
             router,
             tx,
             metrics,
+            subject_drops,
         );
 
         let handle = tokio::spawn(async move {
@@ -262,6 +283,72 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn listener_records_per_subject_drops_when_channel_full() {
+        // Capacity 1 + we never drain the receiver, so the first publish_encoded
+        // succeeds (raw subject) and every subsequent send to either the raw
+        // subject or a host-slice subject hits TrySendError::Full.
+        let socket = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let addr = socket.local_addr().unwrap();
+        let (tx, _rx) = mpsc::channel(1);
+        let metrics = Arc::new(ListenerMetrics::new("test", addr.to_string()));
+        let router = Arc::new(HostSliceRouter::from_config(&config_with_slice()));
+        let subject_drops = Arc::new(SubjectDropRegistry::new());
+
+        let listener = Listener::new(
+            Box::new(StaticFlowHandler),
+            socket,
+            1024,
+            "flows.raw.test".to_string(),
+            router,
+            tx,
+            Arc::clone(&metrics),
+            Arc::clone(&subject_drops),
+        );
+
+        let handle = tokio::spawn(async move {
+            let _ = listener.run().await;
+        });
+
+        // Drive enough datagrams through that we exhaust the channel and
+        // observe at least one drop on each subject.
+        let sender = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        for _ in 0..16 {
+            sender.send_to(b"flow", addr).await.unwrap();
+        }
+
+        // Give the listener time to process.
+        sleep(Duration::from_millis(200)).await;
+        handle.abort();
+
+        let snapshot = subject_drops.snapshot();
+        let by_subject: std::collections::HashMap<String, u64> =
+            snapshot.into_iter().collect();
+
+        // The raw subject *might* also drop (after the first success the
+        // channel is full), but we definitely expect the host-slice fan-out
+        // to drop on every datagram beyond the first, because the raw send
+        // always consumes the single slot first.
+        assert!(
+            by_subject
+                .get("flow.host-slice.agent-1")
+                .copied()
+                .unwrap_or(0)
+                > 0,
+            "expected host-slice subject drops, got {:?}",
+            by_subject
+        );
+
+        let channel_full = metrics.channel_full_drops.load(Ordering::Relaxed);
+        assert!(
+            channel_full > 0,
+            "expected channel_full_drops to be incremented"
+        );
+
+        // Degenerate-flow counter must not be touched by channel-full drops.
+        assert_eq!(metrics.flows_dropped.load(Ordering::Relaxed), 0);
+    }
+
     fn config_with_slice() -> Config {
         Config {
             nats_url: "nats://localhost:4222".to_string(),
@@ -274,7 +361,6 @@ mod tests {
             channel_size: 100,
             batch_size: 10,
             publish_timeout_ms: 1000,
-            drop_policy: DropPolicy::DropOldest,
             security: None,
             metrics_addr: None,
             host_slice_allowlist: vec!["agent-1".to_string()],
@@ -288,6 +374,7 @@ mod tests {
                 listen_addr: "127.0.0.1:6343".to_string(),
                 subject: "flows.raw.sflow".to_string(),
                 buffer_size: 1024,
+                channel_size: None,
                 max_samples_per_datagram: None,
             }],
         }
