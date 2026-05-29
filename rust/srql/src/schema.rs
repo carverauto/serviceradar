@@ -33,6 +33,29 @@ diesel::table! {
 }
 
 diesel::table! {
+    use diesel::sql_types::*;
+
+    /// Per-agent observed native add-on status (issue 3425). `platform` schema is
+    /// resolved at runtime via the Ecto search_path, like ocsf_agents.
+    addon_statuses (id) {
+        id -> Uuid,
+        agent_uid -> Text,
+        addon_id -> Text,
+        state -> Text,
+        active -> Bool,
+        degradation_reason -> Nullable<Text>,
+        pid -> Nullable<Int4>,
+        restart_count -> Int4,
+        last_health_at -> Nullable<Timestamptz>,
+        version -> Nullable<Text>,
+        arch -> Nullable<Text>,
+        reported_at -> Timestamptz,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 

@@ -83,6 +83,47 @@ impl AgentRow {
     }
 }
 
+/// Per-agent observed native add-on status (issue 3425, task 7.2).
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::addon_statuses, check_for_backend(diesel::pg::Pg))]
+pub struct AddonStatusRow {
+    pub id: Uuid,
+    pub agent_uid: String,
+    pub addon_id: String,
+    pub state: String,
+    pub active: bool,
+    pub degradation_reason: Option<String>,
+    pub pid: Option<i32>,
+    pub restart_count: i32,
+    pub last_health_at: Option<DateTime<Utc>>,
+    pub version: Option<String>,
+    pub arch: Option<String>,
+    pub reported_at: DateTime<Utc>,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl AddonStatusRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "agent_uid": self.agent_uid,
+            "addon_id": self.addon_id,
+            "state": self.state,
+            "active": self.active,
+            "degradation_reason": self.degradation_reason,
+            "pid": self.pid,
+            "restart_count": self.restart_count,
+            "last_health_at": self.last_health_at,
+            "version": self.version,
+            "arch": self.arch,
+            "reported_at": self.reported_at,
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+        })
+    }
+}
+
 /// OCSF-aligned device row (OCSF v1.7.0 Device object)
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::ocsf_devices, check_for_backend(diesel::pg::Pg))]

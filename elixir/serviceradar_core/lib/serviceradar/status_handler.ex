@@ -97,6 +97,14 @@ defmodule ServiceRadar.StatusHandler do
     handle_flow_attribution(status)
   end
 
+  defp process(%{service_name: service_name} = status)
+       when service_name in ["agent", :agent] do
+    # The agent capability status carries per-add-on state in its payload; record it
+    # in the add-on status read model (issue 3425, task 7.2). No-op when there are no
+    # add-ons in the payload.
+    ServiceRadar.Plugins.AddonStatusIngestor.ingest(status)
+  end
+
   defp process(_status), do: :ok
 
   defp handle_flow_attribution(status) do

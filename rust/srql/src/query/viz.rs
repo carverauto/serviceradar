@@ -126,6 +126,35 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::AddonStatuses => VizMeta {
+            columns: vec![
+                col("agent_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("addon_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("state", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("active", ColumnType::Bool, None),
+                col("degradation_reason", ColumnType::Text, None),
+                col("pid", ColumnType::Int, None),
+                col("restart_count", ColumnType::Int, None),
+                col(
+                    "last_health_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("version", ColumnType::Text, None),
+                col("arch", ColumnType::Text, None),
+                col(
+                    "reported_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Devices => VizMeta {
             columns: vec![
                 col("uid", ColumnType::Text, Some(ColumnSemantic::Id)),
