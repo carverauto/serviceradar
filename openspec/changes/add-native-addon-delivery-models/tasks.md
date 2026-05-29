@@ -44,6 +44,12 @@
 - [ ] 4.1 Last-known-good cache + local override for add-on assignments (mirror the
   existing config override/cache pattern); fall back to last good on delivery or
   verification failure. (§6.7)
+  — Status: partial — the versioned staging dir doubles as the last-known-good cache:
+  on a delivery/verification failure the agent reuses the existing `current` staged
+  binary (lastKnownGoodAddonBinary) instead of tearing down a running add-on, so a
+  transient object-store/signature failure is non-fatal and a reboot can relaunch from
+  the last-good binary while the store is unavailable. Remaining: a local override file
+  (mirroring the agent config override).
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-delivery-models --strict` passes.

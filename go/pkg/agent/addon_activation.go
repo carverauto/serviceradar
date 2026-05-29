@@ -129,6 +129,29 @@ func stageAddonArtifact(
 	return filepath.Join(addonDir, addonCurrentLink, binName), nil
 }
 
+// lastKnownGoodAddonBinary returns the path to the previously activated binary for
+// the add-on (the target of its `current` symlink) when it still resolves to a
+// regular file. The versioned staging directory doubles as the last-known-good
+// cache: when a fresh delivery or verification fails, the caller falls back to this
+// path so a transient object-store/signature failure does not tear down a running
+// add-on. Returns ("", false) when nothing has been staged yet.
+func lastKnownGoodAddonBinary(root string, a *proto.AddonAssignmentConfig) (string, bool) {
+	addonID := strings.TrimSpace(a.GetAddonId())
+	if addonID == "" {
+		return "", false
+	}
+
+	binPath := filepath.Join(root, addonID, addonCurrentLink, addonBinaryName(a))
+
+	// os.Stat follows the current -> versions/<v> symlink, so this confirms the
+	// real staged binary still exists.
+	if info, err := os.Stat(binPath); err == nil && info.Mode().IsRegular() {
+		return binPath, true
+	}
+
+	return "", false
+}
+
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes
 // using the agent release trust root (reused per the 3425 decision to share the
 // existing signing key); the build/signing pipeline finalizes key management.

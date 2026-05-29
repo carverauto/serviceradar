@@ -145,6 +145,56 @@ func TestStageAddonArtifactIncomplete(t *testing.T) {
 	}
 }
 
+func TestLastKnownGoodAddonBinaryFallback(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("addon-v1-binary")
+	key := "addons/lkg/linux-amd64"
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "lkg",
+		Version:           "1.0.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-lkg-addon",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+	}
+
+	// Nothing staged yet: no last-known-good.
+	if _, ok := lastKnownGoodAddonBinary(root, a); ok {
+		t.Fatal("expected no last-known-good before any staging")
+	}
+
+	// Stage once successfully.
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+	good, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("initial stage: %v", err)
+	}
+
+	lkg, ok := lastKnownGoodAddonBinary(root, a)
+	if !ok {
+		t.Fatal("expected last-known-good after a successful stage")
+	}
+	if lkg != good {
+		t.Fatalf("last-known-good = %q, want %q", lkg, good)
+	}
+
+	// A later delivery that fails (object store down) must leave the
+	// last-known-good binary intact for the caller to fall back to.
+	failing := &fakeObjectStore{err: errFakeObjectNotFound}
+	if _, err := stageAddonArtifact(context.Background(), failing, root, a); err == nil {
+		t.Fatal("expected staging to fail with a failing object store")
+	}
+
+	again, ok := lastKnownGoodAddonBinary(root, a)
+	if !ok || again != good {
+		t.Fatalf("last-known-good lost after a failed delivery: ok=%v path=%q", ok, again)
+	}
+
+	data, err := os.ReadFile(again)
+	if err != nil || !bytes.Equal(data, payload) {
+		t.Fatalf("last-known-good binary not intact: err=%v", err)
+	}
+}
+
 func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 	pub, priv, err := ed25519.GenerateKey(nil)
 	if err != nil {

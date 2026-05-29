@@ -3207,24 +3207,40 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			store := p.server.objectStore
 			p.server.mu.RUnlock()
 
-			resolved, err := stageAddonArtifact(ctx, store, resolveAddonArtifactRoot(""), a)
+			root := resolveAddonArtifactRoot("")
+
+			resolved, err := stageAddonArtifact(ctx, store, root, a)
 			if err != nil {
+				// Delivery/verification failed: fall back to the last-known-good
+				// staged version so a transient failure does not tear down a running
+				// add-on. Only skip when nothing has been staged before.
+				lkg, ok := lastKnownGoodAddonBinary(root, a)
+				if !ok {
+					p.logger.Warn().
+						Err(err).
+						Str("addon", a.GetAddonId()).
+						Str("object_key", a.GetArtifactObjectKey()).
+						Msg("Failed to stage pushed-artifact add-on and no last-known-good version; assignment not applied")
+
+					continue
+				}
+
 				p.logger.Warn().
 					Err(err).
 					Str("addon", a.GetAddonId()).
-					Str("object_key", a.GetArtifactObjectKey()).
-					Msg("Failed to stage pushed-artifact add-on; assignment not applied")
+					Str("binary_path", lkg).
+					Msg("Pushed-artifact add-on delivery failed; using last-known-good staged version")
 
-				continue
+				binaryPath = lkg
+			} else {
+				if a.GetArtifactSignature() == "" {
+					p.logger.Warn().
+						Str("addon", a.GetAddonId()).
+						Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
+				}
+
+				binaryPath = resolved
 			}
-
-			if a.GetArtifactSignature() == "" {
-				p.logger.Warn().
-					Str("addon", a.GetAddonId()).
-					Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
-			}
-
-			binaryPath = resolved
 		}
 
 		if binaryPath == "" {
