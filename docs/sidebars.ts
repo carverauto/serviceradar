@@ -41,6 +41,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'agent-release-management', label: 'Agent Release Management'},
         {type: 'doc', id: 'discovery', label: 'Discovery'},
         {type: 'doc', id: 'network-sweeps', label: 'Network Sweeps'},
+        {type: 'doc', id: 'sweep-banner-grab', label: 'Sweep Banner Grab'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
         {type: 'doc', id: 'netprobe', label: 'Host Network Visibility'},
