@@ -165,6 +165,12 @@ spec:
           value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: SERVICERADAR_CORE_RUN_MIGRATIONS
           value: "false"
+        # B-5 sub-issue 2: partition identity for this deployment. MUST
+        # match the value rendered into the NATS authorization block
+        # (templates/nats.yaml) so the partition-scoped flow.attributed.<id>
+        # allow lists line up with what core publishes.
+        - name: SERVICERADAR_OTX_PARTITION
+          value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         - name: SERVICERADAR_CORE_OBAN_ENABLED
           value: "true"
         - name: SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED
