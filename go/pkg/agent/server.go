@@ -79,7 +79,17 @@ func NewServer(ctx context.Context, configDir string, cfg *ServerConfig, log log
 	// Optional: only connects when nats_url + nats_creds_file are present in the
 	// bootstrap config (written by edge-bundle generator for :agent packages).
 	// Backwards-compatible: when keys are absent, the agent runs without it.
+	//
+	// Fail-loud when the operator explicitly configured NATS auth but it is
+	// broken — silent fallback would defeat B-5 (per-agent JWT-scoped
+	// publishing). The no-config path returns nil from initFlowPublisher
+	// (see nats_publisher.go newFlowPublisher: returns (nil, nil) when both
+	// URL and Creds are empty), so reaching the error branch with intent
+	// signalled in config is operator misconfiguration we must surface.
 	if err := s.initFlowPublisher(ctx); err != nil {
+		if errors.Is(err, ErrFlowPublisherCredsMissing) || cfg.NATSCredsFile != "" || cfg.NATSURL != "" {
+			return nil, fmt.Errorf("failed to initialize flow publisher: %w", err)
+		}
 		log.Warn().Err(err).Msg("Failed to initialize flow publisher, continuing without it")
 	}
 

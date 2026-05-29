@@ -221,3 +221,73 @@ func TestNewFlowPublisher_ConnectorErrorPropagates(t *testing.T) {
 	require.Nil(t, p)
 	require.ErrorIs(t, err, wantErr)
 }
+
+// TestInitFlowPublisher_MissingCredsFailLoud guards the server-level
+// policy for Mi-97: when the operator explicitly configures
+// nats_creds_file but the file does not exist, the publisher init must
+// return ErrFlowPublisherCredsMissing and the caller (NewServer) must
+// fail-loud rather than demoting to a log.Warn. Without this test the
+// demotion regression (server.go swallowing the sentinel) is invisible
+// to CI. See nats_publisher.go ErrFlowPublisherCredsMissing godoc and
+// server.go NewServer flow-publisher init branch.
+func TestInitFlowPublisher_MissingCredsFailLoud(t *testing.T) {
+	t.Parallel()
+
+	missing := filepath.Join(t.TempDir(), "absent.creds")
+	s := &Server{
+		config: &ServerConfig{
+			AgentID:       "test-agent",
+			NATSURL:       "nats://example:4222",
+			NATSCredsFile: missing,
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	err := s.initFlowPublisher(context.Background())
+	require.Error(t, err)
+	require.True(t, errors.Is(err, ErrFlowPublisherCredsMissing),
+		"expected ErrFlowPublisherCredsMissing to propagate from initFlowPublisher, got %v", err)
+	require.Nil(t, s.flowPublisher,
+		"flowPublisher must remain nil when initialization fails so the agent cannot publish unauthenticated")
+}
+
+// TestInitFlowPublisher_NoConfigIsNoOp guards the backwards-compatible
+// path required by acceptance criterion #2: when neither NATSURL nor
+// NATSCredsFile is set, initFlowPublisher returns nil and the caller
+// proceeds without a publisher.
+func TestInitFlowPublisher_NoConfigIsNoOp(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &ServerConfig{
+			AgentID: "test-agent",
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	require.NoError(t, s.initFlowPublisher(context.Background()))
+	require.Nil(t, s.flowPublisher,
+		"no-config path must leave flowPublisher unset")
+}
+
+// TestInitFlowPublisher_CredsWithoutURLFailLoud guards the
+// misconfiguration path at the publisher level — operator set
+// nats_creds_file but forgot nats_url. This case is intent-bearing
+// (creds non-empty) and must surface to the caller.
+func TestInitFlowPublisher_CredsWithoutURLFailLoud(t *testing.T) {
+	t.Parallel()
+
+	s := &Server{
+		config: &ServerConfig{
+			AgentID:       "test-agent",
+			NATSCredsFile: writeCredsFile(t),
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	err := s.initFlowPublisher(context.Background())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nats_url",
+		"creds-without-URL misconfiguration must surface a clear nats_url error")
+	require.Nil(t, s.flowPublisher)
+}

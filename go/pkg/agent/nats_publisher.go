@@ -186,10 +186,16 @@ func (p *flowPublisher) Conn() *nats.Conn {
 	return p.conn
 }
 
-// initFlowPublisher mirrors initSysmonService / initSNMPService: best-
-// effort, log-and-continue, optional service. Failures here must not
-// prevent the agent from starting — flow-collector publishing is an
-// optional capability that not every deployment enrolls.
+// initFlowPublisher constructs the optional flow publisher. The
+// no-config path (both NATSURL and NATSCredsFile empty) returns nil so
+// agents without flow-collector enrollment continue to run. When the
+// operator HAS expressed intent in config (either field non-empty) any
+// error here — including ErrFlowPublisherCredsMissing or a dial
+// failure — is propagated to the caller so the agent fails to start
+// rather than silently falling back to anonymous auth. Silent fallback
+// would defeat B-5 (per-agent JWT-scoped publishing); the
+// caller (NewServer) enforces that policy via errors.Is +
+// config-intent guards.
 func (s *Server) initFlowPublisher(ctx context.Context) error {
 	cfg := flowPublisherConfig{
 		URL:      s.config.NATSURL,
