@@ -479,6 +479,10 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 	@protoc -I=proto -I=. \
 		--go_out=proto --go_opt=paths=source_relative \
 		proto/agent/netprobe/v1/netprobe.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
+		proto/agent/addon/v1/addon.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 .PHONY: proto-lint

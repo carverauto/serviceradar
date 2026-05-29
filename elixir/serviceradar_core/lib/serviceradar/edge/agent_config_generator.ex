@@ -39,6 +39,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Integrations.SyncConfigGenerator
   alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Monitoring.ServiceCheck
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
@@ -225,7 +227,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config: Map.get(config, :snmp_config),
       visibility_config: Map.get(config, :visibility_config),
       plugin_config: proto_plugins,
-      bumblebee_config: Map.get(config, :bumblebee_config)
+      bumblebee_config: Map.get(config, :bumblebee_config),
+      addons: to_proto_addons(Map.get(config, :addons, []))
     }
   end
 
@@ -250,6 +253,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     bumblebee_config = load_bumblebee_config(agent_id)
     plugin_assignments = load_plugin_assignments(agent_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
+    addon_assignments = load_addon_assignments(agent_id)
 
     plugin_config = %{
       assignments: plugin_assignments,
@@ -265,7 +269,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config,
       visibility_config,
       bumblebee_config,
-      plugin_config
+      plugin_config,
+      addon_assignments
     )
   end
 
@@ -358,6 +363,89 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     do: plugin_id
 
   defp logical_plugin_id(%PluginAssignment{plugin_id: plugin_id}), do: plugin_id
+
+  defp load_addon_assignments(agent_id) do
+    actor = SystemActor.system(:agent_config_generator)
+
+    AddonAssignment
+    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
+    |> Ash.Query.filter(enabled == true)
+    |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
+    |> Ash.Query.load(:addon_package)
+    |> Ash.read!()
+    |> Enum.map(&ensure_addon_package_loaded(&1, actor))
+    |> Enum.filter(&approved_addon_package?/1)
+    |> Enum.uniq_by(&logical_addon_id/1)
+    |> Enum.map(&build_addon_assignment_config/1)
+  rescue
+    e ->
+      Logger.warning("Error loading addon assignments: #{inspect(e)}")
+      []
+  end
+
+  defp ensure_addon_package_loaded(
+         %AddonAssignment{addon_package: %AddonPackage{}} = assignment,
+         _actor
+       ), do: assignment
+
+  defp ensure_addon_package_loaded(%AddonAssignment{} = assignment, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read)
+    |> Ash.Query.filter(id == ^assignment.addon_package_id)
+    |> Ash.read_one(actor: actor)
+    |> case do
+      {:ok, %AddonPackage{} = package} -> %{assignment | addon_package: package}
+      _ -> assignment
+    end
+  end
+
+  defp approved_addon_package?(%AddonAssignment{addon_package: %AddonPackage{status: :approved}}),
+    do: true
+
+  defp approved_addon_package?(%AddonAssignment{} = assignment) do
+    Logger.warning(
+      "Skipping addon assignment #{assignment.id}: package is not approved or was not loaded"
+    )
+
+    false
+  end
+
+  defp logical_addon_id(%AddonAssignment{addon_package: %AddonPackage{addon_id: addon_id}}),
+    do: addon_id
+
+  defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
+
+  defp build_addon_assignment_config(%AddonAssignment{} = assignment) do
+    package = assignment.addon_package
+
+    %{
+      addon_id: logical_addon_id(assignment),
+      version: package.version,
+      enabled: assignment.enabled,
+      binary_path: addon_binary_path(package),
+      args: assignment.args || [],
+      params: normalize_map(assignment.params),
+      capabilities: effective_addon_capabilities(package),
+      delivery: package.delivery,
+      supervision: package.supervision
+    }
+  end
+
+  # Prefer the operator-approved capability subset when set (mirrors plugin
+  # effective_capabilities); fall back to the package's full manifest list.
+  defp effective_addon_capabilities(%AddonPackage{} = package) do
+    case package.approved_capabilities || [] do
+      [] -> package.capabilities || []
+      approved -> approved
+    end
+  end
+
+  defp addon_binary_path(%AddonPackage{binary: binary, install_path: install_path})
+       when is_binary(binary) and binary != "" do
+    Path.join(install_path || "/usr/local/lib/serviceradar/bin", binary)
+  end
+
+  defp addon_binary_path(_), do: ""
 
   defp load_plugin_engine_limits(agent_id) do
     actor = SystemActor.system(:plugin_engine_limits)
@@ -819,7 +907,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          snmp_config,
          visibility_config,
          bumblebee_config,
-         plugin_config
+         plugin_config,
+         addon_assignments
        ) do
     check_configs = Enum.map(checks, &convert_check_to_config/1)
     plugin_assignments = Map.get(plugin_config, :assignments, [])
@@ -842,7 +931,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         visibility_config,
         bumblebee_config,
         plugin_assignments,
-        plugin_engine_limits
+        plugin_engine_limits,
+        addon_assignments
       )
 
     config_json =
@@ -865,7 +955,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
       visibility_config: build_visibility_proto_config(visibility_config),
-      bumblebee_config: build_bumblebee_proto_config(bumblebee_config)
+      bumblebee_config: build_bumblebee_proto_config(bumblebee_config),
+      addons: addon_assignments
     }
   end
 
@@ -938,7 +1029,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          visibility_config,
          bumblebee_config,
          plugin_assignments,
-         plugin_engine_limits
+         plugin_engine_limits,
+         addon_assignments
        ) do
     # Sort checks by ID for deterministic ordering
     sorted_checks = Enum.sort_by(check_configs, & &1.check_id)
@@ -948,6 +1040,11 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Enum.sort_by(& &1.assignment_id)
       |> Enum.map(&stable_plugin_assignment/1)
 
+    sorted_addons =
+      addon_assignments
+      |> Enum.sort_by(& &1.addon_id)
+      |> Enum.map(&stable_addon_assignment/1)
+
     version_payload = %{
       checks: sorted_checks,
       sync: stable_config_fragment(sync_payload),
@@ -956,11 +1053,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       visibility: stable_config_fragment(visibility_config),
       bumblebee: stable_config_fragment(bumblebee_config),
       plugins: sorted_plugins,
-      plugin_engine_limits: plugin_engine_limits
+      plugin_engine_limits: plugin_engine_limits,
+      addons: sorted_addons
     }
 
     "v" <> Compiler.content_hash(version_payload)
   end
+
+  # The add-on assignment map carries no volatile/derived fields (unlike plugin
+  # assignments, which strip per-poll download tokens), so the whole map joins the
+  # config version hash. binary_path is included intentionally: a binary/install_path
+  # (or per-arch artifact) change must re-version so a polling agent stops getting
+  # `not_modified` and relaunches the new executable.
+  defp stable_addon_assignment(assignment), do: assignment
 
   defp stable_config_fragment(%{} = map) do
     map
@@ -994,6 +1099,31 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       engine_limits: to_proto_plugin_engine_limits(engine_limits)
     }
   end
+
+  defp to_proto_addons(addons) when is_list(addons) do
+    Enum.map(addons, fn addon ->
+      %Monitoring.AddonAssignmentConfig{
+        addon_id: assignment_string(addon[:addon_id]),
+        version: assignment_string(addon[:version]),
+        enabled: addon[:enabled] || false,
+        binary_path: assignment_string(addon[:binary_path]),
+        args: addon[:args] || [],
+        config_json: encode_json(normalize_map(addon[:params])),
+        capabilities: addon[:capabilities] || [],
+        delivery: assignment_enum_string(addon[:delivery]),
+        supervision: assignment_enum_string(addon[:supervision])
+      }
+    end)
+  end
+
+  defp to_proto_addons(_), do: []
+
+  # Add-on delivery/supervision are Ash atoms (e.g. :pushed_artifact); the proto
+  # field is a string, so stringify (and tolerate a pre-stringified value).
+  defp assignment_enum_string(nil), do: ""
+  defp assignment_enum_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp assignment_enum_string(value) when is_binary(value), do: value
+  defp assignment_enum_string(_), do: ""
 
   defp to_proto_plugin_engine_limits(engine_limits) do
     %Monitoring.PluginEngineLimits{

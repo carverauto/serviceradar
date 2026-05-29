@@ -36,6 +36,7 @@ import (
 	"syscall"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
@@ -1886,9 +1887,10 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 	sysmonSvc := p.server.sysmonService
 	cfg := p.server.config
 	sidecarStatus := p.server.sidecarStatus
+	addonManager := p.server.addonManager
 	p.server.mu.RUnlock()
 
-	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus); status != nil {
+	if status := p.buildAgentCapabilityGatewayStatus(cfg, sidecarStatus, addonManager); status != nil {
 		statuses = append(statuses, status)
 	}
 
@@ -1945,14 +1947,38 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	cfg *ServerConfig,
 	sidecarStatus sidecarStatusProvider,
+	addonManager agentaddon.AddonManager,
 ) *proto.GatewayServiceStatus {
 	sidecars := sidecarStatusesForStatus(sidecarStatus)
+
+	var addonStatuses []agentaddon.Status
+	if addonManager != nil {
+		addonStatuses = addonManager.Status()
+	}
+	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
+
+	capabilities := agentCapabilitiesForStatus(cfg, sidecars)
+	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
+
 	resp := buildAgentCapabilityStatusResponse(
-		agentCapabilitiesForStatus(cfg, sidecars),
+		capabilities,
 		sidecars,
 		p.netprobeRunningAsRoot(),
 	)
 	return p.convertToGatewayStatus(resp, agentCapabilityServiceName, agentCapabilityServiceType)
+}
+
+// addonCapabilities returns the capability identifiers advertised by add-ons that
+// are currently running, so the control plane can reconcile active add-ons.
+func addonCapabilities(statuses []agentaddon.Status) []string {
+	var capabilities []string
+	for _, status := range statuses {
+		if status.State != agentaddon.StateRunning {
+			continue
+		}
+		capabilities = append(capabilities, status.Capabilities...)
+	}
+	return capabilities
 }
 
 func buildAgentCapabilityStatusResponse(capabilities []string, sidecars []*proto.SidecarStatus, runningAsRoot bool) *proto.StatusResponse {
@@ -2892,6 +2918,9 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
+	// Apply native add-on (feature set) assignments if present.
+	p.applyAddonAssignments(ctx, configResp.GetAddons())
+
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
 
@@ -3113,6 +3142,87 @@ func netprobeConfigPath(provider sidecarStatusProvider) string {
 	}
 
 	return ""
+}
+
+// Add-on delivery/supervision identifiers carried in AddonAssignmentConfig.
+// These mirror the control-plane Ash enums; only the agent_sidecar supervision
+// model is supervised here today (others are logged and skipped explicitly).
+const (
+	addonDeliveryPushedArtifact  = "pushed_artifact"
+	addonSupervisionAgentSidecar = "agent_sidecar"
+)
+
+// applyAddonAssignments reconciles the agent's supervised native add-ons to the
+// assignments delivered in the gateway config. Enabled assignments are launched
+// and supervised as go-plugin subprocesses; disabled or removed ones are stopped.
+func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) {
+	if p.server == nil {
+		return
+	}
+
+	p.server.mu.RLock()
+	manager := p.server.addonManager
+	p.server.mu.RUnlock()
+	if manager == nil {
+		return
+	}
+
+	specs := make([]agentaddon.Spec, 0, len(assignments))
+	for _, a := range assignments {
+		if a == nil || !a.GetEnabled() {
+			continue
+		}
+
+		// Default to the only delivery/supervision pair this agent implements so
+		// an older control plane that omits these fields keeps working.
+		delivery := a.GetDelivery()
+		if delivery == "" {
+			delivery = addonDeliveryPushedArtifact
+		}
+		supervision := a.GetSupervision()
+		if supervision == "" {
+			supervision = addonSupervisionAgentSidecar
+		}
+
+		// Only agent_sidecar add-ons run as supervised go-plugin subprocesses.
+		// compiled_in / config_toggle / systemd_* / ephemeral_helper are not yet
+		// handled here; log explicitly rather than silently skipping so the
+		// desired-vs-observed gap is visible instead of looking like a no-op.
+		if supervision != addonSupervisionAgentSidecar {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Str("supervision", supervision).
+				Msg("Add-on supervision model not supported by this agent; assignment not applied")
+			continue
+		}
+
+		if a.GetBinaryPath() == "" {
+			p.logger.Warn().
+				Str("addon", a.GetAddonId()).
+				Str("delivery", delivery).
+				Msg("Add-on sidecar assignment missing a binary path; not applied")
+			continue
+		}
+
+		specs = append(specs, agentaddon.Spec{
+			ID:           a.GetAddonId(),
+			Version:      a.GetVersion(),
+			BinaryPath:   a.GetBinaryPath(),
+			Args:         a.GetArgs(),
+			ConfigJSON:   a.GetConfigJson(),
+			Capabilities: a.GetCapabilities(),
+		})
+	}
+
+	if err := manager.Apply(ctx, specs); err != nil {
+		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
+		return
+	}
+
+	if len(specs) > 0 {
+		p.logger.Info().Int("addons", len(specs)).Msg("Applied native add-on assignments")
+	}
 }
 
 func (p *PushLoop) applyPluginConfig(config *proto.PluginConfig) {

@@ -314,6 +314,25 @@ message AgentConfigResponse {
 
   // Bumblebee developer endpoint exposure scanner configuration
   BumblebeeConfig bumblebee_config = 12;
+
+  // Native add-on (feature set) assignments. The agent's add-on manager
+  // supervises enabled assignments as go-plugin subprocesses (see
+  // proto/agent/addon/v1).
+  repeated AddonAssignmentConfig addons = 13;
+}
+
+// AddonAssignmentConfig is one native add-on (feature set) assignment delivered
+// to an agent.
+message AddonAssignmentConfig {
+  string addon_id = 1;              // Stable add-on identifier (matches addon.yaml id)
+  string version = 2;               // Assigned add-on version
+  bool enabled = 3;                 // Whether the add-on should run on this agent
+  string binary_path = 4;           // Resolved absolute path to the add-on plugin binary
+  repeated string args = 5;         // Optional extra arguments for the plugin binary
+  bytes config_json = 6;            // Operator-selected config (validated against config.schema.json)
+  repeated string capabilities = 7; // Capability identifiers the add-on advertises
+  string delivery = 8;              // Delivery model: compiled_in | pushed_artifact | os_package
+  string supervision = 9;           // Supervision model: config_toggle | agent_sidecar | systemd_service | systemd_timer | ephemeral_helper
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

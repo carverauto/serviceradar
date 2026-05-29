@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
@@ -56,6 +57,7 @@ type Server struct {
 	sidecarStatus      sidecarStatusProvider
 	sidecarManager     sidecarLifecycleManager
 	netprobeSidecar    *agentnetprobe.Sidecar
+	addonManager       agentaddon.AddonManager
 	objectStore        ObjectStore
 }
 

@@ -440,6 +440,26 @@ defmodule Monitoring.AgentConfigResponse do
   field(:visibility_config, 10, type: Monitoring.VisibilityConfig, json_name: "visibilityConfig")
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
   field(:bumblebee_config, 12, type: Monitoring.BumblebeeConfig, json_name: "bumblebeeConfig")
+  field(:addons, 13, repeated: true, type: Monitoring.AddonAssignmentConfig)
+end
+
+defmodule Monitoring.AddonAssignmentConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.AddonAssignmentConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:addon_id, 1, type: :string, json_name: "addonId")
+  field(:version, 2, type: :string)
+  field(:enabled, 3, type: :bool)
+  field(:binary_path, 4, type: :string, json_name: "binaryPath")
+  field(:args, 5, repeated: true, type: :string)
+  field(:config_json, 6, type: :bytes, json_name: "configJson")
+  field(:capabilities, 7, repeated: true, type: :string)
+  field(:delivery, 8, type: :string)
+  field(:supervision, 9, type: :string)
 end
 
 defmodule Monitoring.AgentConfigChunk do
