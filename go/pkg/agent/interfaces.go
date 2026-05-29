@@ -39,6 +39,13 @@ type SweepStatusProvider interface {
 	GetStatus(context.Context) (*proto.StatusResponse, error)
 }
 
+// StatusRoutingProvider lets status-producing services override the default
+// sweep/status routing metadata used by the push loop.
+type StatusRoutingProvider interface {
+	StatusServiceType() string
+	StatusSource() string
+}
+
 // SweepResultsProvider provides sweep results with sequence tracking.
 type SweepResultsProvider interface {
 	GetSweepResults(context.Context, string) (*proto.ResultsResponse, error)

@@ -28,6 +28,8 @@ import (
 // sampleAddonBin is the compiled reference add-on used across the e2e tests. It
 // is empty when no binary could be produced (e.g. a sandbox without the Go
 // toolchain), in which case the dependent tests skip rather than fail.
+//
+//nolint:gochecknoglobals // resolved once in TestMain and shared read-only by the e2e add-on tests.
 var sampleAddonBin string
 
 func TestMain(m *testing.M) {
@@ -58,7 +60,7 @@ func resolveSampleAddonBin() string {
 	}
 
 	bin := filepath.Join(dir, "serviceradar-sample-addon")
-	cmd := exec.Command("go", "build", "-o", bin, "github.com/carverauto/serviceradar/go/cmd/serviceradar-sample-addon")
+	cmd := exec.CommandContext(context.Background(), "go", "build", "-o", bin, "github.com/carverauto/serviceradar/go/cmd/serviceradar-sample-addon")
 	cmd.Stderr = os.Stderr
 	if err := cmd.Run(); err != nil {
 		_ = os.RemoveAll(dir)

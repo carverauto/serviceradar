@@ -37,6 +37,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
+  alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
@@ -226,6 +227,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config: Map.get(config, :snmp_config),
       visibility_config: Map.get(config, :visibility_config),
       plugin_config: proto_plugins,
+      bumblebee_config: Map.get(config, :bumblebee_config),
       addons: to_proto_addons(Map.get(config, :addons, []))
     }
   end
@@ -248,6 +250,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     sysmon_config = load_sysmon_config(agent_id)
     snmp_config = load_snmp_config(agent_id)
     visibility_config = load_visibility_config(agent_id)
+    bumblebee_config = load_bumblebee_config(agent_id)
     plugin_assignments = load_plugin_assignments(agent_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
     addon_assignments = load_addon_assignments(agent_id)
@@ -265,6 +268,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon_config,
       snmp_config,
       visibility_config,
+      bumblebee_config,
       plugin_config,
       addon_assignments
     )
@@ -849,6 +853,35 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp normalize_map(map) when is_map(map), do: map
   defp normalize_map(_), do: %{}
 
+  defp map_string(map, key, default \\ "") when is_map(map) do
+    case Map.get(map, key, default) do
+      nil -> default
+      value when is_binary(value) -> value
+      value -> to_string(value)
+    end
+  end
+
+  defp map_bool(map, key, default) when is_map(map) do
+    case Map.get(map, key, default) do
+      value when is_boolean(value) -> value
+      _ -> default
+    end
+  end
+
+  defp map_int(map, key, default \\ 0) when is_map(map) do
+    case Map.get(map, key, default) do
+      value when is_integer(value) -> value
+      _ -> default
+    end
+  end
+
+  defp map_list(map, key) when is_map(map) do
+    case Map.get(map, key, []) do
+      values when is_list(values) -> Enum.filter(values, &is_binary/1)
+      _ -> []
+    end
+  end
+
   defp normalize_source_type(nil), do: nil
   defp normalize_source_type(source) when is_atom(source), do: Atom.to_string(source)
   defp normalize_source_type(source) when is_binary(source), do: source
@@ -873,6 +906,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          visibility_config,
+         bumblebee_config,
          plugin_config,
          addon_assignments
        ) do
@@ -885,6 +919,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sync_payload
       |> Map.put("sweep", sweep_config)
       |> Map.put("mapper", mapper_config)
+      |> Map.put("bumblebee", bumblebee_config)
 
     # Compute version hash from all config components
     config_version =
@@ -894,6 +929,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         sysmon_config,
         snmp_config,
         visibility_config,
+        bumblebee_config,
         plugin_assignments,
         plugin_engine_limits,
         addon_assignments
@@ -919,6 +955,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon_config: build_sysmon_proto_config(sysmon_config),
       snmp_config: build_snmp_proto_config(snmp_config),
       visibility_config: build_visibility_proto_config(visibility_config),
+      bumblebee_config: build_bumblebee_proto_config(bumblebee_config),
       addons: addon_assignments
     }
   end
@@ -990,6 +1027,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          sysmon_config,
          snmp_config,
          visibility_config,
+         bumblebee_config,
          plugin_assignments,
          plugin_engine_limits,
          addon_assignments
@@ -1013,6 +1051,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       sysmon: stable_config_fragment(sysmon_config),
       snmp: stable_config_fragment(snmp_config),
       visibility: stable_config_fragment(visibility_config),
+      bumblebee: stable_config_fragment(bumblebee_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
       addons: sorted_addons
@@ -1367,6 +1406,121 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         disabled_visibility_config()
     end
   end
+
+  defp load_bumblebee_config(agent_id) do
+    partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:bumblebee_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
+
+    with {:ok, entry} <-
+           ConfigServer.get_config(:bumblebee, partition, agent_id,
+             actor: actor,
+             device_uid: device_uid
+           ),
+         profile_config when is_map(profile_config) <- entry.config,
+         true <- map_bool(profile_config, "enabled", false),
+         {:ok, %BumblebeeCatalogSnapshot{} = snapshot} <- active_bumblebee_catalog(actor),
+         true <- usable_bumblebee_catalog?(snapshot) do
+      profile_config
+      |> Map.put("enabled", true)
+      |> Map.put("agent_id", agent_id)
+      |> Map.put_new("scan_profile", "default")
+      |> Map.put_new("root_discovery_mode", "all")
+      |> Map.put_new("explicit_roots", [])
+      |> Map.put_new("exclude_roots", [])
+      |> Map.put_new("ecosystems", [])
+      |> Map.put_new("scan_timeout", "10m")
+      |> Map.put_new("max_findings", 1000)
+      |> Map.put_new("max_output_bytes", 33_554_432)
+      |> Map.put_new("cadence", "6h")
+      |> Map.put_new("findings_only", true)
+      |> Map.put("catalog", bumblebee_catalog_config(snapshot))
+    else
+      {:error, :no_config_found} ->
+        Logger.debug("No Bumblebee config found for agent #{agent_id}, using disabled config")
+        disabled_bumblebee_config()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        disabled_bumblebee_config()
+
+      _ ->
+        disabled_bumblebee_config()
+    end
+  end
+
+  defp active_bumblebee_catalog(actor) do
+    BumblebeeCatalogSnapshot
+    |> Ash.Query.for_read(:active, %{}, actor: actor)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp usable_bumblebee_catalog?(%BumblebeeCatalogSnapshot{} = snapshot) do
+    present?(snapshot.snapshot_ref) and present?(snapshot.object_key) and
+      present?(snapshot.content_sha256) and is_integer(snapshot.object_size_bytes) and
+      snapshot.object_size_bytes > 0
+  end
+
+  defp bumblebee_catalog_config(snapshot) do
+    %{
+      "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
+      "snapshot_ref" => snapshot.snapshot_ref,
+      "catalog_version" => snapshot.catalog_version,
+      "source_revision" => snapshot.source_revision,
+      "object_key" => snapshot.object_key,
+      "sha256" => snapshot.content_sha256,
+      "size_bytes" => snapshot.object_size_bytes,
+      "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+    }
+  end
+
+  defp disabled_bumblebee_config, do: %{"enabled" => false}
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp build_bumblebee_proto_config(nil), do: nil
+
+  defp build_bumblebee_proto_config(config) when is_map(config) do
+    %Monitoring.BumblebeeConfig{
+      enabled: map_bool(config, "enabled", false),
+      agent_id: map_string(config, "agent_id"),
+      scan_profile: map_string(config, "scan_profile"),
+      root_discovery_mode: map_string(config, "root_discovery_mode"),
+      explicit_roots: map_list(config, "explicit_roots"),
+      exclude_roots: map_list(config, "exclude_roots"),
+      ecosystems: map_list(config, "ecosystems"),
+      scan_timeout: map_string(config, "scan_timeout"),
+      max_findings: map_int(config, "max_findings"),
+      max_output_bytes: map_int(config, "max_output_bytes"),
+      cadence: map_string(config, "cadence"),
+      findings_only: map_bool(config, "findings_only", true),
+      catalog:
+        build_bumblebee_catalog_proto(Map.get(config, "catalog") || Map.get(config, :catalog))
+    }
+  end
+
+  defp build_bumblebee_proto_config(_), do: nil
+
+  defp build_bumblebee_catalog_proto(nil), do: nil
+
+  defp build_bumblebee_catalog_proto(catalog) when is_map(catalog) do
+    %Monitoring.BumblebeeCatalogAssignment{
+      schema_version:
+        map_string(catalog, "schema_version", "serviceradar.bumblebee.catalog_assignment.v1"),
+      snapshot_ref: map_string(catalog, "snapshot_ref"),
+      catalog_version: map_string(catalog, "catalog_version"),
+      source_revision: map_string(catalog, "source_revision"),
+      object_key: map_string(catalog, "object_key"),
+      sha256: map_string(catalog, "sha256"),
+      size_bytes: map_int(catalog, "size_bytes"),
+      promoted_at: map_string(catalog, "promoted_at")
+    }
+  end
+
+  defp build_bumblebee_catalog_proto(_), do: nil
 
   # Build the proto-compatible SysmonConfig struct
   defp build_sysmon_proto_config(nil), do: nil

@@ -439,7 +439,8 @@ defmodule Monitoring.AgentConfigResponse do
   field(:snmp_config, 9, type: Monitoring.SNMPConfig, json_name: "snmpConfig")
   field(:visibility_config, 10, type: Monitoring.VisibilityConfig, json_name: "visibilityConfig")
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
-  field(:addons, 12, repeated: true, type: Monitoring.AddonAssignmentConfig)
+  field(:bumblebee_config, 12, type: Monitoring.BumblebeeConfig, json_name: "bumblebeeConfig")
+  field(:addons, 13, repeated: true, type: Monitoring.AddonAssignmentConfig)
 end
 
 defmodule Monitoring.AddonAssignmentConfig do
@@ -749,6 +750,47 @@ defmodule Monitoring.PluginAssignmentConfig do
   field(:source_commit, 20, type: :string, json_name: "sourceCommit")
   field(:download_url, 21, type: :string, json_name: "downloadUrl")
   field(:download_token, 22, type: :string, json_name: "downloadToken")
+end
+
+defmodule Monitoring.BumblebeeConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.BumblebeeConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:enabled, 1, type: :bool)
+  field(:agent_id, 2, type: :string, json_name: "agentId")
+  field(:scan_profile, 3, type: :string, json_name: "scanProfile")
+  field(:root_discovery_mode, 4, type: :string, json_name: "rootDiscoveryMode")
+  field(:explicit_roots, 5, repeated: true, type: :string, json_name: "explicitRoots")
+  field(:exclude_roots, 6, repeated: true, type: :string, json_name: "excludeRoots")
+  field(:ecosystems, 7, repeated: true, type: :string)
+  field(:scan_timeout, 8, type: :string, json_name: "scanTimeout")
+  field(:max_findings, 9, type: :int32, json_name: "maxFindings")
+  field(:max_output_bytes, 10, type: :int64, json_name: "maxOutputBytes")
+  field(:cadence, 11, type: :string)
+  field(:findings_only, 12, type: :bool, json_name: "findingsOnly")
+  field(:catalog, 13, type: Monitoring.BumblebeeCatalogAssignment)
+end
+
+defmodule Monitoring.BumblebeeCatalogAssignment do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.BumblebeeCatalogAssignment",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:schema_version, 1, type: :string, json_name: "schemaVersion")
+  field(:snapshot_ref, 2, type: :string, json_name: "snapshotRef")
+  field(:catalog_version, 3, type: :string, json_name: "catalogVersion")
+  field(:source_revision, 4, type: :string, json_name: "sourceRevision")
+  field(:object_key, 5, type: :string, json_name: "objectKey")
+  field(:sha256, 6, type: :string)
+  field(:size_bytes, 7, type: :int64, json_name: "sizeBytes")
+  field(:promoted_at, 8, type: :string, json_name: "promotedAt")
 end
 
 defmodule Monitoring.SysmonConfig.ThresholdsEntry do

@@ -1,13 +1,19 @@
 package agent
 
 import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -182,6 +188,102 @@ func TestBuildAgentCapabilityGatewayStatusUsesSidecarProvider(t *testing.T) {
 	}
 }
 
+func TestApplyBumblebeeConfigDefersWhenCatalogStoreUnavailable(t *testing.T) {
+	dir := t.TempDir()
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: "agent-1",
+				Bumblebee: &BumblebeeStatusConfig{
+					CatalogPath: filepath.Join(dir, "catalog", "current"),
+					ProfilePath: filepath.Join(dir, "profile", "runtime.json"),
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+		Enabled: true,
+		Catalog: &proto.BumblebeeCatalogAssignment{
+			SnapshotRef: "snapshot-1",
+			ObjectKey:   "bumblebee/catalogs/snapshot-1/catalog.json",
+			Sha256:      strings.Repeat("0", 64),
+		},
+	}, nil)
+
+	if ok {
+		t.Fatal("expected Bumblebee config application to defer without an object store")
+	}
+}
+
+func TestApplyBumblebeeConfigStagesCatalogAndWritesRuntimeProfile(t *testing.T) {
+	dir := t.TempDir()
+	catalogData := []byte(`{"schema_version":"serviceradar.bumblebee.catalog.v1","entries":[]}`)
+	sum := sha256.Sum256(catalogData)
+	sha := hex.EncodeToString(sum[:])
+	profilePath := filepath.Join(dir, "profile", "runtime.json")
+	catalogPath := filepath.Join(dir, "catalog", "current")
+
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: "agent-canonical",
+				Bumblebee: &BumblebeeStatusConfig{
+					CatalogPath: catalogPath,
+					ProfilePath: profilePath,
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+			objectStore: fakeBumblebeeObjectStore{data: catalogData},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+		Enabled:           true,
+		AgentId:           "agent-from-control-plane",
+		RootDiscoveryMode: "explicit",
+		ExplicitRoots:     []string{"/srv/app"},
+		Ecosystems:        []string{"npm"},
+		ScanTimeout:       "3m",
+		MaxFindings:       42,
+		MaxOutputBytes:    2048,
+		Catalog: &proto.BumblebeeCatalogAssignment{
+			SnapshotRef: "snapshot-1",
+			ObjectKey:   "bumblebee/catalogs/snapshot-1/catalog.json",
+			Sha256:      sha,
+		},
+	}, nil)
+	if !ok {
+		t.Fatal("expected Bumblebee config application to succeed")
+	}
+
+	if current, err := os.ReadFile(catalogPath); err != nil || string(current) != string(catalogData) {
+		t.Fatalf("catalog current = %q, err=%v", current, err)
+	}
+
+	profileData, err := os.ReadFile(profilePath)
+	if err != nil {
+		t.Fatalf("read runtime profile: %v", err)
+	}
+	var profile bumblebee.RuntimeProfile
+	if err := json.Unmarshal(profileData, &profile); err != nil {
+		t.Fatalf("decode runtime profile: %v", err)
+	}
+	if profile.AgentID != "agent-canonical" {
+		t.Fatalf("profile agent_id = %q, want canonical", profile.AgentID)
+	}
+	if profile.IncludeHomeRoots == nil || *profile.IncludeHomeRoots ||
+		profile.IncludeRoot == nil || *profile.IncludeRoot {
+		t.Fatalf("expected explicit-only root discovery profile: %#v", profile)
+	}
+	if profile.MaxFindings == nil || *profile.MaxFindings != 42 {
+		t.Fatalf("profile max findings = %#v, want 42", profile.MaxFindings)
+	}
+}
+
 func TestEvaluateStatusPushHeartbeat(t *testing.T) {
 	pl := NewPushLoop(nil, nil, 30*time.Second, logger.NewTestLogger())
 	statuses := []*proto.GatewayServiceStatus{
@@ -218,6 +320,14 @@ type fakeSidecarStatusProvider struct {
 
 func (f fakeSidecarStatusProvider) Status() []sidecar.Status {
 	return f.statuses
+}
+
+type fakeBumblebeeObjectStore struct {
+	data []byte
+}
+
+func (f fakeBumblebeeObjectStore) DownloadObject(context.Context, string) ([]byte, error) {
+	return append([]byte(nil), f.data...), nil
 }
 
 func TestBuildResultsStatusChunksForAgentIncludesRuntimeMetadata(t *testing.T) {

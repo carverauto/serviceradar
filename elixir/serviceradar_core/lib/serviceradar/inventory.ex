@@ -38,6 +38,11 @@ defmodule ServiceRadar.Inventory do
 
   resources do
     resource ServiceRadar.Inventory.AvailabilitySourceProfile
+    resource ServiceRadar.Inventory.BumblebeeCatalogEntry
+    resource ServiceRadar.Inventory.BumblebeeCatalogSnapshot
+    resource ServiceRadar.Inventory.BumblebeeCatalogSource
+    resource ServiceRadar.Inventory.BumblebeeDevicePosture
+    resource ServiceRadar.Inventory.BumblebeeFinding
     resource ServiceRadar.Inventory.Device
     resource ServiceRadar.Inventory.DeviceAgentAvailability
     resource ServiceRadar.Inventory.Interface
@@ -56,6 +61,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.VirtualizationHostDisk
     resource ServiceRadar.Inventory.VirtualizationNetworkInterface
     resource ServiceRadar.Inventory.VirtualizationStorageSystem
+    resource ServiceRadar.Inventory.DeviceRiskContribution
   end
 
   authorization do

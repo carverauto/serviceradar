@@ -1,0 +1,11 @@
+[Unit]
+Description=Run ServiceRadar Bumblebee root scanner periodically
+
+[Timer]
+OnBootSec=10m
+OnUnitActiveSec=6h
+RandomizedDelaySec=15m
+Persistent=true
+
+[Install]
+WantedBy=timers.target

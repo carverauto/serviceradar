@@ -46,6 +46,8 @@ const (
 )
 
 // Handshake is the go-plugin handshake shared by the agent and every add-on.
+//
+//nolint:gochecknoglobals // go-plugin requires a package-level handshake config shared by the host and every plugin binary.
 var Handshake = goplugin.HandshakeConfig{
 	ProtocolVersion:  ProtocolVersion,
 	MagicCookieKey:   magicCookieKey,
@@ -97,6 +99,8 @@ func (s HealthStatus) String() string {
 		return "degraded"
 	case HealthUnhealthy:
 		return "unhealthy"
+	case HealthUnspecified:
+		return "unspecified"
 	default:
 		return "unspecified"
 	}
@@ -117,6 +121,8 @@ func healthStatusToProto(s HealthStatus) addonpb.HealthResponse_Status {
 		return addonpb.HealthResponse_STATUS_DEGRADED
 	case HealthUnhealthy:
 		return addonpb.HealthResponse_STATUS_UNHEALTHY
+	case HealthUnspecified:
+		return addonpb.HealthResponse_STATUS_UNSPECIFIED
 	default:
 		return addonpb.HealthResponse_STATUS_UNSPECIFIED
 	}
@@ -130,6 +136,8 @@ func healthStatusFromProto(s addonpb.HealthResponse_Status) HealthStatus {
 		return HealthDegraded
 	case addonpb.HealthResponse_STATUS_UNHEALTHY:
 		return HealthUnhealthy
+	case addonpb.HealthResponse_STATUS_UNSPECIFIED:
+		return HealthUnspecified
 	default:
 		return HealthUnspecified
 	}

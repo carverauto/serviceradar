@@ -26,6 +26,7 @@ import (
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
+	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -57,6 +58,7 @@ type Server struct {
 	sidecarManager     sidecarLifecycleManager
 	netprobeSidecar    *agentnetprobe.Sidecar
 	addonManager       agentaddon.AddonManager
+	objectStore        ObjectStore
 }
 
 type sidecarStatusProvider interface {
@@ -132,7 +134,8 @@ type ServerConfig struct {
 	StatusHeartbeatInterval Duration               `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
 
 	// Embedded sync runtime
-	SyncRuntimeEnabled *bool `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
+	SyncRuntimeEnabled *bool                  `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
+	Bumblebee          *BumblebeeStatusConfig `json:"bumblebee,omitempty"`            // Root scanner spool status integration
 
 	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
 	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
@@ -141,6 +144,46 @@ type ServerConfig struct {
 	// when enabled and the helper binary is locally executable.
 	RemoteAccessRDPEnabled     *bool  `json:"remote_access_rdp_enabled,omitempty"`
 	RemoteAccessRDPAdapterPath string `json:"remote_access_rdp_adapter_path,omitempty"`
+}
+
+type BumblebeeStatusConfig struct {
+	Enabled     bool   `json:"enabled"`
+	SpoolPath   string `json:"spool_path,omitempty"`
+	CatalogPath string `json:"catalog_path,omitempty"`
+	ProfilePath string `json:"profile_path,omitempty"`
+	TmpDir      string `json:"tmp_dir,omitempty"`
+}
+
+func (c *BumblebeeStatusConfig) effectiveSpoolPath() string {
+	if c == nil || c.SpoolPath == "" {
+		return bumblebee.LatestPath("/var/lib/serviceradar/bumblebee/spool")
+	}
+
+	return c.SpoolPath
+}
+
+func (c *BumblebeeStatusConfig) effectiveCatalogPath() string {
+	if c == nil || c.CatalogPath == "" {
+		return bumblebee.DefaultConfig().CatalogPath
+	}
+
+	return c.CatalogPath
+}
+
+func (c *BumblebeeStatusConfig) effectiveProfilePath() string {
+	if c == nil || c.ProfilePath == "" {
+		return bumblebee.DefaultConfig().ProfilePath
+	}
+
+	return c.ProfilePath
+}
+
+func (c *BumblebeeStatusConfig) effectiveTmpDir() string {
+	if c == nil || c.TmpDir == "" {
+		return bumblebee.DefaultConfig().TmpDir
+	}
+
+	return c.TmpDir
 }
 
 // ServiceError represents an error that occurred in a specific service.

@@ -36,6 +36,11 @@ var (
 	ErrManagerClosed = errors.New("addon manager closed")
 	// ErrAddonExited indicates the add-on subprocess exited unexpectedly.
 	ErrAddonExited = errors.New("addon exited")
+	// ErrUnexpectedClientType indicates the dispensed go-plugin client was not the
+	// expected add-on type.
+	ErrUnexpectedClientType = errors.New("unexpected add-on gRPC client type")
+	// ErrConfigurationRejected indicates the add-on rejected its configuration.
+	ErrConfigurationRejected = errors.New("addon rejected configuration")
 )
 
 // State is the lifecycle state reported for a supervised add-on.

@@ -352,7 +352,7 @@ func (r *runner) runOnce(ctx context.Context) error {
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  coreaddon.Handshake,
 		Plugins:          coreaddon.ClientPluginSet(),
-		Cmd:              exec.Command(spec.BinaryPath, spec.Args...), //nolint:gosec // path comes from a verified, signed add-on artifact
+		Cmd:              exec.CommandContext(ctx, spec.BinaryPath, spec.Args...), //nolint:gosec // path comes from a verified, signed add-on artifact
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
 		Logger:           r.hclogger,
@@ -374,7 +374,7 @@ func (r *runner) runOnce(ctx context.Context) error {
 
 	ac, ok := raw.(coreaddon.Addon)
 	if !ok {
-		return fmt.Errorf("addon %s: unexpected client type %T", r.id, raw)
+		return fmt.Errorf("addon %s: %w (got %T)", r.id, ErrUnexpectedClientType, raw)
 	}
 
 	pid := 0
@@ -452,7 +452,7 @@ func (r *runner) configure(parent context.Context, ac coreaddon.Addon) error {
 		return err
 	}
 	if !res.Accepted {
-		return fmt.Errorf("addon %s rejected configuration: %s", r.id, res.Error)
+		return fmt.Errorf("addon %s: %w: %s", r.id, ErrConfigurationRejected, res.Error)
 	}
 
 	r.mu.Lock()
