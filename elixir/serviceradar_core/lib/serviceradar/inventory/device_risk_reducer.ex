@@ -70,6 +70,34 @@ defmodule ServiceRadar.Inventory.DeviceRiskReducer do
     upsert_contributions([contribution], opts)
   end
 
+  def resolve_other_contributions(source, source_ref, current_device_uid, opts \\ [])
+
+  def resolve_other_contributions(source, source_ref, current_device_uid, opts)
+      when is_binary(current_device_uid) do
+    source = normalize_source(source)
+    source_ref = normalize_source_ref(source_ref)
+    now = DateTime.utc_now()
+
+    query =
+      from(c in "device_risk_contributions",
+        where:
+          c.source == ^source and c.source_ref == ^source_ref and c.active == true and
+            c.device_uid != ^current_device_uid,
+        select: c.device_uid
+      )
+
+    {_count, device_uids} =
+      Repo.update_all(
+        query,
+        [set: [active: false, resolved_at: now, updated_at: now]],
+        prefix: "platform"
+      )
+
+    recompute_devices(device_uids || [], opts)
+  end
+
+  def resolve_other_contributions(_source, _source_ref, _current_device_uid, _opts), do: :ok
+
   def recompute_devices(device_uids, _opts \\ []) when is_list(device_uids) do
     Enum.each(Enum.uniq(device_uids), &recompute_device/1)
     :ok

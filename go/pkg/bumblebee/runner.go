@@ -99,6 +99,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 
 	payload.ScannerVersion = upstream.Version
+	rootCoverageRequired := rootCoverageRequired(r.cfg)
 
 	for _, root := range roots {
 		findings, err := r.scanRoot(ctx, runID, root.Path)
@@ -115,7 +116,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		if root.Path == "/root" {
 			payload.RootCovered = true
 		}
-		payload.Findings = append(payload.Findings, findings...)
+		payload.Findings = appendDedupedFindings(payload.Findings, findings)
 		if len(payload.Findings) >= r.cfg.MaxFindings {
 			payload.Findings = payload.Findings[:r.cfg.MaxFindings]
 			payload.Metadata["finding_limit_reached"] = true
@@ -129,12 +130,33 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		payload.State = stateScanned
 		payload.LastSuccessfulScanAt = &now
 		payload.CoverageState = coverageComplete
-		if payload.SkippedRootCount > 0 || payload.ScannedRootCount < payload.AttemptedRootCount || !payload.RootCovered {
+		if payload.SkippedRootCount > 0 ||
+			payload.ScannedRootCount < payload.AttemptedRootCount ||
+			(rootCoverageRequired && !payload.RootCovered) {
 			payload.CoverageState = coveragePartial
 		}
 	}
 
 	return payload, nil
+}
+
+func rootCoverageRequired(cfg Config) bool {
+	if !cfg.IncludeRoot {
+		return false
+	}
+
+	excluded := excludeSet(cfg.ExcludeRoots)
+	_, ok := excluded["/root"]
+
+	return !ok
+}
+
+func appendDedupedFindings(existing []Finding, next []Finding) []Finding {
+	if len(next) == 0 {
+		return existing
+	}
+
+	return dedupeFindings(append(existing, next...))
 }
 
 func (r *Runner) scanRoot(parent context.Context, runID string, root string) ([]Finding, error) {

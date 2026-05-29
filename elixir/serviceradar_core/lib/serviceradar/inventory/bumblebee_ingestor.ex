@@ -283,10 +283,14 @@ defmodule ServiceRadar.Inventory.BumblebeeIngestor do
   defp upsert_risk_contribution(%{device_uid: nil}, _finding_records), do: :ok
 
   defp upsert_risk_contribution(context, finding_records) do
+    source_ref = "agent:#{context.agent_id}"
+
+    DeviceRiskReducer.resolve_other_contributions(@source, source_ref, context.device_uid)
+
     DeviceRiskReducer.upsert_contribution(%{
       device_uid: context.device_uid,
       source: @source,
-      source_ref: "agent:#{context.agent_id}",
+      source_ref: source_ref,
       score: context.risk_score,
       reason: risk_reason(context, finding_records),
       occurred_at: context.last_scan_at,

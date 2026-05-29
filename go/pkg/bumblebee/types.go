@@ -32,6 +32,7 @@ type Config struct {
 	AgentID            string   `json:"agent_id"`
 	CatalogPath        string   `json:"catalog_path"`
 	CatalogSnapshotRef string   `json:"catalog_snapshot_ref"`
+	ProfilePath        string   `json:"profile_path"`
 	SpoolDir           string   `json:"spool_dir"`
 	TmpDir             string   `json:"tmp_dir"`
 	PasswdPath         string   `json:"passwd_path"`
@@ -88,4 +89,18 @@ type Finding struct {
 type RootCandidate struct {
 	Path   string
 	Source string
+}
+
+type RuntimeProfile struct {
+	Enabled            *bool    `json:"enabled,omitempty"`
+	AgentID            string   `json:"agent_id,omitempty"`
+	CatalogSnapshotRef string   `json:"catalog_snapshot_ref,omitempty"`
+	ScanTimeout        string   `json:"scan_timeout,omitempty"`
+	IncludeHomeRoots   *bool    `json:"include_home_roots,omitempty"`
+	IncludeRoot        *bool    `json:"include_root,omitempty"`
+	ExplicitRoots      []string `json:"explicit_roots,omitempty"`
+	ExcludeRoots       []string `json:"exclude_roots,omitempty"`
+	Ecosystems         []string `json:"ecosystems,omitempty"`
+	MaxFindings        *int     `json:"max_findings,omitempty"`
+	MaxOutputBytes     *int64   `json:"max_output_bytes,omitempty"`
 }

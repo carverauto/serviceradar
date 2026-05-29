@@ -27,6 +27,7 @@ import (
 
 const (
 	defaultCatalogPath    = "/var/lib/serviceradar/bumblebee/catalog/current"
+	defaultProfilePath    = "/var/lib/serviceradar/bumblebee/profile/runtime.json"
 	defaultSpoolDir       = "/var/lib/serviceradar/bumblebee/spool"
 	defaultTmpDir         = "/var/lib/serviceradar/bumblebee/tmp"
 	defaultPasswdPath     = "/etc/passwd"
@@ -41,6 +42,7 @@ func DefaultConfig() Config {
 	return Config{
 		Enabled:          false,
 		CatalogPath:      defaultCatalogPath,
+		ProfilePath:      defaultProfilePath,
 		SpoolDir:         defaultSpoolDir,
 		TmpDir:           defaultTmpDir,
 		PasswdPath:       defaultPasswdPath,
@@ -68,6 +70,10 @@ func LoadConfig(path string) (Config, error) {
 	}
 
 	applyDefaults(&cfg)
+	if err := applyRuntimeProfileFile(&cfg); err != nil {
+		return cfg, err
+	}
+	applyDefaults(&cfg)
 
 	return cfg, validateConfig(cfg)
 }
@@ -75,6 +81,9 @@ func LoadConfig(path string) (Config, error) {
 func applyDefaults(cfg *Config) {
 	if cfg.CatalogPath == "" {
 		cfg.CatalogPath = defaultCatalogPath
+	}
+	if cfg.ProfilePath == "" {
+		cfg.ProfilePath = defaultProfilePath
 	}
 	if cfg.SpoolDir == "" {
 		cfg.SpoolDir = defaultSpoolDir
@@ -93,6 +102,70 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.MaxOutputBytes <= 0 {
 		cfg.MaxOutputBytes = defaultMaxOutputBytes
+	}
+}
+
+func applyRuntimeProfileFile(cfg *Config) error {
+	if cfg == nil || strings.TrimSpace(cfg.ProfilePath) == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(cfg.ProfilePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("read runtime profile: %w", err)
+	}
+
+	var profile RuntimeProfile
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&profile); err != nil {
+		return fmt.Errorf("decode runtime profile: %w", err)
+	}
+
+	ApplyRuntimeProfile(cfg, profile)
+	return nil
+}
+
+func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
+	if cfg == nil {
+		return
+	}
+
+	if profile.Enabled != nil {
+		cfg.Enabled = *profile.Enabled
+	}
+	if strings.TrimSpace(profile.AgentID) != "" {
+		cfg.AgentID = strings.TrimSpace(profile.AgentID)
+	}
+	if strings.TrimSpace(profile.CatalogSnapshotRef) != "" {
+		cfg.CatalogSnapshotRef = strings.TrimSpace(profile.CatalogSnapshotRef)
+	}
+	if strings.TrimSpace(profile.ScanTimeout) != "" {
+		cfg.ScanTimeout = strings.TrimSpace(profile.ScanTimeout)
+	}
+	if profile.IncludeHomeRoots != nil {
+		cfg.IncludeHomeRoots = *profile.IncludeHomeRoots
+	}
+	if profile.IncludeRoot != nil {
+		cfg.IncludeRoot = *profile.IncludeRoot
+	}
+	if profile.ExplicitRoots != nil {
+		cfg.ExplicitRoots = append([]string(nil), profile.ExplicitRoots...)
+	}
+	if profile.ExcludeRoots != nil {
+		cfg.ExcludeRoots = append([]string(nil), profile.ExcludeRoots...)
+	}
+	if profile.Ecosystems != nil {
+		cfg.Ecosystems = append([]string(nil), profile.Ecosystems...)
+	}
+	if profile.MaxFindings != nil {
+		cfg.MaxFindings = *profile.MaxFindings
+	}
+	if profile.MaxOutputBytes != nil {
+		cfg.MaxOutputBytes = *profile.MaxOutputBytes
 	}
 }
 

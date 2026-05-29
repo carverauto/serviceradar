@@ -24,8 +24,15 @@ import (
 
 func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	cfg, err := resolveGatewayBumblebeeConfig(&monitoringpb.BumblebeeConfig{
-		Enabled: true,
-		AgentId: "agent-typed",
+		Enabled:           true,
+		AgentId:           "agent-typed",
+		RootDiscoveryMode: "home",
+		ExplicitRoots:     []string{"/srv/app"},
+		ExcludeRoots:      []string{"/home/skip"},
+		Ecosystems:        []string{"npm"},
+		ScanTimeout:       "5m",
+		MaxFindings:       123,
+		MaxOutputBytes:    456,
 		Catalog: &monitoringpb.BumblebeeCatalogAssignment{
 			SchemaVersion:  "serviceradar.bumblebee.catalog_assignment.v1",
 			SnapshotRef:    "typed-snapshot",
@@ -57,6 +64,23 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	if cfg.Catalog.SizeBytes != 42 {
 		t.Fatalf("size bytes = %d, want 42", cfg.Catalog.SizeBytes)
 	}
+	if cfg.RootDiscoveryMode != "home" || cfg.ScanTimeout != "5m" || cfg.MaxFindings != 123 {
+		t.Fatalf("typed scan profile fields were not retained: %#v", cfg)
+	}
+
+	profile := cfg.runtimeProfile("agent-canonical")
+	if profile.AgentID != "agent-canonical" {
+		t.Fatalf("runtime profile agent = %q, want canonical", profile.AgentID)
+	}
+	if profile.IncludeHomeRoots == nil || !*profile.IncludeHomeRoots {
+		t.Fatalf("expected home roots enabled in profile: %#v", profile)
+	}
+	if profile.IncludeRoot == nil || *profile.IncludeRoot {
+		t.Fatalf("expected root disabled in profile: %#v", profile)
+	}
+	if profile.MaxFindings == nil || *profile.MaxFindings != 123 {
+		t.Fatalf("max findings = %#v, want 123", profile.MaxFindings)
+	}
 }
 
 func TestResolveGatewayBumblebeeConfigFallsBackToJSON(t *testing.T) {
@@ -64,6 +88,8 @@ func TestResolveGatewayBumblebeeConfigFallsBackToJSON(t *testing.T) {
 		"bumblebee": {
 			"enabled": true,
 			"agent_id": "agent-json",
+			"root_discovery_mode": "explicit",
+			"explicit_roots": ["/opt/app"],
 			"catalog": {
 				"snapshot_ref": "json-snapshot",
 				"object_key": "bumblebee/catalogs/json/catalog.json",
@@ -82,5 +108,8 @@ func TestResolveGatewayBumblebeeConfigFallsBackToJSON(t *testing.T) {
 	}
 	if cfg.Catalog == nil || cfg.Catalog.SnapshotRef != "json-snapshot" {
 		t.Fatalf("catalog = %#v, want json-snapshot", cfg.Catalog)
+	}
+	if cfg.RootDiscoveryMode != "explicit" || len(cfg.ExplicitRoots) != 1 {
+		t.Fatalf("json scan profile fields were not retained: %#v", cfg)
 	}
 }

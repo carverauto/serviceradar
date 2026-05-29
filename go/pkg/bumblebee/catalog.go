@@ -102,10 +102,10 @@ func StageCatalogAssignment(
 		return result, fmt.Errorf("%w: got %s want %s", ErrCatalogHashMismatch, got, result.SHA256)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(catalogPath), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(catalogPath), 0770); err != nil {
 		return result, err
 	}
-	if err := os.MkdirAll(tmpDir, 0750); err != nil {
+	if err := os.MkdirAll(tmpDir, 0770); err != nil {
 		return result, err
 	}
 
