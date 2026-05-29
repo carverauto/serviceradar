@@ -1,0 +1,198 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
+  @moduledoc false
+
+  import Phoenix.Component, only: [assign: 3]
+  import Phoenix.LiveView, only: [connected?: 1, start_async: 3]
+  import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [active_fingerprint_tab_visible?: 2]
+
+  alias ServiceRadarWebNGWeb.DeviceLive.FlowData
+  alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
+  alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.NorthboundInterfaceRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.QueryData
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
+
+  @valid_tabs ~w(
+    details
+    interfaces
+    flows
+    logs
+    profiles
+    active-fingerprint
+    process-listeners
+    sysmon
+    mtr
+    guests
+  )
+
+  def normalize_requested_tab(url_tab, fallback_tab) do
+    if url_tab in @valid_tabs, do: url_tab, else: fallback_tab
+  end
+
+  def same_device_and_limit?(socket, uid, limit) do
+    uid == socket.assigns.device_uid and limit == socket.assigns.limit
+  end
+
+  def resolve_active_tab(socket, requested_tab) do
+    requested_tab
+    |> resolve_active_tab(
+      socket.assigns.has_ifaces,
+      socket.assigns.has_flows,
+      socket.assigns.has_logs,
+      socket.assigns.has_mtr,
+      socket.assigns.has_virtualization_guests
+    )
+    |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
+  end
+
+  def resolve_active_tab(requested_tab, has_ifaces, has_flows, has_logs, has_mtr, has_virtualization_guests) do
+    case requested_tab do
+      "interfaces" when not has_ifaces -> "details"
+      "flows" when not has_flows -> "details"
+      "logs" when not has_logs -> "details"
+      "mtr" when not has_mtr -> "details"
+      "guests" when not has_virtualization_guests -> "details"
+      tab -> tab
+    end
+  end
+
+  def authorize_active_tab("active-fingerprint", row, scope) do
+    if active_fingerprint_tab_visible?(row, scope), do: "active-fingerprint", else: "details"
+  end
+
+  def authorize_active_tab(tab, _row, _scope), do: tab
+
+  def handle_same_device_params(socket, uid, limit, requested_tab, cursor, srql_module, opts) do
+    active_tab = resolve_active_tab(socket, requested_tab)
+    srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
+
+    socket =
+      socket
+      |> reload_for_active_tab(active_tab, uid, cursor, srql_module, opts)
+      |> maybe_load_mtr_for_active_tab(active_tab)
+
+    {:noreply,
+     socket
+     |> assign(:active_tab, active_tab)
+     |> assign(:srql, srql)
+     |> NorthboundInterfaceRuntime.maybe_load_actions()}
+  end
+
+  def reload_for_active_tab(socket, active_tab, uid, cursor, srql_module, opts) do
+    socket
+    |> maybe_reload_flows_for_active_tab(active_tab, uid, cursor, srql_module, opts)
+    |> maybe_reload_logs_for_active_tab(active_tab, uid, cursor, srql_module, opts)
+    |> maybe_reload_interfaces_for_active_tab(active_tab, uid, srql_module)
+    |> maybe_reload_profiles_for_active_tab(active_tab, uid)
+  end
+
+  def maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor, srql_module, opts) do
+    if socket.assigns.logs_loading and socket.assigns.logs_cursor == cursor do
+      socket
+    else
+      begin_logs_load(socket, uid, cursor, srql_module, opts)
+    end
+  end
+
+  def maybe_reload_logs_for_active_tab(socket, _active_tab, _uid, _cursor, _srql_module, _opts), do: socket
+
+  def maybe_load_mtr_for_active_tab(socket, "mtr") do
+    MtrRuntime.load_traces(socket, get_device_ip(socket.assigns.results))
+  end
+
+  def maybe_load_mtr_for_active_tab(socket, _active_tab), do: socket
+
+  defp maybe_reload_flows_for_active_tab(socket, "flows", uid, cursor, srql_module, opts) do
+    scope = socket.assigns.current_scope
+    flows_limit = Keyword.fetch!(opts, :flows_limit)
+
+    {flows, pagination, flows_error} = FlowData.load_flows(srql_module, uid, scope, cursor, flows_limit)
+
+    socket
+    |> assign(:device_flows, flows)
+    |> assign(:flows_pagination, pagination)
+    |> assign(:flows_error, flows_error)
+    |> FlowRuntime.begin_stats_refresh(uid, srql_module)
+    |> FlowRuntime.begin_ip_enrichment(uid, flows)
+  end
+
+  defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor, _srql_module, _opts), do: socket
+
+  defp begin_logs_load(socket, uid, cursor, srql_module, opts) do
+    scope = socket.assigns.current_scope
+    request_ref = make_ref()
+
+    socket
+    |> assign(:device_logs, [])
+    |> assign(:logs_pagination, %{})
+    |> assign(:logs_error, nil)
+    |> assign(:logs_loading, false)
+    |> assign(:logs_request_ref, request_ref)
+    |> assign(:logs_cursor, cursor)
+    |> assign(:has_logs, true)
+    |> maybe_start_logs_async(uid, request_ref, srql_module, scope, cursor, opts)
+  end
+
+  defp maybe_start_logs_async(socket, uid, request_ref, srql_module, scope, cursor, opts) do
+    if connected?(socket) do
+      logs_limit = Keyword.fetch!(opts, :logs_limit)
+
+      start_async(socket, {:device_logs, uid, request_ref}, fn ->
+        QueryData.load_logs(srql_module, uid, scope, cursor, logs_limit)
+      end)
+    else
+      socket
+    end
+  end
+
+  defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid, srql_module) do
+    scope = socket.assigns.current_scope
+
+    {network_interfaces, interfaces_error} = InterfaceData.load_interfaces(srql_module, uid, scope)
+    interface_settings = InterfaceData.load_interface_settings(scope, uid)
+    network_interfaces = InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
+
+    interface_metrics =
+      InterfaceData.load_interface_metrics(
+        srql_module,
+        uid,
+        interface_settings.favorited,
+        interface_settings.metrics_enabled,
+        network_interfaces,
+        scope
+      )
+
+    has_ifaces =
+      is_binary(interfaces_error) or
+        (is_list(network_interfaces) and network_interfaces != []) or
+        not is_nil(socket.assigns.discovery_job)
+
+    socket
+    |> assign(:network_interfaces, network_interfaces)
+    |> assign(:interfaces_error, interfaces_error)
+    |> assign(:favorited_interfaces, interface_settings.favorited)
+    |> assign(:interface_metrics, interface_metrics)
+    |> assign(:has_ifaces, has_ifaces)
+  end
+
+  defp maybe_reload_interfaces_for_active_tab(socket, _active_tab, _uid, _srql_module), do: socket
+
+  defp maybe_reload_profiles_for_active_tab(socket, "profiles", uid) do
+    scope = socket.assigns.current_scope
+    {profile_info, available_profiles} = SysmonProfileData.load_profile_info(scope, uid)
+
+    socket
+    |> assign(:sysmon_profile_info, profile_info)
+    |> assign(:available_profiles, available_profiles)
+  end
+
+  defp maybe_reload_profiles_for_active_tab(socket, _active_tab, _uid), do: socket
+
+  defp get_device_ip(results) do
+    case List.first(Enum.filter(results, &is_map/1)) do
+      nil -> nil
+      row -> Map.get(row, "ip")
+    end
+  end
+end

@@ -3,7 +3,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   use ServiceRadarWebNGWeb, :live_view
 
   import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents, only: [virtualization_guests?: 1]
-  import ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents, only: [active_fingerprint_tab_visible?: 2]
 
   alias Ash.Error.Invalid
   alias ServiceRadar.Inventory.DevicePubSub
@@ -19,9 +18,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceResourceData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
-  alias ServiceRadarWebNGWeb.DeviceLive.FlowData
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
-  alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
@@ -30,7 +28,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.QueryData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
-  alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -75,12 +72,20 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     mtr_page = QueryData.parse_positive_page(Map.get(params, "mtr_page"))
     mtr_page_size = MtrRuntime.default_page_size()
 
-    requested_tab = normalize_requested_tab(url_tab, socket.assigns.active_tab)
+    requested_tab = DeviceTabRuntime.normalize_requested_tab(url_tab, socket.assigns.active_tab)
     socket = socket |> assign(:mtr_page, mtr_page) |> assign(:mtr_page_size, mtr_page_size)
 
     cond do
-      same_device_and_limit?(socket, uid, limit) ->
-        handle_same_device_params(socket, uid, limit, requested_tab, cursor)
+      DeviceTabRuntime.same_device_and_limit?(socket, uid, limit) ->
+        DeviceTabRuntime.handle_same_device_params(
+          socket,
+          uid,
+          limit,
+          requested_tab,
+          cursor,
+          srql_module(),
+          tab_runtime_opts()
+        )
 
       connected?(socket) ->
         load_device_data(socket, uid, limit, requested_tab, params, uri)
@@ -384,7 +389,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
       limit = QueryData.parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
-      requested_tab = normalize_requested_tab(Map.get(params, "tab"), socket.assigns.active_tab)
+      requested_tab = DeviceTabRuntime.normalize_requested_tab(Map.get(params, "tab"), socket.assigns.active_tab)
 
       load_device_data(socket, uid, limit, requested_tab, params, uri)
     else
@@ -425,163 +430,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       end)
     end
   end
-
-  defp normalize_requested_tab(url_tab, fallback_tab) do
-    if url_tab in [
-         "details",
-         "interfaces",
-         "flows",
-         "logs",
-         "profiles",
-         "active-fingerprint",
-         "process-listeners",
-         "sysmon",
-         "mtr",
-         "guests"
-       ],
-       do: url_tab,
-       else: fallback_tab
-  end
-
-  defp same_device_and_limit?(socket, uid, limit) do
-    uid == socket.assigns.device_uid and limit == socket.assigns.limit
-  end
-
-  defp maybe_load_northbound_interface_actions(socket) do
-    NorthboundInterfaceRuntime.maybe_load_actions(socket)
-  end
-
-  defp handle_same_device_params(socket, uid, limit, requested_tab, cursor) do
-    active_tab =
-      requested_tab
-      |> resolve_active_tab(
-        socket.assigns.has_ifaces,
-        socket.assigns.has_flows,
-        socket.assigns.has_logs,
-        socket.assigns.has_mtr,
-        socket.assigns.has_virtualization_guests
-      )
-      |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
-
-    srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, socket.assigns.srql)
-
-    socket =
-      socket
-      |> maybe_reload_flows_for_active_tab(
-        active_tab,
-        uid,
-        cursor
-      )
-      |> maybe_reload_logs_for_active_tab(active_tab, uid, cursor)
-      |> maybe_reload_interfaces_for_active_tab(active_tab, uid)
-      |> maybe_reload_profiles_for_active_tab(active_tab, uid)
-      |> maybe_load_mtr_for_active_tab(active_tab)
-
-    {:noreply,
-     socket
-     |> assign(:active_tab, active_tab)
-     |> assign(:srql, srql)
-     |> maybe_load_northbound_interface_actions()}
-  end
-
-  defp maybe_reload_flows_for_active_tab(socket, "flows", uid, cursor) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    {flows, pagination, flows_error} = FlowData.load_flows(srql_mod, uid, scope, cursor, @flows_limit)
-
-    socket
-    |> assign(:device_flows, flows)
-    |> assign(:flows_pagination, pagination)
-    |> assign(:flows_error, flows_error)
-    |> FlowRuntime.begin_stats_refresh(uid, srql_mod)
-    |> FlowRuntime.begin_ip_enrichment(uid, flows)
-  end
-
-  defp maybe_reload_flows_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
-
-  defp maybe_reload_logs_for_active_tab(socket, "logs", uid, cursor) do
-    if socket.assigns.logs_loading and socket.assigns.logs_cursor == cursor do
-      socket
-    else
-      begin_logs_load(socket, uid, cursor)
-    end
-  end
-
-  defp maybe_reload_logs_for_active_tab(socket, _active_tab, _uid, _cursor), do: socket
-
-  defp begin_logs_load(socket, uid, cursor) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-    request_ref = make_ref()
-
-    socket
-    |> assign(:device_logs, [])
-    |> assign(:logs_pagination, %{})
-    |> assign(:logs_error, nil)
-    |> assign(:logs_loading, false)
-    |> assign(:logs_request_ref, request_ref)
-    |> assign(:logs_cursor, cursor)
-    |> assign(:has_logs, true)
-    |> maybe_start_logs_async(uid, request_ref, srql_mod, scope, cursor)
-  end
-
-  defp maybe_start_logs_async(socket, uid, request_ref, srql_mod, scope, cursor) do
-    if connected?(socket) do
-      start_async(socket, {:device_logs, uid, request_ref}, fn ->
-        QueryData.load_logs(srql_mod, uid, scope, cursor, @logs_limit)
-      end)
-    else
-      socket
-    end
-  end
-
-  defp maybe_reload_interfaces_for_active_tab(socket, "interfaces", uid) do
-    scope = socket.assigns.current_scope
-    srql_mod = srql_module()
-
-    {network_interfaces, interfaces_error} = InterfaceData.load_interfaces(srql_mod, uid, scope)
-
-    interface_settings =
-      InterfaceData.load_interface_settings(scope, uid)
-
-    network_interfaces = InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
-
-    interface_metrics =
-      InterfaceData.load_interface_metrics(
-        srql_mod,
-        uid,
-        interface_settings.favorited,
-        interface_settings.metrics_enabled,
-        network_interfaces,
-        scope
-      )
-
-    has_ifaces =
-      is_binary(interfaces_error) or
-        (is_list(network_interfaces) and network_interfaces != []) or
-        not is_nil(socket.assigns.discovery_job)
-
-    socket
-    |> assign(:network_interfaces, network_interfaces)
-    |> assign(:interfaces_error, interfaces_error)
-    |> assign(:favorited_interfaces, interface_settings.favorited)
-    |> assign(:interface_metrics, interface_metrics)
-    |> assign(:has_ifaces, has_ifaces)
-  end
-
-  defp maybe_reload_interfaces_for_active_tab(socket, _active_tab, _uid), do: socket
-
-  defp maybe_reload_profiles_for_active_tab(socket, "profiles", uid) do
-    scope = socket.assigns.current_scope
-    {profile_info, available_profiles} = SysmonProfileData.load_profile_info(scope, uid)
-
-    socket
-    |> assign(:sysmon_profile_info, profile_info)
-    |> assign(:available_profiles, available_profiles)
-  end
-
-  defp maybe_reload_profiles_for_active_tab(socket, _active_tab, _uid), do: socket
 
   defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
     default_query = QueryData.default_device_query(uid, limit)
@@ -708,14 +556,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       active_tab =
         requested_tab
-        |> resolve_active_tab(
+        |> DeviceTabRuntime.resolve_active_tab(
           has_ifaces,
           has_flows,
           has_logs,
           has_mtr,
           has_virtualization_guests
         )
-        |> authorize_active_tab(device_row, scope)
+        |> DeviceTabRuntime.authorize_active_tab(device_row, scope)
 
       srql = QueryData.srql_for_tab_if_needed(active_tab, uid, limit, base_srql)
 
@@ -739,11 +587,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
        |> assign(:srql, srql)
        |> assign(supplemental_assigns)
-       |> maybe_load_mtr_for_active_tab(active_tab)
-       |> maybe_reload_logs_for_active_tab(
+       |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(active_tab)
+       |> DeviceTabRuntime.maybe_reload_logs_for_active_tab(
          active_tab,
          uid,
-         QueryData.normalize_cursor(Map.get(params, "cursor"))
+         QueryData.normalize_cursor(Map.get(params, "cursor")),
+         srql_module,
+         tab_runtime_opts()
        )
        |> FlowRuntime.begin_background_loads(
          active_tab,
@@ -763,6 +613,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     ]
   end
 
+  defp tab_runtime_opts do
+    [
+      flows_limit: @flows_limit,
+      logs_limit: @logs_limit
+    ]
+  end
+
   defp normalized_device_query(params, default_query) do
     params
     |> Map.get("q", default_query)
@@ -773,24 +630,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       other -> other
     end
   end
-
-  defp resolve_active_tab("interfaces", false, _has_flows, _has_logs, _has_mtr, _has_guests), do: "details"
-
-  defp resolve_active_tab("flows", _has_ifaces, false, _has_logs, _has_mtr, _has_guests), do: "details"
-
-  defp resolve_active_tab("logs", _has_ifaces, _has_flows, false, _has_mtr, _has_guests), do: "details"
-
-  defp resolve_active_tab("mtr", _has_ifaces, _has_flows, _has_logs, false, _has_guests), do: "details"
-
-  defp resolve_active_tab("guests", _has_ifaces, _has_flows, _has_logs, _has_mtr, false), do: "details"
-
-  defp resolve_active_tab(requested_tab, _has_ifaces, _has_flows, _has_logs, _has_mtr, _has_guests), do: requested_tab
-
-  defp authorize_active_tab("active-fingerprint", row, scope) do
-    if active_fingerprint_tab_visible?(row, scope), do: "active-fingerprint", else: "details"
-  end
-
-  defp authorize_active_tab(tab, _row, _scope), do: tab
 
   @impl true
   def handle_event("srql_change", %{"q" => q}, socket) do
@@ -1123,16 +962,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
-    tab =
-      tab
-      |> resolve_active_tab(
-        socket.assigns.has_ifaces,
-        socket.assigns.has_flows,
-        socket.assigns.has_logs,
-        socket.assigns.has_mtr,
-        socket.assigns.has_virtualization_guests
-      )
-      |> authorize_active_tab(Map.get(socket.assigns, :device_row), socket.assigns.current_scope)
+    tab = DeviceTabRuntime.resolve_active_tab(socket, tab)
 
     srql = QueryData.srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
 
@@ -1148,11 +978,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     socket =
       socket
-      |> maybe_reload_flows_for_active_tab(tab, uid, nil)
-      |> maybe_reload_logs_for_active_tab(tab, uid, nil)
-      |> maybe_reload_interfaces_for_active_tab(tab, uid)
-      |> maybe_reload_profiles_for_active_tab(tab, uid)
-      |> maybe_load_mtr_for_active_tab(tab)
+      |> DeviceTabRuntime.reload_for_active_tab(tab, uid, nil, srql_module(), tab_runtime_opts())
+      |> DeviceTabRuntime.maybe_load_mtr_for_active_tab(tab)
 
     {:noreply,
      socket
@@ -1328,15 +1155,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
   end
-
-  # ---------------------------------------------------------------------------
-  # MTR Traces
-  # ---------------------------------------------------------------------------
-
-  defp maybe_load_mtr_for_active_tab(socket, "mtr"),
-    do: MtrRuntime.load_traces(socket, get_device_ip(socket.assigns.results))
-
-  defp maybe_load_mtr_for_active_tab(socket, _active_tab), do: socket
 
   defp get_device_ip(results) do
     case List.first(Enum.filter(results, &is_map/1)) do
