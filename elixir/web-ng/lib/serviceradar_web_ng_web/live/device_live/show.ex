@@ -48,11 +48,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.RemoteAccessData
   alias ServiceRadarWebNGWeb.DeviceLive.SNMPCredentialData
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.SysmonProfileData
   alias ServiceRadarWebNGWeb.DeviceLive.VirtualizationData
-  alias ServiceRadarWebNGWeb.FeatureFlags
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Ash.Query
@@ -2530,11 +2530,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:can_edit, can_edit_device?(assigns.current_scope))
       |> assign(:can_manage, can_manage_device?(assigns.current_scope))
       |> assign(:can_console, can_console_device?(assigns.current_scope))
-      |> assign(:can_remote_access, can_remote_access_device?(assigns.current_scope, device_row))
-      |> assign(:can_remote_access_app, can_remote_access_app?(assigns.current_scope))
+      |> assign(:can_remote_access, RemoteAccessData.can_ssh?(assigns.current_scope, device_row))
+      |> assign(:can_remote_access_app, RemoteAccessData.can_app?(assigns.current_scope))
       |> assign(
         :can_manage_rdp_targets,
-        can_manage_rdp_targets?(assigns.current_scope, device_row)
+        RemoteAccessData.can_manage_rdp_targets?(assigns.current_scope, device_row)
       )
       |> assign(:can_run_ansible, can_run_ansible?(assigns.current_scope))
       |> assign(
@@ -2552,7 +2552,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         proxmox_console_path(assigns.device_uid, Map.get(assigns, :virtualization_summary))
       )
       |> assign(:proxmox_console_action_label, proxmox_console_action_label(Map.get(assigns, :virtualization_summary)))
-      |> assign(:rdp_target_path, rdp_target_new_path(assigns.device_uid, device_row))
+      |> assign(:rdp_target_path, RemoteAccessData.rdp_target_new_path(assigns.device_uid, device_row))
       |> assign(
         :active_fingerprint_tab_visible,
         active_fingerprint_tab_visible?(device_row, assigns.current_scope)
@@ -2976,14 +2976,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp first_present(values) when is_list(values) do
-    Enum.find_value(values, fn
-      nil -> nil
-      "" -> nil
-      value -> value
-    end)
-  end
-
   defp drop_low_value_categories(panels) when is_list(panels) do
     Enum.reject(panels, &low_value_categories_panel?/1)
   end
@@ -3132,155 +3124,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp can_console_device?(scope), do: RBAC.can?(scope, "devices.console.open")
 
-  defp can_remote_access_device?(scope, device_row) do
-    FeatureFlags.remote_access_ssh_enabled?() and ssh_capable_device?(device_row) and
-      RBAC.can?(scope, "devices.remote_access.ssh.open")
-  end
-
-  defp can_remote_access_app?(scope) do
-    FeatureFlags.remote_access_app_enabled?() and
-      RBAC.can?(scope, "devices.remote_access.app.open")
-  end
-
-  defp can_manage_rdp_targets?(scope, device_row) do
-    FeatureFlags.remote_access_desktop_rdp_enabled?() and windows_device?(device_row) and
-      RBAC.can?(scope, "settings.edge.manage")
-  end
-
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
-
-  defp rdp_target_new_path(device_uid, device_row) do
-    params =
-      %{
-        device_uid: device_uid,
-        target_host: rdp_target_host(device_row),
-        name: rdp_target_name(device_row),
-        target_tls_server_name: rdp_target_server_name(device_row)
-      }
-      |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
-      |> Map.new()
-
-    ~p"/settings/networks/desktop-targets/new?#{params}"
-  end
-
-  defp rdp_target_host(row) when is_map(row) do
-    first_present([Map.get(row, "ip"), Map.get(row, "hostname"), Map.get(row, "name")])
-  end
-
-  defp rdp_target_host(_row), do: nil
-
-  defp rdp_target_name(row) when is_map(row) do
-    case device_display_name(row) do
-      "Device" -> nil
-      label -> "#{label} RDP"
-    end
-  end
-
-  defp rdp_target_name(_row), do: nil
-
-  defp rdp_target_server_name(row) when is_map(row) do
-    first_present([Map.get(row, "hostname"), Map.get(row, "name")])
-  end
-
-  defp rdp_target_server_name(_row), do: nil
-
-  defp ssh_capable_device?(nil), do: false
-
-  defp ssh_capable_device?(device_row) when is_map(device_row) do
-    values =
-      device_row
-      |> device_identity_values()
-      |> Enum.map(&String.downcase/1)
-
-    cond do
-      Enum.any?(values, &String.contains?(&1, "windows")) ->
-        false
-
-      Enum.any?(values, &String.contains?(&1, "linux")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "unix")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "bsd")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "routeros")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "junos")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "ios xe")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "nx-os")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "proxmox")) ->
-        true
-
-      Enum.any?(values, &String.contains?(&1, "server")) ->
-        true
-
-      true ->
-        false
-    end
-  end
-
-  defp ssh_capable_device?(_device_row), do: false
-
-  defp windows_device?(nil), do: false
-
-  defp windows_device?(device_row) when is_map(device_row) do
-    device_row
-    |> device_identity_values()
-    |> Enum.map(&String.downcase/1)
-    |> Enum.any?(&String.contains?(&1, "windows"))
-  end
-
-  defp windows_device?(_device_row), do: false
-
-  defp device_identity_values(device_row) when is_map(device_row) do
-    Enum.flat_map(
-      [
-        Map.get(device_row, "type"),
-        Map.get(device_row, "device_type"),
-        Map.get(device_row, "os_info"),
-        Map.get(device_row, "os"),
-        MetadataData.value(device_row, "operating_system"),
-        MetadataData.value(device_row, "os_name"),
-        MetadataData.value(device_row, "os_type"),
-        MetadataData.value(device_row, "platform"),
-        MetadataData.value(device_row, "platform_name"),
-        MetadataData.value(device_row, "sys_descr"),
-        MetadataData.value(device_row, "snmp_description")
-      ],
-      &ssh_capability_strings/1
-    )
-  end
-
-  defp device_identity_values(_device_row), do: []
-
-  defp ssh_capability_strings(nil), do: []
-  defp ssh_capability_strings(""), do: []
-  defp ssh_capability_strings(value) when is_binary(value), do: [value]
-
-  defp ssh_capability_strings(value) when is_map(value) do
-    string_values =
-      value
-      |> Map.take(["name", "type", "version", "kernel_release", "edition"])
-      |> Map.values()
-
-    atom_values =
-      value
-      |> Map.take([:name, :type, :version, :kernel_release, :edition])
-      |> Map.values()
-
-    Enum.flat_map(string_values ++ atom_values, &ssh_capability_strings/1)
-  end
-
-  defp ssh_capability_strings(value), do: [to_string(value)]
 
   defp ansible_managed?(%{ansible_managed: true}), do: true
   defp ansible_managed?(%{"ansible_managed" => true}), do: true
