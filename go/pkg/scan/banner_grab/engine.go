@@ -70,6 +70,7 @@ type Stats struct {
 	SkippedBackoffTotal  uint64
 	MatchBatchesTotal    uint64
 	MatchBatchBytesTotal uint64
+	BannerBytesTotal     uint64
 	MatchesTotal         uint64
 	EmptyResponseTotal   uint64
 	ConnectionResetTotal uint64
@@ -210,6 +211,7 @@ func (e *Engine) Stats() Stats {
 		SkippedBackoffTotal:  atomic.LoadUint64(&e.stats.SkippedBackoffTotal),
 		MatchBatchesTotal:    atomic.LoadUint64(&e.stats.MatchBatchesTotal),
 		MatchBatchBytesTotal: atomic.LoadUint64(&e.stats.MatchBatchBytesTotal),
+		BannerBytesTotal:     atomic.LoadUint64(&e.stats.BannerBytesTotal),
 		MatchesTotal:         atomic.LoadUint64(&e.stats.MatchesTotal),
 		EmptyResponseTotal:   atomic.LoadUint64(&e.stats.EmptyResponseTotal),
 		ConnectionResetTotal: atomic.LoadUint64(&e.stats.ConnectionResetTotal),
@@ -294,6 +296,7 @@ func (e *Engine) probeCandidate(ctx context.Context, candidate Candidate) {
 	e.planner.recordSuccess(candidate, observation.ObservedAt)
 	observation.ObservationID = atomic.AddUint64(&e.nextID, 1)
 	atomic.AddUint64(&e.stats.ObservationsTotal, 1)
+	atomic.AddUint64(&e.stats.BannerBytesTotal, uint64(len(observation.BannerBytes)))
 
 	select {
 	case e.output <- observation:

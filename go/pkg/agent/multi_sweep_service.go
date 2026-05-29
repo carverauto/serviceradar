@@ -479,12 +479,14 @@ func (s *MultiSweepService) GetBannerGrabStats() *models.BannerGrabStats {
 		out.QueueDepth += stats.QueueDepth
 		out.MatchBatchesTotal += stats.MatchBatchesTotal
 		out.MatchBatchBytesTotal += stats.MatchBatchBytesTotal
+		out.BannerBytesTotal += stats.BannerBytesTotal
 		out.SkippedFreshTotal += stats.SkippedFreshTotal
 		out.SkippedBackoffTotal += stats.SkippedBackoffTotal
 		out.MatchesTotal += stats.MatchesTotal
 		out.EmptyResponseTotal += stats.EmptyResponseTotal
 		out.ConnectionResetTotal += stats.ConnectionResetTotal
 		out.TimeoutTotal += stats.TimeoutTotal
+		out.ErrorsTotal += stats.ErrorsTotal
 	}
 	if !found {
 		return nil

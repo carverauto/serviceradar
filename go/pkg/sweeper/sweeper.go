@@ -1128,9 +1128,11 @@ func (s *NetworkSweeper) finishBannerGrabPhase(phase *activeBannerGrabPhase) err
 		Uint64("candidates", stats.CandidatesTotal).
 		Uint64("probes", stats.ProbesTotal).
 		Uint64("observations", stats.ObservationsTotal).
+		Uint64("bytesReceived", stats.BannerBytesTotal).
 		Uint64("timeouts", stats.TimeoutTotal).
 		Uint64("connectionResets", stats.ConnectionResetTotal).
 		Uint64("emptyResponses", stats.EmptyResponseTotal).
+		Uint64("errors", stats.ErrorsTotal).
 		Uint64("maxQueueDepth", stats.MaxQueueDepth).
 		Msg("Finished banner-grab phase")
 
@@ -1215,12 +1217,14 @@ func bannerGrabStatsFromEngine(stats banner_grab.Stats) *models.BannerGrabStats 
 		QueueDepth:           stats.QueueDepth,
 		MatchBatchesTotal:    stats.MatchBatchesTotal,
 		MatchBatchBytesTotal: stats.MatchBatchBytesTotal,
+		BannerBytesTotal:     stats.BannerBytesTotal,
 		SkippedFreshTotal:    stats.SkippedFreshTotal,
 		SkippedBackoffTotal:  stats.SkippedBackoffTotal,
 		MatchesTotal:         stats.MatchesTotal,
 		EmptyResponseTotal:   stats.EmptyResponseTotal,
 		ConnectionResetTotal: stats.ConnectionResetTotal,
 		TimeoutTotal:         stats.TimeoutTotal,
+		ErrorsTotal:          stats.ErrorsTotal,
 	}
 }
 

@@ -32,10 +32,12 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
   use Ash.Resource,
     domain: ServiceRadar.SweepJobs,
     data_layer: AshPostgres.DataLayer,
+    extensions: [AshPaperTrail.Resource],
     authorizers: [Ash.Policy.Authorizer]
 
   @execution_start_fields [:sweep_group_id, :agent_id, :config_version]
   @execution_result_fields [:hosts_total, :hosts_available, :hosts_failed]
+  @banner_grab_summary_fields [:banner_grab_summary]
 
   postgres do
     table "sweep_group_executions"
@@ -49,6 +51,18 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       index [:status],
         name: "sweep_group_executions_status_idx"
     end
+  end
+
+  paper_trail do
+    primary_key_type :uuid
+    table_name "sweep_group_execution_versions"
+    mixin {ServiceRadar.SweepJobs.SweepGroupExecution.PaperTrailMixin, :mixin, []}
+    change_tracking_mode :full_diff
+    attributes_as_attributes [:sweep_group_id]
+    store_action_name? true
+    store_action_inputs? true
+    create_version_on_destroy? true
+    ignore_attributes [:inserted_at, :updated_at]
   end
 
   actions do
@@ -117,6 +131,13 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       description "Update execution progress"
 
       accept @execution_result_fields
+    end
+
+    update :record_banner_grab_phase do
+      description "Record the completed banner-grab phase summary for audit"
+      require_atomic? false
+
+      accept @banner_grab_summary_fields
     end
 
     read :by_group do
@@ -234,6 +255,18 @@ defmodule ServiceRadar.SweepJobs.SweepGroupExecution do
       ports_released, port_exhaustion_count, rate_limit_deferrals, rate_limit_waits,
       source_port_waits, rate_limit_wait_time_ms, source_port_wait_time_ms,
       rx_drop_rate_percent
+      """
+    end
+
+    attribute :banner_grab_summary, :map do
+      allow_nil? true
+      public? true
+      default %{}
+
+      description """
+      Banner-grab phase summary counters from the agent.
+      Contains phase-level totals only; individual probe observations are not
+      written to AshPaperTrail.
       """
     end
 

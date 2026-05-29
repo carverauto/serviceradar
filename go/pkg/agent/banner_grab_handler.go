@@ -105,7 +105,7 @@ func (s *Server) flushBannerBatch(
 		engine.RecordMatchBatch(bannerObservationBatchBytes(observations), len(events))
 	}
 
-	s.logger.Debug().
+	s.logger.Info().
 		Int("observations", len(observations)).
 		Int("matches", len(events)).
 		Msg("Matched banner-grab observations")

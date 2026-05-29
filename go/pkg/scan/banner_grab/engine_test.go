@@ -117,6 +117,9 @@ func TestEngineFiltersFreshEligibleCandidatesAndStreamsObservations(t *testing.T
 	if stats.ObservationsTotal != 1 {
 		t.Fatalf("ObservationsTotal = %d, want 1", stats.ObservationsTotal)
 	}
+	if stats.BannerBytesTotal != uint64(len(got.BannerBytes)) {
+		t.Fatalf("BannerBytesTotal = %d, want %d", stats.BannerBytesTotal, len(got.BannerBytes))
+	}
 	engine.RecordMatchBatch(128, 1)
 	stats = engine.Stats()
 	if stats.MatchBatchesTotal != 1 || stats.MatchBatchBytesTotal != 128 || stats.MatchesTotal != 1 {

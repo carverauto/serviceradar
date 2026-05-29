@@ -68,6 +68,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   - `:agent_id` - The agent that performed the sweep
   - `:config_version` - Config version hash for the execution
   - `:scanner_metrics` - Scanner performance metrics from the agent
+  - `:banner_grab_summary` - Phase-level banner-grab counters from the agent
 
   Returns {:ok, stats} with processed counts or {:error, reason}.
   """
@@ -1327,9 +1328,10 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     :ok
   end
 
-  defp update_execution(execution_id, _sweep_group_id, stats, scanner_metrics, _actor, opts) do
+  defp update_execution(execution_id, sweep_group_id, stats, scanner_metrics, actor, opts) do
     expected_total_hosts = Keyword.get(opts, :expected_total_hosts)
     is_final = Keyword.get(opts, :is_final, true)
+    banner_grab_summary = Keyword.get(opts, :banner_grab_summary)
 
     {completed_at, updated_at} = execution_timestamps(is_final)
     duration_ms = execution_duration_ms(execution_id, is_final, completed_at)
@@ -1342,7 +1344,91 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
 
     update_execution_row(execution_id, inc_fields, set_fields)
     maybe_set_expected_total(execution_id, expected_total_hosts, updated_at)
+
+    maybe_record_banner_grab_phase(
+      execution_id,
+      sweep_group_id,
+      banner_grab_summary,
+      actor,
+      is_final
+    )
+
     fetch_execution(execution_id)
+  end
+
+  defp maybe_record_banner_grab_phase(_execution_id, _sweep_group_id, _summary, _actor, false),
+    do: :ok
+
+  defp maybe_record_banner_grab_phase(_execution_id, _sweep_group_id, nil, _actor, true), do: :ok
+
+  defp maybe_record_banner_grab_phase(_execution_id, _sweep_group_id, summary, _actor, true)
+       when summary == %{}, do: :ok
+
+  defp maybe_record_banner_grab_phase(execution_id, sweep_group_id, summary, actor, true) do
+    audited_summary = banner_grab_audit_summary(summary)
+
+    case Ash.get(SweepGroupExecution, execution_id, actor: actor) do
+      {:ok, execution} ->
+        execution
+        |> Ash.Changeset.for_update(
+          :record_banner_grab_phase,
+          %{banner_grab_summary: audited_summary},
+          actor: actor,
+          context: %{sweep_group_id: sweep_group_id}
+        )
+        |> Ash.update(actor: actor)
+        |> case do
+          {:ok, _updated} ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "SweepResultsIngestor: Failed to record banner-grab audit summary for execution #{execution_id}: #{inspect(reason)}"
+            )
+
+            :ok
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "SweepResultsIngestor: Failed to load execution #{execution_id} for banner-grab audit summary: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp banner_grab_audit_summary(summary) when is_map(summary) do
+    %{
+      "probe_count" => counter(summary, "sweep_banner_grab_probes_total"),
+      "banner_match_count" => counter(summary, "sweep_banner_grab_matches_total"),
+      "empty_response_count" => counter(summary, "sweep_banner_grab_empty_response_total"),
+      "error_count" => banner_grab_error_count(summary),
+      "total_bytes_received" => counter(summary, "sweep_banner_grab_bytes_received_total"),
+      "counters" => summary
+    }
+  end
+
+  defp banner_grab_error_count(summary) do
+    counter(summary, "sweep_banner_grab_errors_total") +
+      counter(summary, "sweep_banner_grab_connection_reset_total") +
+      counter(summary, "sweep_banner_grab_timeout_total")
+  end
+
+  defp counter(summary, key) do
+    case Map.get(summary, key) do
+      value when is_integer(value) and value >= 0 -> value
+      value when is_float(value) and value >= 0 -> trunc(value)
+      value when is_binary(value) -> parse_counter(value)
+      _ -> 0
+    end
+  end
+
+  defp parse_counter(value) do
+    case Integer.parse(value) do
+      {parsed, ""} when parsed >= 0 -> parsed
+      _ -> 0
+    end
   end
 
   defp execution_timestamps(true) do
@@ -1438,7 +1524,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
           duration_ms: e.duration_ms,
           hosts_total: e.hosts_total,
           hosts_available: e.hosts_available,
-          hosts_failed: e.hosts_failed
+          hosts_failed: e.hosts_failed,
+          banner_grab_summary: e.banner_grab_summary
         }
       )
     )

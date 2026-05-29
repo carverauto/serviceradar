@@ -27,12 +27,14 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 				QueueDepth:           3,
 				MatchBatchesTotal:    4,
 				MatchBatchBytesTotal: 2048,
+				BannerBytesTotal:     1024,
 				SkippedFreshTotal:    5,
 				SkippedBackoffTotal:  6,
 				MatchesTotal:         8,
 				EmptyResponseTotal:   9,
 				ConnectionResetTotal: 11,
 				TimeoutTotal:         12,
+				ErrorsTotal:          13,
 			}},
 		},
 	}
@@ -47,7 +49,9 @@ func TestServerWritePrometheusMetricsIncludesBannerGrabStats(t *testing.T) {
 		"# TYPE sweep_banner_grab_candidates_total counter\nsweep_banner_grab_candidates_total 10\n",
 		"# TYPE sweep_banner_grab_inflight gauge\nsweep_banner_grab_inflight 2\n",
 		"# TYPE sweep_banner_grab_match_batch_bytes_total counter\nsweep_banner_grab_match_batch_bytes_total 2048\n",
+		"# TYPE sweep_banner_grab_bytes_received_total counter\nsweep_banner_grab_bytes_received_total 1024\n",
 		"# TYPE sweep_banner_grab_timeout_total counter\nsweep_banner_grab_timeout_total 12\n",
+		"# TYPE sweep_banner_grab_errors_total counter\nsweep_banner_grab_errors_total 13\n",
 	} {
 		if !strings.Contains(metrics, want) {
 			t.Fatalf("metrics missing %q in:\n%s", want, metrics)

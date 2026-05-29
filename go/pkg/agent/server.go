@@ -342,12 +342,14 @@ func (s *Server) BannerGrabStats() *models.BannerGrabStats {
 		out.QueueDepth += stats.QueueDepth
 		out.MatchBatchesTotal += stats.MatchBatchesTotal
 		out.MatchBatchBytesTotal += stats.MatchBatchBytesTotal
+		out.BannerBytesTotal += stats.BannerBytesTotal
 		out.SkippedFreshTotal += stats.SkippedFreshTotal
 		out.SkippedBackoffTotal += stats.SkippedBackoffTotal
 		out.MatchesTotal += stats.MatchesTotal
 		out.EmptyResponseTotal += stats.EmptyResponseTotal
 		out.ConnectionResetTotal += stats.ConnectionResetTotal
 		out.TimeoutTotal += stats.TimeoutTotal
+		out.ErrorsTotal += stats.ErrorsTotal
 	}
 	if !found {
 		return nil
@@ -373,12 +375,14 @@ func (s *Server) WritePrometheusMetrics(w io.Writer) error {
 		{"sweep_banner_grab_queue_depth", "gauge", stats.QueueDepth},
 		{"sweep_banner_grab_match_batches_total", "counter", stats.MatchBatchesTotal},
 		{"sweep_banner_grab_match_batch_bytes_total", "counter", stats.MatchBatchBytesTotal},
+		{"sweep_banner_grab_bytes_received_total", "counter", stats.BannerBytesTotal},
 		{"sweep_banner_grab_skipped_fresh_total", "counter", stats.SkippedFreshTotal},
 		{"sweep_banner_grab_skipped_backoff_total", "counter", stats.SkippedBackoffTotal},
 		{"sweep_banner_grab_matches_total", "counter", stats.MatchesTotal},
 		{"sweep_banner_grab_empty_response_total", "counter", stats.EmptyResponseTotal},
 		{"sweep_banner_grab_connection_reset_total", "counter", stats.ConnectionResetTotal},
 		{"sweep_banner_grab_timeout_total", "counter", stats.TimeoutTotal},
+		{"sweep_banner_grab_errors_total", "counter", stats.ErrorsTotal},
 	}
 
 	for _, metric := range metrics {
