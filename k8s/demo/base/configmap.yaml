@@ -21,10 +21,10 @@
 #                via templates/nats.yaml) — preferred for production.
 #   * kustomize: add a `replacements:` entry sourced from a
 #                configMapGenerator literal `partitionId=<id>`.
-#   * raw demo:  `envsubst < configmap.yaml | kubectl apply -f -` after
-#                exporting `SERVICERADAR_OTX_PARTITION` and renaming the
-#                placeholder, OR an inline sed:
-#                `sed -i "s/__SERVICERADAR_PARTITION_ID__/$SERVICERADAR_OTX_PARTITION/g"`.
+#   * raw demo:  inline sed matching the postinstall.sh pattern, e.g.
+#                `sed -i "s|__SERVICERADAR_PARTITION_ID__|${SERVICERADAR_OTX_PARTITION:-default}|g" configmap.yaml`
+#                (envsubst is NOT suitable — it expands `${VAR}` syntax,
+#                not the literal `__SERVICERADAR_PARTITION_ID__` token).
 #
 # The deny rule on the unscoped `flow.attributed.>` wildcard is a
 # fail-safe: NATS evaluates allow-then-deny per token, so cross-partition
