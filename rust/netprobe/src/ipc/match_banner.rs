@@ -1,4 +1,4 @@
-use std::{env, path::Path, sync::OnceLock};
+use std::{borrow::Cow, env, path::Path, sync::OnceLock};
 
 use crate::{
     proto::netprobe::{BannerBatch, BannerMatch, BannerMatchBatch, BannerObservation},
@@ -28,16 +28,17 @@ fn match_observation(
 ) -> BannerMatch {
     let protocol = observation.protocol.trim().to_ascii_lowercase();
     let banner = String::from_utf8_lossy(&observation.banner_bytes);
+    let banner = normalized_banner(&protocol, &banner);
     let mut candidates = Vec::new();
 
     if let Some(service) = recog_service(&protocol) {
-        if let Some(label) = recog::match_recog(service, &banner) {
+        if let Some(label) = recog::match_recog(service, banner.as_ref()) {
             candidates.push(recog_match(observation.observation_id, label));
         }
     }
 
     if let Some(corpus) = satori {
-        if let Some(label) = satori_match(&protocol, &banner, corpus) {
+        if let Some(label) = satori_match(&protocol, banner.as_ref(), corpus) {
             candidates.push(satori_banner_match(observation.observation_id, label));
         }
     }
@@ -50,6 +51,29 @@ fn match_observation(
                 .unwrap_or(std::cmp::Ordering::Equal)
         })
         .unwrap_or_else(|| unknown_match(observation.observation_id))
+}
+
+fn normalized_banner<'a>(protocol: &str, banner: &'a str) -> Cow<'a, str> {
+    if protocol != "http" {
+        let trimmed = banner.trim_matches(['\r', '\n']);
+        if trimmed.len() == banner.len() {
+            return Cow::Borrowed(banner);
+        }
+
+        return Cow::Owned(trimmed.to_string());
+    }
+
+    for line in banner.lines() {
+        let line = line.trim_end_matches('\r');
+        let Some((name, value)) = line.split_once(':') else {
+            continue;
+        };
+        if name.trim().eq_ignore_ascii_case("server") {
+            return Cow::Owned(value.trim().to_string());
+        }
+    }
+
+    Cow::Borrowed(banner)
 }
 
 fn recog_service(protocol: &str) -> Option<RecogService> {
@@ -178,6 +202,40 @@ mod tests {
         assert_eq!(matches[1].observation_id, 11);
         assert_eq!(matches[1].corpus_label, "unknown");
         assert_eq!(matches[1].confidence, 0.0);
+    }
+
+    #[test]
+    fn matches_http_response_by_server_header() {
+        let batch = BannerBatch {
+            observations: vec![observation(
+                10,
+                "http",
+                b"HTTP/1.1 200 OK\r\nDate: Thu, 28 May 2026 00:00:00 GMT\r\nServer: Apache/2.4.58 (Ubuntu)\r\n\r\n",
+            )],
+        };
+
+        let matches = match_banner_batch(&batch).matches;
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].observation_id, 10);
+        assert!(matches[0].corpus_label.starts_with("recog:"));
+        assert_eq!(matches[0].product, "HTTPD");
+        assert_eq!(matches[0].version, "2.4.58");
+    }
+
+    #[test]
+    fn trims_line_protocol_banner_terminators() {
+        let batch = BannerBatch {
+            observations: vec![observation(6, "smtp", b"foo.bar ESMTP Postfix 2.7.1\r\n")],
+        };
+
+        let matches = match_banner_batch(&batch).matches;
+
+        assert_eq!(matches.len(), 1);
+        assert_eq!(matches[0].observation_id, 6);
+        assert!(matches[0].corpus_label.starts_with("recog:"));
+        assert_eq!(matches[0].product, "Postfix");
+        assert_eq!(matches[0].version, "2.7.1");
     }
 
     #[test]

@@ -30,3 +30,17 @@ go_test(
     embed = [":banner_grab"],
     deps = ["//go/pkg/models"],
 )
+
+go_test(
+    name = "banner_grab_integration_test",
+    size = "medium",
+    srcs = ["integration_test.go"],
+    data = ["//rust/netprobe:netprobe"],
+    embed = [":banner_grab"],
+    tags = ["manual"],
+    deps = [
+        "//go/pkg/agent/netprobe",
+        "//go/pkg/models",
+        "//proto/agent/netprobe/v1:netprobepb",
+    ],
+)
