@@ -657,14 +657,18 @@ func (x *FlowMessage) GetProtocolName() string {
 }
 
 type FlowAttribution struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Pid           uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
-	Comm          string                 `protobuf:"bytes,2,opt,name=comm,proto3" json:"comm,omitempty"`
-	Cmdline       string                 `protobuf:"bytes,3,opt,name=cmdline,proto3" json:"cmdline,omitempty"`
-	Uid           uint32                 `protobuf:"varint,4,opt,name=uid,proto3" json:"uid,omitempty"`
-	ContainerId   string                 `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Pid   uint32                 `protobuf:"varint,1,opt,name=pid,proto3" json:"pid,omitempty"`
+	Comm  string                 `protobuf:"bytes,2,opt,name=comm,proto3" json:"comm,omitempty"`
+	// Redacted process command line. Producers MUST strip secrets/credentials
+	// and cap the value at 256 bytes per the netprobe redaction discipline
+	// (matches FlowAttributionEvent.redacted_cmdline in
+	// proto/agent/netprobe/v1/netprobe.proto).
+	RedactedCmdline string `protobuf:"bytes,3,opt,name=redacted_cmdline,json=redactedCmdline,proto3" json:"redacted_cmdline,omitempty"`
+	Uid             uint32 `protobuf:"varint,4,opt,name=uid,proto3" json:"uid,omitempty"`
+	ContainerId     string `protobuf:"bytes,5,opt,name=container_id,json=containerId,proto3" json:"container_id,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
 }
 
 func (x *FlowAttribution) Reset() {
@@ -711,9 +715,9 @@ func (x *FlowAttribution) GetComm() string {
 	return ""
 }
 
-func (x *FlowAttribution) GetCmdline() string {
+func (x *FlowAttribution) GetRedactedCmdline() string {
 	if x != nil {
-		return x.Cmdline
+		return x.RedactedCmdline
 	}
 	return ""
 }
@@ -908,11 +912,11 @@ const file_flow_flow_proto_rawDesc = "" +
 	"\n" +
 	"\x06Teredo\x10\r\x12\n" +
 	"\n" +
-	"\x06Custom\x10c\"\x86\x01\n" +
+	"\x06Custom\x10c\"\x97\x01\n" +
 	"\x0fFlowAttribution\x12\x10\n" +
 	"\x03pid\x18\x01 \x01(\rR\x03pid\x12\x12\n" +
-	"\x04comm\x18\x02 \x01(\tR\x04comm\x12\x18\n" +
-	"\acmdline\x18\x03 \x01(\tR\acmdline\x12\x10\n" +
+	"\x04comm\x18\x02 \x01(\tR\x04comm\x12)\n" +
+	"\x10redacted_cmdline\x18\x03 \x01(\tR\x0fredactedCmdline\x12\x10\n" +
 	"\x03uid\x18\x04 \x01(\rR\x03uid\x12!\n" +
 	"\fcontainer_id\x18\x05 \x01(\tR\vcontainerId\"\xd3\x01\n" +
 	"\x15AttributedFlowMessage\x12\x1d\n" +

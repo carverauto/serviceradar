@@ -112,7 +112,7 @@ defmodule Flowpb.FlowAttribution do
 
   field :pid, 1, type: :uint32
   field :comm, 2, type: :string
-  field :cmdline, 3, type: :string
+  field :redacted_cmdline, 3, type: :string, json_name: "redactedCmdline"
   field :uid, 4, type: :uint32
   field :container_id, 5, type: :string, json_name: "containerId"
 end

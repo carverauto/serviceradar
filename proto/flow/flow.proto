@@ -132,7 +132,11 @@ message FlowMessage {
 message FlowAttribution {
   uint32 pid = 1;
   string comm = 2;
-  string cmdline = 3;
+  // Redacted process command line. Producers MUST strip secrets/credentials
+  // and cap the value at 256 bytes per the netprobe redaction discipline
+  // (matches FlowAttributionEvent.redacted_cmdline in
+  // proto/agent/netprobe/v1/netprobe.proto).
+  string redacted_cmdline = 3;
   uint32 uid = 4;
   string container_id = 5;
 }
