@@ -33,6 +33,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -58,6 +59,15 @@ var (
 	ErrAddonUnitNotRegular = errors.New("staged addon systemd unit is not a regular file")
 	// ErrAddonUnitEscape is returned when a staged unit resolves outside its add-on dir.
 	ErrAddonUnitEscape = errors.New("staged addon systemd unit resolves outside its staging directory")
+	// ErrAddonSystemdNoUnitsDiscovered is returned when a systemd-supervised add-on's
+	// staged bundle contains no .service/.timer unit files to install.
+	ErrAddonSystemdNoUnitsDiscovered = errors.New("no systemd unit files in staged addon bundle")
+	// ErrAddonSystemdPrimaryAmbiguous is returned when the unit to enable for a
+	// supervision model cannot be chosen unambiguously (zero or multiple candidates).
+	ErrAddonSystemdPrimaryAmbiguous = errors.New("cannot select a single systemd unit to enable")
+	// ErrAddonSystemdSupervisionUnknown is returned when a primary unit is requested for
+	// a supervision model that is not systemd-service or systemd-timer.
+	ErrAddonSystemdSupervisionUnknown = errors.New("unsupported systemd supervision model")
 )
 
 // AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
@@ -165,25 +175,36 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		resolved = append(resolved, stagedUnit{name: name, src: src})
 	}
 
-	installed := make([]string, 0, len(resolved))
+	// Track only the unit files this install NEWLY creates. On failure we remove only
+	// those, never a pre-existing unit file (e.g. a re-deploy over an already-running
+	// add-on), so a failed re-install cannot tear down the running add-on's units.
+	created := make([]string, 0, len(resolved))
 	cleanup := func() {
-		for _, name := range installed {
+		for _, name := range created {
 			_ = os.Remove(filepath.Join(systemdUnitDir, name))
 		}
 		_ = runSystemctl(ctx, "daemon-reload")
 	}
 
 	for _, u := range resolved {
+		dest := filepath.Join(systemdUnitDir, u.name)
+		preExisted := false
+		if _, statErr := os.Stat(dest); statErr == nil {
+			preExisted = true
+		}
+
 		data, err := os.ReadFile(u.src) //nolint:gosec // src is resolved under the controlled add-on staging root.
 		if err != nil {
 			cleanup()
 			return fmt.Errorf("read staged unit %s: %w", u.name, err)
 		}
-		if err := os.WriteFile(filepath.Join(systemdUnitDir, u.name), data, systemdUnitFileMode); err != nil {
+		if err := os.WriteFile(dest, data, systemdUnitFileMode); err != nil {
 			cleanup()
 			return fmt.Errorf("install unit %s: %w", u.name, err)
 		}
-		installed = append(installed, u.name)
+		if !preExisted {
+			created = append(created, u.name)
+		}
 	}
 
 	if err := runSystemctl(ctx, "daemon-reload"); err != nil {
@@ -239,4 +260,195 @@ func containsString(list []string, s string) bool {
 	}
 
 	return false
+}
+
+// discoverStagedAddonUnits lists the systemd unit files (.service/.timer) shipped in an
+// add-on's staged current/ dir. The unit files ride inside the signed bundle, so the
+// agent enumerates them (reading its own staging area) to tell the root-owned updater
+// exactly which units to install — avoiding any need to thread unit names through the
+// proto/manifest. The returned names are validated and sorted for determinism; the
+// updater independently re-resolves and escape-guards each one before installing.
+func discoverStagedAddonUnits(runtimeRoot, addonID string) ([]string, error) {
+	if !safeAddonSegment(addonID) {
+		return nil, fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+
+	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
+	entries, err := os.ReadDir(currentDir)
+	if err != nil {
+		return nil, fmt.Errorf("read staged addon dir: %w", err)
+	}
+
+	return filterSystemdUnitEntries(entries), nil
+}
+
+// filterSystemdUnitEntries returns the validated .service/.timer file names from a dir
+// listing, sorted for determinism.
+func filterSystemdUnitEntries(entries []os.DirEntry) []string {
+	var units []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if (strings.HasSuffix(name, ".service") || strings.HasSuffix(name, ".timer")) && validateAddonUnitName(name) == nil {
+			units = append(units, name)
+		}
+	}
+
+	sort.Strings(units)
+
+	return units
+}
+
+// listStagedSystemdUnits is the best-effort variant of discoverStagedAddonUnits for a
+// resolved directory (a missing/unreadable dir yields no units), used by rehydration.
+func listStagedSystemdUnits(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	return filterSystemdUnitEntries(entries)
+}
+
+// discoverInstalledSystemdAddons scans the add-on staging root and returns, for each
+// add-on whose current/ dir ships systemd units, its id -> unit names. Used to rehydrate
+// the agent's installed-unit tracking after a restart so a later disable/unassign can
+// still uninstall the units. agent-sidecar add-ons ship no units and are skipped.
+func discoverInstalledSystemdAddons(addonsRoot string) map[string][]string {
+	entries, err := os.ReadDir(addonsRoot)
+	if err != nil {
+		return nil
+	}
+
+	var out map[string][]string
+	for _, e := range entries {
+		if !e.IsDir() || !safeAddonSegment(e.Name()) {
+			continue
+		}
+		units := listStagedSystemdUnits(filepath.Join(addonsRoot, e.Name(), addonCurrentLink))
+		if len(units) > 0 {
+			if out == nil {
+				out = make(map[string][]string)
+			}
+			out[e.Name()] = units
+		}
+	}
+
+	return out
+}
+
+// pickPrimarySystemdUnit selects the unit to `enable --now` for a supervision model: the
+// .timer for systemd-timer, the .service for systemd-service. Exactly one matching unit
+// must exist; the other units (e.g. a timer's backing .service) are installed but pulled
+// in transitively rather than enabled directly.
+func pickPrimarySystemdUnit(units []string, supervision string) (string, error) {
+	var suffix string
+	switch supervision {
+	case addonSupervisionSystemdTimer:
+		suffix = ".timer"
+	case addonSupervisionSystemdService:
+		suffix = ".service"
+	default:
+		return "", fmt.Errorf("%w: %q", ErrAddonSystemdSupervisionUnknown, supervision)
+	}
+
+	var matches []string
+	for _, u := range units {
+		if strings.HasSuffix(u, suffix) {
+			matches = append(matches, u)
+		}
+	}
+
+	if len(matches) != 1 {
+		return "", fmt.Errorf("%w: %q expects exactly one %s unit, found %d", ErrAddonSystemdPrimaryAmbiguous, supervision, suffix, len(matches))
+	}
+
+	return matches[0], nil
+}
+
+// installStagedAddonSystemdUnitsViaUpdater invokes the root-owned, package-owned
+// agent-updater to install the discovered units and enable the primary. The non-root
+// agent never installs units itself.
+func installStagedAddonSystemdUnitsViaUpdater(ctx context.Context, addonID string, units []string, enable string) error {
+	if len(units) == 0 {
+		return ErrAddonSystemdNoUnits
+	}
+
+	updaterPath, err := ValidatedAgentUpdaterPath()
+	if err != nil {
+		return fmt.Errorf("locate agent updater for systemd install: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, updaterPath,
+		"--addon-id", addonID,
+		"--addon-systemd-install", strings.Join(units, ","),
+		"--addon-systemd-enable", enable,
+	)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("agent-updater systemd install failed: %w", err)
+	}
+
+	return nil
+}
+
+// uninstallAddonSystemdUnitsViaUpdater invokes the root-owned agent-updater to disable +
+// remove an add-on's previously-installed units (assignment disabled or unassigned).
+func uninstallAddonSystemdUnitsViaUpdater(ctx context.Context, units []string) error {
+	if len(units) == 0 {
+		return nil
+	}
+
+	updaterPath, err := ValidatedAgentUpdaterPath()
+	if err != nil {
+		return fmt.Errorf("locate agent updater for systemd uninstall: %w", err)
+	}
+
+	cmd := exec.CommandContext(ctx, updaterPath, "--addon-systemd-uninstall", strings.Join(units, ","))
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("agent-updater systemd uninstall failed: %w", err)
+	}
+
+	return nil
+}
+
+// stringsNotIn returns the elements of a that are not present in b.
+func stringsNotIn(a, b []string) []string {
+	if len(a) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(b))
+	for _, s := range b {
+		set[s] = true
+	}
+	var out []string
+	for _, s := range a {
+		if !set[s] {
+			out = append(out, s)
+		}
+	}
+
+	return out
+}
+
+// systemdAddonsToRemove returns the installed systemd add-ons (id -> unit names) that are
+// no longer desired (disabled or unassigned), so the caller can uninstall their units.
+func systemdAddonsToRemove(installed map[string][]string, desired map[string]bool) map[string][]string {
+	var toRemove map[string][]string
+	for id, units := range installed {
+		if desired[id] {
+			continue
+		}
+		if toRemove == nil {
+			toRemove = make(map[string][]string)
+		}
+		toRemove[id] = units
+	}
+
+	return toRemove
 }

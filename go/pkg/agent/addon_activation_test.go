@@ -375,8 +375,8 @@ func TestClassifyAddonSupervision(t *testing.T) {
 	cases := map[string]addonDispatch{
 		addonSupervisionAgentSidecar:    addonDispatchSidecar,
 		addonSupervisionConfigToggle:    addonDispatchConfigToggle,
-		addonSupervisionSystemdService:  addonDispatchExternalUnimplemented,
-		addonSupervisionSystemdTimer:    addonDispatchExternalUnimplemented,
+		addonSupervisionSystemdService:  addonDispatchSystemd,
+		addonSupervisionSystemdTimer:    addonDispatchSystemd,
 		addonSupervisionEphemeralHelper: addonDispatchExternalUnimplemented,
 		"something_new":                 addonDispatchUnsupported,
 	}
