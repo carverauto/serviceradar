@@ -7,6 +7,14 @@ go_cross_binary) instead of a single Wasm module. Each bundle assembles
 zip + sha256 + metadata.json (with a per-arch artifacts[] list) that the signing
 and discovery-index tooling consumes, reusing the same signing key/infra as Wasm
 plugins.
+
+A bundle that sets "pushed_artifact_tarball": True additionally emits, per
+platform, a deterministic gzip tarball ({name}.{os}.{arch}.tar.gz) that flattens
+the binary (0755) plus the manifest/config and any "unit_entries" systemd units
+(0644) into single-segment members. That tarball is the pushed-artifact payload
+the agent fetches, verifies, and extracts under current/ (it auto-detects a gzip
+tarball vs. a bare binary); its name + sha256 are recorded per-arch in
+metadata.json alongside the bare-binary sha256.
 """
 
 load("@io_bazel_rules_go//go:def.bzl", "go_cross_binary")
@@ -19,6 +27,7 @@ def declare_native_addon_targets(addon_bundles):
     bundle_outputs = []
     metadata_outputs = []
     binary_outputs = []
+    tarball_outputs = []
 
     for bundle in addon_bundles:
         name = bundle["name"]
@@ -28,6 +37,12 @@ def declare_native_addon_targets(addon_bundles):
 
         srcs = []
         artifact_args = []
+        tarball_args = []
+        tarball_outs = []
+
+        # When set, also emit a per-arch pushed-artifact gzip tarball (binary +
+        # manifest/config + units) the agent fetches and extracts under current/.
+        produce_tarball = bundle.get("pushed_artifact_tarball", False)
 
         # "go" (default) cross-compiles a go_binary per arch; "rust" packages the
         # rules_rust rust_binary directly (no go_cross_binary analogue), reusing
@@ -54,9 +69,19 @@ def declare_native_addon_targets(addon_bundles):
             artifact_args.append(
                 "--artifact {}/{}={}=$(location {})".format(os, arch, archive_path, label),
             )
+            if produce_tarball:
+                tarball_out = "{}.{}.{}.tar.gz".format(name, os, arch)
+                tarball_outs.append(tarball_out)
+                tarball_args.append(
+                    "--tarball {}/{}=$(location {})".format(os, arch, tarball_out),
+                )
 
         entry_args = []
-        for (archive_path, label) in bundle["manifest_entries"]:
+
+        # manifest_entries (addon.yaml + config schema) plus optional unit_entries
+        # (systemd .service/.timer units) ship in the zip bundle and, for a
+        # pushed-artifact tarball, are extracted flat next to the binary.
+        for (archive_path, label) in bundle["manifest_entries"] + bundle.get("unit_entries", []):
             if label not in srcs:
                 srcs.append(label)
             entry_args.append("--entry {}=$(location {})".format(archive_path, label))
@@ -64,7 +89,7 @@ def declare_native_addon_targets(addon_bundles):
         native.genrule(
             name = name,
             srcs = srcs,
-            outs = [zip_out, sha_out, metadata_out],
+            outs = [zip_out, sha_out, metadata_out] + tarball_outs,
             cmd = " ".join([
                 "$(location :assemble_addon_bundle.py)",
                 "--bundle-out",
@@ -83,7 +108,7 @@ def declare_native_addon_targets(addon_bundles):
                 _BUNDLE_MEDIA_TYPE,
                 "--upload-signature-media-type",
                 _UPLOAD_SIGNATURE_MEDIA_TYPE,
-            ] + artifact_args + entry_args),
+            ] + artifact_args + entry_args + tarball_args),
             local = True,
             tags = [
                 "no-remote",
@@ -112,6 +137,14 @@ def declare_native_addon_targets(addon_bundles):
         bundle_outputs.append(":{}_zip".format(name))
         metadata_outputs.append(":{}_metadata".format(name))
 
+        if produce_tarball:
+            native.filegroup(
+                name = "{}_tarballs".format(name),
+                srcs = tarball_outs,
+                visibility = ["//visibility:public"],
+            )
+            tarball_outputs.append(":{}_tarballs".format(name))
+
     native.filegroup(
         name = "all_binaries",
         srcs = binary_outputs,
@@ -121,6 +154,12 @@ def declare_native_addon_targets(addon_bundles):
     native.filegroup(
         name = "all_bundles",
         srcs = bundle_outputs,
+        visibility = ["//visibility:public"],
+    )
+
+    native.filegroup(
+        name = "all_tarballs",
+        srcs = tarball_outputs,
         visibility = ["//visibility:public"],
     )
 
