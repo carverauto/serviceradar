@@ -1,0 +1,251 @@
+defmodule ServiceRadar.Plugins.NativeAddonImporter do
+  @moduledoc """
+  Verify-then-mirror importer for native add-on packages (issue 3425,
+  add-native-addon-build-signing §4).
+
+  Consumes the `serviceradar-native-addon-index.json` entry + the add-on's
+  `addon.yaml` manifest (already fetched and Cosign-verified by the web-ng OCI
+  fetch layer, mirroring the WASM `FirstPartyImporter`), then, per architecture:
+
+    1. checks the tarball sha256 against the index/metadata,
+    2. verifies the raw ed25519 signature over the tarball bytes against the agent
+       release public key — exactly the signature the agent verifies on fetch
+       (`verifyAddonArtifactSignature`), so a tarball the control plane accepts is
+       one the agent will accept,
+    3. mirrors the tarball into ServiceRadar object storage via the injected
+       `:mirror` function,
+
+  and records the resolved per-arch `{object_key, sha256, signature}` on a staged
+  `AddonPackage`. `AgentConfigGenerator.select_addon_artifact/3` reads that
+  `artifacts` map back out (keyed `"os/arch"`) when compiling the agent assignment.
+
+  The OCI fetch, Cosign verification, and object-storage upload are injected so the
+  pure verification + persistence logic is testable without a registry or DB.
+  """
+
+  alias ServiceRadar.Plugins.AddonPackage
+
+  @artifact_media_type "application/vnd.serviceradar.native-addon.artifact.v1+gzip"
+  @artifact_signature_media_type "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex"
+
+  @valid_kinds %{"native" => :native}
+  @valid_delivery %{
+    "compiled-in" => :compiled_in,
+    "pushed-artifact" => :pushed_artifact,
+    "os-package" => :os_package
+  }
+  @valid_supervision %{
+    "config-toggle" => :config_toggle,
+    "agent-sidecar" => :agent_sidecar,
+    "systemd-service" => :systemd_service,
+    "systemd-timer" => :systemd_timer,
+    "ephemeral-helper" => :ephemeral_helper
+  }
+
+  @doc "The OCI layer media types the per-arch artifact + its signature are carried under."
+  def artifact_media_type, do: @artifact_media_type
+  def artifact_signature_media_type, do: @artifact_signature_media_type
+
+  @typedoc """
+  A per-arch artifact ready to verify + mirror: the raw tarball bytes, the hex
+  ed25519 signature over those bytes, and the expected sha256 (hex). os/arch come
+  from the index entry.
+  """
+  @type fetched_artifact :: %{
+          required(:os) => String.t(),
+          required(:arch) => String.t(),
+          required(:tarball) => binary(),
+          required(:signature) => String.t(),
+          required(:sha256) => String.t()
+        }
+
+  @doc """
+  Import one native add-on into a staged `AddonPackage`.
+
+  `manifest` is the parsed `addon.yaml` map; `entry` is the index entry (for the
+  source OCI ref/digest + release tag); `artifacts` is the list of per-arch
+  `t:fetched_artifact/0` (already Cosign-verified at the bundle level by the caller).
+
+  Options:
+    * `:public_key` — the agent release ed25519 public key (raw 32 bytes). Required.
+    * `:mirror` — `(os, arch, tarball_bytes -> {:ok, object_key} | {:error, term})`. Required.
+    * `:actor` — the Ash actor creating the package (a `ServiceRadar.Actors.SystemActor`
+      for background callers; never `authorize?: false`). Required.
+    * `:config_schema` — the add-on config JSON Schema map (from the bundle). Default `%{}`.
+    * `:release_tag` — the source release tag. Default `nil`.
+    * `:now` — import timestamp. Default `DateTime.utc_now/0`.
+  """
+  @spec import_entry(map(), map(), [fetched_artifact()], keyword()) ::
+          {:ok, AddonPackage.t()} | {:error, term()}
+  def import_entry(manifest, entry, artifacts, opts)
+      when is_map(manifest) and is_map(entry) and is_list(artifacts) do
+    public_key = Keyword.fetch!(opts, :public_key)
+    mirror = Keyword.fetch!(opts, :mirror)
+    actor = Keyword.fetch!(opts, :actor)
+
+    with {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
+         {:ok, attrs} <- package_attrs(manifest, entry, mirrored, opts) do
+      AddonPackage
+      |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+      |> Ash.create()
+    end
+  end
+
+  @doc """
+  Verify each per-arch artifact (sha256 + ed25519 over the raw tarball) and mirror
+  it, returning the `artifacts` map keyed `"os/arch" => %{object_key, sha256,
+  signature}`. Fails closed on the first verification or mirror error.
+  """
+  @spec verify_and_mirror([fetched_artifact()], binary(), function()) ::
+          {:ok, %{String.t() => map()}} | {:error, term()}
+  def verify_and_mirror(artifacts, public_key, mirror) do
+    Enum.reduce_while(artifacts, {:ok, %{}}, fn artifact, {:ok, acc} ->
+      case verify_and_mirror_one(artifact, public_key, mirror) do
+        {:ok, {key, value}} -> {:cont, {:ok, Map.put(acc, key, value)}}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp verify_and_mirror_one(%{os: os, arch: arch} = artifact, public_key, mirror)
+       when is_binary(os) and is_binary(arch) and os != "" and arch != "" do
+    with :ok <- verify_sha256(artifact.tarball, artifact.sha256),
+         :ok <- verify_artifact_signature(artifact.tarball, artifact.signature, public_key),
+         {:ok, object_key} <- mirror.(os, arch, artifact.tarball) do
+      {:ok,
+       {"#{os}/#{arch}",
+        %{
+          "object_key" => object_key,
+          "sha256" => String.downcase(artifact.sha256),
+          "signature" => artifact.signature
+        }}}
+    end
+  end
+
+  defp verify_and_mirror_one(_artifact, _public_key, _mirror), do: {:error, :invalid_artifact}
+
+  @doc "sha256(tarball) must equal the expected hex digest (case-insensitive)."
+  @spec verify_sha256(binary(), String.t()) :: :ok | {:error, :sha256_mismatch}
+  def verify_sha256(data, expected) when is_binary(data) and is_binary(expected) do
+    actual = :sha256 |> :crypto.hash(data) |> Base.encode16(case: :lower)
+
+    # A content digest, not a secret; a plain compare is fine (ed25519 over the same
+    # bytes is the real integrity gate in verify_artifact_signature/3).
+    if actual == String.downcase(String.trim(expected)) do
+      :ok
+    else
+      {:error, :sha256_mismatch}
+    end
+  end
+
+  @doc """
+  Verify a raw ed25519 signature (hex or base64) over the tarball bytes against the
+  agent release public key — the agent's exact check.
+  """
+  @spec verify_artifact_signature(binary(), String.t(), binary()) ::
+          :ok | {:error, :invalid_signature | :malformed_signature}
+  def verify_artifact_signature(data, signature, public_key)
+      when is_binary(data) and is_binary(signature) and is_binary(public_key) do
+    case decode_key_or_signature(signature) do
+      {:ok, sig} when byte_size(sig) == 64 ->
+        if :crypto.verify(:eddsa, :none, data, sig, [public_key, :ed25519]) do
+          :ok
+        else
+          {:error, :invalid_signature}
+        end
+
+      _ ->
+        {:error, :malformed_signature}
+    end
+  end
+
+  @doc """
+  Decode a key or signature accepting the same encodings the agent accepts: hex
+  first, then standard/url base64 (padded or raw).
+  """
+  @spec decode_key_or_signature(String.t()) :: {:ok, binary()} | :error
+  def decode_key_or_signature(value) when is_binary(value) do
+    clean = String.trim(value)
+
+    with :error <- decode_hex(clean),
+         :error <- Base.decode64(clean),
+         :error <- Base.decode64(clean, padding: false),
+         :error <- Base.url_decode64(clean),
+         :error <- Base.url_decode64(clean, padding: false) do
+      :error
+    else
+      {:ok, _bytes} = ok -> ok
+      bytes when is_binary(bytes) -> {:ok, bytes}
+    end
+  end
+
+  defp decode_hex(value) do
+    case Base.decode16(value, case: :mixed) do
+      {:ok, bytes} -> {:ok, bytes}
+      :error -> :error
+    end
+  end
+
+  @doc """
+  Build the `AddonPackage` create attrs from the manifest, index entry, and the
+  per-arch artifacts map. Pure; the kind/delivery/supervision strings are mapped to
+  the resource's atoms (unknown values fail closed).
+  """
+  @spec package_attrs(map(), map(), %{String.t() => map()}, keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def package_attrs(manifest, entry, artifacts, opts \\ []) do
+    requires = Map.get(manifest, "requires", %{})
+    exec = Map.get(manifest, "exec", %{})
+    now = Keyword.get(opts, :now) || DateTime.utc_now()
+
+    with {:ok, kind} <- map_enum(@valid_kinds, Map.get(manifest, "kind"), :kind),
+         {:ok, delivery} <- map_enum(@valid_delivery, Map.get(manifest, "delivery"), :delivery),
+         {:ok, supervision} <-
+           map_enum(@valid_supervision, Map.get(manifest, "supervision"), :supervision) do
+      {:ok,
+       %{
+         addon_id: string_value(manifest, "id") || string_value(entry, "addon_id"),
+         version: string_value(manifest, "version") || string_value(entry, "version"),
+         name: string_value(manifest, "name"),
+         description: string_value(manifest, "description"),
+         kind: kind,
+         delivery: delivery,
+         supervision: supervision,
+         binary: string_value(exec, "binary"),
+         install_path: string_value(exec, "install_path") || "/usr/local/lib/serviceradar/bin",
+         capabilities: List.wrap(Map.get(manifest, "capabilities", [])),
+         config_schema: Keyword.get(opts, :config_schema, %{}),
+         artifacts: artifacts,
+         requires: requires,
+         source_type: :first_party,
+         source_oci_ref: string_value(entry, "oci_ref"),
+         source_oci_digest: string_value(entry, "oci_digest"),
+         source_release_tag: Keyword.get(opts, :release_tag),
+         imported_at: DateTime.truncate(now, :second),
+         verification_status: "verified"
+       }}
+    end
+  end
+
+  defp map_enum(table, value, field) do
+    key = value |> to_string() |> String.trim()
+
+    case Map.get(table, key) do
+      nil -> {:error, {:invalid_enum, field, value}}
+      mapped -> {:ok, mapped}
+    end
+  end
+
+  defp string_value(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      _ ->
+        nil
+    end
+  end
+end
