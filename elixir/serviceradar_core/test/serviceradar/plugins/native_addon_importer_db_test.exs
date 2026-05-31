@@ -7,10 +7,10 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
   """
   use ExUnit.Case, async: false
 
-  @moduletag :integration
-
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Importer
+
+  @moduletag :integration
 
   setup_all do
     ServiceRadar.TestSupport.start_core!()
@@ -39,7 +39,10 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
         "platforms" => ["linux"],
         "os_capabilities" => ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
       },
-      "exec" => %{"binary" => "serviceradar-netprobe", "install_path" => "/usr/local/lib/serviceradar/bin"}
+      "exec" => %{
+        "binary" => "serviceradar-netprobe",
+        "install_path" => "/usr/local/lib/serviceradar/bin"
+      }
     }
   end
 
@@ -57,7 +60,14 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     artifacts =
       for arch <- ["amd64", "arm64"] do
         tarball = "tarball-#{arch}-#{uid}"
-        %{os: "linux", arch: arch, tarball: tarball, sha256: sha(tarball), signature: Base.encode16(sign(priv, tarball), case: :lower)}
+
+        %{
+          os: "linux",
+          arch: arch,
+          tarball: tarball,
+          sha256: sha(tarball),
+          signature: Base.encode16(sign(priv, tarball), case: :lower)
+        }
       end
 
     mirror = fn os, arch, _bytes -> {:ok, "native-addons/#{addon_id}/0.1.0/#{os}-#{arch}/obj"} end
@@ -94,7 +104,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
     addon_id = "netprobe-bad-#{uid}"
     bad = Base.encode16(sign(priv, "something-else"), case: :lower)
 
-    artifacts = [%{os: "linux", arch: "amd64", tarball: "real", sha256: sha("real"), signature: bad}]
+    artifacts = [
+      %{os: "linux", arch: "amd64", tarball: "real", sha256: sha("real"), signature: bad}
+    ]
 
     assert {:error, :invalid_signature} =
              Importer.import_entry(manifest(addon_id, uid), %{"addon_id" => addon_id}, artifacts,
