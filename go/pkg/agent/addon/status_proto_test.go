@@ -32,7 +32,7 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 			LastHealthAt: time.Unix(1_700_000_000, 0).UTC(),
 		},
 		{
-			ID:                "fingerprintd",
+			ID:                "netprobe",
 			State:             StateUnhealthy,
 			DegradationReason: "CAP_BPF not granted",
 		},
