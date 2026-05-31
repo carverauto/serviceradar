@@ -1,7 +1,28 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
 load(":addon_inventory.bzl", "ADDON_BUNDLES")
 load(":defs.bzl", "declare_native_addon_targets")
 
+package(default_visibility = ["//visibility:public"])
+
 exports_files(["assemble_addon_bundle.py"])
+
+# Signs/verifies a native add-on pushed-artifact (per-arch tarball or bare binary)
+# with the agent release ed25519 key, producing exactly the raw signature the agent
+# verifies (verifyAddonArtifactSignature). Stdlib-only; no external deps.
+go_binary(
+    name = "addon_artifact_signature_tool",
+    srcs = ["addon_artifact_signature_tool.go"],
+    importpath = "github.com/carverauto/serviceradar/build/native_addons/addon_artifact_signature_tool",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "addon_artifact_signature_tool_test",
+    srcs = [
+        "addon_artifact_signature_tool.go",
+        "addon_artifact_signature_tool_test.go",
+    ],
+)
 
 # Builds per-arch native add-on bundles (zip + sha256 + metadata.json) for every
 # add-on declared in addon_inventory.bzl. Signing (Cosign + ed25519
