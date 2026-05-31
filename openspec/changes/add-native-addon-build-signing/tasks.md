@@ -58,8 +58,26 @@
 ## 4. Control-plane importer
 - [ ] 4.1 Reuse the WASM verify-then-mirror importer (trusted-host allowlist, bounded
   fetch, digest + Cosign + upload-signature) for the native-addon index. (§4.4)
+  — Partial. The verify-then-persist **core** landed: `ServiceRadar.Plugins.NativeAddonImporter`
+  (serviceradar_core) verifies each per-arch tarball's sha256 + the raw ed25519
+  signature against the agent release key (the agent's exact `verifyAddonArtifactSignature`
+  check, hex/base64 decode parity), maps the `addon.yaml` manifest + index entry to
+  `AddonPackage` create attrs (kind/delivery/supervision atoms, fail-closed on unknown
+  enums), and creates a **staged** package via an injected `SystemActor` (no
+  `authorize?: false`). Unit-tested (verify/tamper/wrong-key/malformed, sha256, decode,
+  per-arch map, attrs mapping; `mix test` green, `--warnings-as-errors` + `credo --strict`
+  clean). Remaining: the web-ng OCI-fetch orchestration — fetch the native-addon index
+  from the trusted release, bounded-fetch the bundle, Cosign-verify the OCI digest (reuse
+  `CosignVerifier`), parse the bundle's `addon.yaml` + `config.schema.json`, assemble the
+  per-arch fetched artifacts, and call `NativeAddonImporter.import_entry/4`.
 - [ ] 4.2 Mirror per-arch artifacts into ServiceRadar object storage and record the
   resolved object keys / digests / signature refs on the `AddonPackage`.
+  — Partial. The importer records the resolved per-arch `{object_key, sha256, signature}`
+  on `AddonPackage.artifacts` (keyed `"os/arch"`, the shape `AgentConfigGenerator`
+  already reads). The object-storage upload itself is an injected `:mirror` function;
+  remaining: the default impl mirroring each tarball via `ServiceRadar.Sync.Client.upload_object`
+  (object key `native-addons/<addon_id>/<version>/<os>-<arch>/<sha256>-<file>`), mirroring
+  the `ReleaseArtifactMirror` pattern.
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-build-signing --strict` passes.
