@@ -130,7 +130,7 @@
   UDS, AutoMTLS, health, config decode from the typed assignment, result submission
   via host services).
 - [ ] 6b.2 Rust handshake + gRPC-contract helper/crate (or documented contract) so
-  Rust add-ons (e.g. `fingerprintd`) interoperate with the agent's go-plugin client.
+  Rust add-ons (e.g. `netprobe`) interoperate with the agent's go-plugin client.
   — Status: not started → `add-native-addon-rust-sdk` §1.
 - [ ] 6b.3 Reference add-on (one Go, one Rust) proving the SDK + contract end to end.
   — Status: partial — the Go reference add-on exists (`go/cmd/serviceradar-sample-addon`);
@@ -166,11 +166,13 @@
 
 ## 9. Reference-consumer validation (contract proof, not migration)
 - [ ] 9.1 Author an `addon.yaml` for each reference consumer (remote-access =
-  compiled-in/config-toggle; Bumblebee = os-package/systemd-timer; fingerprintd =
+  compiled-in/config-toggle; Bumblebee = os-package/systemd-timer; rust-sample =
   pushed-artifact/agent-sidecar) and confirm the contract expresses each without
   gaps.
   — Status: partial — `addons/sample-addon` proves the contract; the remote-access /
-  Bumblebee / fingerprintd manifests are pending (fingerprintd → `add-native-addon-rust-sdk` §3).
+  Bumblebee / rust-sample manifests are pending (rust-sample → `add-native-addon-rust-sdk` §3).
+  The real host-visibility consumer is `netprobe` (`systemd-service`, capability-granted),
+  migrated by `migrate-netprobe-to-native-addon`.
 
 ## 10. Validation & docs
 - [x] 10.1 `openspec validate add-agent-feature-sets --strict` passes.

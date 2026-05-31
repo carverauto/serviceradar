@@ -76,7 +76,7 @@ privileged or polyglot components). Two further inputs shaped the design:
   needs, and config schema. The unit an author publishes.
 - **Feature set**: the unit an operator selects and assigns. A feature set is either
   a single add-on or a curated, named bundle of add-ons (e.g. a "Security" set =
-  Bumblebee + fingerprintd). Bundles are a thin grouping over add-ons; the add-on is
+  Bumblebee + netprobe). Bundles are a thin grouping over add-ons; the add-on is
   the primitive.
 - **Assignment**: a persisted decision that a feature set (with config) applies to a
   target (a specific agent, or a cohort of agents).
@@ -86,10 +86,14 @@ Mirrors `plugin.yaml`; the author also ships a `config.schema.json` (JSON Schema
 reused verbatim by `PluginConfigForm` to render the config UI).
 
 ```yaml
-id: fingerprintd                   # stable kebab-case identifier
-name: OS Fingerprinting
+id: netprobe                       # stable kebab-case identifier
+name: Host Network Visibility
 version: 0.1.0                     # semver, independent of the agent version
-description: Passive p0f/JA4 host fingerprinting sidecar.
+description: Passive p0f/JA4 host fingerprinting + DPI sidecar.
+# NOTE: illustrative — shown as agent-sidecar to exercise the `plugin:` block. The
+# real netprobe migration uses supervision: systemd-service (capability-granted via
+# setcap), since it needs CAP_BPF/CAP_PERFMON and speaks a bespoke IPC, not the add-on
+# gRPC contract; see migrate-netprobe-to-native-addon.
 kind: native                       # discriminator vs. wasm
 delivery: pushed-artifact          # compiled-in | pushed-artifact | os-package
 supervision: agent-sidecar         # config-toggle | agent-sidecar (go-plugin) |
@@ -110,10 +114,10 @@ artifacts:                         # required for pushed-artifact / os-package d
   - { os: linux, arch: amd64, object_key: "...", sha256: "...", signature_ref: "..." }
   - { os: linux, arch: arm64, object_key: "...", sha256: "...", signature_ref: "..." }
 exec:
-  binary: serviceradar-fingerprintd
+  binary: serviceradar-netprobe
   install_path: /usr/local/lib/serviceradar/bin
 state_dirs:
-  - { path: /var/lib/serviceradar/fingerprintd, owner: serviceradar, mode: "0750" }
+  - { path: /var/lib/serviceradar/netprobe, owner: serviceradar, mode: "0750" }
 config_schema: config.schema.json
 ```
 
@@ -172,8 +176,8 @@ The `agent-sidecar` model is implemented with `github.com/hashicorp/go-plugin`:
   authenticated channel without minting a SPIFFE identity for each add-on.
 - **Polyglot.** gRPC plugins can be written in any language that implements the
   go-plugin handshake and serves the gRPC contract. Go add-ons use go-plugin's server
-  helper directly; **Rust add-ons** (e.g. `fingerprintd`) implement the go-plugin
-  handshake line and serve the same gRPC service on the Unix socket. The agent never
+  helper directly; **Rust add-ons** (e.g. the `rust-sample` reference) implement the
+  go-plugin handshake line and serve the same gRPC service on the Unix socket. The agent never
   cares which language a plugin is written in.
 - **Bidirectional services.** go-plugin's broker lets a plugin call back into the
   agent (host services), giving native add-ons the same "host capability" ergonomics
@@ -213,9 +217,11 @@ First-class because ServiceRadar agents run on edge/size-sensitive hosts:
   compiled-in.
 - **Bumblebee** → `delivery: os-package` (or `pushed-artifact`),
   `supervision: systemd-timer`. Validates the timer/spool model.
-- **fingerprintd / netprobe** → `delivery: pushed-artifact`,
-  `supervision: agent-sidecar` (go-plugin gRPC, Rust plugin). Validates the
-  out-of-process plugin model.
+- **rust-sample** → `delivery: pushed-artifact`, `supervision: agent-sidecar`
+  (go-plugin gRPC, Rust plugin). Validates the out-of-process plugin model.
+- **netprobe** → `delivery: pushed-artifact`, `supervision: systemd-service`
+  (capability-granted via `setcap`; bespoke IPC, not the add-on gRPC contract).
+  The real host-visibility migration; see `migrate-netprobe-to-native-addon`.
 
 ## Signing & discovery (reuse the WASM rails)
 - Build emits, per add-on, a deterministic bundle per `(os, arch)` plus a
@@ -275,7 +281,7 @@ First-class because ServiceRadar agents run on edge/size-sensitive hosts:
 ## Capability gating & reconciliation
 - The agent advertises, per add-on, an installed/available/active/unhealthy state
   with a degradation reason (extending the existing `agent_capabilities`
-  StatusResponse and `SidecarStatus`). For example, fingerprintd reports
+  StatusResponse and `SidecarStatus`). For example, netprobe reports
   `unavailable` when CAP_BPF cannot be acquired.
 - `AgentConfigResponse` only includes an add-on's config section when the feature set
   is enabled for that agent **and** the agent advertises (or, for `pushed-artifact`,
@@ -331,8 +337,8 @@ A first-party SDK lowers the authoring bar, parallel to the WASM `serviceradar-s
   submission via host services) so a Go add-on is a manifest plus a service
   implementation.
 - **Rust helper** — a documented handshake + gRPC-contract crate (or guidance) so
-  Rust add-ons like `fingerprintd` interoperate with the agent's go-plugin client
-  identically.
+  Rust add-ons like the `rust-sample` reference interoperate with the agent's go-plugin
+  client identically.
 
 ## Rejected alternatives
 - **Go stdlib `plugin` (`-buildmode=plugin` / `.so`).** Rejected: importing it
