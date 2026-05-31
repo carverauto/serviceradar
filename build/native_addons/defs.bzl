@@ -64,7 +64,12 @@ def declare_native_addon_targets(addon_bundles):
 
             if label not in srcs:
                 srcs.append(label)
-            binary_outputs.append(label)
+
+            # rust bundles reuse one binary label across every declared platform, so
+            # dedup before aggregating into the `all_binaries` filegroup (a duplicate
+            # label in filegroup srcs is a hard package-load error).
+            if label not in binary_outputs:
+                binary_outputs.append(label)
             archive_path = "bin/{}/{}/{}".format(os, arch, bundle["binary_name"])
             artifact_args.append(
                 "--artifact {}/{}={}=$(location {})".format(os, arch, archive_path, label),

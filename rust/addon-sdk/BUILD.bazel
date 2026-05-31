@@ -64,10 +64,11 @@ rust_test(
     srcs = ["tests/handshake_mtls.rs"],
     crate_root = "tests/handshake_mtls.rs",
     edition = "2021",
+    # rcgen is already in ADDON_SDK_DEPS; adding it again duplicates the dep label
+    # and puts the package in error. Only test-only crates belong here.
     deps = ADDON_SDK_DEPS + [":addon_sdk"] + crate_deps([
         "tempfile",
         "tower",
         "hyper-util",
-        "rcgen",
     ]),
 )
