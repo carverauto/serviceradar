@@ -70,14 +70,18 @@
   from the trusted release, bounded-fetch the bundle, Cosign-verify the OCI digest (reuse
   `CosignVerifier`), parse the bundle's `addon.yaml` + `config.schema.json`, assemble the
   per-arch fetched artifacts, and call `NativeAddonImporter.import_entry/4`.
-- [ ] 4.2 Mirror per-arch artifacts into ServiceRadar object storage and record the
+- [x] 4.2 Mirror per-arch artifacts into ServiceRadar object storage and record the
   resolved object keys / digests / signature refs on the `AddonPackage`.
-  — Partial. The importer records the resolved per-arch `{object_key, sha256, signature}`
-  on `AddonPackage.artifacts` (keyed `"os/arch"`, the shape `AgentConfigGenerator`
-  already reads). The object-storage upload itself is an injected `:mirror` function;
-  remaining: the default impl mirroring each tarball via `ServiceRadar.Sync.Client.upload_object`
-  (object key `native-addons/<addon_id>/<version>/<os>-<arch>/<sha256>-<file>`), mirroring
-  the `ReleaseArtifactMirror` pattern.
+  — Done. `ServiceRadar.Plugins.NativeAddonArtifactMirror.mirror_fun/3` returns the
+  `(os, arch, bytes -> {:ok, object_key})` callback `NativeAddonImporter.import_entry/4`
+  takes: it uploads each verified tarball to the datasvc object store via
+  `ServiceRadar.Sync.Client.upload_object` (the `ReleaseArtifactMirror` channel pattern)
+  under a deterministic, traversal-safe key
+  `native-addons/<addon_id>/<version>/<os>/<arch>/<sha256>.tar.gz`, and the importer
+  records the resolved `{object_key, sha256, signature}` on `AddonPackage.artifacts`
+  (keyed `"os/arch"`, the shape `AgentConfigGenerator` already reads). The upload fn is
+  injectable; unit-tested (key/sha256/size/attributes, error propagation, segment
+  sanitization). `mix test` + `--warnings-as-errors` + `credo --strict` clean.
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-build-signing --strict` passes.
