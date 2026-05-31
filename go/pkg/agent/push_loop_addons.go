@@ -190,6 +190,18 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		return
 	}
 
+	// Serialize the whole reconcile: applyAddonAssignments is invoked from the
+	// independent config-poll, control-stream, and enroll goroutines, and the systemd
+	// install/track/uninstall sequence mutates shared state that must reconcile
+	// atomically (the sidecar path is already atomic inside manager.Apply).
+	p.addonReconcileMu.Lock()
+	defer p.addonReconcileMu.Unlock()
+
+	// Rehydrate systemd add-on tracking from the staging root once per process, so a
+	// restart can still uninstall the units of an add-on that is later disabled/removed
+	// (the in-memory map is otherwise empty after a restart).
+	p.systemdRehydrateOnce.Do(p.rehydrateSystemdAddons)
+
 	// Merge an operator-managed local override (break-glass / dev) over the pushed
 	// assignments before reconciling. A malformed file is ignored so a bad local edit
 	// cannot break pushed delivery. Skip when no config dir is known (avoid reading a
@@ -384,12 +396,55 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		return
 	}
 
+	// If an update renamed or dropped unit files, uninstall the previously-installed
+	// units the new bundle no longer ships so they do not leak on the host.
+	if stale := stringsNotIn(p.systemdAddonUnits(a.GetAddonId()), units); len(stale) > 0 {
+		if err := uninstallAddonSystemdUnitsViaUpdater(ctx, stale); err != nil {
+			p.logger.Warn().
+				Err(err).
+				Str("addon", a.GetAddonId()).
+				Strs("units", stale).
+				Msg("Failed to remove stale systemd units after add-on update")
+		}
+	}
+
 	p.rememberSystemdAddon(a.GetAddonId(), units)
 	p.logger.Info().
 		Str("addon", a.GetAddonId()).
 		Str("enable", enable).
 		Int("units", len(units)).
 		Msg("Installed systemd add-on")
+}
+
+// systemdAddonUnits returns the unit names currently tracked as installed for an add-on.
+func (p *PushLoop) systemdAddonUnits(id string) []string {
+	p.systemdAddonsMu.Lock()
+	defer p.systemdAddonsMu.Unlock()
+
+	return p.installedSystemdAddons[id]
+}
+
+// rehydrateSystemdAddons repopulates the in-memory installed-systemd-units tracking from
+// the on-disk staging root (each add-on's current/ dir), so after an agent restart the
+// reconciler still knows which add-ons own systemd units and can uninstall them when an
+// assignment is later disabled or removed.
+func (p *PushLoop) rehydrateSystemdAddons() {
+	discovered := discoverInstalledSystemdAddons(resolveAddonArtifactRoot(""))
+	if len(discovered) == 0 {
+		return // no staging root / no systemd add-ons to rehydrate
+	}
+
+	p.systemdAddonsMu.Lock()
+	defer p.systemdAddonsMu.Unlock()
+
+	if p.installedSystemdAddons == nil {
+		p.installedSystemdAddons = make(map[string][]string)
+	}
+	for id, units := range discovered {
+		if _, exists := p.installedSystemdAddons[id]; !exists {
+			p.installedSystemdAddons[id] = units
+		}
+	}
 }
 
 // rememberSystemdAddon records the units installed for a systemd-supervised add-on so

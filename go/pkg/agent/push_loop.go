@@ -120,7 +120,10 @@ type PushLoop struct {
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
 
+	addonReconcileMu sync.Mutex // serializes applyAddonAssignments across the poll/control-stream/enroll goroutines
+
 	systemdAddonsMu        sync.Mutex
+	systemdRehydrateOnce   sync.Once
 	installedSystemdAddons map[string][]string // systemd-supervised addon id -> installed unit names
 
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started

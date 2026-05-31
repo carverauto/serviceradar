@@ -211,3 +211,57 @@ func TestSystemdAddonsToRemove(t *testing.T) {
 		t.Fatalf("expected all 3 removed when none desired, got %v", got)
 	}
 }
+
+func TestStringsNotIn(t *testing.T) {
+	if got := stringsNotIn([]string{"a", "b", "c"}, []string{"b", "c"}); !reflect.DeepEqual(got, []string{"a"}) {
+		t.Fatalf("stringsNotIn = %v, want [a]", got)
+	}
+	if got := stringsNotIn([]string{"x"}, []string{"x", "y"}); got != nil {
+		t.Fatalf("expected nil when all present, got %v", got)
+	}
+	if got := stringsNotIn(nil, []string{"a"}); got != nil {
+		t.Fatalf("expected nil for empty input, got %v", got)
+	}
+}
+
+// stageTestAddonFiles stages arbitrary files under <addonsRoot>/<id>/versions/1.0.0 and
+// points the add-on's current symlink at them.
+func stageTestAddonFiles(t *testing.T, addonsRoot, id string, files map[string]string) {
+	t.Helper()
+	vdir := filepath.Join(addonsRoot, id, addonVersionsDir, "1.0.0")
+	if err := os.MkdirAll(vdir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	for name, content := range files {
+		if err := os.WriteFile(filepath.Join(vdir, name), []byte(content), 0o644); err != nil {
+			t.Fatalf("write %s: %v", name, err)
+		}
+	}
+	current := filepath.Join(addonsRoot, id, addonCurrentLink)
+	_ = os.Remove(current)
+	if err := os.Symlink(filepath.Join(addonVersionsDir, "1.0.0"), current); err != nil {
+		t.Fatalf("symlink current: %v", err)
+	}
+}
+
+func TestDiscoverInstalledSystemdAddons(t *testing.T) {
+	root := filepath.Join(t.TempDir(), addonsDirName)
+	stageTestAddonFiles(t, root, "np", map[string]string{
+		"serviceradar-np.service": "[Service]\n",
+		"serviceradar-np.timer":   "[Timer]\n",
+	})
+	// A sidecar-style add-on with no unit files must be excluded.
+	stageTestAddonFiles(t, root, "sidecaronly", map[string]string{
+		"serviceradar-sidecaronly-addon": "bin",
+	})
+
+	got := discoverInstalledSystemdAddons(root)
+	want := map[string][]string{"np": {"serviceradar-np.service", "serviceradar-np.timer"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("discoverInstalledSystemdAddons = %v, want %v", got, want)
+	}
+
+	if got := discoverInstalledSystemdAddons(filepath.Join(t.TempDir(), "absent")); got != nil {
+		t.Fatalf("expected nil for missing root, got %v", got)
+	}
+}

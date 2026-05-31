@@ -175,25 +175,36 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 		resolved = append(resolved, stagedUnit{name: name, src: src})
 	}
 
-	installed := make([]string, 0, len(resolved))
+	// Track only the unit files this install NEWLY creates. On failure we remove only
+	// those, never a pre-existing unit file (e.g. a re-deploy over an already-running
+	// add-on), so a failed re-install cannot tear down the running add-on's units.
+	created := make([]string, 0, len(resolved))
 	cleanup := func() {
-		for _, name := range installed {
+		for _, name := range created {
 			_ = os.Remove(filepath.Join(systemdUnitDir, name))
 		}
 		_ = runSystemctl(ctx, "daemon-reload")
 	}
 
 	for _, u := range resolved {
+		dest := filepath.Join(systemdUnitDir, u.name)
+		preExisted := false
+		if _, statErr := os.Stat(dest); statErr == nil {
+			preExisted = true
+		}
+
 		data, err := os.ReadFile(u.src) //nolint:gosec // src is resolved under the controlled add-on staging root.
 		if err != nil {
 			cleanup()
 			return fmt.Errorf("read staged unit %s: %w", u.name, err)
 		}
-		if err := os.WriteFile(filepath.Join(systemdUnitDir, u.name), data, systemdUnitFileMode); err != nil {
+		if err := os.WriteFile(dest, data, systemdUnitFileMode); err != nil {
 			cleanup()
 			return fmt.Errorf("install unit %s: %w", u.name, err)
 		}
-		installed = append(installed, u.name)
+		if !preExisted {
+			created = append(created, u.name)
+		}
 	}
 
 	if err := runSystemctl(ctx, "daemon-reload"); err != nil {
@@ -268,6 +279,12 @@ func discoverStagedAddonUnits(runtimeRoot, addonID string) ([]string, error) {
 		return nil, fmt.Errorf("read staged addon dir: %w", err)
 	}
 
+	return filterSystemdUnitEntries(entries), nil
+}
+
+// filterSystemdUnitEntries returns the validated .service/.timer file names from a dir
+// listing, sorted for determinism.
+func filterSystemdUnitEntries(entries []os.DirEntry) []string {
 	var units []string
 	for _, e := range entries {
 		if e.IsDir() {
@@ -281,7 +298,45 @@ func discoverStagedAddonUnits(runtimeRoot, addonID string) ([]string, error) {
 
 	sort.Strings(units)
 
-	return units, nil
+	return units
+}
+
+// listStagedSystemdUnits is the best-effort variant of discoverStagedAddonUnits for a
+// resolved directory (a missing/unreadable dir yields no units), used by rehydration.
+func listStagedSystemdUnits(dir string) []string {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	return filterSystemdUnitEntries(entries)
+}
+
+// discoverInstalledSystemdAddons scans the add-on staging root and returns, for each
+// add-on whose current/ dir ships systemd units, its id -> unit names. Used to rehydrate
+// the agent's installed-unit tracking after a restart so a later disable/unassign can
+// still uninstall the units. agent-sidecar add-ons ship no units and are skipped.
+func discoverInstalledSystemdAddons(addonsRoot string) map[string][]string {
+	entries, err := os.ReadDir(addonsRoot)
+	if err != nil {
+		return nil
+	}
+
+	var out map[string][]string
+	for _, e := range entries {
+		if !e.IsDir() || !safeAddonSegment(e.Name()) {
+			continue
+		}
+		units := listStagedSystemdUnits(filepath.Join(addonsRoot, e.Name(), addonCurrentLink))
+		if len(units) > 0 {
+			if out == nil {
+				out = make(map[string][]string)
+			}
+			out[e.Name()] = units
+		}
+	}
+
+	return out
 }
 
 // pickPrimarySystemdUnit selects the unit to `enable --now` for a supervision model: the
@@ -360,6 +415,25 @@ func uninstallAddonSystemdUnitsViaUpdater(ctx context.Context, units []string) e
 	}
 
 	return nil
+}
+
+// stringsNotIn returns the elements of a that are not present in b.
+func stringsNotIn(a, b []string) []string {
+	if len(a) == 0 {
+		return nil
+	}
+	set := make(map[string]bool, len(b))
+	for _, s := range b {
+		set[s] = true
+	}
+	var out []string
+	for _, s := range a {
+		if !set[s] {
+			out = append(out, s)
+		}
+	}
+
+	return out
 }
 
 // systemdAddonsToRemove returns the installed systemd add-ons (id -> unit names) that are
