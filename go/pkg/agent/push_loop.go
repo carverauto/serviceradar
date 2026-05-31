@@ -25,6 +25,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -2411,6 +2412,10 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			p.server.mu.RUnlock()
 
 			root := resolveAddonArtifactRoot("")
+			addonDir := filepath.Join(root, a.GetAddonId())
+			// Capture the currently-active version before staging so a failed
+			// capability application can roll `current` back to it.
+			priorTarget, _ := readAddonCurrentTarget(addonDir)
 
 			resolved, err := stageAddonArtifact(ctx, store, root, a)
 			if err != nil {
@@ -2445,6 +2450,41 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 				p.logger.Warn().
 					Str("addon", a.GetAddonId()).
 					Msg("Pushed-artifact add-on activated without a signature (artifact signing pending build pipeline)")
+			}
+
+			// Apply the manifest's declared Linux file capabilities to the freshly
+			// staged binary via the root-owned agent-updater (the non-root agent never
+			// applies them itself). On failure, roll `current` back to the prior version
+			// so we never launch a new binary without its required capabilities, and
+			// fall back to the last-known-good assignment.
+			if caps := a.GetOsCapabilities(); len(caps) > 0 {
+				if capErr := applyStagedAddonCapabilitiesViaUpdater(ctx, a.GetAddonId(), addonBinaryName(a), caps); capErr != nil {
+					if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+						p.logger.Error().
+							Err(rbErr).
+							Str("addon", a.GetAddonId()).
+							Msg("Failed to roll back add-on after capability application failure")
+					}
+
+					cached, hit := p.lastGoodAddonSpec(a.GetAddonId())
+					if !hit {
+						p.logger.Warn().
+							Err(capErr).
+							Str("addon", a.GetAddonId()).
+							Msg("Failed to apply add-on capabilities and no last-known-good assignment; not applied")
+
+						continue
+					}
+
+					p.logger.Warn().
+						Err(capErr).
+						Str("addon", a.GetAddonId()).
+						Msg("Add-on capability application failed; rolled back and kept last-known-good assignment")
+
+					specs = append(specs, cached)
+
+					continue
+				}
 			}
 
 			binaryPath = resolved
