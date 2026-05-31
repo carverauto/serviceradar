@@ -1514,9 +1514,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     end)
   end
 
-  defp valid_counter_value?(value, :non_neg_integer)
-       when is_integer(value) and value >= 0,
-       do: true
+  defp valid_counter_value?(value, :non_neg_integer) when is_integer(value) and value >= 0,
+    do: true
 
   defp valid_counter_value?(_value, _type), do: false
 

@@ -38,12 +38,6 @@ defmodule ServiceRadar.Plugins.AddonStatus do
     schema "platform"
   end
 
-  policies do
-    import ServiceRadar.Plugins.Policies
-
-    manage_action_types()
-  end
-
   actions do
     defaults [:read, :destroy]
 
@@ -63,6 +57,12 @@ defmodule ServiceRadar.Plugins.AddonStatus do
     end
   end
 
+  policies do
+    import ServiceRadar.Plugins.Policies
+
+    manage_action_types()
+  end
+
   attributes do
     uuid_primary_key :id
 
@@ -79,6 +79,7 @@ defmodule ServiceRadar.Plugins.AddonStatus do
     attribute :state, :string do
       allow_nil? false
       public? true
+
       description "Raw lifecycle state reported by the agent (running/unhealthy/circuit_open/stopped/...)."
     end
 

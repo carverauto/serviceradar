@@ -54,16 +54,25 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoinerTest do
     test "host_slice arrives first, then attribution -> publish on self partition" do
       flow = ipv4_flow(proto: 6, src: "10.0.0.1", sport: 5000, dst: "10.0.0.2", dport: 80)
       host_msg = host_slice_msg(flow, agent_id: "agent-a")
-      event = attribution_event(local: {"10.0.0.1", 5000}, remote: {"10.0.0.2", 80}, transport: "TCP")
+
+      event =
+        attribution_event(local: {"10.0.0.1", 5000}, remote: {"10.0.0.2", 80}, transport: "TCP")
 
       assert :ok = AttributedFlowJoiner.put_host_slice(host_msg, "agent-a")
-      assert {:published, 1} = AttributedFlowJoiner.put_attribution(event, "victim-partition", agent_id: "agent-a")
+
+      assert {:published, 1} =
+               AttributedFlowJoiner.put_attribution(event, "victim-partition",
+                 agent_id: "agent-a"
+               )
 
       assert_receive {:published, subject, payload}
       assert subject == "flow.attributed." <> @self_partition
 
       decoded = AttributedFlowMessage.decode(payload)
-      assert %AttributedFlowMessage{event_type: "attributed_flow", partition: @self_partition} = decoded
+
+      assert %AttributedFlowMessage{event_type: "attributed_flow", partition: @self_partition} =
+               decoded
+
       assert decoded.attribution.pid == event.pid
       assert decoded.attribution.comm == event.comm
       assert decoded.attribution.container_id == event.container_id
@@ -73,9 +82,13 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoinerTest do
     test "attribution arrives first, then host_slice -> publish on self partition" do
       flow = ipv4_flow(proto: 6, src: "10.0.0.1", sport: 5000, dst: "10.0.0.2", dport: 80)
       host_msg = host_slice_msg(flow, agent_id: "agent-a")
-      event = attribution_event(local: {"10.0.0.2", 80}, remote: {"10.0.0.1", 5000}, transport: "TCP")
 
-      assert :ok = AttributedFlowJoiner.put_attribution(event, @self_partition, agent_id: "agent-a")
+      event =
+        attribution_event(local: {"10.0.0.2", 80}, remote: {"10.0.0.1", 5000}, transport: "TCP")
+
+      assert :ok =
+               AttributedFlowJoiner.put_attribution(event, @self_partition, agent_id: "agent-a")
+
       assert {:published, 1} = AttributedFlowJoiner.put_host_slice(host_msg, "agent-a")
 
       assert_receive {:published, subject, _payload}
@@ -88,7 +101,8 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoinerTest do
       host_msg = host_slice_msg(flow, agent_id: "agent-a")
 
       # Attribution swaps local/remote (reply direction)
-      event = attribution_event(local: {"10.0.0.2", 80}, remote: {"10.0.0.1", 5000}, transport: "TCP")
+      event =
+        attribution_event(local: {"10.0.0.2", 80}, remote: {"10.0.0.1", 5000}, transport: "TCP")
 
       AttributedFlowJoiner.put_host_slice(host_msg, "agent-a")
       assert {:published, 1} = AttributedFlowJoiner.put_attribution(event, @self_partition)
@@ -110,20 +124,24 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoinerTest do
       send(Process.whereis(AttributedFlowJoiner), :cleanup)
       Process.sleep(50)
 
-      assert_receive {:telemetry, [:serviceradar, :event_writer, :attributed_flow, :orphan_timeout_drops],
+      assert_receive {:telemetry,
+                      [:serviceradar, :event_writer, :attributed_flow, :orphan_timeout_drops],
                       %{count: 1}, %{kind: :host_slice}}
     end
 
     test "expired attribution entry is swept" do
       attach_telemetry([[:serviceradar, :event_writer, :attributed_flow, :orphan_timeout_drops]])
 
-      event = attribution_event(local: {"10.0.0.7", 1000}, remote: {"10.0.0.8", 22}, transport: "TCP")
+      event =
+        attribution_event(local: {"10.0.0.7", 1000}, remote: {"10.0.0.8", 22}, transport: "TCP")
+
       assert :ok = AttributedFlowJoiner.put_attribution(event, @self_partition, ttl_ms: -1)
 
       send(Process.whereis(AttributedFlowJoiner), :cleanup)
       Process.sleep(50)
 
-      assert_receive {:telemetry, [:serviceradar, :event_writer, :attributed_flow, :orphan_timeout_drops],
+      assert_receive {:telemetry,
+                      [:serviceradar, :event_writer, :attributed_flow, :orphan_timeout_drops],
                       %{count: 1}, %{kind: :attribution}}
     end
   end
@@ -133,7 +151,8 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoinerTest do
       flow = ipv4_flow(proto: 6, src: "10.1.0.1", sport: 9000, dst: "10.1.0.2", dport: 443)
       host_msg = host_slice_msg(flow, agent_id: "agent-x", partition_claim: "tenant-evil")
 
-      event = attribution_event(local: {"10.1.0.1", 9000}, remote: {"10.1.0.2", 443}, transport: "TCP")
+      event =
+        attribution_event(local: {"10.1.0.1", 9000}, remote: {"10.1.0.2", 443}, transport: "TCP")
 
       AttributedFlowJoiner.put_host_slice(host_msg, "agent-x")
 
