@@ -23,7 +23,7 @@ The add-on's **implementation sources** live next to the rest of the codebase,
 not in this directory:
 
 - Go add-ons: `go/cmd/serviceradar-<id>-addon/` (this one: `go/cmd/serviceradar-sample-addon/`).
-- Rust add-ons: under `rust/` (planned for `fingerprintd`).
+- Rust add-ons: built against `rust/addon-sdk` (reference: the `rust-sample` add-on, sources in `rust/addon-sdk/src/bin/rust_sample_addon.rs`, manifest in `addons/rust-sample-addon/`).
 
 Keeping the manifest package separate from the source keeps the manifest a small,
 reviewable surface and lets the build assemble the per-arch signed bundle from the

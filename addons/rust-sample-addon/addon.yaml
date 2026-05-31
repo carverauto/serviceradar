@@ -1,4 +1,4 @@
-# fingerprintd native add-on manifest (issue 3425 reference consumer).
+# Rust sample native add-on manifest (issue 3425 reference consumer).
 #
 # This is the first Rust consumer of the native add-on framework and the
 # reference for the `pushed-artifact` / `agent-sidecar` / `language: rust` shape.
@@ -6,13 +6,18 @@
 # add-on; the only difference is the implementation language (Rust via the
 # rust/addon-sdk helper). The control plane validates operator config against
 # config.schema.json before delivering it over the Configure RPC.
-id: fingerprintd
-name: Fingerprint Daemon
+#
+# id/capabilities/binary intentionally match the values the binary reports from
+# its own Info() RPC (rust/addon-sdk/src/bin/rust_sample_addon.rs) so the
+# manifest and the runtime agree.
+id: rust-sample
+name: Rust Sample Add-on
 version: 0.1.0
 description: >-
-  Passive asset fingerprinting add-on (Rust). Reference consumer proving the
-  native add-on framework's polyglot claim and the agent-sidecar supervision
-  model against a non-Go implementation.
+  Reference Rust native add-on that validates the go-plugin add-on contract from
+  a non-Go implementation. Proves the framework's polyglot claim and the
+  agent-sidecar supervision model end to end (handshake + AutoMTLS +
+  Info/Configure/Health).
 
 kind: native
 delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package
@@ -20,7 +25,7 @@ supervision: agent-sidecar    # config-toggle | agent-sidecar | systemd-service 
 language: rust                # go | rust
 
 capabilities:
-  - fingerprintd
+  - rust-sample
 
 requires:
   base_agent: ">=1.2.0"
@@ -36,7 +41,7 @@ plugin:
   app_protocol_version: 1
 
 exec:
-  binary: serviceradar-fingerprintd
+  binary: serviceradar-rust-sample-addon
   install_path: /usr/local/lib/serviceradar/bin
 
 # artifacts[] (per-arch object_key/sha256/signature_ref) are populated by the

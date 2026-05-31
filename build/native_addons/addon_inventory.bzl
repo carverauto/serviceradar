@@ -34,7 +34,8 @@ ADDON_BUNDLES = [
         # Rust reference add-on (issue 3425). Proves the framework's polyglot
         # claim: a Rust binary built with rust/addon-sdk, supervised by the same
         # agent go-plugin client and packaged/signed identically to the Go
-        # sample. fingerprintd is its reference manifest consumer.
+        # sample. The manifest's id/capabilities/binary match the values the
+        # binary reports from its own Info() RPC.
         "name": "rust_sample_addon_bundle",
         "addon_id": "rust-sample",
         "repository_name": "serviceradar-addon-rust-sample",
@@ -46,8 +47,8 @@ ADDON_BUNDLES = [
             ("linux", "arm64"),
         ],
         "manifest_entries": [
-            ("addon.yaml", "//addons/fingerprintd:addon.yaml"),
-            ("config.schema.json", "//addons/fingerprintd:config.schema.json"),
+            ("addon.yaml", "//addons/rust-sample-addon:addon.yaml"),
+            ("config.schema.json", "//addons/rust-sample-addon:config.schema.json"),
         ],
     },
 ]
