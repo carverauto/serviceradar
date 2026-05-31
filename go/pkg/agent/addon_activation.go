@@ -25,12 +25,16 @@ package agent
 // ed25519 trust root for signature verification.
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,15 +44,22 @@ import (
 )
 
 const (
-	addonsDirName    = "addons"
-	addonVersionsDir = "versions"
-	addonCurrentLink = "current"
-	addonBinaryMode  = 0o755
+	addonsDirName     = "addons"
+	addonVersionsDir  = "versions"
+	addonCurrentLink  = "current"
+	addonBinaryMode   = 0o755
+	addonManifestMode = 0o644 // non-executable bundled files (manifest, config, units)
 
 	// addonLocalOverrideFile is the operator-managed local override (break-glass /
 	// dev) read from the agent config dir; its entries take precedence over pushed
 	// assignments with the same addon_id.
 	addonLocalOverrideFile = "addons.local.json"
+
+	// Bounds on a pushed-artifact gzip tarball (binary + manifest/config + systemd
+	// units), guarding against decompression bombs from a malformed/hostile artifact.
+	maxAddonTarballEntries   = 64
+	maxAddonTarballFileBytes = 512 << 20 // 512 MiB per extracted file
+	maxAddonTarballBytes     = 1 << 30   // 1 GiB total extracted
 )
 
 var (
@@ -71,6 +82,15 @@ var (
 	// `current` symlink to a prior version whose staged directory no longer exists, so
 	// restoring it would leave a dangling `current` pointing at nothing.
 	ErrAddonRollbackTargetMissing = errors.New("addon rollback target version is missing")
+	// ErrAddonTarballUnsafe is returned when a pushed-artifact tarball contains an entry
+	// that is not a regular file named as a single safe path segment.
+	ErrAddonTarballUnsafe = errors.New("addon tarball entry is unsafe")
+	// ErrAddonTarballTooLarge is returned when a pushed-artifact tarball exceeds the
+	// entry-count or size bounds (decompression-bomb guard).
+	ErrAddonTarballTooLarge = errors.New("addon tarball exceeds size limits")
+	// ErrAddonTarballBinaryMissing is returned when a pushed-artifact tarball does not
+	// contain the add-on's declared executable.
+	ErrAddonTarballBinaryMissing = errors.New("addon tarball is missing the add-on binary")
 )
 
 // safeAddonSegment reports whether s is safe to use as a single path component under
@@ -154,7 +174,16 @@ func stageAddonArtifact(
 		return "", fmt.Errorf("create addon version dir: %w", err)
 	}
 
-	if err := writeAddonBinaryAtomic(filepath.Join(versionDir, binName), data); err != nil {
+	// A pushed artifact is either a bare executable (single-binary add-ons) or a gzip
+	// tarball bundling the binary plus its manifest/config and any systemd unit files.
+	// The sha256/signature above covered the raw artifact bytes either way; the tarball
+	// is extracted into the version dir so the agent (discovery) and updater (setcap /
+	// systemd install) see the binary and units side by side under `current`.
+	if isGzipArtifact(data) {
+		if err := extractAddonTarball(versionDir, data, binName); err != nil {
+			return "", err
+		}
+	} else if err := writeAddonBinaryAtomic(filepath.Join(versionDir, binName), data); err != nil {
 		return "", err
 	}
 
@@ -216,22 +245,107 @@ func addonBinaryName(a *proto.AddonAssignmentConfig) string {
 	return "serviceradar-" + strings.TrimSpace(a.GetAddonId()) + "-addon"
 }
 
-func writeAddonBinaryAtomic(path string, data []byte) error {
-	tmp := path + ".new"
+// isGzipArtifact reports whether data begins with the gzip magic bytes, distinguishing
+// a tarball pushed-artifact from a bare executable.
+func isGzipArtifact(data []byte) bool {
+	return len(data) >= 2 && data[0] == 0x1f && data[1] == 0x8b
+}
 
-	if err := os.WriteFile(tmp, data, addonBinaryMode); err != nil {
-		return fmt.Errorf("write addon artifact: %w", err)
+// extractAddonTarball extracts a gzip tarball pushed-artifact into versionDir. Every
+// entry MUST be a regular file named as a single safe path segment (no directories,
+// symlinks, hardlinks, or "../" traversal); the add-on binary (binName) is written
+// executable, all other files 0644. The binary must be present. Entry count and sizes
+// are bounded to guard against a decompression bomb in a malformed/hostile artifact.
+func extractAddonTarball(versionDir string, data []byte, binName string) error {
+	gz, err := gzip.NewReader(bytes.NewReader(data))
+	if err != nil {
+		return fmt.Errorf("open addon tarball: %w", err)
+	}
+	defer func() { _ = gz.Close() }()
+
+	tr := tar.NewReader(gz)
+	var (
+		entries   int
+		totalSize int64
+		sawBinary bool
+	)
+
+	for {
+		hdr, err := tr.Next()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return fmt.Errorf("read addon tarball: %w", err)
+		}
+
+		entries++
+		if entries > maxAddonTarballEntries {
+			return fmt.Errorf("%w: more than %d entries", ErrAddonTarballTooLarge, maxAddonTarballEntries)
+		}
+		if hdr.Typeflag != tar.TypeReg {
+			return fmt.Errorf("%w: %q is not a regular file", ErrAddonTarballUnsafe, hdr.Name)
+		}
+		if !safeAddonSegment(hdr.Name) {
+			return fmt.Errorf("%w: entry name %q", ErrAddonTarballUnsafe, hdr.Name)
+		}
+		if hdr.Size < 0 || hdr.Size > maxAddonTarballFileBytes {
+			return fmt.Errorf("%w: %q is %d bytes", ErrAddonTarballTooLarge, hdr.Name, hdr.Size)
+		}
+
+		// Read with a hard cap (one byte over the per-file limit) so a header that
+		// understates Size still cannot blow past the bound.
+		content, err := io.ReadAll(io.LimitReader(tr, maxAddonTarballFileBytes+1))
+		if err != nil {
+			return fmt.Errorf("read addon tarball entry %q: %w", hdr.Name, err)
+		}
+		if int64(len(content)) > maxAddonTarballFileBytes {
+			return fmt.Errorf("%w: %q exceeds per-file limit", ErrAddonTarballTooLarge, hdr.Name)
+		}
+		totalSize += int64(len(content))
+		if totalSize > maxAddonTarballBytes {
+			return fmt.Errorf("%w: total extracted size exceeds limit", ErrAddonTarballTooLarge)
+		}
+
+		mode := os.FileMode(addonManifestMode)
+		if hdr.Name == binName {
+			mode = addonBinaryMode
+			sawBinary = true
+		}
+		if err := writeAddonFileAtomic(filepath.Join(versionDir, hdr.Name), content, mode); err != nil {
+			return err
+		}
 	}
 
-	// WriteFile honors umask, so set the executable bit explicitly.
-	if err := os.Chmod(tmp, addonBinaryMode); err != nil {
+	if !sawBinary {
+		return fmt.Errorf("%w: %q", ErrAddonTarballBinaryMissing, binName)
+	}
+
+	return nil
+}
+
+// writeAddonBinaryAtomic writes the add-on executable atomically (mode 0755).
+func writeAddonBinaryAtomic(path string, data []byte) error {
+	return writeAddonFileAtomic(path, data, addonBinaryMode)
+}
+
+// writeAddonFileAtomic writes data to path via a temp file + rename, with the given mode.
+func writeAddonFileAtomic(path string, data []byte, mode os.FileMode) error {
+	tmp := path + ".new"
+
+	if err := os.WriteFile(tmp, data, mode); err != nil {
+		return fmt.Errorf("write addon file: %w", err)
+	}
+
+	// WriteFile honors umask, so set the mode explicitly.
+	if err := os.Chmod(tmp, mode); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("chmod addon artifact: %w", err)
+		return fmt.Errorf("chmod addon file: %w", err)
 	}
 
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
-		return fmt.Errorf("publish addon artifact: %w", err)
+		return fmt.Errorf("publish addon file: %w", err)
 	}
 
 	return nil

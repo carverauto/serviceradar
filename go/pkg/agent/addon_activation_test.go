@@ -17,7 +17,9 @@
 package agent
 
 import (
+	"archive/tar"
 	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
@@ -35,6 +37,8 @@ import (
 var errFakeObjectNotFound = errors.New("fake object store: key not found")
 
 const testPushedBinaryA = "/pushed/a"
+
+const testAddonKeyX = "addons/x"
 
 type fakeObjectStore struct {
 	data map[string][]byte
@@ -117,7 +121,7 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 
 func TestStageAddonArtifactHashMismatch(t *testing.T) {
 	root := t.TempDir()
-	key := "addons/x"
+	key := testAddonKeyX
 	store := &fakeObjectStore{data: map[string][]byte{key: []byte("real-bytes")}}
 
 	a := &proto.AddonAssignmentConfig{
@@ -521,5 +525,151 @@ func TestRollbackAddonCurrentTargetMissing(t *testing.T) {
 func TestRollbackAddonCurrentRejectsUnsafeID(t *testing.T) {
 	if err := rollbackAddonCurrent(t.TempDir(), "../etc", filepath.Join(addonVersionsDir, "1.0.0")); !errors.Is(err, ErrAddonUnsafePath) {
 		t.Fatalf("want ErrAddonUnsafePath, got %v", err)
+	}
+}
+
+// makeAddonTarGz builds a gzip tarball of name->content regular-file entries.
+func makeAddonTarGz(t *testing.T, files map[string][]byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	gz := gzip.NewWriter(&buf)
+	tw := tar.NewWriter(gz)
+	for name, content := range files {
+		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(content)), Typeflag: tar.TypeReg}); err != nil {
+			t.Fatalf("tar header %s: %v", name, err)
+		}
+		if _, err := tw.Write(content); err != nil {
+			t.Fatalf("tar write %s: %v", name, err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+
+	return buf.Bytes()
+}
+
+func TestStageAddonArtifactExtractsTarball(t *testing.T) {
+	root := t.TempDir()
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-np-addon":   []byte("#!/bin/sh\necho np\n"),
+		"addon.yaml":              []byte("id: netprobe\n"),
+		"serviceradar-np.service": []byte("[Service]\nExecStart=/bin/true\n"),
+		"serviceradar-np.timer":   []byte("[Timer]\nOnUnitActiveSec=6h\n"),
+	})
+	key := "addons/netprobe/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "netprobe",
+		Version:           "1.0.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-np-addon",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+	}
+
+	got, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+
+	// The binary resolves under current/ and is executable.
+	if filepath.Base(got) != "serviceradar-np-addon" {
+		t.Fatalf("binary base = %q", filepath.Base(got))
+	}
+	info, err := os.Stat(got)
+	if err != nil || info.Mode().Perm()&0o100 == 0 {
+		t.Fatalf("binary missing/not executable: mode=%v err=%v", info.Mode(), err)
+	}
+
+	// The manifest + systemd units are extracted alongside the binary under current/,
+	// where the agent discovers them and the updater installs them.
+	cur := filepath.Join(root, "netprobe", addonCurrentLink)
+	for _, f := range []string{"addon.yaml", "serviceradar-np.service", "serviceradar-np.timer"} {
+		fi, statErr := os.Stat(filepath.Join(cur, f))
+		if statErr != nil {
+			t.Fatalf("expected extracted %s: %v", f, statErr)
+		}
+		if fi.Mode().Perm()&0o111 != 0 {
+			t.Fatalf("non-binary file %s should not be executable: %v", f, fi.Mode())
+		}
+	}
+}
+
+func TestStageAddonArtifactTarballMissingBinary(t *testing.T) {
+	root := t.TempDir()
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"addon.yaml": []byte("id: x\n"),
+		"x.service":  []byte("[Service]\n"),
+	})
+	key := testAddonKeyX
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+	a := &proto.AddonAssignmentConfig{
+		AddonId: "x", Version: "1.0.0", BinaryPath: "serviceradar-x-addon",
+		ArtifactObjectKey: key, ArtifactSha256: sha256Hex(tgz),
+	}
+
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballBinaryMissing) {
+		t.Fatalf("want ErrAddonTarballBinaryMissing, got %v", err)
+	}
+}
+
+func TestStageAddonArtifactTarballRejectsUnsafeEntries(t *testing.T) {
+	root := t.TempDir()
+
+	build := func(hdr *tar.Header, body []byte) []byte {
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		tw := tar.NewWriter(gz)
+		if hdr.Size == 0 && len(body) > 0 {
+			hdr.Size = int64(len(body))
+		}
+		_ = tw.WriteHeader(hdr)
+		_, _ = tw.Write(body)
+		_ = tw.Close()
+		_ = gz.Close()
+		return buf.Bytes()
+	}
+
+	cases := map[string][]byte{
+		"traversal": build(&tar.Header{Name: "../evil", Mode: 0o644, Typeflag: tar.TypeReg}, []byte("x")),
+		"subdir":    build(&tar.Header{Name: "sub/x.service", Mode: 0o644, Typeflag: tar.TypeReg}, []byte("x")),
+		"symlink":   build(&tar.Header{Name: "serviceradar-x-addon", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd"}, nil),
+	}
+
+	for name, tgz := range cases {
+		t.Run(name, func(t *testing.T) {
+			key := testAddonKeyX
+			store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+			a := &proto.AddonAssignmentConfig{
+				AddonId: "x", Version: "1.0.0", BinaryPath: "serviceradar-x-addon",
+				ArtifactObjectKey: key, ArtifactSha256: sha256Hex(tgz),
+			}
+			if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballUnsafe) {
+				t.Fatalf("want ErrAddonTarballUnsafe, got %v", err)
+			}
+		})
+	}
+}
+
+func TestStageAddonArtifactTarballRejectsTooManyEntries(t *testing.T) {
+	root := t.TempDir()
+	files := make(map[string][]byte, maxAddonTarballEntries+2)
+	for i := 0; i <= maxAddonTarballEntries+1; i++ {
+		files[fmt.Sprintf("f%d.service", i)] = []byte("[Service]\n")
+	}
+	tgz := makeAddonTarGz(t, files)
+	store := &fakeObjectStore{data: map[string][]byte{testAddonKeyX: tgz}}
+	a := &proto.AddonAssignmentConfig{
+		AddonId: "x", Version: "1.0.0", BinaryPath: "serviceradar-x-addon",
+		ArtifactObjectKey: testAddonKeyX, ArtifactSha256: sha256Hex(tgz),
+	}
+
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballTooLarge) {
+		t.Fatalf("want ErrAddonTarballTooLarge, got %v", err)
 	}
 }
