@@ -1,0 +1,6 @@
+{
+  "_comment": "Template config for an os-package native add-on. Installed dormant at /etc/serviceradar/serviceradar-addon-example.json (a conffile). The agent applies/overrides effective config when it activates the add-on for this host.",
+  "enabled": false,
+  "spool_dir": "/var/lib/serviceradar/example-addon/spool",
+  "interval": "6h"
+}
