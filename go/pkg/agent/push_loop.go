@@ -126,6 +126,9 @@ type PushLoop struct {
 	systemdRehydrateOnce   sync.Once
 	installedSystemdAddons map[string][]string // systemd-supervised addon id -> installed unit names
 
+	ephemeralHelpersMu        sync.Mutex
+	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
+
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc

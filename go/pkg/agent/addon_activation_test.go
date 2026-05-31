@@ -31,6 +31,7 @@ import (
 	"testing"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -381,7 +382,7 @@ func TestClassifyAddonSupervision(t *testing.T) {
 		addonSupervisionConfigToggle:    addonDispatchConfigToggle,
 		addonSupervisionSystemdService:  addonDispatchSystemd,
 		addonSupervisionSystemdTimer:    addonDispatchSystemd,
-		addonSupervisionEphemeralHelper: addonDispatchExternalUnimplemented,
+		addonSupervisionEphemeralHelper: addonDispatchEphemeral,
 		"something_new":                 addonDispatchUnsupported,
 	}
 	for sup, want := range cases {
@@ -653,6 +654,29 @@ func TestStageAddonArtifactTarballRejectsUnsafeEntries(t *testing.T) {
 				t.Fatalf("want ErrAddonTarballUnsafe, got %v", err)
 			}
 		})
+	}
+}
+
+func TestEphemeralHelperRegistry(t *testing.T) {
+	pl := &PushLoop{logger: logger.NewTestLogger()}
+
+	if _, ok := pl.EphemeralHelperPath("rdp"); ok {
+		t.Fatal("expected empty ephemeral-helper registry")
+	}
+
+	pl.rememberEphemeralHelper("rdp", "/staged/rdp/current/serviceradar-rdp-adapter")
+	if path, ok := pl.EphemeralHelperPath("rdp"); !ok || path != "/staged/rdp/current/serviceradar-rdp-adapter" {
+		t.Fatalf("EphemeralHelperPath = %q,%v", path, ok)
+	}
+
+	// A helper that becomes unassigned is deregistered; the still-desired one remains.
+	pl.rememberEphemeralHelper("gone", "/staged/gone/current/bin")
+	pl.reconcileEphemeralHelpers(map[string]bool{"rdp": true})
+	if _, ok := pl.EphemeralHelperPath("gone"); ok {
+		t.Fatal("expected 'gone' to be deregistered after reconcile")
+	}
+	if _, ok := pl.EphemeralHelperPath("rdp"); !ok {
+		t.Fatal("expected 'rdp' to remain registered")
 	}
 }
 

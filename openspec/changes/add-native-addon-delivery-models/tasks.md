@@ -3,11 +3,12 @@
 > Implements the agent-side delivery/supervision models beyond agent-sidecar from
 > `add-agent-feature-sets`. Task numbers in parentheses map back to that change.
 
-> **In progress.** The `pushed_artifact` fetch → verify → stage → activate path is
-> implemented end to end, now including explicit rollback and `agent-updater`
-> file-capability application (setcap), plus the LKG cache. Remaining: the other
-> delivery/supervision models (systemd-service/timer, ephemeral-helper) and the base
-> packaging carve.
+> **In progress.** The agent-side delivery + supervision is implemented end to end:
+> pushed-artifact fetch → verify → (gzip-tarball-extract or bare binary) → stage →
+> activate, explicit rollback, `agent-updater` file-capability application (setcap), and
+> all supervision models (config-toggle, agent-sidecar, systemd-service/timer,
+> ephemeral-helper), plus the LKG cache. Remaining: the base-agent packaging carve and
+> the build-side production of the signed per-arch tarball / os-package template.
 
 ## 0. Artifact reference plumbing (prerequisite)
 - [x] 0.1 Carry the per-arch artifact reference to the agent: `AddonAssignmentConfig`
@@ -22,6 +23,11 @@
 - [ ] 1.2 Define the signed `pushed-artifact` tarball format and the optional
   `os-package` add-on template (depends on `serviceradar-agent`, dormant on
   install). (§3.2)
+  — Status: partial — the agent-side tarball format + extraction is implemented:
+  `stageAddonArtifact` auto-detects a gzip tarball bundling the binary + manifest/config
+  + systemd units and extracts it under `current/` (traversal/symlink/hardlink/bomb
+  guarded; a bare binary still works). Remaining: the BUILD produces the per-arch signed
+  tarball, and the `os-package` add-on template.
 
 ## 2. Delivery dispatch
 - [x] 2.1 Agent add-on manager dispatches an assignment to its delivery model:
@@ -50,13 +56,21 @@
   allowlist + escape guards exercised on a Linux+root host.
 
 ## 3. Supervision models
-- [ ] 3.1 Wire `systemd-service` and `systemd-timer` (spool ingest). (§6.6)
-  — Status: not started — recognized by the dispatcher (logged as not-yet-implemented);
-  installing units / ingesting the timer spool needs systemd + root to build and test.
-- [ ] 3.2 Wire `ephemeral-helper` and `config-toggle`. (§6.6)
-  — Status: partial — `config_toggle` is handled (acknowledged as a compiled-in
-  capability, no subprocess launched); `ephemeral_helper` is recognized but the
-  one-shot run is not yet implemented.
+- [x] 3.1 Wire `systemd-service` and `systemd-timer` (spool ingest). (§6.6)
+  — Done. The agent discovers the `.service`/`.timer` units in the staged bundle and
+  installs + enables the primary via the root-owned `agent-updater` (copy →
+  daemon-reload → enable --now, with safe-segment + symlink-escape guards and self-clean
+  on failure); reconciliation uninstalls units when an assignment is disabled/removed,
+  and tracking is rehydrated from the staging root after a restart. Verified on a
+  Linux+root host (service and timer: install → enabled/active → uninstall → removed).
+  The timer's spooled output is ingested by the consuming add-on's own spool service
+  (e.g. Bumblebee), not by this generic supervision path.
+- [x] 3.2 Wire `ephemeral-helper` and `config-toggle`. (§6.6)
+  — Done. `config_toggle` is acknowledged as a compiled-in capability (no subprocess).
+  `ephemeral_helper` add-ons are staged + capability-granted and registered by resolved
+  path (`EphemeralHelperPath`) for on-demand invocation by their consumer (e.g.
+  remote-access spawns rdp-adapter per session); the agent does not run/supervise them.
+  Reconciliation deregisters a helper when its assignment is disabled/removed.
 
 ## 4. Resilience
 - [x] 4.1 Last-known-good cache + local override for add-on assignments (mirror the
@@ -77,10 +91,16 @@
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-delivery-models --strict` passes.
-- [ ] 5.2 Tests: activation rollback on bad signature; timer spool ingest; config-toggle
-  enable/disable; cache fallback on fetch failure.
-  — Status: partial — activation tests cover sha256 mismatch, missing store, incomplete
-  reference, and ed25519 verify (valid + tampered) in `addon_activation_test.go`; the
-  generator emits + selects the per-arch artifact (covered in
-  `agent_config_generator_test.exs`). Timer/config-toggle/cache tests pending their
-  implementations.
+- [x] 5.2 Tests: activation rollback on bad signature; config-toggle enable/disable;
+  cache fallback on fetch failure (plus supervision dispatch, tarball extraction, and
+  capability application).
+  — Done. Unit tests cover activation (sha256 / missing store / incomplete ref / ed25519
+  valid+tampered), rollback (restore-prior / no-prior / missing-target / unsafe-id),
+  capability normalize+allowlist / staged-binary resolution + escape, systemd unit
+  discovery / primary-pick / reconcile decision / install validation, tarball extraction
+  (binary+units, missing-binary, traversal/subdir/symlink, too-many-entries), supervision
+  classification, LKG cache + prune, and the ephemeral-helper registry/reconcile; the
+  generator artifact selection is covered in `agent_config_generator_test.exs`. Real
+  `setcap` and `systemctl` install/enable/uninstall were exercised on a Linux+root host.
+  The timer SPOOL-ingest test belongs to the consuming add-on (e.g. Bumblebee), not this
+  change.
