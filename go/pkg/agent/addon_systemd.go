@@ -1,0 +1,242 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package agent
+
+// systemd-service / systemd-timer supervision for native add-ons (delivery-models
+// task 3.1). A non-root agent stages a signed add-on bundle (addon_activation.go) whose
+// .service/.timer unit files ride inside the bundle, then asks the root-owned
+// serviceradar-agent-updater to install + enable exactly the units the control plane
+// names. The privileged systemctl operations run only inside the updater, against unit
+// files re-resolved under the controlled add-on staging root. This is the supervision
+// path for capability-granted long-running daemons (e.g. netprobe -> systemd-service)
+// and periodic scanners (e.g. Bumblebee -> systemd-timer); the timer's spooled output
+// is ingested by the consuming add-on's own spool service, not here.
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// systemdUnitDir is where the root-owned updater installs add-on unit files.
+const systemdUnitDir = "/etc/systemd/system"
+
+// systemdUnitFileMode is the on-disk mode for an installed unit file (root:root 0644).
+const systemdUnitFileMode = 0o644
+
+var (
+	// ErrSystemctlUnavailable is returned when systemctl is not on PATH (no systemd).
+	ErrSystemctlUnavailable = errors.New("systemctl not available")
+	// ErrAddonSystemdNoUnits is returned when an install/uninstall is requested with no
+	// unit names.
+	ErrAddonSystemdNoUnits = errors.New("no systemd units specified")
+	// ErrAddonSystemdEnableNotListed is returned when the unit to enable is not part of
+	// the installed unit set.
+	ErrAddonSystemdEnableNotListed = errors.New("systemd enable unit is not in the installed unit set")
+	// ErrAddonUnitNameUnsafe is returned when a unit file name is not a safe single path
+	// segment ending in .service or .timer.
+	ErrAddonUnitNameUnsafe = errors.New("addon systemd unit name is invalid")
+	// ErrAddonUnitNotRegular is returned when a staged unit path is not a regular file.
+	ErrAddonUnitNotRegular = errors.New("staged addon systemd unit is not a regular file")
+	// ErrAddonUnitEscape is returned when a staged unit resolves outside its add-on dir.
+	ErrAddonUnitEscape = errors.New("staged addon systemd unit resolves outside its staging directory")
+)
+
+// AddonSystemdInstallRequest describes a privileged install + enable of an add-on's
+// systemd units, all of which ship inside the staged add-on bundle.
+type AddonSystemdInstallRequest struct {
+	RuntimeRoot string   // agent release runtime root ("" -> package default)
+	AddonID     string   // add-on id (a single safe path segment)
+	Units       []string // unit file names in the staged current/ dir (".service"/".timer")
+	Enable      string   // the unit to `enable --now` (must be one of Units)
+}
+
+// validateAddonUnitName reports whether name is a safe single path segment naming a
+// systemd unit file (a plain filename ending in .service or .timer). This blocks path
+// traversal and restricts what the root-owned updater will copy into the unit dir.
+func validateAddonUnitName(name string) error {
+	if !safeAddonSegment(name) {
+		return fmt.Errorf("%w: %q", ErrAddonUnitNameUnsafe, name)
+	}
+	if !strings.HasSuffix(name, ".service") && !strings.HasSuffix(name, ".timer") {
+		return fmt.Errorf("%w: %q (must end in .service or .timer)", ErrAddonUnitNameUnsafe, name)
+	}
+
+	return nil
+}
+
+// resolveStagedAddonUnit resolves a unit file under the add-on's staged current/ dir,
+// validating the name and confirming the resolved real path stays inside the add-on's
+// own directory before the updater copies it into the system unit dir.
+func resolveStagedAddonUnit(runtimeRoot, addonID, unitName string) (string, error) {
+	if !safeAddonSegment(addonID) {
+		return "", fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+	if err := validateAddonUnitName(unitName); err != nil {
+		return "", err
+	}
+
+	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID)
+	staged := filepath.Join(addonDir, addonCurrentLink, unitName)
+
+	real, err := filepath.EvalSymlinks(staged)
+	if err != nil {
+		return "", fmt.Errorf("resolve staged addon unit: %w", err)
+	}
+
+	addonDirReal, err := filepath.EvalSymlinks(addonDir)
+	if err != nil {
+		return "", fmt.Errorf("resolve addon dir: %w", err)
+	}
+	if real != addonDirReal && !strings.HasPrefix(real, addonDirReal+string(os.PathSeparator)) {
+		return "", fmt.Errorf("%w: %s", ErrAddonUnitEscape, real)
+	}
+
+	info, err := os.Stat(real)
+	if err != nil {
+		return "", fmt.Errorf("stat staged addon unit: %w", err)
+	}
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("%w: %s", ErrAddonUnitNotRegular, real)
+	}
+
+	return real, nil
+}
+
+// runSystemctl runs `systemctl <args...>`, returning a wrapped error (with output) on
+// failure and ErrSystemctlUnavailable when systemctl is not installed.
+func runSystemctl(ctx context.Context, args ...string) error {
+	systemctlPath, err := exec.LookPath("systemctl")
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrSystemctlUnavailable, err)
+	}
+
+	cmd := exec.CommandContext(ctx, systemctlPath, args...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("systemctl %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(out)))
+	}
+
+	return nil
+}
+
+// InstallAddonSystemdUnits is the privileged operation invoked inside the root-owned
+// agent-updater: it resolves each declared unit under the controlled add-on staging
+// root, copies them into the system unit dir, reloads systemd, and enables (--now) the
+// primary unit. On any failure it removes the units it copied and reloads, so the host
+// is never left with half-installed or orphaned add-on units (the agent additionally
+// rolls the `current` symlink back).
+func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallRequest) error {
+	if len(req.Units) == 0 {
+		return ErrAddonSystemdNoUnits
+	}
+
+	enable := strings.TrimSpace(req.Enable)
+	if enable != "" && !containsString(req.Units, enable) {
+		return fmt.Errorf("%w: %q", ErrAddonSystemdEnableNotListed, enable)
+	}
+
+	// Resolve + validate every staged unit before touching the system unit dir, so a
+	// bad unit name aborts the install before anything is copied.
+	type stagedUnit struct{ name, src string }
+	resolved := make([]stagedUnit, 0, len(req.Units))
+	for _, name := range req.Units {
+		src, err := resolveStagedAddonUnit(req.RuntimeRoot, req.AddonID, name)
+		if err != nil {
+			return err
+		}
+		resolved = append(resolved, stagedUnit{name: name, src: src})
+	}
+
+	installed := make([]string, 0, len(resolved))
+	cleanup := func() {
+		for _, name := range installed {
+			_ = os.Remove(filepath.Join(systemdUnitDir, name))
+		}
+		_ = runSystemctl(ctx, "daemon-reload")
+	}
+
+	for _, u := range resolved {
+		data, err := os.ReadFile(u.src) //nolint:gosec // src is resolved under the controlled add-on staging root.
+		if err != nil {
+			cleanup()
+			return fmt.Errorf("read staged unit %s: %w", u.name, err)
+		}
+		if err := os.WriteFile(filepath.Join(systemdUnitDir, u.name), data, systemdUnitFileMode); err != nil {
+			cleanup()
+			return fmt.Errorf("install unit %s: %w", u.name, err)
+		}
+		installed = append(installed, u.name)
+	}
+
+	if err := runSystemctl(ctx, "daemon-reload"); err != nil {
+		cleanup()
+		return err
+	}
+
+	if enable != "" {
+		if err := runSystemctl(ctx, "enable", "--now", enable); err != nil {
+			// Disable best-effort, then remove the units we installed and reload.
+			_ = runSystemctl(ctx, "disable", "--now", enable)
+			cleanup()
+			return err
+		}
+	}
+
+	return nil
+}
+
+// UninstallAddonSystemdUnits is the privileged teardown: it disables (--now) each unit,
+// removes the installed unit files, and reloads systemd. Missing/already-disabled units
+// are tolerated so teardown is idempotent. Used when an assignment is disabled/removed
+// and as part of rollback.
+func UninstallAddonSystemdUnits(ctx context.Context, units []string) error {
+	if len(units) == 0 {
+		return ErrAddonSystemdNoUnits
+	}
+
+	for _, name := range units {
+		if err := validateAddonUnitName(name); err != nil {
+			return err
+		}
+	}
+
+	for _, name := range units {
+		// Disable is best-effort: a unit that was never enabled (or already removed)
+		// must not fail teardown.
+		_ = runSystemctl(ctx, "disable", "--now", name)
+		if err := os.Remove(filepath.Join(systemdUnitDir, name)); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove unit %s: %w", name, err)
+		}
+	}
+
+	return runSystemctl(ctx, "daemon-reload")
+}
+
+// containsString reports whether s is in list.
+func containsString(list []string, s string) bool {
+	for _, v := range list {
+		if v == s {
+			return true
+		}
+	}
+
+	return false
+}

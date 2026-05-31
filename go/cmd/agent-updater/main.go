@@ -46,32 +46,48 @@ func run() error {
 		// Add-on file-capability application mode (delivery-models task 2.2). When
 		// --addon-id is set the updater applies the requested Linux capabilities to the
 		// staged add-on binary via setcap instead of activating an agent release.
-		addonID   = flag.String("addon-id", "", "Add-on id; selects capability-application mode")
+		addonID   = flag.String("addon-id", "", "Add-on id (capability + systemd modes)")
 		addonBin  = flag.String("addon-binary", "", "Staged add-on binary filename to apply capabilities to")
 		addonCaps = flag.String("addon-capabilities", "", "Comma-separated Linux file capabilities to apply (e.g. cap_net_raw,cap_bpf)")
+
+		// Add-on systemd supervision mode (delivery-models task 3.1): install/enable or
+		// uninstall the add-on's bundled systemd units.
+		addonSystemdInstall   = flag.String("addon-systemd-install", "", "Comma-separated staged unit files to install (.service/.timer)")
+		addonSystemdEnable    = flag.String("addon-systemd-enable", "", "Unit to enable --now after install (must be one of --addon-systemd-install)")
+		addonSystemdUninstall = flag.String("addon-systemd-uninstall", "", "Comma-separated installed unit files to disable + remove")
 	)
 	flag.Parse()
 
-	if *addonID != "" {
-		return agent.ApplyAddonCapabilities(context.Background(), agent.AddonCapabilityRequest{
+	ctx := context.Background()
+
+	switch {
+	case *addonSystemdInstall != "":
+		return agent.InstallAddonSystemdUnits(ctx, agent.AddonSystemdInstallRequest{
+			RuntimeRoot: *runtimeRoot,
+			AddonID:     *addonID,
+			Units:       splitCommaList(*addonSystemdInstall),
+			Enable:      *addonSystemdEnable,
+		})
+	case *addonSystemdUninstall != "":
+		return agent.UninstallAddonSystemdUnits(ctx, splitCommaList(*addonSystemdUninstall))
+	case *addonCaps != "":
+		return agent.ApplyAddonCapabilities(ctx, agent.AddonCapabilityRequest{
 			RuntimeRoot:  *runtimeRoot,
 			AddonID:      *addonID,
 			BinaryName:   *addonBin,
 			Capabilities: splitCommaList(*addonCaps),
 		})
-	}
-
-	if *version == "" {
+	case *version != "":
+		return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{
+			RuntimeRoot:      *runtimeRoot,
+			Version:          *version,
+			CommandID:        *commandID,
+			CommandType:      *commandType,
+			RollbackDeadline: *rollbackDeadline,
+		})
+	default:
 		return errVersionRequired
 	}
-
-	return agent.ActivateStagedRelease(agent.ReleaseActivationConfig{
-		RuntimeRoot:      *runtimeRoot,
-		Version:          *version,
-		CommandID:        *commandID,
-		CommandType:      *commandType,
-		RollbackDeadline: *rollbackDeadline,
-	})
 }
 
 // splitCommaList splits a comma-separated flag value into trimmed, non-empty items.
