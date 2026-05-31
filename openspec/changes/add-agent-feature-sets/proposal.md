@@ -2,7 +2,7 @@
 
 ## Why
 ServiceRadar agents gain optional capabilities — the Bumblebee exposure scanner,
-a planned Rust `fingerprintd`/`netprobe` host-visibility sidecar, the
+a planned Rust `netprobe` host-visibility sidecar, the
 remote-access suite — through ad-hoc, per-feature plumbing. Each new capability
 reinvents its own packaging, enablement toggle, config proto field, and delivery
 path, and there is no operator-facing way to choose which capabilities an agent
