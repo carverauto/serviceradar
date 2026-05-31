@@ -79,6 +79,80 @@ def sha256_bytes(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+# Enum constraints mirrored from addons/native-addon-manifest.schema.json. The
+# authoritative gate is the Go validator (go/tools/addon-manifest-validator), run
+# as a build/CI gate before bundling. This in-assembler check is defense-in-depth:
+# it fails the bundle build closed on a structurally invalid manifest even when the
+# assembler is invoked directly (raw `bazel build`), so an invalid manifest can
+# never produce a bundle.
+_REQUIRED_MANIFEST_FIELDS = (
+    "id",
+    "name",
+    "version",
+    "kind",
+    "delivery",
+    "supervision",
+    "capabilities",
+    "requires",
+    "exec",
+    "config_schema",
+)
+_KIND_VALUES = {"native"}
+_DELIVERY_VALUES = {"compiled-in", "pushed-artifact", "os-package"}
+_SUPERVISION_VALUES = {
+    "config-toggle",
+    "agent-sidecar",
+    "systemd-service",
+    "systemd-timer",
+    "ephemeral-helper",
+}
+
+
+def validate_manifest(members):
+    """Fail closed before bundling on a structurally invalid addon.yaml.
+
+    Enforces required top-level fields and the kind/delivery/supervision enums.
+    Raises SystemExit (non-zero) with the offending reason on any violation.
+    """
+    manifest_path = next(
+        (source_path for archive_path, source_path, _ in members if archive_path == "addon.yaml"),
+        None,
+    )
+    if manifest_path is None:
+        raise SystemExit("error: bundle is missing an addon.yaml manifest")
+
+    try:
+        import yaml  # noqa: PLC0415 - imported lazily so non-bundle codepaths need no PyYAML.
+    except ImportError as exc:  # pragma: no cover - environment-specific.
+        raise SystemExit(
+            "error: PyYAML is required to validate addon.yaml before bundling"
+        ) from exc
+
+    doc = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    if not isinstance(doc, dict):
+        raise SystemExit(f"error: {manifest_path}: manifest is not a YAML mapping")
+
+    errors = []
+    for field in _REQUIRED_MANIFEST_FIELDS:
+        if field not in doc or doc[field] in (None, "", [], {}):
+            errors.append(f"missing required field: {field}")
+
+    if doc.get("kind") is not None and doc["kind"] not in _KIND_VALUES:
+        errors.append(f"unknown kind: {doc['kind']!r} (allowed: {sorted(_KIND_VALUES)})")
+    if doc.get("delivery") is not None and doc["delivery"] not in _DELIVERY_VALUES:
+        errors.append(f"unknown delivery: {doc['delivery']!r} (allowed: {sorted(_DELIVERY_VALUES)})")
+    if doc.get("supervision") is not None and doc["supervision"] not in _SUPERVISION_VALUES:
+        errors.append(
+            f"unknown supervision: {doc['supervision']!r} (allowed: {sorted(_SUPERVISION_VALUES)})"
+        )
+
+    if errors:
+        joined = "\n  - ".join(errors)
+        raise SystemExit(
+            f"error: {manifest_path}: invalid add-on manifest; refusing to bundle:\n  - {joined}"
+        )
+
+
 def manifest_metadata(members):
     manifest_path = next(
         (source_path for archive_path, source_path, _ in members if archive_path == "addon.yaml"),
@@ -112,6 +186,9 @@ def main():
         for (_os, _arch, archive_path, source_path) in artifacts
     ]
     members = file_members + binary_members
+
+    # Fail closed before producing any bundle output on an invalid manifest.
+    validate_manifest(members)
 
     write_zip(bundle_path, members)
     digest = sha256_file(bundle_path)

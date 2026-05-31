@@ -4,11 +4,22 @@
 > parentheses map back to that change's tasks.md.
 
 ## 1. Manifest validation
-- [ ] 1.1 Author the `addon.yaml` manifest JSON-Schema (id, name, version, kind,
+- [x] 1.1 Author the `addon.yaml` manifest JSON-Schema (id, name, version, kind,
   delivery, supervision, capabilities, requires, artifacts, exec, state_dirs,
   config_schema) and a validator. (3425 §1.1)
-- [ ] 1.2 Wire the validator as a build/CI gate that fails before bundling on an
+  - Schema: `addons/native-addon-manifest.schema.json` (JSON-Schema 2020-12).
+  - Validator: `go/tools/addon-manifest-validator` (Go command + `internal/manifestschema`
+    library, schema embedded, valid + invalid fixtures and unit tests).
+- [x] 1.2 Wire the validator as a build/CI gate that fails before bundling on an
   invalid `addon.yaml` or an unsupported `config.schema.json` subset.
+  - CI/Make gate: `make validate_addon_manifests` (and `make addon_build_gates`),
+    fails closed (exit 1) on an invalid manifest.
+  - In-bundle gate: `build/native_addons/assemble_addon_bundle.py` now validates the
+    manifest (required fields + kind/delivery/supervision enums) and refuses to emit
+    a bundle on a violation, so raw `bazel build` also fails closed before bundling.
+  - NOTE: the `config.schema.json` *subset* validation (rejecting an unsupported JSON
+    Schema subset for the config file) is NOT implemented here; only the manifest's
+    `config_schema` *reference* is required/validated.
 
 ## 2. Signing & discovery (capability: native-addon-builds)
 - [ ] 2.1 Reuse `scripts/cosign_common.sh` to Cosign-sign the OCI artifact (Rekor by
@@ -24,8 +35,25 @@
 - [ ] 3.1 Keep method dead-code elimination enabled with a `whydeadcode` guard; forbid
   importing the Go stdlib `plugin` package; add a per-artifact binary-size regression
   gate (`go-size-analyzer`). (§2.7)
-- [ ] 3.2 Dependency-isolation CI gate: assert (via `go list`/`goda`) the base agent's
+  - DONE: forbid stdlib `plugin` — `scripts/check-addon-no-stdlib-plugin.sh`
+    (`make check_addon_no_stdlib_plugin`): `go list -deps` over the agent + every
+    add-on command plus a `go list` direct-import scan; fails with the offending
+    package. Verified to pass clean and to fail on an injected stdlib-`plugin` import.
+  - DONE (scaffold): per-artifact binary-size regression gate —
+    `scripts/check-addon-binary-size.sh` (`make check_addon_binary_size`). Wired with
+    a baseline + tolerance; `go-size-analyzer`/`gsa` is a CI-image PREREQUISITE (not
+    installed here) — the script runs raw-size checks without it and fails closed when
+    a baseline is exceeded; `REQUIRE_GSA=1` makes a missing tool fatal.
+  - NOT DONE: the `whydeadcode` dead-code-elimination guard is not implemented, so this
+    box stays unchecked.
+- [x] 3.2 Dependency-isolation CI gate: assert (via `go list`/`goda`) the base agent's
   transitive package set excludes any add-on implementation package. (§2.8)
+  - `scripts/check-addon-dependency-isolation.sh` (`make check_addon_dependency_isolation`):
+    `go list -deps` on `//go/cmd/agent` asserting no add-on implementation package
+    (`go/pkg/addon/sdk`, `go/cmd/serviceradar-*-addon`) is in the transitive set;
+    the agent-side contract/manager packages (`go/pkg/addon`, `go/pkg/agent/addon`,
+    `proto/agent/addon/v1`) are intentionally allowed. Fails with the offending import
+    path. Verified to pass clean and to fail (with the path) on an injected import.
 
 ## 4. Control-plane importer
 - [ ] 4.1 Reuse the WASM verify-then-mirror importer (trusted-host allowlist, bounded
@@ -34,5 +62,5 @@
   resolved object keys / digests / signature refs on the `AddonPackage`.
 
 ## 5. Validation
-- [ ] 5.1 `openspec validate add-native-addon-build-signing --strict` passes.
+- [x] 5.1 `openspec validate add-native-addon-build-signing --strict` passes.
 - [ ] 5.2 Verify-before-release rejects an unsigned/tampered artifact in CI.
