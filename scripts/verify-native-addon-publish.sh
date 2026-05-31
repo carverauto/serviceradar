@@ -39,8 +39,7 @@ fi
 
 "${BAZEL_BIN}" build \
   //build/native_addons:all_metadata \
-  //build/native_addons:addon_artifact_signature_tool \
-  //build/wasm_plugins:upload_signature_tool >/dev/null
+  //build/native_addons:addon_artifact_signature_tool >/dev/null
 
 resolve_tool() {
   local label="$1" name="$2" resolved
@@ -55,7 +54,6 @@ resolve_tool() {
   printf '%s\n' "${resolved}"
 }
 
-UPLOAD_SIGNATURE_TOOL="$(resolve_tool //build/wasm_plugins:upload_signature_tool upload_signature_tool)"
 ARTIFACT_SIGNATURE_TOOL="$(resolve_tool //build/native_addons:addon_artifact_signature_tool addon_artifact_signature_tool)"
 
 shopt -s nullglob
@@ -76,13 +74,11 @@ with open(sys.argv[1], "r", encoding="utf-8") as fh:
 print(data["repository_name"])
 print(data["artifact_type"])
 print(data["bundle_media_type"])
-print(data["upload_signature_media_type"])
 PY
 )
     repository_name="${meta[0]}"
     artifact_type="${meta[1]}"
     bundle_media_type="${meta[2]}"
-    upload_signature_media_type="${meta[3]}"
     repo="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}"
     ref="${repo}:${tag}"
 
@@ -96,20 +92,10 @@ PY
       exit 1
     fi
 
-    for required in "${bundle_media_type}" "${upload_signature_media_type}"; do
-      jq -e --arg m "${required}" 'any(.layers[]?; .mediaType == $m)' <<<"${content}" >/dev/null || {
-        echo "error: ${ref} is missing a ${required} layer" >&2
-        exit 1
-      }
-    done
-
-    bundle_digest="$(jq -r --arg m "${bundle_media_type}" '.layers[] | select(.mediaType == $m) | .digest' <<<"${content}" | head -n1)"
-    signature_digest="$(jq -r --arg m "${upload_signature_media_type}" '.layers[] | select(.mediaType == $m) | .digest' <<<"${content}" | head -n1)"
-    bundle_path="${TMP_DIR}/${repository_name}-${tag}.zip"
-    signature_path="${TMP_DIR}/${repository_name}-${tag}.upload-signature.json"
-    "${ORAS_BIN}" blob fetch --output "${bundle_path}" "${repo}@${bundle_digest}" >/dev/null
-    "${ORAS_BIN}" blob fetch --output "${signature_path}" "${repo}@${signature_digest}" >/dev/null
-    "${UPLOAD_SIGNATURE_TOOL}" verify --bundle "${bundle_path}" --signature "${signature_path}"
+    jq -e --arg m "${bundle_media_type}" 'any(.layers[]?; .mediaType == $m)' <<<"${content}" >/dev/null || {
+      echo "error: ${ref} is missing a ${bundle_media_type} bundle layer" >&2
+      exit 1
+    }
 
     # Per-arch pushed-artifact tarballs: verify each tarball against its agent-release
     # ed25519 signature, pairing layers by title (<tarball> and <tarball>.sig).

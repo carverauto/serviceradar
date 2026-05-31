@@ -20,15 +20,13 @@ _ARTIFACT_SIGNATURE_MEDIA_TYPE="application/vnd.serviceradar.native-addon.artifa
 bundle=""
 metadata=""
 oras_bin=""
-upload_signature_tool=""
 artifact_signature_tool=""
 extra_tag=""
 
 usage() {
   cat <<'EOF'
 Usage: publish_addon.sh --bundle <bundle.zip> --metadata <bundle.metadata.json>
-         --oras <oras-bin> --upload-signature-tool <tool>
-         --artifact-signature-tool <tool> [--tag <tag>]
+         --oras <oras-bin> --artifact-signature-tool <tool> [--tag <tag>]
 EOF
 }
 
@@ -37,7 +35,6 @@ while [[ $# -gt 0 ]]; do
     --bundle) bundle="$2"; shift 2 ;;
     --metadata) metadata="$2"; shift 2 ;;
     --oras) oras_bin="$2"; shift 2 ;;
-    --upload-signature-tool) upload_signature_tool="$2"; shift 2 ;;
     --artifact-signature-tool) artifact_signature_tool="$2"; shift 2 ;;
     --tag) extra_tag="$2"; shift 2 ;;
     --help|-h) usage; exit 0 ;;
@@ -48,7 +45,6 @@ done
 [[ -n "${bundle}" ]] || { echo "error: --bundle is required" >&2; exit 1; }
 [[ -n "${metadata}" ]] || { echo "error: --metadata is required" >&2; exit 1; }
 [[ -n "${oras_bin}" ]] || { echo "error: --oras is required" >&2; exit 1; }
-[[ -n "${upload_signature_tool}" ]] || { echo "error: --upload-signature-tool is required" >&2; exit 1; }
 [[ -n "${artifact_signature_tool}" ]] || { echo "error: --artifact-signature-tool is required" >&2; exit 1; }
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:${HOME:-}/.local/bin:${HOME:-}/bin:/usr/bin:/bin:${PATH:-}"
@@ -70,7 +66,6 @@ local_oras="$(resolve_executable oras || true)"
 [[ -n "${local_oras}" ]] && oras_bin="${local_oras}" || oras_bin="$(resolve_executable "${oras_bin}" || true)"
 [[ -n "${oras_bin}" && -x "${oras_bin}" ]] || { echo "error: unable to resolve a runnable oras binary" >&2; exit 1; }
 [[ -x "${artifact_signature_tool}" ]] || { echo "error: artifact signature tool is not executable: ${artifact_signature_tool}" >&2; exit 1; }
-[[ -x "${upload_signature_tool}" ]] || { echo "error: upload signature tool is not executable: ${upload_signature_tool}" >&2; exit 1; }
 
 # SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY is required to sign per-arch artifacts.
 if [[ -z "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" ]]; then
@@ -87,7 +82,6 @@ print(data["addon_id"])
 print(data["repository_name"])
 print(data["artifact_type"])
 print(data["bundle_media_type"])
-print(data["upload_signature_media_type"])
 # Each per-arch artifact that ships a tarball, one per line: "os arch tarball_file".
 for a in data.get("artifacts", []):
     if a.get("tarball_file"):
@@ -100,7 +94,6 @@ addon_id="${meta[0]}"
 repository_name="${meta[1]}"
 artifact_type="${meta[2]}"
 bundle_media_type="${meta[3]}"
-upload_signature_media_type="${meta[4]}"
 
 registry="${OCI_REGISTRY:-registry.carverauto.dev}"
 project="${OCI_PROJECT:-serviceradar}"
@@ -110,33 +103,34 @@ tags=("sha-${commit_sha}")
 [[ -n "${extra_tag}" ]] && tags+=("${extra_tag}")
 
 bundle_dir="$(cd "$(dirname "${bundle}")" && pwd)"
-tmp_dir="$(mktemp -d "${PWD}/.native-addon-publish.XXXXXX")"
-trap 'rm -rf "${tmp_dir}"' EXIT
+staging="$(mktemp -d "${TMPDIR:-/tmp}/native-addon-publish.XXXXXX")"
+trap 'rm -rf "${staging}"' EXIT
 
-# Bundle-level upload-signature (importer verify-then-mirror trust).
-upload_signature_path="${tmp_dir#"${PWD}/"}/upload-signature.json"
-"${upload_signature_tool}" sign --bundle "${bundle}" --metadata "${metadata}" --out "${upload_signature_path}"
-
-# Per-arch pushed-artifact tarballs + their agent-verified ed25519 signatures.
-layer_args=("${bundle}:${bundle_media_type}" "${upload_signature_path}:${upload_signature_media_type}")
+# Stage every layer in one directory and push by basename: oras push rejects
+# absolute file paths, and the verify/index steps recover (os, arch) from each
+# layer's org.opencontainers.image.title, which oras sets to the path as given —
+# so a clean basename is required. The bundle zip's integrity/provenance is covered
+# by the Cosign signature over the OCI artifact (sign-native-addon-publish.sh); no
+# separate bundle-level ed25519 is carried. Each per-arch tarball gets the
+# agent-release ed25519 signature the agent itself verifies on fetch.
+bundle_name="$(basename "${bundle}")"
+cp "${bundle}" "${staging}/${bundle_name}"
+layer_specs=("${bundle_name}:${bundle_media_type}")
 for line in "${meta[@]}"; do
   [[ "${line}" == ARTIFACT$'\t'* ]] || continue
   IFS=$'\t' read -r _ _os _arch tarball_file <<<"${line}"
   tarball_path="${bundle_dir}/${tarball_file}"
   [[ -f "${tarball_path}" ]] || { echo "error: tarball not found: ${tarball_path}" >&2; exit 1; }
-  staged_tarball="${tmp_dir#"${PWD}/"}/${tarball_file}"
-  sig_path="${staged_tarball}.sig"
-  cp "${tarball_path}" "${staged_tarball}"
-  "${artifact_signature_tool}" sign --artifact "${staged_tarball}" --out "${sig_path}"
-  layer_args+=("${staged_tarball}:${_ARTIFACT_MEDIA_TYPE}" "${sig_path}:${_ARTIFACT_SIGNATURE_MEDIA_TYPE}")
+  cp "${tarball_path}" "${staging}/${tarball_file}"
+  "${artifact_signature_tool}" sign --artifact "${staging}/${tarball_file}" --out "${staging}/${tarball_file}.sig"
+  layer_specs+=("${tarball_file}:${_ARTIFACT_MEDIA_TYPE}" "${tarball_file}.sig:${_ARTIFACT_SIGNATURE_MEDIA_TYPE}")
 done
 
 for tag in "${tags[@]}"; do
   echo "publishing ${repo}:${tag}"
-  "${oras_bin}" push \
+  ( cd "${staging}" && "${oras_bin}" push \
     --artifact-type "${artifact_type}" \
     "${repo}:${tag}" \
-    "${layer_args[@]}" \
-    --annotation "org.opencontainers.image.title=$(basename "${bundle}")" \
-    --annotation "io.serviceradar.addon.id=${addon_id}"
+    "${layer_specs[@]}" \
+    --annotation "io.serviceradar.addon.id=${addon_id}" )
 done

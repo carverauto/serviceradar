@@ -61,15 +61,13 @@ for metadata in "${metadata_files[@]}"; do
   repository_name="$(jq -r '.repository_name' "${metadata}")"
   ref="${REGISTRY_HOST}/${OCI_PROJECT}/${repository_name}:${TAG}"
   bundle_media_type="$(jq -r '.bundle_media_type' "${metadata}")"
-  upload_signature_media_type="$(jq -r '.upload_signature_media_type' "${metadata}")"
 
   descriptor="$("${ORAS_BIN}" manifest fetch --descriptor "${ref}")"
   oci_digest="$(jq -r '.digest' <<<"${descriptor}")"
   content="$("${ORAS_BIN}" manifest fetch "${ref}" --format json | jq -c '.content // .')"
   bundle_digest="$(jq -r --arg m "${bundle_media_type}" '.layers[] | select(.mediaType == $m) | .digest' <<<"${content}" | head -n1)"
-  upload_signature_digest="$(jq -r --arg m "${upload_signature_media_type}" '.layers[] | select(.mediaType == $m) | .digest' <<<"${content}" | head -n1)"
 
-  if [[ -z "${oci_digest}" || "${oci_digest}" == "null" || -z "${bundle_digest}" || -z "${upload_signature_digest}" ]]; then
+  if [[ -z "${oci_digest}" || "${oci_digest}" == "null" || -z "${bundle_digest}" ]]; then
     echo "error: ${ref} is missing required OCI digests" >&2
     exit 1
   fi
@@ -103,7 +101,6 @@ for metadata in "${metadata_files[@]}"; do
     --arg oci_ref "${ref}" \
     --arg oci_digest "${oci_digest}" \
     --arg bundle_digest "${bundle_digest}" \
-    --arg upload_signature_digest "${upload_signature_digest}" \
     --argjson artifacts "${artifacts}" \
     '{
       addon_id: $addon_id,
@@ -112,7 +109,6 @@ for metadata in "${metadata_files[@]}"; do
       oci_ref: $oci_ref,
       oci_digest: $oci_digest,
       bundle_digest: $bundle_digest,
-      upload_signature_digest: $upload_signature_digest,
       artifacts: $artifacts
     }' >>"${tmp}"
 done

@@ -44,11 +44,10 @@ jobs:
       COSIGN_CERTIFICATE_IDENTITY_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_IDENTITY_REGEXP }}
       COSIGN_CERTIFICATE_OIDC_ISSUER: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER }}
       COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ${{ secrets.COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP }}
-      PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
-      PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
-      PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
       # The per-arch pushed-artifact tarballs are signed with the agent release key
       # (the same key the agent verifies with), reusing the existing release signer.
+      # The OCI bundle's integrity is covered by the Cosign signature; there is no
+      # bundle-level upload-signature for native add-ons (unlike wasm plugins).
       SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY: ${{ secrets.SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY }}
       FORGEJO_TOKEN: ${{ secrets.FORGEJO_TOKEN }}
       FORGEJO_URL: http://forgejo-http.forgejo.svc.cluster.local:3000
@@ -132,10 +131,6 @@ jobs:
           set -euo pipefail
           if [[ -z "${SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY:-}" ]]; then
             echo "Missing agent release signing key. Set SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY." >&2
-            exit 1
-          fi
-          if [[ -z "${PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY:-}" ]]; then
-            echo "Missing upload signing key. Set PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY." >&2
             exit 1
           fi
 

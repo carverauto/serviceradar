@@ -152,15 +152,14 @@ def declare_native_addon_targets(addon_bundles):
             )
             tarball_outputs.append(":{}_tarballs".format(name))
 
-        # Publishes the OCI artifact: bundle zip + bundle-level upload-signature +
-        # (per produce_tarball) each per-arch tarball + its agent-release ed25519
-        # signature. Mirrors the wasm plugin _push targets; reuses the wasm
-        # upload_signature_tool for the bundle-level signature.
+        # Publishes the OCI artifact: bundle zip + (per produce_tarball) each per-arch
+        # tarball + its agent-release ed25519 signature. The bundle's integrity is
+        # covered by the Cosign signature over the OCI artifact (no bundle-level
+        # ed25519). Mirrors the wasm plugin _push targets.
         push_data = [
             ":{}_zip".format(name),
             ":{}_metadata".format(name),
             ":addon_artifact_signature_tool",
-            "//build/wasm_plugins:upload_signature_tool",
         ]
         if produce_tarball:
             push_data.append(":{}_tarballs".format(name))
@@ -174,8 +173,6 @@ def declare_native_addon_targets(addon_bundles):
                 "$(location :{}_metadata)".format(name),
                 "--oras",
                 "oras",
-                "--upload-signature-tool",
-                "$(location //build/wasm_plugins:upload_signature_tool)",
                 "--artifact-signature-tool",
                 "$(location :addon_artifact_signature_tool)",
             ],
