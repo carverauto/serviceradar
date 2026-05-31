@@ -18,6 +18,7 @@ metadata.json alongside the bare-binary sha256.
 """
 
 load("@io_bazel_rules_go//go:def.bzl", "go_cross_binary")
+load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 
 _ADDON_ARTIFACT_TYPE = "application/vnd.serviceradar.native-addon.bundle.v1+zip"
 _BUNDLE_MEDIA_TYPE = "application/zip"
@@ -28,6 +29,7 @@ def declare_native_addon_targets(addon_bundles):
     metadata_outputs = []
     binary_outputs = []
     tarball_outputs = []
+    push_targets = []
 
     for bundle in addon_bundles:
         name = bundle["name"]
@@ -150,6 +152,38 @@ def declare_native_addon_targets(addon_bundles):
             )
             tarball_outputs.append(":{}_tarballs".format(name))
 
+        # Publishes the OCI artifact: bundle zip + bundle-level upload-signature +
+        # (per produce_tarball) each per-arch tarball + its agent-release ed25519
+        # signature. Mirrors the wasm plugin _push targets; reuses the wasm
+        # upload_signature_tool for the bundle-level signature.
+        push_data = [
+            ":{}_zip".format(name),
+            ":{}_metadata".format(name),
+            ":addon_artifact_signature_tool",
+            "//build/wasm_plugins:upload_signature_tool",
+        ]
+        if produce_tarball:
+            push_data.append(":{}_tarballs".format(name))
+        sh_binary(
+            name = "{}_push".format(name),
+            srcs = [":publish_addon.sh"],
+            args = [
+                "--bundle",
+                "$(location :{}_zip)".format(name),
+                "--metadata",
+                "$(location :{}_metadata)".format(name),
+                "--oras",
+                "oras",
+                "--upload-signature-tool",
+                "$(location //build/wasm_plugins:upload_signature_tool)",
+                "--artifact-signature-tool",
+                "$(location :addon_artifact_signature_tool)",
+            ],
+            data = push_data,
+            visibility = ["//visibility:public"],
+        )
+        push_targets.append(":{}_push".format(name))
+
     native.filegroup(
         name = "all_binaries",
         srcs = binary_outputs,
@@ -165,6 +199,12 @@ def declare_native_addon_targets(addon_bundles):
     native.filegroup(
         name = "all_tarballs",
         srcs = tarball_outputs,
+        visibility = ["//visibility:public"],
+    )
+
+    native.filegroup(
+        name = "all_push_targets",
+        srcs = push_targets,
         visibility = ["//visibility:public"],
     )
 
