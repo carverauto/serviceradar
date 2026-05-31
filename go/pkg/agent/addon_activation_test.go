@@ -435,3 +435,91 @@ func TestStageAddonArtifactVerifiesSignature(t *testing.T) {
 		t.Fatalf("want ErrAddonSignatureInvalid, got %v", err)
 	}
 }
+
+// stageTestAddon stages a payload as version `version` of add-on `addonID` under root,
+// publishing the `current` symlink, for the rollback tests below.
+func stageTestAddon(t *testing.T, root, version string, payload []byte) {
+	t.Helper()
+	const addonID = "np"
+	key := "addons/" + addonID + "/" + version
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           addonID,
+		Version:           version,
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+	}
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		t.Fatalf("stage %s %s: %v", addonID, version, err)
+	}
+}
+
+func TestRollbackAddonCurrentRestoresPriorVersion(t *testing.T) {
+	root := t.TempDir()
+	addonDir := filepath.Join(root, "np")
+
+	stageTestAddon(t, root, "1.0.0", []byte("v1-binary"))
+	prior, ok := readAddonCurrentTarget(addonDir)
+	if !ok || prior != filepath.Join(addonVersionsDir, "1.0.0") {
+		t.Fatalf("prior target = %q ok=%v, want versions/1.0.0", prior, ok)
+	}
+
+	// A new version is staged and becomes current...
+	stageTestAddon(t, root, "2.0.0", []byte("v2-binary"))
+	if cur, _ := readAddonCurrentTarget(addonDir); cur != filepath.Join(addonVersionsDir, "2.0.0") {
+		t.Fatalf("current after staging v2 = %q, want versions/2.0.0", cur)
+	}
+
+	// ...then a downstream activation step fails, so we roll current back to v1.
+	if err := rollbackAddonCurrent(root, "np", prior); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if cur, _ := readAddonCurrentTarget(addonDir); cur != filepath.Join(addonVersionsDir, "1.0.0") {
+		t.Fatalf("current after rollback = %q, want versions/1.0.0", cur)
+	}
+	data, err := os.ReadFile(filepath.Join(addonDir, addonCurrentLink, "serviceradar-np-addon"))
+	if err != nil || !bytes.Equal(data, []byte("v1-binary")) {
+		t.Fatalf("rollback did not restore v1 binary via current: data=%q err=%v", data, err)
+	}
+}
+
+func TestRollbackAddonCurrentNoPriorRemovesSymlink(t *testing.T) {
+	root := t.TempDir()
+	addonDir := filepath.Join(root, "np")
+
+	// First-time activation: nothing to roll back to.
+	if _, ok := readAddonCurrentTarget(addonDir); ok {
+		t.Fatal("expected no current symlink before first stage")
+	}
+	stageTestAddon(t, root, "1.0.0", []byte("v1"))
+
+	if err := rollbackAddonCurrent(root, "np", ""); err != nil {
+		t.Fatalf("rollback: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(addonDir, addonCurrentLink)); !os.IsNotExist(err) {
+		t.Fatalf("current symlink should be removed on no-prior rollback, lstat err=%v", err)
+	}
+}
+
+func TestRollbackAddonCurrentTargetMissing(t *testing.T) {
+	root := t.TempDir()
+	addonDir := filepath.Join(root, "np")
+
+	stageTestAddon(t, root, "1.0.0", []byte("v1"))
+	prior, _ := readAddonCurrentTarget(addonDir)
+	stageTestAddon(t, root, "2.0.0", []byte("v2"))
+
+	// The prior version dir is gone, so rollback must refuse rather than dangle.
+	if err := os.RemoveAll(filepath.Join(addonDir, addonVersionsDir, "1.0.0")); err != nil {
+		t.Fatalf("remove prior version dir: %v", err)
+	}
+	if err := rollbackAddonCurrent(root, "np", prior); !errors.Is(err, ErrAddonRollbackTargetMissing) {
+		t.Fatalf("want ErrAddonRollbackTargetMissing, got %v", err)
+	}
+}
+
+func TestRollbackAddonCurrentRejectsUnsafeID(t *testing.T) {
+	if err := rollbackAddonCurrent(t.TempDir(), "../etc", filepath.Join(addonVersionsDir, "1.0.0")); !errors.Is(err, ErrAddonUnsafePath) {
+		t.Fatalf("want ErrAddonUnsafePath, got %v", err)
+	}
+}

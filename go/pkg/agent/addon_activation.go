@@ -67,6 +67,10 @@ var (
 	// ErrAddonUnsafePath is returned when an add-on id or version would not form a
 	// single safe path segment under the staging root (path-traversal guard).
 	ErrAddonUnsafePath = errors.New("addon id or version is not a safe path segment")
+	// ErrAddonRollbackTargetMissing is returned when a rollback is asked to restore the
+	// `current` symlink to a prior version whose staged directory no longer exists, so
+	// restoring it would leave a dangling `current` pointing at nothing.
+	ErrAddonRollbackTargetMissing = errors.New("addon rollback target version is missing")
 )
 
 // safeAddonSegment reports whether s is safe to use as a single path component under
@@ -246,6 +250,65 @@ func switchAddonCurrentSymlink(addonDir, target string) error {
 	if err := os.Rename(tempPath, currentPath); err != nil {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("publish addon current symlink: %w", err)
+	}
+
+	return nil
+}
+
+// readAddonCurrentTarget returns the target of the add-on's `current` symlink (the
+// relative versions/<version> path it points at) and whether it exists. Callers
+// capture this BEFORE staging a new version so they can roll the symlink back to the
+// previously-active version if a subsequent activation step (capability application,
+// unit install, launch) fails. ok is false when no `current` symlink is present yet
+// (a first-time activation has nothing to roll back to).
+func readAddonCurrentTarget(addonDir string) (string, bool) {
+	target, err := os.Readlink(filepath.Join(addonDir, addonCurrentLink))
+	if err != nil {
+		return "", false
+	}
+
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return "", false
+	}
+
+	return target, true
+}
+
+// rollbackAddonCurrent restores an add-on's `current` symlink after a failed
+// activation. When priorTarget is empty the activation was a first-time install with
+// no previous version, so `current` is removed (the add-on simply does not activate).
+// Otherwise `current` is atomically re-pointed at priorTarget; if that prior version
+// directory no longer exists, rollback fails with ErrAddonRollbackTargetMissing rather
+// than publishing a dangling symlink. addonID is validated as a safe path segment to
+// keep the staging-root traversal guarantees that stageAddonArtifact relies on.
+func rollbackAddonCurrent(root, addonID, priorTarget string) error {
+	if !safeAddonSegment(addonID) {
+		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+
+	addonDir := filepath.Join(root, addonID)
+	currentPath := filepath.Join(addonDir, addonCurrentLink)
+
+	if priorTarget == "" {
+		// No previous version to restore to: drop the symlink so a failed first-time
+		// activation does not leave `current` pointing at the unusable new version.
+		if err := os.Remove(currentPath); err != nil && !os.IsNotExist(err) {
+			return fmt.Errorf("remove addon current symlink during rollback: %w", err)
+		}
+
+		return nil
+	}
+
+	// Refuse to restore a symlink to a version directory that is gone, which would
+	// leave `current` dangling. priorTarget is a trusted value previously read from
+	// our own symlink, but verify the directory is still present before re-pointing.
+	if info, err := os.Stat(filepath.Join(addonDir, priorTarget)); err != nil || !info.IsDir() {
+		return fmt.Errorf("%w: %s", ErrAddonRollbackTargetMissing, priorTarget)
+	}
+
+	if err := switchAddonCurrentSymlink(addonDir, priorTarget); err != nil {
+		return fmt.Errorf("restore addon current symlink during rollback: %w", err)
 	}
 
 	return nil
