@@ -1,9 +1,24 @@
 ## 1. Add-on manifest & bundle
 
-- [ ] 1.1 Author `addons/netprobe/addon.yaml` (kind: capability; delivery: pushed-artifact; supervision: systemd-service; host-network-visibility capability id; `requires` the `cap_net_raw,cap_bpf,cap_perfmon` file capabilities + linux platforms) and `addons/netprobe/config.schema.json` mirroring the `monitoring.VisibilityConfig` operator surface (capture interfaces, DPI toggle, default sample interval, flow-table max entries)
-- [ ] 1.2 Validate `addons/netprobe/addon.yaml` against the manifest JSON-Schema + validator from `add-native-addon-build-signing`
-- [ ] 1.3 Wire a `netprobe` bundle into `build/native_addons/addon_inventory.bzl` (the `//rust/netprobe` binary + systemd unit + config) producing per-arch signed bundles; confirm the Rust binary is packaged per `(os, arch)`
-- [ ] 1.4 Retire base-package delivery of netprobe: remove `serviceradar-netprobe` from `build/packaging/packages.bzl` / `build/packaging/agent/BUILD.bazel` and move the `setcap cap_net_raw,cap_bpf,cap_perfmon` step out of the agent post-install into the add-on install path; confirm the base `serviceradar-agent` package installs no netprobe binary, unit, or capability grant
+- [x] 1.1 Author `addons/netprobe/addon.yaml` (kind: native; delivery: pushed-artifact; supervision: systemd-service; `host-network-visibility` capability; `requires` `CAP_NET_RAW,CAP_BPF,CAP_PERFMON` + linux platforms) and `addons/netprobe/config.schema.json` mirroring the `VisibilityAgentConfig` operator surface (capture_interfaces, dpi toggle+protocols, default/per-device sample interval, flow_table_max_entries, process_snapshot_interval_s, external_flow_match_window_ms, device_bindings).
+  — `kind: capability` in the original wording is `kind: native` per the schema enum.
+- [x] 1.2 Validate `addons/netprobe/addon.yaml` against the manifest JSON-Schema + validator (`go/tools/addon-manifest-validator`) — passes (`OK addons/netprobe/addon.yaml`).
+- [ ] 1.3 Wire a `netprobe` bundle into `build/native_addons/addon_inventory.bzl`
+  (`netprobe_addon_bundle`: `//rust/netprobe:netprobe`, `binary_name`
+  `serviceradar-netprobe`, linux amd64/arm64, manifest + config, `pushed_artifact_tarball`)
+  producing per-arch pushed-artifact tarballs. **Partial:** the systemd **unit** is not
+  shipped in the bundle yet — netprobe's unit `ExecStart`/socket lifecycle is the
+  standalone-vs-agent-launched **open question** (netprobe's `--socket` is required and
+  the agent currently owns that socket; see Open Questions). Deferred to §2.1 so a wrong
+  lifecycle is not baked into a shipped unit.
+- [x] 1.4 Retire base-package delivery of netprobe: removed `//rust/netprobe` from
+  `build/packaging/packages.bzl` and both release-runtime archives in
+  `build/packaging/agent/BUILD.bazel`, and removed the `setcap cap_net_raw,cap_bpf,cap_perfmon`
+  step from the agent post-install (capabilities are now applied to the staged add-on
+  binary by the root-owned `agent-updater` per the assignment's `os_capabilities`). The
+  base `serviceradar-agent` package installs no netprobe binary or capability grant
+  (no netprobe refs remain under `build/packaging`); the `//rust/netprobe` build target
+  is retained for the add-on bundle. Also tracked as delivery-models §1.1.
 
 ## 2. Agent delivery & supervision (consumes delivery-models)
 

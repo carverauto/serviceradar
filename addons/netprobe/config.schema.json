@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Host Network Visibility (netprobe) Configuration",
+  "description": "Operator-facing netprobe config. Mirrors proto agent.netprobe.v1.VisibilityAgentConfig; the agent translates monitoring VisibilityConfig into this shape and pushes it to netprobe over IPC.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Master switch for capture. When false, netprobe stays up for lifecycle IPC but captures nothing.",
+      "default": false
+    },
+    "capture_interfaces": {
+      "type": "array",
+      "title": "Capture interfaces",
+      "description": "Allowlist of NIC names to capture on. Empty means no interfaces are captured.",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "default_sample_interval_ms": {
+      "type": "integer",
+      "title": "Default sample interval (ms)",
+      "description": "Default per-device fingerprint sampling interval; overridable per device binding.",
+      "minimum": 0
+    },
+    "flow_table_max_entries": {
+      "type": "integer",
+      "title": "Flow table max entries",
+      "description": "Upper bound on the in-memory flow table. 0 means auto (interface count x 65536).",
+      "minimum": 0,
+      "default": 0
+    },
+    "process_snapshot_interval_s": {
+      "type": "integer",
+      "title": "Process snapshot interval (s)",
+      "description": "How often eBPF process-attribution snapshots are emitted.",
+      "minimum": 0,
+      "default": 30
+    },
+    "external_flow_match_window_ms": {
+      "type": "integer",
+      "title": "External flow match window (ms)",
+      "description": "Temporal window for matching external (non-process) flows by 5-tuple.",
+      "minimum": 0
+    },
+    "dpi": { "$ref": "#/$defs/dpi" },
+    "device_bindings": {
+      "type": "array",
+      "title": "Per-device bindings",
+      "description": "Per-IP capture overrides.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ip"],
+        "properties": {
+          "ip": { "type": "string", "minLength": 1 },
+          "profile_id": { "type": "string" },
+          "profile_name": { "type": "string" },
+          "sample_interval_ms": { "type": "integer", "minimum": 0 },
+          "fingerprint": {
+            "type": "object",
+            "additionalProperties": false,
+            "title": "Per-protocol fingerprint toggles",
+            "properties": {
+              "tcp": { "type": "boolean" },
+              "tls": { "type": "boolean" },
+              "http": { "type": "boolean" }
+            }
+          },
+          "dpi": { "$ref": "#/$defs/dpi" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "dpi": {
+      "type": "object",
+      "title": "DPI configuration",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "protocols": {
+          "type": "array",
+          "description": "Protocol identifiers to inspect (e.g. \"tls\", \"http\", \"dns\").",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 }
+        }
+      }
+    }
+  }
+}
