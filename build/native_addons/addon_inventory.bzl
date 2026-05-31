@@ -29,6 +29,10 @@ ADDON_BUNDLES = [
             ("addon.yaml", "//addons/sample-addon:addon.yaml"),
             ("config.schema.json", "//addons/sample-addon:config.schema.json"),
         ],
+        # Also emit the per-arch pushed-artifact gzip tarball (binary + manifest +
+        # config schema) the agent fetches/verifies/extracts. unit_entries would add
+        # systemd units here for a systemd-supervised add-on (e.g. netprobe).
+        "pushed_artifact_tarball": True,
     },
     {
         # Rust reference add-on (issue 3425). Proves the framework's polyglot
@@ -50,5 +54,6 @@ ADDON_BUNDLES = [
             ("addon.yaml", "//addons/rust-sample-addon:addon.yaml"),
             ("config.schema.json", "//addons/rust-sample-addon:config.schema.json"),
         ],
+        "pushed_artifact_tarball": True,
     },
 ]

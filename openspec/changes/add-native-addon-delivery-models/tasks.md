@@ -23,11 +23,20 @@
 - [ ] 1.2 Define the signed `pushed-artifact` tarball format and the optional
   `os-package` add-on template (depends on `serviceradar-agent`, dormant on
   install). (§3.2)
-  — Status: partial — the agent-side tarball format + extraction is implemented:
-  `stageAddonArtifact` auto-detects a gzip tarball bundling the binary + manifest/config
-  + systemd units and extracts it under `current/` (traversal/symlink/hardlink/bomb
-  guarded; a bare binary still works). Remaining: the BUILD produces the per-arch signed
-  tarball, and the `os-package` add-on template.
+  — Status: partial — both the agent-side extraction and the build-side production are
+  implemented. Agent: `stageAddonArtifact` auto-detects a gzip tarball bundling the
+  binary + manifest/config + systemd units and extracts it under `current/`
+  (traversal/symlink/hardlink/bomb guarded; a bare binary still works). Build:
+  `assemble_addon_bundle.py` gained `--tarball os/arch=out`, producing a deterministic
+  (mtime=0, uid/gid=0, sorted, gzip mtime=0) gzip tarball per arch — binary 0755, the
+  manifest/config + any `unit_entries` units 0644, all flattened to single-segment names
+  matching `extractAddonTarball`; its name + sha256 are recorded per-arch in
+  metadata.json. `defs.bzl` emits `{name}.{os}.{arch}.tar.gz` + an `all_tarballs`
+  filegroup for bundles that set `pushed_artifact_tarball: True` (both samples do).
+  Verified locally: layout/modes, byte-for-byte reproducibility across runs,
+  metadata sha match, and backward-compat (no `--tarball` → unchanged output).
+  Remaining: signing the tarball (build-signing change, secret-blocked) and the
+  `os-package` add-on template.
 
 ## 2. Delivery dispatch
 - [x] 2.1 Agent add-on manager dispatches an assignment to its delivery model:

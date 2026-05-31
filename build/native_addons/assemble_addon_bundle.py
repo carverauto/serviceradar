@@ -8,8 +8,11 @@ is deterministic: entries sorted by archive path, timestamps zeroed to 1980.
 """
 
 import argparse
+import gzip
 import hashlib
+import io
 import json
+import tarfile
 import zipfile
 from pathlib import Path
 
@@ -28,6 +31,8 @@ def parse_args():
     parser.add_argument("--entry", action="append", default=[])
     # Per-arch executables (mode 0755): os/arch=archive_path=source_path
     parser.add_argument("--artifact", action="append", default=[])
+    # Per-arch pushed-artifact tarball outputs: os/arch=out_path
+    parser.add_argument("--tarball", action="append", default=[])
     return parser.parse_args()
 
 
@@ -53,6 +58,49 @@ def normalize_artifacts(raw_artifacts):
         os_name, _, arch = platform.partition("/")
         artifacts.append((os_name, arch, archive_path, Path(source_path)))
     return artifacts
+
+
+def normalize_tarballs(raw_tarballs):
+    tarballs = {}
+    for raw in raw_tarballs:
+        platform, sep, out_path = raw.partition("=")
+        if not sep:
+            raise ValueError(f"invalid --tarball value: {raw}")
+        os_name, _, arch = platform.partition("/")
+        tarballs[(os_name, arch)] = Path(out_path)
+    return tarballs
+
+
+def _deterministic_tarinfo(name: str, size: int, mode: int) -> tarfile.TarInfo:
+    info = tarfile.TarInfo(name)
+    info.size = size
+    info.mode = mode
+    info.mtime = 0
+    info.uid = 0
+    info.gid = 0
+    info.uname = ""
+    info.gname = ""
+    info.type = tarfile.REGTYPE
+    return info
+
+
+def write_tarball(out_path: Path, binary_name: str, binary_source: Path, file_members):
+    """Produce a deterministic gzip tarball matching the agent's extractAddonTarball:
+    flat single-segment entries, the binary at 0755 and manifest/config/units at 0644."""
+    members = [(binary_name, binary_source, 0o755)]
+    for archive_path, source_path, _executable in file_members:
+        members.append((Path(archive_path).name, source_path, 0o644))
+
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode="w") as tar:
+        for name, source_path, mode in sorted(members, key=lambda m: m[0]):
+            data = source_path.read_bytes()
+            tar.addfile(_deterministic_tarinfo(name, len(data), mode), io.BytesIO(data))
+    with out_path.open("wb") as fh:
+        # mtime=0 keeps the gzip header (and thus the sha256) reproducible.
+        with gzip.GzipFile(fileobj=fh, mode="wb", mtime=0) as gz:
+            gz.write(raw.getvalue())
 
 
 def write_zip(bundle_path: Path, members):
@@ -181,6 +229,7 @@ def main():
 
     file_members = normalize_entries(args.entry)
     artifacts = normalize_artifacts(args.artifact)
+    tarballs = normalize_tarballs(args.tarball)
     binary_members = [
         (archive_path, source_path, True)
         for (_os, _arch, archive_path, source_path) in artifacts
@@ -197,18 +246,31 @@ def main():
     sha_path.parent.mkdir(parents=True, exist_ok=True)
     sha_path.write_text(f"{digest}\n", encoding="utf-8")
 
-    artifact_meta = sorted(
-        [
-            {
-                "os": os_name,
-                "arch": arch,
-                "archive_path": archive_path,
-                "sha256": sha256_bytes(source_path.read_bytes()),
-            }
-            for (os_name, arch, archive_path, source_path) in artifacts
-        ],
-        key=lambda item: (item["os"], item["arch"]),
-    )
+    # Produce the per-arch pushed-artifact tarball (flat: binary + manifest/config/units)
+    # the agent fetches and extracts; record its name + sha256 alongside the bare binary.
+    tarball_meta = {}
+    for (os_name, arch, archive_path, source_path) in artifacts:
+        out_path = tarballs.get((os_name, arch))
+        if out_path is None:
+            continue
+        binary_name = Path(archive_path).name
+        write_tarball(out_path, binary_name, source_path, file_members)
+        tarball_meta[(os_name, arch)] = (out_path.name, sha256_file(out_path))
+
+    artifact_meta = []
+    for (os_name, arch, archive_path, source_path) in artifacts:
+        entry = {
+            "os": os_name,
+            "arch": arch,
+            "archive_path": archive_path,
+            "sha256": sha256_bytes(source_path.read_bytes()),
+        }
+        if (os_name, arch) in tarball_meta:
+            tarball_file, tarball_sha256 = tarball_meta[(os_name, arch)]
+            entry["tarball_file"] = tarball_file
+            entry["tarball_sha256"] = tarball_sha256
+        artifact_meta.append(entry)
+    artifact_meta.sort(key=lambda item: (item["os"], item["arch"]))
 
     metadata = {
         "addon_id": args.addon_id,
