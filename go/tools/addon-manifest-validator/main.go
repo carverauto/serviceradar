@@ -62,7 +62,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	if len(manifests) == 0 {
 		matched, err := filepath.Glob(*glob)
 		if err != nil {
-			fmt.Fprintf(stderr, "error: invalid glob %q: %v\n", *glob, err)
+			_, _ = fmt.Fprintf(stderr, "error: invalid glob %q: %v\n", *glob, err)
 			return 2
 		}
 
@@ -71,7 +71,7 @@ func run(args []string, stdout, stderr *os.File) int {
 	}
 
 	if len(manifests) == 0 {
-		fmt.Fprintf(stderr, "error: no add-on manifests to validate (glob %q matched nothing)\n", *glob)
+		_, _ = fmt.Fprintf(stderr, "error: no add-on manifests to validate (glob %q matched nothing)\n", *glob)
 		return 2
 	}
 
@@ -80,33 +80,33 @@ func run(args []string, stdout, stderr *os.File) int {
 	for _, path := range manifests {
 		data, err := os.ReadFile(path) //nolint:gosec // path is an operator-supplied manifest location.
 		if err != nil {
-			fmt.Fprintf(stderr, "error: reading %s: %v\n", path, err)
+			_, _ = fmt.Fprintf(stderr, "error: reading %s: %v\n", path, err)
 			return 2
 		}
 
 		res, err := manifestschema.ValidateYAML(data)
 		if err != nil {
-			fmt.Fprintf(stderr, "FAIL %s: %v\n", path, err)
+			_, _ = fmt.Fprintf(stderr, "FAIL %s: %v\n", path, err)
 			failed = true
 			continue
 		}
 
 		if !res.OK() {
 			failed = true
-			fmt.Fprintf(stderr, "FAIL %s: %d schema violation(s)\n", path, len(res.Errors))
+			_, _ = fmt.Fprintf(stderr, "FAIL %s: %d schema violation(s)\n", path, len(res.Errors))
 			for _, e := range res.Errors {
-				fmt.Fprintf(stderr, "  - %s\n", e.String())
+				_, _ = fmt.Fprintf(stderr, "  - %s\n", e.String())
 			}
 			continue
 		}
 
 		if !*quiet {
-			fmt.Fprintf(stdout, "OK   %s\n", path)
+			_, _ = fmt.Fprintf(stdout, "OK   %s\n", path)
 		}
 	}
 
 	if failed {
-		fmt.Fprintln(stderr, "addon-manifest-validator: one or more manifests are invalid; failing closed")
+		_, _ = fmt.Fprintln(stderr, "addon-manifest-validator: one or more manifests are invalid; failing closed")
 		return 1
 	}
 

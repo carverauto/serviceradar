@@ -30,6 +30,7 @@ package manifestschema
 import (
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -38,6 +39,10 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// errNonStringMappingKey is returned when a YAML mapping uses a non-string key,
+// which the JSON value model the validator targets cannot represent.
+var errNonStringMappingKey = errors.New("non-string mapping key")
 
 // SchemaJSON is the embedded native-addon manifest JSON-Schema. The schema file is
 // copied next to this package by go:generate-free embedding (see the //go:embed
@@ -68,7 +73,7 @@ type Result struct {
 // OK reports whether the manifest satisfied the schema.
 func (r *Result) OK() bool { return len(r.Errors) == 0 }
 
-func (r *Result) add(path, format string, args ...any) {
+func (r *Result) addf(path, format string, args ...any) {
 	r.Errors = append(r.Errors, Error{Path: path, Message: fmt.Sprintf(format, args...)})
 }
 
@@ -124,7 +129,7 @@ func normalizeYAML(value any) (any, error) {
 		for key, elem := range v {
 			keyStr, ok := key.(string)
 			if !ok {
-				return nil, fmt.Errorf("non-string mapping key %v (%T)", key, key)
+				return nil, fmt.Errorf("%w: %v (%T)", errNonStringMappingKey, key, key)
 			}
 
 			normalized, err := normalizeYAML(elem)
@@ -201,7 +206,7 @@ func checkType(res *Result, path string, schema map[string]any, value any) bool 
 		return true
 	}
 
-	res.add(path, "expected type %q, got %s", want, jsonType(value))
+	res.addf(path, "expected type %q, got %s", want, jsonType(value))
 
 	return false
 }
@@ -273,7 +278,7 @@ func checkEnum(res *Result, path string, schema map[string]any, value any) {
 		allowed = append(allowed, fmt.Sprintf("%v", candidate))
 	}
 
-	res.add(path, "value %q is not one of the allowed values [%s]",
+	res.addf(path, "value %q is not one of the allowed values [%s]",
 		fmt.Sprintf("%v", value), strings.Join(allowed, ", "))
 }
 
@@ -284,15 +289,15 @@ func checkString(res *Result, path string, schema map[string]any, value any) {
 	}
 
 	if minLen, ok := schema["minLength"].(float64); ok && float64(len(str)) < minLen {
-		res.add(path, "string is shorter than minLength %d", int(minLen))
+		res.addf(path, "string is shorter than minLength %d", int(minLen))
 	}
 
 	if pattern, ok := schema["pattern"].(string); ok {
 		re, err := regexp.Compile(pattern)
 		if err != nil {
-			res.add(path, "schema pattern %q is invalid: %v", pattern, err)
+			res.addf(path, "schema pattern %q is invalid: %v", pattern, err)
 		} else if !re.MatchString(str) {
-			res.add(path, "string %q does not match pattern %q", str, pattern)
+			res.addf(path, "string %q does not match pattern %q", str, pattern)
 		}
 	}
 }
@@ -304,7 +309,7 @@ func checkNumber(res *Result, path string, schema map[string]any, value any) {
 	}
 
 	if minimum, ok := schema["minimum"].(float64); ok && num < minimum {
-		res.add(path, "value %v is less than minimum %v", num, minimum)
+		res.addf(path, "value %v is less than minimum %v", num, minimum)
 	}
 }
 
@@ -322,7 +327,7 @@ func checkObject(res *Result, path string, schema map[string]any, value any) {
 			}
 
 			if _, present := obj[field]; !present {
-				res.add(joinPath(path, field), "required field is missing")
+				res.addf(joinPath(path, field), "required field is missing")
 			}
 		}
 	}
@@ -337,7 +342,7 @@ func checkObject(res *Result, path string, schema map[string]any, value any) {
 				}
 			}
 
-			res.add(joinPath(path, key), "unknown property is not permitted")
+			res.addf(joinPath(path, key), "unknown property is not permitted")
 		}
 	}
 
@@ -367,11 +372,11 @@ func checkArray(res *Result, path string, schema map[string]any, value any) {
 	}
 
 	if minItems, ok := schema["minItems"].(float64); ok && float64(len(arr)) < minItems {
-		res.add(path, "array has fewer than minItems %d", int(minItems))
+		res.addf(path, "array has fewer than minItems %d", int(minItems))
 	}
 
 	if maxItems, ok := schema["maxItems"].(float64); ok && float64(len(arr)) > maxItems {
-		res.add(path, "array has more than maxItems %d", int(maxItems))
+		res.addf(path, "array has more than maxItems %d", int(maxItems))
 	}
 
 	if unique, ok := schema["uniqueItems"].(bool); ok && unique {
@@ -379,7 +384,7 @@ func checkArray(res *Result, path string, schema map[string]any, value any) {
 		for i, item := range arr {
 			for _, prev := range seen {
 				if equalJSON(prev, item) {
-					res.add(fmt.Sprintf("%s[%d]", path, i), "duplicate array item is not permitted (uniqueItems)")
+					res.addf(fmt.Sprintf("%s[%d]", path, i), "duplicate array item is not permitted (uniqueItems)")
 					break
 				}
 			}
