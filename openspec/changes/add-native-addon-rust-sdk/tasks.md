@@ -16,7 +16,7 @@
   like a first-party add-on.
 
 ## 3. Reference consumer manifest
-- [x] 3.1 Author `addons/fingerprintd/addon.yaml` (`pushed-artifact` / `agent-sidecar`,
+- [x] 3.1 Author `addons/rust-sample-addon/addon.yaml` (`pushed-artifact` / `agent-sidecar`,
   `language: rust`) and confirm the contract expresses it without gaps. (§9.1)
 
 ## 4. Validation
