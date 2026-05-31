@@ -139,7 +139,7 @@ func TestManagerLaunchesRustAddonOverGoPlugin(t *testing.T) {
 	// line, the go-plugin client completed AutoMTLS against the Rust server,
 	// pinged the gRPC health service, dispensed the addon, and the Manager
 	// successfully called Configure + Info over the supervised mTLS connection.
-	s := waitForState(t, mgr, "rust-sample", StateRunning, 20*time.Second)
+	s := waitForState(t, mgr, "rust-sample", 20*time.Second)
 	if s.Version != "0.1.0" {
 		t.Fatalf("expected version 0.1.0 reported via Info, got %q", s.Version)
 	}
@@ -177,7 +177,7 @@ func TestManagerStopsRustAddon(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	waitForState(t, mgr, "rust-sample", StateRunning, 20*time.Second)
+	waitForState(t, mgr, "rust-sample", 20*time.Second)
 
 	if err := mgr.Apply(context.Background(), nil); err != nil {
 		t.Fatalf("apply empty: %v", err)
