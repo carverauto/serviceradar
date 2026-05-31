@@ -3,10 +3,11 @@
 > Implements the agent-side delivery/supervision models beyond agent-sidecar from
 > `add-agent-feature-sets`. Task numbers in parentheses map back to that change.
 
-> **In progress** (branch `feat/native-addon-delivery-models`). The `pushed_artifact`
-> fetch → verify → stage → activate path is implemented end to end (agent + generator
-> artifact reference). Remaining: rollback + `agent-updater` capability application,
-> the other delivery/supervision models, the LKG cache, and the packaging carve.
+> **In progress.** The `pushed_artifact` fetch → verify → stage → activate path is
+> implemented end to end, now including explicit rollback and `agent-updater`
+> file-capability application (setcap), plus the LKG cache. Remaining: the other
+> delivery/supervision models (systemd-service/timer, ephemeral-helper) and the base
+> packaging carve.
 
 ## 0. Artifact reference plumbing (prerequisite)
 - [x] 0.1 Carry the per-arch artifact reference to the agent: `AddonAssignmentConfig`
@@ -32,13 +33,21 @@
   subprocess); `systemd_*`/`ephemeral_helper` are recognized but their supervision is
   not yet implemented (see 3.1/3.2); unknown models are reported unsupported. No model
   is silently mislabeled anymore.
-- [ ] 2.2 `pushed-artifact` activation: reuse `release_runtime.go` staged-dir +
+- [x] 2.2 `pushed-artifact` activation: reuse `release_runtime.go` staged-dir +
   `current`-symlink + rollback; verify `sha256` + signature; apply file capabilities
   per `requires.os_capabilities` via the root-owned `agent-updater`. (§6.5)
-  — Status: partial — `go/pkg/agent/addon_activation.go` does object-store fetch,
-  sha256 + ed25519 verify, versioned staging, and atomic `current` symlink (reusing
-  hashutil + the release ed25519 trust root). Remaining: explicit rollback of a prior
-  version and file-capability application via `agent-updater`.
+  — Done. `addon_activation.go` does fetch + sha256 + ed25519 verify + versioned
+  staging + atomic `current` symlink, plus explicit rollback primitives
+  (`readAddonCurrentTarget` captures the prior version; `rollbackAddonCurrent` restores
+  it or removes a failed first-time `current`, refusing a missing target). File
+  capabilities now flow end to end: `os_capabilities` added to `AddonAssignmentConfig`
+  (proto), emitted by `AgentConfigGenerator` from the manifest's `requires`, and applied
+  by `agent-updater`'s `--addon-id/--addon-binary/--addon-capabilities` mode
+  (`ApplyAddonCapabilities`: allowlist-bounded, safe-segment + symlink-escape guarded
+  `setcap`). `applyAddonAssignments` captures the prior version, stages, applies
+  capabilities, and on failure rolls back + keeps the last-known-good assignment.
+  Verified: unit tests for normalize/resolve/escape/rollback; real `setcap` exec +
+  allowlist + escape guards exercised on a Linux+root host.
 
 ## 3. Supervision models
 - [ ] 3.1 Wire `systemd-service` and `systemd-timer` (spool ingest). (§6.6)
