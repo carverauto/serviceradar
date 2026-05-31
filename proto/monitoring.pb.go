@@ -2409,8 +2409,12 @@ type AddonAssignmentConfig struct {
 	ArtifactSignature string `protobuf:"bytes,12,opt,name=artifact_signature,json=artifactSignature,proto3" json:"artifact_signature,omitempty"`   // Optional ed25519 signature over the artifact (verified when set)
 	TargetOs          string `protobuf:"bytes,13,opt,name=target_os,json=targetOs,proto3" json:"target_os,omitempty"`                              // OS of the selected artifact (e.g. linux)
 	TargetArch        string `protobuf:"bytes,14,opt,name=target_arch,json=targetArch,proto3" json:"target_arch,omitempty"`                        // Architecture of the selected artifact (e.g. amd64)
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	// Linux file capabilities (manifest `requires.os_capabilities`) the agent applies
+	// to the staged binary via the root-owned agent-updater before launch, e.g.
+	// ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
+	OsCapabilities []string `protobuf:"bytes,15,rep,name=os_capabilities,json=osCapabilities,proto3" json:"os_capabilities,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *AddonAssignmentConfig) Reset() {
@@ -2539,6 +2543,13 @@ func (x *AddonAssignmentConfig) GetTargetArch() string {
 		return x.TargetArch
 	}
 	return ""
+}
+
+func (x *AddonAssignmentConfig) GetOsCapabilities() []string {
+	if x != nil {
+		return x.OsCapabilities
+	}
+	return nil
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
@@ -5999,7 +6010,7 @@ const file_monitoring_proto_rawDesc = "" +
 	" \x01(\v2\x1c.monitoring.VisibilityConfigR\x10visibilityConfig\x12=\n" +
 	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\x12F\n" +
 	"\x10bumblebee_config\x18\f \x01(\v2\x1b.monitoring.BumblebeeConfigR\x0fbumblebeeConfig\x129\n" +
-	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\xe4\x03\n" +
+	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\"\x8d\x04\n" +
 	"\x15AddonAssignmentConfig\x12\x19\n" +
 	"\baddon_id\x18\x01 \x01(\tR\aaddonId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
@@ -6018,7 +6029,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x12artifact_signature\x18\f \x01(\tR\x11artifactSignature\x12\x1b\n" +
 	"\ttarget_os\x18\r \x01(\tR\btargetOs\x12\x1f\n" +
 	"\vtarget_arch\x18\x0e \x01(\tR\n" +
-	"targetArch\"\xc2\x02\n" +
+	"targetArch\x12'\n" +
+	"\x0fos_capabilities\x18\x0f \x03(\tR\x0eosCapabilities\"\xc2\x02\n" +
 	"\x10AgentConfigChunk\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +

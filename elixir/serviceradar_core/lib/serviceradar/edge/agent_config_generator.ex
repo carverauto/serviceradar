@@ -438,6 +438,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       args: assignment.args || [],
       params: normalize_map(assignment.params),
       capabilities: effective_addon_capabilities(package),
+      os_capabilities: addon_os_capabilities(package),
       delivery: package.delivery,
       supervision: package.supervision,
       artifact_object_key: artifact[:object_key],
@@ -497,6 +498,24 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       approved -> approved
     end
   end
+
+  # Linux file capabilities the manifest declares under `requires.os_capabilities`.
+  # The agent applies these to the staged pushed-artifact binary via the root-owned
+  # agent-updater (setcap). Accepts string or atom keys and drops blanks.
+  defp addon_os_capabilities(%AddonPackage{requires: requires}) when is_map(requires) do
+    case requires["os_capabilities"] || requires[:os_capabilities] do
+      list when is_list(list) ->
+        list
+        |> Enum.map(&to_string/1)
+        |> Enum.map(&String.trim/1)
+        |> Enum.reject(&(&1 == ""))
+
+      _ ->
+        []
+    end
+  end
+
+  defp addon_os_capabilities(_), do: []
 
   defp addon_binary_path(%AddonPackage{binary: binary, install_path: install_path})
        when is_binary(binary) and binary != "" do
@@ -1168,6 +1187,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         args: addon[:args] || [],
         config_json: encode_json(normalize_map(addon[:params])),
         capabilities: addon[:capabilities] || [],
+        os_capabilities: addon[:os_capabilities] || [],
         delivery: assignment_enum_string(addon[:delivery]),
         supervision: assignment_enum_string(addon[:supervision]),
         artifact_object_key: assignment_string(addon[:artifact_object_key]),
