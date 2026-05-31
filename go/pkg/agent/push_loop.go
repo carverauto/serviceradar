@@ -120,6 +120,9 @@ type PushLoop struct {
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
 
+	systemdAddonsMu        sync.Mutex
+	installedSystemdAddons map[string][]string // systemd-supervised addon id -> installed unit names
+
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc

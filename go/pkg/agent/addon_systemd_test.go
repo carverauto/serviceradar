@@ -21,6 +21,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -135,5 +136,78 @@ func TestUninstallAddonSystemdUnitsValidation(t *testing.T) {
 	}
 	if err := UninstallAddonSystemdUnits(context.Background(), []string{"../evil.service"}); !errors.Is(err, ErrAddonUnitNameUnsafe) {
 		t.Fatalf("want ErrAddonUnitNameUnsafe, got %v", err)
+	}
+}
+
+func TestDiscoverStagedAddonUnits(t *testing.T) {
+	tmp := t.TempDir()
+	addonsRoot := filepath.Join(tmp, addonsDirName)
+	stageTestAddonUnit(t, addonsRoot, "serviceradar-np.timer", "[Timer]\n")
+	stageTestAddonUnit(t, addonsRoot, "serviceradar-np.service", "[Service]\nExecStart=/bin/true\n")
+	// A non-unit file in the staged dir (e.g. the binary) must be ignored.
+	versionDir := filepath.Join(addonsRoot, "np", addonVersionsDir, "1.0.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-np-addon"), []byte("bin"), 0o755); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+
+	got, err := discoverStagedAddonUnits(tmp, "np")
+	if err != nil {
+		t.Fatalf("discover: %v", err)
+	}
+	want := []string{"serviceradar-np.service", "serviceradar-np.timer"} // sorted, units only
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("discover = %v, want %v", got, want)
+	}
+
+	if _, err := discoverStagedAddonUnits(tmp, "../etc"); !errors.Is(err, ErrAddonUnsafePath) {
+		t.Fatalf("want ErrAddonUnsafePath for unsafe id, got %v", err)
+	}
+}
+
+func TestPickPrimarySystemdUnit(t *testing.T) {
+	units := []string{"x.service", "x.timer"}
+
+	if got, err := pickPrimarySystemdUnit(units, addonSupervisionSystemdTimer); err != nil || got != "x.timer" {
+		t.Fatalf("timer mode = %q,%v; want x.timer", got, err)
+	}
+	if got, err := pickPrimarySystemdUnit(units, addonSupervisionSystemdService); err != nil || got != "x.service" {
+		t.Fatalf("service mode = %q,%v; want x.service", got, err)
+	}
+
+	// Two timers -> ambiguous.
+	if _, err := pickPrimarySystemdUnit([]string{"a.timer", "b.timer"}, addonSupervisionSystemdTimer); !errors.Is(err, ErrAddonSystemdPrimaryAmbiguous) {
+		t.Fatalf("want ErrAddonSystemdPrimaryAmbiguous, got %v", err)
+	}
+	// No service for service mode -> ambiguous (zero matches).
+	if _, err := pickPrimarySystemdUnit([]string{"a.timer"}, addonSupervisionSystemdService); !errors.Is(err, ErrAddonSystemdPrimaryAmbiguous) {
+		t.Fatalf("want ErrAddonSystemdPrimaryAmbiguous for no service, got %v", err)
+	}
+	// Unknown supervision model.
+	if _, err := pickPrimarySystemdUnit(units, "agent_sidecar"); !errors.Is(err, ErrAddonSystemdSupervisionUnknown) {
+		t.Fatalf("want ErrAddonSystemdSupervisionUnknown, got %v", err)
+	}
+}
+
+func TestSystemdAddonsToRemove(t *testing.T) {
+	installed := map[string][]string{
+		"netprobe":  {"serviceradar-netprobe.service"},
+		"bumblebee": {"serviceradar-bumblebee.service", "serviceradar-bumblebee.timer"},
+		"gone":      {"gone.service"},
+	}
+
+	// netprobe + bumblebee still desired; "gone" is no longer assigned.
+	toRemove := systemdAddonsToRemove(installed, map[string]bool{"netprobe": true, "bumblebee": true})
+	if !reflect.DeepEqual(toRemove, map[string][]string{"gone": {"gone.service"}}) {
+		t.Fatalf("toRemove = %v, want only 'gone'", toRemove)
+	}
+
+	// All desired -> nothing to remove.
+	if got := systemdAddonsToRemove(installed, map[string]bool{"netprobe": true, "bumblebee": true, "gone": true}); got != nil {
+		t.Fatalf("expected nil when all desired, got %v", got)
+	}
+
+	// None desired -> all removed.
+	if got := systemdAddonsToRemove(installed, map[string]bool{}); len(got) != 3 {
+		t.Fatalf("expected all 3 removed when none desired, got %v", got)
 	}
 }
