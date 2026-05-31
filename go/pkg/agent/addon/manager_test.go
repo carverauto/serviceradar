@@ -99,16 +99,16 @@ func statusByID(m *Manager, id string) (Status, bool) {
 	return Status{}, false
 }
 
-func waitForState(t *testing.T, m *Manager, id string, want State, timeout time.Duration) Status {
+func waitForState(t *testing.T, m *Manager, id string, timeout time.Duration) Status {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		if s, ok := statusByID(m, id); ok && s.State == want {
+		if s, ok := statusByID(m, id); ok && s.State == StateRunning {
 			return s
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("addon %s did not reach state %s within %s; status=%+v", id, want, timeout, m.Status())
+	t.Fatalf("addon %s did not reach state %s within %s; status=%+v", id, StateRunning, timeout, m.Status())
 	return Status{}
 }
 
@@ -138,7 +138,7 @@ func TestManagerLaunchesConfiguresAndSupervises(t *testing.T) {
 		t.Fatalf("apply: %v", err)
 	}
 
-	s := waitForState(t, mgr, "sample", StateRunning, 15*time.Second)
+	s := waitForState(t, mgr, "sample", 15*time.Second)
 	if s.Version != "0.1.0" {
 		t.Fatalf("expected version 0.1.0 reported via Info, got %q", s.Version)
 	}
@@ -173,7 +173,7 @@ func TestManagerStopsRemovedAddon(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	waitForState(t, mgr, "sample", StateRunning, 15*time.Second)
+	waitForState(t, mgr, "sample", 15*time.Second)
 
 	if err := mgr.Apply(context.Background(), nil); err != nil {
 		t.Fatalf("apply empty: %v", err)
@@ -215,7 +215,7 @@ func TestManagerRestartsOnBinaryChange(t *testing.T) {
 	}}); err != nil {
 		t.Fatalf("apply: %v", err)
 	}
-	s1 := waitForState(t, mgr, "sample", StateRunning, 15*time.Second)
+	s1 := waitForState(t, mgr, "sample", 15*time.Second)
 	if s1.PID == 0 {
 		t.Skip("go-plugin did not report a PID; cannot assert relaunch")
 	}

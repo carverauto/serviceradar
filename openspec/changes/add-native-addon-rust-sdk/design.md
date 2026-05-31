@@ -9,8 +9,9 @@ can satisfy. The add-on gRPC service is already defined in `proto/agent/addon/v1
   client with no host-side changes; prove it with a reference add-on; keep the contract
   identical to the Go path.
 - Non-Goals: replacing go-plugin on the host; a general-purpose Rust framework beyond
-  what an add-on needs; migrating an existing capability (fingerprintd implementation is
-  follow-up).
+  what an add-on needs; migrating an existing capability (the real passive-fingerprinting
+  daemon is `netprobe`, migrated by `migrate-netprobe-to-native-addon`; this change ships
+  only the SDK + a `rust-sample` reference).
 
 ## Decisions
 - Decision: implement the go-plugin handshake + AutoMTLS in Rust against the existing

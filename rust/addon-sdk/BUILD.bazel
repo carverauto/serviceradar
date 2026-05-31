@@ -1,0 +1,73 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "all_crate_deps", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+# Generates the tonic/prost stubs for the language-agnostic add-on contract.
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2021",
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    data = [
+        "proto/agent/addon/v1/addon.proto",
+    ],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = crate_deps(["tonic-build"]),
+)
+
+ADDON_SDK_DEPS = crate_deps([
+    "anyhow",
+    "async-trait",
+    "base64",
+    "hex",
+    "prost",
+    "rcgen",
+    "rustls",
+    "rustls-pemfile",
+    "sha2",
+    "thiserror",
+    "tokio",
+    "tokio-rustls",
+    "tokio-stream",
+    "tonic",
+    "tonic-health",
+]) + [":build_script"]
+
+rust_library(
+    name = "addon_sdk",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
+    crate_root = "src/lib.rs",
+    crate_name = "addon_sdk",
+    edition = "2021",
+    deps = ADDON_SDK_DEPS,
+    visibility = ["//visibility:public"],
+)
+
+# Rust reference add-on, mirroring //go/cmd/serviceradar-sample-addon. Supervised
+# by the agent's go-plugin client as an agent-sidecar to prove Go<->Rust interop.
+rust_binary(
+    name = "serviceradar-rust-sample-addon",
+    srcs = ["src/bin/rust_sample_addon.rs"],
+    crate_root = "src/bin/rust_sample_addon.rs",
+    edition = "2021",
+    deps = ADDON_SDK_DEPS + [":addon_sdk"],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "addon_sdk_handshake_mtls_test",
+    srcs = ["tests/handshake_mtls.rs"],
+    crate_root = "tests/handshake_mtls.rs",
+    edition = "2021",
+    deps = ADDON_SDK_DEPS + [":addon_sdk"] + crate_deps([
+        "tempfile",
+        "tower",
+        "hyper-util",
+        "rcgen",
+    ]),
+)

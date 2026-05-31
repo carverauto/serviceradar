@@ -1,0 +1,83 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.agent.addon.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpb";
+
+// AddonService is the gRPC contract every native agent add-on serves over the
+// HashiCorp go-plugin transport (a subprocess + gRPC on a restricted Unix-domain
+// socket with AutoMTLS). The agent is the go-plugin client; the add-on is the
+// server. The contract is intentionally language-agnostic so add-ons may be
+// implemented in Go (via the first-party SDK) or any language with a gRPC stack
+// (e.g. Rust via tonic).
+service AddonService {
+  // Info reports the add-on's stable identity, version, and the capability
+  // identifiers it advertises when active.
+  rpc Info(InfoRequest) returns (InfoResponse);
+
+  // Configure delivers the operator-selected configuration (already validated
+  // against the add-on's config.schema.json by the control plane) and returns a
+  // stable hash the agent can use for change detection.
+  rpc Configure(ConfigureRequest) returns (ConfigureResponse);
+
+  // Health is the liveness/readiness probe the agent polls on an interval. It
+  // doubles as the go-plugin health signal and carries a bounded degradation
+  // reason so the agent can report an add-on as degraded rather than absent.
+  rpc Health(HealthRequest) returns (HealthResponse);
+}
+
+message InfoRequest {}
+
+message InfoResponse {
+  string id = 1;
+  string version = 2;
+  repeated string capabilities = 3;
+}
+
+message ConfigureRequest {
+  // config_json is the operator-selected configuration for this add-on,
+  // validated by the control plane against the add-on's config.schema.json.
+  bytes config_json = 1;
+}
+
+message ConfigureResponse {
+  // config_hash is a stable hash of the applied configuration for change
+  // detection by the agent.
+  string config_hash = 1;
+  bool accepted = 2;
+  // error is a bounded diagnostic when accepted is false.
+  string error = 3;
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  enum Status {
+    STATUS_UNSPECIFIED = 0;
+    STATUS_HEALTHY = 1;
+    STATUS_DEGRADED = 2;
+    STATUS_UNHEALTHY = 3;
+  }
+
+  Status status = 1;
+  string version = 2;
+  // degradation_reason is a bounded explanation when status is not HEALTHY
+  // (e.g. "CAP_BPF not granted").
+  string degradation_reason = 3;
+}

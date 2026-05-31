@@ -3,6 +3,31 @@
 version = 4
 
 [[package]]
+name = "addon-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "base64 0.22.1",
+ "hex",
+ "hyper-util",
+ "prost 0.13.5",
+ "rcgen",
+ "rustls",
+ "rustls-pemfile",
+ "sha2 0.10.9",
+ "tempfile",
+ "thiserror 1.0.69",
+ "tokio",
+ "tokio-rustls",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "tonic-build",
+ "tonic-health",
+ "tower 0.4.13",
+]
+
+[[package]]
 name = "addr2line"
 version = "0.25.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7579,6 +7604,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

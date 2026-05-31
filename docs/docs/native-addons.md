@@ -85,10 +85,11 @@ privileged sidecar or apply OS capabilities.
 
 The Go SDK (`go/pkg/addon`) wraps the `go-plugin` server boilerplate — handshake,
 gRPC serving over the UDS, AutoMTLS, health, config decode from the typed assignment,
-and result submission. The gRPC contract lives in `proto/agent/addon/v1/`. A Rust
-helper/contract for Rust add-ons (e.g. `fingerprintd`) is landing in a follow-up
-change; until then the documented contract in `proto/agent/addon/v1/` is the source
-of truth for Rust interop.
+and result submission. The gRPC contract lives in `proto/agent/addon/v1/`. The Rust
+SDK (`rust/addon-sdk`) provides the equivalent helper — go-plugin handshake, AutoMTLS,
+and gRPC serving over the UDS — proven by the `rust-sample` reference add-on; the
+documented contract in `proto/agent/addon/v1/` remains the source of truth for Rust
+interop.
 
 ### Author checklist
 
