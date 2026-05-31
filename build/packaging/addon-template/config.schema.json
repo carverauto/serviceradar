@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Example native add-on config",
+  "description": "Template JSON Schema for an os-package add-on's config (the sibling addon.yaml references it via config_schema). Source-side build/validation metadata — not shipped in the deb/rpm; the runtime config installed at /etc/serviceradar/serviceradar-addon-example.json is what ships.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": { "type": "boolean", "default": false },
+    "spool_dir": { "type": "string" },
+    "interval": { "type": "string", "description": "Go duration, e.g. \"6h\"." }
+  }
+}
