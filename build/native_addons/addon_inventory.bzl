@@ -56,4 +56,28 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # netprobe host-network-visibility add-on (migrate-netprobe-to-native-addon).
+        # Carved out of the base serviceradar-agent package: the //rust/netprobe
+        # binary is now packaged here as a signed per-arch pushed-artifact bundle
+        # instead of being baked into the agent deb/rpm + release runtime archive.
+        # The systemd unit + agent-side activation are migrate-netprobe tasks 2.1/2.2
+        # (pending the standalone-vs-agent-launched socket-lifecycle decision), so no
+        # `unit_entries` are shipped yet; the tarball is binary + manifest + schema.
+        "name": "netprobe_addon_bundle",
+        "addon_id": "netprobe",
+        "repository_name": "serviceradar-addon-netprobe",
+        "language": "rust",
+        "binary": "//rust/netprobe:netprobe",
+        "binary_name": "serviceradar-netprobe",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/netprobe:addon.yaml"),
+            ("config.schema.json", "//addons/netprobe:config.schema.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

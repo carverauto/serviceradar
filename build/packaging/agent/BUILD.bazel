@@ -12,17 +12,18 @@ serviceradar_package_from_config(
     config = PACKAGES["agent"],
 )
 
+# netprobe is no longer bundled here: it is carved out of the base agent and
+# delivered as a signed pushed-artifact add-on (migrate-netprobe-to-native-addon
+# §1.4; build/native_addons/addon_inventory.bzl: netprobe_addon_bundle).
 pkg_files(
     name = "agent_release_runtime_files",
     srcs = [
         "//go/cmd/agent",
-        "//rust/netprobe",
     ],
     attributes = pkg_attributes(mode = "0755"),
     prefix = "/",
     renames = {
         "//go/cmd/agent": "serviceradar-agent",
-        "//rust/netprobe": "serviceradar-netprobe",
     },
 )
 
@@ -33,18 +34,18 @@ pkg_tar(
     package_dir = "/",
 )
 
+# netprobe carved out (delivered as a pushed-artifact add-on). rdp-adapter is a
+# separate optional binary still bundled here pending its own add-on migration.
 pkg_files(
     name = "agent_rdp_release_runtime_files",
     srcs = [
         "//go/cmd/agent",
-        "//rust/netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental",
     ],
     attributes = pkg_attributes(mode = "0755"),
     prefix = "/",
     renames = {
         "//go/cmd/agent": "serviceradar-agent",
-        "//rust/netprobe": "serviceradar-netprobe",
         "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental": "serviceradar-rdp-adapter",
     },
 )

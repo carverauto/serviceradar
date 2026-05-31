@@ -43,8 +43,9 @@ PACKAGES = {
         "priority": "optional",
         "deb_depends": ["systemd", "libcap2-bin"],
         "rpm_requires": ["systemd", "libcap"],
-        "deb_recommends": ["libpcap0.8"],
-        "rpm_recommends": ["libpcap"],
+        # libpcap was netprobe's runtime dependency; it moved out with the netprobe
+        # carve (migrate-netprobe-to-native-addon §1.4). The netprobe add-on (or its
+        # os-package fallback) carries its own libpcap requirement now.
         "binary": {
             "target": "//go/cmd/agent:agent",
             "dest": "/usr/local/lib/serviceradar/agent/serviceradar-agent-seed",
@@ -63,11 +64,6 @@ PACKAGES = {
             {
                 "src": "//go/cmd/cli:cli",
                 "dest": "/usr/local/bin/serviceradar-cli",
-                "mode": "0755",
-            },
-            {
-                "src": "//rust/netprobe:netprobe",
-                "dest": "/usr/local/lib/serviceradar/bin/serviceradar-netprobe",
                 "mode": "0755",
             },
             {

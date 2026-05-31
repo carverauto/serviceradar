@@ -23,6 +23,17 @@
 ## 1. Packaging boundary
 - [ ] 1.1 Carve the base `serviceradar-agent` package to the core agent only (no
   optional capability binaries baked in via alternate targets). (3425 §3.1)
+  — In progress. **netprobe carved** (this is also migrate-netprobe §1.4): removed
+  `//rust/netprobe` from the agent deb/rpm (`packages.bzl`) *and* both self-update
+  release-runtime archives (`agent_release_runtime_files`,
+  `agent_rdp_release_runtime_files` in `build/packaging/agent/BUILD.bazel`), dropped the
+  `cap_net_raw,cap_bpf,cap_perfmon` `setcap` step + the `libpcap` recommends from the
+  agent package — netprobe now ships as the `netprobe_addon_bundle` pushed-artifact
+  (capabilities applied to the staged binary by the root-owned `agent-updater`). The
+  `//rust/netprobe` build target is retained (now consumed by the add-on bundle).
+  **Remaining:** `serviceradar-rdp-adapter` is still bundled in
+  `agent_rdp_release_runtime_files` — carve it when rdp-adapter/remote-access migrates
+  to its own (ephemeral-helper) add-on delivery.
 - [x] 1.2 Define the signed `pushed-artifact` tarball format and the optional
   `os-package` add-on template (depends on `serviceradar-agent`, dormant on
   install). (§3.2)
