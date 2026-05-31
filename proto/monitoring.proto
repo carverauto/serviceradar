@@ -353,6 +353,11 @@ message AddonAssignmentConfig {
   string artifact_signature = 12;   // Optional ed25519 signature over the artifact (verified when set)
   string target_os = 13;            // OS of the selected artifact (e.g. linux)
   string target_arch = 14;          // Architecture of the selected artifact (e.g. amd64)
+
+  // Linux file capabilities (manifest `requires.os_capabilities`) the agent applies
+  // to the staged binary via the root-owned agent-updater before launch, e.g.
+  // ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
+  repeated string os_capabilities = 15;
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

@@ -477,6 +477,7 @@ defmodule Monitoring.AddonAssignmentConfig do
   field(:artifact_signature, 12, type: :string, json_name: "artifactSignature")
   field(:target_os, 13, type: :string, json_name: "targetOs")
   field(:target_arch, 14, type: :string, json_name: "targetArch")
+  field(:os_capabilities, 15, repeated: true, type: :string, json_name: "osCapabilities")
 end
 
 defmodule Monitoring.AgentConfigChunk do
