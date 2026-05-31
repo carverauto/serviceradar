@@ -28,7 +28,12 @@ defmodule ServiceRadar.EventWriter.HostSliceSubscriber do
   @reconnect_delay 5_000
 
   @telemetry_decoded [:serviceradar, :event_writer, :attributed_flow, :host_slice_decoded]
-  @telemetry_decode_failed [:serviceradar, :event_writer, :attributed_flow, :host_slice_decode_failed]
+  @telemetry_decode_failed [
+    :serviceradar,
+    :event_writer,
+    :attributed_flow,
+    :host_slice_decode_failed
+  ]
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
@@ -85,7 +90,10 @@ defmodule ServiceRadar.EventWriter.HostSliceSubscriber do
   end
 
   def handle_info({:DOWN, _ref, :process, _pid, reason}, state) do
-    Logger.warning("HostSliceSubscriber NATS connection down; resubscribing", reason: inspect(reason))
+    Logger.warning("HostSliceSubscriber NATS connection down; resubscribing",
+      reason: inspect(reason)
+    )
+
     Process.send_after(self(), :subscribe, @reconnect_delay)
     {:noreply, %{state | sid: nil}}
   end
@@ -99,7 +107,11 @@ defmodule ServiceRadar.EventWriter.HostSliceSubscriber do
 
     case decode(body) do
       %AttributedFlowMessage{flow: %FlowMessage{}} = msg ->
-        :telemetry.execute(@telemetry_decoded, %{count: 1}, %{agent_id: agent_id, subject: subject})
+        :telemetry.execute(@telemetry_decoded, %{count: 1}, %{
+          agent_id: agent_id,
+          subject: subject
+        })
+
         joiner_module(joiner).put_host_slice(msg, agent_id, [])
 
       :error ->

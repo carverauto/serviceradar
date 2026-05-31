@@ -53,7 +53,7 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoiner do
   require Logger
 
   @table_name :serviceradar_attributed_flow_join
-  @default_ttl_ms to_timeout(second: 60)
+  @default_ttl_ms to_timeout(minute: 1)
   @cleanup_interval_ms to_timeout(second: 10)
   @max_size 250_000
   @eviction_scan_chunk 1_000
@@ -223,7 +223,11 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoiner do
     expires_at = now + ttl_ms
 
     case :ets.take(@table_name, key) do
-      [{^key, {:attribution, %FlowAttributionEvent{} = pending, partition_id, _agent_id, inserted_at}, _exp}] ->
+      [
+        {^key,
+         {:attribution, %FlowAttributionEvent{} = pending, partition_id, _agent_id, inserted_at},
+         _exp}
+      ] ->
         # Attribution arrived first; merge and publish using cert-derived partition.
         published = merge_and_publish(msg, pending, partition_id, agent_id, inserted_at, state)
         {:reply, {:published, published}, state}
@@ -241,8 +245,14 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoiner do
     expires_at = now + ttl_ms
 
     case :ets.take(@table_name, key) do
-      [{^key, {:host_slice, %AttributedFlowMessage{} = pending_msg, _partition, host_agent_id, inserted_at}, _exp}] ->
-        published = merge_and_publish(pending_msg, event, partition_id, host_agent_id, inserted_at, state)
+      [
+        {^key,
+         {:host_slice, %AttributedFlowMessage{} = pending_msg, _partition, host_agent_id,
+          inserted_at}, _exp}
+      ] ->
+        published =
+          merge_and_publish(pending_msg, event, partition_id, host_agent_id, inserted_at, state)
+
         {:reply, {:published, published}, state}
 
       _ ->
@@ -279,7 +289,7 @@ defmodule ServiceRadar.EventWriter.AttributedFlowJoiner do
     # instance owns. Never use a value sourced from the agent payload.
     partition = state.self_partition_id
 
-    merged = %AttributedFlowMessage{
+    merged = %{
       msg
       | event_type: @attributed_flow_event_type,
         attribution: attribution_from_event(event),

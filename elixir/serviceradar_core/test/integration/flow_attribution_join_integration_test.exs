@@ -256,7 +256,7 @@ defmodule ServiceRadar.Integration.FlowAttributionJoinIntegrationTest do
       # flow.host-slice.<agent_id> stamps a malicious `partition` field
       # onto the AttributedFlowMessage envelope itself. The joiner must
       # ignore that value and use its self_partition_id at publish time.
-      flow = ipv4_flow(proto: 6, src: "172.16.0.1", sport: 12345, dst: "172.16.0.2", dport: 8080)
+      flow = ipv4_flow(proto: 6, src: "172.16.0.1", sport: 12_345, dst: "172.16.0.2", dport: 8080)
 
       poisoned_host =
         host_slice_attributed_message(flow,

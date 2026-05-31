@@ -87,14 +87,6 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
     end
   end
 
-  cloak do
-    vault(ServiceRadar.Vault)
-    # Encrypted at rest; only decrypted when the bundle download endpoint
-    # asks for it via ServiceRadar.Vault.decrypt/1.
-    attributes([:nats_creds_ciphertext])
-    decrypt_by_default([])
-  end
-
   oban do
     triggers do
       # Scheduled trigger for expiring packages with expired tokens
@@ -109,6 +101,14 @@ defmodule ServiceRadar.Edge.OnboardingPackage do
         worker_module_name ServiceRadar.Edge.OnboardingPackage.ExpirePackagesWorker
       end
     end
+  end
+
+  cloak do
+    vault(ServiceRadar.Vault)
+    # Encrypted at rest; only decrypted when the bundle download endpoint
+    # asks for it via ServiceRadar.Vault.decrypt/1.
+    attributes([:nats_creds_ciphertext])
+    decrypt_by_default([])
   end
 
   actions do

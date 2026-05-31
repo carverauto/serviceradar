@@ -668,8 +668,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
 
       _ = SweepResultsIngestor.banner_grab_audit_summary(summary)
 
-      assert_receive {:telemetry_event,
-                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+      assert_receive {:telemetry_event, [:serviceradar, :sweep, :banner_grab, :counter_dropped],
                       %{count: 1, banner_grab_counter_dropped_total: 1},
                       %{
                         counter_key: "sweep_banner_grab_errors_total",
@@ -677,8 +676,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
                         value_type: :integer
                       }}
 
-      assert_receive {:telemetry_event,
-                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+      assert_receive {:telemetry_event, [:serviceradar, :sweep, :banner_grab, :counter_dropped],
                       _measurements,
                       %{
                         counter_key: "sweep_banner_grab_bytes_received_total",
@@ -686,8 +684,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
                         value_type: :float
                       }}
 
-      assert_receive {:telemetry_event,
-                      [:serviceradar, :sweep, :banner_grab, :counter_dropped],
+      assert_receive {:telemetry_event, [:serviceradar, :sweep, :banner_grab, :counter_dropped],
                       _measurements,
                       %{
                         counter_key: "sweep_banner_grab_timeout_total",
@@ -725,8 +722,7 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestorTest do
           reason
         )
 
-      assert_receive {:telemetry_event,
-                      [:serviceradar, :sweep, :banner_grab, :audit_failed],
+      assert_receive {:telemetry_event, [:serviceradar, :sweep, :banner_grab, :audit_failed],
                       %{count: 1, banner_grab_audit_failed_total: 1}, metadata}
 
       assert metadata.operation == :update_failed
