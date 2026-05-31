@@ -4,7 +4,10 @@ load(":defs.bzl", "declare_native_addon_targets")
 
 package(default_visibility = ["//visibility:public"])
 
-exports_files(["assemble_addon_bundle.py"])
+exports_files([
+    "assemble_addon_bundle.py",
+    "publish_addon.sh",
+])
 
 # Signs/verifies a native add-on pushed-artifact (per-arch tarball or bare binary)
 # with the agent release ed25519 key, producing exactly the raw signature the agent
