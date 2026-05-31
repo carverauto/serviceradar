@@ -62,9 +62,10 @@ const (
 	// addonDispatchSystemd: install + enable the add-on's bundled systemd units
 	// (service/timer) via the root-owned agent-updater; not an agent subprocess.
 	addonDispatchSystemd
-	// addonDispatchExternalUnimplemented: a recognized model (ephemeral-helper) that
-	// this agent build does not yet manage.
-	addonDispatchExternalUnimplemented
+	// addonDispatchEphemeral: stage + capability-grant a one-shot helper binary and make
+	// it available (by resolved path) for on-demand invocation by its consumer (e.g.
+	// remote-access spawns it per session); the agent does not run or supervise it.
+	addonDispatchEphemeral
 	// addonDispatchUnsupported: an unknown supervision model.
 	addonDispatchUnsupported
 )
@@ -79,7 +80,7 @@ func classifyAddonSupervision(supervision string) addonDispatch {
 	case addonSupervisionSystemdService, addonSupervisionSystemdTimer:
 		return addonDispatchSystemd
 	case addonSupervisionEphemeralHelper:
-		return addonDispatchExternalUnimplemented
+		return addonDispatchEphemeral
 	default:
 		return addonDispatchUnsupported
 	}
@@ -220,6 +221,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 	specs := make([]agentaddon.Spec, 0, len(assignments))
 	desiredSystemd := make(map[string]bool)
+	desiredEphemeral := make(map[string]bool)
 
 	for _, a := range assignments {
 		if a == nil || !a.GetEnabled() {
@@ -252,12 +254,11 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			// failure does not cause a running unit to be uninstalled by reconciliation.
 			desiredSystemd[a.GetAddonId()] = true
 			p.applySystemdAddon(ctx, a, delivery, supervision)
-		case addonDispatchExternalUnimplemented:
-			p.logger.Warn().
-				Str("addon", a.GetAddonId()).
-				Str("delivery", delivery).
-				Str("supervision", supervision).
-				Msg("Add-on supervision model recognized but not yet implemented by this agent; assignment not applied")
+		case addonDispatchEphemeral:
+			// Mark desired regardless of this round's outcome so a transient delivery
+			// failure does not deregister a still-desired helper.
+			desiredEphemeral[a.GetAddonId()] = true
+			p.applyEphemeralAddon(ctx, a, delivery)
 		case addonDispatchUnsupported:
 			p.logger.Warn().
 				Str("addon", a.GetAddonId()).
@@ -279,6 +280,10 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 	// Uninstall systemd units for add-ons that are no longer desired (disabled/removed).
 	p.reconcileSystemdAddons(ctx, desiredSystemd)
+
+	// Deregister ephemeral helpers that are no longer desired so consumers stop using
+	// them (the staged binary stays on disk; there is nothing system-level to tear down).
+	p.reconcileEphemeralHelpers(desiredEphemeral)
 
 	if err := manager.Apply(ctx, specs); err != nil {
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
@@ -478,4 +483,75 @@ func (p *PushLoop) reconcileSystemdAddons(ctx context.Context, desired map[strin
 
 		p.logger.Info().Str("addon", id).Int("units", len(units)).Msg("Uninstalled systemd add-on (no longer assigned)")
 	}
+}
+
+// applyEphemeralAddon stages an ephemeral-helper add-on (a one-shot binary the agent does
+// not run itself) and registers its resolved path so the consuming subsystem (e.g.
+// remote-access spawning rdp-adapter per session) can look it up. On a delivery/capability
+// failure it leaves any previously-registered path in place (the add-on stays desired, so
+// reconciliation will not deregister it) and retries on the next round.
+func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) {
+	resolved, err := p.stageAndCapability(ctx, a, delivery)
+	if err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("addon", a.GetAddonId()).
+			Msg("Ephemeral-helper add-on delivery failed; leaving current state unchanged")
+
+		return
+	}
+
+	if resolved == "" {
+		p.logger.Warn().
+			Str("addon", a.GetAddonId()).
+			Str("delivery", delivery).
+			Msg("Ephemeral-helper add-on missing a binary path; not applied")
+
+		return
+	}
+
+	p.rememberEphemeralHelper(a.GetAddonId(), resolved)
+	p.logger.Info().
+		Str("addon", a.GetAddonId()).
+		Str("path", resolved).
+		Msg("Staged ephemeral-helper add-on (available for on-demand invocation)")
+}
+
+// rememberEphemeralHelper records the resolved binary path of a staged ephemeral-helper
+// add-on so consumers can resolve it by id.
+func (p *PushLoop) rememberEphemeralHelper(id, path string) {
+	p.ephemeralHelpersMu.Lock()
+	defer p.ephemeralHelpersMu.Unlock()
+
+	if p.availableEphemeralHelpers == nil {
+		p.availableEphemeralHelpers = make(map[string]string)
+	}
+	p.availableEphemeralHelpers[id] = path
+}
+
+// reconcileEphemeralHelpers deregisters ephemeral helpers that are no longer desired
+// (assignment disabled/removed), so a consumer no longer resolves a stale path. The
+// staged binary is left on disk (harmless; nothing system-level was installed).
+func (p *PushLoop) reconcileEphemeralHelpers(desired map[string]bool) {
+	p.ephemeralHelpersMu.Lock()
+	defer p.ephemeralHelpersMu.Unlock()
+
+	for id := range p.availableEphemeralHelpers {
+		if !desired[id] {
+			delete(p.availableEphemeralHelpers, id)
+			p.logger.Info().Str("addon", id).Msg("Deregistered ephemeral-helper add-on (no longer assigned)")
+		}
+	}
+}
+
+// EphemeralHelperPath returns the resolved staged binary path for an ephemeral-helper
+// add-on, if one is currently available. Consumers (e.g. remote-access) use it to invoke
+// the helper on demand.
+func (p *PushLoop) EphemeralHelperPath(id string) (string, bool) {
+	p.ephemeralHelpersMu.Lock()
+	defer p.ephemeralHelpersMu.Unlock()
+
+	path, ok := p.availableEphemeralHelpers[id]
+
+	return path, ok
 }
