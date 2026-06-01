@@ -15,8 +15,8 @@ go_library(
         "//go/pkg/agent/sidecar",
         "//go/pkg/models",
         "//proto",
-        "//proto/discovery",
         "//proto/agent/netprobe/v1:netprobepb",
+        "//proto/discovery",
         "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_protobuf//proto",
     ],
@@ -36,7 +36,7 @@ go_test(
         "//go/pkg/devicealias",
         "//go/pkg/models",
         "//proto",
-        "//proto/discovery",
         "//proto/agent/netprobe/v1:netprobepb",
+        "//proto/discovery",
     ],
 )

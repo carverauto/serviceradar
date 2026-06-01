@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "catalog.go",
         "config.go",
+        "profile.go",
         "roots.go",
         "runner.go",
         "spool.go",

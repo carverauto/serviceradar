@@ -124,6 +124,9 @@ jobs:
           export PATH="$(go env GOPATH)/bin:${PATH}"
           make addon_build_gates
 
+      - name: Negative-test native add-on release verifier
+        run: ./scripts/test-verify-native-addon-publish-negative.sh
+
       - name: Login to Harbor
         run: |
           set -euo pipefail

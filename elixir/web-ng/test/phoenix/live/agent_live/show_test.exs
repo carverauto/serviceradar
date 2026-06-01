@@ -4,6 +4,9 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadarWebNG.AccountsFixtures
   alias ServiceRadarWebNGWeb.AgentLive.Show
 
@@ -109,6 +112,50 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
     refute html =~ ">degraded<"
   end
 
+  test "add-on drift card surfaces unhealthy and architecture-unsupported add-ons", %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(conn, user)
+
+    unhealthy_package =
+      create_approved_addon_package!(%{
+        addon_id: "netprobe-unhealthy",
+        name: "Netprobe Unhealthy",
+        artifacts: %{"linux/arm64" => %{"object_key" => "netprobe-arm64.tar"}}
+      })
+
+    unsupported_package =
+      create_approved_addon_package!(%{
+        addon_id: "netprobe-unsupported",
+        name: "Netprobe Unsupported",
+        artifacts: %{"linux/amd64" => %{"object_key" => "netprobe-amd64.tar"}}
+      })
+
+    create_addon_assignment!("agent-1", unhealthy_package.id)
+    create_addon_assignment!("agent-1", unsupported_package.id)
+
+    report_addon_status!("agent-1", "netprobe-unhealthy", %{
+      state: "unhealthy",
+      active: false,
+      degradation_reason: "health probe failed",
+      arch: "arm64"
+    })
+
+    report_addon_status!("agent-1", "netprobe-unsupported", %{
+      state: "running",
+      active: true,
+      arch: "arm64"
+    })
+
+    {:ok, _lv, html} = live(conn, ~p"/agents/agent-1")
+
+    assert html =~ "Add-on Drift"
+    assert html =~ "Netprobe Unhealthy"
+    assert html =~ "unhealthy"
+    assert html =~ "health probe failed"
+    assert html =~ "Netprobe Unsupported"
+    assert html =~ "arch unsupported"
+  end
+
   defmodule RecordingSRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -142,6 +189,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
             "last_update_error" => "digest mismatch",
             "last_update_at" => "2026-03-27T18:02:00Z",
             "last_seen_time" => "2026-03-27T18:03:00Z",
+            "metadata" => %{"os" => "linux", "arch" => "arm64"},
             "capabilities" => ["agent"]
           }
         ]
@@ -149,5 +197,68 @@ defmodule ServiceRadarWebNGWeb.AgentLive.ShowTest do
         []
       end
     end
+  end
+
+  defp create_approved_addon_package!(attrs) do
+    defaults = %{
+      addon_id: "addon-#{System.unique_integer([:positive])}",
+      name: "Agent Detail Add-on",
+      version: "1.0.0",
+      description: "Agent detail test add-on",
+      kind: :native,
+      delivery: :pushed_artifact,
+      supervision: :agent_sidecar,
+      binary: "serviceradar-addon",
+      install_path: "/usr/local/lib/serviceradar/bin",
+      capabilities: ["addon.run"],
+      config_schema: %{},
+      artifacts: %{},
+      requires: %{},
+      source_type: :first_party,
+      source_oci_ref: "registry.carverauto.dev/serviceradar/addon:test",
+      source_oci_digest: "sha256:test",
+      source_release_tag: "v1.0.0",
+      source_metadata: %{},
+      imported_at: DateTime.utc_now(),
+      verification_status: "verified"
+    }
+
+    package =
+      AddonPackage
+      |> Ash.Changeset.for_create(:create, Map.merge(defaults, attrs), actor: system_actor())
+      |> Ash.create!()
+
+    package
+    |> Ash.Changeset.for_update(:approve, %{approved_capabilities: package.capabilities}, actor: system_actor())
+    |> Ash.update!()
+  end
+
+  defp create_addon_assignment!(agent_uid, package_id) do
+    AddonAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{agent_uid: agent_uid, addon_package_id: package_id, params: %{}, args: []},
+      actor: system_actor()
+    )
+    |> Ash.create!()
+  end
+
+  defp report_addon_status!(agent_uid, addon_id, attrs) do
+    AddonStatus
+    |> Ash.Changeset.for_create(
+      :report,
+      Map.merge(
+        %{
+          agent_uid: agent_uid,
+          addon_id: addon_id,
+          state: "running",
+          active: true,
+          reported_at: DateTime.utc_now()
+        },
+        attrs
+      ),
+      actor: system_actor()
+    )
+    |> Ash.create!()
   end
 end

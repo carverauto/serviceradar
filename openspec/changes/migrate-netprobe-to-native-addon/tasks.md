@@ -64,6 +64,12 @@
     e2e (systemd installs+starts netprobe → agent attaches → config pushed → events ingested → restart
     re-applies). Bundles can't build/run on darwin.
 - [ ] 2.3 Report per-add-on state (installed/active/degraded + version/arch + capture status) for netprobe through the merged `AddonStatus` read model so Edge Ops drift reflects it
+  — Partial — the agent now synthesizes an `addon:netprobe` capability entry (state from the
+  netprobe sidecar, installed version from the activation `current` symlink, arch from
+  `runtime.GOARCH`) so netprobe lands in the `AddonStatus` read model / Edge Ops drift; a
+  running-but-incapable netprobe surfaces via state + last_error. Remaining: explicit
+  capture-active reporting needs a netprobe IPC signal (no capture-active frame exists today;
+  `StartRemoteCapture` is a Phase-5 TODO) → follow-up.
 - [ ] 2.4 On activation/capability-application/launch failure, roll back to the prior `current` version and do NOT leave a half-installed/enabled unit or a running-but-incapable process
 
 ## 3. Control plane & Edge Ops (reuses merged work)
