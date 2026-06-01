@@ -12,6 +12,7 @@ go_library(
         "mock_snmp.go",
         "service.go",
         "target_status.go",
+        "testing.go",
         "types.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/agent/snmp",
@@ -29,16 +30,18 @@ go_library(
 go_test(
     name = "snmp_test",
     srcs = [
+        "aggregator_internal_test.go",
         "aggregator_test.go",
         "client_conversion_test.go",
         "collector_test.go",
         "service_deadlock_test.go",
         "service_test.go",
     ],
-    embedsrcs = ["service.go"],
     embed = [":snmp"],
+    embedsrcs = ["service.go"],
     deps = [
         "//go/pkg/logger",
+        "@com_github_gosnmp_gosnmp//:gosnmp",
         "@com_github_stretchr_testify//assert",
         "@com_github_stretchr_testify//require",
         "@org_uber_go_mock//gomock",

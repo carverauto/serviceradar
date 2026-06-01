@@ -5,7 +5,10 @@ go_library(
     srcs = ["main.go"],
     importpath = "github.com/carverauto/serviceradar/go/cmd/tools/sshca-signer",
     visibility = ["//visibility:private"],
-    deps = ["//go/pkg/remoteaccess/sshca"],
+    deps = [
+        "//go/pkg/remoteaccess/sshca",
+        "@org_golang_x_crypto//ssh",
+    ],
 )
 
 go_binary(
