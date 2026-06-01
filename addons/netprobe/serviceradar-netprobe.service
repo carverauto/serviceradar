@@ -12,13 +12,23 @@ User=serviceradar
 Group=serviceradar
 UMask=0027
 
-# Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so
-# this is the FIXED add-on staging layout produced by the agent's activation runtime
-# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/<binary>),
-# NOT the manifest's install_path. netprobe binds the IPC socket and the agent connects
-# as a client, pushing VisibilityConfig over IPC, so no --config is passed here: netprobe
-# starts with its lifecycle IPC available and stays disabled until the agent configures it.
-ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe --socket /run/serviceradar/netprobe/ipc.sock
+# Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so all
+# paths are the FIXED add-on staging layout produced by the agent's activation runtime
+# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/), NOT the
+# manifest's install_path. Flags:
+#   --socket        netprobe binds this IPC socket; the agent connects as a client and pushes
+#                   the full VisibilityConfig (device bindings, DPI) over IPC.
+#   --config        the agent-written bootstrap (enabled + capture_interfaces + flow-table);
+#                   netprobe reads it at startup so the eBPF/AF_XDP runtime attaches to the
+#                   capture interfaces. The agent writes it before enabling this unit, and it
+#                   persists across systemd restarts.
+#   --ebpf-object   the compiled BPF object shipped flat in the bundle (data_entries). Required:
+#                   continuous capture refuses to start without it after the Phase 3 eBPF
+#                   cutover (rust/netprobe/src/main.rs); IPC config cannot enable capture later.
+ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe \
+    --socket /run/serviceradar/netprobe/ipc.sock \
+    --config /etc/serviceradar/sidecars/netprobe.json \
+    --ebpf-object /var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o
 
 # /run/serviceradar/netprobe holds the IPC socket; /var/lib/serviceradar/netprobe is the
 # manifest state_dir. systemd creates both owned by serviceradar:serviceradar.

@@ -85,10 +85,11 @@ def declare_native_addon_targets(addon_bundles):
 
         entry_args = []
 
-        # manifest_entries (addon.yaml + config schema) plus optional unit_entries
-        # (systemd .service/.timer units) ship in the zip bundle and, for a
-        # pushed-artifact tarball, are extracted flat next to the binary.
-        for (archive_path, label) in bundle["manifest_entries"] + bundle.get("unit_entries", []):
+        # manifest_entries (addon.yaml + config schema), optional unit_entries (systemd
+        # .service/.timer units), and optional data_entries (runtime data files such as the
+        # netprobe eBPF object) ship in the zip bundle and, for a pushed-artifact tarball,
+        # are extracted flat next to the binary.
+        for (archive_path, label) in bundle["manifest_entries"] + bundle.get("unit_entries", []) + bundle.get("data_entries", []):
             if label not in srcs:
                 srcs.append(label)
             entry_args.append("--entry {}=$(location {})".format(archive_path, label))
