@@ -1,4 +1,5 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_test")
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
 load(":addon_inventory.bzl", "ADDON_BUNDLES")
 load(":defs.bzl", "declare_native_addon_targets")
 
@@ -6,7 +7,12 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "assemble_addon_bundle.py",
+    "binary-size-baseline.json",
+    "binary_size_test.sh",
+    "dependency_isolation_test.sh",
     "publish_addon.sh",
+    "runfile_path.sh",
+    "validate_manifests_test.sh",
 ])
 
 # Signs/verifies a native add-on pushed-artifact (per-arch tarball or bare binary)
@@ -32,3 +38,70 @@ go_test(
 # upload-signature), the discovery index, and the Forgejo release upload reuse the
 # Wasm plugin rails (scripts/ + .forgejo) and consume :all_metadata / :all_bundles.
 declare_native_addon_targets(ADDON_BUNDLES)
+
+genquery(
+    name = "agent_dependency_closure",
+    expression = "deps(//go/cmd/agent:agent)",
+    scope = ["//go/cmd/agent"],
+)
+
+sh_test(
+    name = "dependency_isolation_test",
+    timeout = "short",
+    srcs = ["dependency_isolation_test.sh"],
+    args = ["$(rootpath :agent_dependency_closure)"],
+    data = [
+        "runfile_path.sh",
+        ":agent_dependency_closure",
+    ],
+)
+
+sh_test(
+    name = "validate_addon_manifests_test",
+    timeout = "short",
+    srcs = ["validate_manifests_test.sh"],
+    args = [
+        "$(rootpath //go/tools/addon-manifest-validator:addon-manifest-validator)",
+        "$(rootpath //addons/sample-addon:addon.yaml)",
+        "$(rootpath //addons/rust-sample-addon:addon.yaml)",
+        "$(rootpath //addons/netprobe:addon.yaml)",
+    ],
+    data = [
+        "runfile_path.sh",
+        "//addons/netprobe:addon.yaml",
+        "//addons/rust-sample-addon:addon.yaml",
+        "//addons/sample-addon:addon.yaml",
+        "//go/tools/addon-manifest-validator",
+    ],
+)
+
+sh_test(
+    name = "binary_size_test",
+    timeout = "long",
+    srcs = ["binary_size_test.sh"],
+    args = [
+        "$(rootpath //scripts:check-addon-binary-size.sh)",
+        "$(rootpath :binary-size-baseline.json)",
+        "$(locations :all_binaries)",
+    ],
+    data = [
+        "binary-size-baseline.json",
+        "runfile_path.sh",
+        ":all_binaries",
+        "//scripts:check-addon-binary-size.sh",
+    ],
+    env = {
+        "REQUIRE_GSA": "1",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
+test_suite(
+    name = "build_gates_test",
+    tests = [
+        ":binary_size_test",
+        ":dependency_isolation_test",
+        ":validate_addon_manifests_test",
+        "//scripts:verify_native_addon_publish_negative_test",
+    ],
+)

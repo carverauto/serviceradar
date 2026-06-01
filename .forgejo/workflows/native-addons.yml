@@ -114,6 +114,9 @@ jobs:
             exit 1
           fi
 
+      - name: Run hermetic native add-on gate fixtures
+        run: bazel test //build/native_addons:build_gates_test
+
       - name: Run native add-on build gates
         env:
           REQUIRE_GSA: "1"

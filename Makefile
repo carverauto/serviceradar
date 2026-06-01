@@ -265,6 +265,10 @@ check_addon_binary_size_bazel: ## Build all native add-on binaries and run the b
 	fi; \
 	./scripts/check-addon-binary-size.sh $${artifacts}
 
+.PHONY: check_addon_hermetic_build_gates
+check_addon_hermetic_build_gates: ## Run Bazel-owned native add-on gate fixtures
+	@bazel test //build/native_addons:build_gates_test
+
 .PHONY: addon_build_gates
 addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin check_addon_deadcode_elimination check_addon_binary_size_bazel ## Run all add-on build/CI hygiene gates that need no secrets
 	@echo "add-on build gates passed"
