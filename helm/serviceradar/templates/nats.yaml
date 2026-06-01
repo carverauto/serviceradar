@@ -3,6 +3,9 @@
 {{- $jetstream := default (dict) $nats.jetstream -}}
 {{- $replicas := int (default 1 $nats.replicas) -}}
 {{- $clusterName := default "serviceradar" $nats.clusterName -}}
+{{- $kvBucket := default "serviceradar-datasvc" .Values.kv.bucket -}}
+{{- $datasvc := default (dict) .Values.datasvc -}}
+{{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
 to render the core/datasvc/agent/db-event-writer/zen NATS ACL blocks
@@ -184,6 +187,7 @@ spec:
                       "flow.attributed.{{ $partitionId }}.>",
                       "flow.raw.>",
                       "flows.raw.>",
+                      "flows.*.processed",
                       "logs.>",
                       "events.>",
                       "config.>",
@@ -200,6 +204,7 @@ spec:
                       "flow.attributed.{{ $partitionId }}.>",
                       "flow.raw.>",
                       "flows.raw.>",
+                      "flows.*.processed",
                       "logs.>",
                       "events.>",
                       "config.>",
@@ -224,6 +229,9 @@ spec:
                     allow: [
                       "events.>",
                       "config.>",
+                      "\$KV.{{ $kvBucket }}.>",
+                      "\$O.{{ $objectBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $objectBucket }}.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -236,6 +244,9 @@ spec:
                       "flow.attributed.{{ $partitionId }}.>",
                       "events.>",
                       "config.>",
+                      "\$KV.{{ $kvBucket }}.>",
+                      "\$O.{{ $objectBucket }}.>",
+                      "\$JS.FC.OBJ_{{ $objectBucket }}.>",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
@@ -318,6 +329,7 @@ spec:
                     allow: [
                       "events.zen.>",
                       "config.zen.>",
+                      "logs.*.processed",
                       "\$JS.API.>",
                       "\$JS.ACK.>",
                       "_INBOX.>"
