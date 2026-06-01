@@ -257,7 +257,7 @@ check_addon_binary_size: ## Per-artifact binary-size regression gate (requires g
 .PHONY: check_addon_binary_size_bazel
 check_addon_binary_size_bazel: ## Build all native add-on binaries and run the binary-size regression gate
 	@set -eu; \
-	bazel build //build/native_addons:all_binaries; \
+	bazel build //build/native_addons:all_binaries --remote_download_outputs=all; \
 	artifacts="$$(bazel cquery --output=files //build/native_addons:all_binaries)"; \
 	if [ -z "$${artifacts}" ]; then \
 		echo "no native add-on binary artifacts resolved" >&2; \
