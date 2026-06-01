@@ -37,6 +37,21 @@
 
 - [ ] 2.1 Activate the signed netprobe artifact via the root-owned `agent-updater`: stage under the versioned `current`-symlink layout, verify sha256 + signature, apply the required file capabilities (`setcap`), then install/enable the systemd service (privileged steps never run by the agent) — depends on delivery-models `systemd-service` supervision (task 6.6) and pushed-artifact file-capability application (task 6.5)
 - [ ] 2.2 Gate the agent's netprobe sidecar lifecycle and `VisibilityConfig` push on the `AddonAssignment` (enabled/disabled + approved-capability subset) instead of the always-on base-agent visibility path; preserve the local-override/cache fallback when the control plane is unreachable
+  - **Building block landed**: the sidecar supervisor (`go/pkg/agent/sidecar/manager.go`) now has an
+    **attach mode** (`StartAttach`, vs launch `Start`; `Mode()` reports started+attach). In attach
+    mode the manager does NOT exec/restart the process — systemd owns it — and instead runs the
+    health loop against the well-known socket, wiring the client into the sidecar via `OnHealthy`
+    (config push + event ingest work identically, ingest being launch-decoupled) and reconnecting on
+    loss. This is the mechanism the systemd-service netprobe path connects through. Additive + race-
+    tested; no caller yet (zero production behavior change).
+  - **Remaining (the cutover)**: in `push_loop_config.go`, detect the netprobe `AddonAssignment`
+    (enabled systemd_service) and route: assignment present → `StartAttach` + push config; absent →
+    the existing launch path (unchanged). Plus **apply-on-connect** for the netprobe sidecar (store
+    desired `VisibilityConfig`, apply on each (re)connect) — required because (a) `applyVisibilityConfig`
+    runs BEFORE `applyAddonAssignments` installs the unit, so a synchronous attach `ApplyConfig` would
+    fail/deadlock the apply (it `return false`s before the addon install at push_loop_config.go:203),
+    and (b) the `NotModified` short-circuit means poll-driven re-push won't recover after a systemd
+    restart. Handoff: stop the agent-launched netprobe when switching launch→attach.
 - [ ] 2.3 Report per-add-on state (installed/active/degraded + version/arch + capture status) for netprobe through the merged `AddonStatus` read model so Edge Ops drift reflects it
 - [ ] 2.4 On activation/capability-application/launch failure, roll back to the prior `current` version and do NOT leave a half-installed/enabled unit or a running-but-incapable process
 
