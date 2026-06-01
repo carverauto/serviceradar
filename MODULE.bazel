@@ -367,14 +367,6 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "nginx_alpine",
-    digest = "sha256:60e48a050b6408d0c5dd59b98b6e36bf0937a0bbe99304e3e9c0e63b7563443a",
-    image = "docker.io/library/nginx:alpine",
-    platforms = [
-        "linux/amd64",
-    ],
-)
-oci_ext.pull(
     name = "serviceradar_tools",
     digest = "sha256:c9b4e23ec638e3b2582477d11ca977b76c3c4297b42a64177628067f15a6fb82",
     image = "registry.carverauto.dev/serviceradar/serviceradar-tools",
@@ -409,8 +401,6 @@ use_repo(
     "debian_bookworm_slim_linux_arm64_v8",
     "debian_testing_slim",
     "debian_testing_slim_linux_amd64",
-    "nginx_alpine",
-    "nginx_alpine_linux_amd64",
     "node_20_alpine",
     "node_20_alpine_linux_amd64",
     "serviceradar_tools",

@@ -242,7 +242,7 @@ ServiceRadar provides its own:
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                         Edge Proxy Layer                     │
-│                 Caddy/Nginx (TLS termination)                │
+│              Caddy/Gateway API (TLS termination)             │
 └─────────────────────┬───────────────────────────────────────┘
                       │
          ┌────────────┴────────────┬──────────────┐
@@ -1142,7 +1142,7 @@ kube_pod_container_resource_requests{namespace="serviceradar"}
 | **NATS JetStream** | v2.10+ | Message broker, KV store | Critical (data loss if down) |
 | **CNPG/Timescale** | v1.5+ | Stream processing database | Critical (queries fail) |
 | **SPIFFE/SPIRE** | v1.8+ | Workload identity, mTLS | Critical (auth fails) |
-| **Edge Proxy** | Caddy/Nginx | TLS termination, routing | High (API access denied) |
+| **Edge Proxy** | Caddy/Gateway API | TLS termination, routing | High (API access denied) |
 | **Kubernetes** | 1.25+ | Orchestration | Critical (entire system) |
 
 **Impact of unavailability:**

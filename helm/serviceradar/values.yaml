@@ -1213,7 +1213,7 @@ spire:
 ingress:
   enabled: false
   host: ""
-  className: nginx
+  className: ""
   websocketPaths:
     - /live/websocket
     - /socket/websocket

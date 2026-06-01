@@ -124,7 +124,7 @@ agent:
 ingress:
   enabled: false
   host: demo.serviceradar.cloud
-  className: nginx
+  className: ""
   tls:
     enabled: true
     secretName: ""

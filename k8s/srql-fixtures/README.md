@@ -69,4 +69,4 @@ bash k8s/srql-fixtures/reset-db.sh
 
 - After bumping the CNPG image tag, re-apply `cnpg-cluster.yaml` and run the reset script so extensions are recreated on the new image.
 - To reset the cluster manually, delete the PVCs labeled `cnpg.io/cluster=srql-fixture` in the namespace and re-apply `cnpg-cluster.yaml`.
-- Keep the CNPG image tag in sync with `docker-compose.yml` and `k8s/demo/base/spire/cnpg-cluster.yaml`.
+- Keep the CNPG image tag in sync with the Docker Compose and Helm CNPG image settings.
