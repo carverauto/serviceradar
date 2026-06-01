@@ -51,11 +51,10 @@ ServiceRadar offers traditional network management functionality and features, s
 serviceradar-core: Core API services -- authentication, device registry, service coordination. The Core is also our monolithic gRPC API service and accepts unary or streaming gRPC connections, and can re-assemble chunked streams received from the gateway for large messages.
 serviceradar-agent: Agents provide minimal functionality (TCP/ICMP scanning) and primarily serve as a pass-through between the gateways and the checkers, designed for multi-tenancy and overlapping IP space challenges.
 serviceradar-agent-gateway: Gateways ask the agents to collect data from checkers and forwards to the core, using unary or streaming gRPC calls and has built-in chunking for large payloads.
-serviceradar-edge-proxy: Edge proxy (Caddy/Nginx/Ingress) terminates TLS and routes `/api/*` to the Core API and `/api/query` to Web-NG/SRQL.
+serviceradar-edge-proxy: Edge proxy (Caddy/Gateway API) terminates TLS and routes `/api/*` to the Core API and `/api/query` to Web-NG/SRQL.
 serviceradar-mapper: Network discovery engine embedded in serviceradar-agent; uses SNMP/CDP/LLDP and API to interrogate network devices, mapping interfaces to devices and adding newly discovered devices.
 serviceradar-nats: NATS JetStream offers message broker and KV services. Hub/Leaf configurations are fully supported at this time, allowing network operators to easily position message brokers in the edge or compartmented networks for ETL or aggregation functions.
 serviceradar-datasvc: gRPC API for the NATS JetStream Data (KV/Object Store) service.
-serviceradar-nginx: nginx ingress configured to route `/api` calls directly to the Core API
 serviceradar-otel: lightweight OTEL processor, receives OTEL logs, traces, and metrics, puts messages on the NATS JetStream message bus for processing by consumers.
 serviceradar-zen: GoRules/zenEngine based stateless rule engine -- used to transform syslog messages and other events, transformed messages are emitted as OTEL logs or OCSF events and placed into a new NATS JetStream stream to be processed by database consumers.
 serviceradar-db-event-writer: NATS JetStream consumer, processes messages off of the message queues and inserts data in batches into the CNPG database. Scales horizontally due to use of subscription queue groups in NATS JetStream.

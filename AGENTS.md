@@ -31,7 +31,7 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 - `go/pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
-- `k8s/demo/` – Demo cluster manifests (faker, core, sync, CNPG, etc.).
+- `helm/serviceradar/` – Supported Kubernetes installation chart for demo and production deployments.
 - `docker/`, `docker/images/` – Container builds and push targets.
 - `elixir/web-ng/` – Phoenix (next-gen) UI/API monolith.
 - `proto/` – Protobuf definitions and generated Go code.

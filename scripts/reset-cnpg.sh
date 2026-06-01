@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Reset the CloudNativePG (CNPG) cluster backing the demo environments.
+# Reset the CloudNativePG (CNPG) cluster backing the Helm-managed demo environments.
 # Usage: scripts/reset-cnpg.sh [prod|staging]
 
 set -euo pipefail
@@ -9,11 +9,11 @@ ENVIRONMENT="${1:-prod}"
 case "$ENVIRONMENT" in
   prod)
     NAMESPACE="demo"
-    OVERLAY="k8s/demo/prod"
+    VALUES_FILE="helm/serviceradar/values-demo.yaml"
     ;;
   staging)
     NAMESPACE="demo-staging"
-    OVERLAY="k8s/demo/staging"
+    VALUES_FILE="helm/serviceradar/values-demo-staging.yaml"
     ;;
   *)
     echo "Usage: $0 [prod|staging]" >&2
@@ -32,8 +32,12 @@ kubectl delete cluster "${CLUSTER_NAME}" -n "${NAMESPACE}" --ignore-not-found --
 echo "🧹 Deleting old PVCs labelled ${SELECTOR}..."
 kubectl delete pvc -n "${NAMESPACE}" -l "${SELECTOR}" --ignore-not-found --wait=false
 
-echo "📦 Reapplying overlay ${OVERLAY} to recreate CNPG + SPIRE manifests..."
-kubectl apply -k "${OVERLAY}"
+echo "📦 Reapplying Helm release in namespace ${NAMESPACE} to recreate CNPG resources..."
+helm upgrade --install serviceradar ./helm/serviceradar \
+  -n "${NAMESPACE}" \
+  -f "${VALUES_FILE}" \
+  --wait \
+  --timeout 10m
 
 echo "⏳ Waiting for CNPG pods to become Ready..."
 kubectl wait --for=condition=Ready --timeout=600s pod -l "${SELECTOR}" -n "${NAMESPACE}"

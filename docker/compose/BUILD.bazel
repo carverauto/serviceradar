@@ -17,8 +17,6 @@ exports_files(
     ),
 )
 
-exports_files(["nginx.conf.template"])
-
 exports_files([
     "tools-profile.sh",
     "tools-entrypoint.sh",

@@ -667,27 +667,27 @@ Generated edge-site NATS leaf setup artifacts SHALL shell-escape edge-site names
 - **THEN** the resulting script treats the site name as literal text
 - **AND** no command substitution or injected shell syntax is introduced
 
-### Requirement: Default demo Kubernetes base omits host SPIRE socket mounts
-The default `k8s/demo/base` deployment path SHALL NOT mount host SPIRE Workload API sockets into workloads unless SPIRE is explicitly enabled through a dedicated opt-in path.
+### Requirement: Default Helm Kubernetes install omits host SPIRE socket mounts
+The default Helm Kubernetes installation path SHALL NOT mount host SPIRE Workload API sockets into workloads unless SPIRE is explicitly enabled through a dedicated opt-in path.
 
-#### Scenario: Default demo base render
-- **WHEN** the default demo base is rendered without the optional SPIRE resources
-- **THEN** workloads in the base do not include `hostPath` mounts for `/run/spire/sockets`
+#### Scenario: Default Helm render
+- **WHEN** the Helm chart is rendered without optional SPIRE resources
+- **THEN** rendered workloads do not include `hostPath` mounts for `/run/spire/sockets`
 - **AND** their runtime environment does not require a SPIRE workload socket to start
 
 #### Scenario: SPIRE opt-in render
-- **WHEN** an operator explicitly enables the SPIRE-specific demo path
+- **WHEN** an operator explicitly enables the SPIRE-specific Helm values
 - **THEN** only the SPIRE-enabled workloads receive the required socket mounts and SPIRE-specific runtime wiring
 
-### Requirement: Demo overlays keep datasvc internal by default
-The shipped `k8s/demo/prod` and `k8s/demo/staging` overlays SHALL keep datasvc internal-only by default and SHALL NOT publish datasvc gRPC through an external service unless the operator explicitly opts in.
+### Requirement: Helm demo values keep datasvc internal by default
+The shipped Helm demo values SHALL keep datasvc internal-only by default and SHALL NOT publish datasvc gRPC through an external service unless the operator explicitly opts in.
 
-#### Scenario: Default prod overlay render
-- **WHEN** the prod demo overlay is rendered as shipped
+#### Scenario: Default demo values render
+- **WHEN** the Helm chart is rendered with `helm/serviceradar/values-demo.yaml`
 - **THEN** no external `LoadBalancer` or equivalent public-facing Service for datasvc is included by default
 
-#### Scenario: Default staging overlay render
-- **WHEN** the staging demo overlay is rendered as shipped
+#### Scenario: Default demo staging values render
+- **WHEN** the Helm chart is rendered with `helm/serviceradar/values-demo-staging.yaml`
 - **THEN** no external `LoadBalancer` or equivalent public-facing Service for datasvc is included by default
 
 ### Requirement: Agent release downloads preserve the initial trusted origin
@@ -776,4 +776,3 @@ The system SHALL use a dedicated camera media service for live-view control and 
 - **WHEN** the platform coordinates the edge uplink
 - **THEN** the agent, gateway, and platform SHALL use the camera media service for relay control and media transport
 - **AND** the generic monitoring status/results service SHALL remain unchanged for health and plugin payload ingestion
-

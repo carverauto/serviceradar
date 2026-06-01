@@ -17,13 +17,7 @@ ServiceRadar MUST publish a CNPG-compatible Postgres image that bundles the Time
 - **THEN** the query returns a non-empty PostGIS version string.
 
 ### Requirement: SPIRE CNPG cluster uses the custom image
-The SPIRE CNPG deployment (demo kustomize manifests and Helm chart) MUST consume the custom image and initialize required extensions in the target database(s).
-
-#### Scenario: Demo kustomize deployment
-- **GIVEN** `kubectl apply -k k8s/demo/base/spire`
-- **WHEN** the `cnpg` pods become Ready
-- **THEN** their container image is the published custom tag
-- **AND** `SELECT extname FROM pg_extension` in the initialized database lists `timescaledb`, `age`, and `postgis`.
+The SPIRE CNPG deployment rendered by the Helm chart MUST consume the custom image and initialize required extensions in the target database(s).
 
 #### Scenario: Helm values deployment
 - **GIVEN** `helm template serviceradar ./helm/serviceradar --set spire.enabled=true --set spire.postgres.enabled=true`
@@ -32,11 +26,11 @@ The SPIRE CNPG deployment (demo kustomize manifests and Helm chart) MUST consume
 - **AND** extension bootstrap SQL includes `CREATE EXTENSION IF NOT EXISTS postgis;` for the configured database.
 
 ### Requirement: Clean rebuild path for SPIRE CNPG cluster
-Operators MUST have a documented, testable rebuild path that deletes and recreates the SPIRE CNPG cluster with the new image, re-applies the SPIRE manifests, and validates the system from a clean slate.
+Operators MUST have a documented, testable rebuild path that deletes and recreates the SPIRE CNPG cluster with the new image, re-applies the Helm release, and validates the system from a clean slate.
 
 #### Scenario: Recreate cluster without backups
 - **GIVEN** a running SPIRE deployment on the legacy CNPG image
-- **WHEN** the documented steps are followed (delete the existing `Cluster`, deploy the new manifest, run the SPIRE manifests that seed controller resources, and wait for pods to reconcile)
+- **WHEN** the documented steps are followed (delete the existing `Cluster`, upgrade the Helm release, and wait for pods to reconcile)
 - **THEN** SPIRE reconnects to Postgres on the fresh database, the controller re-registers workloads, and agents can request new SVIDs without relying on an etcd backup.
 
 ### Requirement: Trigram indexes optimize ILIKE text search queries
@@ -422,4 +416,3 @@ The system SHALL expose low-cardinality slow-query metrics derived from existing
 - **WHEN** operators query slow-query metrics
 - **THEN** they can view latency distribution and slow-query rates over time
 - **AND** metric labels remain low cardinality and suitable for alerting.
-
