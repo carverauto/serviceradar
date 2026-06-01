@@ -66,10 +66,21 @@
   enums), and creates a **staged** package via an injected `SystemActor` (no
   `authorize?: false`). Unit-tested (verify/tamper/wrong-key/malformed, sha256, decode,
   per-arch map, attrs mapping; `mix test` green, `--warnings-as-errors` + `credo --strict`
-  clean). Remaining: the web-ng OCI-fetch orchestration — fetch the native-addon index
-  from the trusted release, bounded-fetch the bundle, Cosign-verify the OCI digest (reuse
-  `CosignVerifier`), parse the bundle's `addon.yaml` + `config.schema.json`, assemble the
-  per-arch fetched artifacts, and call `NativeAddonImporter.import_entry/4`.
+  clean). The web-ng OCI-fetch orchestration also landed:
+  `ServiceRadarWebNG.Plugins.NativeAddonImporter.import/1` resolves the repo + release
+  tag, fetches `serviceradar-native-addon-index.json`, finds the entry, fetches +
+  Cosign-verifies the OCI manifest, asserts each per-arch `tarball_digest`/`signature_digest`
+  + the `bundle_digest` is a layer of the verified manifest and pulls those blobs by
+  digest, extracts the bundle's `addon.yaml` + `config.schema.json`, assembles the per-arch
+  artifacts, and calls the core `import_entry/4` with `NativeAddonArtifactMirror.mirror_fun/3`
+  + a `SystemActor`. Transport (repo/release/OCI fetch, cosign, URL/digest/string utils)
+  was extracted into a shared `ServiceRadarWebNG.Plugins.ForgejoOciClient`. compile
+  `--warnings-as-errors` + `credo --strict` clean.
+  Remaining: (a) migrate `FirstPartyImporter` to delegate to `ForgejoOciClient` (the shared
+  module is in use by the native importer; FPI still holds its own transport copies — a
+  pure, test-gated dedup follow-up), and (b) an end-to-end test of the web-ng importer (fake
+  OCI/HTTP client serving a fixture index + bundle + per-arch blobs → scratch DB → staged
+  AddonPackage), mirroring `first_party_importer_test.exs`.
 - [x] 4.2 Mirror per-arch artifacts into ServiceRadar object storage and record the
   resolved object keys / digests / signature refs on the `AddonPackage`.
   — Done. `ServiceRadar.Plugins.NativeAddonArtifactMirror.mirror_fun/3` returns the
