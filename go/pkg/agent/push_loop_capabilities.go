@@ -18,7 +18,10 @@ package agent
 
 import (
 	"encoding/json"
+	"path/filepath"
+	"runtime"
 	"strings"
+	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
@@ -89,6 +92,9 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		addonStatuses = addonManager.Status()
 	}
 	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
+	if netprobeStatus := p.netprobeAddonStatus(resolveAddonArtifactRoot(""), sidecars); netprobeStatus != nil {
+		sidecars = append(sidecars, netprobeStatus)
+	}
 
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
@@ -312,6 +318,56 @@ func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
 	}
 
 	return "unavailable"
+}
+
+// netprobeAddonStatus synthesizes an `addon:netprobe` entry so the systemd-managed
+// netprobe add-on lands in the control-plane AddonStatus read model (Edge Ops drift),
+// which only ingests `addon:<id>` sidecar entries. netprobe is supervised as a
+// systemd-service (not the go-plugin addon manager) and otherwise reports under the bare
+// "netprobe" sidecar name, so it would never reach the read model. Returns nil when
+// netprobe is not installed as a systemd add-on on this host. The installed version comes
+// from the activation `current` symlink (target `versions/<version>`); arch is the host
+// arch (the agent runs the arch-matching artifact); live state/health is folded in from
+// the running netprobe sidecar entry when present. Reuses agentaddon.ToProtoStatuses for
+// the `addon:` prefix + version/arch mapping. Explicit capture-active reporting needs a
+// netprobe IPC signal (follow-up); a running-but-incapable netprobe still surfaces via its
+// state + last_error.
+func (p *PushLoop) netprobeAddonStatus(root string, sidecars []*proto.SidecarStatus) *proto.SidecarStatus {
+	id := agentnetprobe.DefaultSidecarName
+	if len(p.systemdAddonUnits(id)) == 0 {
+		return nil
+	}
+
+	st := agentaddon.Status{
+		ID:    id,
+		State: agentaddon.StateStopped,
+		Arch:  runtime.GOARCH,
+	}
+	if target, ok := readAddonCurrentTarget(filepath.Join(root, id)); ok {
+		st.Version = filepath.Base(target)
+	}
+
+	for _, s := range sidecars {
+		if s == nil || !strings.EqualFold(s.GetName(), id) {
+			continue
+		}
+		st.State = agentaddon.State(s.GetState())
+		st.PID = int(s.GetPid())
+		st.RestartCount = int(s.GetRestartCount())
+		st.LastError = s.GetLastError()
+		if s.GetLastHealthAt() > 0 {
+			st.LastHealthAt = time.Unix(0, s.GetLastHealthAt()).UTC()
+		}
+
+		break
+	}
+
+	out := agentaddon.ToProtoStatuses([]agentaddon.Status{st})
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out[0]
 }
 
 func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
