@@ -2,65 +2,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  @fixture_rows [
-    %{
-      id: "fixture-nginx",
-      timestamp: "2026-05-29 14:32:10Z",
-      source: "10.42.10.12",
-      source_port: 53_844,
-      destination: "198.51.100.20",
-      destination_port: 443,
-      bytes: 1_482_240,
-      packets: 1042,
-      protocol: "TCP",
-      pid: 1234,
-      comm: "nginx",
-      cmdline: "/usr/sbin/nginx args:sha256:31f0e4c8",
-      uid: 101,
-      container_id: "cri-o://web-frontend"
-    },
-    %{
-      id: "fixture-postgres",
-      timestamp: "2026-05-29 14:31:42Z",
-      source: "10.42.10.31",
-      source_port: 46_012,
-      destination: "10.42.20.15",
-      destination_port: 5432,
-      bytes: 384_512,
-      packets: 284,
-      protocol: "TCP",
-      pid: 2874,
-      comm: "postgres",
-      cmdline: "/usr/lib/postgresql/18/bin/postgres args:sha256:9aa1d730",
-      uid: 999,
-      container_id: "containerd://timescale"
-    },
-    %{
-      id: "fixture-unattributed",
-      timestamp: "2026-05-29 14:30:58Z",
-      source: "203.0.113.44",
-      source_port: 62_001,
-      destination: "10.42.10.12",
-      destination_port: 22,
-      bytes: 22_184,
-      packets: 64,
-      protocol: "TCP",
-      pid: nil,
-      comm: nil,
-      cmdline: nil,
-      uid: nil,
-      container_id: nil
-    }
-  ]
-
   @impl true
   def mount(_params, _session, socket) do
-    rows = @fixture_rows
+    rows = []
 
     {:ok,
      socket
      |> assign(:page_title, "Attributed Flows")
      |> assign(:rows, rows)
+     |> assign(:has_rows?, rows != [])
      |> assign(:summary, summarize(rows))
      |> stream(:attributed_flows, rows, dom_id: &flow_dom_id/1)}
   end
@@ -159,6 +109,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 <% end %>
               </tbody>
             </table>
+          </div>
+
+          <div :if={!@has_rows?} class="border-t border-base-200 p-8 text-center">
+            <div class="text-sm font-medium">No attributed flow records found</div>
+            <div class="mt-1 text-xs text-base-content/60">
+              Process-attributed network flow data will appear here when available.
+            </div>
           </div>
         </.ui_panel>
       </div>
