@@ -12,6 +12,7 @@ import gzip
 import hashlib
 import io
 import json
+import re
 import tarfile
 import zipfile
 from pathlib import Path
@@ -230,7 +231,7 @@ def parse_manifest_top_level(text: str) -> dict:
             continue
 
         current_key = key.strip()
-        value = value.strip()
+        value = _strip_inline_comment(value.strip()).strip()
         if value in {"", "|", ">-", ">"}:
             doc[current_key] = True
             continue
@@ -238,6 +239,21 @@ def parse_manifest_top_level(text: str) -> dict:
         doc[current_key] = value.strip("\"'")
 
     return doc
+
+
+def _strip_inline_comment(value: str) -> str:
+    """Drop a trailing YAML comment from an unquoted scalar value.
+
+    YAML treats `#` as a comment only at the start of a token or when preceded by
+    whitespace, so `pushed-artifact   # ...` is the scalar `pushed-artifact`. The
+    PyYAML path already does this; this keeps the dependency-free fallback parser
+    from being stricter than the authoritative Go validator. Quoted scalars are
+    left untouched (the manifest enums are unquoted).
+    """
+    if value[:1] in ("\"", "'"):
+        return value
+    match = re.search(r"(^|\s)#", value)
+    return value[: match.start()] if match else value
 
 
 def manifest_metadata(members):
