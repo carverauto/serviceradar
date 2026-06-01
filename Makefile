@@ -246,12 +246,27 @@ check_addon_dependency_isolation: ## Assert the base agent's transitive deps exc
 check_addon_no_stdlib_plugin: ## Forbid the Go stdlib `plugin` package in the agent + add-on builds
 	@./scripts/check-addon-no-stdlib-plugin.sh
 
+.PHONY: check_addon_deadcode_elimination
+check_addon_deadcode_elimination: ## Ensure Go native add-ons do not force broad linker method retention
+	@./scripts/check-addon-deadcode-elimination.sh
+
 .PHONY: check_addon_binary_size
 check_addon_binary_size: ## Per-artifact binary-size regression gate (requires go-size-analyzer / gsa; pass ARTIFACTS=...)
 	@./scripts/check-addon-binary-size.sh $(ARTIFACTS)
 
+.PHONY: check_addon_binary_size_bazel
+check_addon_binary_size_bazel: ## Build all native add-on binaries and run the binary-size regression gate
+	@set -eu; \
+	bazel build //build/native_addons:all_binaries; \
+	artifacts="$$(bazel cquery --output=files //build/native_addons:all_binaries)"; \
+	if [ -z "$${artifacts}" ]; then \
+		echo "no native add-on binary artifacts resolved" >&2; \
+		exit 1; \
+	fi; \
+	./scripts/check-addon-binary-size.sh $${artifacts}
+
 .PHONY: addon_build_gates
-addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin ## Run all add-on build/CI hygiene gates that need no secrets (manifest schema + dependency isolation + stdlib-plugin)
+addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin check_addon_deadcode_elimination check_addon_binary_size_bazel ## Run all add-on build/CI hygiene gates that need no secrets
 	@echo "add-on build gates passed"
 
 .PHONY: build_native_addons
