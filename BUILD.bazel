@@ -11,6 +11,7 @@ load("@rules_shell//shell:sh_binary.bzl", "sh_binary")
 # gazelle:exclude target
 # gazelle:exclude rust/rperf-client
 # gazelle:exclude cmd/ebpf
+# gazelle:exclude go/pkg/agent/testdata
 
 load("@platforms//host:extension.bzl", "host_platform")
 
@@ -53,7 +54,7 @@ alias(
 
 sh_binary(
     name = "swiftlint_lint",
-    srcs = ["scripts/swiftlint_bazel.sh"],
+    srcs = ["//scripts:swiftlint_bazel.sh"],
     args = [
         "$(location .swiftlint.yml)",
     ],
