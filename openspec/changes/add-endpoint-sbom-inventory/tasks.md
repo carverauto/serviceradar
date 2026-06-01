@@ -2,14 +2,14 @@
 - [x] 1.1 Review existing agent, device inventory, datasvc object storage, Bumblebee, and CTI OpenSpec surfaces.
 - [x] 1.2 Draft focused endpoint SBOM inventory proposal, design, tasks, and spec deltas.
 - [x] 1.3 Validate with `openspec validate add-endpoint-sbom-inventory --strict`.
-- [ ] 1.4 Get proposal approval before implementation.
+- [x] 1.4 Get proposal approval before implementation.
 
 ## 2. Agent And Collector
 - [ ] 2.1 Add endpoint inventory configuration structs, validation, profile delivery, and local override handling.
-- [ ] 2.2 Add a signed native add-on or scoped agent subcommand that collects Linux OS package inventory.
-- [ ] 2.3 Generate CycloneDX JSON with OS package components, OS metadata, collector provenance, and redaction metadata.
-- [ ] 2.4 Add bounded local spool handling, schema validation, size checks, and last-good artifact behavior.
-- [ ] 2.5 Add focused Go tests with dpkg, rpm, and apk fixture data.
+- [x] 2.2 Add a signed native add-on or scoped agent subcommand that collects Linux OS package inventory.
+- [x] 2.3 Generate CycloneDX JSON with OS package components, OS metadata, collector provenance, and redaction metadata.
+- [x] 2.4 Add bounded local spool handling, schema validation, size checks, and last-good artifact behavior.
+- [x] 2.5 Add focused Go tests with dpkg, rpm, and apk fixture data.
 
 ## 3. Transport And Storage
 - [ ] 3.1 Define protobuf/API contracts for endpoint inventory scan metadata, normalized package summaries, and SBOM artifact references.

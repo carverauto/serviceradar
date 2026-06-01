@@ -121,4 +121,31 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # Endpoint software inventory add-on. Ships the root-owned package
+        # inventory collector plus a systemd timer; the non-root agent ingests
+        # only the sanitized CycloneDX spool payload.
+        "name": "endpoint_inventory_addon_bundle",
+        "addon_id": "endpoint-inventory",
+        "repository_name": "serviceradar-addon-endpoint-inventory",
+        "language": "go",
+        "binary": "//go/cmd/endpoint-inventory:endpoint_inventory",
+        "binary_name": "serviceradar-endpoint-inventory",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/endpoint-inventory:addon.yaml"),
+            ("config.schema.json", "//addons/endpoint-inventory:config.schema.json"),
+        ],
+        "unit_entries": [
+            ("serviceradar-endpoint-inventory.service", "//addons/endpoint-inventory:serviceradar-endpoint-inventory.service"),
+            ("serviceradar-endpoint-inventory.timer", "//addons/endpoint-inventory:serviceradar-endpoint-inventory.timer"),
+        ],
+        "data_entries": [
+            ("endpoint-inventory.json", "//addons/endpoint-inventory:endpoint-inventory.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

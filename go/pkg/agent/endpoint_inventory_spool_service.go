@@ -1,0 +1,121 @@
+/*
+ * Copyright 2025 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package agent
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"os"
+
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
+	"github.com/carverauto/serviceradar/go/pkg/models"
+	"github.com/carverauto/serviceradar/proto"
+)
+
+const maxEndpointInventorySpoolBytes = 32 * 1024 * 1024
+
+var errEndpointInventorySpoolTooLarge = errors.New("endpoint inventory spool payload exceeds size budget")
+
+type EndpointInventorySpoolService struct {
+	agentID   string
+	spoolPath string
+}
+
+func NewEndpointInventorySpoolService(agentID string, cfg *EndpointInventoryStatusConfig) *EndpointInventorySpoolService {
+	return &EndpointInventorySpoolService{
+		agentID:   agentID,
+		spoolPath: cfg.effectiveSpoolPath(),
+	}
+}
+
+func (s *EndpointInventorySpoolService) Start(context.Context) error { return nil }
+func (s *EndpointInventorySpoolService) Stop(context.Context) error  { return nil }
+func (s *EndpointInventorySpoolService) Name() string                { return endpointinventory.ServiceName }
+func (s *EndpointInventorySpoolService) StatusServiceType() string {
+	return endpointinventory.ServiceType
+}
+func (s *EndpointInventorySpoolService) StatusSource() string { return endpointinventory.SourceResults }
+func (s *EndpointInventorySpoolService) UpdateConfig(*models.Config) error {
+	return nil
+}
+
+func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.StatusResponse, error) {
+	data, err := os.ReadFile(s.spoolPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return s.notScannedStatus(), nil
+		}
+		return nil, err
+	}
+	if len(data) > maxEndpointInventorySpoolBytes {
+		return nil, errEndpointInventorySpoolTooLarge
+	}
+
+	data = ensureEndpointInventoryAgentID(data, s.agentID)
+
+	return &proto.StatusResponse{
+		Available:   true,
+		Message:     data,
+		ServiceName: endpointinventory.ServiceName,
+		ServiceType: endpointinventory.ServiceType,
+	}, nil
+}
+
+func (s *EndpointInventorySpoolService) notScannedStatus() *proto.StatusResponse {
+	payload := map[string]any{
+		"schema_version": endpointinventory.SchemaVersion,
+		"agent_id":       s.agentID,
+		"scan_id":        "endpoint-inventory-not-scanned",
+		"state":          "not_scanned",
+		"coverage_state": "not_scanned",
+		"package_count":  0,
+		"sources":        []endpointinventory.SourceSummary{},
+		"metadata": map[string]any{
+			"spool_path": s.spoolPath,
+			"reason":     "spool_not_found",
+		},
+	}
+
+	data, _ := json.Marshal(payload)
+
+	return &proto.StatusResponse{
+		Available:   false,
+		Message:     data,
+		ServiceName: endpointinventory.ServiceName,
+		ServiceType: endpointinventory.ServiceType,
+	}
+}
+
+func ensureEndpointInventoryAgentID(data []byte, agentID string) []byte {
+	if agentID == "" {
+		return data
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+
+	payload["agent_id"] = agentID
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}

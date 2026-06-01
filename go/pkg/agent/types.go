@@ -27,6 +27,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
@@ -157,8 +158,9 @@ type ServerConfig struct {
 	StatusHeartbeatInterval Duration               `json:"status_heartbeat_interval,omitempty"` // Maximum interval between status pushes (heartbeat)
 
 	// Embedded sync runtime
-	SyncRuntimeEnabled *bool                  `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
-	Bumblebee          *BumblebeeStatusConfig `json:"bumblebee,omitempty"`            // Root scanner spool status integration
+	SyncRuntimeEnabled *bool                          `json:"sync_runtime_enabled,omitempty"` // Enable embedded integration sync runtime
+	Bumblebee          *BumblebeeStatusConfig         `json:"bumblebee,omitempty"`            // Root scanner spool status integration
+	EndpointInventory  *EndpointInventoryStatusConfig `json:"endpoint_inventory,omitempty"`   // Endpoint software inventory spool status
 
 	// Deprecated: accepted for compatibility with older rendered ConfigMaps.
 	RemoteAccessKnownHostsFile string `json:"remote_access_known_hosts_file,omitempty"`
@@ -191,6 +193,19 @@ type BumblebeeStatusConfig struct {
 	CatalogPath string `json:"catalog_path,omitempty"`
 	ProfilePath string `json:"profile_path,omitempty"`
 	TmpDir      string `json:"tmp_dir,omitempty"`
+}
+
+type EndpointInventoryStatusConfig struct {
+	Enabled   bool   `json:"enabled"`
+	SpoolPath string `json:"spool_path,omitempty"`
+}
+
+func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
+	if c == nil || c.SpoolPath == "" {
+		return endpointinventory.LatestPath("/var/lib/serviceradar/endpoint-inventory/spool")
+	}
+
+	return c.SpoolPath
 }
 
 func (c *BumblebeeStatusConfig) effectiveSpoolPath() string {
