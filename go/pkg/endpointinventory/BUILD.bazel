@@ -1,0 +1,25 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "endpointinventory",
+    srcs = [
+        "collect.go",
+        "config.go",
+        "cyclonedx.go",
+        "packages.go",
+        "spool.go",
+        "types.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/endpointinventory",
+    visibility = ["//visibility:public"],
+)
+
+go_test(
+    name = "endpointinventory_test",
+    srcs = [
+        "collect_test.go",
+        "packages_test.go",
+        "spool_test.go",
+    ],
+    embed = [":endpointinventory"],
+)

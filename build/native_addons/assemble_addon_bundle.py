@@ -169,14 +169,7 @@ def validate_manifest(members):
     if manifest_path is None:
         raise SystemExit("error: bundle is missing an addon.yaml manifest")
 
-    try:
-        import yaml  # noqa: PLC0415 - imported lazily so non-bundle codepaths need no PyYAML.
-    except ImportError as exc:  # pragma: no cover - environment-specific.
-        raise SystemExit(
-            "error: PyYAML is required to validate addon.yaml before bundling"
-        ) from exc
-
-    doc = yaml.safe_load(manifest_path.read_text(encoding="utf-8"))
+    doc = load_manifest_yaml(manifest_path)
     if not isinstance(doc, dict):
         raise SystemExit(f"error: {manifest_path}: manifest is not a YAML mapping")
 
@@ -199,6 +192,52 @@ def validate_manifest(members):
         raise SystemExit(
             f"error: {manifest_path}: invalid add-on manifest; refusing to bundle:\n  - {joined}"
         )
+
+
+def load_manifest_yaml(manifest_path: Path):
+    text = manifest_path.read_text(encoding="utf-8")
+    try:
+        import yaml  # noqa: PLC0415 - optional when available in the action env.
+    except ImportError:  # pragma: no cover - environment-specific.
+        return parse_manifest_top_level(text)
+
+    return yaml.safe_load(text)
+
+
+def parse_manifest_top_level(text: str) -> dict:
+    """Parse enough YAML for native add-on manifest validation.
+
+    This fallback intentionally handles only top-level scalar keys and marks
+    top-level lists/maps as present. The authoritative schema validation still
+    happens in the Go manifest validator; this assembler only needs a
+    dependency-free fail-closed check for required fields and simple enums.
+    """
+    doc = {}
+    current_key = None
+
+    for raw_line in text.splitlines():
+        if not raw_line.strip() or raw_line.lstrip().startswith("#"):
+            continue
+
+        if raw_line.startswith((" ", "\t")):
+            if current_key and doc.get(current_key) in (None, "", [], {}):
+                doc[current_key] = True
+            continue
+
+        key, sep, value = raw_line.partition(":")
+        if not sep:
+            current_key = None
+            continue
+
+        current_key = key.strip()
+        value = value.strip()
+        if value in {"", "|", ">-", ">"}:
+            doc[current_key] = True
+            continue
+
+        doc[current_key] = value.strip("\"'")
+
+    return doc
 
 
 def manifest_metadata(members):

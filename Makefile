@@ -270,7 +270,12 @@ check_addon_hermetic_build_gates: ## Run Bazel-owned native add-on gate fixtures
 	@bazel test //build/native_addons:build_gates_test
 
 .PHONY: addon_build_gates
-addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin check_addon_deadcode_elimination check_addon_binary_size_bazel ## Run all add-on build/CI hygiene gates that need no secrets
+# binary-size is covered by the Bazel //build/native_addons:binary_size_test (run via
+# build_gates_test), which is RBE-correct because it gets the binaries as test runfiles.
+# The make check_addon_binary_size_bazel path (bazel build + a separate cquery + stat of
+# the cross-config output paths) is NOT RBE-safe — those outputs aren't reliably
+# materialized locally under remote execution — so it is intentionally not a prerequisite.
+addon_build_gates: validate_addon_manifests check_addon_dependency_isolation check_addon_no_stdlib_plugin check_addon_deadcode_elimination ## Run all add-on build/CI hygiene gates that need no secrets
 	@echo "add-on build gates passed"
 
 .PHONY: build_native_addons

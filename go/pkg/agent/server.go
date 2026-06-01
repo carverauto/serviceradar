@@ -228,6 +228,9 @@ func (s *Server) loadConfigurations(ctx context.Context, cfgLoader *config.Confi
 	if s.config.Bumblebee != nil && s.config.Bumblebee.Enabled {
 		s.services = append(s.services, NewBumblebeeSpoolService(s.config.AgentID, s.config.Bumblebee))
 	}
+	if s.config.EndpointInventory != nil && s.config.EndpointInventory.Enabled {
+		s.services = append(s.services, NewEndpointInventorySpoolService(s.config.AgentID, s.config.EndpointInventory))
+	}
 
 	return nil
 }
