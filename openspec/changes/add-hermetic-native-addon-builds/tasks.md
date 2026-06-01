@@ -15,6 +15,10 @@
     `//go/tools/addon-manifest-validator` against declared first-party manifests.
 - [ ] 2.2 Convert dependency-isolation and stdlib-`plugin` checks into Bazel tests
   that use Bazel-provided Go tooling rather than ambient `go` from `PATH`.
+  - PARTIAL: `//build/native_addons:dependency_isolation_test` checks the Bazel
+    dependency closure for `//go/cmd/agent:agent` via `genquery`, so the agent
+    cannot gain add-on implementation labels without failing analysis/test.
+    The stdlib-`plugin` gate still needs a Bazel-owned replacement.
 - [ ] 2.3 Convert the dead-code-elimination guard into a Bazel test that builds
   native add-on binaries under the declared Go SDK and inspects linker `dumpdep`
   output as a declared test action.
@@ -28,8 +32,8 @@
   `//build/native_addons:build_gates_test`, covering all hermetic native add-on
   build gates.
   - PARTIAL: `//build/native_addons:build_gates_test` now aggregates the converted
-    manifest, binary-size, and verifier-negative fixture tests. It does not yet
-    cover dependency isolation, stdlib-`plugin`, or dead-code elimination.
+    dependency-isolation, manifest, binary-size, and verifier-negative fixture
+    tests. It does not yet cover stdlib-`plugin` or dead-code elimination.
 
 ## 3. Hermetic verifier fixtures
 - [ ] 3.1 Replace fake-`PATH` verifier negative tests with Bazel fixture tests that

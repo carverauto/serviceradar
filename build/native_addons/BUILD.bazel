@@ -9,6 +9,7 @@ exports_files([
     "assemble_addon_bundle.py",
     "binary-size-baseline.json",
     "binary_size_test.sh",
+    "dependency_isolation_test.sh",
     "publish_addon.sh",
     "runfile_path.sh",
     "validate_manifests_test.sh",
@@ -37,6 +38,23 @@ go_test(
 # upload-signature), the discovery index, and the Forgejo release upload reuse the
 # Wasm plugin rails (scripts/ + .forgejo) and consume :all_metadata / :all_bundles.
 declare_native_addon_targets(ADDON_BUNDLES)
+
+genquery(
+    name = "agent_dependency_closure",
+    expression = "deps(//go/cmd/agent:agent)",
+    scope = ["//go/cmd/agent"],
+)
+
+sh_test(
+    name = "dependency_isolation_test",
+    timeout = "short",
+    srcs = ["dependency_isolation_test.sh"],
+    args = ["$(rootpath :agent_dependency_closure)"],
+    data = [
+        "runfile_path.sh",
+        ":agent_dependency_closure",
+    ],
+)
 
 sh_test(
     name = "validate_addon_manifests_test",
@@ -81,6 +99,7 @@ test_suite(
     name = "build_gates_test",
     tests = [
         ":binary_size_test",
+        ":dependency_isolation_test",
         ":validate_addon_manifests_test",
         "//scripts:verify_native_addon_publish_negative_test",
     ],
