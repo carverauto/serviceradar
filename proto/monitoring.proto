@@ -582,6 +582,73 @@ message EndpointInventoryConfig {
   bool collect_file_hashes = 9;
 }
 
+// EndpointInventoryReport is the typed endpoint software inventory payload
+// produced by an agent after a collector scan. Raw SBOM bytes are stored
+// separately as a durable object and referenced by artifact.
+message EndpointInventoryReport {
+  EndpointInventoryScanMetadata metadata = 1;
+  EndpointInventoryArtifactRef artifact = 2;
+  repeated EndpointInventoryPackageSummary packages = 3;
+}
+
+// EndpointInventoryScanMetadata captures scan-level provenance and state.
+message EndpointInventoryScanMetadata {
+  string schema_version = 1;
+  string scan_id = 2;
+  string agent_id = 3;
+  string device_uid = 4;
+  string collector_name = 5;
+  string collector_version = 6;
+  string state = 7;
+  string coverage_state = 8;
+  int64 scanned_at_unix = 9;
+  int64 last_successful_scan_at_unix = 10;
+  repeated EndpointInventorySourceSummary sources = 11;
+  int32 package_count = 12;
+  repeated string enabled_sources = 13;
+  map<string, string> redaction = 14;
+  string ingestion_status = 15;
+  string ingestion_error = 16;
+}
+
+// EndpointInventorySourceSummary reports coverage for one collector source.
+message EndpointInventorySourceSummary {
+  string source = 1;
+  string state = 2;
+  int32 package_count = 3;
+  string error = 4;
+}
+
+// EndpointInventoryArtifactRef identifies the raw CycloneDX SBOM object.
+message EndpointInventoryArtifactRef {
+  string object_key = 1;
+  string bucket = 2;
+  string domain = 3;
+  string content_type = 4;
+  string format = 5;
+  string spec_version = 6;
+  string sha256 = 7;
+  int64 size_bytes = 8;
+  int64 uploaded_at_unix = 9;
+  map<string, string> metadata = 10;
+}
+
+// EndpointInventoryPackageSummary is the normalized package/component shape
+// used for package inventory queries.
+message EndpointInventoryPackageSummary {
+  string name = 1;
+  string version = 2;
+  string architecture = 3;
+  string package_manager = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  repeated string cpes = 7;
+  string supplier = 8;
+  string license = 9;
+  string source = 10;
+  map<string, string> evidence = 11;
+}
+
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
 message SysmonConfig {
   // Whether sysmon collection is enabled

@@ -104,6 +104,7 @@ spec:
           import base64
           import json
           import ssl
+          import subprocess
           import sys
           import urllib.error
           import urllib.request
@@ -139,6 +140,8 @@ spec:
               "tools-key.pem",
               "falcosidekick.pem",
               "falcosidekick-key.pem",
+              "trivy-sidecar.pem",
+              "trivy-sidecar-key.pem",
               "runtime-cert-layout-version",
               agent_component_cert,
               agent_component_key,
@@ -150,12 +153,32 @@ spec:
             if os.path.exists(layout_version_path):
               layout_version = open(layout_version_path, encoding="utf-8").read().strip()
 
-            if not missing and layout_version == expected_layout_version:
+            invalid = []
+            root_cert = os.path.join(cert_dir, "root.pem")
+            for name in ["trivy-sidecar.pem"]:
+              cert_path = os.path.join(cert_dir, name)
+              if os.path.exists(root_cert) and os.path.exists(cert_path):
+                result = subprocess.run(
+                  ["openssl", "verify", "-CAfile", root_cert, cert_path],
+                  check=False,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.STDOUT,
+                  text=True,
+                )
+                if result.returncode != 0:
+                  invalid.append(name)
+
+            if not missing and not invalid and layout_version == expected_layout_version:
               print(f"Secret {secret_name} already exists with required runtime certs; preserving current runtime certs")
               sys.exit(0)
 
             if missing:
               print(f"Secret {secret_name} exists but is missing runtime cert files: {', '.join(missing)}")
+            elif invalid:
+              print(
+                f"Secret {secret_name} has runtime cert files that do not verify against root.pem: "
+                f"{', '.join(invalid)}"
+              )
             else:
               print(
                 f"Secret {secret_name} has runtime cert layout version {layout_version or 'unset'}; "

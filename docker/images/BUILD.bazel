@@ -212,6 +212,27 @@ declare_service_container_amd64(
 )
 
 declare_service_container_amd64(
+    name = "trivy_sidecar_image_amd64",
+    runtime = "alpine_netutils",
+    image_title = "serviceradar-trivy-sidecar",
+    files = {
+        "//go/cmd/tools/trivy-sidecar:trivy-sidecar": "usr/local/bin/serviceradar-trivy-sidecar",
+    },
+    modes = {
+        "usr/local/bin/serviceradar-trivy-sidecar": "0755",
+    },
+    empty_dirs = [
+        "etc/serviceradar/certs",
+        "var/lib/serviceradar",
+        "var/log/serviceradar",
+    ],
+    entrypoint = ["/usr/local/bin/serviceradar-trivy-sidecar"],
+    workdir = "/var/lib/serviceradar",
+    exposed_ports = ["9108/tcp"],
+    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-trivy-sidecar:local"],
+)
+
+declare_service_container_amd64(
     name = "datasvc_image_amd64",
     runtime = "alpine_netutils",
     image_title = "serviceradar-datasvc",
