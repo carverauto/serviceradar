@@ -40,6 +40,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         mtr_settings_seeder_child(),
         bumblebee_catalog_source_seeder_child(),
         bumblebee_addon_package_seeder_child(),
+        netprobe_addon_package_seeder_child(),
         sweep_schedule_reconciler_child(),
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
@@ -158,6 +159,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp bumblebee_addon_package_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Plugins.BumblebeeAddonPackageSeeder
+    end
+  end
+
+  defp netprobe_addon_package_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Plugins.NetprobeAddonPackageSeeder
     end
   end
 
