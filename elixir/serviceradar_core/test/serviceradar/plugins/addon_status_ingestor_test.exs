@@ -42,7 +42,14 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     :ok =
       AddonStatusIngestor.ingest(
         agent_status(agent_uid, [
-          %{"name" => "addon:sample", "state" => "running", "pid" => 1234, "restart_count" => 0},
+          %{
+            "name" => "addon:sample",
+            "state" => "running",
+            "pid" => 1234,
+            "restart_count" => 0,
+            "version" => "0.2.0",
+            "arch" => "arm64"
+          },
           %{
             "name" => "addon:broken",
             "state" => "circuit_open",
@@ -61,6 +68,8 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     assert by_id["sample"].state == "running"
     assert by_id["sample"].active == true
     assert by_id["sample"].pid == 1234
+    assert by_id["sample"].version == "0.2.0"
+    assert by_id["sample"].arch == "arm64"
 
     assert by_id["broken"].state == "circuit_open"
     assert by_id["broken"].active == false

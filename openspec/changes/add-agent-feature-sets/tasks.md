@@ -137,10 +137,12 @@
   the Rust reference is pending → `add-native-addon-rust-sdk` §2.
 
 ## 7. Reporting & reconciliation
-- [ ] 7.1 Extend the `agent_capabilities` StatusResponse + `SidecarStatus` to report
+- [x] 7.1 Extend the `agent_capabilities` StatusResponse + `SidecarStatus` to report
   per-add-on installed/available/active/unhealthy + degradation reason and arch.
-  — Status: partial — per-add-on state/health is reported in the `agent_capabilities`
-  payload; arch reporting and the structured surfacing are pending → `add-native-addon-edge-ops` §1.
+  — Done — `SidecarStatus` gained `version` + `arch` fields; the add-on manager reports both
+  (`ToProtoStatuses`, arch from `runtime.GOARCH`) and the core `AddonStatusIngestor` populates the
+  read model's `version`/`arch` columns. netprobe's sidecar-path version/arch + capture status is
+  wired in `migrate-netprobe-to-native-addon` §2.3.
 - [ ] 7.2 Surface installed/active add-ons per agent in the agent registry read model
   (and SRQL where relevant).
   — Status: not started → `add-native-addon-edge-ops` §1.
