@@ -83,6 +83,13 @@ ADDON_BUNDLES = [
         "unit_entries": [
             ("serviceradar-netprobe.service", "//addons/netprobe:serviceradar-netprobe.service"),
         ],
+        # The compiled eBPF/AF_XDP object ships flat in the bundle next to the binary;
+        # netprobe loads it via `--ebpf-object` (continuous capture requires it after the
+        # Phase 3 eBPF cutover — see rust/netprobe/src/main.rs). It is arch-independent BPF
+        # bytecode (CO-RE), so the same object serves both linux platforms.
+        "data_entries": [
+            ("netprobe_ebpf.o", "//rust/netprobe/ebpf:netprobe_ebpf_object"),
+        ],
         "pushed_artifact_tarball": True,
     },
 ]
