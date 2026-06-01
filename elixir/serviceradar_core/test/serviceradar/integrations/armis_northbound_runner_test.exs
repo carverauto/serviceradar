@@ -239,7 +239,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert sql =~ "'availability_source_agent_id', $1::text"
   end
 
-  test "execute_batches authenticates with bearer token, batches requests, and aggregates counts" do
+  test "execute_batches authenticates with the raw token, batches requests, and aggregates counts" do
     source = %{
       id: "source-1",
       northbound_enabled: true,
@@ -303,7 +303,9 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
     assert_received {:request, "/api/v1/devices/custom-properties/_bulk/", :post, _headers2,
                      body2}
 
-    assert headers1["Authorization"] == "Bearer token-abc"
+    # Armis requires the raw access token; a "Bearer " prefix triggers a 401
+    # "Invalid access token." (see authorization_header/1).
+    assert headers1["Authorization"] == "token-abc"
     assert headers1["Content-Type"] == "application/json"
     assert headers1["Accept"] == "application/json"
     assert length(body1) == 2
@@ -337,6 +339,117 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
              )
 
     assert_received {:headers, %{"Authorization" => "Bearer token-abc"}}
+  end
+
+  # Regression guard: Armis rejects "Authorization: Bearer <token>" with
+  # 401 "Invalid access token.". A JWT-shaped token (no whitespace) must be sent
+  # raw. This protects against the 8e8b00b93 regression that re-added a Bearer
+  # prefix and broke the example-namespace northbound sync (v1.2.78–v1.2.83).
+  test "execute_batches sends the raw access token without a Bearer prefix" do
+    parent = self()
+
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    jwt = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhcm1pcyJ9.s1gn4tur3"
+    token_fetcher = fn _source -> {:ok, jwt} end
+
+    request = fn _path, _method, headers, _body, _opts ->
+      send(parent, {:headers, headers})
+      {:ok, %{status: 200, body: %{"success" => true}}}
+    end
+
+    assert {:ok, _result} =
+             ArmisNorthboundRunner.execute_batches(
+               source,
+               [%{armis_device_id: "1", is_available: true}],
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert_received {:headers, %{"Authorization" => auth}}
+    assert auth == jwt
+    refute String.starts_with?(auth, "Bearer ")
+  end
+
+  test "execute_batches refreshes the access token once and retries a batch on a 401" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    counter = :counters.new(1, [])
+
+    token_fetcher = fn _source ->
+      n = :counters.get(counter, 1)
+      :counters.add(counter, 1, 1)
+      {:ok, "token-#{n}"}
+    end
+
+    # The first (expired) token is rejected; the refreshed token is accepted.
+    request = fn _path, _method, headers, _body, _opts ->
+      case headers["Authorization"] do
+        "token-0" -> {:ok, %{status: 401, body: %{"message" => "Invalid access token."}}}
+        "token-1" -> {:ok, %{status: 200, body: %{"success" => true}}}
+      end
+    end
+
+    assert {:ok, result} =
+             ArmisNorthboundRunner.execute_batches(
+               source,
+               [%{armis_device_id: "1", is_available: true}],
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert result.updated_count == 1
+    assert result.error_count == 0
+    # Initial fetch + one refresh.
+    assert :counters.get(counter, 1) == 2
+  end
+
+  test "execute_batches fails after one retry when the 401 persists" do
+    source = %{
+      id: "source-1",
+      northbound_enabled: true,
+      endpoint: "https://armis.example",
+      custom_fields: ["availability"],
+      credentials: %{"api_secret" => "secret"}
+    }
+
+    counter = :counters.new(1, [])
+
+    token_fetcher = fn _source ->
+      n = :counters.get(counter, 1)
+      :counters.add(counter, 1, 1)
+      {:ok, "token-#{n}"}
+    end
+
+    request = fn _path, _method, _headers, _body, _opts ->
+      {:ok, %{status: 401, body: %{"message" => "Invalid access token."}}}
+    end
+
+    assert {:error, result} =
+             ArmisNorthboundRunner.execute_batches(
+               source,
+               [%{armis_device_id: "1", is_available: true}],
+               token_fetcher: token_fetcher,
+               request: request
+             )
+
+    assert result.updated_count == 0
+    assert result.error_count == 1
+    assert [%{reason: {:unexpected_status, 401, _body}}] = result.errors
+    # Bounded: initial fetch + exactly one refresh, no infinite retry loop.
+    assert :counters.get(counter, 1) == 2
   end
 
   test "execute_batches fails before token request when secret key is unavailable" do
@@ -404,7 +517,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunnerTest do
 
     assert_receive {:fake_armis_bulk_request, request}, 1_000
     assert request.path == "/api/v1/devices/custom-properties/_bulk/"
-    assert request.headers["authorization"] == "Bearer fake-token-test"
+    assert request.headers["authorization"] == "fake-token-test"
     assert request.headers["content-type"] =~ "application/json"
 
     assert request.body == [

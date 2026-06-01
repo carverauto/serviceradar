@@ -318,7 +318,7 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           batch_count: length(batches)
         )
 
-        execute_bulk_batches(source, candidates, batches, custom_field, token, request)
+        execute_bulk_batches(source, candidates, batches, custom_field, token, request, opts)
 
       {:error, reason} ->
         Logger.warning("Failed to fetch Armis northbound access token",
@@ -338,14 +338,15 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     end
   end
 
-  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request) do
+  defp execute_bulk_batches(source, candidates, batches, custom_field, token, request, opts) do
     initial = %{
       device_count: length(candidates),
       updated_count: 0,
       skipped_count: 0,
       error_count: 0,
       batch_count: length(batches),
-      errors: []
+      errors: [],
+      token: token
     }
 
     result =
@@ -362,13 +363,12 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
           payload_shape: bulk_payload_shape(payload)
         )
 
-        case request.(
-               "/api/v1/devices/custom-properties/_bulk/",
-               :post,
-               request_headers(token),
-               payload,
-               request_options(source)
-             ) do
+        {request_result, token_in_effect} =
+          send_bulk_batch(source, payload, acc.token, request, opts)
+
+        acc = %{acc | token: token_in_effect}
+
+        case request_result do
           {:ok, %{status: status}} when status in 200..299 ->
             Logger.info("Armis northbound bulk update batch accepted",
               integration_source_id: inspect(Map.get(source, :id)),
@@ -418,12 +418,67 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
              }}
         end
       end)
+      |> Map.delete(:token)
 
     if result.errors == [] do
       {:ok, result}
     else
       {:error, result}
     end
+  end
+
+  # Sends one bulk batch. Armis access tokens are short-lived, so a token minted
+  # at the start of the run can expire (or be rotated) before the last batch is
+  # sent. On a 401 we re-fetch the token once and retry the same batch, and we
+  # return the token that was actually used so subsequent batches reuse a token
+  # that was refreshed here. A persistent 401 (e.g. genuinely bad credentials)
+  # still surfaces as a rejected batch after the single retry.
+  defp send_bulk_batch(source, payload, token, request, opts) do
+    case bulk_request(source, payload, token, request) do
+      {:ok, %{status: 401}} = rejected ->
+        case refresh_access_token(source, token, opts) do
+          {:ok, refreshed} ->
+            Logger.info("Refreshing Armis northbound access token after 401 and retrying batch",
+              integration_source_id: inspect(Map.get(source, :id))
+            )
+
+            {bulk_request(source, payload, refreshed, request), refreshed}
+
+          :unchanged ->
+            {rejected, token}
+        end
+
+      result ->
+        {result, token}
+    end
+  end
+
+  defp refresh_access_token(source, current_token, opts) do
+    case fetch_access_token(source, opts) do
+      {:ok, refreshed} when is_binary(refreshed) and refreshed != current_token ->
+        {:ok, refreshed}
+
+      {:ok, _unchanged} ->
+        :unchanged
+
+      {:error, reason} ->
+        Logger.warning("Failed to refresh Armis northbound access token after 401",
+          integration_source_id: inspect(Map.get(source, :id)),
+          reason: inspect(reason)
+        )
+
+        :unchanged
+    end
+  end
+
+  defp bulk_request(source, payload, token, request) do
+    request.(
+      "/api/v1/devices/custom-properties/_bulk/",
+      :post,
+      request_headers(token),
+      payload,
+      request_options(source)
+    )
   end
 
   @spec candidates_query(IntegrationSource.t() | map()) :: Ecto.Query.t()
@@ -1248,14 +1303,19 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunner do
     }
   end
 
+  # Armis authenticates bulk requests with the RAW access token returned by
+  # POST /api/v1/access_token/. It rejects an `Authorization: Bearer <token>`
+  # header with `401 {"message" => "Invalid access token."}`. Send the token
+  # verbatim (only trimmed of whitespace) and never prepend a scheme.
+  #
+  # Regression history (do not "fix" this back to Bearer):
+  #   f13534b81 set this to the raw token (the correct Armis behaviour),
+  #   8e8b00b93 accidentally reintroduced a Bearer prefix, which shipped in
+  #   v1.2.78–v1.2.83 and took down the example-namespace northbound sync for a
+  #   weekend once v1.2.83 was deployed. `String.trim/1` also leaves a token
+  #   that already carries a scheme untouched.
   defp authorization_header(token) when is_binary(token) do
-    token = String.trim(token)
-
-    if Regex.match?(~r/^[A-Za-z]+\s+\S+/, token) do
-      token
-    else
-      "Bearer #{token}"
-    end
+    String.trim(token)
   end
 
   defp request_options(source) do
