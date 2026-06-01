@@ -41,7 +41,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          {:ok, manifest, config_schema} <- extract_manifest(fetched.bundle) do
       Core.import_entry(manifest, entry, fetched.artifacts,
         public_key: public_key,
-        mirror: NativeAddonArtifactMirror.mirror_fun(addon_id(manifest, entry), version(manifest, entry)),
+        mirror: build_mirror(addon_id(manifest, entry), version(manifest, entry)),
         actor: SystemActor.system(:native_addon_importer),
         config_schema: config_schema,
         release_tag: release_tag
@@ -143,9 +143,23 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
 
       true ->
         case Client.fetch_oci_blob(repo, ref, digest) do
-          {:ok, blob} when byte_size(blob) > max_bytes -> {:error, :artifact_too_large}
-          {:ok, blob} -> {:ok, blob}
-          {:error, _reason} = error -> error
+          {:ok, blob} when byte_size(blob) > max_bytes ->
+            {:error, :artifact_too_large}
+
+          {:ok, blob} ->
+            # Manifest membership only proves the *declared* layer set; re-hash the
+            # returned bytes against the digest so a tampering/buggy registry can't
+            # swap the content. The per-arch tarball is also covered by the core's
+            # sha256 + ed25519, but the bundle (addon.yaml/config.schema.json) is
+            # otherwise unsigned, so this is its only byte-level integrity gate.
+            if Client.digest_matches?(digest, blob) do
+              {:ok, blob}
+            else
+              {:error, {:blob_digest_mismatch, digest}}
+            end
+
+          {:error, _reason} = error ->
+            error
         end
     end
   end
@@ -263,6 +277,19 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     else
       _ -> {:error, :release_public_key_unavailable}
     end
+  end
+
+  # The datasvc object-store upload is injectable so the importer is testable
+  # without a gRPC channel; production leaves `:native_addon_artifact_upload` unset
+  # and the mirror falls back to its default upload.
+  defp build_mirror(addon_id, version) do
+    opts =
+      case Application.get_env(:serviceradar_web_ng, :native_addon_artifact_upload) do
+        upload when is_function(upload, 3) -> [upload_object: upload]
+        _ -> []
+      end
+
+    NativeAddonArtifactMirror.mirror_fun(addon_id, version, opts)
   end
 
   defp addon_id(manifest, entry), do: Client.normalize_string(Map.get(manifest, "id")) || entry_string(entry, "addon_id")

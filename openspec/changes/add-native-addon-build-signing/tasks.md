@@ -56,9 +56,9 @@
     path. Verified to pass clean and to fail (with the path) on an injected import.
 
 ## 4. Control-plane importer
-- [ ] 4.1 Reuse the WASM verify-then-mirror importer (trusted-host allowlist, bounded
+- [x] 4.1 Reuse the WASM verify-then-mirror importer (trusted-host allowlist, bounded
   fetch, digest + Cosign + upload-signature) for the native-addon index. (§4.4)
-  — Partial. The verify-then-persist **core** landed: `ServiceRadar.Plugins.NativeAddonImporter`
+  — Done. The verify-then-persist **core** landed: `ServiceRadar.Plugins.NativeAddonImporter`
   (serviceradar_core) verifies each per-arch tarball's sha256 + the raw ed25519
   signature against the agent release key (the agent's exact `verifyAddonArtifactSignature`
   check, hex/base64 decode parity), maps the `addon.yaml` manifest + index entry to
@@ -76,11 +76,19 @@
   + a `SystemActor`. Transport (repo/release/OCI fetch, cosign, URL/digest/string utils)
   was extracted into a shared `ServiceRadarWebNG.Plugins.ForgejoOciClient`. compile
   `--warnings-as-errors` + `credo --strict` clean.
-  Remaining: (a) migrate `FirstPartyImporter` to delegate to `ForgejoOciClient` (the shared
-  module is in use by the native importer; FPI still holds its own transport copies — a
-  pure, test-gated dedup follow-up), and (b) an end-to-end test of the web-ng importer (fake
-  OCI/HTTP client serving a fixture index + bundle + per-arch blobs → scratch DB → staged
-  AddonPackage), mirroring `first_party_importer_test.exs`.
+  Dedup follow-up DONE: `FirstPartyImporter` now `import ForgejoOciClient, except: [default_repo_url: 0]`
+  and dropped its ~45 duplicated transport `defp`s (1006 → 470 lines); the kept code is only the
+  Wasm-bundle-specific discovery/verify/result-shaping, with bare transport calls resolving to the
+  shared client. `default_repo_url/0` stays a public accessor (delegating to the client) for the
+  LiveView caller. Gated by the unchanged `first_party_importer_test.exs` (mocks http/cosign; drives
+  every moved transport path through FPI's public API) — passes.
+  E2e follow-up DONE: `native_addon_importer_test.exs` drives the full web-ng orchestration end to end
+  — a fake `ForgejoOciClient` HTTP backend serves the release + `serviceradar-native-addon-index.json`
+  + OCI manifest + bundle/per-arch blobs by digest, Cosign + the datasvc upload are stubbed (the upload
+  via a new `:native_addon_artifact_upload` test seam), and the real core verifies sha256 + agent-release
+  ed25519 and persists a staged `AddonPackage`. Covers the happy path + two fail-closed paths (wrong
+  release key → `:invalid_signature`; tarball digest absent from the Cosign-verified manifest →
+  `:digest_not_in_manifest`). Run via the `srql-fixtures-db-tests` scratch CNPG DB; 13/13 green.
 - [x] 4.2 Mirror per-arch artifacts into ServiceRadar object storage and record the
   resolved object keys / digests / signature refs on the `AddonPackage`.
   — Done. `ServiceRadar.Plugins.NativeAddonArtifactMirror.mirror_fun/3` returns the
