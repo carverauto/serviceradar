@@ -1,3 +1,19 @@
+# ServiceRadar v1.2.84
+
+Native add-on platform, host visibility, and flow attribution.
+
+## Whats New
+
+**1.2.84**
+- Added the native add-on framework with signed manifests, per-arch artifact bundles, a Rust SDK/reference add-on, control-plane catalog/import/mirror flows, and Forgejo publish/sign/verify release gates.
+- Migrated netprobe and Bumblebee into native add-ons with Edge Ops UI assignment/import workflows, per-agent add-on status, version, and architecture reporting, and `addon_statuses` SRQL coverage.
+- Expanded host network visibility with netprobe sidecar packaging, passive fingerprint enrichment, DPI, banner-grab, JA4, HASSH, p0f, Satori, Recog, and MuonFP signals, visibility profile settings, and attributed flow views.
+- Hardened agent add-on delivery with pushed-artifact extraction, rollback, file capabilities, systemd service/timer dispatch, ephemeral-helper supervision, assignment-gated lifecycle, and last-known-good fallback.
+- Added partition-scoped NATS credentials and flow attribution forwarding/joining so attributed flow events publish through scoped subjects and survive edge onboarding paths.
+- Fixed Armis northbound bulk update authentication to send the raw token value expected by the Armis API.
+- Repaired SRQL sort direction parsing, Zen generated-proto clippy noise, and multiple Bazel/Gazelle/native-addon build gates used by release CI.
+- Removed stale nginx demo manifests and aligned chart/demo packaging around the supported Helm path.
+
 # ServiceRadar v1.2.83
 
 Device inventory classification and SRQL catalog routing recovery.
