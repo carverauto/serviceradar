@@ -401,7 +401,7 @@ func (p *PushLoop) applyVisibilityConfigSystemd(
 		}
 	}
 
-	netprobeSidecar.SetDesiredConfig(cfg)
+	netprobeSidecar.SetDesiredConfig(ctx, cfg)
 	p.logger.Info().
 		Bool("enabled", cfg.GetEnabled()).
 		Int("device_bindings", len(cfg.GetDeviceBindings())).
@@ -422,7 +422,7 @@ func (p *PushLoop) applyVisibilityConfigLaunched(
 		// Assignment was removed: drop attach mode and clear the apply-on-connect config so
 		// the agent relaunches netprobe and applies config explicitly below.
 		p.stopNetprobeManager(ctx, sidecarManager, "netprobe assignment removed; reverting to agent-launched")
-		netprobeSidecar.SetDesiredConfig(nil)
+		netprobeSidecar.SetDesiredConfig(ctx, nil)
 	}
 
 	if !netprobeConfigHasWork(cfg) {

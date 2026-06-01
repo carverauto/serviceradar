@@ -75,10 +75,16 @@ type Sidecar struct {
 	// netprobe that the agent only attaches to (does not launch) gets its full config on
 	// startup AND after any restart — independent of the gateway config poll cadence.
 	// applyFn is the push primitive (default: poll-for-client + Client.ApplyConfig);
-	// overridable in tests to avoid a live IPC client.
+	// overridable in tests to avoid a live IPC client. baseCtx (guarded by mu, supplied by
+	// SetDesiredConfig from the agent run/poll-loop context) bounds the fire-and-forget
+	// push: it must outlive the triggering config-apply call (so the first push can keep
+	// polling for a not-yet-started netprobe), yet be cancelled on agent shutdown rather
+	// than detached via context.Background(). The reconnect trigger (setClient) has no ctx
+	// in scope, so the lifetime ctx is stored here rather than threaded through OnHealthy.
 	desiredConfig atomic.Pointer[netprobepb.VisibilityAgentConfig]
 	applyMu       sync.Mutex
 	applyFn       func(context.Context, *netprobepb.VisibilityAgentConfig) (string, error)
+	baseCtx       context.Context
 }
 
 var _ sidecar.Sidecar = (*Sidecar)(nil)
@@ -113,6 +119,7 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
 		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
 		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
+		baseCtx:      context.Background(),
 	}
 	// Default push primitive reuses ApplyConfig (poll-for-client + Client.ApplyConfig).
 	s.applyFn = s.ApplyConfig
@@ -232,8 +239,15 @@ func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAge
 // it is re-pushed on every (re)connect via pushDesired (see setClient), so the full config
 // (incl. device bindings, which the bootstrap file does not carry) survives systemd restarts
 // regardless of the gateway config poll cadence. Pass nil to clear (e.g. when switching back
-// to the agent-launched path, which applies config explicitly).
-func (s *Sidecar) SetDesiredConfig(cfg *netprobepb.VisibilityAgentConfig) {
+// to the agent-launched path, which applies config explicitly). ctx is the agent run/poll-loop
+// context; it bounds the async push to the agent lifetime (cancelled on shutdown).
+func (s *Sidecar) SetDesiredConfig(ctx context.Context, cfg *netprobepb.VisibilityAgentConfig) {
+	if ctx != nil {
+		s.mu.Lock()
+		s.baseCtx = ctx
+		s.mu.Unlock()
+	}
+
 	s.desiredConfig.Store(cfg)
 	if cfg == nil {
 		return
@@ -244,7 +258,9 @@ func (s *Sidecar) SetDesiredConfig(cfg *netprobepb.VisibilityAgentConfig) {
 
 // pushDesired applies the latest desired config to netprobe over IPC, serialized so the
 // triggers (a config change and a (re)connect) cannot interleave; it always applies the
-// newest stored config, so the last write wins.
+// newest stored config, so the last write wins. The per-attempt timeout derives from the
+// stored agent lifetime context (set by SetDesiredConfig), so a push outlives the config-apply
+// call that triggered it but is cancelled on agent shutdown.
 func (s *Sidecar) pushDesired() {
 	s.applyMu.Lock()
 	defer s.applyMu.Unlock()
@@ -254,7 +270,14 @@ func (s *Sidecar) pushDesired() {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), defaultDesiredApplyTimeout)
+	s.mu.RLock()
+	base := s.baseCtx
+	s.mu.RUnlock()
+	if base == nil {
+		base = context.Background()
+	}
+
+	ctx, cancel := context.WithTimeout(base, defaultDesiredApplyTimeout)
 	defer cancel()
 
 	configHash, err := s.applyFn(ctx, cfg)

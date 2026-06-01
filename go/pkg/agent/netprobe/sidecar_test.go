@@ -36,7 +36,7 @@ func TestSidecarSetDesiredConfigApplies(t *testing.T) {
 	}
 
 	cfg := &netprobepb.VisibilityAgentConfig{Enabled: true}
-	sc.SetDesiredConfig(cfg)
+	sc.SetDesiredConfig(context.Background(), cfg)
 
 	select {
 	case got := <-applied:
@@ -52,7 +52,7 @@ func TestSidecarSetDesiredConfigApplies(t *testing.T) {
 	}
 
 	// nil clears the desired config and triggers no apply.
-	sc.SetDesiredConfig(nil)
+	sc.SetDesiredConfig(context.Background(), nil)
 	if sc.desiredConfig.Load() != nil {
 		t.Fatal("desiredConfig not cleared by nil")
 	}

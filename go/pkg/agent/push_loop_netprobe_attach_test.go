@@ -96,7 +96,10 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 	}
 	pl := NewPushLoop(srv, nil, 30*time.Second, logger.NewTestLogger())
 
-	ctx := context.Background()
+	// A cancellable context bounds the sidecar's async apply-on-connect push; cancelling it
+	// on teardown stops the in-flight push goroutine rather than leaving it polling.
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// systemd-managed -> attach mode (connect, don't launch).
 	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{Enabled: true}, true) {
