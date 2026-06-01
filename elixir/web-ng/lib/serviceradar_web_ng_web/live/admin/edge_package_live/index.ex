@@ -15,6 +15,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
   alias ServiceRadarWebNG.Edge.OnboardingEvents
   alias ServiceRadarWebNG.Edge.OnboardingPackages
   alias ServiceRadarWebNG.Edge.PubSub, as: EdgePubSub
+  alias ServiceRadarWebNG.Plugins.AddonAssignments
+  alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.GatewayHelpers
 
@@ -48,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         |> assign(:host_ip_value, "")
         |> assign(:gateway_options, gateway_options)
         |> assign(:default_gateway_id, default_gateway_id)
+        |> assign(:approved_addons, AddonPackages.list_approved(scope: scope))
 
       if connected?(socket) do
         EdgePubSub.subscribe_packages()
@@ -109,7 +112,8 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
      |> assign(:partition_value, "default")
      |> assign(:host_ip_value, "")
      |> assign(:gateway_options, gateway_options)
-     |> assign(:default_gateway_id, default_gateway_id)}
+     |> assign(:default_gateway_id, default_gateway_id)
+     |> assign(:approved_addons, AddonPackages.list_approved(scope: socket.assigns.current_scope))}
   end
 
   def handle_event("close_create_modal", _params, socket) do
@@ -126,6 +130,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       |> assign(:host_ip_value, "")
       |> assign(:gateway_options, gateway_options)
       |> assign(:default_gateway_id, default_gateway_id)
+      |> assign(:approved_addons, AddonPackages.list_approved(scope: socket.assigns.current_scope))
       |> maybe_return_to_index()
 
     {:noreply, socket}
@@ -181,13 +186,20 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         {:ok, package_result} ->
           security_mode = socket.assigns.security_mode
 
+          assignment_result =
+            assign_initial_addons(
+              package_result.package,
+              selected_initial_addon_ids(params),
+              socket.assigns.current_scope
+            )
+
           {:noreply,
            socket
            |> assign(:creating, false)
            |> assign(:created_tokens, package_result)
            |> assign(:packages, OnboardingPackages.list(%{limit: 50}, actor: user_actor(socket)))
            |> assign(:create_form, build_create_form(security_mode))
-           |> put_flash(:info, "Package created with gateway-issued certificates")}
+           |> put_flash(:info, package_created_message(assignment_result))}
 
         {:error, :gateway_unavailable} ->
           {:noreply,
@@ -496,6 +508,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
         host_ip_value={@host_ip_value}
         gateway_options={@gateway_options}
         default_gateway_id={@default_gateway_id}
+        approved_addons={@approved_addons}
       />
 
       <.details_modal
@@ -630,6 +643,30 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
                     label="Notes (Optional)"
                     placeholder="Additional notes about this package"
                   />
+
+                  <div :if={@selected_component_type == "agent"} class="form-control">
+                    <label class="label">
+                      <span class="label-text">Initial Feature Set</span>
+                    </label>
+                    <select
+                      name="form[initial_addon_package_ids][]"
+                      class="select select-bordered min-h-28 w-full"
+                      multiple
+                      size={min(max(length(@approved_addons), 3), 8)}
+                    >
+                      <%= for addon <- @approved_addons do %>
+                        <option value={addon.id}>
+                          {addon.name} v{addon.version} ({addon.addon_id})
+                        </option>
+                      <% end %>
+                    </select>
+                    <p class="mt-1 text-xs text-base-content/60">
+                      Selected add-ons are assigned to the generated agent identity when the package is created.
+                    </p>
+                    <p :if={@approved_addons == []} class="mt-1 text-xs text-warning">
+                      No approved add-ons are available yet.
+                    </p>
+                  </div>
 
                   <div class="form-control">
                     <label class="label">
@@ -1119,6 +1156,7 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       transform_params: fn _form, params, _action ->
         # Convert component_type string to atom if needed (allowlist prevents DoS via atom exhaustion)
         params = Map.put(params, "component_type", :agent)
+        params = Map.delete(params, "initial_addon_package_ids")
 
         # Set security mode from environment config
         params = Map.put(params, "security_mode", security_mode)
@@ -1160,6 +1198,50 @@ defmodule ServiceRadarWebNGWeb.Admin.EdgePackageLive.Index do
       },
       component_type
     )
+  end
+
+  defp selected_initial_addon_ids(params) do
+    params
+    |> Map.get("initial_addon_package_ids", [])
+    |> List.wrap()
+    |> Enum.map(&to_string/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+  end
+
+  defp assign_initial_addons(_package, [], _scope), do: {:ok, 0}
+
+  defp assign_initial_addons(%OnboardingPackage{component_type: :agent} = package, addon_package_ids, scope) do
+    Enum.reduce_while(addon_package_ids, {:ok, 0}, fn addon_package_id, {:ok, count} ->
+      attrs = %{
+        agent_uid: package.component_id,
+        addon_package_id: addon_package_id,
+        params: %{},
+        args: []
+      }
+
+      case AddonAssignments.create(attrs, scope: scope) do
+        {:ok, _assignment} -> {:cont, {:ok, count + 1}}
+        {:error, error} -> {:halt, {:error, error, count}}
+      end
+    end)
+  end
+
+  defp assign_initial_addons(_package, _addon_package_ids, _scope), do: {:ok, 0}
+
+  defp package_created_message({:ok, 0}), do: "Package created with gateway-issued certificates"
+
+  defp package_created_message({:ok, 1}) do
+    "Package created with gateway-issued certificates and 1 initial add-on assignment"
+  end
+
+  defp package_created_message({:ok, count}) do
+    "Package created with gateway-issued certificates and #{count} initial add-on assignments"
+  end
+
+  defp package_created_message({:error, error, count}) do
+    "Package created, but only #{count} initial add-on assignment(s) were created: #{format_error(error)}"
   end
 
   # Generate a component_id from label and type
