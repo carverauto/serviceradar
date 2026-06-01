@@ -27,7 +27,9 @@
   `gsa` tool.
   - PARTIAL: `//build/native_addons:binary_size_test` consumes
     `//build/native_addons:all_binaries` and the committed baseline through Bazel
-    runfiles. `gsa` is still optional/not pinned, so this task remains open.
+    runfiles. It is marked Linux-only because it validates Linux native add-on
+    artifacts; macOS local runs skip it unless a Linux exec platform is selected.
+    `gsa` is still optional/not pinned, so this task remains open.
 - [ ] 2.5 Add one canonical aggregate target, for example
   `//build/native_addons:build_gates_test`, covering all hermetic native add-on
   build gates.
@@ -56,6 +58,9 @@
     `dumpdep` checks are converted.
 - [ ] 4.2 Document the local and CI commands for hermetic native add-on gate
   validation, including any required Linux remote-execution config.
+  - PARTIAL: local macOS runs can use `bazel test //build/native_addons:build_gates_test`
+    for the platform-compatible fixture gates; CI/Linux runs the same aggregate and
+    includes `//build/native_addons:binary_size_test`.
 - [ ] 4.3 Verify the Agent D branch's pending Bazel-backed binary-size validation
   through the new hermetic target.
 

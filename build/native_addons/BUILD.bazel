@@ -93,6 +93,7 @@ sh_test(
     env = {
         "REQUIRE_GSA": "0",
     },
+    target_compatible_with = ["@platforms//os:linux"],
 )
 
 test_suite(
