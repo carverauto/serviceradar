@@ -714,6 +714,8 @@ type SidecarStatus struct {
 	LastHealthAt  int64                  `protobuf:"varint,4,opt,name=last_health_at,json=lastHealthAt,proto3" json:"last_health_at,omitempty"` // Unix seconds, UTC.
 	RestartCount  uint32                 `protobuf:"varint,5,opt,name=restart_count,json=restartCount,proto3" json:"restart_count,omitempty"`
 	LastError     string                 `protobuf:"bytes,6,opt,name=last_error,json=lastError,proto3" json:"last_error,omitempty"`
+	Version       string                 `protobuf:"bytes,7,opt,name=version,proto3" json:"version,omitempty"` // Add-on version (empty if unknown).
+	Arch          string                 `protobuf:"bytes,8,opt,name=arch,proto3" json:"arch,omitempty"`       // Host architecture the add-on runs on (GOARCH), empty if unknown.
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -786,6 +788,20 @@ func (x *SidecarStatus) GetRestartCount() uint32 {
 func (x *SidecarStatus) GetLastError() string {
 	if x != nil {
 		return x.LastError
+	}
+	return ""
+}
+
+func (x *SidecarStatus) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *SidecarStatus) GetArch() string {
+	if x != nil {
+		return x.Arch
 	}
 	return ""
 }
@@ -5820,7 +5836,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\bagent_id\x18\x06 \x01(\tR\aagentId\x12\x1d\n" +
 	"\n" +
 	"gateway_id\x18\a \x01(\tR\tgatewayId\x125\n" +
-	"\bsidecars\x18\b \x03(\v2\x19.monitoring.SidecarStatusR\bsidecars\"\xb5\x01\n" +
+	"\bsidecars\x18\b \x03(\v2\x19.monitoring.SidecarStatusR\bsidecars\"\xe3\x01\n" +
 	"\rSidecarStatus\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x10\n" +
@@ -5828,7 +5844,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0elast_health_at\x18\x04 \x01(\x03R\flastHealthAt\x12#\n" +
 	"\rrestart_count\x18\x05 \x01(\rR\frestartCount\x12\x1d\n" +
 	"\n" +
-	"last_error\x18\x06 \x01(\tR\tlastError\"\xea\x03\n" +
+	"last_error\x18\x06 \x01(\tR\tlastError\x12\x18\n" +
+	"\aversion\x18\a \x01(\tR\aversion\x12\x12\n" +
+	"\x04arch\x18\b \x01(\tR\x04arch\"\xea\x03\n" +
 	"\x0fResultsResponse\x12\x1c\n" +
 	"\tavailable\x18\x01 \x01(\bR\tavailable\x12\x12\n" +
 	"\x04data\x18\x02 \x01(\fR\x04data\x12!\n" +

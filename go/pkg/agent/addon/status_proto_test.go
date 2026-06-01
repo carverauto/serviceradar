@@ -28,6 +28,7 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 			State:        StateRunning,
 			PID:          42,
 			Version:      "0.2.0",
+			Arch:         "arm64",
 			RestartCount: 1,
 			LastHealthAt: time.Unix(1_700_000_000, 0).UTC(),
 		},
@@ -57,6 +58,12 @@ func TestToProtoStatusesMapsFields(t *testing.T) {
 	}
 	if out[0].GetLastHealthAt() == 0 {
 		t.Fatalf("expected last_health_at to be set")
+	}
+	if out[0].GetVersion() != "0.2.0" {
+		t.Fatalf("expected version 0.2.0, got %q", out[0].GetVersion())
+	}
+	if out[0].GetArch() != "arm64" {
+		t.Fatalf("expected arch arm64, got %q", out[0].GetArch())
 	}
 
 	// Degradation reason is surfaced through last_error when no other error.

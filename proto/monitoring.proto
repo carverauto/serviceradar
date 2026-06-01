@@ -88,6 +88,8 @@ message SidecarStatus {
   int64 last_health_at = 4; // Unix seconds, UTC.
   uint32 restart_count = 5;
   string last_error = 6;
+  string version = 7; // Add-on version (empty if unknown).
+  string arch = 8;    // Host architecture the add-on runs on (GOARCH), empty if unknown.
 }
 
 message ResultsResponse {

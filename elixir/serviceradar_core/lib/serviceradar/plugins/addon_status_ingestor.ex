@@ -69,6 +69,8 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestor do
         pid: positive_integer_or_nil(Map.get(sidecar, "pid")),
         restart_count: non_negative_integer(Map.get(sidecar, "restart_count")),
         last_health_at: unix_nanos_to_datetime(Map.get(sidecar, "last_health_at")),
+        version: blank_to_nil(Map.get(sidecar, "version")),
+        arch: blank_to_nil(Map.get(sidecar, "arch")),
         reported_at: reported_at
       }
 

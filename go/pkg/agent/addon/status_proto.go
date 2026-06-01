@@ -51,6 +51,8 @@ func ToProtoStatuses(statuses []Status) []*proto.SidecarStatus {
 			LastHealthAt: lastHealthAt,
 			RestartCount: cappedUint32(status.RestartCount),
 			LastError:    lastError,
+			Version:      status.Version,
+			Arch:         status.Arch,
 		})
 	}
 

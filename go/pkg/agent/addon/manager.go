@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -236,7 +237,7 @@ func newRunner(spec Spec, cfg Config) *runner {
 		done:        make(chan struct{}),
 		reconfigure: make(chan struct{}, 1),
 		spec:        spec,
-		status:      Status{ID: spec.ID, State: StateStopped, Version: spec.Version},
+		status:      Status{ID: spec.ID, State: StateStopped, Version: spec.Version, Arch: runtime.GOARCH},
 	}
 }
 
