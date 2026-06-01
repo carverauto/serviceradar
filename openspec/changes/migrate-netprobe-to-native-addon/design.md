@@ -104,10 +104,15 @@ available as a break-glass until the deprecation completes.
 
 ## Open Questions
 
-- Process model: a standalone `systemd-service` unit netprobe (decoupled from the agent process),
-  or keep the agent-launched sidecar lifecycle and have the framework govern only delivery + config
-  + capability application? (Leaning standalone unit, since capability-granted long-running daemons
-  are exactly what `systemd-service` supervision is for.)
+- ~~Process model: a standalone `systemd-service` unit netprobe (decoupled from the agent process),
+  or keep the agent-launched sidecar lifecycle?~~ **Resolved (§1.3): standalone `systemd-service`.**
+  The code coupling settles it: netprobe binds its own IPC socket (`UnixListener::bind`,
+  `rust/netprobe/src/server.rs`) and the agent connects as a client (`go/pkg/agent/netprobe/client.go`
+  `Dial`); `--config` is optional, so netprobe starts with lifecycle IPC available and is configured
+  over IPC after launch. So the migration keeps the existing config-over-IPC + ingest path and only
+  moves process supervision from the agent's sidecar manager to systemd. The unit
+  (`addons/netprobe/serviceradar-netprobe.service`) ships in the bundle; the agent-side
+  assignment-gated install/connect rework is §2.2.
 - Capability id naming: `host-network-visibility` vs `netprobe` — should match what the agent
   advertises upward.
 - Default delivery for shipped fleets: `pushed-artifact` everywhere, or `os-package` for specific

@@ -61,9 +61,11 @@ ADDON_BUNDLES = [
         # Carved out of the base serviceradar-agent package: the //rust/netprobe
         # binary is now packaged here as a signed per-arch pushed-artifact bundle
         # instead of being baked into the agent deb/rpm + release runtime archive.
-        # The systemd unit + agent-side activation are migrate-netprobe tasks 2.1/2.2
-        # (pending the standalone-vs-agent-launched socket-lifecycle decision), so no
-        # `unit_entries` are shipped yet; the tarball is binary + manifest + schema.
+        # The socket-lifecycle open question is resolved to systemd-service (netprobe
+        # binds the IPC socket; the agent connects as a client — see addon.yaml), so the
+        # bundle now ships the systemd unit via `unit_entries`. The unit installs verbatim
+        # under the staged `current` dir; the agent-side assignment-gated activation is
+        # migrate-netprobe task 2.2.
         "name": "netprobe_addon_bundle",
         "addon_id": "netprobe",
         "repository_name": "serviceradar-addon-netprobe",
@@ -77,6 +79,9 @@ ADDON_BUNDLES = [
         "manifest_entries": [
             ("addon.yaml", "//addons/netprobe:addon.yaml"),
             ("config.schema.json", "//addons/netprobe:config.schema.json"),
+        ],
+        "unit_entries": [
+            ("serviceradar-netprobe.service", "//addons/netprobe:serviceradar-netprobe.service"),
         ],
         "pushed_artifact_tarball": True,
     },
