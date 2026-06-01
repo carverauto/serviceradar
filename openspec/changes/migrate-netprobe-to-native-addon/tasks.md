@@ -70,7 +70,13 @@
   running-but-incapable netprobe surfaces via state + last_error. Remaining: explicit
   capture-active reporting needs a netprobe IPC signal (no capture-active frame exists today;
   `StartRemoteCapture` is a Phase-5 TODO) → follow-up.
-- [ ] 2.4 On activation/capability-application/launch failure, roll back to the prior `current` version and do NOT leave a half-installed/enabled unit or a running-but-incapable process
+- [x] 2.4 On activation/capability-application/launch failure, roll back to the prior `current` version and do NOT leave a half-installed/enabled unit or a running-but-incapable process
+  — Done — all three failure classes roll `current` back to the prior version: capability
+  application (`stageAndCapability` rolls back on `applyStagedAddonCapabilitiesViaUpdater`
+  failure) and unit discovery/selection/install (the post-stage orchestration, extracted to a
+  testable `reconcileStagedSystemdUnits` with an injectable installer + runtime root). Covered by
+  `push_loop_addon_rollback_test.go`: install-failure → rollback (no remembered units), no-units →
+  rollback without an install attempt, success → stays on the new version + records units.
 
 ## 3. Control plane & Edge Ops (reuses merged work)
 
