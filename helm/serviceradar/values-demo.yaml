@@ -32,6 +32,10 @@ argocdImageUpdater:
 tools:
   enabled: true
 
+trivySidecar:
+  enabled: true
+  clusterId: demo
+
 natsCreds:
   autoGenerate: true
 

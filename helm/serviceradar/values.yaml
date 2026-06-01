@@ -65,6 +65,7 @@ image:
     faker: *appTag
     rperfChecker: *appTag
     tools: *appTag
+    trivySidecar: *appTag
   # Optional per-service digest pins. Keys match image.tags service names
   # (core, webNg, agent, agentGateway, datasvc, tools, etc.). Values can be
   # either "sha256:..." or "@sha256:..."; when set they override tags.
@@ -78,6 +79,37 @@ argocdImageUpdater:
 
 tools:
   enabled: true
+
+trivySidecar:
+  enabled: false
+  replicaCount: 1
+  clusterId: ""
+  nats:
+    hostPort: "tls://serviceradar-nats:4222"
+    subjectPrefix: "trivy.report"
+    stream: "trivy_reports"
+    caCertFile: "/etc/serviceradar/certs/ca.crt"
+    certFile: "/etc/serviceradar/certs/trivy-sidecar.pem"
+    keyFile: "/etc/serviceradar/certs/trivy-sidecar-key.pem"
+    serverName: "serviceradar-nats"
+  metrics:
+    addr: ":9108"
+    port: 9108
+  publish:
+    maxRetries: 5
+    timeout: "5s"
+    retryDelay: "500ms"
+  informer:
+    resync: "5m"
+  reportGroupVersion: "aquasecurity.github.io/v1alpha1"
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
 kv:
   enabled: true
   configSource: file

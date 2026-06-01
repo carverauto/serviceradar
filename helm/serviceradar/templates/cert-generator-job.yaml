@@ -139,6 +139,8 @@ spec:
               "tools-key.pem",
               "falcosidekick.pem",
               "falcosidekick-key.pem",
+              "trivy-sidecar.pem",
+              "trivy-sidecar-key.pem",
               "runtime-cert-layout-version",
               agent_component_cert,
               agent_component_key,
