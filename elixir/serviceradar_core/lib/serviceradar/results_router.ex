@@ -7,6 +7,7 @@ defmodule ServiceRadar.ResultsRouter do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.BumblebeeIngestor
+  alias ServiceRadar.Inventory.EndpointInventoryIngestor
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
@@ -100,6 +101,11 @@ defmodule ServiceRadar.ResultsRouter do
     handle_bumblebee_results(status)
   end
 
+  defp process(%{source: source, service_type: "endpoint_inventory"} = status)
+       when source in ["results", :results] do
+    handle_endpoint_inventory_results(status)
+  end
+
   defp process(%{source: source} = status) when source in ["sysmon-metrics", :sysmon_metrics] do
     handle_sysmon_metrics(status)
   end
@@ -143,6 +149,14 @@ defmodule ServiceRadar.ResultsRouter do
       payload
       |> Map.put_new("agent_id", status[:agent_id])
       |> BumblebeeIngestor.ingest_scan()
+    end
+  end
+
+  defp handle_endpoint_inventory_results(status) do
+    with {:ok, payload} <- decode_payload(status[:message]) do
+      payload
+      |> Map.put_new("agent_id", status[:agent_id])
+      |> EndpointInventoryIngestor.ingest_report()
     end
   end
 

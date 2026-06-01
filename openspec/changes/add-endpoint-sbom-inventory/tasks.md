@@ -12,21 +12,21 @@
 - [x] 2.5 Add focused Go tests with dpkg, rpm, and apk fixture data.
 
 ## 3. Transport And Storage
-- [ ] 3.1 Define protobuf/API contracts for endpoint inventory scan metadata, normalized package summaries, and SBOM artifact references.
-- [ ] 3.2 Add durable object upload flow for raw SBOM artifacts through datasvc or an agent-gateway relay.
-- [ ] 3.3 Add Elixir migrations for endpoint inventory scan runs, SBOM artifacts, and normalized package/component rows in the `platform` schema.
-- [ ] 3.4 Add ingestion code that validates artifact hashes and replaces the current inventory view only after normalized rows commit.
+- [x] 3.1 Define protobuf/API contracts for endpoint inventory scan metadata, normalized package summaries, and SBOM artifact references.
+- [x] 3.2 Add durable object upload flow for raw SBOM artifacts through datasvc or an agent-gateway relay.
+- [x] 3.3 Add Elixir migrations for endpoint inventory scan runs, SBOM artifacts, and normalized package/component rows in the `platform` schema.
+- [x] 3.4 Add ingestion code that validates artifact hashes and replaces the current inventory view only after normalized rows commit.
 - [ ] 3.5 Add retention cleanup for historical scans and raw artifacts.
 
 ## 4. Query And UI
-- [ ] 4.1 Add Ash resources/API reads for scan status, artifact metadata, and package rows.
+- [x] 4.1 Add Ash resources/API reads for scan status, artifact metadata, and package rows.
 - [ ] 4.2 Add SRQL fields or query support for package name, version, package manager, PURL, CPE, and current-vs-historical inventory state.
 - [ ] 4.3 Add a device/asset detail surface showing latest scan status and installed package inventory.
 - [ ] 4.4 Add operator controls for enabling sources, cadence, retention, and redaction.
 
 ## 5. Validation
 - [ ] 5.1 Run focused Go tests for collector and spool validation.
-- [ ] 5.2 Run Elixir migration/resource tests for ingestion and current inventory replacement.
+- [x] 5.2 Run Elixir migration/resource tests for ingestion and current inventory replacement.
 - [ ] 5.3 Run SRQL tests for endpoint package predicates and projections.
 - [ ] 5.4 Run web-ng tests for inventory status and package UI.
 - [ ] 5.5 Run OpenSpec validation and focused build/test commands before rollout.

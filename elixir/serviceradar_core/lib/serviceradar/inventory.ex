@@ -62,6 +62,9 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.VirtualizationNetworkInterface
     resource ServiceRadar.Inventory.VirtualizationStorageSystem
     resource ServiceRadar.Inventory.DeviceRiskContribution
+    resource ServiceRadar.Inventory.EndpointInventoryArtifact
+    resource ServiceRadar.Inventory.EndpointInventoryPackage
+    resource ServiceRadar.Inventory.EndpointInventoryScan
   end
 
   authorization do
