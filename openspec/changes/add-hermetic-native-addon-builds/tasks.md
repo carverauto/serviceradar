@@ -9,8 +9,10 @@
   Bazel targets provide them.
 
 ## 2. Bazel gate targets
-- [ ] 2.1 Convert native add-on manifest validation into a Bazel test or aggregate
+- [x] 2.1 Convert native add-on manifest validation into a Bazel test or aggregate
   target with declared manifest/schema inputs.
+  - `//build/native_addons:validate_addon_manifests_test` runs the Bazel-built
+    `//go/tools/addon-manifest-validator` against declared first-party manifests.
 - [ ] 2.2 Convert dependency-isolation and stdlib-`plugin` checks into Bazel tests
   that use Bazel-provided Go tooling rather than ambient `go` from `PATH`.
 - [ ] 2.3 Convert the dead-code-elimination guard into a Bazel test that builds
@@ -19,21 +21,35 @@
 - [ ] 2.4 Convert the binary-size gate into a Bazel test that consumes
   `//build/native_addons:all_binaries`, the committed size baseline, and the pinned
   `gsa` tool.
+  - PARTIAL: `//build/native_addons:binary_size_test` consumes
+    `//build/native_addons:all_binaries` and the committed baseline through Bazel
+    runfiles. `gsa` is still optional/not pinned, so this task remains open.
 - [ ] 2.5 Add one canonical aggregate target, for example
   `//build/native_addons:build_gates_test`, covering all hermetic native add-on
   build gates.
+  - PARTIAL: `//build/native_addons:build_gates_test` now aggregates the converted
+    manifest, binary-size, and verifier-negative fixture tests. It does not yet
+    cover dependency isolation, stdlib-`plugin`, or dead-code elimination.
 
 ## 3. Hermetic verifier fixtures
 - [ ] 3.1 Replace fake-`PATH` verifier negative tests with Bazel fixture tests that
   use declared OCI layout, tarball, signature, and manifest inputs.
+  - PARTIAL: `//scripts:verify_native_addon_publish_negative_test` runs the
+    existing unsigned/tampered fixture harness as a Bazel test with declared script
+    inputs. The fixture still creates fake CLIs dynamically and is not yet a pure
+    declared OCI-layout fixture.
 - [ ] 3.2 Assert unsigned, tampered, missing-layer, and wrong-signature cases fail
   before any publish step can run.
+  - PARTIAL: unsigned and tampered cases are covered by the Bazel test.
 - [ ] 3.3 Keep live registry/Cosign/Rekor verification as a separate publish-stage
   integration check with explicit network/secrets requirements.
 
 ## 4. CI and documentation
 - [ ] 4.1 Update `.forgejo/workflows/native-addons.yml` to run the aggregate Bazel
   target instead of Make/script-composed gates.
+  - PARTIAL: the workflow now runs `bazel test //build/native_addons:build_gates_test`
+    before the existing Make gates. Make remains until the source-tree `go list` and
+    `dumpdep` checks are converted.
 - [ ] 4.2 Document the local and CI commands for hermetic native add-on gate
   validation, including any required Linux remote-execution config.
 - [ ] 4.3 Verify the Agent D branch's pending Bazel-backed binary-size validation

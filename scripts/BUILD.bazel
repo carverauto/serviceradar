@@ -1,0 +1,16 @@
+load("@rules_shell//shell:sh_test.bzl", "sh_test")
+
+package(default_visibility = ["//visibility:public"])
+
+exports_files([
+    "check-addon-binary-size.sh",
+    "test-verify-native-addon-publish-negative.sh",
+    "verify-native-addon-publish.sh",
+])
+
+sh_test(
+    name = "verify_native_addon_publish_negative_test",
+    timeout = "short",
+    srcs = ["test-verify-native-addon-publish-negative.sh"],
+    data = ["verify-native-addon-publish.sh"],
+)

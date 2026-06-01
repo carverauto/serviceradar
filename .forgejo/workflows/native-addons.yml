@@ -114,15 +114,15 @@ jobs:
             exit 1
           fi
 
+      - name: Run hermetic native add-on gate fixtures
+        run: bazel test //build/native_addons:build_gates_test
+
       - name: Run native add-on build gates
         env:
           REQUIRE_GSA: "1"
         run: |
           export PATH="$(go env GOPATH)/bin:${PATH}"
           make addon_build_gates
-
-      - name: Negative-test native add-on release verifier
-        run: ./scripts/test-verify-native-addon-publish-negative.sh
 
       - name: Login to Harbor
         run: |
