@@ -970,9 +970,9 @@ http_file(
 
 http_file(
     name = "debian_libtiff6_amd64_deb",
-    sha256 = "865574d933313e9900f67dd6db8410b491bb50e6bb66c32483388e219089d97a",
+    sha256 = "255cd1d9f204355c366638ee21756234a8d43c03a3de18a5af6cdd94765b5053",
     urls = [
-        "https://deb.debian.org/debian/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u3_amd64.deb",
+        "https://deb.debian.org/debian/pool/main/t/tiff/libtiff6_4.5.0-6+deb12u4_amd64.deb",
     ],
 )
 
