@@ -272,7 +272,9 @@ func (s *Server) initObjectStore(ctx context.Context) {
 }
 
 func (s *Server) initNetprobeSidecarStatus() {
-	netprobeSidecar := netprobe.NewSidecar(netprobe.SidecarConfig{})
+	netprobeSidecar := netprobe.NewSidecar(netprobe.SidecarConfig{
+		Logger: s.logger.WithComponent("agent.netprobe"),
+	})
 	manager, err := sidecar.NewManager(
 		sidecar.Config{
 			ClientFactory: netprobe.ClientFactory(),

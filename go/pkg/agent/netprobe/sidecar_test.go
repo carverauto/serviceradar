@@ -21,9 +21,47 @@ import (
 	"net"
 	"reflect"
 	"testing"
+	"time"
 
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
+
+func TestSidecarSetDesiredConfigApplies(t *testing.T) {
+	sc := NewSidecar(SidecarConfig{})
+
+	applied := make(chan *netprobepb.VisibilityAgentConfig, 4)
+	sc.applyFn = func(_ context.Context, cfg *netprobepb.VisibilityAgentConfig) (string, error) {
+		applied <- cfg
+		return "hash", nil
+	}
+
+	cfg := &netprobepb.VisibilityAgentConfig{Enabled: true}
+	sc.SetDesiredConfig(context.Background(), cfg)
+
+	select {
+	case got := <-applied:
+		if got != cfg {
+			t.Fatalf("applied config = %v, want the desired config", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("SetDesiredConfig did not apply the config")
+	}
+
+	if sc.desiredConfig.Load() != cfg {
+		t.Fatal("desiredConfig not stored for re-apply on reconnect")
+	}
+
+	// nil clears the desired config and triggers no apply.
+	sc.SetDesiredConfig(context.Background(), nil)
+	if sc.desiredConfig.Load() != nil {
+		t.Fatal("desiredConfig not cleared by nil")
+	}
+	select {
+	case got := <-applied:
+		t.Fatalf("nil SetDesiredConfig unexpectedly applied %v", got)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
 
 func TestSidecarDefaultsAndArgs(t *testing.T) {
 	sc := NewSidecar(SidecarConfig{HealthPort: 18080, ExtraArgs: []string{"--extra"}})

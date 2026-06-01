@@ -171,7 +171,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
-	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig) {
+	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, netprobeSystemdAssignmentPresent(configResp.GetAddons())) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
@@ -349,7 +349,7 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 		Msg("Applied mapper config from gateway")
 }
 
-func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.VisibilityConfig) bool {
+func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.VisibilityConfig, systemdManaged bool) bool {
 	if cfg == nil || p.server == nil {
 		return true
 	}
@@ -372,7 +372,60 @@ func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.Visibil
 		return false
 	}
 
-	if !netprobeConfigHasWork(parsed.NetprobeConfig) {
+	if systemdManaged {
+		return p.applyVisibilityConfigSystemd(ctx, netprobeSidecar, sidecarManager, parsed.NetprobeConfig)
+	}
+
+	return p.applyVisibilityConfigLaunched(ctx, netprobeSidecar, sidecarManager, parsed.NetprobeConfig)
+}
+
+// applyVisibilityConfigSystemd handles netprobe delivered as a systemd-service add-on: systemd
+// owns the process, so the agent attaches (connects for health + event ingest, never launching)
+// and hands the config to the sidecar, which (re)applies it over IPC on every (re)connect. It
+// never blocks on / fails for a not-yet-running netprobe — the unit is installed later in this
+// same config apply (applyAddonAssignments), and the full config is delivered once netprobe
+// connects (the bootstrap file only carries basic startup fields, not device bindings).
+func (p *PushLoop) applyVisibilityConfigSystemd(
+	ctx context.Context,
+	netprobeSidecar *agentnetprobe.Sidecar,
+	sidecarManager sidecarLifecycleManager,
+	cfg *netprobepb.VisibilityAgentConfig,
+) bool {
+	if started, attach := sidecarManager.Mode(); started && !attach {
+		// Coming from the agent-launched path: stop the child so systemd owns the socket.
+		p.stopNetprobeManager(ctx, sidecarManager, "switching netprobe to systemd attach mode")
+	}
+	if started, _ := sidecarManager.Mode(); !started {
+		if err := sidecarManager.StartAttach(ctx); err != nil && !errors.Is(err, sidecar.ErrManagerStarted) {
+			p.logger.Error().Err(err).Msg("Failed to start netprobe sidecar manager in attach mode")
+		}
+	}
+
+	netprobeSidecar.SetDesiredConfig(ctx, cfg)
+	p.logger.Info().
+		Bool("enabled", cfg.GetEnabled()).
+		Int("device_bindings", len(cfg.GetDeviceBindings())).
+		Msg("Netprobe is systemd-managed; attached and handed desired visibility config")
+
+	return true
+}
+
+// applyVisibilityConfigLaunched is the base path: with no netprobe AddonAssignment the agent
+// launches + supervises netprobe itself, gated on the VisibilityConfig having capture work.
+func (p *PushLoop) applyVisibilityConfigLaunched(
+	ctx context.Context,
+	netprobeSidecar *agentnetprobe.Sidecar,
+	sidecarManager sidecarLifecycleManager,
+	cfg *netprobepb.VisibilityAgentConfig,
+) bool {
+	if started, attach := sidecarManager.Mode(); started && attach {
+		// Assignment was removed: drop attach mode and clear the apply-on-connect config so
+		// the agent relaunches netprobe and applies config explicitly below.
+		p.stopNetprobeManager(ctx, sidecarManager, "netprobe assignment removed; reverting to agent-launched")
+		netprobeSidecar.SetDesiredConfig(ctx, nil)
+	}
+
+	if !netprobeConfigHasWork(cfg) {
 		stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 		if err := sidecarManager.Stop(stopCtx); err != nil {
@@ -389,7 +442,7 @@ func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.Visibil
 
 	applyCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	configHash, err := netprobeSidecar.ApplyConfig(applyCtx, parsed.NetprobeConfig)
+	configHash, err := netprobeSidecar.ApplyConfig(applyCtx, cfg)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to apply visibility config to netprobe sidecar")
 		return false
@@ -397,11 +450,39 @@ func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.Visibil
 
 	p.logger.Info().
 		Str("config_hash", configHash).
-		Int("device_bindings", len(parsed.NetprobeConfig.GetDeviceBindings())).
-		Int("capture_interfaces", len(parsed.NetprobeConfig.GetCaptureInterfaces())).
+		Int("device_bindings", len(cfg.GetDeviceBindings())).
+		Int("capture_interfaces", len(cfg.GetCaptureInterfaces())).
 		Msg("Applied visibility config to netprobe sidecar")
 
 	return true
+}
+
+// stopNetprobeManager stops the sidecar manager (best-effort, bounded) so it can be restarted
+// in the other mode.
+func (p *PushLoop) stopNetprobeManager(ctx context.Context, sidecarManager sidecarLifecycleManager, reason string) {
+	stopCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := sidecarManager.Stop(stopCtx); err != nil {
+		p.logger.Warn().Err(err).Str("reason", reason).Msg("Failed to stop netprobe sidecar manager during mode switch")
+	}
+}
+
+// netprobeSystemdAssignmentPresent reports whether the gateway config carries an enabled
+// netprobe AddonAssignment with systemd supervision — the switch that moves netprobe off the
+// always-on agent-launched visibility path onto the systemd-service add-on lifecycle.
+func netprobeSystemdAssignmentPresent(addons []*proto.AddonAssignmentConfig) bool {
+	for _, addon := range addons {
+		if addon == nil {
+			continue
+		}
+		if addon.GetAddonId() == agentnetprobe.DefaultSidecarName &&
+			addon.GetEnabled() &&
+			classifyAddonSupervision(addon.GetSupervision()) == addonDispatchSystemd {
+			return true
+		}
+	}
+
+	return false
 }
 
 func netprobeConfigHasWork(cfg *netprobepb.VisibilityAgentConfig) bool {
