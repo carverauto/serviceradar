@@ -22,7 +22,6 @@ cargo_build_script(
 
 ADDON_SDK_DEPS = crate_deps([
     "anyhow",
-    "async-trait",
     "base64",
     "hex",
     "prost",
@@ -38,6 +37,10 @@ ADDON_SDK_DEPS = crate_deps([
     "tonic-health",
 ]) + [":build_script"]
 
+# async-trait is a pure proc-macro crate; rules_rust requires proc-macros in
+# proc_macro_deps, not deps (otherwise the target fails to analyze).
+ADDON_SDK_PROC_MACROS = crate_deps(["async-trait"])
+
 rust_library(
     name = "addon_sdk",
     srcs = glob(["src/**/*.rs"], exclude = ["src/bin/**"]),
@@ -45,6 +48,7 @@ rust_library(
     crate_name = "addon_sdk",
     edition = "2021",
     deps = ADDON_SDK_DEPS,
+    proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
 )
 
@@ -56,6 +60,7 @@ rust_binary(
     crate_root = "src/bin/rust_sample_addon.rs",
     edition = "2021",
     deps = ADDON_SDK_DEPS + [":addon_sdk"],
+    proc_macro_deps = ADDON_SDK_PROC_MACROS,
     visibility = ["//visibility:public"],
 )
 
@@ -71,4 +76,5 @@ rust_test(
         "tower",
         "hyper-util",
     ]),
+    proc_macro_deps = ADDON_SDK_PROC_MACROS,
 )
