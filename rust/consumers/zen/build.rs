@@ -49,6 +49,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .protoc_arg("--experimental_allow_proto3_optional")
             .build_server(false)
             .build_client(false)
+            .type_attribute(".", "#[allow(dead_code)]")
+            .type_attribute(".", "#[allow(clippy::large_enum_variant)]")
             .compile_protos(&[&flow_proto], &[&flow_dir])?;
         println!("cargo:rerun-if-changed={}", flow_proto.display());
     }
