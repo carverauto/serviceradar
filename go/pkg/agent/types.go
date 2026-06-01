@@ -69,7 +69,9 @@ type sidecarStatusProvider interface {
 type sidecarLifecycleManager interface {
 	sidecarStatusProvider
 	Start(context.Context) error
+	StartAttach(context.Context) error
 	Stop(context.Context) error
+	Mode() (started, attach bool)
 }
 
 // Duration represents a time duration that can be unmarshaled from JSON.

@@ -26,15 +26,17 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	"github.com/rs/zerolog"
 )
 
 const (
-	DefaultSidecarName               = "netprobe"
-	DefaultBinaryPath                = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
-	DefaultLogFormat                 = "json"
-	defaultHealthPort         uint16 = 0
-	defaultSidecarEventBuffer        = 1024
-	defaultApplyWaitInterval         = 100 * time.Millisecond
+	DefaultSidecarName                = "netprobe"
+	DefaultBinaryPath                 = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
+	DefaultLogFormat                  = "json"
+	defaultHealthPort          uint16 = 0
+	defaultSidecarEventBuffer         = 1024
+	defaultApplyWaitInterval          = 100 * time.Millisecond
+	defaultDesiredApplyTimeout        = 30 * time.Second
 )
 
 var ErrSidecarUnavailable = errors.New("netprobe sidecar is unavailable")
@@ -46,11 +48,13 @@ type SidecarConfig struct {
 	LogFormat  string
 	HealthPort uint16
 	ExtraArgs  []string
+	Logger     zerolog.Logger
 }
 
 // Sidecar implements the generic agent sidecar contract for serviceradar-netprobe.
 type Sidecar struct {
-	cfg SidecarConfig
+	cfg    SidecarConfig
+	logger zerolog.Logger
 
 	mu            sync.RWMutex
 	client        *Client
@@ -65,6 +69,16 @@ type Sidecar struct {
 	engineVersion atomic.Value
 	revisions     atomic.Value
 	lastError     atomic.Value
+
+	// desiredConfig + applyMu implement apply-on-connect: the latest desired visibility
+	// config is (re)applied over IPC whenever a client connects, so a systemd-managed
+	// netprobe that the agent only attaches to (does not launch) gets its full config on
+	// startup AND after any restart — independent of the gateway config poll cadence.
+	// applyFn is the push primitive (default: poll-for-client + Client.ApplyConfig);
+	// overridable in tests to avoid a live IPC client.
+	desiredConfig atomic.Pointer[netprobepb.VisibilityAgentConfig]
+	applyMu       sync.Mutex
+	applyFn       func(context.Context, *netprobepb.VisibilityAgentConfig) (string, error)
 }
 
 var _ sidecar.Sidecar = (*Sidecar)(nil)
@@ -92,13 +106,18 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		cfg.LogFormat = DefaultLogFormat
 	}
 
-	return &Sidecar{
+	s := &Sidecar{
 		cfg:          cfg,
+		logger:       cfg.Logger,
 		events:       make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
 		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
 		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
 		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
 	}
+	// Default push primitive reuses ApplyConfig (poll-for-client + Client.ApplyConfig).
+	s.applyFn = s.ApplyConfig
+
+	return s
 }
 
 // ClientFactory returns the health/client factory expected by the sidecar manager.
@@ -205,6 +224,51 @@ func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAge
 		case <-ticker.C:
 		}
 	}
+}
+
+// SetDesiredConfig records the latest desired visibility config and (re)applies it over IPC.
+// Used by the systemd-managed (attach) path, where the agent does not launch netprobe: the
+// config is pushed asynchronously so a not-yet-running netprobe never blocks the caller, and
+// it is re-pushed on every (re)connect via pushDesired (see setClient), so the full config
+// (incl. device bindings, which the bootstrap file does not carry) survives systemd restarts
+// regardless of the gateway config poll cadence. Pass nil to clear (e.g. when switching back
+// to the agent-launched path, which applies config explicitly).
+func (s *Sidecar) SetDesiredConfig(cfg *netprobepb.VisibilityAgentConfig) {
+	s.desiredConfig.Store(cfg)
+	if cfg == nil {
+		return
+	}
+
+	go s.pushDesired()
+}
+
+// pushDesired applies the latest desired config to netprobe over IPC, serialized so the
+// triggers (a config change and a (re)connect) cannot interleave; it always applies the
+// newest stored config, so the last write wins.
+func (s *Sidecar) pushDesired() {
+	s.applyMu.Lock()
+	defer s.applyMu.Unlock()
+
+	cfg := s.desiredConfig.Load()
+	if cfg == nil {
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), defaultDesiredApplyTimeout)
+	defer cancel()
+
+	configHash, err := s.applyFn(ctx, cfg)
+	if err != nil {
+		// Best-effort: a transient failure (netprobe not yet up / restarting) is retried on
+		// the next connect or config change; the bootstrap file covers basic startup.
+		s.logger.Debug().Err(err).Msg("Deferred netprobe desired-config apply (will retry on connect)")
+		return
+	}
+
+	s.logger.Info().
+		Str("config_hash", configHash).
+		Int("device_bindings", len(cfg.GetDeviceBindings())).
+		Msg("Applied desired visibility config to attached netprobe")
 }
 
 func (s *Sidecar) MatchBanners(ctx context.Context, batch *netprobepb.BannerBatch) (*netprobepb.BannerMatchBatch, error) {
@@ -354,6 +418,9 @@ func (s *Sidecar) setClient(client *Client) {
 	s.mu.Unlock()
 
 	go s.forwardEvents(client)
+	// A (re)connect re-delivers the desired config (no-op if none set), so a
+	// systemd-restarted netprobe is reconfigured without waiting for a gateway poll.
+	go s.pushDesired()
 }
 
 func (s *Sidecar) forwardEvents(client *Client) {

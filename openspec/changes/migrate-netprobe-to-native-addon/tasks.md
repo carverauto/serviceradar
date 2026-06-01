@@ -44,14 +44,25 @@
     (config push + event ingest work identically, ingest being launch-decoupled) and reconnecting on
     loss. This is the mechanism the systemd-service netprobe path connects through. Additive + race-
     tested; no caller yet (zero production behavior change).
-  - **Remaining (the cutover)**: in `push_loop_config.go`, detect the netprobe `AddonAssignment`
-    (enabled systemd_service) and route: assignment present → `StartAttach` + push config; absent →
-    the existing launch path (unchanged). Plus **apply-on-connect** for the netprobe sidecar (store
-    desired `VisibilityConfig`, apply on each (re)connect) — required because (a) `applyVisibilityConfig`
-    runs BEFORE `applyAddonAssignments` installs the unit, so a synchronous attach `ApplyConfig` would
-    fail/deadlock the apply (it `return false`s before the addon install at push_loop_config.go:203),
-    and (b) the `NotModified` short-circuit means poll-driven re-push won't recover after a systemd
-    restart. Handoff: stop the agent-launched netprobe when switching launch→attach.
+  - **Cutover landed**: `push_loop_config.go` `applyVisibilityConfig` now takes `systemdManaged bool`
+    (from `netprobeSystemdAssignmentPresent(configResp.GetAddons())` — an enabled netprobe
+    systemd_service assignment) and routes: present → `applyVisibilityConfigSystemd` (Mode()-based
+    switch launch→attach via Stop+StartAttach, then `SetDesiredConfig`, always returns true so the
+    apply never aborts before `applyAddonAssignments` installs the unit); absent →
+    `applyVisibilityConfigLaunched` (the original launch path, byte-for-byte for un-assigned fleets,
+    plus a Stop+`SetDesiredConfig(nil)` revert if coming from attach). Handoff stops the agent-launched
+    child before systemd owns the socket. **Apply-on-connect** (`netprobe/sidecar.go`): `SetDesiredConfig`
+    stores the latest `VisibilityAgentConfig` (atomic) + async `pushDesired` (serialized via `applyMu`,
+    applies newest — last-write-wins); `setClient` re-triggers it on every (re)connect, so the full
+    config (incl. device bindings, which the bootstrap file omits) is re-delivered after a systemd
+    restart, independent of the gateway poll cadence. `sidecarLifecycleManager` gained `Mode()` +
+    `StartAttach`. Unit-tested (routing→attach + revert→stop; assignment detection table;
+    apply-on-connect applies + nil-clears) `go test -race` green; golangci-lint clean.
+  - **Remaining**: the local-override/cache fallback across an AGENT restart while the control plane is
+    unreachable (the in-memory `desiredConfig` is lost on agent restart — relies on the agent's general
+    cached-config replay; verify in §4.x), and the full-flow validation is the §4.3 scratch-Linux-agent
+    e2e (systemd installs+starts netprobe → agent attaches → config pushed → events ingested → restart
+    re-applies). Bundles can't build/run on darwin.
 - [ ] 2.3 Report per-add-on state (installed/active/degraded + version/arch + capture status) for netprobe through the merged `AddonStatus` read model so Edge Ops drift reflects it
 - [ ] 2.4 On activation/capability-application/launch failure, roll back to the prior `current` version and do NOT leave a half-installed/enabled unit or a running-but-incapable process
 
