@@ -90,8 +90,13 @@ sh_test(
         ":all_binaries",
         "//scripts:check-addon-binary-size.sh",
     ],
+    # go-size-analyzer (gsa) is not yet a hermetic Bazel tool — it's `go install`ed on
+    # the workflow runner, not present in the RBE/sandbox this sh_test runs in — so don't
+    # fail closed on its absence here. The size-regression check (baseline comparison) runs
+    # without it; the gsa breakdown is provided by the runner-side `make addon_build_gates`.
+    # add-hermetic-native-addon-builds will pin gsa as a tool target and restore "1".
     env = {
-        "REQUIRE_GSA": "1",
+        "REQUIRE_GSA": "0",
     },
     target_compatible_with = ["@platforms//os:linux"],
 )
