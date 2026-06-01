@@ -1,26 +1,64 @@
 package(default_visibility = ["//visibility:public"])
 
+# Crate sources + the committed vendored dependency tree (app deps + the std
+# `-Z build-std` deps) consumed by the hermetic eBPF object build.
 filegroup(
     name = "netprobe_ebpf_srcs",
-    srcs = glob([
-        "src/**/*.rs",
-    ]) + [
+    srcs = [
         "Cargo.lock",
         "Cargo.toml",
         "include/vmlinux.h",
-    ],
+    ] + glob([
+        "src/**/*.rs",
+        # Vendored deps (app + std `-Z build-std` deps). Regenerate with:
+        #   cargo vendor --sync <nightly-rust-src>/library/Cargo.toml
+        # See openspec/changes/add-hermetic-netprobe-ebpf-build/design.md.
+        "vendor/**",
+    ]),
 )
 
+# Hermetic netprobe eBPF object.
+#
+# A pinned nightly Rust toolchain (rustc/cargo/rust-std/rust-src component
+# archives) and a pinned static `bpf-linker` come from MODULE.bazel
+# (@netprobe_ebpf_*). build-ebpf-object.sh assembles them into a scratch sysroot
+# and builds the crate offline against the committed `vendor/` tree with
+# `-Z build-std=core --target bpfel-unknown-none`. No host toolchain and no
+# network are used, so this builds identically locally, in CI, and on remote
+# execution (RBE) — which the previous host-`cargo` genrule could not.
+# Pins/rationale: openspec/changes/add-hermetic-netprobe-ebpf-build/.
 genrule(
     name = "netprobe_ebpf_object",
-    srcs = glob([
-        "src/**/*.rs",
-    ]) + [
-        "Cargo.lock",
+    srcs = [
         "Cargo.toml",
-        "include/vmlinux.h",
+        ":netprobe_ebpf_srcs",
+        "@netprobe_ebpf_rustc//:all",
+        "@netprobe_ebpf_rustc//:install.sh",
+        "@netprobe_ebpf_cargo//:all",
+        "@netprobe_ebpf_cargo//:install.sh",
+        "@netprobe_ebpf_rust_std//:all",
+        "@netprobe_ebpf_rust_std//:install.sh",
+        "@netprobe_ebpf_rust_src//:all",
+        "@netprobe_ebpf_rust_src//:install.sh",
     ],
     outs = ["netprobe_ebpf.o"],
-    cmd = "bash $(location build-ebpf-object.sh) $(location Cargo.toml) $@",
-    tools = ["build-ebpf-object.sh"],
+    cmd = " ".join([
+        "bash $(location build-ebpf-object.sh)",
+        "--output $@",
+        "--bpf-linker $(location @netprobe_ebpf_bpf_linker//:bpf-linker)",
+        "--crate \"$$(dirname $(location Cargo.toml))\"",
+        "--vendor \"$$(dirname $(location Cargo.toml))/vendor\"",
+        "--install $(location @netprobe_ebpf_rustc//:install.sh)",
+        "--install $(location @netprobe_ebpf_cargo//:install.sh)",
+        "--install $(location @netprobe_ebpf_rust_std//:install.sh)",
+        "--install $(location @netprobe_ebpf_rust_src//:install.sh)",
+    ]),
+    # The toolchain + linker inputs are linux-x86_64; the eBPF object is a linux
+    # artifact. Constrain to linux so a darwin-target build skips it rather than
+    # trying to run the linux toolchain (the publish/RBE build targets linux).
+    target_compatible_with = ["@platforms//os:linux"],
+    tools = [
+        "build-ebpf-object.sh",
+        "@netprobe_ebpf_bpf_linker//:bpf-linker",
+    ],
 )
