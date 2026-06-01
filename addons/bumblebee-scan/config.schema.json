@@ -1,0 +1,117 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Bumblebee Exposure Scanner Configuration",
+  "description": "Operator-facing configuration for the root-owned Bumblebee scanner. The scanner reads this base config and applies the runtime profile written under /var/lib/serviceradar/bumblebee/profile/runtime.json.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "title": "Enabled",
+      "description": "Master switch for scanner execution. When false, the timer run writes a disabled/not-scanned spool payload.",
+      "default": false
+    },
+    "agent_id": {
+      "type": "string",
+      "title": "Agent ID",
+      "description": "Agent UID written into scanner spool payloads when the runtime profile does not override it.",
+      "minLength": 1
+    },
+    "catalog_path": {
+      "type": "string",
+      "title": "Catalog path",
+      "description": "Path to the active Bumblebee catalog snapshot.",
+      "default": "/var/lib/serviceradar/bumblebee/catalog/current"
+    },
+    "catalog_snapshot_ref": {
+      "type": "string",
+      "title": "Catalog snapshot ref"
+    },
+    "profile_path": {
+      "type": "string",
+      "title": "Runtime profile path",
+      "description": "Path to the assignment-derived runtime profile that can override safe scanner parameters.",
+      "default": "/var/lib/serviceradar/bumblebee/profile/runtime.json"
+    },
+    "spool_dir": {
+      "type": "string",
+      "title": "Spool directory",
+      "default": "/var/lib/serviceradar/bumblebee/spool"
+    },
+    "tmp_dir": {
+      "type": "string",
+      "title": "Temporary directory",
+      "default": "/var/lib/serviceradar/bumblebee/tmp"
+    },
+    "passwd_path": {
+      "type": "string",
+      "title": "Passwd path",
+      "default": "/etc/passwd"
+    },
+    "scan_timeout": {
+      "type": "string",
+      "title": "Scan timeout",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "10m"
+    },
+    "include_home_roots": {
+      "type": "boolean",
+      "title": "Include user home roots",
+      "default": true
+    },
+    "include_root": {
+      "type": "boolean",
+      "title": "Include /root",
+      "default": true
+    },
+    "explicit_roots": {
+      "type": "array",
+      "title": "Explicit roots",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    },
+    "exclude_roots": {
+      "type": "array",
+      "title": "Excluded roots",
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1 },
+      "default": []
+    },
+    "ecosystems": {
+      "type": "array",
+      "title": "Ecosystems",
+      "description": "Optional ecosystem allowlist. Empty means all supported ecosystems.",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "browser_extension",
+          "bun",
+          "composer",
+          "editor_extension",
+          "gomod",
+          "mcp",
+          "npm",
+          "pnpm",
+          "pypi",
+          "rubygems",
+          "yarn"
+        ]
+      },
+      "default": []
+    },
+    "max_findings": {
+      "type": "integer",
+      "title": "Maximum findings",
+      "minimum": 1,
+      "default": 1000
+    },
+    "max_output_bytes": {
+      "type": "integer",
+      "title": "Maximum spool payload bytes",
+      "minimum": 1048576,
+      "default": 33554432
+    }
+  }
+}

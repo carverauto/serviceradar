@@ -1,0 +1,31 @@
+exports_files([
+    "addon.yaml",
+    "bumblebee-scan.json",
+    "config.schema.json",
+    "serviceradar-bumblebee-scan.service",
+    "serviceradar-bumblebee-scan.timer",
+])
+
+filegroup(
+    name = "bumblebee_scan_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "bumblebee_scan_systemd_units",
+    srcs = [
+        "serviceradar-bumblebee-scan.service",
+        "serviceradar-bumblebee-scan.timer",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "bumblebee_scan_runtime_config",
+    srcs = ["bumblebee-scan.json"],
+    visibility = ["//visibility:public"],
+)

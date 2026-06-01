@@ -92,4 +92,33 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # Bumblebee exposure scanner add-on (migrate-bumblebee-to-native-addon).
+        # Ships the root-owned scanner binary plus its systemd service/timer as a
+        # signed pushed-artifact bundle. The non-root agent only stages the artifact
+        # and asks agent-updater to install the bundled units; scanner findings still
+        # flow through the sanitized /var/lib/serviceradar/bumblebee spool.
+        "name": "bumblebee_scan_addon_bundle",
+        "addon_id": "bumblebee",
+        "repository_name": "serviceradar-addon-bumblebee-scan",
+        "language": "go",
+        "binary": "//go/cmd/bumblebee-scan:bumblebee_scan",
+        "binary_name": "serviceradar-bumblebee-scan",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/bumblebee-scan:addon.yaml"),
+            ("config.schema.json", "//addons/bumblebee-scan:config.schema.json"),
+        ],
+        "unit_entries": [
+            ("serviceradar-bumblebee-scan.service", "//addons/bumblebee-scan:serviceradar-bumblebee-scan.service"),
+            ("serviceradar-bumblebee-scan.timer", "//addons/bumblebee-scan:serviceradar-bumblebee-scan.timer"),
+        ],
+        "data_entries": [
+            ("bumblebee-scan.json", "//addons/bumblebee-scan:bumblebee-scan.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

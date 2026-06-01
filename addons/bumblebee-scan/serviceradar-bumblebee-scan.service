@@ -1,0 +1,40 @@
+[Unit]
+Description=ServiceRadar Bumblebee exposure scanner
+Documentation=https://docs.serviceradar.cloud/
+After=local-fs.target
+
+[Service]
+Type=oneshot
+User=root
+Group=serviceradar
+UMask=0027
+WorkingDirectory=/var/lib/serviceradar/bumblebee
+Environment="HOME=/var/lib/serviceradar/bumblebee"
+Environment="XDG_CACHE_HOME=/var/lib/serviceradar/bumblebee/cache"
+ExecStart=/var/lib/serviceradar/agent/addons/bumblebee/current/serviceradar-bumblebee-scan -config /var/lib/serviceradar/agent/addons/bumblebee/current/bumblebee-scan.json
+Nice=10
+IOSchedulingClass=best-effort
+PrivateTmp=true
+NoNewPrivileges=true
+CapabilityBoundingSet=
+AmbientCapabilities=
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateNetwork=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+StateDirectory=serviceradar/bumblebee serviceradar/bumblebee/cache serviceradar/bumblebee/catalog serviceradar/bumblebee/profile serviceradar/bumblebee/spool serviceradar/bumblebee/spool/runs serviceradar/bumblebee/tmp
+StateDirectoryMode=0750
+ReadWritePaths=/var/lib/serviceradar/bumblebee
