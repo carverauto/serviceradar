@@ -17,6 +17,7 @@ go_library(
         "//proto",
         "//proto/discovery",
         "//proto/agent/netprobe/v1:netprobepb",
+        "@com_github_rs_zerolog//:zerolog",
         "@org_golang_google_protobuf//proto",
     ],
 )
