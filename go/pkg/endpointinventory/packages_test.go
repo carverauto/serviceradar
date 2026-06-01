@@ -5,6 +5,8 @@ import (
 	"testing"
 )
 
+const testPackageNginx = "nginx"
+
 func TestParseDpkgStatusOnlyInstalledPackages(t *testing.T) {
 	input := `Package: nginx
 Status: install ok installed
@@ -30,7 +32,7 @@ Version: 8.5.0-2
 	if len(packages) != 2 {
 		t.Fatalf("len(packages) = %d, want 2: %#v", len(packages), packages)
 	}
-	if packages[0].Name != "nginx" || packages[0].Manager != "dpkg" || packages[0].PURL != "pkg:deb/nginx@1.24.0-2ubuntu7" {
+	if packages[0].Name != testPackageNginx || packages[0].Manager != PackageSourceDpkg || packages[0].PURL != "pkg:deb/nginx@1.24.0-2ubuntu7" {
 		t.Fatalf("unexpected first package: %#v", packages[0])
 	}
 	if packages[1].Name != "curl" || packages[1].Arch != "arm64" {
@@ -56,7 +58,7 @@ A:x86_64
 	if len(packages) != 2 {
 		t.Fatalf("len(packages) = %d, want 2", len(packages))
 	}
-	if packages[0].Name != "nginx" || packages[0].Manager != "apk" || packages[0].PURL != "pkg:apk/nginx@1.29.0-r0" {
+	if packages[0].Name != testPackageNginx || packages[0].Manager != PackageSourceAPK || packages[0].PURL != "pkg:apk/nginx@1.29.0-r0" {
 		t.Fatalf("unexpected package: %#v", packages[0])
 	}
 }
@@ -66,7 +68,7 @@ func TestParseRPMQuery(t *testing.T) {
 	if len(packages) != 1 {
 		t.Fatalf("len(packages) = %d, want 1", len(packages))
 	}
-	if packages[0].Name != "nginx" || packages[0].Manager != "rpm" || packages[0].PURL != "pkg:rpm/nginx@1.28.0-1.el9" {
+	if packages[0].Name != testPackageNginx || packages[0].Manager != PackageSourceRPM || packages[0].PURL != "pkg:rpm/nginx@1.28.0-1.el9" {
 		t.Fatalf("unexpected package: %#v", packages[0])
 	}
 }

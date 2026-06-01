@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 )
+
+const endpointInventoryConfigTestCanonicalAgentID = "agent-canonical"
 
 func TestResolveGatewayEndpointInventoryConfigPrefersTypedProto(t *testing.T) {
 	cfg, err := resolveGatewayEndpointInventoryConfig(&monitoringpb.EndpointInventoryConfig{
@@ -31,8 +34,8 @@ func TestResolveGatewayEndpointInventoryConfigPrefersTypedProto(t *testing.T) {
 		t.Fatalf("typed fields were not retained: %#v", cfg)
 	}
 
-	profile := cfg.runtimeProfile("agent-canonical")
-	if profile.AgentID != "agent-canonical" {
+	profile := cfg.runtimeProfile(endpointInventoryConfigTestCanonicalAgentID)
+	if profile.AgentID != endpointInventoryConfigTestCanonicalAgentID {
 		t.Fatalf("runtime profile agent = %q, want canonical", profile.AgentID)
 	}
 	if profile.MaxPackages == nil || *profile.MaxPackages != 123 {
@@ -70,7 +73,7 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 	pl := &PushLoop{
 		server: &Server{
 			config: &ServerConfig{
-				AgentID: "agent-canonical",
+				AgentID: endpointInventoryConfigTestCanonicalAgentID,
 				EndpointInventory: &EndpointInventoryStatusConfig{
 					ProfilePath: profilePath,
 					TmpDir:      tmpDir,
@@ -80,7 +83,7 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		logger: logger.NewTestLogger(),
 	}
 
-	ok := pl.applyEndpointInventoryConfig(nil, &monitoringpb.EndpointInventoryConfig{
+	ok := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
 		Enabled:        true,
 		AgentId:        "agent-from-control-plane",
 		Sources:        []string{"dpkg"},
@@ -103,7 +106,7 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 	if profile.Enabled == nil || !*profile.Enabled {
 		t.Fatalf("profile enabled = %#v, want true", profile.Enabled)
 	}
-	if profile.AgentID != "agent-canonical" {
+	if profile.AgentID != endpointInventoryConfigTestCanonicalAgentID {
 		t.Fatalf("agent id = %q, want canonical", profile.AgentID)
 	}
 	if len(profile.Sources) != 1 || profile.Sources[0] != "dpkg" {

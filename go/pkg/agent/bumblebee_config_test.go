@@ -22,6 +22,8 @@ import (
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 )
 
+const bumblebeeConfigTestCanonicalAgentID = "agent-canonical"
+
 func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	cfg, err := resolveGatewayBumblebeeConfig(&monitoringpb.BumblebeeConfig{
 		Enabled:           true,
@@ -68,8 +70,8 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 		t.Fatalf("typed scan profile fields were not retained: %#v", cfg)
 	}
 
-	profile := cfg.runtimeProfile("agent-canonical")
-	if profile.AgentID != "agent-canonical" {
+	profile := cfg.runtimeProfile(bumblebeeConfigTestCanonicalAgentID)
+	if profile.AgentID != bumblebeeConfigTestCanonicalAgentID {
 		t.Fatalf("runtime profile agent = %q, want canonical", profile.AgentID)
 	}
 	if profile.IncludeHomeRoots == nil || !*profile.IncludeHomeRoots {

@@ -10,7 +10,10 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
 )
 
-const bumblebeeSpoolTestAgentID = "agent-1"
+const (
+	bumblebeeSpoolTestAgentID = "agent-1"
+	bumblebeeStateNotScanned  = "not_scanned"
+)
 
 func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	spoolPath := filepath.Join(t.TempDir(), "missing.json")
@@ -29,7 +32,7 @@ func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	if err := json.Unmarshal(status.Message, &payload); err != nil {
 		t.Fatal(err)
 	}
-	if payload.AgentID != bumblebeeSpoolTestAgentID || payload.State != "not_scanned" || payload.CoverageState != "not_scanned" {
+	if payload.AgentID != bumblebeeSpoolTestAgentID || payload.State != bumblebeeStateNotScanned || payload.CoverageState != bumblebeeStateNotScanned {
 		t.Fatalf("unexpected payload: %#v", payload)
 	}
 	if payload.Metadata["reason"] != "spool_not_found" {
