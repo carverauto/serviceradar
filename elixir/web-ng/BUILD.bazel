@@ -83,6 +83,7 @@ mix_release(
     out = "serviceradar-web-ng-release.tar.gz",
     src_dir = "elixir/web-ng",
     extra_dirs = [
+        "addons/bumblebee-scan",
         "elixir/connection",
         "elixir/elixir_uuid",
         "elixir/serviceradar_core",
@@ -94,6 +95,7 @@ mix_release(
         "elixir/datasvc",
     ],
     extra_dir_srcs = [
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
         "//elixir/connection:srcs",
         "//elixir/elixir_uuid:srcs",
         "//elixir/serviceradar_core:srcs",

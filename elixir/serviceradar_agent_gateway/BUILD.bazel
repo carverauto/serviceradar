@@ -31,6 +31,7 @@ mix_release(
     src_dir = "elixir/serviceradar_agent_gateway",
     run_assets = False,
     extra_dirs = [
+        "addons/bumblebee-scan",
         "elixir/connection",
         "elixir/elixir_uuid",
         "elixir/serviceradar_core",
@@ -41,6 +42,7 @@ mix_release(
         "rust/srql",
     ],
     extra_dir_srcs = [
+        "//addons/bumblebee-scan:bumblebee_scan_manifest",
         "//elixir/connection:srcs",
         "//elixir/elixir_uuid:srcs",
         "//elixir/serviceradar_core:srcs",
