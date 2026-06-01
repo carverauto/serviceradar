@@ -69,7 +69,18 @@
 ## 3. Control plane & Edge Ops (reuses merged work)
 
 - [ ] 3.1 Seed/import a netprobe `AddonPackage` (staged → approved with the host-network-visibility capability) so it is selectable/targetable in Edge Ops
-- [ ] 3.2 Confirm `AgentConfigGenerator` compiles the netprobe assignment (delivery=pushed-artifact, supervision=systemd-service, per-arch artifact reference, schema-validated `VisibilityConfig` params) into agent config
+- [x] 3.2 Confirm `AgentConfigGenerator` compiles the netprobe assignment (delivery=pushed-artifact, supervision=systemd-service, per-arch artifact reference, schema-validated `VisibilityConfig` params) into agent config
+  — Done (confirm-via-test; the generic add-on path already handles netprobe — no code change). DB-backed
+  test in `agent_config_generator_test.exs`: a netprobe `AddonPackage` (`addon_id: "netprobe"`,
+  `delivery: :pushed_artifact`, `supervision: :systemd_service`, `requires.os_capabilities`, per-arch
+  `artifacts["linux/amd64"]`) + an enabled `AddonAssignment` → `generate_config/1` emits an addon with
+  `addon_id "netprobe"`, `:pushed_artifact`/`:systemd_service`, the approved capability subset, the
+  os_capabilities, and the per-arch artifact ref. Critically it asserts the **cross-system contract**:
+  `to_proto_response/1` stringifies `:systemd_service` → `"systemd_service"` (the exact constant the
+  agent's `classifyAddonSupervision` matches to route netprobe onto the attach path — a hyphen/format
+  drift would silently break the §2.2 cutover), and the `VisibilityConfig` rides in the SAME response
+  (the agent reads both: the assignment to decide attach, VisibilityConfig for capture). Run via the
+  `srql-fixtures` scratch DB; full `agent_config_generator_test.exs` 38/38 green, mix format + credo clean.
 - [ ] 3.3 Confirm netprobe appears as a selectable feature-set in onboarding + per-cohort targeting + the assigned/installed/active drift card (no new UI beyond `add-native-addon-edge-ops`)
 
 ## 4. Verification

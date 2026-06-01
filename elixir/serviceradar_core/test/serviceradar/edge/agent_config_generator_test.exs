@@ -1498,6 +1498,66 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.artifact_object_key in [nil, ""]
       assert addon.artifact_sha256 in [nil, ""]
     end
+
+    test "netprobe systemd-service assignment compiles to a systemd_service addon the agent attaches to",
+         %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"})
+
+      object_key = "native-addons/netprobe/0.1.0/linux/amd64/#{String.duplicate("a", 64)}.tar.gz"
+      sha = String.duplicate("b", 64)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          addon_id: "netprobe",
+          binary: "serviceradar-netprobe",
+          capabilities: ["host-network-visibility"],
+          approved_capabilities: ["host-network-visibility"],
+          delivery: :pushed_artifact,
+          supervision: :systemd_service,
+          requires: %{"os_capabilities" => ["cap_net_raw", "cap_bpf", "cap_perfmon"]},
+          artifacts: %{
+            "linux/amd64" => %{
+              "object_key" => object_key,
+              "sha256" => sha,
+              "signature" => "sig-#{unique_id}"
+            }
+          }
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      # The netprobe assignment compiles as a systemd-service add-on carrying the per-arch
+      # artifact + file capabilities the root-owned agent-updater applies via setcap.
+      assert [addon] = config.addons
+      assert addon.addon_id == "netprobe"
+      assert addon.enabled == true
+      assert addon.delivery == :pushed_artifact
+      assert addon.supervision == :systemd_service
+      assert addon.capabilities == ["host-network-visibility"]
+      assert addon.os_capabilities == ["cap_net_raw", "cap_bpf", "cap_perfmon"]
+      assert addon.artifact_object_key == object_key
+      assert addon.artifact_sha256 == sha
+      assert addon.target_os == "linux"
+      assert addon.target_arch == "amd64"
+
+      # Cross-system contract: the :systemd_service atom must stringify to exactly
+      # "systemd_service" (the constant the agent's classifyAddonSupervision matches to route
+      # netprobe onto the attach path); a hyphen/format drift would silently break the cutover.
+      # The VisibilityConfig (capture params) rides in the SAME response — the agent §2.2 cutover
+      # reads both: the assignment to decide attach, VisibilityConfig for the capture config.
+      proto = AgentConfigGenerator.to_proto_response(config)
+      assert [proto_addon] = proto.addons
+      assert proto_addon.addon_id == "netprobe"
+      assert proto_addon.supervision == "systemd_service"
+      assert proto_addon.delivery == "pushed_artifact"
+      assert proto_addon.os_capabilities == ["cap_net_raw", "cap_bpf", "cap_perfmon"]
+      assert proto_addon.artifact_object_key == object_key
+      assert proto_addon.target_arch == "amd64"
+      assert proto.visibility_config
+    end
   end
 
   defp create_approved_addon_package(actor, unique_id, opts) do
@@ -1505,21 +1565,27 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     approved = Keyword.get(opts, :approved_capabilities, [])
     config_schema = Keyword.get(opts, :config_schema, %{})
     delivery = Keyword.get(opts, :delivery, :pushed_artifact)
+    supervision = Keyword.get(opts, :supervision, :agent_sidecar)
     artifacts = Keyword.get(opts, :artifacts, %{})
+    addon_id = Keyword.get(opts, :addon_id, "sample-addon-#{unique_id}")
+    binary = Keyword.get(opts, :binary, "sample-addon-#{unique_id}")
+    requires = Keyword.get(opts, :requires, %{})
 
     {:ok, package} =
       AddonPackage
       |> Ash.Changeset.for_create(
         :create,
         %{
-          addon_id: "sample-addon-#{unique_id}",
+          addon_id: addon_id,
           version: "1.0.0",
           name: "Sample Addon #{unique_id}",
-          binary: "sample-addon-#{unique_id}",
+          binary: binary,
           install_path: "/opt/sr/bin",
           capabilities: capabilities,
           config_schema: config_schema,
           delivery: delivery,
+          supervision: supervision,
+          requires: requires,
           artifacts: artifacts
         },
         actor: actor
