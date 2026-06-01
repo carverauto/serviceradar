@@ -5,7 +5,7 @@
 - [x] 1.4 Get proposal approval before implementation.
 
 ## 2. Agent And Collector
-- [ ] 2.1 Add endpoint inventory configuration structs, validation, profile delivery, and local override handling.
+- [x] 2.1 Add endpoint inventory configuration structs, validation, profile delivery, and local override handling.
 - [x] 2.2 Add a signed native add-on or scoped agent subcommand that collects Linux OS package inventory.
 - [x] 2.3 Generate CycloneDX JSON with OS package components, OS metadata, collector provenance, and redaction metadata.
 - [x] 2.4 Add bounded local spool handling, schema validation, size checks, and last-good artifact behavior.

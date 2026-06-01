@@ -25,6 +25,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
@@ -168,6 +169,13 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 			Msg("Deferring config version update because Bumblebee config did not apply")
 		return false
 	}
+	if !p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because endpoint inventory config did not apply")
+		return false
+	}
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
@@ -287,6 +295,55 @@ func (p *PushLoop) applyBumblebeeConfig(
 			Str("profile_path", profilePath).
 			Bool("enabled", cfg.Enabled).
 			Msg("Wrote Bumblebee runtime profile")
+	}
+
+	return true
+}
+
+func (p *PushLoop) applyEndpointInventoryConfig(
+	_ context.Context,
+	protoConfig *proto.EndpointInventoryConfig,
+	configJSON []byte,
+) bool {
+	cfg, err := resolveGatewayEndpointInventoryConfig(protoConfig, configJSON)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Failed to parse endpoint inventory config from gateway")
+		return false
+	}
+	if cfg == nil {
+		return true
+	}
+	if p.server == nil {
+		p.logger.Warn().Msg("Cannot apply endpoint inventory config without agent server")
+		return false
+	}
+
+	p.server.mu.RLock()
+	serverConfig := p.server.config
+	p.server.mu.RUnlock()
+
+	agentID := ""
+	profilePath := endpointinventory.DefaultConfig().ProfilePath
+	tmpDir := endpointinventory.DefaultConfig().TmpDir
+	if serverConfig != nil {
+		agentID = serverConfig.AgentID
+	}
+	if serverConfig != nil && serverConfig.EndpointInventory != nil {
+		profilePath = serverConfig.EndpointInventory.effectiveProfilePath()
+		tmpDir = serverConfig.EndpointInventory.effectiveTmpDir()
+	}
+
+	if changed, err := endpointinventory.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
+		p.logger.Warn().
+			Err(err).
+			Str("profile_path", profilePath).
+			Msg("Failed to write endpoint inventory runtime profile")
+		return false
+	} else if changed {
+		p.logger.Info().
+			Str("profile_path", profilePath).
+			Bool("enabled", cfg.Enabled).
+			Msg("Wrote endpoint inventory runtime profile")
 	}
 
 	return true

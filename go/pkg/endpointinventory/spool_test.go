@@ -55,3 +55,32 @@ func TestWriteSpoolRejectsOversizePayload(t *testing.T) {
 		t.Fatalf("err = %v, want ErrSpoolPayloadTooLarge", err)
 	}
 }
+
+func TestWriteRuntimeProfileIsStable(t *testing.T) {
+	tmpDir := t.TempDir()
+	profilePath := filepath.Join(tmpDir, "profile", "runtime.json")
+	scratchDir := filepath.Join(tmpDir, "tmp")
+	enabled := true
+	profile := RuntimeProfile{
+		Enabled:     &enabled,
+		AgentID:     "agent-1",
+		ScanTimeout: "5m",
+		Sources:     []string{"dpkg"},
+	}
+
+	changed, err := WriteRuntimeProfile(profilePath, scratchDir, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !changed {
+		t.Fatal("first write should report changed")
+	}
+
+	changed, err = WriteRuntimeProfile(profilePath, scratchDir, profile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed {
+		t.Fatal("second identical write should not report changed")
+	}
+}

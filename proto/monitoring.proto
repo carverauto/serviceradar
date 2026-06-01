@@ -332,6 +332,9 @@ message AgentConfigResponse {
   // supervises enabled assignments as go-plugin subprocesses (see
   // proto/agent/addon/v1).
   repeated AddonAssignmentConfig addons = 13;
+
+  // Endpoint software inventory and SBOM collector configuration.
+  EndpointInventoryConfig endpoint_inventory_config = 14;
 }
 
 // AddonAssignmentConfig is one native add-on (feature set) assignment delivered
@@ -564,6 +567,19 @@ message BumblebeeCatalogAssignment {
   string sha256 = 6;
   int64 size_bytes = 7;
   string promoted_at = 8;
+}
+
+// EndpointInventoryConfig defines the optional endpoint package/SBOM inventory profile.
+message EndpointInventoryConfig {
+  bool enabled = 1;
+  string agent_id = 2;
+  repeated string sources = 3;
+  string scan_timeout = 4;
+  int32 max_packages = 5;
+  int64 max_output_bytes = 6;
+  string cadence = 7;
+  bool collect_paths = 8;
+  bool collect_file_hashes = 9;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
