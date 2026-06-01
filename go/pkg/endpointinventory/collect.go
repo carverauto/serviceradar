@@ -99,8 +99,8 @@ func disabledPayload(cfg Config, scannedAt time.Time) *ScanPayload {
 }
 
 func (r *Runner) collectPackages(ctx context.Context) ([]Package, []SourceSummary) {
-	var packages []Package
-	var summaries []SourceSummary
+	packages := make([]Package, 0, initialPackageCapacity(r.cfg))
+	summaries := make([]SourceSummary, 0, len(r.cfg.Sources))
 
 	for _, source := range r.cfg.Sources {
 		var (
@@ -109,14 +109,14 @@ func (r *Runner) collectPackages(ctx context.Context) ([]Package, []SourceSummar
 		)
 
 		switch source {
-		case "dpkg":
+		case PackageSourceDpkg:
 			collected, err = CollectDpkgPackages(r.cfg.DpkgStatusPath)
-		case "apk":
+		case PackageSourceAPK:
 			collected, err = CollectAPKPackages(r.cfg.APKInstalledPath)
-		case "rpm":
+		case PackageSourceRPM:
 			collected, err = CollectRPMPackages(ctx, r.cfg.RPMPath)
 		default:
-			err = fmt.Errorf("unsupported source: %s", source)
+			err = fmt.Errorf("%w: %s", ErrUnsupportedSource, source)
 		}
 
 		summary := SourceSummary{Source: source, State: "scanned", PackageCount: len(collected)}
@@ -133,6 +133,14 @@ func (r *Runner) collectPackages(ctx context.Context) ([]Package, []SourceSummar
 	}
 
 	return packages, summaries
+}
+
+func initialPackageCapacity(cfg Config) int {
+	if cfg.MaxPackages > 0 && cfg.MaxPackages < 1024 {
+		return cfg.MaxPackages
+	}
+
+	return 1024
 }
 
 func failurePayload(cfg Config, scannedAt time.Time, osInfo OSInfo, sources []SourceSummary, err error) *ScanPayload {
@@ -156,7 +164,7 @@ func ReadOSRelease(path string) (OSInfo, error) {
 	if err != nil {
 		return OSInfo{}, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	values := make(map[string]string)
 	scanner := bufio.NewScanner(file)

@@ -880,6 +880,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp capability_for_config_type(:sysmon), do: "sysmon"
   defp capability_for_config_type(:snmp), do: "snmp"
   defp capability_for_config_type(:bumblebee), do: "bumblebee"
+  defp capability_for_config_type(:endpoint_inventory), do: "endpoint-inventory"
   defp capability_for_config_type(_), do: nil
 
   defp bulk_mtr_ttl_seconds(target_count) when is_integer(target_count) and target_count > 0 do

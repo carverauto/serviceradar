@@ -196,8 +196,10 @@ type BumblebeeStatusConfig struct {
 }
 
 type EndpointInventoryStatusConfig struct {
-	Enabled   bool   `json:"enabled"`
-	SpoolPath string `json:"spool_path,omitempty"`
+	Enabled     bool   `json:"enabled"`
+	SpoolPath   string `json:"spool_path,omitempty"`
+	ProfilePath string `json:"profile_path,omitempty"`
+	TmpDir      string `json:"tmp_dir,omitempty"`
 }
 
 func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
@@ -206,6 +208,22 @@ func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
 	}
 
 	return c.SpoolPath
+}
+
+func (c *EndpointInventoryStatusConfig) effectiveProfilePath() string {
+	if c == nil || c.ProfilePath == "" {
+		return endpointinventory.DefaultConfig().ProfilePath
+	}
+
+	return c.ProfilePath
+}
+
+func (c *EndpointInventoryStatusConfig) effectiveTmpDir() string {
+	if c == nil || c.TmpDir == "" {
+		return endpointinventory.DefaultConfig().TmpDir
+	}
+
+	return c.TmpDir
 }
 
 func (c *BumblebeeStatusConfig) effectiveSpoolPath() string {

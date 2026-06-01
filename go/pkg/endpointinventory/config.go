@@ -26,6 +26,10 @@ import (
 )
 
 const (
+	PackageSourceDpkg = "dpkg"
+	PackageSourceRPM  = "rpm"
+	PackageSourceAPK  = "apk"
+
 	defaultProfilePath      = "/var/lib/serviceradar/endpoint-inventory/profile/runtime.json"
 	defaultSpoolDir         = "/var/lib/serviceradar/endpoint-inventory/spool"
 	defaultTmpDir           = "/var/lib/serviceradar/endpoint-inventory/tmp"
@@ -33,12 +37,17 @@ const (
 	defaultOSReleasePath    = "/etc/os-release"
 	defaultDpkgStatusPath   = "/var/lib/dpkg/status"
 	defaultAPKInstalledPath = "/lib/apk/db/installed"
-	defaultRPMPath          = "rpm"
+	defaultRPMPath          = PackageSourceRPM
 	defaultMaxPackages      = 100000
 	defaultMaxOutputBytes   = 32 * 1024 * 1024
 )
 
-var ErrAgentIDRequired = errors.New("agent_id is required")
+var (
+	ErrAgentIDRequired      = errors.New("agent_id is required")
+	ErrInvalidMaxPackages   = errors.New("invalid max_packages")
+	ErrInvalidMaxOutputSize = errors.New("invalid max_output_bytes")
+	ErrUnsupportedSource    = errors.New("unsupported source")
+)
 
 func DefaultConfig() Config {
 	return Config{
@@ -51,10 +60,14 @@ func DefaultConfig() Config {
 		DpkgStatusPath:   defaultDpkgStatusPath,
 		APKInstalledPath: defaultAPKInstalledPath,
 		RPMPath:          defaultRPMPath,
-		Sources:          []string{"dpkg", "rpm", "apk"},
+		Sources:          defaultPackageSources(),
 		MaxPackages:      defaultMaxPackages,
 		MaxOutputBytes:   defaultMaxOutputBytes,
 	}
+}
+
+func defaultPackageSources() []string {
+	return []string{PackageSourceDpkg, PackageSourceRPM, PackageSourceAPK}
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -106,7 +119,7 @@ func applyDefaults(cfg *Config) {
 		cfg.RPMPath = defaultRPMPath
 	}
 	if len(cfg.Sources) == 0 {
-		cfg.Sources = []string{"dpkg", "rpm", "apk"}
+		cfg.Sources = defaultPackageSources()
 	}
 	if cfg.MaxPackages <= 0 {
 		cfg.MaxPackages = defaultMaxPackages
@@ -177,16 +190,16 @@ func validateConfig(cfg Config) error {
 		return fmt.Errorf("invalid scan_timeout: %w", err)
 	}
 	if cfg.MaxPackages <= 0 {
-		return fmt.Errorf("invalid max_packages: %d", cfg.MaxPackages)
+		return fmt.Errorf("%w: %d", ErrInvalidMaxPackages, cfg.MaxPackages)
 	}
 	if cfg.MaxOutputBytes <= 0 {
-		return fmt.Errorf("invalid max_output_bytes: %d", cfg.MaxOutputBytes)
+		return fmt.Errorf("%w: %d", ErrInvalidMaxOutputSize, cfg.MaxOutputBytes)
 	}
 	for _, source := range cfg.Sources {
 		switch source {
-		case "dpkg", "rpm", "apk":
+		case PackageSourceDpkg, PackageSourceRPM, PackageSourceAPK:
 		default:
-			return fmt.Errorf("unsupported source: %s", source)
+			return fmt.Errorf("%w: %s", ErrUnsupportedSource, source)
 		}
 	}
 

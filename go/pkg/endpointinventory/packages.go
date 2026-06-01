@@ -31,7 +31,7 @@ func CollectDpkgPackages(path string) ([]Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	return ParseDpkgStatus(file)
 }
@@ -55,7 +55,7 @@ func ParseDpkgStatus(reader io.Reader) ([]Package, error) {
 			Name:      name,
 			Version:   strings.TrimSpace(record["Version"]),
 			Arch:      strings.TrimSpace(record["Architecture"]),
-			Manager:   "dpkg",
+			Manager:   PackageSourceDpkg,
 			Ecosystem: "deb",
 		}
 		pkg.PURL = packageURL(pkg)
@@ -70,7 +70,7 @@ func CollectAPKPackages(path string) ([]Package, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	return ParseAPKInstalled(file)
 }
@@ -91,8 +91,8 @@ func ParseAPKInstalled(reader io.Reader) ([]Package, error) {
 			Name:      name,
 			Version:   strings.TrimSpace(record["V"]),
 			Arch:      strings.TrimSpace(record["A"]),
-			Manager:   "apk",
-			Ecosystem: "apk",
+			Manager:   PackageSourceAPK,
+			Ecosystem: PackageSourceAPK,
 		}
 		pkg.PURL = packageURL(pkg)
 		packages = append(packages, pkg)
@@ -117,7 +117,7 @@ func CollectRPMPackages(ctx context.Context, rpmPath string) ([]Package, error) 
 }
 
 func ParseRPMQuery(reader io.Reader) []Package {
-	var packages []Package
+	packages := make([]Package, 0, 32)
 	scanner := bufio.NewScanner(reader)
 	for scanner.Scan() {
 		fields := strings.Split(scanner.Text(), "\t")
@@ -128,8 +128,8 @@ func ParseRPMQuery(reader io.Reader) []Package {
 			Name:      strings.TrimSpace(fields[0]),
 			Version:   strings.TrimSpace(fields[1]),
 			Arch:      strings.TrimSpace(fields[2]),
-			Manager:   "rpm",
-			Ecosystem: "rpm",
+			Manager:   PackageSourceRPM,
+			Ecosystem: PackageSourceRPM,
 		}
 		pkg.PURL = packageURL(pkg)
 		packages = append(packages, pkg)

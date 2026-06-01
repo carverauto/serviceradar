@@ -453,6 +453,11 @@ defmodule Monitoring.AgentConfigResponse do
   field(:plugin_config, 11, type: Monitoring.PluginConfig, json_name: "pluginConfig")
   field(:bumblebee_config, 12, type: Monitoring.BumblebeeConfig, json_name: "bumblebeeConfig")
   field(:addons, 13, repeated: true, type: Monitoring.AddonAssignmentConfig)
+
+  field(:endpoint_inventory_config, 14,
+    type: Monitoring.EndpointInventoryConfig,
+    json_name: "endpointInventoryConfig"
+  )
 end
 
 defmodule Monitoring.AddonAssignmentConfig do
@@ -809,6 +814,25 @@ defmodule Monitoring.BumblebeeCatalogAssignment do
   field(:sha256, 6, type: :string)
   field(:size_bytes, 7, type: :int64, json_name: "sizeBytes")
   field(:promoted_at, 8, type: :string, json_name: "promotedAt")
+end
+
+defmodule Monitoring.EndpointInventoryConfig do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryConfig",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field(:enabled, 1, type: :bool)
+  field(:agent_id, 2, type: :string, json_name: "agentId")
+  field(:sources, 3, repeated: true, type: :string)
+  field(:scan_timeout, 4, type: :string, json_name: "scanTimeout")
+  field(:max_packages, 5, type: :int32, json_name: "maxPackages")
+  field(:max_output_bytes, 6, type: :int64, json_name: "maxOutputBytes")
+  field(:cadence, 7, type: :string)
+  field(:collect_paths, 8, type: :bool, json_name: "collectPaths")
+  field(:collect_file_hashes, 9, type: :bool, json_name: "collectFileHashes")
 end
 
 defmodule Monitoring.SysmonConfig.ThresholdsEntry do

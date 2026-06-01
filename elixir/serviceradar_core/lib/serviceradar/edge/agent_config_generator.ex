@@ -228,6 +228,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       visibility_config: Map.get(config, :visibility_config),
       plugin_config: proto_plugins,
       bumblebee_config: Map.get(config, :bumblebee_config),
+      endpoint_inventory_config: Map.get(config, :endpoint_inventory_config),
       addons: to_proto_addons(Map.get(config, :addons, []))
     }
   end
@@ -251,6 +252,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     snmp_config = load_snmp_config(agent_id)
     visibility_config = load_visibility_config(agent_id)
     bumblebee_config = load_bumblebee_config(agent_id)
+    endpoint_inventory_config = load_endpoint_inventory_config(agent_id)
     plugin_assignments = load_plugin_assignments(agent_id)
     plugin_engine_limits = load_plugin_engine_limits(agent_id)
     addon_assignments = load_addon_assignments(agent_id)
@@ -269,6 +271,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config,
       visibility_config,
       bumblebee_config,
+      endpoint_inventory_config,
       plugin_config,
       addon_assignments
     )
@@ -984,6 +987,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          snmp_config,
          visibility_config,
          bumblebee_config,
+         endpoint_inventory_config,
          plugin_config,
          addon_assignments
        ) do
@@ -997,6 +1001,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put("sweep", sweep_config)
       |> Map.put("mapper", mapper_config)
       |> Map.put("bumblebee", bumblebee_config)
+      |> Map.put("endpoint_inventory", endpoint_inventory_config)
 
     # Compute version hash from all config components
     config_version =
@@ -1007,6 +1012,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         snmp_config,
         visibility_config,
         bumblebee_config,
+        endpoint_inventory_config,
         plugin_assignments,
         plugin_engine_limits,
         addon_assignments
@@ -1033,6 +1039,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp_config: build_snmp_proto_config(snmp_config),
       visibility_config: build_visibility_proto_config(visibility_config),
       bumblebee_config: build_bumblebee_proto_config(bumblebee_config),
+      endpoint_inventory_config: build_endpoint_inventory_proto_config(endpoint_inventory_config),
       addons: addon_assignments
     }
   end
@@ -1105,6 +1112,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
          snmp_config,
          visibility_config,
          bumblebee_config,
+         endpoint_inventory_config,
          plugin_assignments,
          plugin_engine_limits,
          addon_assignments
@@ -1129,6 +1137,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snmp: stable_config_fragment(snmp_config),
       visibility: stable_config_fragment(visibility_config),
       bumblebee: stable_config_fragment(bumblebee_config),
+      endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
       addons: sorted_addons
@@ -1561,6 +1570,58 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp disabled_bumblebee_config, do: %{"enabled" => false}
+
+  defp load_endpoint_inventory_config(agent_id) do
+    partition = get_agent_partition(agent_id)
+    actor = SystemActor.system(:endpoint_inventory_config_loader)
+    device_uid = resolve_agent_device_uid(agent_id, actor)
+
+    case ConfigServer.get_config(:endpoint_inventory, partition, agent_id,
+           actor: actor,
+           device_uid: device_uid
+         ) do
+      {:ok, entry} when is_map(entry.config) ->
+        entry.config
+        |> Map.put("agent_id", agent_id)
+        |> Map.put_new("sources", ["dpkg", "rpm", "apk"])
+        |> Map.put_new("scan_timeout", "5m")
+        |> Map.put_new("max_packages", 100_000)
+        |> Map.put_new("max_output_bytes", 33_554_432)
+        |> Map.put_new("cadence", "12h")
+        |> Map.put_new("collect_paths", false)
+        |> Map.put_new("collect_file_hashes", false)
+
+      {:error, :no_config_found} ->
+        Logger.debug(
+          "No endpoint inventory config found for agent #{agent_id}, using disabled config"
+        )
+
+        disabled_endpoint_inventory_config()
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load endpoint inventory config for agent #{agent_id}: #{inspect(reason)}"
+        )
+
+        disabled_endpoint_inventory_config()
+    end
+  end
+
+  defp disabled_endpoint_inventory_config, do: %{"enabled" => false}
+
+  defp build_endpoint_inventory_proto_config(config) when is_map(config) do
+    %Monitoring.EndpointInventoryConfig{
+      enabled: map_bool(config, "enabled", false),
+      agent_id: map_string(config, "agent_id"),
+      sources: map_list(config, "sources"),
+      scan_timeout: map_string(config, "scan_timeout"),
+      max_packages: map_int(config, "max_packages"),
+      max_output_bytes: map_int(config, "max_output_bytes"),
+      cadence: map_string(config, "cadence"),
+      collect_paths: map_bool(config, "collect_paths", false),
+      collect_file_hashes: map_bool(config, "collect_file_hashes", false)
+    }
+  end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
