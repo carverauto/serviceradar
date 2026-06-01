@@ -134,9 +134,11 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
   end
 
   defp schedule_opts(opts) do
+    manual? = Keyword.get(opts, :manual?, false)
+
     []
-    |> maybe_replace_scheduled_conflict(Keyword.get(opts, :manual?, false))
-    |> maybe_schedule_in(Keyword.get(opts, :schedule_in, 0))
+    |> maybe_replace_scheduled_conflict(manual?)
+    |> put_run_at(manual?, Keyword.get(opts, :schedule_in, 0))
   end
 
   defp maybe_replace_scheduled_conflict(opts, true) do
@@ -149,12 +151,23 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
 
   defp maybe_replace_scheduled_conflict(opts, _manual?), do: opts
 
-  defp maybe_schedule_in(opts, schedule_in) do
-    case schedule_in do
-      seconds when is_integer(seconds) and seconds > 0 -> Keyword.put(opts, :schedule_in, seconds)
-      _ -> opts
-    end
-  end
+  # A manual "Run now" must execute immediately even though the scheduler always
+  # keeps the next recurring run sitting in the `scheduled` state. The conflict
+  # `replace` above only bumps fields that are present in the *new* job's
+  # changeset changes — Oban.Engines.Basic.resolve_conflict/4 does
+  # `Map.take(changeset.changes, keys)`. So we must set an explicit
+  # `scheduled_at`; otherwise `:scheduled_at` is absent from the changes, the
+  # pending `scheduled` job's run time is never bumped, and "Run now" silently
+  # waits until the next hourly run (only its args flip to manual). Setting it
+  # to now bumps the existing job — or schedules a fresh one — to run on the
+  # next stager tick.
+  defp put_run_at(opts, true, _schedule_in),
+    do: Keyword.put(opts, :scheduled_at, DateTime.utc_now())
+
+  defp put_run_at(opts, false, schedule_in) when is_integer(schedule_in) and schedule_in > 0,
+    do: Keyword.put(opts, :schedule_in, schedule_in)
+
+  defp put_run_at(opts, false, _schedule_in), do: opts
 
   defp reap_stale_source_jobs(integration_source_id) do
     cutoff_seconds = stale_run_cutoff_seconds()

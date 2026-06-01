@@ -108,6 +108,14 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
                retryable: [:args, :scheduled_at]
              ]
 
+      # scheduled_at MUST be present in the changeset changes, otherwise the
+      # `replace: [scheduled: [..., :scheduled_at]]` cannot bump an already
+      # `scheduled` recurring job to run now (Oban copies replace keys from
+      # changeset.changes), and "Run now" would silently wait for the next
+      # hourly run.
+      assert %DateTime{} = job.changes.scheduled_at
+      assert DateTime.diff(DateTime.utc_now(), job.changes.scheduled_at, :second) in 0..3
+
       assert_received {:safe_insert, ^job}
     end)
   after
