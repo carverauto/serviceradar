@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "trivy-sidecar_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/tools/trivy-sidecar",
+    visibility = ["//visibility:private"],
+    deps = ["//go/pkg/trivysidecar"],
+)
+
+go_binary(
+    name = "trivy-sidecar",
+    embed = [":trivy-sidecar_lib"],
+    visibility = ["//visibility:public"],
+)
