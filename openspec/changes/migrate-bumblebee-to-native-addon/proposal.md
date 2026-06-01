@@ -18,8 +18,8 @@ agent install rather than installing a second OS package out of band.
 
 ## What Changes
 
-- Add `addons/bumblebee/addon.yaml` (+ `config.schema.json`) declaring Bumblebee as a
-  `capability` add-on: `delivery: pushed-artifact` (primary; `os-package` fallback for
+- Add `addons/bumblebee-scan/addon.yaml` (+ `config.schema.json`) declaring Bumblebee as a
+  `native` add-on: `delivery: pushed-artifact` (primary; `os-package` fallback for
   air-gapped hosts), `supervision: systemd-timer`, the exposure-scan capability id,
   `requires` root-level filesystem read via the systemd-timer execution context, and
   `state_dirs` for the sanitized spool the agent ingests.
@@ -46,7 +46,7 @@ agent install rather than installing a second OS package out of band.
   installs scanner helper" delivery path described in `add-bumblebee-agent-exposure`; the
   scanner's *behavior* — root-owned, sanitized spool, partial-coverage reporting — is
   unchanged).
-- **Affected code:** `addons/bumblebee/`, `build/native_addons/` (inventory + bundle rule),
+- **Affected code:** `addons/bumblebee-scan/`, `build/native_addons/` (inventory + bundle rule),
   `build/packaging/bumblebee-scan/` (retire standalone install), `go/pkg/agent/bumblebee_*`
   (gate ingest on the assignment), `go/pkg/agent/addon*` + `go/pkg/agent/addon_activation.go`
   (systemd-timer supervision + privileged install, delivered by delivery-models), and a

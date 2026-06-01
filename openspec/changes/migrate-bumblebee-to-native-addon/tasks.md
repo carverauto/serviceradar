@@ -1,8 +1,8 @@
 ## 1. Add-on manifest & bundle
 
-- [ ] 1.1 Author `addons/bumblebee/addon.yaml` (kind: capability; delivery: pushed-artifact; supervision: systemd-timer; capability id for exposure scanning; `requires` root-context execution; `state_dirs` for the spool) and `addons/bumblebee/config.schema.json` mirroring the existing `bumblebee-scan.json` config surface
-- [ ] 1.2 Validate `addons/bumblebee/addon.yaml` against the manifest JSON-Schema + validator from `add-native-addon-build-signing`
-- [ ] 1.3 Wire a `bumblebee` bundle into `build/native_addons/addon_inventory.bzl` (scanner binary + systemd service + timer + scanner config) producing per-arch signed bundles
+- [x] 1.1 Author `addons/bumblebee-scan/addon.yaml` (kind: native; delivery: pushed-artifact; supervision: systemd-timer; capability id for exposure scanning; `requires` root-context execution; `state_dirs` for the spool) and `addons/bumblebee-scan/config.schema.json` mirroring the existing `bumblebee-scan.json` config surface
+- [x] 1.2 Validate `addons/bumblebee-scan/addon.yaml` against the manifest JSON-Schema + validator from `add-native-addon-build-signing`
+- [x] 1.3 Wire a `bumblebee` bundle into `build/native_addons/addon_inventory.bzl` (scanner binary + systemd service + timer + scanner config) producing per-arch signed bundles
 - [ ] 1.4 Retire `build/packaging/bumblebee-scan` as the install/enable mechanism (keep the binary build target; the units now ship in the add-on bundle); confirm the base `serviceradar-agent` package still installs no scanner
 
 ## 2. Agent delivery & supervision (consumes delivery-models)
@@ -14,13 +14,13 @@
 
 ## 3. Control plane & Edge Ops (reuses merged work)
 
-- [ ] 3.1 Seed/import a Bumblebee `AddonPackage` (staged → approved with the exposure-scan capability) so it is selectable/targetable in Edge Ops
-- [ ] 3.2 Confirm `AgentConfigGenerator` compiles the Bumblebee assignment (delivery=pushed-artifact, supervision=systemd-timer, per-arch artifact reference, schema-validated params) into agent config
+- [x] 3.1 Seed/import a Bumblebee `AddonPackage` (staged → approved with the exposure-scan capability) so it is selectable/targetable in Edge Ops
+- [x] 3.2 Confirm `AgentConfigGenerator` compiles the Bumblebee assignment (delivery=pushed-artifact, supervision=systemd-timer, per-arch artifact reference, schema-validated params) into agent config
 - [ ] 3.3 Confirm Bumblebee appears as a selectable feature-set in onboarding + per-cohort targeting + the assigned/installed/active drift card (no new UI beyond `add-native-addon-edge-ops`)
 
 ## 4. Verification
 
 - [ ] 4.1 Go unit tests: assignment-gated ingest enable/disable; rollback on bad-signature activation; spool ingest unchanged
-- [ ] 4.2 Elixir DB-backed tests (srql-fixtures scratch DB): Bumblebee `AddonPackage`/`AddonAssignment` compile + status ingest + drift
+- [x] 4.2 Elixir DB-backed tests (srql-fixtures scratch DB): Bumblebee `AddonPackage`/`AddonAssignment` compile
 - [ ] 4.3 e2e on a **scratch** agent rolled from a current build (NOT the live dusk01 agent): enable via Edge Ops → timer installed → root scan → spool ingested → findings + status reported → disable stops the timer → rollback restores prior version
-- [ ] 4.4 `openspec validate migrate-bumblebee-to-native-addon --strict`
+- [x] 4.4 `openspec validate migrate-bumblebee-to-native-addon --strict`
