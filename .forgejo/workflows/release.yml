@@ -102,7 +102,7 @@ jobs:
       PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY: ${{ secrets.PLUGIN_UPLOAD_SIGNING_PRIVATE_KEY }}
       PLUGIN_UPLOAD_SIGNING_KEY_ID: ${{ secrets.PLUGIN_UPLOAD_SIGNING_KEY_ID }}
       PLUGIN_UPLOAD_SIGNING_SIGNER: ${{ secrets.PLUGIN_UPLOAD_SIGNING_SIGNER }}
-      ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.allow_local_fallback || 'false' }}
+      ALLOW_LOCAL_FALLBACK: ${{ github.event_name == 'push' && 'true' || github.event.inputs.allow_local_fallback || 'false' }}
       BAZELISK_HOME: ${{ github.workspace }}/.cache/bazelisk
     steps:
       - name: Checkout
