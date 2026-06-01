@@ -81,6 +81,16 @@
 ## 3. Control plane & Edge Ops (reuses merged work)
 
 - [ ] 3.1 Seed/import a netprobe `AddonPackage` (staged → approved with the host-network-visibility capability) so it is selectable/targetable in Edge Ops
+  — Seeder landed — `ServiceRadar.Plugins.NetprobeAddonPackageSeeder` (mirrors the Bumblebee
+  seeder Agent B added in #3493): a `DelayedSeeder` that creates + approves the netprobe
+  `AddonPackage` (`delivery: :pushed_artifact`, `supervision: :systemd_service`, capability
+  `host-network-visibility`, `os_capabilities` `CAP_NET_RAW/CAP_BPF/CAP_PERFMON`,
+  `run_as: serviceradar`, config schema from `addons/netprobe/config.schema.json`) from configured
+  per-arch artifact refs. Registered in `coordinator_children`. Intentionally a **no-op until
+  `:netprobe_native_addon_package` is configured** with real mirrored+signed artifacts — so the
+  remaining step is running the publish lane (Linux CI) + mirroring + wiring those refs on the
+  target instance. DB-backed test in `netprobe_addon_package_seeder_test.exs` (seed→approve→compile
+  assignment→proto). Compiles + credo clean.
 - [x] 3.2 Confirm `AgentConfigGenerator` compiles the netprobe assignment (delivery=pushed-artifact, supervision=systemd-service, per-arch artifact reference, schema-validated `VisibilityConfig` params) into agent config
   — Done (confirm-via-test; the generic add-on path already handles netprobe — no code change). DB-backed
   test in `agent_config_generator_test.exs`: a netprobe `AddonPackage` (`addon_id: "netprobe"`,
