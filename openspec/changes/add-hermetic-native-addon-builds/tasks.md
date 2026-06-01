@@ -29,7 +29,9 @@
     `//build/native_addons:all_binaries` and the committed baseline through Bazel
     runfiles. It is marked Linux-only because it validates Linux native add-on
     artifacts; macOS local runs skip it unless a Linux exec platform is selected.
-    `gsa` is still optional/not pinned, so this task remains open.
+    It fails closed when `gsa` is missing; CI currently installs pinned
+    `gsa@v1.13.0`, but `gsa` is still not a Bazel-owned tool target, so this task
+    remains open.
 - [ ] 2.5 Add one canonical aggregate target, for example
   `//build/native_addons:build_gates_test`, covering all hermetic native add-on
   build gates.

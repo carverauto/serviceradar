@@ -91,7 +91,7 @@ sh_test(
         "//scripts:check-addon-binary-size.sh",
     ],
     env = {
-        "REQUIRE_GSA": "0",
+        "REQUIRE_GSA": "1",
     },
     target_compatible_with = ["@platforms//os:linux"],
 )
