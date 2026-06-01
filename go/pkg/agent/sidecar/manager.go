@@ -75,6 +75,7 @@ type Manager struct {
 
 	mu      sync.RWMutex
 	started bool
+	attach  bool
 	ctx     context.Context
 	cancel  context.CancelFunc
 	wg      sync.WaitGroup
@@ -125,8 +126,23 @@ func NewManager(cfg Config, sidecars ...Sidecar) (*Manager, error) {
 	}, nil
 }
 
-// Start begins supervising every configured sidecar.
+// Start begins supervising every configured sidecar: the manager launches each process
+// and restarts it (with backoff + a circuit breaker) when it exits.
 func (m *Manager) Start(ctx context.Context) error {
+	return m.start(ctx, false)
+}
+
+// StartAttach begins supervising every configured sidecar in ATTACH mode: the manager does
+// NOT launch the process — an external supervisor (systemd) owns the process lifecycle — and
+// instead connects to the well-known socket, health-checks it, wires the client into the
+// sidecar (enabling config push + event ingest), and reconnects on connection loss. It never
+// execs a binary and never restarts a process. Used when an add-on is delivered as a
+// systemd-service (migrate-netprobe §2.2).
+func (m *Manager) StartAttach(ctx context.Context) error {
+	return m.start(ctx, true)
+}
+
+func (m *Manager) start(ctx context.Context, attach bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -147,13 +163,24 @@ func (m *Manager) Start(ctx context.Context) error {
 
 	m.ctx, m.cancel = context.WithCancel(ctx)
 	m.started = true
+	m.attach = attach
 
 	for _, sc := range m.sidecars {
 		m.wg.Add(1)
-		go m.supervise(m.ctx, sc)
+		go m.supervise(m.ctx, sc, attach)
 	}
 
 	return nil
+}
+
+// Mode reports whether the manager is currently started and, if so, whether it is running
+// in attach mode (vs. launch mode). Callers use it to decide whether a mode switch (Stop +
+// Start/StartAttach) is needed; `attach` is meaningful only when `started` is true.
+func (m *Manager) Mode() (started, attach bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.started, m.attach
 }
 
 // Stop terminates all sidecars and waits for their supervisor loops to exit.
@@ -202,8 +229,13 @@ func (m *Manager) Status() []Status {
 	return statuses
 }
 
-func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
+func (m *Manager) supervise(ctx context.Context, sc Sidecar, attach bool) {
 	defer m.wg.Done()
+
+	if attach {
+		m.superviseAttached(ctx, sc)
+		return
+	}
 
 	backoff := m.cfg.RestartBackoffInitial
 	name := sc.Name()
@@ -249,6 +281,22 @@ func (m *Manager) supervise(ctx context.Context, sc Sidecar) {
 			backoff = m.cfg.RestartBackoffMax
 		}
 	}
+}
+
+// superviseAttached keeps a health/client connection alive to an externally-managed
+// sidecar socket until the context is cancelled. There is no child process to launch, wait
+// on, or restart — systemd owns the process — so the manager only owns the connection: the
+// health loop dials the socket, wires the client into the sidecar via OnHealthy (enabling
+// config push + event ingest), and reconnects on loss. PID stays 0 because the agent does
+// not own the process; the health loop drives the status to Running once connected, or
+// Unhealthy if the external process is unreachable.
+func (m *Manager) superviseAttached(ctx context.Context, sc Sidecar) {
+	name := sc.Name()
+	socket := socketPath(m.cfg.RuntimeDir, name)
+
+	m.setState(name, StateStarting, "")
+	m.healthLoop(ctx, sc, socket, 0)
+	m.setState(name, StateStopped, "")
 }
 
 func (m *Manager) runOnce(ctx context.Context, sc Sidecar) error {
