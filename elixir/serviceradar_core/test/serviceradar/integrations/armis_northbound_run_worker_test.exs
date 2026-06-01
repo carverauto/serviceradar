@@ -13,6 +13,36 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerFailure d
   end
 end
 
+defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerAuthFailure do
+  @moduledoc false
+  def run_for_source(_source, _opts) do
+    {:error,
+     %{
+       result: %{
+         updated_count: 0,
+         error_count: 1,
+         errors: [%{reason: {:unexpected_status, 401, %{"message" => "Invalid access token."}}}],
+         error_message: "Invalid access token."
+       }
+     }}
+  end
+end
+
+defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerPartialAuthFailure do
+  @moduledoc false
+  def run_for_source(_source, _opts) do
+    {:error,
+     %{
+       result: %{
+         updated_count: 3,
+         error_count: 1,
+         errors: [%{reason: {:unexpected_status, 401, %{"message" => "Invalid access token."}}}],
+         error_message: "Invalid access token."
+       }
+     }}
+  end
+end
+
 defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.SourceLookup do
   @moduledoc false
   def get_by_id(id, actor: _actor), do: {:ok, %{id: id}}
@@ -139,6 +169,34 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest do
       SourceLookup,
       fn ->
         job = %Oban.Job{id: 9, args: %{"integration_source_id" => source_id}}
+        assert :ok = ArmisNorthboundRunWorker.perform(job)
+      end
+    )
+  end
+
+  test "perform surfaces a total auth failure to Oban so the job retries and alerts" do
+    source_id = Ecto.UUID.generate()
+
+    with_env(
+      ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerAuthFailure,
+      SourceLookup,
+      fn ->
+        job = %Oban.Job{id: 11, args: %{"integration_source_id" => source_id}}
+
+        assert {:error, {:armis_northbound_auth_failed, "Invalid access token."}} =
+                 ArmisNorthboundRunWorker.perform(job)
+      end
+    )
+  end
+
+  test "perform does not retry a partial run that also hit an auth error" do
+    source_id = Ecto.UUID.generate()
+
+    with_env(
+      ServiceRadar.Integrations.ArmisNorthboundRunWorkerTest.RunnerPartialAuthFailure,
+      SourceLookup,
+      fn ->
+        job = %Oban.Job{id: 12, args: %{"integration_source_id" => source_id}}
         assert :ok = ArmisNorthboundRunWorker.perform(job)
       end
     )

@@ -77,7 +77,16 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
               error_count: failure_count(result, :error_count)
             )
 
-            :ok
+            # Surface authentication/authorization failures (e.g. a rejected
+            # access token) to Oban so the job retries with backoff and shows up
+            # as a failed job for alerting. Other failures (partial progress,
+            # per-device rejections, transient upstream errors) stay handled
+            # (`:ok`) so they don't churn the 3-attempt retry budget.
+            if auth_failure?(result) do
+              {:error, {:armis_northbound_auth_failed, failure_reason(result)}}
+            else
+              :ok
+            end
         end
 
       {:error, reason} ->
@@ -182,6 +191,24 @@ defmodule ServiceRadar.Integrations.ArmisNorthboundRunWorker do
         now,
         cutoff_seconds
       )
+
+  # An auth failure is a *total* run failure (nothing updated) whose recorded
+  # errors point at authentication/authorization: a rejected access token
+  # (401/403), a failed token exchange, or a missing secret key. Partial runs
+  # (updated_count > 0) are intentionally excluded so retries don't re-push
+  # devices that already succeeded.
+  defp auth_failure?(%{result: %{updated_count: updated, errors: errors}})
+       when is_integer(updated) and is_list(errors) do
+    updated == 0 and Enum.any?(errors, &auth_error_reason?/1)
+  end
+
+  defp auth_failure?(_result), do: false
+
+  defp auth_error_reason?(%{reason: reason}), do: auth_error_reason?(reason)
+  defp auth_error_reason?({:unexpected_status, status, _body}) when status in [401, 403], do: true
+  defp auth_error_reason?({:token_request_failed, _status, _body}), do: true
+  defp auth_error_reason?(:missing_secret_key), do: true
+  defp auth_error_reason?(_reason), do: false
 
   defp failure_reason(%{result: %{error_message: message}}) when is_binary(message), do: message
   defp failure_reason(%{result: %{errors: errors}}), do: inspect(errors)
