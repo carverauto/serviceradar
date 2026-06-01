@@ -1,0 +1,161 @@
+defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
+  @moduledoc """
+  DB-backed coverage for the endpoint inventory native add-on control-plane seed.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.EndpointInventoryAddonPackageSeeder
+
+  require Ash.Query
+
+  @moduletag :integration
+
+  setup_all do
+    ServiceRadar.TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    unique_id = :erlang.unique_integer([:positive])
+
+    actor = %{
+      id: Ash.UUID.generate(),
+      email: "test@serviceradar.local",
+      role: :admin
+    }
+
+    {:ok, actor: actor, unique_id: unique_id}
+  end
+
+  test "seeds approved endpoint inventory package and compiles assignment as a systemd-timer pushed artifact",
+       %{actor: actor, unique_id: unique_id} do
+    version = "0.1.#{unique_id}"
+    sha = String.duplicate("b", 64)
+    signature = "sig-#{unique_id}"
+
+    object_key =
+      "native-addons/endpoint-inventory/#{version}/linux/amd64/#{String.duplicate("a", 64)}.tar.gz"
+
+    artifacts = %{
+      "linux/amd64" => %{
+        "object_key" => object_key,
+        "sha256" => sha,
+        "signature" => signature
+      },
+      "linux/arm64" => %{
+        "object_key" =>
+          "native-addons/endpoint-inventory/#{version}/linux/arm64/#{String.duplicate("c", 64)}.tar.gz",
+        "sha256" => String.duplicate("d", 64),
+        "signature" => "sig-arm64-#{unique_id}"
+      }
+    }
+
+    assert :ok =
+             EndpointInventoryAddonPackageSeeder.seed_defaults(
+               version: version,
+               artifacts: artifacts,
+               source_oci_ref:
+                 "registry.carverauto.dev/serviceradar/serviceradar-addon-endpoint-inventory:sha-test",
+               source_oci_digest: "sha256:#{String.duplicate("e", 64)}",
+               source_release_tag: "sha-test"
+             )
+
+    {:ok, package} = read_package(version, actor)
+    assert package.status == :approved
+    assert package.addon_id == "endpoint-inventory"
+    assert package.version == version
+    assert package.delivery == :pushed_artifact
+    assert package.supervision == :systemd_timer
+    assert package.binary == "serviceradar-endpoint-inventory"
+    assert package.capabilities == ["endpoint-inventory", "software-sbom"]
+    assert package.approved_capabilities == ["endpoint-inventory", "software-sbom"]
+    assert package.requires["run_as"] == "root"
+    assert package.requires["os_capabilities"] == []
+    assert package.config_schema["title"] == "Endpoint Software Inventory Configuration"
+    assert package.artifacts["linux/amd64"]["object_key"] == object_key
+
+    agent_uid = "endpoint-inventory-agent-#{unique_id}"
+
+    {:ok, _agent} =
+      Agent
+      |> Ash.Changeset.for_create(
+        :register_connected,
+        %{
+          uid: agent_uid,
+          name: "Endpoint Inventory Test Agent #{unique_id}",
+          host: "127.0.0.1",
+          port: 50_051,
+          metadata: %{"os" => "linux", "arch" => "amd64"}
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _assignment} =
+      AddonAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          addon_package_id: package.id,
+          enabled: true,
+          params: %{
+            "enabled" => true,
+            "sources" => ["dpkg", "rpm"],
+            "scan_timeout" => "5m",
+            "max_packages" => 100_000
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+    assert [addon] = config.addons
+    assert addon.addon_id == "endpoint-inventory"
+    assert addon.enabled == true
+    assert addon.delivery == :pushed_artifact
+    assert addon.supervision == :systemd_timer
+    assert addon.capabilities == ["endpoint-inventory", "software-sbom"]
+    assert addon.os_capabilities == []
+    assert addon.artifact_object_key == object_key
+    assert addon.artifact_sha256 == sha
+    assert addon.artifact_signature == signature
+    assert addon.target_os == "linux"
+    assert addon.target_arch == "amd64"
+    assert addon.params["enabled"] == true
+    assert addon.params["sources"] == ["dpkg", "rpm"]
+    assert addon.params["scan_timeout"] == "5m"
+
+    proto = AgentConfigGenerator.to_proto_response(config)
+    assert [proto_addon] = proto.addons
+    assert proto_addon.addon_id == "endpoint-inventory"
+    assert proto_addon.delivery == "pushed_artifact"
+    assert proto_addon.supervision == "systemd_timer"
+    assert proto_addon.artifact_object_key == object_key
+    assert proto_addon.artifact_sha256 == sha
+    assert proto_addon.artifact_signature == signature
+  end
+
+  test "is a no-op without configured artifacts", %{actor: actor, unique_id: unique_id} do
+    version = "0.9.#{unique_id}"
+
+    assert :ok =
+             EndpointInventoryAddonPackageSeeder.seed_defaults(version: version, artifacts: %{})
+
+    assert {:ok, nil} = read_package(version, actor)
+  end
+
+  defp read_package(version, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == "endpoint-inventory" and version == ^version)
+    |> Ash.read_one(actor: actor)
+  end
+end
