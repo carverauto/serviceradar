@@ -373,6 +373,28 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		return
 	}
 
+	p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
+}
+
+// installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
+// agent-updater. Indirected so reconcileStagedSystemdUnits's rollback paths are testable
+// without the updater.
+type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string) error
+
+// reconcileStagedSystemdUnits installs + enables the freshly staged add-on's systemd units
+// and, on any discovery/selection/install failure, rolls `current` back to priorTarget so a
+// failed activation never leaves a half-installed/enabled unit or a running-but-incapable
+// process. install is indirected (installUnitsFn) so the failure->rollback paths are testable
+// without the root-owned agent-updater; runtimeRoot is "" in production (the default staging
+// root) and a temp dir under test.
+func (p *PushLoop) reconcileStagedSystemdUnits(
+	ctx context.Context,
+	a *proto.AddonAssignmentConfig,
+	supervision, runtimeRoot, priorTarget string,
+	install installUnitsFn,
+) {
+	root := resolveAddonArtifactRoot(runtimeRoot)
+
 	rollback := func(reason string, err error) {
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after " + reason)
@@ -380,7 +402,7 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		p.logger.Warn().Err(err).Str("addon", a.GetAddonId()).Msg(reason)
 	}
 
-	units, err := discoverStagedAddonUnits("", a.GetAddonId())
+	units, err := discoverStagedAddonUnits(runtimeRoot, a.GetAddonId())
 	if err != nil {
 		rollback("could not enumerate staged systemd units; not applied", err)
 		return
@@ -396,7 +418,7 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		return
 	}
 
-	if err := installStagedAddonSystemdUnitsViaUpdater(ctx, a.GetAddonId(), units, enable); err != nil {
+	if err := install(ctx, a.GetAddonId(), units, enable); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return
 	}
