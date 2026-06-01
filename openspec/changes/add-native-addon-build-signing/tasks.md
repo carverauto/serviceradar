@@ -32,20 +32,23 @@
 - [ ] 2.5 Confirm no signing keys/secrets committed; only public trust material. (§2.6)
 
 ## 3. Build hygiene & isolation gates
-- [ ] 3.1 Keep method dead-code elimination enabled with a `whydeadcode` guard; forbid
+- [x] 3.1 Keep method dead-code elimination enabled with a `whydeadcode` guard; forbid
   importing the Go stdlib `plugin` package; add a per-artifact binary-size regression
   gate (`go-size-analyzer`). (§2.7)
   - DONE: forbid stdlib `plugin` — `scripts/check-addon-no-stdlib-plugin.sh`
     (`make check_addon_no_stdlib_plugin`): `go list -deps` over the agent + every
     add-on command plus a `go list` direct-import scan; fails with the offending
     package. Verified to pass clean and to fail on an injected stdlib-`plugin` import.
-  - DONE (scaffold): per-artifact binary-size regression gate —
-    `scripts/check-addon-binary-size.sh` (`make check_addon_binary_size`). Wired with
-    a baseline + tolerance; `go-size-analyzer`/`gsa` is a CI-image PREREQUISITE (not
-    installed here) — the script runs raw-size checks without it and fails closed when
-    a baseline is exceeded; `REQUIRE_GSA=1` makes a missing tool fatal.
-  - NOT DONE: the `whydeadcode` dead-code-elimination guard is not implemented, so this
-    box stays unchecked.
+  - DONE: per-artifact binary-size regression gate —
+    `scripts/check-addon-binary-size.sh` (`make check_addon_binary_size` and
+    `make check_addon_binary_size_bazel`). CI runs it through `make addon_build_gates`
+    with `REQUIRE_GSA=1`, so a missing `go-size-analyzer`/`gsa` is fatal and baseline
+    overruns fail closed.
+  - DONE: linker method dead-code-elimination guard —
+    `scripts/check-addon-deadcode-elimination.sh` (`make check_addon_deadcode_elimination`)
+    builds every Go native add-on command with `-ldflags=-dumpdep` and fails if the
+    dump contains project-owned `<ReflectMethod>` roots, which is the linker explanation
+    for broad method retention caused by add-on code.
 - [x] 3.2 Dependency-isolation CI gate: assert (via `go list`/`goda`) the base agent's
   transitive package set excludes any add-on implementation package. (§2.8)
   - `scripts/check-addon-dependency-isolation.sh` (`make check_addon_dependency_isolation`):
@@ -104,4 +107,10 @@
 
 ## 5. Validation
 - [x] 5.1 `openspec validate add-native-addon-build-signing --strict` passes.
-- [ ] 5.2 Verify-before-release rejects an unsigned/tampered artifact in CI.
+- [x] 5.2 Verify-before-release rejects an unsigned/tampered artifact in CI.
+  - DONE: `.forgejo/workflows/native-addons.yml` runs
+    `scripts/test-verify-native-addon-publish-negative.sh` before publishing. The
+    harness uses fake Bazel/ORAS/Cosign fixtures to assert
+    `scripts/verify-native-addon-publish.sh` fails on a missing Cosign signature and
+    on a tarball whose agent-release ed25519 signature no longer matches. The verifier
+    also now fails when an artifact contains no per-arch native add-on layers.

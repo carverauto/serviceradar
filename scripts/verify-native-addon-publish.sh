@@ -116,6 +116,10 @@ PY
       artifact_count=$((artifact_count + 1))
     done < <(jq -r --arg m "${_ARTIFACT_MEDIA_TYPE}" \
       '.layers[] | select(.mediaType == $m) | [.annotations["org.opencontainers.image.title"], .digest] | @tsv' <<<"${content}")
+    if ((artifact_count == 0)); then
+      echo "error: ${ref} has no per-arch native add-on artifact layers" >&2
+      exit 1
+    fi
     echo "  verified ${artifact_count} per-arch artifact signature(s)"
 
     if cosign_init_verify_args; then
