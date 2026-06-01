@@ -81,6 +81,29 @@ granted set via `approved_capabilities`; the control plane sends that narrowed s
 delivery/supervision model during review, especially for add-ons that run as a
 privileged sidecar or apply OS capabilities.
 
+## Operator workflow in Edge Ops
+
+Use **Settings > Agents > Add-ons** to review and target native add-ons:
+
+1. Open a staged add-on package and review the manifest identity, declared
+   capabilities, delivery and supervision model, supported artifacts, verification
+   result, release tag, OCI reference, and digest.
+2. Approve the package only after narrowing the granted capabilities to the minimum
+   set needed. Denied or revoked packages are not assignable.
+3. Target an approved add-on to a single agent or to a cohort. The cohort selector
+   supports the current connected cohort and a custom list of agent IDs. The
+   compatibility preview shows selected, compatible, unsupported, and unresolved
+   targets before the assignment is created. Unsupported architectures are skipped.
+4. Check the agent detail page after rollout. The **Add-on Drift** card reconciles
+   assigned, installed, and active state, and calls out assigned-but-not-installed,
+   assigned-but-not-active, unhealthy, unassigned observed add-ons, and architecture
+   unsupported drift.
+
+When creating an agent onboarding package in **Settings > Edge Ops > Onboarding**,
+select an **Initial Feature Set** to preassign approved add-ons to the generated
+agent identity. The new agent receives those add-on assignments when it enrolls and
+fetches its first compiled configuration.
+
 ## SDKs and authoring
 
 The Go SDK (`go/pkg/addon`) wraps the `go-plugin` server boilerplate — handshake,

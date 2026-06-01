@@ -24,6 +24,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.Query.for_read(:read)
     |> maybe_filter_agent_uid(filters)
     |> maybe_filter_package_id(filters)
+    |> maybe_filter_addon_id(filters)
     |> Ash.Query.limit(limit)
     |> Ash.Query.sort(inserted_at: :desc)
     |> read(scope)
@@ -79,7 +80,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
   def delete(_id, _opts), do: {:error, :invalid_attributes}
 
   defp read(query, nil), do: Ash.read!(query)
-  defp read(query, scope), do: Ash.read!(query, scope: scope)
+  defp read(query, scope), do: Ash.read!(query, ash_opts(scope, nil))
 
   defp read_one(id, nil) do
     AddonAssignment |> Ash.Query.for_read(:read) |> Ash.Query.filter(id == ^id) |> Ash.read_one()
@@ -89,14 +90,33 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     AddonAssignment
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
-    |> Ash.read_one(scope: scope)
+    |> Ash.read_one(ash_opts(scope, nil))
   end
 
   defp create_with_scope(changeset, nil), do: Ash.create(changeset)
-  defp create_with_scope(changeset, scope), do: Ash.create(changeset, scope: scope)
+  defp create_with_scope(changeset, scope), do: Ash.create(changeset, ash_opts(scope, nil))
 
   defp destroy_with_scope(changeset, nil), do: Ash.destroy(changeset)
-  defp destroy_with_scope(changeset, scope), do: Ash.destroy(changeset, scope: scope)
+  defp destroy_with_scope(changeset, scope), do: Ash.destroy(changeset, ash_opts(scope, nil))
+
+  defp ash_opts(scope, actor) when not is_nil(scope) do
+    maybe_put_actor([scope: scope], actor || scope_actor(scope))
+  end
+
+  defp ash_opts(_scope, actor) when not is_nil(actor), do: [actor: actor]
+  defp ash_opts(_scope, _actor), do: []
+
+  defp maybe_put_actor(opts, nil), do: opts
+  defp maybe_put_actor(opts, actor), do: Keyword.put(opts, :actor, actor)
+
+  defp scope_actor(%{user: user, permissions: %MapSet{} = permissions}) when not is_nil(user) do
+    user
+    |> Map.take([:id, :email, :role, :role_profile_id])
+    |> Map.put(:permissions, permissions)
+  end
+
+  defp scope_actor(%{user: user}) when not is_nil(user), do: user
+  defp scope_actor(_scope), do: nil
 
   defp maybe_filter_agent_uid(query, filters) do
     agent_uid = Map.get(filters, :agent_uid) || Map.get(filters, "agent_uid")
@@ -115,6 +135,21 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
       Ash.Query.filter(query, addon_package_id == ^package_id)
     else
       query
+    end
+  end
+
+  defp maybe_filter_addon_id(query, filters) do
+    addon_id = Map.get(filters, :addon_id) || Map.get(filters, "addon_id")
+
+    cond do
+      is_binary(addon_id) and addon_id != "" ->
+        Ash.Query.filter(query, addon_id == ^addon_id)
+
+      is_list(addon_id) and addon_id != [] ->
+        Ash.Query.filter(query, addon_id in ^addon_id)
+
+      true ->
+        query
     end
   end
 

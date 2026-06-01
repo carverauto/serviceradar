@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonStatus
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadarWebNG.RBAC
 
@@ -40,6 +41,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:checks, [])
      |> assign(:plugin_assignments, [])
      |> assign(:addon_assignments, [])
+     |> assign(:addon_reconciliation, [])
      |> assign(:release_targets, [])
      |> assign(:live_agent, nil)
      |> assign(:node_info, nil)
@@ -118,8 +120,10 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     checks = load_checks_for_agent(uid, scope)
     plugin_assignments = load_plugin_assignments_for_agent(uid, scope)
     addon_assignments = load_addon_assignments_for_agent(uid, scope)
+    addon_statuses = load_addon_statuses_for_agent(uid, scope)
     release_targets = load_release_targets_for_agent(uid, scope)
     agent = hydrate_agent_release_fields(agent, release_targets)
+    addon_reconciliation = build_addon_reconciliation(addon_assignments, addon_statuses, agent)
 
     {:noreply,
      socket
@@ -129,6 +133,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
      |> assign(:checks, checks)
      |> assign(:plugin_assignments, plugin_assignments)
      |> assign(:addon_assignments, addon_assignments)
+     |> assign(:addon_reconciliation, addon_reconciliation)
      |> assign(:release_targets, release_targets)
      |> assign(:live_agent, live_agent)
      |> assign(:gateway_node_info, gateway_node_info)
@@ -239,6 +244,21 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
       {:error, reason} ->
         Logger.warning("Failed to load addon assignments for #{agent_uid}: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp load_addon_statuses_for_agent(agent_uid, scope) do
+    AddonStatus
+    |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid})
+    |> Ash.Query.sort(reported_at: :desc)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, statuses} ->
+        statuses
+
+      {:error, reason} ->
+        Logger.warning("Failed to load addon statuses for #{agent_uid}: #{inspect(reason)}")
         []
     end
   end
@@ -382,7 +402,7 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
           />
           <.registration_info agent={@agent} />
           <.plugin_assignments_card assignments={@plugin_assignments} />
-          <.addon_assignments_card assignments={@addon_assignments} />
+          <.addon_assignments_card rows={@addon_reconciliation} />
           <.service_checks_card checks={@checks} agent_uid={@agent_uid} />
         </div>
       </div>
@@ -858,16 +878,16 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
     """
   end
 
-  attr :assignments, :list, required: true
+  attr :rows, :list, required: true
 
   defp addon_assignments_card(assigns) do
     ~H"""
     <div id="addons" class="rounded-xl border border-base-200 bg-base-100">
       <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between">
         <div>
-          <span class="text-sm font-semibold">Add-on Assignments</span>
-          <span :if={@assignments != []} class="ml-2 badge badge-ghost badge-sm">
-            {length(@assignments)}
+          <span class="text-sm font-semibold">Add-on Drift</span>
+          <span :if={@rows != []} class="ml-2 badge badge-ghost badge-sm">
+            {length(@rows)}
           </span>
         </div>
         <.link navigate={~p"/settings/agents/addons"} class="btn btn-xs btn-ghost">
@@ -875,33 +895,57 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
         </.link>
       </div>
 
-      <div :if={@assignments == []} class="p-4">
-        <p class="text-sm text-base-content/60">No add-ons assigned to this agent.</p>
+      <div :if={@rows == []} class="p-4">
+        <p class="text-sm text-base-content/60">
+          No assigned or reported add-ons for this agent.
+        </p>
       </div>
 
-      <div :if={@assignments != []} class="overflow-x-auto">
+      <div :if={@rows != []} class="overflow-x-auto">
         <table class="table table-sm">
           <thead>
             <tr class="text-xs uppercase tracking-wide text-base-content/60">
               <th>Add-on</th>
               <th>Version</th>
-              <th>Status</th>
+              <th>Assigned</th>
+              <th>Installed</th>
+              <th>Active</th>
+              <th>Drift</th>
               <th>Capabilities</th>
             </tr>
           </thead>
           <tbody>
-            <%= for assignment <- @assignments do %>
-              <% package = addon_assignment_package(assignment) %>
+            <%= for row <- @rows do %>
+              <% package = row.package %>
+              <% status = row.status %>
               <tr>
                 <td>
-                  <div class="font-medium">{addon_package_name(package, assignment)}</div>
-                  <div class="text-xs font-mono text-base-content/60">{assignment.addon_id}</div>
+                  <div class="font-medium">{addon_row_name(row)}</div>
+                  <div class="text-xs font-mono text-base-content/60">{row.addon_id}</div>
                 </td>
-                <td class="text-xs font-mono">{addon_package_version(package)}</td>
+                <td class="text-xs font-mono">{addon_row_version(package, status)}</td>
                 <td>
-                  <.ui_badge variant={if assignment.enabled, do: "success", else: "ghost"} size="xs">
-                    {if assignment.enabled, do: "enabled", else: "disabled"}
+                  <.ui_badge variant={if row.assigned?, do: "success", else: "ghost"} size="xs">
+                    {if row.assigned?, do: "assigned", else: "unassigned"}
                   </.ui_badge>
+                </td>
+                <td>
+                  <.ui_badge variant={installed_badge_variant(status)} size="xs">
+                    {installed_text(status)}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <.ui_badge variant={active_badge_variant(status)} size="xs">
+                    {active_text(status)}
+                  </.ui_badge>
+                </td>
+                <td>
+                  <.ui_badge variant={drift_badge_variant(row.drift_state)} size="xs">
+                    {drift_state_text(row.drift_state)}
+                  </.ui_badge>
+                  <div :if={row.drift_reason} class="mt-1 max-w-xs text-[11px] text-base-content/60">
+                    {row.drift_reason}
+                  </div>
                 </td>
                 <td>
                   <div class="flex max-w-md flex-wrap gap-1">
@@ -937,6 +981,150 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
 
   defp addon_package_capabilities(%AddonPackage{capabilities: caps}) when is_list(caps), do: caps
   defp addon_package_capabilities(_package), do: []
+
+  defp build_addon_reconciliation(assignments, statuses, agent) do
+    statuses_by_addon = Map.new(statuses, &{&1.addon_id, &1})
+    assigned_ids = MapSet.new(assignments, & &1.addon_id)
+
+    assignment_rows =
+      Enum.map(assignments, fn assignment ->
+        package = addon_assignment_package(assignment)
+        status = Map.get(statuses_by_addon, assignment.addon_id)
+        {drift_state, drift_reason} = addon_drift(package, assignment, status, agent)
+
+        %{
+          addon_id: assignment.addon_id,
+          assignment: assignment,
+          package: package,
+          status: status,
+          assigned?: assignment.enabled,
+          drift_state: drift_state,
+          drift_reason: drift_reason
+        }
+      end)
+
+    observed_only_rows =
+      statuses
+      |> Enum.reject(&MapSet.member?(assigned_ids, &1.addon_id))
+      |> Enum.map(fn status ->
+        %{
+          addon_id: status.addon_id,
+          assignment: nil,
+          package: nil,
+          status: status,
+          assigned?: false,
+          drift_state: :observed_unassigned,
+          drift_reason: "Agent reports this add-on, but no assignment exists."
+        }
+      end)
+
+    assignment_rows ++ observed_only_rows
+  end
+
+  defp addon_drift(_package, %{enabled: false}, _status, _agent), do: {:disabled, nil}
+
+  defp addon_drift(package, _assignment, %AddonStatus{} = status, agent) do
+    cond do
+      addon_arch_unsupported?(package, status, agent) ->
+        {:arch_unsupported, "No package artifact matches the reported or agent platform."}
+
+      unhealthy_addon_status?(status) ->
+        {:unhealthy, status.degradation_reason || "Agent reported the add-on as unhealthy."}
+
+      not status.active ->
+        {:assigned_not_active, status.degradation_reason || "Assignment exists, but the add-on is not active."}
+
+      true ->
+        {:healthy, nil}
+    end
+  end
+
+  defp addon_drift(_package, _assignment, nil, _agent) do
+    {:assigned_not_installed, "Assignment exists, but the agent has not reported installed or active status."}
+  end
+
+  defp unhealthy_addon_status?(%AddonStatus{state: state, degradation_reason: reason}) do
+    state = state |> to_string() |> String.downcase()
+    state in ["unhealthy", "degraded", "failed", "circuit_open"] or present_text(reason) != nil
+  end
+
+  defp addon_arch_unsupported?(%AddonPackage{artifacts: artifacts}, %AddonStatus{} = status, agent)
+       when is_map(artifacts) and map_size(artifacts) > 0 do
+    {agent_os, agent_arch} = agent_platform(agent)
+    status_arch = present_text(status.arch)
+
+    cond do
+      present_text(agent_os) != nil and present_text(agent_arch) != nil ->
+        not Map.has_key?(artifacts, "#{agent_os}/#{agent_arch}")
+
+      status_arch != nil ->
+        not Enum.any?(Map.keys(artifacts), &String.ends_with?(to_string(&1), "/#{status_arch}"))
+
+      true ->
+        false
+    end
+  end
+
+  defp addon_arch_unsupported?(_package, _status, _agent), do: false
+
+  defp agent_platform(agent) when is_map(agent) do
+    metadata = Map.get(agent, "metadata") || Map.get(agent, :metadata) || %{}
+
+    {
+      metadata_value(metadata, ["os", :os]),
+      metadata_value(metadata, ["arch", :arch])
+    }
+  end
+
+  defp agent_platform(_agent), do: {nil, nil}
+
+  defp metadata_value(metadata, keys) when is_map(metadata) do
+    Enum.find_value(keys, &Map.get(metadata, &1))
+  end
+
+  defp metadata_value(_metadata, _keys), do: nil
+
+  defp addon_row_name(%{package: %AddonPackage{} = package, assignment: assignment}) do
+    addon_package_name(package, assignment)
+  end
+
+  defp addon_row_name(%{addon_id: addon_id}), do: addon_id
+
+  defp addon_row_version(%AddonPackage{} = package, _status), do: addon_package_version(package)
+  defp addon_row_version(_package, %AddonStatus{version: version}) when is_binary(version), do: version
+  defp addon_row_version(_package, _status), do: "—"
+
+  defp installed_badge_variant(nil), do: "ghost"
+  defp installed_badge_variant(%AddonStatus{}), do: "success"
+
+  defp installed_text(nil), do: "not reported"
+  defp installed_text(%AddonStatus{state: state}), do: state || "reported"
+
+  defp active_badge_variant(%AddonStatus{active: true}), do: "success"
+  defp active_badge_variant(%AddonStatus{}), do: "warning"
+  defp active_badge_variant(nil), do: "ghost"
+
+  defp active_text(%AddonStatus{active: true}), do: "active"
+  defp active_text(%AddonStatus{}), do: "not active"
+  defp active_text(nil), do: "unknown"
+
+  defp drift_badge_variant(:healthy), do: "success"
+  defp drift_badge_variant(:disabled), do: "ghost"
+  defp drift_badge_variant(:observed_unassigned), do: "warning"
+  defp drift_badge_variant(:assigned_not_installed), do: "warning"
+  defp drift_badge_variant(:assigned_not_active), do: "warning"
+  defp drift_badge_variant(:unhealthy), do: "error"
+  defp drift_badge_variant(:arch_unsupported), do: "error"
+  defp drift_badge_variant(_), do: "ghost"
+
+  defp drift_state_text(:healthy), do: "in sync"
+  defp drift_state_text(:disabled), do: "disabled"
+  defp drift_state_text(:observed_unassigned), do: "unassigned"
+  defp drift_state_text(:assigned_not_installed), do: "not installed"
+  defp drift_state_text(:assigned_not_active), do: "not active"
+  defp drift_state_text(:unhealthy), do: "unhealthy"
+  defp drift_state_text(:arch_unsupported), do: "arch unsupported"
+  defp drift_state_text(state), do: to_string(state)
 
   attr :assignments, :list, required: true
 
@@ -1555,6 +1743,14 @@ defmodule ServiceRadarWebNGWeb.AgentLive.Show do
   defp format_assignment_source(nil), do: "manual"
   defp format_assignment_source(source) when is_atom(source), do: Atom.to_string(source)
   defp format_assignment_source(source), do: to_string(source)
+
+  defp present_text(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp present_text(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
+  defp present_text(_value), do: nil
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
