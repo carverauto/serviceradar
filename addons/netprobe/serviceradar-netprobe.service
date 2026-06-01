@@ -1,0 +1,59 @@
+[Unit]
+Description=ServiceRadar netprobe host-network-visibility add-on
+Documentation=https://docs.serviceradar.cloud/
+# eBPF + AF_PACKET/raw capture needs the network stack up before launch.
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# requires.run_as in addons/netprobe/addon.yaml; matches the base serviceradar-agent user.
+User=serviceradar
+Group=serviceradar
+UMask=0027
+
+# Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so
+# this is the FIXED add-on staging layout produced by the agent's activation runtime
+# (resolveAddonArtifactRoot -> <release-runtime-root>/addons/<id>/current/<binary>),
+# NOT the manifest's install_path. netprobe binds the IPC socket and the agent connects
+# as a client, pushing VisibilityConfig over IPC, so no --config is passed here: netprobe
+# starts with its lifecycle IPC available and stays disabled until the agent configures it.
+ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe --socket /run/serviceradar/netprobe/ipc.sock
+
+# /run/serviceradar/netprobe holds the IPC socket; /var/lib/serviceradar/netprobe is the
+# manifest state_dir. systemd creates both owned by serviceradar:serviceradar.
+RuntimeDirectory=serviceradar/netprobe
+RuntimeDirectoryMode=0750
+StateDirectory=serviceradar/netprobe
+StateDirectoryMode=0750
+
+Restart=on-failure
+RestartSec=5
+
+# Host-network visibility needs raw packet capture (CAP_NET_RAW) plus eBPF/perf for the
+# flow table, DPI, and process attribution (CAP_BPF, CAP_PERFMON). Granted in-unit
+# (ambient, deterministic) and bounded to exactly these; the root-owned agent-updater
+# additionally applies them to the staged binary via setcap per requires.os_capabilities.
+AmbientCapabilities=CAP_NET_RAW CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_BPF CAP_PERFMON
+# File capabilities on the staged binary are only honored on exec when no_new_privs is
+# off; leaving it off also lets the updater's setcap grant take effect.
+NoNewPrivileges=false
+
+# Hardening tuned for an eBPF/raw-capture daemon (cf. the base agent unit and the add-on
+# template). Deliberately NOT set, because each would break eBPF/capture:
+#   MemoryDenyWriteExecute        - eBPF JIT needs W^X relaxed
+#   SystemCallFilter=~@privileged  - would block bpf()/perf_event_open()
+#   PrivateDevices                - perf + raw capture need device access
+# The final hardening set is locked in by the migrate-netprobe §4.3 scratch-agent e2e.
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectControlGroups=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

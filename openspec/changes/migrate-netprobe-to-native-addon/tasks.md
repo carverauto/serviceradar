@@ -3,14 +3,27 @@
 - [x] 1.1 Author `addons/netprobe/addon.yaml` (kind: native; delivery: pushed-artifact; supervision: systemd-service; `host-network-visibility` capability; `requires` `CAP_NET_RAW,CAP_BPF,CAP_PERFMON` + linux platforms) and `addons/netprobe/config.schema.json` mirroring the `VisibilityAgentConfig` operator surface (capture_interfaces, dpi toggle+protocols, default/per-device sample interval, flow_table_max_entries, process_snapshot_interval_s, external_flow_match_window_ms, device_bindings).
   — `kind: capability` in the original wording is `kind: native` per the schema enum.
 - [x] 1.2 Validate `addons/netprobe/addon.yaml` against the manifest JSON-Schema + validator (`go/tools/addon-manifest-validator`) — passes (`OK addons/netprobe/addon.yaml`).
-- [ ] 1.3 Wire a `netprobe` bundle into `build/native_addons/addon_inventory.bzl`
+- [x] 1.3 Wire a `netprobe` bundle into `build/native_addons/addon_inventory.bzl`
   (`netprobe_addon_bundle`: `//rust/netprobe:netprobe`, `binary_name`
   `serviceradar-netprobe`, linux amd64/arm64, manifest + config, `pushed_artifact_tarball`)
-  producing per-arch pushed-artifact tarballs. **Partial:** the systemd **unit** is not
-  shipped in the bundle yet — netprobe's unit `ExecStart`/socket lifecycle is the
-  standalone-vs-agent-launched **open question** (netprobe's `--socket` is required and
-  the agent currently owns that socket; see Open Questions). Deferred to §2.1 so a wrong
-  lifecycle is not baked into a shipped unit.
+  producing per-arch pushed-artifact tarballs. **Done, incl. the systemd unit.** The
+  standalone-vs-agent-launched **open question is resolved to `systemd-service`**: netprobe
+  binds its own IPC socket (`UnixListener::bind` in `rust/netprobe/src/server.rs`) and the
+  agent connects as a client, and `--config` is optional (netprobe starts with lifecycle IPC
+  available and stays disabled until configured over IPC) — so config keeps flowing over the
+  existing IPC, and the only change vs. the agent-launched sidecar is who starts the process.
+  `addons/netprobe/serviceradar-netprobe.service` now ships in the bundle via the
+  `unit_entries` plumbing (`defs.bzl` → assembler `--entry`, flat at 0644 in the per-arch
+  tarball — verified). The unit is installed **verbatim** by the root-owned agent-updater
+  (`InstallAddonSystemdUnits`, no `ExecStart` templating), so its `ExecStart` hardcodes the
+  fixed staged path `/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe
+  --socket /run/serviceradar/netprobe/ipc.sock`; a Go contract test
+  (`netprobe_systemd_unit_test.go`) pins that path to `resolveAddonArtifactRoot` so the unit
+  and staging layout can't drift. Caps (`CAP_NET_RAW,CAP_BPF,CAP_PERFMON`) are granted ambient
+  in-unit + bounded; eBPF-hostile hardening (`MemoryDenyWriteExecute`,
+  `SystemCallFilter=~@privileged`, `PrivateDevices`) is deliberately omitted. The unit is
+  **inert until §2.2** wires assignment-gated activation; final hardening is locked by the
+  §4.3 scratch-agent e2e.
 - [x] 1.4 Retire base-package delivery of netprobe: removed `//rust/netprobe` from
   `build/packaging/packages.bzl` and both release-runtime archives in
   `build/packaging/agent/BUILD.bazel`, and removed the `setcap cap_net_raw,cap_bpf,cap_perfmon`
