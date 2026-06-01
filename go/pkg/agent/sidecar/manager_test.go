@@ -217,6 +217,7 @@ func assertDirMode(t *testing.T, path string, want os.FileMode) {
 	}
 }
 
+//nolint:unparam // single-sidecar tests always pass "netprobe"; name kept for call-site clarity.
 func waitForStatus(t *testing.T, mgr *Manager, name string, accept func(Status) bool) {
 	t.Helper()
 
