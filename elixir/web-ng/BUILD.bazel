@@ -84,6 +84,7 @@ mix_release(
     src_dir = "elixir/web-ng",
     extra_dirs = [
         "addons/bumblebee-scan",
+        "addons/netprobe",
         "elixir/connection",
         "elixir/elixir_uuid",
         "elixir/serviceradar_core",
@@ -96,6 +97,7 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/netprobe:netprobe_manifest",
         "//elixir/connection:srcs",
         "//elixir/elixir_uuid:srcs",
         "//elixir/serviceradar_core:srcs",
