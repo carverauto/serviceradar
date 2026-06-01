@@ -30,6 +30,8 @@ import (
 
 const netprobeTestUnit = "serviceradar-netprobe.service"
 
+var errAgentUpdaterUnavailable = errors.New("agent-updater unavailable")
+
 // stageSystemdAddonFixture builds a temp runtime root with
 // <root>/addons/<id>/versions/<v>/ dirs (each holding the named unit files) and points
 // `current` -> versions/<current>, mirroring the post-stageAndCapability staging layout.
@@ -90,7 +92,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 	installAttempted := false
 	failingInstall := func(_ context.Context, _ string, _ []string, _ string) error {
 		installAttempted = true
-		return errors.New("agent-updater unavailable")
+		return errAgentUpdaterUnavailable
 	}
 
 	pl.reconcileStagedSystemdUnits(
