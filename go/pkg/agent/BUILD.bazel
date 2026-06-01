@@ -178,6 +178,9 @@ go_test(
         "sysmon_drain_test.go",
         "sysmon_service_test.go",
     ],
+    data = [
+        "testdata/camera_stream_plugin.wasm",
+    ],
     embed = [":agent"],
     deps = [
         "//go/pkg/agent/addon",
