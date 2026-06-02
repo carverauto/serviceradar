@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.EndpointInventoryArtifactStore
+  alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -21,6 +22,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @package_event_added "added"
   @package_event_removed "removed"
   @package_event_version_changed "version_changed"
+  @package_change_signal_schema_version "serviceradar.endpoint_inventory.package_change.v1"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
   @successful_states ["scanned", "complete", "success", "unchanged"]
@@ -63,32 +65,47 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
          {:ok, artifact} <- maybe_upload_artifact(payload, context, opts) do
       context = apply_artifact_metadata(context, artifact)
 
-      Repo.transaction(fn ->
-        current = current_scan_snapshot(context.agent_id)
-        context = apply_hash_freshness(context, current)
-        previous_packages = current_package_rows(context)
-        scan_ref = upsert_scan(context, artifact)
-        replace_artifact(scan_ref, context, artifact)
-        package_count = maybe_replace_packages(scan_ref, context)
-        history = maybe_record_changed_history(scan_ref, current, previous_packages, context)
-        maybe_promote_current(scan_ref, context)
+      case Repo.transaction(fn ->
+             current = current_scan_snapshot(context.agent_id)
+             context = apply_hash_freshness(context, current)
+             previous_packages = current_package_rows(context)
+             scan_ref = upsert_scan(context, artifact)
+             replace_artifact(scan_ref, context, artifact)
+             package_count = maybe_replace_packages(scan_ref, context)
+             history = maybe_record_changed_history(scan_ref, current, previous_packages, context)
+             maybe_promote_current(scan_ref, context)
 
-        %{
-          agent_id: context.agent_id,
-          device_uid: context.device_uid,
-          scan_id: context.scan_id,
-          scan_ref: scan_ref,
-          package_count: package_count,
-          artifact_uploaded?: not is_nil(artifact),
-          package_rows_replaced?: not context.package_replacement_noop?,
-          scan_history_recorded?: history.scan_history_recorded?,
-          package_event_count: history.package_event_count,
-          package_set_hash_mismatch?: context.package_set_hash_mismatch?,
-          reconcile_floor?: context.reconcile_floor_due?,
-          directives: scan_ack_directives(context),
-          current?: successful_scan?(context)
-        }
-      end)
+             %{
+               agent_id: context.agent_id,
+               device_uid: context.device_uid,
+               scan_id: context.scan_id,
+               scan_ref: scan_ref,
+               package_count: package_count,
+               artifact_uploaded?: not is_nil(artifact),
+               package_rows_replaced?: not context.package_replacement_noop?,
+               scan_history_recorded?: history.scan_history_recorded?,
+               package_event_count: history.package_event_count,
+               package_set_hash_mismatch?: context.package_set_hash_mismatch?,
+               reconcile_floor?: context.reconcile_floor_due?,
+               directives: scan_ack_directives(context),
+               current?: successful_scan?(context),
+               package_change_signals: history.package_change_signals
+             }
+           end) do
+        {:ok, result} ->
+          published_count =
+            result
+            |> Map.get(:package_change_signals, [])
+            |> publish_package_change_signals(opts)
+
+          {:ok,
+           result
+           |> Map.delete(:package_change_signals)
+           |> Map.put(:package_change_signal_publish_count, published_count)}
+
+        error ->
+          error
+      end
     end
   end
 
@@ -524,14 +541,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp maybe_record_changed_history(scan_ref, current, previous_packages, context) do
     if record_changed_history?(context) do
       package_events = package_diff_events(previous_packages, context.packages)
-      package_event_count = insert_package_events(scan_ref, current, package_events, context)
+
+      {package_event_count, package_event_rows} =
+        insert_package_events(scan_ref, current, package_events, context)
+
       apply_current_count_changes(package_events, context)
 
       insert_scan_history(scan_ref, current, package_event_count, context)
 
-      %{scan_history_recorded?: true, package_event_count: package_event_count}
+      %{
+        scan_history_recorded?: true,
+        package_event_count: package_event_count,
+        package_change_signals: Enum.map(package_event_rows, &package_change_signal/1)
+      }
     else
-      %{scan_history_recorded?: false, package_event_count: 0}
+      %{scan_history_recorded?: false, package_event_count: 0, package_change_signals: []}
     end
   end
 
@@ -570,7 +594,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     Repo.insert_all("endpoint_inventory_scan_history", [row], prefix: "platform")
   end
 
-  defp insert_package_events(_scan_ref, _current, [], _context), do: 0
+  defp insert_package_events(_scan_ref, _current, [], _context), do: {0, []}
 
   defp insert_package_events(scan_ref, current, package_events, context) do
     scan_time = changed_scan_time(context)
@@ -587,7 +611,115 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         conflict_target: [:scan_time, :event_id]
       )
 
-    count
+    {count, rows}
+  end
+
+  defp package_change_signal(row) do
+    event_type = Map.fetch!(row, :event_type)
+
+    %{
+      subject: "signals.causal.inventory.#{event_type}",
+      payload: %{
+        "schema_version" => @package_change_signal_schema_version,
+        "event_id" => row.event_id,
+        "signal_type" => "inventory",
+        "signal_domain" => "inventory",
+        "event_type" => event_type,
+        "timestamp" => DateTime.to_iso8601(row.scan_time),
+        "observed_at" => DateTime.to_iso8601(row.scan_time),
+        "severity" => "informational",
+        "message" => package_change_message(event_type, row),
+        "agent_id" => row.agent_id,
+        "device_uid" => row.device_uid,
+        "device_id" => row.device_uid,
+        "scan_id" => row.scan_id,
+        "package_set_hash" => row.package_set_hash,
+        "previous_package_set_hash" => row.previous_package_set_hash,
+        "artifact_hash" => row.artifact_hash,
+        "package" => package_change_package(row),
+        "previous_package" => previous_package(row)
+      }
+    }
+  end
+
+  defp package_change_message(@package_event_added, row),
+    do: "endpoint package added: #{row.name}"
+
+  defp package_change_message(@package_event_removed, row),
+    do: "endpoint package removed: #{row.name}"
+
+  defp package_change_message(@package_event_version_changed, row),
+    do: "endpoint package version changed: #{row.name}"
+
+  defp package_change_message(_event_type, row), do: "endpoint package changed: #{row.name}"
+
+  defp package_change_package(row) do
+    %{
+      "package_manager" => row.package_manager,
+      "ecosystem" => row.ecosystem,
+      "name" => row.name,
+      "architecture" => row.architecture,
+      "version" => row.version,
+      "previous_version" => row.previous_version,
+      "new_version" => row.new_version,
+      "purl" => row.purl,
+      "purl_canonical" => row.purl_canonical,
+      "previous_purl" => row.previous_purl,
+      "previous_purl_canonical" => row.previous_purl_canonical,
+      "cpes" => row.cpes || [],
+      "coordinate_hash" => row.coordinate_hash
+    }
+    |> compact_map()
+  end
+
+  defp previous_package(%{
+         previous_version: nil,
+         previous_purl: nil,
+         previous_purl_canonical: nil
+       }),
+       do: nil
+
+  defp previous_package(row) do
+    %{
+      "package_manager" => row.package_manager,
+      "ecosystem" => row.ecosystem,
+      "name" => row.name,
+      "architecture" => row.architecture,
+      "version" => row.previous_version,
+      "purl" => row.previous_purl,
+      "purl_canonical" => row.previous_purl_canonical
+    }
+    |> compact_map()
+  end
+
+  defp publish_package_change_signals([], _opts), do: 0
+
+  defp publish_package_change_signals(signals, opts) do
+    publisher = Keyword.get(opts, :causal_signal_publisher, {Connection, :publish, []})
+
+    Enum.reduce(signals, 0, fn %{subject: subject, payload: payload}, count ->
+      encoded = Jason.encode!(payload)
+
+      case publish_causal_signal(publisher, subject, encoded) do
+        :ok ->
+          count + 1
+
+        {:error, reason} ->
+          Logger.warning(
+            "Endpoint inventory causal signal publish failed: subject=#{subject} reason=#{inspect(reason)}"
+          )
+
+          count
+      end
+    end)
+  end
+
+  defp publish_causal_signal(fun, subject, payload) when is_function(fun, 2) do
+    fun.(subject, payload)
+  end
+
+  defp publish_causal_signal({module, function, extra_args}, subject, payload) do
+    apply(module, function, [subject, payload | extra_args])
   end
 
   defp package_diff_events(previous_packages, packages) do

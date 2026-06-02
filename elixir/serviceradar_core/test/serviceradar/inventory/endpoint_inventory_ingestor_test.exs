@@ -299,6 +299,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     nginx = "nginx-history-#{unique}"
     openssl = "openssl-history-#{unique}"
     curl = "curl-history-#{unique}"
+    causal_signal_publisher = capture_causal_signals(self())
 
     first_components = [
       package_component(nginx, "1.24.0-2ubuntu7"),
@@ -311,17 +312,40 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                  components: first_components
                ),
                actor: actor,
-               upload_object: successful_upload()
+               upload_object: successful_upload(),
+               causal_signal_publisher: causal_signal_publisher
              )
 
     assert first.scan_history_recorded? == true
     assert first.package_event_count == 2
+    assert first.package_change_signal_publish_count == 2
     assert scan_history_count(agent_id) == 1
 
     assert [
              %{event_type: "added", name: ^nginx, new_version: "1.24.0-2ubuntu7"},
              %{event_type: "added", name: ^openssl, new_version: "3.0.13-0ubuntu3"}
            ] = package_event_rows(agent_id, "scan-history-first-#{unique}")
+
+    first_scan = current_scan(agent_id)
+    first_signals = collect_causal_signals(2)
+
+    assert Enum.map(first_signals, & &1.subject) == [
+             "signals.causal.inventory.added",
+             "signals.causal.inventory.added"
+           ]
+
+    assert Enum.all?(first_signals, fn signal ->
+             signal.payload["schema_version"] ==
+               "serviceradar.endpoint_inventory.package_change.v1" and
+               signal.payload["signal_type"] == "inventory" and
+               signal.payload["signal_domain"] == "inventory" and
+               signal.payload["event_type"] == "added" and
+               signal.payload["agent_id"] == agent_id and
+               signal.payload["device_uid"] == device.uid and
+               signal.payload["device_id"] == device.uid and
+               signal.payload["package_set_hash"] == first_scan.package_set_hash and
+               String.starts_with?(signal.payload["event_id"], "inventory:#{agent_id}:")
+           end)
 
     second_components = [
       package_component(curl, "8.5.0-2ubuntu10"),
@@ -334,11 +358,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                  components: second_components
                ),
                actor: actor,
-               upload_object: successful_upload()
+               upload_object: successful_upload(),
+               causal_signal_publisher: causal_signal_publisher
              )
 
     assert second.scan_history_recorded? == true
     assert second.package_event_count == 3
+    assert second.package_change_signal_publish_count == 3
     assert scan_history_count(agent_id) == 2
 
     assert [
@@ -351,6 +377,26 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                new_version: "1.24.1-2ubuntu7"
              }
            ] = package_event_rows(agent_id, "scan-history-second-#{unique}")
+
+    second_signals = collect_causal_signals(3)
+
+    assert Enum.map(second_signals, & &1.subject) == [
+             "signals.causal.inventory.added",
+             "signals.causal.inventory.removed",
+             "signals.causal.inventory.version_changed"
+           ]
+
+    assert version_changed_signal =
+             Enum.find(second_signals, &(&1.payload["event_type"] == "version_changed"))
+
+    assert version_changed_signal.payload["package"]["name"] == nginx
+    assert version_changed_signal.payload["package"]["previous_version"] == "1.24.0-2ubuntu7"
+    assert version_changed_signal.payload["package"]["new_version"] == "1.24.1-2ubuntu7"
+    assert version_changed_signal.payload["previous_package"]["version"] == "1.24.0-2ubuntu7"
+
+    assert version_changed_signal.payload["package"]["cpes"] == [
+             package_cpe(nginx, "1.24.1-2ubuntu7")
+           ]
 
     assert current_package_host_count(nginx, "1.24.0-2ubuntu7") == 0
     assert current_package_host_count(nginx, "1.24.1-2ubuntu7") == 1
@@ -380,13 +426,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert {:ok, unchanged} =
              EndpointInventoryIngestor.ingest_report(unchanged_payload,
                actor: actor,
-               upload_object: successful_upload()
+               upload_object: successful_upload(),
+               causal_signal_publisher: causal_signal_publisher
              )
 
     assert unchanged.scan_history_recorded? == false
     assert unchanged.package_event_count == 0
+    assert unchanged.package_change_signal_publish_count == 0
     assert scan_history_count(agent_id) == 2
     assert package_event_count(agent_id) == package_event_total
+    refute_receive {:causal_signal_published, _subject, _payload}, 200
 
     if timescale_installed?() do
       assert "endpoint_inventory_scan_history" in endpoint_inventory_hypertables()
@@ -703,6 +752,22 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       ),
       prefix: "platform"
     )
+  end
+
+  defp capture_causal_signals(parent_pid) do
+    fn subject, payload ->
+      send(parent_pid, {:causal_signal_published, subject, Jason.decode!(payload)})
+      :ok
+    end
+  end
+
+  defp collect_causal_signals(count) do
+    1..count
+    |> Enum.map(fn _ ->
+      assert_receive {:causal_signal_published, subject, payload}, 1_000
+      %{subject: subject, payload: payload}
+    end)
+    |> Enum.sort_by(&{&1.subject, &1.payload["package"]["name"] || ""})
   end
 
   defp timescale_installed? do
