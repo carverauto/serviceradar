@@ -192,7 +192,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp ash_ocsf_event_attrs(row) do
     row
-    |> Map.drop([:created_at])
+    |> Map.delete(:created_at)
     |> Map.update(:id, nil, &uuid_string/1)
   end
 
@@ -225,8 +225,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp ocsf_event_exists?(_id, _time), do: false
 
   defp enqueue_inventory_alert_evaluation(_ocsf_rows, inserted_count)
-       when not is_integer(inserted_count) or inserted_count <= 0,
-       do: :ok
+       when not is_integer(inserted_count) or inserted_count <= 0, do: :ok
 
   defp enqueue_inventory_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
     ocsf_rows
@@ -249,8 +248,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp inventory_event_row?(_row), do: false
 
   defp inventory_vulnerability_finding_row?(
-         %{class_uid: @ocsf_vulnerability_finding_class_uid} =
-           row
+         %{class_uid: @ocsf_vulnerability_finding_class_uid} = row
        ) do
     inventory_event_row?(row)
   end
@@ -860,7 +858,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp cvss_score(payload) when is_map(payload) do
-    first_present([
+    [
       payload["cvss_score"],
       payload["cvssScore"],
       payload["cvss"],
@@ -870,7 +868,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       get_in(payload, ["vulnerability", "cvssScore"]),
       get_in(payload, ["advisory", "cvss_score"]),
       get_in(payload, ["advisory", "cvssScore"])
-    ])
+    ]
+    |> first_present()
     |> normalize_float()
   end
 
@@ -927,14 +926,12 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp inventory_vulnerability_message(payload) do
     payload["message"] || payload["description"] ||
-      Enum.reject(
-        [
-          "endpoint vulnerability finding",
-          vulnerability_id(payload),
-          package_context_label(payload)
-        ],
-        &is_nil/1
-      )
+      [
+        "endpoint vulnerability finding",
+        vulnerability_id(payload),
+        package_context_label(payload)
+      ]
+      |> Enum.reject(&is_nil/1)
       |> Enum.join(": ")
   end
 

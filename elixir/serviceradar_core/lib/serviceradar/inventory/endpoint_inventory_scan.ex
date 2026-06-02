@@ -251,20 +251,6 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
     update_timestamp :updated_at
   end
 
-  calculations do
-    calculate :freshness_verdict,
-              :string,
-              expr(
-                fragment(
-                  "CASE WHEN ? IS NULL THEN 'unknown' WHEN ? > NOW() - INTERVAL '24 hours' THEN 'fresh' ELSE 'stale' END",
-                  last_successful_scan_at,
-                  last_successful_scan_at
-                )
-              ) do
-      public? true
-    end
-  end
-
   relationships do
     belongs_to :device, ServiceRadar.Inventory.Device do
       source_attribute :device_uid
@@ -291,6 +277,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
     has_many :packages, ServiceRadar.Inventory.EndpointInventoryPackage do
       source_attribute :id
       destination_attribute :scan_ref
+      public? true
+    end
+  end
+
+  calculations do
+    calculate :freshness_verdict,
+              :string,
+              expr(
+                fragment(
+                  "CASE WHEN ? IS NULL THEN 'unknown' WHEN ? > NOW() - INTERVAL '24 hours' THEN 'fresh' ELSE 'stale' END",
+                  last_successful_scan_at,
+                  last_successful_scan_at
+                )
+              ) do
       public? true
     end
   end

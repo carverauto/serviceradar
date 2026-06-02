@@ -50,21 +50,21 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   ]
 
   postgres do
-    table("ocsf_events")
-    repo(ServiceRadar.Repo)
-    schema("platform")
-    migrate?(false)
+    table "ocsf_events"
+    repo ServiceRadar.Repo
+    schema "platform"
+    migrate? false
   end
 
   actions do
-    defaults([:read])
+    defaults [:read]
 
     create :record do
-      description("Record a new OCSF Event Log Activity entry")
+      description "Record a new OCSF Event Log Activity entry"
 
-      accept(@event_fields)
+      accept @event_fields
 
-      change(fn changeset, _context ->
+      change fn changeset, _context ->
         Ash.Changeset.before_action(changeset, fn changeset ->
           attrs = %{
             device: changeset_input(changeset, :device),
@@ -82,19 +82,19 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
             changeset
           end
         end)
-      end)
+      end
 
-      change(fn changeset, _context ->
+      change fn changeset, _context ->
         if is_nil(Ash.Changeset.get_attribute(changeset, :time)) do
           Ash.Changeset.change_attribute(changeset, :time, DateTime.utc_now())
         else
           changeset
         end
-      end)
+      end
 
-      change(fn changeset, _context ->
+      change fn changeset, _context ->
         AfterAction.after_action(changeset, &dispatch_northbound_event_handlers/1)
-      end)
+      end
     end
   end
 
@@ -139,133 +139,133 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
 
   attributes do
     attribute :id, :uuid do
-      primary_key?(true)
-      allow_nil?(false)
-      default(&Ash.UUID.generate/0)
-      public?(true)
+      primary_key? true
+      allow_nil? false
+      default &Ash.UUID.generate/0
+      public? true
     end
 
     attribute :time, :utc_datetime_usec do
-      primary_key?(true)
-      allow_nil?(false)
-      public?(true)
+      primary_key? true
+      allow_nil? false
+      public? true
     end
 
     attribute :class_uid, :integer do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :category_uid, :integer do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :type_uid, :integer do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :activity_id, :integer do
-      allow_nil?(false)
-      public?(true)
+      allow_nil? false
+      public? true
     end
 
     attribute :activity_name, :string do
-      public?(true)
+      public? true
     end
 
     attribute :severity_id, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :severity, :string do
-      public?(true)
+      public? true
     end
 
     attribute :message, :string do
-      public?(true)
+      public? true
     end
 
     attribute :status_id, :integer do
-      public?(true)
+      public? true
     end
 
     attribute :status, :string do
-      public?(true)
+      public? true
     end
 
     attribute :status_code, :string do
-      public?(true)
+      public? true
     end
 
     attribute :status_detail, :string do
-      public?(true)
+      public? true
     end
 
     attribute :metadata, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :observables, Jsonb do
-      default([])
-      public?(true)
+      default []
+      public? true
     end
 
     attribute :trace_id, :string do
-      public?(true)
+      public? true
     end
 
     attribute :span_id, :string do
-      public?(true)
+      public? true
     end
 
     attribute :actor, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :device, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :src_endpoint, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :dst_endpoint, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :log_name, :string do
-      public?(true)
+      public? true
     end
 
     attribute :log_provider, :string do
-      public?(true)
+      public? true
     end
 
     attribute :log_level, :string do
-      public?(true)
+      public? true
     end
 
     attribute :log_version, :string do
-      public?(true)
+      public? true
     end
 
     attribute :unmapped, Jsonb do
-      default(%{})
-      public?(true)
+      default %{}
+      public? true
     end
 
     attribute :raw_data, :string do
-      public?(true)
+      public? true
     end
 
-    create_timestamp(:created_at)
+    create_timestamp :created_at
   end
 end
