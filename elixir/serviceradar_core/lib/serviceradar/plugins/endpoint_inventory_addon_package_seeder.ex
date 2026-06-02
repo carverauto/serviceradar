@@ -20,7 +20,7 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeeder do
   @version "0.1.0"
   @capabilities ["endpoint-inventory", "software-sbom"]
   @config_schema_path Path.expand(
-                        "../../../../../addons/endpoint-inventory/config.schema.json",
+                        "../../../priv/endpoint_inventory/config.schema.json",
                         __DIR__
                       )
   @external_resource @config_schema_path
