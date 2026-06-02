@@ -36,8 +36,31 @@ The system SHALL generate and ingest endpoint SBOM artifacts in CycloneDX JSON f
 - **THEN** the artifact SHALL be rejected
 - **AND** the previous successful inventory state SHALL remain current
 
+### Requirement: Endpoint Inventory Uses Deterministic Local State Hashes
+The system SHALL compute deterministic endpoint inventory hashes so scheduled scans can distinguish changed and unchanged package state before uploading full artifacts or package rows.
+
+#### Scenario: Package set hash is stable
+- **GIVEN** two scans report the same normalized packages in different discovery order
+- **WHEN** the agent computes the package-set hash
+- **THEN** both scans SHALL produce the same package-set hash
+- **AND** the hash SHALL be based on normalized package identity fields rather than raw JSON ordering
+
+#### Scenario: Unchanged scan skips full upload
+- **GIVEN** an agent has a previous successful endpoint inventory upload with package-set hash `H`
+- **AND** a new scheduled scan produces package-set hash `H`
+- **WHEN** the agent reports the scan result
+- **THEN** it SHALL send scan status, source summaries, counts, freshness, and hash metadata
+- **AND** it SHALL NOT upload the full SBOM artifact or normalized package rows unless policy forces refresh
+
+#### Scenario: Changed scan uploads new inventory
+- **GIVEN** an agent has a previous successful endpoint inventory upload with package-set hash `H1`
+- **AND** a new scheduled scan produces package-set hash `H2`
+- **WHEN** the agent reports the scan result
+- **THEN** it SHALL upload the changed SBOM artifact and normalized package rows
+- **AND** ingestion SHALL make the changed scan current only after artifact and package-row validation succeeds
+
 ### Requirement: Endpoint Inventory Is Normalized For Asset Queries
-The system SHALL normalize endpoint package and component data into queryable rows linked to the reporting agent and resolved device asset.
+The system SHALL normalize changed endpoint package and component data into queryable rows linked to the reporting agent and resolved device asset.
 
 #### Scenario: Package rows linked to asset
 - **GIVEN** an agent uploads a valid endpoint SBOM artifact
@@ -51,6 +74,12 @@ The system SHALL normalize endpoint package and component data into queryable ro
 - **THEN** the newer scan SHALL become the current inventory for that agent/device
 - **AND** the prior scan SHALL remain historical until retention removes it
 
+#### Scenario: Latest unchanged scan updates freshness only
+- **GIVEN** a device has an existing current endpoint inventory scan with package-set hash `H`
+- **WHEN** a newer successful scan reports the same package-set hash `H`
+- **THEN** ingestion SHALL update freshness, source summary, and unchanged scan metadata
+- **AND** it SHALL NOT delete and recreate the current package/component rows
+
 #### Scenario: Failed scan does not replace current inventory
 - **GIVEN** a device has an existing current endpoint inventory scan
 - **WHEN** a newer scan fails validation or normalization
@@ -63,7 +92,7 @@ The system SHALL preserve provenance for endpoint inventory scans and artifacts 
 #### Scenario: Operator inspects scan metadata
 - **GIVEN** endpoint inventory exists for an asset
 - **WHEN** an operator views the scan metadata
-- **THEN** ServiceRadar SHALL expose scan ID, agent ID, collector version, scan start/end timestamps, enabled sources, artifact digest, artifact size, and ingestion status
+- **THEN** ServiceRadar SHALL expose scan ID, agent ID, collector version, scan start/end timestamps, enabled sources, package-set hash, artifact digest, artifact size, upload reason, and ingestion status
 
 #### Scenario: Historical scan expires
 - **GIVEN** endpoint inventory retention is configured
@@ -85,3 +114,32 @@ The system SHALL bound endpoint inventory data collection and redact privacy-sen
 - **WHEN** the agent validates the local artifact before upload
 - **THEN** the agent SHALL reject the artifact locally
 - **AND** it SHALL report the scan as failed with a bounded error message
+
+### Requirement: Endpoint Inventory Supports On-Demand Live Queries
+The system SHALL support bounded on-demand endpoint software queries against connected agents through the existing agent-gateway command bus.
+
+#### Scenario: Live package query returns compact matches
+- **GIVEN** an operator submits an on-demand endpoint inventory query for package `nginx`
+- **AND** targeted agents are connected and advertise endpoint inventory capability
+- **WHEN** the gateway dispatches the query command
+- **THEN** each agent SHALL evaluate the predicate against its local last-known-good inventory cache
+- **AND** it SHALL return compact match results including agent ID, device UID when known, package-set hash, scan timestamp, match count, and matched package identities
+
+#### Scenario: Live query does not force full upload
+- **GIVEN** an on-demand endpoint inventory query can be answered from an agent's local cache
+- **WHEN** the agent returns matching package identities
+- **THEN** the agent SHALL NOT upload a full SBOM artifact or full package table as part of the query response
+- **AND** the operator MAY request full artifact upload separately for selected agents
+
+#### Scenario: Fresh scan requires authorization and policy support
+- **GIVEN** an on-demand endpoint inventory query requests a fresh scan
+- **WHEN** the targeted agent receives the command
+- **THEN** the agent SHALL run the scan only if endpoint inventory policy allows the requested sources
+- **AND** the command requester is authorized for fresh collection
+- **AND** the scan SHALL still enforce size, source, TTL, and redaction bounds
+
+#### Scenario: Offline agent uses persisted state or reports unavailable
+- **GIVEN** an on-demand endpoint inventory query targets an offline agent
+- **WHEN** the command is submitted
+- **THEN** the live command SHALL fail fast for that agent through the command lifecycle
+- **AND** the UI/API MAY show the latest persisted inventory state separately with its freshness timestamp
