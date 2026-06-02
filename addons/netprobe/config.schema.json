@@ -1,5 +1,5 @@
 {
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Host Network Visibility (netprobe) Configuration",
   "description": "Operator-facing netprobe config. Mirrors proto agent.netprobe.v1.VisibilityAgentConfig; the agent translates monitoring VisibilityConfig into this shape and pushes it to netprobe over IPC.",
   "type": "object",
@@ -44,7 +44,7 @@
       "description": "Temporal window for matching external (non-process) flows by 5-tuple.",
       "minimum": 0
     },
-    "dpi": { "$ref": "#/$defs/dpi" },
+    "dpi": { "$ref": "#/definitions/dpi" },
     "device_bindings": {
       "type": "array",
       "title": "Per-device bindings",
@@ -68,12 +68,12 @@
               "http": { "type": "boolean" }
             }
           },
-          "dpi": { "$ref": "#/$defs/dpi" }
+          "dpi": { "$ref": "#/definitions/dpi" }
         }
       }
     }
   },
-  "$defs": {
+  "definitions": {
     "dpi": {
       "type": "object",
       "title": "DPI configuration",
