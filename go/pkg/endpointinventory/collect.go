@@ -31,6 +31,20 @@ import (
 
 const collectorName = "serviceradar-endpoint-inventory"
 
+const (
+	scanStateFailed       = "scan_failed"
+	scanStateNotScanned   = "not_scanned"
+	scanStateNotSupported = "not_supported"
+	scanStateScanned      = "scanned"
+	scanStateUnchanged    = "unchanged"
+
+	coverageComplete                 = "complete"
+	coverageDisabled                 = "disabled"
+	coverageFailed                   = "failed"
+	coverageNoSupportedPackageSource = "no_supported_package_source"
+	coverageUnchanged                = "unchanged"
+)
+
 var errPackageLimitExceeded = errors.New("endpoint inventory package limit exceeded")
 
 type Runner struct {
@@ -51,18 +65,38 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	defer cancel()
 
 	osInfo, _ := ReadOSRelease(r.cfg.OSReleasePath)
+	sourceMTimes := CollectSourceMTimes(r.cfg)
+	cache, err := ReadCacheManifest(r.cfg)
+	if err != nil {
+		return nil, err
+	}
+	if cacheCanSkipFullScan(r.cfg, cache, sourceMTimes) {
+		payload := r.unchangedPayload(started, osInfo, cache, "source_mtime_unchanged")
+		if err := WriteCacheManifest(r.cfg, unchangedManifest(r.cfg, cache, sourceMTimes, started)); err != nil {
+			return nil, err
+		}
+
+		return payload, nil
+	}
+
 	packages, sources := r.collectPackages(ctx)
 	if len(packages) > r.cfg.MaxPackages {
 		return failurePayload(r.cfg, started, osInfo, sources, errPackageLimitExceeded), nil
 	}
 
-	state := "scanned"
-	coverage := "complete"
+	state := scanStateScanned
+	coverage := coverageComplete
 	if len(packages) == 0 {
-		state = "not_supported"
-		coverage = "no_supported_package_source"
+		state = scanStateNotSupported
+		coverage = coverageNoSupportedPackageSource
 	}
 	sbom := BuildCycloneDX(r.cfg, started, osInfo, packages)
+	packageSetHash := ComputePackageSetHash(packages)
+	artifactHash := ComputeArtifactHash(sbom)
+	uploadReason := UploadReasonChanged
+	if cache != nil && cache.PackageSetHash == packageSetHash && cache.ArtifactHash == artifactHash {
+		uploadReason = UploadReasonUnchanged
+	}
 
 	payload := &ScanPayload{
 		SchemaVersion:        SchemaVersion,
@@ -75,14 +109,24 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		OS:                   osInfo,
 		Sources:              sources,
 		PackageCount:         len(packages),
-		PackageSetHash:       ComputePackageSetHash(packages),
-		ArtifactHash:         ComputeArtifactHash(sbom),
+		PackageSetHash:       packageSetHash,
+		ArtifactHash:         artifactHash,
 		HashAlgorithm:        HashAlgorithm,
-		UploadReason:         UploadReasonChanged,
-		SBOM:                 sbom,
+		UploadReason:         uploadReason,
 		Metadata: map[string]any{
 			"sources_enabled": append([]string(nil), r.cfg.Sources...),
 		},
+	}
+	if uploadReason == UploadReasonChanged {
+		payload.SBOM = &sbom
+	} else {
+		payload.State = scanStateUnchanged
+		payload.CoverageState = coverageUnchanged
+		payload.Metadata["reason"] = "full_scan_hash_unchanged"
+	}
+
+	if err := WriteCacheManifest(r.cfg, fullScanManifest(r.cfg, cache, payload, sourceMTimes, started)); err != nil {
+		return nil, err
 	}
 
 	return payload, nil
@@ -93,12 +137,41 @@ func disabledPayload(cfg Config, scannedAt time.Time) *ScanPayload {
 		SchemaVersion: SchemaVersion,
 		AgentID:       cfg.AgentID,
 		ScanID:        "endpoint-inventory-disabled",
-		State:         "not_scanned",
-		CoverageState: "disabled",
+		State:         scanStateNotScanned,
+		CoverageState: coverageDisabled,
 		LastScanAt:    scannedAt,
 		Sources:       []SourceSummary{},
 		Metadata: map[string]any{
 			"reason": "disabled",
+		},
+	}
+}
+
+func (r *Runner) unchangedPayload(
+	scannedAt time.Time,
+	osInfo OSInfo,
+	cache *InventoryCacheManifest,
+	reason string,
+) *ScanPayload {
+	return &ScanPayload{
+		SchemaVersion:        SchemaVersion,
+		AgentID:              r.cfg.AgentID,
+		ScanID:               newScanID(),
+		State:                scanStateUnchanged,
+		CoverageState:        coverageUnchanged,
+		LastScanAt:           scannedAt,
+		LastSuccessfulScanAt: &scannedAt,
+		OS:                   osInfo,
+		Sources:              append([]SourceSummary(nil), cache.SourceSummaries...),
+		PackageCount:         cache.PackageCount,
+		PackageSetHash:       cache.PackageSetHash,
+		ArtifactHash:         cache.ArtifactHash,
+		HashAlgorithm:        firstNonEmpty(cache.HashAlgorithm, HashAlgorithm),
+		UploadReason:         UploadReasonUnchanged,
+		Metadata: map[string]any{
+			"reason":           reason,
+			"sources_enabled":  append([]string(nil), r.cfg.Sources...),
+			"scans_since_full": cache.ScansSinceFull + 1,
 		},
 	}
 }
@@ -153,8 +226,8 @@ func failurePayload(cfg Config, scannedAt time.Time, osInfo OSInfo, sources []So
 		SchemaVersion: SchemaVersion,
 		AgentID:       cfg.AgentID,
 		ScanID:        newScanID(),
-		State:         "scan_failed",
-		CoverageState: "failed",
+		State:         scanStateFailed,
+		CoverageState: coverageFailed,
 		LastScanAt:    scannedAt,
 		OS:            osInfo,
 		Sources:       sources,

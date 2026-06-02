@@ -3,9 +3,11 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "endpointinventory",
     srcs = [
+        "cache.go",
         "collect.go",
         "config.go",
         "cyclonedx.go",
+        "hashes.go",
         "packages.go",
         "profile.go",
         "spool.go",
@@ -18,7 +20,9 @@ go_library(
 go_test(
     name = "endpointinventory_test",
     srcs = [
+        "cache_test.go",
         "collect_test.go",
+        "hashes_test.go",
         "packages_test.go",
         "spool_test.go",
     ],

@@ -32,6 +32,7 @@ const (
 
 	defaultProfilePath      = "/var/lib/serviceradar/endpoint-inventory/profile/runtime.json"
 	defaultSpoolDir         = "/var/lib/serviceradar/endpoint-inventory/spool"
+	defaultCacheDir         = "/var/lib/serviceradar/endpoint-inventory/cache"
 	defaultTmpDir           = "/var/lib/serviceradar/endpoint-inventory/tmp"
 	defaultScanTimeout      = "5m"
 	defaultOSReleasePath    = "/etc/os-release"
@@ -40,6 +41,7 @@ const (
 	defaultRPMPath          = PackageSourceRPM
 	defaultMaxPackages      = 100000
 	defaultMaxOutputBytes   = 32 * 1024 * 1024
+	defaultFullScanInterval = 24
 )
 
 var (
@@ -51,23 +53,35 @@ var (
 
 func DefaultConfig() Config {
 	return Config{
-		Enabled:          false,
-		ProfilePath:      defaultProfilePath,
-		SpoolDir:         defaultSpoolDir,
-		TmpDir:           defaultTmpDir,
-		ScanTimeout:      defaultScanTimeout,
-		OSReleasePath:    defaultOSReleasePath,
-		DpkgStatusPath:   defaultDpkgStatusPath,
-		APKInstalledPath: defaultAPKInstalledPath,
-		RPMPath:          defaultRPMPath,
-		Sources:          defaultPackageSources(),
-		MaxPackages:      defaultMaxPackages,
-		MaxOutputBytes:   defaultMaxOutputBytes,
+		Enabled:               false,
+		ProfilePath:           defaultProfilePath,
+		SpoolDir:              defaultSpoolDir,
+		CacheDir:              defaultCacheDir,
+		TmpDir:                defaultTmpDir,
+		ScanTimeout:           defaultScanTimeout,
+		OSReleasePath:         defaultOSReleasePath,
+		DpkgStatusPath:        defaultDpkgStatusPath,
+		APKInstalledPath:      defaultAPKInstalledPath,
+		RPMPath:               defaultRPMPath,
+		RPMDatabasePaths:      defaultRPMDatabasePaths(),
+		Sources:               defaultPackageSources(),
+		ForceFullScanInterval: defaultFullScanInterval,
+		MaxPackages:           defaultMaxPackages,
+		MaxOutputBytes:        defaultMaxOutputBytes,
 	}
 }
 
 func defaultPackageSources() []string {
 	return []string{PackageSourceDpkg, PackageSourceRPM, PackageSourceAPK}
+}
+
+func defaultRPMDatabasePaths() []string {
+	return []string{
+		"/usr/lib/sysimage/rpm/rpmdb.sqlite",
+		"/var/lib/rpm/rpmdb.sqlite",
+		"/var/lib/rpm/Packages",
+		"/var/lib/rpm",
+	}
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -100,6 +114,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.SpoolDir == "" {
 		cfg.SpoolDir = defaultSpoolDir
 	}
+	if cfg.CacheDir == "" {
+		cfg.CacheDir = defaultCacheDir
+	}
 	if cfg.TmpDir == "" {
 		cfg.TmpDir = defaultTmpDir
 	}
@@ -118,8 +135,14 @@ func applyDefaults(cfg *Config) {
 	if cfg.RPMPath == "" {
 		cfg.RPMPath = defaultRPMPath
 	}
+	if len(cfg.RPMDatabasePaths) == 0 {
+		cfg.RPMDatabasePaths = defaultRPMDatabasePaths()
+	}
 	if len(cfg.Sources) == 0 {
 		cfg.Sources = defaultPackageSources()
+	}
+	if cfg.ForceFullScanInterval <= 0 {
+		cfg.ForceFullScanInterval = defaultFullScanInterval
 	}
 	if cfg.MaxPackages <= 0 {
 		cfg.MaxPackages = defaultMaxPackages
@@ -169,6 +192,9 @@ func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
 	}
 	if profile.Sources != nil {
 		cfg.Sources = append([]string(nil), profile.Sources...)
+	}
+	if profile.ForceFullScanInterval != nil {
+		cfg.ForceFullScanInterval = *profile.ForceFullScanInterval
 	}
 	if profile.MaxPackages != nil {
 		cfg.MaxPackages = *profile.MaxPackages

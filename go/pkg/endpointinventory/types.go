@@ -22,6 +22,7 @@ import "time"
 
 const (
 	SchemaVersion = "serviceradar.endpoint_inventory.scan.v1"
+	CacheVersion  = "serviceradar.endpoint_inventory.cache.v1"
 	ServiceName   = "endpoint_inventory"
 	ServiceType   = "endpoint_inventory"
 	SourceResults = "results"
@@ -29,34 +30,39 @@ const (
 	CycloneDXFormat      = "CycloneDX"
 	CycloneDXSpecVersion = "1.6"
 
-	HashAlgorithmVersion = byte(1)
-	HashAlgorithm        = "sha256-v1"
-	UploadReasonChanged  = "changed"
+	HashAlgorithmVersion  = byte(1)
+	HashAlgorithm         = "sha256-v1"
+	UploadReasonChanged   = "changed"
+	UploadReasonUnchanged = "unchanged"
 )
 
 type Config struct {
-	Enabled          bool     `json:"enabled"`
-	AgentID          string   `json:"agent_id"`
-	ProfilePath      string   `json:"profile_path"`
-	SpoolDir         string   `json:"spool_dir"`
-	TmpDir           string   `json:"tmp_dir"`
-	ScanTimeout      string   `json:"scan_timeout"`
-	OSReleasePath    string   `json:"os_release_path"`
-	DpkgStatusPath   string   `json:"dpkg_status_path"`
-	APKInstalledPath string   `json:"apk_installed_path"`
-	RPMPath          string   `json:"rpm_path"`
-	Sources          []string `json:"sources"`
-	MaxPackages      int      `json:"max_packages"`
-	MaxOutputBytes   int64    `json:"max_output_bytes"`
+	Enabled               bool     `json:"enabled"`
+	AgentID               string   `json:"agent_id"`
+	ProfilePath           string   `json:"profile_path"`
+	SpoolDir              string   `json:"spool_dir"`
+	CacheDir              string   `json:"cache_dir"`
+	TmpDir                string   `json:"tmp_dir"`
+	ScanTimeout           string   `json:"scan_timeout"`
+	OSReleasePath         string   `json:"os_release_path"`
+	DpkgStatusPath        string   `json:"dpkg_status_path"`
+	APKInstalledPath      string   `json:"apk_installed_path"`
+	RPMPath               string   `json:"rpm_path"`
+	RPMDatabasePaths      []string `json:"rpm_database_paths"`
+	Sources               []string `json:"sources"`
+	ForceFullScanInterval int      `json:"force_full_scan_interval"`
+	MaxPackages           int      `json:"max_packages"`
+	MaxOutputBytes        int64    `json:"max_output_bytes"`
 }
 
 type RuntimeProfile struct {
-	Enabled        *bool    `json:"enabled,omitempty"`
-	AgentID        string   `json:"agent_id,omitempty"`
-	ScanTimeout    string   `json:"scan_timeout,omitempty"`
-	Sources        []string `json:"sources,omitempty"`
-	MaxPackages    *int     `json:"max_packages,omitempty"`
-	MaxOutputBytes *int64   `json:"max_output_bytes,omitempty"`
+	Enabled               *bool    `json:"enabled,omitempty"`
+	AgentID               string   `json:"agent_id,omitempty"`
+	ScanTimeout           string   `json:"scan_timeout,omitempty"`
+	Sources               []string `json:"sources,omitempty"`
+	ForceFullScanInterval *int     `json:"force_full_scan_interval,omitempty"`
+	MaxPackages           *int     `json:"max_packages,omitempty"`
+	MaxOutputBytes        *int64   `json:"max_output_bytes,omitempty"`
 }
 
 type ScanPayload struct {
@@ -75,8 +81,36 @@ type ScanPayload struct {
 	ArtifactHash         string          `json:"artifact_hash,omitempty"`
 	HashAlgorithm        string          `json:"hash_algorithm,omitempty"`
 	UploadReason         string          `json:"upload_reason,omitempty"`
-	SBOM                 CycloneDXBOM    `json:"sbom,omitempty"`
+	SBOM                 *CycloneDXBOM   `json:"sbom,omitempty"`
 	Metadata             map[string]any  `json:"metadata,omitempty"`
+}
+
+type InventoryCacheManifest struct {
+	SchemaVersion              string                 `json:"schema_version"`
+	AgentID                    string                 `json:"agent_id"`
+	PackageSetHash             string                 `json:"package_set_hash,omitempty"`
+	ArtifactHash               string                 `json:"artifact_hash,omitempty"`
+	LastUploadedPackageSetHash string                 `json:"last_uploaded_package_set_hash,omitempty"`
+	LastUploadedArtifactHash   string                 `json:"last_uploaded_artifact_hash,omitempty"`
+	HashAlgorithm              string                 `json:"hash_algorithm,omitempty"`
+	PackageCount               int                    `json:"package_count"`
+	SourceSummaries            []SourceSummary        `json:"source_summaries"`
+	SourceMTimes               map[string]SourceMTime `json:"source_mtimes"`
+	LastScanAt                 time.Time              `json:"last_scan_at"`
+	LastSuccessfulScanAt       *time.Time             `json:"last_successful_scan_at,omitempty"`
+	LastChangedScanAt          *time.Time             `json:"last_changed_scan_at,omitempty"`
+	ScansSinceFull             int                    `json:"scans_since_full"`
+	UnchangedScanCount         int                    `json:"unchanged_scan_count"`
+	FullScanCount              int                    `json:"full_scan_count"`
+	UpdatedAt                  time.Time              `json:"updated_at"`
+}
+
+type SourceMTime struct {
+	Source        string `json:"source"`
+	Path          string `json:"path,omitempty"`
+	Exists        bool   `json:"exists"`
+	MTimeUnixNano int64  `json:"mtime_unix_nano,omitempty"`
+	Size          int64  `json:"size,omitempty"`
 }
 
 type OSInfo struct {

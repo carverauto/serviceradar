@@ -60,7 +60,7 @@ func WriteSpool(cfg Config, payload *ScanPayload) error {
 	return nil
 }
 
-func writeJSONAtomic(path string, tmpDir string, maxBytes int64, payload *ScanPayload) error {
+func writeJSONAtomic(path string, tmpDir string, maxBytes int64, payload any) error {
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal spool payload: %w", err)
