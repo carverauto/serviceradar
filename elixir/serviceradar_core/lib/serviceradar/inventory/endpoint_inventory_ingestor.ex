@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryArtifactStore
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
 
   require Ash.Query
@@ -138,6 +139,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     score = cvss_risk_score(cvss_score)
     now = DateTime.utc_now()
     active? = vulnerability_match_active?(payload)
+    risk_summary = vulnerability_risk_summary(payload, cvss_score, score, active?, now)
 
     :ok =
       DeviceRiskReducer.upsert_contribution(
@@ -154,6 +156,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         },
         opts
       )
+
+    project_vulnerability_risk_summary(device_uid, risk_summary, opts)
 
     {:ok,
      %{
@@ -287,6 +291,112 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "package" => map_value(payload, :package)
     })
   end
+
+  defp vulnerability_risk_summary(payload, cvss_score, score, active?, now) do
+    %{
+      pkg_worst_severity: vulnerability_summary_severity(cvss_score, score, active?),
+      pkg_critical_count: vulnerability_critical_count(payload, score, active?),
+      pkg_kev_count: vulnerability_summary_count(payload, [:pkg_kev_count, :kev_count], active?),
+      pkg_has_unpatched_rce:
+        active? and
+          vulnerability_summary_flag(payload, [
+            :pkg_has_unpatched_rce,
+            :has_unpatched_rce,
+            :unpatched_rce,
+            :rce
+          ]),
+      pkg_risk_summary_at:
+        payload
+        |> vulnerability_match_time()
+        |> Kernel.||(now)
+        |> DateTime.truncate(:second)
+        |> DateTime.to_iso8601()
+    }
+  end
+
+  defp vulnerability_summary_severity(_cvss_score, _score, false), do: "none"
+
+  defp vulnerability_summary_severity(cvss_score, _score, true) when cvss_score <= 0,
+    do: "unknown"
+
+  defp vulnerability_summary_severity(_cvss_score, score, true) when score >= 90, do: "critical"
+  defp vulnerability_summary_severity(_cvss_score, score, true) when score >= 70, do: "high"
+  defp vulnerability_summary_severity(_cvss_score, score, true) when score >= 40, do: "medium"
+  defp vulnerability_summary_severity(_cvss_score, _score, true), do: "low"
+
+  defp vulnerability_critical_count(_payload, _score, false), do: 0
+
+  defp vulnerability_critical_count(payload, score, true) do
+    default = if score >= 90, do: 1, else: 0
+    vulnerability_summary_count(payload, [:pkg_critical_count, :critical_count], true, default)
+  end
+
+  defp vulnerability_summary_count(payload, keys, active?, default \\ 0)
+  defp vulnerability_summary_count(_payload, _keys, false, _default), do: 0
+
+  defp vulnerability_summary_count(payload, keys, true, default) do
+    payload
+    |> vulnerability_nested_maps()
+    |> Enum.find_value(fn map ->
+      Enum.find_value(keys, fn key ->
+        case integer_value(map, key, nil) do
+          nil -> nil
+          value -> max(value, 0)
+        end
+      end)
+    end)
+    |> Kernel.||(default)
+  end
+
+  defp vulnerability_summary_flag(payload, keys) do
+    payload
+    |> vulnerability_nested_maps()
+    |> Enum.any?(fn map ->
+      Enum.any?(keys, fn key ->
+        map
+        |> value(key, false)
+        |> truthy_value?()
+      end)
+    end)
+  end
+
+  defp vulnerability_nested_maps(payload) do
+    [payload, map_value(payload, :vulnerability), map_value(payload, :advisory)]
+  end
+
+  defp project_vulnerability_risk_summary(device_uid, summary, opts) do
+    projector =
+      Keyword.get(
+        opts,
+        :age_risk_summary_projector,
+        {TopologyGraph, :project_endpoint_inventory_risk_summary, []}
+      )
+
+    case invoke_age_risk_summary_projector(projector, device_uid, summary) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Endpoint inventory AGE risk summary projection failed: #{inspect(reason)}"
+        )
+
+        :ok
+
+      _other ->
+        :ok
+    end
+  end
+
+  defp invoke_age_risk_summary_projector(projector, device_uid, summary)
+       when is_function(projector, 2),
+       do: projector.(device_uid, summary)
+
+  defp invoke_age_risk_summary_projector({module, function, extra_args}, device_uid, summary)
+       when is_atom(module) and is_atom(function) and is_list(extra_args),
+       do: apply(module, function, [device_uid, summary | extra_args])
+
+  defp invoke_age_risk_summary_projector(_projector, _device_uid, _summary), do: :ok
 
   defp build_context(payload, agent_id, scan_id, actor, opts) do
     now = DateTime.utc_now()
@@ -2107,6 +2217,19 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp number_value(_map, _key), do: nil
+
+  defp truthy_value?(true), do: true
+  defp truthy_value?(value) when value in [false, nil, 0], do: false
+  defp truthy_value?(value) when is_integer(value), do: value != 0
+
+  defp truthy_value?(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.in(["true", "1", "yes", "y"])
+  end
+
+  defp truthy_value?(_value), do: false
 
   defp parse_integer(value, default) do
     case Integer.parse(String.trim(value)) do

@@ -206,20 +206,28 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     device = create_device!(actor, "endpoint-inventory-risk-device-#{unique}")
 
     assert {:ok, result} =
-             EndpointInventoryIngestor.ingest_vulnerability_match(%{
-               "event_id" => "inventory-vuln-#{unique}",
-               "agent_id" => "endpoint-inventory-risk-agent-#{unique}",
-               "scan_id" => "scan-risk-#{unique}",
-               "device_uid" => device.uid,
-               "cve" => "CVE-2026-#{unique}",
-               "cvss_score" => 9.8,
-               "package_set_hash" => "package-set-risk-#{unique}",
-               "package" => %{
-                 "name" => "nginx",
-                 "version" => "1.24.0-2ubuntu7",
-                 "purl_canonical" => "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
-               }
-             })
+             EndpointInventoryIngestor.ingest_vulnerability_match(
+               %{
+                 "event_id" => "inventory-vuln-#{unique}",
+                 "agent_id" => "endpoint-inventory-risk-agent-#{unique}",
+                 "scan_id" => "scan-risk-#{unique}",
+                 "device_uid" => device.uid,
+                 "cve" => "CVE-2026-#{unique}",
+                 "cvss_score" => 9.8,
+                 "observed_at" => "2026-06-02T12:00:00Z",
+                 "package_set_hash" => "package-set-risk-#{unique}",
+                 "advisory" => %{
+                   "kev_count" => 1,
+                   "has_unpatched_rce" => true
+                 },
+                 "package" => %{
+                   "name" => "nginx",
+                   "version" => "1.24.0-2ubuntu7",
+                   "purl_canonical" => "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
+                 }
+               },
+               age_risk_summary_projector: test_age_risk_summary_projector(self())
+             )
 
     assert result == %{
              active?: true,
@@ -238,6 +246,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert contribution.metadata["package"]["name"] == "nginx"
 
     assert device_risk(device.uid) == %{risk_score: 98, risk_level_id: 4, risk_level: "Critical"}
+
+    device_uid = device.uid
+
+    assert_receive {:age_risk_summary, ^device_uid,
+                    %{
+                      pkg_worst_severity: "critical",
+                      pkg_critical_count: 1,
+                      pkg_kev_count: 1,
+                      pkg_has_unpatched_rce: true,
+                      pkg_risk_summary_at: "2026-06-02T12:00:00Z"
+                    }}
   end
 
   test "resolved endpoint vuln-match deactivates risk contribution and recomputes device risk", %{
@@ -259,12 +278,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert device_risk(device.uid).risk_score == 82
 
     assert {:ok, result} =
-             EndpointInventoryIngestor.ingest_vulnerability_match(%{
-               "device_uid" => device.uid,
-               "status" => "removed",
-               "cvss_score" => 0,
-               "package" => %{"name" => "nginx"}
-             })
+             EndpointInventoryIngestor.ingest_vulnerability_match(
+               %{
+                 "device_uid" => device.uid,
+                 "status" => "removed",
+                 "cvss_score" => 0,
+                 "observed_at" => "2026-06-02T13:00:00Z",
+                 "package" => %{"name" => "nginx"}
+               },
+               age_risk_summary_projector: test_age_risk_summary_projector(self())
+             )
 
     assert result.active? == false
     assert result.score == 0
@@ -274,6 +297,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert contribution.resolved_at
 
     assert device_risk(device.uid) == %{risk_score: nil, risk_level_id: nil, risk_level: nil}
+
+    device_uid = device.uid
+
+    assert_receive {:age_risk_summary, ^device_uid,
+                    %{
+                      pkg_worst_severity: "none",
+                      pkg_critical_count: 0,
+                      pkg_kev_count: 0,
+                      pkg_has_unpatched_rce: false,
+                      pkg_risk_summary_at: "2026-06-02T13:00:00Z"
+                    }}
   end
 
   test "unchanged package_set_hash updates scan freshness without replacing current packages", %{
@@ -978,6 +1012,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       actor: actor
     )
     |> Ash.create!(actor: actor)
+  end
+
+  defp test_age_risk_summary_projector(test_pid) do
+    fn device_uid, summary ->
+      send(test_pid, {:age_risk_summary, device_uid, summary})
+      :ok
+    end
   end
 
   defp create_agent!(actor, agent_id, device_uid) do
