@@ -38,6 +38,7 @@ type endpointInventoryConfigPayload struct {
 	CollectPaths   bool     `json:"collect_paths,omitempty"`
 	CollectHashes  bool     `json:"collect_file_hashes,omitempty"`
 	ForceFresh     bool     `json:"force_fresh_enabled,omitempty"`
+	ForceFullScan  int32    `json:"force_full_scan_interval,omitempty"`
 	CacheStale     string   `json:"cache_stale_threshold,omitempty"`
 	UploadJitter   string   `json:"upload_jitter,omitempty"`
 	RetryInitial   string   `json:"upload_retry_initial,omitempty"`
@@ -76,6 +77,13 @@ func endpointInventoryConfigFromProto(cfg *monitoringpb.EndpointInventoryConfig)
 		Cadence:        cfg.GetCadence(),
 		CollectPaths:   cfg.GetCollectPaths(),
 		CollectHashes:  cfg.GetCollectFileHashes(),
+		ForceFresh:     cfg.GetForceFreshEnabled(),
+		ForceFullScan:  cfg.GetForceFullScanInterval(),
+		CacheStale:     cfg.GetCacheStaleThreshold(),
+		UploadJitter:   cfg.GetUploadJitter(),
+		RetryInitial:   cfg.GetUploadRetryInitial(),
+		RetryMax:       cfg.GetUploadRetryMax(),
+		RetryAttempts:  cfg.GetUploadRetryMaxAttempts(),
 	}
 }
 
@@ -98,6 +106,10 @@ func (p *endpointInventoryConfigPayload) runtimeProfile(agentID string) endpoint
 	if p.ForceFresh {
 		forceFresh := true
 		profile.ForceFreshEnabled = &forceFresh
+	}
+	if p.ForceFullScan > 0 {
+		forceFullScan := int(p.ForceFullScan)
+		profile.ForceFullScanInterval = &forceFullScan
 	}
 	if p.RetryAttempts > 0 {
 		retryAttempts := int(p.RetryAttempts)

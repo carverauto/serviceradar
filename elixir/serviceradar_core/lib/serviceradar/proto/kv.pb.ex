@@ -1,7 +1,10 @@
 defmodule Proto.GetRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.GetRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -9,7 +12,10 @@ end
 defmodule Proto.GetResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.GetResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :value, 1, type: :bytes
   field :found, 2, type: :bool
@@ -19,7 +25,10 @@ end
 defmodule Proto.BatchGetRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.BatchGetRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :keys, 1, repeated: true, type: :string
 end
@@ -27,7 +36,10 @@ end
 defmodule Proto.BatchGetEntry do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.BatchGetEntry",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :bytes
@@ -38,7 +50,10 @@ end
 defmodule Proto.BatchGetResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.BatchGetResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :results, 1, repeated: true, type: Proto.BatchGetEntry
 end
@@ -46,7 +61,10 @@ end
 defmodule Proto.PutRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.PutRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :bytes
@@ -56,13 +74,19 @@ end
 defmodule Proto.PutResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.PutResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Proto.KeyValueEntry do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.KeyValueEntry",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :bytes
@@ -71,7 +95,10 @@ end
 defmodule Proto.PutManyRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.PutManyRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :entries, 1, repeated: true, type: Proto.KeyValueEntry
   field :ttl_seconds, 2, type: :int64, json_name: "ttlSeconds"
@@ -80,13 +107,19 @@ end
 defmodule Proto.PutManyResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.PutManyResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Proto.UpdateRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.UpdateRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :bytes
@@ -97,7 +130,10 @@ end
 defmodule Proto.UpdateResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.UpdateResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :revision, 1, type: :uint64
 end
@@ -105,7 +141,10 @@ end
 defmodule Proto.DeleteRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.DeleteRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -113,13 +152,19 @@ end
 defmodule Proto.DeleteResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.DeleteResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Proto.WatchRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.WatchRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -127,7 +172,10 @@ end
 defmodule Proto.WatchResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.WatchResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :value, 1, type: :bytes
 end
@@ -135,13 +183,19 @@ end
 defmodule Proto.InfoRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.InfoRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 end
 
 defmodule Proto.InfoResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.InfoResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :domain, 1, type: :string
   field :bucket, 2, type: :string
@@ -151,7 +205,10 @@ end
 defmodule Proto.ListKeysRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ListKeysRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :prefix, 1, type: :string
 end
@@ -159,7 +216,10 @@ end
 defmodule Proto.ListKeysResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ListKeysResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :keys, 1, repeated: true, type: :string
 end
@@ -167,27 +227,27 @@ end
 defmodule Proto.KVService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "proto.KVService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "proto.KVService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:Get, Proto.GetRequest, Proto.GetResponse)
+  rpc :Get, Proto.GetRequest, Proto.GetResponse
 
-  rpc(:BatchGet, Proto.BatchGetRequest, Proto.BatchGetResponse)
+  rpc :BatchGet, Proto.BatchGetRequest, Proto.BatchGetResponse
 
-  rpc(:Put, Proto.PutRequest, Proto.PutResponse)
+  rpc :Put, Proto.PutRequest, Proto.PutResponse
 
-  rpc(:PutIfAbsent, Proto.PutRequest, Proto.PutResponse)
+  rpc :PutIfAbsent, Proto.PutRequest, Proto.PutResponse
 
-  rpc(:PutMany, Proto.PutManyRequest, Proto.PutManyResponse)
+  rpc :PutMany, Proto.PutManyRequest, Proto.PutManyResponse
 
-  rpc(:Update, Proto.UpdateRequest, Proto.UpdateResponse)
+  rpc :Update, Proto.UpdateRequest, Proto.UpdateResponse
 
-  rpc(:Delete, Proto.DeleteRequest, Proto.DeleteResponse)
+  rpc :Delete, Proto.DeleteRequest, Proto.DeleteResponse
 
-  rpc(:Watch, Proto.WatchRequest, stream(Proto.WatchResponse))
+  rpc :Watch, Proto.WatchRequest, stream(Proto.WatchResponse)
 
-  rpc(:Info, Proto.InfoRequest, Proto.InfoResponse)
+  rpc :Info, Proto.InfoRequest, Proto.InfoResponse
 
-  rpc(:ListKeys, Proto.ListKeysRequest, Proto.ListKeysResponse)
+  rpc :ListKeys, Proto.ListKeysRequest, Proto.ListKeysResponse
 end
 
 defmodule Proto.KVService.Stub do

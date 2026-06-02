@@ -852,6 +852,13 @@ defmodule Monitoring.EndpointInventoryConfig do
   field :cadence, 7, type: :string
   field :collect_paths, 8, type: :bool, json_name: "collectPaths"
   field :collect_file_hashes, 9, type: :bool, json_name: "collectFileHashes"
+  field :force_fresh_enabled, 10, type: :bool, json_name: "forceFreshEnabled"
+  field :force_full_scan_interval, 11, type: :int32, json_name: "forceFullScanInterval"
+  field :cache_stale_threshold, 12, type: :string, json_name: "cacheStaleThreshold"
+  field :upload_jitter, 13, type: :string, json_name: "uploadJitter"
+  field :upload_retry_initial, 14, type: :string, json_name: "uploadRetryInitial"
+  field :upload_retry_max, 15, type: :string, json_name: "uploadRetryMax"
+  field :upload_retry_max_attempts, 16, type: :int32, json_name: "uploadRetryMaxAttempts"
 end
 
 defmodule Monitoring.EndpointInventoryReport do
@@ -865,6 +872,10 @@ defmodule Monitoring.EndpointInventoryReport do
   field :metadata, 1, type: Monitoring.EndpointInventoryScanMetadata
   field :artifact, 2, type: Monitoring.EndpointInventoryArtifactRef
   field :packages, 3, repeated: true, type: Monitoring.EndpointInventoryPackageSummary
+
+  field :cohort_coverage, 4,
+    type: Monitoring.EndpointInventoryCohortCoverage,
+    json_name: "cohortCoverage"
 end
 
 defmodule Monitoring.EndpointInventoryScanMetadata.RedactionEntry do
@@ -909,6 +920,44 @@ defmodule Monitoring.EndpointInventoryScanMetadata do
 
   field :ingestion_status, 15, type: :string, json_name: "ingestionStatus"
   field :ingestion_error, 16, type: :string, json_name: "ingestionError"
+  field :package_set_hash, 17, type: :string, json_name: "packageSetHash"
+  field :artifact_hash, 18, type: :string, json_name: "artifactHash"
+  field :hash_algorithm, 19, type: :string, json_name: "hashAlgorithm"
+  field :upload_reason, 20, type: :string, json_name: "uploadReason"
+  field :last_changed_scan_at_unix, 21, type: :int64, json_name: "lastChangedScanAtUnix"
+  field :unchanged_scan_count, 22, type: :int32, json_name: "unchangedScanCount"
+  field :freshness, 23, type: Monitoring.EndpointInventoryFreshness
+end
+
+defmodule Monitoring.EndpointInventoryFreshness do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryFreshness",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :verdict, 1, type: :string
+  field :age_seconds, 2, type: :int64, json_name: "ageSeconds"
+  field :stale_threshold_seconds, 3, type: :int64, json_name: "staleThresholdSeconds"
+  field :last_successful_scan_at_unix, 4, type: :int64, json_name: "lastSuccessfulScanAtUnix"
+end
+
+defmodule Monitoring.EndpointInventoryCohortCoverage do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryCohortCoverage",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :targeted, 1, type: :int32
+  field :answered, 2, type: :int32
+  field :offline, 3, type: :int32
+  field :expired, 4, type: :int32
+  field :pending, 5, type: :int32
+  field :rejected, 6, type: :int32
+  field :rejection_reason, 7, type: :string, json_name: "rejectionReason"
 end
 
 defmodule Monitoring.EndpointInventorySourceSummary do
@@ -998,6 +1047,133 @@ defmodule Monitoring.EndpointInventoryPackageSummary do
     repeated: true,
     type: Monitoring.EndpointInventoryPackageSummary.EvidenceEntry,
     map: true
+
+  field :purl_canonical, 12, type: :string, json_name: "purlCanonical"
+end
+
+defmodule Monitoring.EndpointInventoryQueryRequest.MetadataEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryQueryRequest.MetadataEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Monitoring.EndpointInventoryQueryRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryQueryRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :schema, 1, type: :string
+  field :mode, 2, type: :string
+  field :predicate, 3, type: Monitoring.EndpointInventoryPackagePredicate
+  field :limit, 4, type: :int32
+  field :stale_threshold_seconds, 5, type: :int64, json_name: "staleThresholdSeconds"
+
+  field :metadata, 6,
+    repeated: true,
+    type: Monitoring.EndpointInventoryQueryRequest.MetadataEntry,
+    map: true
+end
+
+defmodule Monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Monitoring.EndpointInventoryForceFreshScanRequest do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryForceFreshScanRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :schema, 1, type: :string
+  field :authorized, 2, type: :bool
+  field :sources, 3, repeated: true, type: :string
+  field :query, 4, type: Monitoring.EndpointInventoryQueryRequest
+
+  field :metadata, 5,
+    repeated: true,
+    type: Monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry,
+    map: true
+end
+
+defmodule Monitoring.EndpointInventoryPackagePredicate do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryPackagePredicate",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :package_manager, 1, type: :string, json_name: "packageManager"
+  field :name, 2, type: :string
+  field :version, 3, type: :string
+  field :architecture, 4, type: :string
+  field :ecosystem, 5, type: :string
+  field :purl, 6, type: :string
+  field :purl_canonical, 7, type: :string, json_name: "purlCanonical"
+  field :cpe, 8, type: :string
+end
+
+defmodule Monitoring.EndpointInventoryQueryResult do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryQueryResult",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :schema, 1, type: :string
+  field :agent_id, 2, type: :string, json_name: "agentId"
+  field :device_uid, 3, type: :string, json_name: "deviceUid"
+  field :mode, 4, type: :string
+  field :matched, 5, type: :bool
+  field :count, 6, type: :int32
+  field :packages, 7, repeated: true, type: Monitoring.EndpointInventoryPackageSummary
+  field :package_set_hash, 8, type: :string, json_name: "packageSetHash"
+  field :artifact_hash, 9, type: :string, json_name: "artifactHash"
+  field :hash_algorithm, 10, type: :string, json_name: "hashAlgorithm"
+  field :last_successful_scan_at_unix, 11, type: :int64, json_name: "lastSuccessfulScanAtUnix"
+  field :last_changed_scan_at_unix, 12, type: :int64, json_name: "lastChangedScanAtUnix"
+  field :unchanged_scan_count, 13, type: :int32, json_name: "unchangedScanCount"
+
+  field :source_summaries, 14,
+    repeated: true,
+    type: Monitoring.EndpointInventorySourceSummary,
+    json_name: "sourceSummaries"
+
+  field :freshness, 15, type: Monitoring.EndpointInventoryFreshness
+  field :stale_threshold_seconds, 16, type: :int64, json_name: "staleThresholdSeconds"
+  field :evaluated_at_unix, 17, type: :int64, json_name: "evaluatedAtUnix"
+  field :truncated, 18, type: :bool
+
+  field :unsupported_capabilities, 19,
+    repeated: true,
+    type: :string,
+    json_name: "unsupportedCapabilities"
+
+  field :cohort_coverage, 20,
+    type: Monitoring.EndpointInventoryCohortCoverage,
+    json_name: "cohortCoverage"
 end
 
 defmodule Monitoring.SysmonConfig.ThresholdsEntry do

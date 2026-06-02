@@ -24,7 +24,7 @@
 (Storage/ingestion items previously numbered 3.3–3.5 were relocated to section 4 during the architecture revision.)
 - [x] 3.1 Define protobuf/API contracts for endpoint inventory scan metadata, normalized package summaries, and SBOM artifact references.
 - [x] 3.2 Add durable object upload flow for raw SBOM artifacts through datasvc or an agent-gateway relay.
-- [ ] 3.3 Extend API/protobuf ingestion contracts with `package_set_hash`, `artifact_hash`, `upload_reason`, unchanged-scan status, source summaries, and a typed freshness verdict + cohort coverage envelope.
+- [x] 3.3 Extend API/protobuf ingestion contracts with `package_set_hash`, `artifact_hash`, `upload_reason`, unchanged-scan status, source summaries, and a typed freshness verdict + cohort coverage envelope.
 - [ ] 3.4 Add typed inventory command types (cache-query vs force-fresh-scan) and COUNT/EXISTS vs DETAIL response modes; route cohort results over a per-command topic (`agent:commands:{query_id}`) instead of the shared `agent:commands` topic.
 - [ ] 3.5 Add a bounded cohort scatter-gather in the Elixir agent command bus (`agent_command_bus.ex`): resolve online + capable + authorized targets once, dispatch with bounded concurrency, batch result writes, and enforce a hard cohort cap with SRQL/persisted fallback above it.
 - [ ] 3.6 Add command-bus safety: `ensure_dispatch_capacity` clauses for the inventory command types (bounded concurrency for cache-query, force-fresh dispatch/rate limits), server-side `endpoint_inventory.force_fresh_scan` RBAC authorization before dispatch, agent-side per-agent single-flight for force-fresh, a `CommandResult.payload_json` byte cap, and a guarantee that SBOM artifact bytes never traverse the command/result stream (route agent→gateway relay→datasvc).

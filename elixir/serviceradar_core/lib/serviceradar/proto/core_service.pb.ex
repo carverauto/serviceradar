@@ -1,7 +1,10 @@
 defmodule Core.GetCanonicalDeviceRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.GetCanonicalDeviceRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :identity_keys, 1,
     repeated: true,
@@ -15,7 +18,10 @@ end
 defmodule Core.GetCanonicalDeviceResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.GetCanonicalDeviceResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :found, 1, type: :bool
   field :record, 2, type: Identitymap.V1.CanonicalRecord
@@ -27,7 +33,10 @@ end
 defmodule Core.RegisterTemplateRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.RegisterTemplateRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :template_data, 2, type: :bytes, json_name: "templateData"
@@ -38,7 +47,10 @@ end
 defmodule Core.RegisterTemplateResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.RegisterTemplateResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :success, 1, type: :bool
   field :message, 2, type: :string
@@ -47,7 +59,10 @@ end
 defmodule Core.GetTemplateRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.GetTemplateRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
 end
@@ -55,7 +70,10 @@ end
 defmodule Core.GetTemplateResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.GetTemplateResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :found, 1, type: :bool
   field :template_data, 2, type: :bytes, json_name: "templateData"
@@ -67,7 +85,10 @@ end
 defmodule Core.ListTemplatesRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.ListTemplatesRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :prefix, 1, type: :string
 end
@@ -75,7 +96,10 @@ end
 defmodule Core.ListTemplatesResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.ListTemplatesResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :templates, 1, repeated: true, type: Core.TemplateInfo
 end
@@ -83,7 +107,10 @@ end
 defmodule Core.TemplateInfo do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "core.TemplateInfo",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :service_name, 1, type: :string, json_name: "serviceName"
   field :format, 2, type: :string
@@ -95,15 +122,15 @@ end
 defmodule Core.CoreService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "core.CoreService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "core.CoreService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:GetCanonicalDevice, Core.GetCanonicalDeviceRequest, Core.GetCanonicalDeviceResponse)
+  rpc :GetCanonicalDevice, Core.GetCanonicalDeviceRequest, Core.GetCanonicalDeviceResponse
 
-  rpc(:RegisterTemplate, Core.RegisterTemplateRequest, Core.RegisterTemplateResponse)
+  rpc :RegisterTemplate, Core.RegisterTemplateRequest, Core.RegisterTemplateResponse
 
-  rpc(:GetTemplate, Core.GetTemplateRequest, Core.GetTemplateResponse)
+  rpc :GetTemplate, Core.GetTemplateRequest, Core.GetTemplateResponse
 
-  rpc(:ListTemplates, Core.ListTemplatesRequest, Core.ListTemplatesResponse)
+  rpc :ListTemplates, Core.ListTemplatesRequest, Core.ListTemplatesResponse
 end
 
 defmodule Core.CoreService.Stub do

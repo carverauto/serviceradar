@@ -580,6 +580,13 @@ message EndpointInventoryConfig {
   string cadence = 7;
   bool collect_paths = 8;
   bool collect_file_hashes = 9;
+  bool force_fresh_enabled = 10;
+  int32 force_full_scan_interval = 11;
+  string cache_stale_threshold = 12;
+  string upload_jitter = 13;
+  string upload_retry_initial = 14;
+  string upload_retry_max = 15;
+  int32 upload_retry_max_attempts = 16;
 }
 
 // EndpointInventoryReport is the typed endpoint software inventory payload
@@ -589,6 +596,7 @@ message EndpointInventoryReport {
   EndpointInventoryScanMetadata metadata = 1;
   EndpointInventoryArtifactRef artifact = 2;
   repeated EndpointInventoryPackageSummary packages = 3;
+  EndpointInventoryCohortCoverage cohort_coverage = 4;
 }
 
 // EndpointInventoryScanMetadata captures scan-level provenance and state.
@@ -609,6 +617,33 @@ message EndpointInventoryScanMetadata {
   map<string, string> redaction = 14;
   string ingestion_status = 15;
   string ingestion_error = 16;
+  string package_set_hash = 17;
+  string artifact_hash = 18;
+  string hash_algorithm = 19;
+  string upload_reason = 20;
+  int64 last_changed_scan_at_unix = 21;
+  int32 unchanged_scan_count = 22;
+  EndpointInventoryFreshness freshness = 23;
+}
+
+// EndpointInventoryFreshness describes whether an inventory answer is backed
+// by current enough local or persisted data.
+message EndpointInventoryFreshness {
+  string verdict = 1; // fresh, stale, or unknown
+  int64 age_seconds = 2;
+  int64 stale_threshold_seconds = 3;
+  int64 last_successful_scan_at_unix = 4;
+}
+
+// EndpointInventoryCohortCoverage summarizes bounded live-query fan-out.
+message EndpointInventoryCohortCoverage {
+  int32 targeted = 1;
+  int32 answered = 2;
+  int32 offline = 3;
+  int32 expired = 4;
+  int32 pending = 5;
+  int32 rejected = 6;
+  string rejection_reason = 7;
 }
 
 // EndpointInventorySourceSummary reports coverage for one collector source.
@@ -647,6 +682,64 @@ message EndpointInventoryPackageSummary {
   string license = 9;
   string source = 10;
   map<string, string> evidence = 11;
+  string purl_canonical = 12;
+}
+
+// EndpointInventoryQueryRequest is the typed payload for
+// endpoint_inventory.cache_query.
+message EndpointInventoryQueryRequest {
+  string schema = 1;
+  string mode = 2; // exists, count, or detail
+  EndpointInventoryPackagePredicate predicate = 3;
+  int32 limit = 4;
+  int64 stale_threshold_seconds = 5;
+  map<string, string> metadata = 6;
+}
+
+// EndpointInventoryForceFreshScanRequest is the typed payload for
+// endpoint_inventory.force_fresh_scan. It is device-scoped only.
+message EndpointInventoryForceFreshScanRequest {
+  string schema = 1;
+  bool authorized = 2;
+  repeated string sources = 3;
+  EndpointInventoryQueryRequest query = 4;
+  map<string, string> metadata = 5;
+}
+
+message EndpointInventoryPackagePredicate {
+  string package_manager = 1;
+  string name = 2;
+  string version = 3;
+  string architecture = 4;
+  string ecosystem = 5;
+  string purl = 6;
+  string purl_canonical = 7;
+  string cpe = 8;
+}
+
+// EndpointInventoryQueryResult is the compact typed response for
+// endpoint_inventory.cache_query and optional force-fresh query responses.
+message EndpointInventoryQueryResult {
+  string schema = 1;
+  string agent_id = 2;
+  string device_uid = 3;
+  string mode = 4;
+  bool matched = 5;
+  int32 count = 6;
+  repeated EndpointInventoryPackageSummary packages = 7;
+  string package_set_hash = 8;
+  string artifact_hash = 9;
+  string hash_algorithm = 10;
+  int64 last_successful_scan_at_unix = 11;
+  int64 last_changed_scan_at_unix = 12;
+  int32 unchanged_scan_count = 13;
+  repeated EndpointInventorySourceSummary source_summaries = 14;
+  EndpointInventoryFreshness freshness = 15;
+  int64 stale_threshold_seconds = 16;
+  int64 evaluated_at_unix = 17;
+  bool truncated = 18;
+  repeated string unsupported_capabilities = 19;
+  EndpointInventoryCohortCoverage cohort_coverage = 20;
 }
 
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.

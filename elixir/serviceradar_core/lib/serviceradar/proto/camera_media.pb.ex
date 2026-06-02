@@ -1,7 +1,10 @@
 defmodule Camera.OpenRelaySessionRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.OpenRelaySessionRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :relay_session_id, 1, type: :string, json_name: "relaySessionId"
   field :agent_id, 2, type: :string, json_name: "agentId"
@@ -16,7 +19,10 @@ end
 defmodule Camera.OpenRelaySessionResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.OpenRelaySessionResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :accepted, 1, type: :bool
   field :message, 2, type: :string
@@ -28,7 +34,10 @@ end
 defmodule Camera.MediaChunk do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.MediaChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :relay_session_id, 1, type: :string, json_name: "relaySessionId"
   field :media_ingest_id, 2, type: :string, json_name: "mediaIngestId"
@@ -47,7 +56,10 @@ end
 defmodule Camera.UploadMediaResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.UploadMediaResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :received, 1, type: :bool
   field :last_sequence, 2, type: :uint64, json_name: "lastSequence"
@@ -57,7 +69,10 @@ end
 defmodule Camera.RelayHeartbeat do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.RelayHeartbeat",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :relay_session_id, 1, type: :string, json_name: "relaySessionId"
   field :media_ingest_id, 2, type: :string, json_name: "mediaIngestId"
@@ -71,7 +86,10 @@ end
 defmodule Camera.RelayHeartbeatAck do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.RelayHeartbeatAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :accepted, 1, type: :bool
   field :lease_expires_at_unix, 2, type: :int64, json_name: "leaseExpiresAtUnix"
@@ -81,7 +99,10 @@ end
 defmodule Camera.CloseRelaySessionRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.CloseRelaySessionRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :relay_session_id, 1, type: :string, json_name: "relaySessionId"
   field :media_ingest_id, 2, type: :string, json_name: "mediaIngestId"
@@ -92,7 +113,10 @@ end
 defmodule Camera.CloseRelaySessionResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "camera.CloseRelaySessionResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :closed, 1, type: :bool
   field :message, 2, type: :string
@@ -103,13 +127,13 @@ defmodule Camera.CameraMediaService.Service do
 
   use GRPC.Service, name: "camera.CameraMediaService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:OpenRelaySession, Camera.OpenRelaySessionRequest, Camera.OpenRelaySessionResponse)
+  rpc :OpenRelaySession, Camera.OpenRelaySessionRequest, Camera.OpenRelaySessionResponse
 
-  rpc(:UploadMedia, stream(Camera.MediaChunk), Camera.UploadMediaResponse)
+  rpc :UploadMedia, stream(Camera.MediaChunk), Camera.UploadMediaResponse
 
-  rpc(:Heartbeat, Camera.RelayHeartbeat, Camera.RelayHeartbeatAck)
+  rpc :Heartbeat, Camera.RelayHeartbeat, Camera.RelayHeartbeatAck
 
-  rpc(:CloseRelaySession, Camera.CloseRelaySessionRequest, Camera.CloseRelaySessionResponse)
+  rpc :CloseRelaySession, Camera.CloseRelaySessionRequest, Camera.CloseRelaySessionResponse
 end
 
 defmodule Camera.CameraMediaService.Stub do
