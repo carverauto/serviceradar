@@ -63,7 +63,7 @@
 ## 6. Query, Alerting, Automation, And UI
 - [x] 6.1 Add Ash resources/API reads for scan status, artifact metadata, and package rows.
 - [x] 6.2 Add SRQL fields or query support for package name, version, package manager, PURL, CPE, and current-vs-historical inventory state.
-- [ ] 6.3 Add a device/asset detail surface showing latest scan status, installed package inventory, and device risk posture.
+- [x] 6.3 Add a device/asset detail surface showing latest scan status, installed package inventory, and device risk posture.
 - [ ] 6.4 Add operator controls for enabling sources, cadence, retention, and redaction.
 - [ ] 6.5 Add API/SRQL-visible freshness fields: `package_set_hash`, last scan time, last changed scan time, unchanged scan count, and the typed freshness verdict.
 - [ ] 6.6 Answer fleet membership/rollup ("which devices run coordinate X", "how many hosts have nginx") via maintained current-count tables, the GIN-indexed current-state `SELECT`, standing-question result aggregates, and TimescaleDB continuous aggregates — never an AGE traversal and never the deferred roaring index.

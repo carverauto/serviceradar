@@ -8,6 +8,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.Camera.Source, as: CameraSource
   alias ServiceRadar.Camera.StreamProfile, as: CameraStreamProfile
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.EndpointInventoryArtifact
+  alias ServiceRadar.Inventory.EndpointInventoryArtifactContent
+  alias ServiceRadar.Inventory.EndpointInventoryPackage
+  alias ServiceRadar.Inventory.EndpointInventoryScan
+  alias ServiceRadar.Inventory.EndpointPackage
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
@@ -52,8 +57,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "in:devices"
   end
 
-  test "device list SRQL submit routes catalog entity changes and drops stale filters", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+  test "device list SRQL submit routes catalog entity changes and drops stale filters", %{
+    conn: conn
+  } do
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
 
     view
     |> form("#srql-query-bar", %{q: "in:bmp_events include_inactive:true router_ip:192.0.2.1"})
@@ -66,7 +74,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   test "device list SRQL submit routes WiFi catalog entities to WiFi inventory", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices include_inactive:true", limit: 20}}")
 
     view
     |> form("#srql-query-bar", %{q: "in:wifi_sites site_code:ZZC"})
@@ -76,7 +85,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   end
 
   test "renders WiFi inventory view", %{conn: conn} do
-    {:ok, _view, html} = live(conn, ~p"/devices/wifi?#{%{q: "in:wifi_sites limit:10", limit: 10}}")
+    {:ok, _view, html} =
+      live(conn, ~p"/devices/wifi?#{%{q: "in:wifi_sites limit:10", limit: 10}}")
 
     assert html =~ "WiFi Inventory"
     assert html =~ "WiFi Sites"
@@ -119,7 +129,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    {:ok, view, _html} = live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+    {:ok, view, _html} =
+      live(conn, ~p"/devices?#{%{q: "in:devices hostname:#{hostname} limit:10"}}")
+
     html = render_until(view, "Online", 5_000)
 
     assert html =~ hostname
@@ -475,7 +487,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     |> form("#srql-query-bar", %{q: "in:devices metadata.proxmox_candidate:true"})
     |> render_submit()
 
-    assert_redirect(view, ~p"/devices?#{%{q: "in:devices metadata.proxmox_candidate:true", limit: 50}}")
+    assert_redirect(
+      view,
+      ~p"/devices?#{%{q: "in:devices metadata.proxmox_candidate:true", limit: 50}}"
+    )
   end
 
   test "device details SRQL bar submits shortcut device searches", %{conn: conn} do
@@ -531,7 +546,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/devices/#{uid}?tab=active-fingerprint")
 
-    assert has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']")
+    assert has_element?(
+             view,
+             "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']"
+           )
 
     assert html =~ "Active OS fingerprint"
     assert html =~ "Banner-grab matches"
@@ -550,7 +568,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
     {:ok, view, html} = live(conn, ~p"/devices/#{uid}")
 
-    refute has_element?(view, "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']")
+    refute has_element?(
+             view,
+             "button[phx-click='switch_tab'][phx-value-tab='active-fingerprint']"
+           )
+
     refute html =~ "Active OS fingerprint"
 
     html = render_click(view, "switch_tab", %{"tab" => "active-fingerprint"})
@@ -1279,6 +1301,159 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "nginx"
   end
 
+  test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
+    unique = System.unique_integer([:positive])
+    uid = "sr:test-device-endpoint-inventory-#{unique}"
+    agent_id = "agent-endpoint-inventory-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: "endpoint-inventory-#{unique}",
+        is_available: true,
+        risk_level: "High",
+        risk_level_id: 3,
+        risk_score: 87,
+        first_seen_time: now,
+        last_seen_time: now
+      }
+    ])
+
+    {:ok, scan} =
+      EndpointInventoryScan
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_id: "scan-#{unique}",
+          collector_name: "serviceradar-endpoint-inventory",
+          collector_version: "test",
+          state: "scanned",
+          coverage_state: "complete",
+          package_count: 1,
+          enabled_sources: ["dpkg"],
+          manager_counts: %{"dpkg" => 1},
+          source_summaries: [%{"source" => "dpkg", "state" => "scanned", "package_count" => 1}],
+          artifact_count: 1,
+          current: true,
+          last_successful_scan_at: now,
+          last_scan_at: now,
+          last_changed_scan_at: now,
+          ingested_at: now,
+          package_set_hash: "sha256:package-set-#{unique}",
+          artifact_hash: "sha256:artifact-#{unique}",
+          hash_algorithm: "sha256-v1",
+          upload_reason: "changed",
+          unchanged_scan_count: 0,
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, endpoint_package} =
+      EndpointPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          coordinate_key: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
+          purl_canonical: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
+          package_manager: "dpkg",
+          name: "nginx",
+          version: "1.24.0-#{unique}",
+          architecture: "amd64",
+          ecosystem: "deb",
+          source_scope: "host",
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _package_row} =
+      EndpointInventoryPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          scan_ref: scan.id,
+          endpoint_package_ref: endpoint_package.id,
+          device_uid: uid,
+          agent_id: agent_id,
+          name: "nginx",
+          version: "1.24.0-#{unique}",
+          architecture: "amd64",
+          package_manager: "dpkg",
+          ecosystem: "deb",
+          purl: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
+          purl_canonical: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
+          cpes: ["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"],
+          source: "dpkg",
+          current: true,
+          evidence: %{},
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, content} =
+      EndpointInventoryArtifactContent
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          artifact_hash: "sha256:artifact-#{unique}",
+          object_key: "endpoint-inventory/by-hash/#{unique}.cdx.json",
+          content_type: "application/vnd.cyclonedx+json",
+          format: "CycloneDX",
+          spec_version: "1.6",
+          sha256: "artifact-#{unique}",
+          size_bytes: 4096,
+          first_uploaded_at: now,
+          last_referenced_at: now,
+          reference_count: 1,
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _artifact} =
+      EndpointInventoryArtifact
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          scan_ref: scan.id,
+          artifact_content_ref: content.id,
+          agent_id: agent_id,
+          device_uid: uid,
+          artifact_hash: "sha256:artifact-#{unique}",
+          object_key: "endpoint-inventory/by-hash/#{unique}.cdx.json",
+          content_type: "application/vnd.cyclonedx+json",
+          format: "CycloneDX",
+          spec_version: "1.6",
+          sha256: "artifact-#{unique}",
+          size_bytes: 4096,
+          uploaded_at: now,
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Endpoint Software", 10_000)
+
+    assert html =~ "Endpoint Software"
+    assert html =~ "scanned"
+    assert html =~ "complete"
+    assert html =~ agent_id
+    assert html =~ "nginx"
+    assert html =~ "1.24.0-#{unique}"
+    assert html =~ "dpkg"
+    assert html =~ "pkg:deb/nginx"
+    assert html =~ "High"
+    assert html =~ "87"
+    assert html =~ "endpoint-inventory/by-hash/#{unique}.cdx.json"
+  end
+
   test "renders Proxmox virtualization inventory on device details", %{conn: conn, scope: scope} do
     unique = System.unique_integer([:positive])
     uid = "test-device-proxmox-#{unique}"
@@ -1832,9 +2007,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       assert flows_html =~ "DNS"
     end
 
-    test "logs tab shows immediate empty state while device logs load asynchronously", %{conn: conn} do
+    test "logs tab shows immediate empty state while device logs load asynchronously", %{
+      conn: conn
+    } do
       previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
-      previous_log_delay = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
+
+      previous_log_delay =
+        Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms)
 
       Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
       Application.put_env(:serviceradar_web_ng, :device_live_log_query_delay_ms, 250)
@@ -1853,7 +2032,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
       assert html =~ "No logs found for this device."
       refute html =~ "Loading device logs"
-      assert render_until(view, "No logs found for this device.", 2_000) =~ "No logs found for this device."
+
+      assert render_until(view, "No logs found for this device.", 2_000) =~
+               "No logs found for this device."
     end
   end
 
@@ -2479,7 +2660,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       Application.get_env(:serviceradar_web_ng, :northbound_invocation_service_module)
 
     previous_test_pid = Application.get_env(:serviceradar_web_ng, :northbound_action_test_pid)
-    previous_device_actions = Application.get_env(:serviceradar_web_ng, :northbound_device_actions)
+
+    previous_device_actions =
+      Application.get_env(:serviceradar_web_ng, :northbound_device_actions)
 
     previous_interface_actions =
       Application.get_env(:serviceradar_web_ng, :northbound_interface_actions)
