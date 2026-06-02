@@ -57,7 +57,7 @@
 - [x] 5.2 Extend `IdentityReconciler.merge_devices` to reassign inventory scan/package rows to the surviving canonical UID, tombstone the dead UID's ordinal, ensure the survivor has an ordinal, and backfill NULL `device_uid` inventory rows when an agent first acquires a canonical UID.
 - [x] 5.3 Enforce the `sr:`-canonical `device_uid` invariant: add a DB CHECK (`device_uid LIKE 'sr:%' OR device_uid IS NULL`) on the inventory tables + an ingestor guard that rejects/NULLs non-`sr:` values; fix the ingestor test fixture that currently uses a non-`sr:` uid and assert `String.starts_with?(uid, "sr:")`.
 - [x] 5.4 Add a `record_field_value(record, "device_uid") => device["uid"]` clause and a `group_sources` entry to `stateful_alert_engine.ex` (no device-uid clause exists today; `group_by: device` silently falls back to `global` otherwise).
-- [ ] 5.5 Add cost/volume observability: upload-reason counters, changed-vs-unchanged ratio (hash-flapping detection), object-store bytes, current-row counts, and autovacuum/compression lag for inventory tables.
+- [x] 5.5 Add cost/volume observability: upload-reason counters, changed-vs-unchanged ratio (hash-flapping detection), object-store bytes, current-row counts, and autovacuum/compression lag for inventory tables.
 - [ ] 5.6 Design the agent status heartbeat to carry operator-defined standing-question result counts (forward-compatible for continuous-aggregate-backed fleet answers).
 
 ## 6. Query, Alerting, Automation, And UI

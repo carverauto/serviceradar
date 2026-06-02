@@ -10,6 +10,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryArtifactStore
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
+  alias ServiceRadar.Inventory.EndpointInventoryTelemetry
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
@@ -92,6 +93,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
                package_event_count: history.package_event_count,
                package_set_hash_mismatch?: context.package_set_hash_mismatch?,
                reconcile_floor?: context.reconcile_floor_due?,
+               upload_reason: context.upload_reason,
                directives: scan_ack_directives(context),
                current?: successful_scan?(context),
                package_change_signals: history.package_change_signals
@@ -106,7 +108,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           {:ok,
            result
            |> Map.delete(:package_change_signals)
-           |> Map.put(:package_change_signal_publish_count, published_count)}
+           |> Map.put(:package_change_signal_publish_count, published_count)
+           |> tap(&EndpointInventoryTelemetry.emit_ingest_result/1)}
 
         error ->
           error

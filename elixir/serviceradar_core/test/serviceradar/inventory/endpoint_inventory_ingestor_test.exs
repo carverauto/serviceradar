@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
+  alias ServiceRadar.Inventory.EndpointInventoryTelemetry
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -394,6 +395,90 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert [%{name: "nginx", scan_ref: ^package_scan_ref}] = current_packages(agent_id)
   end
 
+  test "emits endpoint inventory cost and volume telemetry", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-telemetry-device-#{unique}")
+    agent_id = "endpoint-inventory-telemetry-agent-#{unique}"
+    handler_id = "endpoint-inventory-telemetry-#{unique}"
+    test_pid = self()
+    ingest_event = EndpointInventoryTelemetry.ingest_event()
+    storage_event = EndpointInventoryTelemetry.storage_event()
+    table_event = EndpointInventoryTelemetry.table_event()
+
+    create_agent!(actor, agent_id, device.uid)
+    attach_endpoint_inventory_telemetry(handler_id, test_pid)
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-telemetry-full-#{unique}"),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert_receive {:endpoint_inventory_telemetry, event,
+                    %{
+                      count: 1,
+                      changed_upload_count: 1,
+                      unchanged_upload_count: 0,
+                      package_rows_replaced_count: 1,
+                      artifact_uploaded_count: 1
+                    }, %{agent_id: ^agent_id, upload_reason: "changed"}}
+                   when event == ingest_event
+
+    first_scan = current_scan(agent_id)
+
+    unchanged_payload =
+      agent_id
+      |> scan_payload("scan-telemetry-unchanged-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => first.package_count,
+        "package_set_hash" => first_scan.package_set_hash,
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, _unchanged} =
+             EndpointInventoryIngestor.ingest_report(unchanged_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert_receive {:endpoint_inventory_telemetry, event,
+                    %{
+                      count: 1,
+                      changed_upload_count: 0,
+                      unchanged_upload_count: 1,
+                      package_rows_replaced_count: 0
+                    }, %{agent_id: ^agent_id, upload_reason: "unchanged"}}
+                   when event == ingest_event
+
+    assert :ok = EndpointInventoryTelemetry.measure_cost_volume()
+
+    assert_receive {:endpoint_inventory_telemetry, event, storage, %{}}
+                   when event == storage_event
+
+    assert storage.artifact_object_bytes > 0
+    assert storage.current_package_row_count >= 1
+    assert storage.recent_changed_scan_count >= 1
+    assert storage.recent_unchanged_scan_count >= 1
+    assert storage.recent_changed_ratio > 0.0
+    assert storage.recent_unchanged_ratio > 0.0
+
+    assert_receive {:endpoint_inventory_telemetry, event,
+                    %{
+                      live_rows: live_rows,
+                      dead_rows: dead_rows,
+                      autovacuum_lag_seconds: autovacuum_lag_seconds,
+                      compression_lag_seconds: compression_lag_seconds
+                    }, %{table: "endpoint_inventory_packages", table_kind: :current}}
+                   when event == table_event and live_rows >= 0 and
+                          dead_rows >= 0 and autovacuum_lag_seconds >= 0 and
+                          compression_lag_seconds >= 0
+  end
+
   test "changed uploads recompute package_set_hash server-side and flag mismatches", %{
     actor: actor
   } do
@@ -739,6 +824,23 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
   defp successful_upload do
     fn _metadata, _data, _opts -> {:ok, %{ok?: true}} end
+  end
+
+  defp attach_endpoint_inventory_telemetry(handler_id, test_pid) do
+    :telemetry.attach_many(
+      handler_id,
+      [
+        EndpointInventoryTelemetry.ingest_event(),
+        EndpointInventoryTelemetry.storage_event(),
+        EndpointInventoryTelemetry.table_event()
+      ],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:endpoint_inventory_telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> _ = :telemetry.detach(handler_id) end)
   end
 
   defp current_scan(agent_id) do
