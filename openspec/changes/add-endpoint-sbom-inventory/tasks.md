@@ -13,7 +13,7 @@
 - [x] 2.3 Generate CycloneDX JSON with OS package components, OS metadata, collector provenance, and redaction metadata.
 - [x] 2.4 Add bounded local spool handling, schema validation, size checks, and last-good artifact behavior.
 - [x] 2.5 Add focused Go tests with dpkg, rpm, and apk fixture data.
-- [ ] 2.6 Add deterministic `package_set_hash` over normalized sorted package identities (`package_manager`, `name`, `version`, `architecture`, canonical `purl`), with a 1-byte algorithm-version prefix and volatile CycloneDX metadata excluded; add a separate `artifact_hash` over canonicalized CycloneDX component payload bytes with scan provenance excluded.
+- [x] 2.6 Add deterministic `package_set_hash` over normalized sorted package identities (`package_manager`, `name`, `version`, `architecture`, canonical `purl`), with a 1-byte algorithm-version prefix and volatile CycloneDX metadata excluded; add a separate `artifact_hash` over canonicalized CycloneDX component payload bytes with scan provenance excluded.
 - [ ] 2.7 Persist the local last-known-good inventory cache (manifest, `package_set_hash`, `artifact_hash`, source summaries, last-seen package-DB mtimes, last uploaded hashes).
 - [ ] 2.8 Gate scheduled scans on source-database mtime so unchanged hosts skip parsing entirely (with a forced full re-parse every Nth cycle); change reporting so unchanged inventories send lightweight status/hash summaries instead of full uploads.
 - [ ] 2.9 Add typed endpoint inventory on-demand command handling that evaluates bounded predicates against the local cache and returns compact COUNT/EXISTS and DETAIL results; support an authorized device-scoped fresh scan behind a per-agent single-flight semaphore.

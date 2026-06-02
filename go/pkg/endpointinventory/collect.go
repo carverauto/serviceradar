@@ -62,6 +62,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		state = "not_supported"
 		coverage = "no_supported_package_source"
 	}
+	sbom := BuildCycloneDX(r.cfg, started, osInfo, packages)
 
 	payload := &ScanPayload{
 		SchemaVersion:        SchemaVersion,
@@ -74,7 +75,11 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		OS:                   osInfo,
 		Sources:              sources,
 		PackageCount:         len(packages),
-		SBOM:                 BuildCycloneDX(r.cfg, started, osInfo, packages),
+		PackageSetHash:       ComputePackageSetHash(packages),
+		ArtifactHash:         ComputeArtifactHash(sbom),
+		HashAlgorithm:        HashAlgorithm,
+		UploadReason:         UploadReasonChanged,
+		SBOM:                 sbom,
 		Metadata: map[string]any{
 			"sources_enabled": append([]string(nil), r.cfg.Sources...),
 		},

@@ -28,6 +28,10 @@ const (
 
 	CycloneDXFormat      = "CycloneDX"
 	CycloneDXSpecVersion = "1.6"
+
+	HashAlgorithmVersion = byte(1)
+	HashAlgorithm        = "sha256-v1"
+	UploadReasonChanged  = "changed"
 )
 
 type Config struct {
@@ -67,6 +71,10 @@ type ScanPayload struct {
 	OS                   OSInfo          `json:"os,omitempty"`
 	Sources              []SourceSummary `json:"sources"`
 	PackageCount         int             `json:"package_count"`
+	PackageSetHash       string          `json:"package_set_hash,omitempty"`
+	ArtifactHash         string          `json:"artifact_hash,omitempty"`
+	HashAlgorithm        string          `json:"hash_algorithm,omitempty"`
+	UploadReason         string          `json:"upload_reason,omitempty"`
 	SBOM                 CycloneDXBOM    `json:"sbom,omitempty"`
 	Metadata             map[string]any  `json:"metadata,omitempty"`
 }

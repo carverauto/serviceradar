@@ -420,9 +420,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp normalize_namespace([], type, attrs) do
     namespace =
-      normalize_token(attrs.ecosystem) ||
-        Map.get(@package_manager_namespaces, type) ||
-        Map.get(@package_manager_namespaces, normalize_token(attrs.package_manager))
+      Map.get(@package_manager_namespaces, type) ||
+        Map.get(@package_manager_namespaces, normalize_token(attrs.package_manager)) ||
+        normalize_token(attrs.ecosystem)
 
     if namespace, do: [namespace], else: []
   end
@@ -443,10 +443,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp build_purl(_type, _namespace, nil, _version, _qualifiers), do: nil
 
   defp build_purl(type, namespace, name, version, qualifiers) do
-    path =
-      (namespace ++ [name])
-      |> Enum.map(&encode_uri_component/1)
-      |> Enum.join("/")
+    path = Enum.map_join(namespace ++ [name], "/", &encode_uri_component/1)
 
     version_part = if version, do: "@#{encode_uri_component(version)}", else: ""
     qualifier_part = encoded_qualifiers(qualifiers)

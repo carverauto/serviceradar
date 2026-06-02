@@ -109,6 +109,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
   end
 
+  test "normalizes package-summary ecosystem to package-manager namespace", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-package-summary-device-#{unique}")
+    agent_id = "endpoint-inventory-package-summary-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    payload =
+      agent_id
+      |> scan_payload("scan-package-summary-#{unique}", components: [])
+      |> Map.put("packages", [
+        %{
+          "name" => "nginx",
+          "version" => "1.24.0-2ubuntu7",
+          "architecture" => "amd64",
+          "package_manager" => "dpkg",
+          "ecosystem" => "deb",
+          "purl" => "pkg:deb/nginx@1.24.0-2ubuntu7"
+        }
+      ])
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.package_count == 1
+    assert [package] = current_packages(agent_id)
+    assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
+  end
+
   defp scan_payload(agent_id, scan_id, opts \\ []) do
     components =
       Keyword.get(opts, :components, [
