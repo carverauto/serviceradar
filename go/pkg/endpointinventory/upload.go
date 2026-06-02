@@ -131,7 +131,7 @@ func MarkServerReconcileRequested(cfg Config, requestedAt time.Time, reason stri
 
 	reason = strings.TrimSpace(reason)
 	if reason == "" {
-		reason = "server_reconcile_floor"
+		reason = metadataReasonServerReconcileFloor
 	}
 
 	manifest.SchemaVersion = CacheVersion

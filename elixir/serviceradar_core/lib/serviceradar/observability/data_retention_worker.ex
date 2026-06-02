@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.Inventory.EndpointInventoryRetention
+  alias ServiceRadar.Inventory.EndpointInventorySettingsRuntime
   alias ServiceRadar.Repo
 
   require Logger
@@ -112,11 +113,12 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
 
   defp prune_endpoint_inventory(config, batch_size) do
     retention_days =
-      Keyword.get(
-        config,
+      config
+      |> Keyword.get(
         :endpoint_inventory_retention_days,
         @default_endpoint_inventory_retention_days
       )
+      |> EndpointInventorySettingsRuntime.retention_days()
 
     case EndpointInventoryRetention.prune(
            retention_days: retention_days,

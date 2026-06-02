@@ -86,6 +86,25 @@
       },
       "default": ["dpkg", "rpm", "apk"]
     },
+    "cadence": {
+      "type": "string",
+      "title": "Collection cadence",
+      "description": "Target interval for scheduled endpoint inventory collection. The native timer uses this policy value for operator visibility and future timer reconciliation.",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "12h"
+    },
+    "collect_paths": {
+      "type": "boolean",
+      "title": "Collect file paths",
+      "description": "When false, package file-path evidence is omitted from endpoint inventory artifacts.",
+      "default": false
+    },
+    "collect_file_hashes": {
+      "type": "boolean",
+      "title": "Collect file hashes",
+      "description": "When false, package file-hash evidence is omitted from endpoint inventory artifacts.",
+      "default": false
+    },
     "max_packages": {
       "type": "integer",
       "title": "Maximum packages",

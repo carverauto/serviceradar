@@ -43,6 +43,10 @@ const (
 	coverageFailed                   = "failed"
 	coverageNoSupportedPackageSource = "no_supported_package_source"
 	coverageUnchanged                = "unchanged"
+
+	metadataReasonServerReconcileFloor = "server_reconcile_floor"
+	redactionStateCollected            = "collected_when_available"
+	redactionStateOmitted              = "omitted"
 )
 
 var errPackageLimitExceeded = errors.New("endpoint inventory package limit exceeded")
@@ -117,14 +121,12 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		ArtifactHash:         artifactHash,
 		HashAlgorithm:        HashAlgorithm,
 		UploadReason:         uploadReason,
-		Metadata: map[string]any{
-			"sources_enabled": append([]string(nil), r.cfg.Sources...),
-		},
+		Metadata:             collectionPolicyMetadata(r.cfg),
 	}
 	if uploadReason == UploadReasonChanged {
 		payload.SBOM = &sbom
 		if serverReconcileRequested {
-			payload.Metadata["reason"] = "server_reconcile_floor"
+			payload.Metadata["reason"] = metadataReasonServerReconcileFloor
 			payload.Metadata["server_reconcile_requested_at"] = cache.ServerReconcileRequestedAt
 			payload.Metadata["server_reconcile_reason"] = cache.ServerReconcileReason
 		}
@@ -150,9 +152,7 @@ func disabledPayload(cfg Config, scannedAt time.Time) *ScanPayload {
 		CoverageState: coverageDisabled,
 		LastScanAt:    scannedAt,
 		Sources:       []SourceSummary{},
-		Metadata: map[string]any{
-			"reason": "disabled",
-		},
+		Metadata:      withMetadataValue(collectionPolicyMetadata(cfg), "reason", "disabled"),
 	}
 }
 
@@ -177,11 +177,10 @@ func (r *Runner) unchangedPayload(
 		ArtifactHash:         cache.ArtifactHash,
 		HashAlgorithm:        firstNonEmpty(cache.HashAlgorithm, HashAlgorithm),
 		UploadReason:         UploadReasonUnchanged,
-		Metadata: map[string]any{
+		Metadata: withMetadataValues(collectionPolicyMetadata(r.cfg), map[string]any{
 			"reason":           reason,
-			"sources_enabled":  append([]string(nil), r.cfg.Sources...),
 			"scans_since_full": cache.ScansSinceFull + 1,
-		},
+		}),
 	}
 }
 
@@ -240,10 +239,45 @@ func failurePayload(cfg Config, scannedAt time.Time, osInfo OSInfo, sources []So
 		LastScanAt:    scannedAt,
 		OS:            osInfo,
 		Sources:       sources,
-		Metadata: map[string]any{
-			"error": err.Error(),
+		Metadata:      withMetadataValue(collectionPolicyMetadata(cfg), "error", err.Error()),
+	}
+}
+
+func collectionPolicyMetadata(cfg Config) map[string]any {
+	return map[string]any{
+		"sources_enabled": append([]string(nil), cfg.Sources...),
+		"collection_policy": map[string]any{
+			"cadence":             cfg.Cadence,
+			"collect_paths":       cfg.CollectPaths,
+			"collect_file_hashes": cfg.CollectFileHashes,
+		},
+		"redaction_policy": map[string]string{
+			"paths":       redactionState(cfg.CollectPaths),
+			"file_hashes": redactionState(cfg.CollectFileHashes),
 		},
 	}
+}
+
+func redactionState(collect bool) string {
+	if collect {
+		return redactionStateCollected
+	}
+
+	return redactionStateOmitted
+}
+
+func withMetadataValue(metadata map[string]any, key string, value any) map[string]any {
+	metadata[key] = value
+
+	return metadata
+}
+
+func withMetadataValues(metadata map[string]any, values map[string]any) map[string]any {
+	for key, value := range values {
+		metadata[key] = value
+	}
+
+	return metadata
 }
 
 func ReadOSRelease(path string) (OSInfo, error) {

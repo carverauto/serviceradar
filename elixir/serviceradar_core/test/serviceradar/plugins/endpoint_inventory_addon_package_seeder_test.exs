@@ -108,6 +108,9 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
             "enabled" => true,
             "sources" => ["dpkg", "rpm"],
             "scan_timeout" => "5m",
+            "cadence" => "6h",
+            "collect_paths" => true,
+            "collect_file_hashes" => true,
             "max_packages" => 100_000,
             "force_fresh_enabled" => true,
             "force_full_scan_interval" => 24,
@@ -139,6 +142,9 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
     assert addon.params["enabled"] == true
     assert addon.params["sources"] == ["dpkg", "rpm"]
     assert addon.params["scan_timeout"] == "5m"
+    assert addon.params["cadence"] == "6h"
+    assert addon.params["collect_paths"] == true
+    assert addon.params["collect_file_hashes"] == true
     assert addon.params["force_fresh_enabled"] == true
 
     proto = AgentConfigGenerator.to_proto_response(config)
@@ -152,6 +158,9 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
 
     assert proto.endpoint_inventory_config.enabled == true
     assert proto.endpoint_inventory_config.sources == ["dpkg", "rpm"]
+    assert proto.endpoint_inventory_config.cadence == "6h"
+    assert proto.endpoint_inventory_config.collect_paths == true
+    assert proto.endpoint_inventory_config.collect_file_hashes == true
     assert proto.endpoint_inventory_config.force_fresh_enabled == true
     assert proto.endpoint_inventory_config.force_full_scan_interval == 24
     assert proto.endpoint_inventory_config.cache_stale_threshold == "36h"

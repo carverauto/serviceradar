@@ -54,6 +54,9 @@ type Config struct {
 	RPMPath                string   `json:"rpm_path"`
 	RPMDatabasePaths       []string `json:"rpm_database_paths"`
 	Sources                []string `json:"sources"`
+	Cadence                string   `json:"cadence"`
+	CollectPaths           bool     `json:"collect_paths"`
+	CollectFileHashes      bool     `json:"collect_file_hashes"`
 	ForceFreshEnabled      bool     `json:"force_fresh_enabled"`
 	ForceFullScanInterval  int      `json:"force_full_scan_interval"`
 	UploadJitter           string   `json:"upload_jitter"`
@@ -70,6 +73,9 @@ type RuntimeProfile struct {
 	AgentID                string   `json:"agent_id,omitempty"`
 	ScanTimeout            string   `json:"scan_timeout,omitempty"`
 	Sources                []string `json:"sources,omitempty"`
+	Cadence                string   `json:"cadence,omitempty"`
+	CollectPaths           *bool    `json:"collect_paths,omitempty"`
+	CollectFileHashes      *bool    `json:"collect_file_hashes,omitempty"`
 	ForceFreshEnabled      *bool    `json:"force_fresh_enabled,omitempty"`
 	ForceFullScanInterval  *int     `json:"force_full_scan_interval,omitempty"`
 	UploadJitter           string   `json:"upload_jitter,omitempty"`

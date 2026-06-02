@@ -481,7 +481,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "settings.edge.manage",
           label: "Manage edge packages",
-          description: "Manage edge onboarding packages",
+          description: "Manage edge onboarding packages and endpoint inventory settings",
           default_roles: @admin_roles
         },
         %{

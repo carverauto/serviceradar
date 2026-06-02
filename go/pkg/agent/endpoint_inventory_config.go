@@ -98,11 +98,16 @@ func (p *endpointInventoryConfigPayload) runtimeProfile(agentID string) endpoint
 		AgentID:             agentID,
 		ScanTimeout:         p.ScanTimeout,
 		Sources:             append([]string(nil), p.Sources...),
+		Cadence:             p.Cadence,
 		CacheStaleThreshold: p.CacheStale,
 		UploadJitter:        p.UploadJitter,
 		UploadRetryInitial:  p.RetryInitial,
 		UploadRetryMax:      p.RetryMax,
 	}
+	collectPaths := p.CollectPaths
+	profile.CollectPaths = &collectPaths
+	collectHashes := p.CollectHashes
+	profile.CollectFileHashes = &collectHashes
 	if p.ForceFresh {
 		forceFresh := true
 		profile.ForceFreshEnabled = &forceFresh

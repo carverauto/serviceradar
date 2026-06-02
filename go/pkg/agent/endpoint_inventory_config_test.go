@@ -23,6 +23,8 @@ func TestResolveGatewayEndpointInventoryConfigPrefersTypedProto(t *testing.T) {
 		MaxPackages:            123,
 		MaxOutputBytes:         456,
 		Cadence:                "12h",
+		CollectPaths:           true,
+		CollectFileHashes:      true,
 		ForceFreshEnabled:      true,
 		ForceFullScanInterval:  24,
 		CacheStaleThreshold:    "36h",
@@ -43,6 +45,9 @@ func TestResolveGatewayEndpointInventoryConfigPrefersTypedProto(t *testing.T) {
 	if !cfg.ForceFresh || cfg.ForceFullScan != 24 || cfg.CacheStale != "36h" {
 		t.Fatalf("freshness fields were not retained: %#v", cfg)
 	}
+	if cfg.Cadence != "12h" || !cfg.CollectPaths || !cfg.CollectHashes {
+		t.Fatalf("cadence/redaction fields were not retained: %#v", cfg)
+	}
 	if cfg.UploadJitter != "10m" || cfg.RetryInitial != "30s" || cfg.RetryMax != "15m" || cfg.RetryAttempts != 4 {
 		t.Fatalf("upload retry fields were not retained: %#v", cfg)
 	}
@@ -59,6 +64,15 @@ func TestResolveGatewayEndpointInventoryConfigPrefersTypedProto(t *testing.T) {
 	}
 	if profile.ForceFullScanInterval == nil || *profile.ForceFullScanInterval != 24 {
 		t.Fatalf("force full scan interval = %#v, want 24", profile.ForceFullScanInterval)
+	}
+	if profile.Cadence != "12h" {
+		t.Fatalf("cadence = %q, want 12h", profile.Cadence)
+	}
+	if profile.CollectPaths == nil || !*profile.CollectPaths {
+		t.Fatalf("collect paths = %#v, want true", profile.CollectPaths)
+	}
+	if profile.CollectFileHashes == nil || !*profile.CollectFileHashes {
+		t.Fatalf("collect file hashes = %#v, want true", profile.CollectFileHashes)
 	}
 }
 
@@ -107,6 +121,8 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		AgentId:                "agent-from-control-plane",
 		Sources:                []string{"dpkg"},
 		ScanTimeout:            "5m",
+		Cadence:                "6h",
+		CollectPaths:           true,
 		MaxPackages:            1000,
 		MaxOutputBytes:         2048,
 		ForceFreshEnabled:      true,
@@ -143,6 +159,15 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 	}
 	if profile.ForceFullScanInterval == nil || *profile.ForceFullScanInterval != 12 {
 		t.Fatalf("force full scan interval = %#v, want 12", profile.ForceFullScanInterval)
+	}
+	if profile.Cadence != "6h" {
+		t.Fatalf("cadence = %q, want 6h", profile.Cadence)
+	}
+	if profile.CollectPaths == nil || !*profile.CollectPaths {
+		t.Fatalf("collect paths = %#v, want true", profile.CollectPaths)
+	}
+	if profile.CollectFileHashes == nil || *profile.CollectFileHashes {
+		t.Fatalf("collect file hashes = %#v, want false", profile.CollectFileHashes)
 	}
 	if profile.CacheStaleThreshold != "24h" || profile.UploadJitter != "7m" {
 		t.Fatalf("freshness/jitter fields = %#v, want cache 24h jitter 7m", profile)

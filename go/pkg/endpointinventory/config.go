@@ -39,6 +39,7 @@ const (
 	defaultDpkgStatusPath      = "/var/lib/dpkg/status"
 	defaultAPKInstalledPath    = "/lib/apk/db/installed"
 	defaultRPMPath             = PackageSourceRPM
+	defaultCadence             = "12h"
 	defaultMaxPackages         = 100000
 	defaultMaxOutputBytes      = 32 * 1024 * 1024
 	defaultFullScanInterval    = 24
@@ -72,6 +73,7 @@ func DefaultConfig() Config {
 		RPMPath:                defaultRPMPath,
 		RPMDatabasePaths:       defaultRPMDatabasePaths(),
 		Sources:                defaultPackageSources(),
+		Cadence:                defaultCadence,
 		ForceFullScanInterval:  defaultFullScanInterval,
 		UploadJitter:           defaultUploadJitter,
 		UploadRetryInitial:     defaultUploadRetryInitial,
@@ -153,6 +155,9 @@ func applyDefaults(cfg *Config) {
 	if len(cfg.Sources) == 0 {
 		cfg.Sources = defaultPackageSources()
 	}
+	if cfg.Cadence == "" {
+		cfg.Cadence = defaultCadence
+	}
 	if cfg.ForceFullScanInterval <= 0 {
 		cfg.ForceFullScanInterval = defaultFullScanInterval
 	}
@@ -233,6 +238,15 @@ func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
 	if profile.Sources != nil {
 		cfg.Sources = append([]string(nil), profile.Sources...)
 	}
+	if strings.TrimSpace(profile.Cadence) != "" {
+		cfg.Cadence = strings.TrimSpace(profile.Cadence)
+	}
+	if profile.CollectPaths != nil {
+		cfg.CollectPaths = *profile.CollectPaths
+	}
+	if profile.CollectFileHashes != nil {
+		cfg.CollectFileHashes = *profile.CollectFileHashes
+	}
 	if profile.ForceFreshEnabled != nil {
 		cfg.ForceFreshEnabled = *profile.ForceFreshEnabled
 	}
@@ -272,6 +286,11 @@ func validateConfig(cfg Config) error {
 	}
 	if _, err := time.ParseDuration(cfg.ScanTimeout); err != nil {
 		return fmt.Errorf("invalid scan_timeout: %w", err)
+	}
+	if cadence, err := time.ParseDuration(cfg.Cadence); err != nil {
+		return fmt.Errorf("invalid cadence: %w", err)
+	} else if cadence <= 0 {
+		return fmt.Errorf("invalid cadence: %w", ErrInvalidDuration)
 	}
 	if jitter, err := time.ParseDuration(cfg.UploadJitter); err != nil {
 		return fmt.Errorf("invalid upload_jitter: %w", err)

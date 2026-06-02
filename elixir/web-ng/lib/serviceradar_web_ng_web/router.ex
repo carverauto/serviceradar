@@ -825,6 +825,9 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/sysmon/new", Settings.SysmonProfilesLive.Index, :new_profile)
       live("/settings/sysmon/:id/edit", Settings.SysmonProfilesLive.Index, :edit_profile)
 
+      # Endpoint inventory settings
+      live("/settings/agents/endpoint-inventory", Settings.EndpointInventoryLive.Index, :index)
+
       # SNMP profiles configuration
       live("/settings/snmp", Settings.SNMPProfilesLive.Index, :index)
       live("/settings/snmp/new", Settings.SNMPProfilesLive.Index, :new_profile)
