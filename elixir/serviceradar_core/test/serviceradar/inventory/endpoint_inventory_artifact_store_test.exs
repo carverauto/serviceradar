@@ -18,8 +18,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifactStoreTest do
                timeout: 123
              )
 
-    assert artifact.object_key =~
-             ~r|^endpoint-inventory/agent-one/scan-one/[a-f0-9]{64}\.cdx\.json$|
+    assert artifact.object_key =~ ~r|^endpoint-inventory/by-hash/[a-f0-9]{64}\.cdx\.json$|
 
     assert artifact.content_type == "application/json"
     assert artifact.format == "CycloneDX"
@@ -32,6 +31,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifactStoreTest do
     assert metadata.total_size == artifact.size_bytes
     assert metadata.attributes["agent_id"] == "agent/one"
     assert metadata.attributes["scan_id"] == "scan:one"
+    assert metadata.attributes["artifact_hash"] == artifact.artifact_hash
     assert Jason.decode!(data)["bomFormat"] == "CycloneDX"
   end
 

@@ -14,6 +14,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
     :ok
   end
 
+  setup do
+    Repo.delete_all("endpoint_inventory_packages", prefix: "platform")
+    Repo.delete_all("endpoint_inventory_artifacts", prefix: "platform")
+    Repo.delete_all("endpoint_inventory_scans", prefix: "platform")
+    Repo.delete_all("endpoint_inventory_artifact_contents", prefix: "platform")
+
+    :ok
+  end
+
   test "deletes old non-current scans and SBOM objects while preserving current inventory" do
     unique = System.unique_integer([:positive])
     agent_id = "endpoint-retention-agent-#{unique}"
@@ -80,6 +89,50 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
     assert package_exists?("fresh-nginx")
   end
 
+  test "does not delete content-addressed object while another scan references it" do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-retention-shared-agent-#{unique}"
+    old_scan_ref = insert_scan!(agent_id, "shared-old-#{unique}", false, -45)
+    current_scan_ref = insert_scan!(agent_id, "shared-current-#{unique}", true, -45)
+    artifact_hash = String.duplicate("c", 64)
+    object_key = "endpoint-inventory/by-hash/#{artifact_hash}.cdx.json"
+    content_ref = insert_artifact_content!(artifact_hash, object_key)
+
+    insert_artifact!(old_scan_ref, agent_id, object_key,
+      artifact_hash: artifact_hash,
+      artifact_content_ref: content_ref
+    )
+
+    insert_artifact!(current_scan_ref, agent_id, object_key,
+      artifact_hash: artifact_hash,
+      artifact_content_ref: content_ref
+    )
+
+    test = self()
+
+    delete_object = fn deleted_object_key, _opts ->
+      send(test, {:delete_object, deleted_object_key})
+      {:ok, true}
+    end
+
+    assert {:ok, summary} =
+             EndpointInventoryRetention.prune(
+               retention_days: 30,
+               batch_size: 10,
+               delete_object: delete_object
+             )
+
+    assert summary.scanned == 1
+    assert summary.deleted_scans == 1
+    assert summary.deleted_objects == 0
+    refute_receive {:delete_object, _}, 50
+
+    refute scan_exists?(old_scan_ref)
+    assert scan_exists?(current_scan_ref)
+    assert artifact_exists?(object_key)
+    assert artifact_content_exists?(artifact_hash)
+  end
+
   defp insert_scan!(agent_id, scan_id, current?, age_days) do
     timestamp = DateTime.add(DateTime.utc_now(), age_days * 86_400, :second)
 
@@ -106,24 +159,55 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
     id
   end
 
-  defp insert_artifact!(scan_ref, agent_id, object_key) do
+  defp insert_artifact!(scan_ref, agent_id, object_key, opts \\ []) do
     now = DateTime.utc_now()
+    artifact_hash = Keyword.get(opts, :artifact_hash)
+    artifact_content_ref = Keyword.get(opts, :artifact_content_ref)
 
     Repo.insert_all(
       "endpoint_inventory_artifacts",
       [
         %{
           scan_ref: scan_ref,
+          artifact_content_ref: artifact_content_ref,
           agent_id: agent_id,
+          artifact_hash: artifact_hash,
           object_key: object_key,
           sha256: String.duplicate("a", 64),
           size_bytes: 12,
+          reused_content: Keyword.get(opts, :reused_content, false),
           uploaded_at: now,
           inserted_at: now
         }
       ],
       prefix: "platform"
     )
+  end
+
+  defp insert_artifact_content!(artifact_hash, object_key) do
+    now = DateTime.utc_now()
+
+    {1, [%{id: id}]} =
+      Repo.insert_all(
+        "endpoint_inventory_artifact_contents",
+        [
+          %{
+            artifact_hash: artifact_hash,
+            object_key: object_key,
+            sha256: String.duplicate("a", 64),
+            size_bytes: 12,
+            first_uploaded_at: now,
+            last_referenced_at: now,
+            reference_count: 2,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        prefix: "platform",
+        returning: [:id]
+      )
+
+    id
   end
 
   defp insert_package!(scan_ref, agent_id, name, current?) do
@@ -137,6 +221,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
           agent_id: agent_id,
           name: name,
           package_manager: "dpkg",
+          purl_canonical: "pkg:deb/#{name}",
           current: current?,
           inserted_at: now,
           updated_at: now
@@ -156,6 +241,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetentionTest do
   defp artifact_exists?(object_key) do
     Repo.exists?(
       from(a in "endpoint_inventory_artifacts", where: a.object_key == ^object_key),
+      prefix: "platform"
+    )
+  end
+
+  defp artifact_content_exists?(artifact_hash) do
+    Repo.exists?(
+      from(c in "endpoint_inventory_artifact_contents", where: c.artifact_hash == ^artifact_hash),
       prefix: "platform"
     )
   end

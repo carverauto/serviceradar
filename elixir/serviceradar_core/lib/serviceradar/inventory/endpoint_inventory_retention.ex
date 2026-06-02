@@ -52,19 +52,60 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetention do
 
   defp candidate_scans(retention_days, batch_size) do
     sql = """
+    WITH candidate_scans AS (
+      SELECT s.id, COALESCE(s.ingested_at, s.inserted_at) AS scan_time
+      FROM platform.endpoint_inventory_scans AS s
+      WHERE s.current = FALSE
+        AND COALESCE(s.ingested_at, s.inserted_at) < NOW() - ($1::int * INTERVAL '1 day')
+      ORDER BY COALESCE(s.ingested_at, s.inserted_at) ASC
+      LIMIT $2
+    ),
+    deletable_contents AS (
+      SELECT
+        c.id AS content_ref,
+        c.object_key,
+        MIN(a.scan_ref::text) AS owner_scan_ref
+      FROM platform.endpoint_inventory_artifact_contents AS c
+      JOIN platform.endpoint_inventory_artifacts AS a ON a.artifact_content_ref = c.id
+      WHERE EXISTS (
+        SELECT 1
+        FROM candidate_scans AS candidate
+        WHERE candidate.id = a.scan_ref
+      )
+      AND NOT EXISTS (
+        SELECT 1
+        FROM platform.endpoint_inventory_artifacts AS outside_ref
+        WHERE outside_ref.artifact_content_ref = c.id
+          AND NOT EXISTS (
+            SELECT 1
+            FROM candidate_scans AS candidate
+            WHERE candidate.id = outside_ref.scan_ref
+          )
+      )
+      GROUP BY c.id, c.object_key
+    ),
+    legacy_objects AS (
+      SELECT a.scan_ref::text AS scan_ref, a.object_key
+      FROM platform.endpoint_inventory_artifacts AS a
+      JOIN candidate_scans AS candidate ON candidate.id = a.scan_ref
+      WHERE a.artifact_content_ref IS NULL
+        AND a.object_key IS NOT NULL
+    ),
+    scan_objects AS (
+      SELECT owner_scan_ref AS scan_ref, object_key FROM deletable_contents
+      UNION ALL
+      SELECT scan_ref, object_key FROM legacy_objects
+    )
     SELECT s.id::text,
            COALESCE(
-             array_agg(a.object_key ORDER BY a.object_key)
-               FILTER (WHERE a.object_key IS NOT NULL),
+             array_agg(scan_objects.object_key ORDER BY scan_objects.object_key)
+               FILTER (WHERE scan_objects.object_key IS NOT NULL),
              ARRAY[]::text[]
            ) AS object_keys
-    FROM platform.endpoint_inventory_scans AS s
-    LEFT JOIN platform.endpoint_inventory_artifacts AS a ON a.scan_ref = s.id
-    WHERE s.current = FALSE
-      AND COALESCE(s.ingested_at, s.inserted_at) < NOW() - ($1::int * INTERVAL '1 day')
-    GROUP BY s.id, COALESCE(s.ingested_at, s.inserted_at)
-    ORDER BY COALESCE(s.ingested_at, s.inserted_at) ASC
-    LIMIT $2
+    FROM candidate_scans AS s
+    LEFT JOIN scan_objects ON scan_objects.scan_ref = s.id::text
+    GROUP BY s.id, s.scan_time
+    ORDER BY s.scan_time ASC
     """
 
     case SQL.query(Repo, sql, [retention_days, batch_size], timeout: @query_timeout_ms) do
@@ -159,6 +200,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetention do
 
     case SQL.query(Repo, sql, [scan_refs], timeout: @query_timeout_ms) do
       {:ok, %{num_rows: deleted}} ->
+        delete_orphaned_artifact_contents()
         {:ok, deleted}
 
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
@@ -166,6 +208,30 @@ defmodule ServiceRadar.Inventory.EndpointInventoryRetention do
 
       {:error, error} ->
         {:error, error}
+    end
+  end
+
+  defp delete_orphaned_artifact_contents do
+    sql = """
+    DELETE FROM platform.endpoint_inventory_artifact_contents AS c
+    WHERE NOT EXISTS (
+      SELECT 1
+      FROM platform.endpoint_inventory_artifacts AS a
+      WHERE a.artifact_content_ref = c.id
+    )
+    """
+
+    case SQL.query(Repo, sql, [], timeout: @query_timeout_ms) do
+      {:ok, _result} ->
+        :ok
+
+      {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} ->
+        :ok
+
+      {:error, error} ->
+        Logger.warning(
+          "Failed to prune orphaned endpoint artifact content rows: #{inspect(error)}"
+        )
     end
   end
 

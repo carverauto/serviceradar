@@ -231,6 +231,59 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan.package_set_hash_mismatch == true
   end
 
+  test "deduplicates content-addressed SBOM payloads across scan provenance rows", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device_one = create_device!(actor, "endpoint-inventory-dedupe-device-one-#{unique}")
+    device_two = create_device!(actor, "endpoint-inventory-dedupe-device-two-#{unique}")
+    agent_one = "endpoint-inventory-dedupe-agent-one-#{unique}"
+    agent_two = "endpoint-inventory-dedupe-agent-two-#{unique}"
+    artifact_hash = String.duplicate("b", 64)
+    create_agent!(actor, agent_one, device_one.uid)
+    create_agent!(actor, agent_two, device_two.uid)
+
+    test = self()
+
+    upload_object = fn metadata, _data, _opts ->
+      send(test, {:upload_object, metadata.key})
+      {:ok, %{ok?: true}}
+    end
+
+    assert {:ok, first} =
+             agent_one
+             |> scan_payload("scan-dedupe-one-#{unique}")
+             |> Map.put("artifact_hash", artifact_hash)
+             |> EndpointInventoryIngestor.ingest_report(
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    assert {:ok, second} =
+             agent_two
+             |> scan_payload("scan-dedupe-two-#{unique}")
+             |> Map.put("artifact_hash", artifact_hash)
+             |> EndpointInventoryIngestor.ingest_report(
+               actor: actor,
+               upload_object: upload_object
+             )
+
+    expected_object_key = "endpoint-inventory/by-hash/#{artifact_hash}.cdx.json"
+    assert_receive {:upload_object, ^expected_object_key}
+    refute_receive {:upload_object, _}, 50
+
+    assert artifact_content_count(artifact_hash) == 1
+    assert artifact_content_reference_count(artifact_hash) == 2
+
+    assert [
+             %{scan_ref: first_scan_ref, reused_content: false},
+             %{scan_ref: second_scan_ref, reused_content: true}
+           ] = artifact_provenance_rows(artifact_hash)
+
+    assert first_scan_ref == first.scan_ref
+    assert second_scan_ref == second.scan_ref
+  end
+
   test "unchanged scans past reconcile floor return full-upload directive", %{actor: actor} do
     unique = System.unique_integer([:positive])
     device = create_device!(actor, "endpoint-inventory-reconcile-device-#{unique}")
@@ -373,6 +426,41 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       from(a in "endpoint_inventory_artifacts",
         where: a.scan_ref == ^scan_ref,
         select: count(a.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp artifact_content_count(artifact_hash) do
+    Repo.one!(
+      from(c in "endpoint_inventory_artifact_contents",
+        where: c.artifact_hash == ^artifact_hash,
+        select: count(c.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp artifact_content_reference_count(artifact_hash) do
+    Repo.one!(
+      from(c in "endpoint_inventory_artifact_contents",
+        where: c.artifact_hash == ^artifact_hash,
+        select: c.reference_count
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp artifact_provenance_rows(artifact_hash) do
+    Repo.all(
+      from(a in "endpoint_inventory_artifacts",
+        where: a.artifact_hash == ^artifact_hash,
+        order_by: [asc: a.agent_id],
+        select: %{
+          scan_ref: a.scan_ref,
+          reused_content: a.reused_content,
+          metadata: a.metadata
+        }
       ),
       prefix: "platform"
     )
