@@ -58,6 +58,7 @@ pub enum Entity {
     Flows,
     Alerts,
     AddonStatuses,
+    EndpointPackageCatalog,
     EndpointPackages,
     EndpointInventoryScans,
 }
@@ -500,6 +501,12 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         | "endpoint_inventory_packages"
         | "endpoint_inventory"
         | "packages" => Ok(Entity::EndpointPackages),
+        "endpoint_package_catalog"
+        | "endpoint_package_catalogs"
+        | "endpoint_software_packages"
+        | "endpoint_software_package"
+        | "package_catalog"
+        | "package_catalogs" => Ok(Entity::EndpointPackageCatalog),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),

@@ -9,8 +9,9 @@ use crate::{
     schema::endpoint_inventory_packages::dsl::{
         agent_id as col_agent_id, architecture as col_architecture, cpes as col_cpes,
         current as col_current, device_uid as col_device_uid, ecosystem as col_ecosystem,
-        endpoint_inventory_packages, inserted_at as col_inserted_at, license as col_license,
-        name as col_name, package_manager as col_package_manager, purl as col_purl,
+        endpoint_inventory_packages, endpoint_package_ref as col_endpoint_package_ref,
+        inserted_at as col_inserted_at, license as col_license, name as col_name,
+        package_manager as col_package_manager, purl as col_purl,
         purl_canonical as col_purl_canonical, source as col_source, supplier as col_supplier,
         updated_at as col_updated_at, version as col_version,
     },
@@ -485,6 +486,15 @@ fn apply_filter<'a>(
         "agent_id" => {
             query = apply_text_filter!(query, filter, col_agent_id)?;
         }
+        "package_id" | "endpoint_package_ref" => {
+            query = apply_eq_filter!(
+                query,
+                filter,
+                col_endpoint_package_ref,
+                parse_uuid(filter.value.as_scalar()?)?,
+                "package_id only supports equality comparisons"
+            )?;
+        }
         "name" | "package" => {
             query = apply_text_filter!(query, filter, col_name)?;
         }
@@ -582,6 +592,11 @@ fn parse_bool(raw: &str) -> Result<bool> {
     }
 }
 
+fn parse_uuid(raw: &str) -> Result<uuid::Uuid> {
+    uuid::Uuid::parse_str(raw)
+        .map_err(|_| ServiceError::InvalidRequest(format!("invalid uuid '{raw}'")))
+}
+
 fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.op {
         FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
@@ -609,6 +624,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "architecture" | "arch" | "package_manager" | "manager" | "ecosystem" | "purl"
         | "purl_canonical" | "canonical_purl" | "raw_purl" | "supplier" | "license" | "source" => {
             collect_text_params(params, filter)
+        }
+        "package_id" | "endpoint_package_ref" => {
+            params.push(BindParam::Uuid(parse_uuid(filter.value.as_scalar()?)?));
+            Ok(())
         }
         "current" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
@@ -665,6 +684,10 @@ fn apply_single_order<'a>(
             OrderDirection::Asc => query.order(col_agent_id.asc()),
             OrderDirection::Desc => query.order(col_agent_id.desc()),
         },
+        "package_id" | "endpoint_package_ref" => match direction {
+            OrderDirection::Asc => query.order(col_endpoint_package_ref.asc()),
+            OrderDirection::Desc => query.order(col_endpoint_package_ref.desc()),
+        },
         "name" | "package" => match direction {
             OrderDirection::Asc => query.order(col_name.asc()),
             OrderDirection::Desc => query.order(col_name.desc()),
@@ -714,6 +737,10 @@ fn apply_secondary_order<'a>(
         "agent_id" => match direction {
             OrderDirection::Asc => query.then_order_by(col_agent_id.asc()),
             OrderDirection::Desc => query.then_order_by(col_agent_id.desc()),
+        },
+        "package_id" | "endpoint_package_ref" => match direction {
+            OrderDirection::Asc => query.then_order_by(col_endpoint_package_ref.asc()),
+            OrderDirection::Desc => query.then_order_by(col_endpoint_package_ref.desc()),
         },
         "name" | "package" => match direction {
             OrderDirection::Asc => query.then_order_by(col_name.asc()),
@@ -783,6 +810,7 @@ mod tests {
         for field in [
             "device_uid",
             "agent_id",
+            "package_id",
             "name",
             "version",
             "architecture",
@@ -796,10 +824,16 @@ mod tests {
             "license",
             "source",
         ] {
+            let value = if field == "package_id" {
+                "11111111-1111-4111-8111-111111111111"
+            } else {
+                "x"
+            };
+
             let plan = plan_with(vec![Filter {
                 field: field.into(),
                 op: FilterOp::Eq,
-                value: FilterValue::Scalar("x".to_string()),
+                value: FilterValue::Scalar(value.to_string()),
             }]);
             assert!(
                 build_query(&plan).is_ok(),

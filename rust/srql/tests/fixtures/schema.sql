@@ -3,6 +3,7 @@
 
 DROP TABLE IF EXISTS device_agent_availability;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
+DROP TABLE IF EXISTS endpoint_packages;
 DROP TABLE IF EXISTS endpoint_inventory_scans;
 DROP TABLE IF EXISTS endpoint_inventory_current_package_counts;
 DROP TABLE IF EXISTS endpoint_inventory_current_cpe_counts;
@@ -111,6 +112,23 @@ CREATE TABLE endpoint_inventory_scans (
     updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE TABLE endpoint_packages (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    coordinate_key      TEXT        NOT NULL UNIQUE,
+    purl_canonical      TEXT,
+    primary_cpe         TEXT,
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    package_manager     TEXT        NOT NULL,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    ecosystem           TEXT,
+    source_scope        TEXT        NOT NULL DEFAULT 'host',
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE endpoint_inventory_packages (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     scan_ref            UUID        NOT NULL DEFAULT gen_random_uuid(),
@@ -123,6 +141,7 @@ CREATE TABLE endpoint_inventory_packages (
     ecosystem           TEXT,
     purl                TEXT,
     purl_canonical      TEXT        NOT NULL,
+    endpoint_package_ref UUID       NOT NULL REFERENCES endpoint_packages(id),
     cpes                TEXT[]      NOT NULL DEFAULT '{}',
     supplier            TEXT,
     license             TEXT,

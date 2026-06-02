@@ -108,12 +108,35 @@ diesel::table! {
         ecosystem -> Nullable<Text>,
         purl -> Nullable<Text>,
         purl_canonical -> Text,
+        endpoint_package_ref -> Uuid,
         cpes -> Array<Text>,
         supplier -> Nullable<Text>,
         license -> Nullable<Text>,
         source -> Nullable<Text>,
         evidence -> Jsonb,
         current -> Bool,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    endpoint_packages (id) {
+        id -> Uuid,
+        coordinate_key -> Text,
+        purl_canonical -> Nullable<Text>,
+        primary_cpe -> Nullable<Text>,
+        cpes -> Array<Text>,
+        package_manager -> Text,
+        name -> Text,
+        version -> Nullable<Text>,
+        architecture -> Nullable<Text>,
+        ecosystem -> Nullable<Text>,
+        source_scope -> Text,
         metadata -> Jsonb,
         inserted_at -> Timestamptz,
         updated_at -> Timestamptz,

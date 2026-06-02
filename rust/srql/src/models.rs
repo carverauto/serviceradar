@@ -142,6 +142,7 @@ pub struct EndpointPackageRow {
     pub ecosystem: Option<String>,
     pub purl: Option<String>,
     pub purl_canonical: String,
+    pub endpoint_package_ref: Uuid,
     pub cpes: Vec<String>,
     pub supplier: Option<String>,
     pub license: Option<String>,
@@ -175,12 +176,68 @@ impl EndpointPackageRow {
             "purl": self.purl,
             "purl_canonical": self.purl_canonical,
             "canonical_purl": canonical_purl,
+            "endpoint_package_ref": self.endpoint_package_ref.to_string(),
+            "package_id": self.endpoint_package_ref.to_string(),
+            "has_package": {
+                "device_uid": device_id,
+                "package_id": self.endpoint_package_ref.to_string(),
+                "relation": "HAS_PACKAGE",
+            },
             "cpes": self.cpes,
             "supplier": self.supplier,
             "license": self.license,
             "source": self.source,
             "evidence": serde_json::Value::from(self.evidence),
             "current": self.current,
+            "metadata": serde_json::Value::from(self.metadata),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+        })
+    }
+}
+
+/// Normalized endpoint-side package coordinate catalog row.
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(
+    table_name = crate::schema::endpoint_packages,
+    check_for_backend(diesel::pg::Pg)
+)]
+pub struct EndpointPackageCatalogRow {
+    pub id: Uuid,
+    pub coordinate_key: String,
+    pub purl_canonical: Option<String>,
+    pub primary_cpe: Option<String>,
+    pub cpes: Vec<String>,
+    pub package_manager: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub architecture: Option<String>,
+    pub ecosystem: Option<String>,
+    pub source_scope: String,
+    pub metadata: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl EndpointPackageCatalogRow {
+    pub fn into_json(self) -> serde_json::Value {
+        let canonical_purl = self.purl_canonical.clone();
+
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "package_id": self.id.to_string(),
+            "coordinate_key": self.coordinate_key,
+            "purl_canonical": self.purl_canonical,
+            "canonical_purl": canonical_purl,
+            "primary_cpe": self.primary_cpe,
+            "cpes": self.cpes,
+            "package_manager": self.package_manager,
+            "manager": self.package_manager,
+            "name": self.name,
+            "version": self.version,
+            "architecture": self.architecture,
+            "ecosystem": self.ecosystem,
+            "source_scope": self.source_scope,
             "metadata": serde_json::Value::from(self.metadata),
             "inserted_at": self.inserted_at,
             "updated_at": self.updated_at,

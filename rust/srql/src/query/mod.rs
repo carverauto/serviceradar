@@ -135,6 +135,7 @@ mod devices;
 mod disk_metrics;
 mod downsample;
 mod endpoint_inventory_scans;
+mod endpoint_package_catalog;
 mod endpoint_packages;
 mod events;
 mod field_survey;
@@ -221,6 +222,9 @@ impl QueryEngine {
                 Entity::AddonStatuses => addon_statuses::execute(&mut conn, &plan).await?,
                 Entity::EndpointInventoryScans => {
                     endpoint_inventory_scans::execute(&mut conn, &plan).await?
+                }
+                Entity::EndpointPackageCatalog => {
+                    endpoint_package_catalog::execute(&mut conn, &plan).await?
                 }
                 Entity::EndpointPackages => endpoint_packages::execute(&mut conn, &plan).await?,
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
@@ -779,6 +783,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Agents => agents::to_sql_and_params(&plan)?,
             Entity::AddonStatuses => addon_statuses::to_sql_and_params(&plan)?,
             Entity::EndpointInventoryScans => endpoint_inventory_scans::to_sql_and_params(&plan)?,
+            Entity::EndpointPackageCatalog => endpoint_package_catalog::to_sql_and_params(&plan)?,
             Entity::EndpointPackages => endpoint_packages::to_sql_and_params(&plan)?,
             Entity::Devices => devices::to_sql_and_params(&plan)?,
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,

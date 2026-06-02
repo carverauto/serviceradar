@@ -58,7 +58,7 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:events device_id:\"device-alpha\" time:last_10m",
+            query: "in:events device_id:\"device-alpha\" class_uid:4001 time:last_10m",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["message"], "Device scoped event");
@@ -82,6 +82,37 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(result["device_id"], "device-alpha");
                 assert_eq!(result["package_manager"], "dpkg");
                 assert_eq!(result["current"], true);
+                assert_eq!(
+                    result["package_id"],
+                    "aaaaaaaa-1111-4111-8111-111111111111"
+                );
+                assert_eq!(result["has_package"]["relation"], "HAS_PACKAGE");
+                assert_eq!(result["has_package"]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_package_catalog canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* source_scope:host",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["package_id"], "aaaaaaaa-1111-4111-8111-111111111111");
+                assert_eq!(result["canonical_purl"], "pkg:deb/nginx@1.24.0-2ubuntu7");
+                assert_eq!(result["source_scope"], "host");
+            })),
+        },
+        TestCase {
+            query: "in:events class_uid:2004 device_id:device-alpha canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["class_uid"], 2004);
+                assert_eq!(result["source_device_uid"], "device-alpha");
+                assert_eq!(result["metadata"]["primary_domain"], "security");
+                assert_eq!(
+                    result["metadata"]["vulnerability_finding"]["package"]["purl_canonical"],
+                    "pkg:deb/nginx@1.24.0-2ubuntu7"
+                );
             })),
         },
         TestCase {

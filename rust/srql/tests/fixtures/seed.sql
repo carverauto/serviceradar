@@ -1,5 +1,6 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
 TRUNCATE endpoint_inventory_packages;
+TRUNCATE endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
 TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
@@ -233,6 +234,73 @@ FROM base;
 WITH base AS (
     SELECT NOW() AS now_ts
 )
+INSERT INTO endpoint_packages (
+    id,
+    coordinate_key,
+    purl_canonical,
+    primary_cpe,
+    cpes,
+    package_manager,
+    name,
+    version,
+    architecture,
+    ecosystem,
+    source_scope,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT 'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
+    'purl:pkg:deb/nginx@1.24.0-2ubuntu7',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
+    'dpkg',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'aaaaaaaa-2222-4222-8222-222222222222'::uuid,
+    'purl:pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
+    'dpkg',
+    'openssl',
+    '3.0.13-0ubuntu3.5',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'aaaaaaaa-3333-4333-8333-333333333333'::uuid,
+    'purl:pkg:deb/nginx@1.22.1-9',
+    'pkg:deb/nginx@1.22.1-9',
+    'cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*'],
+    'dpkg',
+    'nginx',
+    '1.22.1-9',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
 INSERT INTO endpoint_inventory_packages (
     id,
     scan_ref,
@@ -245,6 +313,7 @@ INSERT INTO endpoint_inventory_packages (
     ecosystem,
     purl,
     purl_canonical,
+    endpoint_package_ref,
     cpes,
     supplier,
     license,
@@ -266,6 +335,7 @@ SELECT '11111111-1111-4111-8111-111111111111'::uuid,
     'deb',
     'pkg:deb/nginx@1.24.0-2ubuntu7',
     'pkg:deb/nginx@1.24.0-2ubuntu7',
+    'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
     ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
     'nginx',
     'BSD-2-Clause',
@@ -288,6 +358,7 @@ SELECT '22222222-2222-4222-8222-222222222222'::uuid,
     'deb',
     'pkg:deb/openssl@3.0.13-0ubuntu3.5',
     'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'aaaaaaaa-2222-4222-8222-222222222222'::uuid,
     ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
     'OpenSSL Project',
     'Apache-2.0',
@@ -310,6 +381,7 @@ SELECT '33333333-3333-4333-8333-333333333333'::uuid,
     'deb',
     'pkg:deb/nginx@1.22.1-9',
     'pkg:deb/nginx@1.22.1-9',
+    'aaaaaaaa-3333-4333-8333-333333333333'::uuid,
     ARRAY ['cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*'],
     'nginx',
     'BSD-2-Clause',
@@ -1163,6 +1235,70 @@ SELECT base.now_ts - INTERVAL '3 minutes',
     'info',
     NULL,
     '{}'::jsonb,
+    NULL,
+    base.now_ts
+FROM base;
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO ocsf_events (
+        time,
+        id,
+        class_uid,
+        category_uid,
+        type_uid,
+        activity_id,
+        activity_name,
+        severity_id,
+        severity,
+        message,
+        status_id,
+        status,
+        status_code,
+        status_detail,
+        metadata,
+        observables,
+        trace_id,
+        span_id,
+        actor,
+        device,
+        src_endpoint,
+        dst_endpoint,
+        log_name,
+        log_provider,
+        log_level,
+        log_version,
+        unmapped,
+        raw_data,
+        created_at
+    )
+SELECT base.now_ts - INTERVAL '2 minutes',
+    '44444444-4444-4444-8444-444444444444'::uuid,
+    2004,
+    2,
+    200401,
+    1,
+    'Create',
+    5,
+    'Critical',
+    'endpoint vulnerability finding: CVE-2026-0001: nginx 1.24.0-2ubuntu7',
+    NULL,
+    'open',
+    NULL,
+    NULL,
+    '{"signal_type":"inventory","primary_domain":"security","vulnerability_finding":{"cve":"CVE-2026-0001","cvss_score":9.8,"package":{"purl_canonical":"pkg:deb/nginx@1.24.0-2ubuntu7","purl":"pkg:deb/nginx@1.24.0-2ubuntu7","cpes":["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"],"package_manager":"dpkg","name":"nginx","version":"1.24.0-2ubuntu7","architecture":"amd64"}}}'::jsonb,
+    '[]'::jsonb,
+    NULL,
+    NULL,
+    '{}'::jsonb,
+    '{"uid":"device-alpha"}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    'signals.causal.inventory.vulnerability',
+    'endpoint_inventory',
+    'critical',
+    'endpoint-inventory-v1',
+    '{"signal_type":"inventory","event_type":"vulnerability_match","device_uid":"device-alpha","cve":"CVE-2026-0001","package":{"purl_canonical":"pkg:deb/nginx@1.24.0-2ubuntu7","cpes":["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"]}}'::jsonb,
     NULL,
     base.now_ts
 FROM base;
