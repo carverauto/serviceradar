@@ -231,6 +231,97 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan.package_set_hash_mismatch == true
   end
 
+  test "records changed scan history and server-computed package diff events", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-history-device-#{unique}")
+    agent_id = "endpoint-inventory-history-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    first_components = [
+      package_component("nginx", "1.24.0-2ubuntu7"),
+      package_component("openssl", "3.0.13-0ubuntu3")
+    ]
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-history-first-#{unique}",
+                 components: first_components
+               ),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert first.scan_history_recorded? == true
+    assert first.package_event_count == 2
+    assert scan_history_count(agent_id) == 1
+
+    assert [
+             %{event_type: "added", name: "nginx", new_version: "1.24.0-2ubuntu7"},
+             %{event_type: "added", name: "openssl", new_version: "3.0.13-0ubuntu3"}
+           ] = package_event_rows(agent_id, "scan-history-first-#{unique}")
+
+    second_components = [
+      package_component("curl", "8.5.0-2ubuntu10"),
+      package_component("nginx", "1.24.1-2ubuntu7")
+    ]
+
+    assert {:ok, second} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-history-second-#{unique}",
+                 components: second_components
+               ),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert second.scan_history_recorded? == true
+    assert second.package_event_count == 3
+    assert scan_history_count(agent_id) == 2
+
+    assert [
+             %{event_type: "added", name: "curl", new_version: "8.5.0-2ubuntu10"},
+             %{event_type: "removed", name: "openssl", previous_version: "3.0.13-0ubuntu3"},
+             %{
+               event_type: "version_changed",
+               name: "nginx",
+               previous_version: "1.24.0-2ubuntu7",
+               new_version: "1.24.1-2ubuntu7"
+             }
+           ] = package_event_rows(agent_id, "scan-history-second-#{unique}")
+
+    latest_scan = current_scan(agent_id)
+    package_event_total = package_event_count(agent_id)
+
+    unchanged_payload =
+      agent_id
+      |> scan_payload("scan-history-unchanged-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => latest_scan.package_count,
+        "package_set_hash" => latest_scan.package_set_hash,
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, unchanged} =
+             EndpointInventoryIngestor.ingest_report(unchanged_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert unchanged.scan_history_recorded? == false
+    assert unchanged.package_event_count == 0
+    assert scan_history_count(agent_id) == 2
+    assert package_event_count(agent_id) == package_event_total
+
+    if timescale_installed?() do
+      assert "endpoint_inventory_scan_history" in endpoint_inventory_hypertables()
+      assert "endpoint_inventory_package_events" in endpoint_inventory_hypertables()
+    end
+  end
+
   test "deduplicates content-addressed SBOM payloads across scan provenance rows", %{
     actor: actor
   } do
@@ -368,6 +459,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     }
   end
 
+  defp package_component(name, version, package_manager \\ "dpkg", architecture \\ "amd64") do
+    %{
+      "type" => "library",
+      "name" => name,
+      "version" => version,
+      "purl" => "pkg:deb/#{name}@#{version}",
+      "cpe" => "cpe:2.3:a:#{name}:#{name}:#{version}:*:*:*:*:*:*:*",
+      "properties" => [
+        %{"name" => "serviceradar:package_manager", "value" => package_manager},
+        %{"name" => "serviceradar:architecture", "value" => architecture}
+      ]
+    }
+  end
+
   defp successful_upload do
     fn _metadata, _data, _opts -> {:ok, %{ok?: true}} end
   end
@@ -419,6 +524,65 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       ),
       prefix: "platform"
     )
+  end
+
+  defp scan_history_count(agent_id) do
+    Repo.one!(
+      from(s in "endpoint_inventory_scan_history",
+        where: s.agent_id == ^agent_id,
+        select: count(s.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp package_event_count(agent_id) do
+    Repo.one!(
+      from(e in "endpoint_inventory_package_events",
+        where: e.agent_id == ^agent_id,
+        select: count(e.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp package_event_rows(agent_id, scan_id) do
+    Repo.all(
+      from(e in "endpoint_inventory_package_events",
+        where: e.agent_id == ^agent_id and e.scan_id == ^scan_id,
+        order_by: [asc: e.event_type, asc: e.name],
+        select: %{
+          event_type: e.event_type,
+          name: e.name,
+          previous_version: e.previous_version,
+          new_version: e.new_version,
+          purl_canonical: e.purl_canonical
+        }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp timescale_installed? do
+    %{rows: [[installed?]]} =
+      Repo.query!("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'timescaledb')")
+
+    installed?
+  end
+
+  defp endpoint_inventory_hypertables do
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT hypertable_name
+      FROM timescaledb_information.hypertables
+      WHERE hypertable_schema = 'platform'
+        AND hypertable_name IN (
+          'endpoint_inventory_scan_history',
+          'endpoint_inventory_package_events'
+        )
+      """)
+
+    Enum.map(rows, fn [name] -> name end)
   end
 
   defp artifact_count(scan_ref) do

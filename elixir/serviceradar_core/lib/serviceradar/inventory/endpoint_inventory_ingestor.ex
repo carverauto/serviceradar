@@ -18,6 +18,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @hash_algorithm_version 1
   @upload_reason_changed "changed"
   @upload_reason_unchanged "unchanged"
+  @package_event_added "added"
+  @package_event_removed "removed"
+  @package_event_version_changed "version_changed"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
   @successful_states ["scanned", "complete", "success", "unchanged"]
@@ -48,9 +51,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       Repo.transaction(fn ->
         current = current_scan_snapshot(context.agent_id)
         context = apply_hash_freshness(context, current)
+        previous_packages = current_package_rows(context)
         scan_ref = upsert_scan(context, artifact)
         replace_artifact(scan_ref, context, artifact)
         package_count = maybe_replace_packages(scan_ref, context)
+        history = maybe_record_changed_history(scan_ref, current, previous_packages, context)
         maybe_promote_current(scan_ref, context)
 
         %{
@@ -61,6 +66,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           package_count: package_count,
           artifact_uploaded?: not is_nil(artifact),
           package_rows_replaced?: not context.package_replacement_noop?,
+          scan_history_recorded?: history.scan_history_recorded?,
+          package_event_count: history.package_event_count,
           package_set_hash_mismatch?: context.package_set_hash_mismatch?,
           reconcile_floor?: context.reconcile_floor_due?,
           directives: scan_ack_directives(context),
@@ -357,6 +364,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         select: %{
           id: s.id,
           package_count: s.package_count,
+          scan_id: s.scan_id,
           package_set_hash: s.package_set_hash,
           server_package_set_hash: s.server_package_set_hash,
           last_changed_scan_at: s.last_changed_scan_at,
@@ -367,6 +375,269 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       prefix: "platform"
     )
   end
+
+  defp current_package_rows(%{package_replacement_noop?: true}), do: []
+
+  defp current_package_rows(context) do
+    if successful_scan?(context) do
+      Repo.all(
+        from(p in "endpoint_inventory_packages",
+          where: p.agent_id == ^context.agent_id and p.current == true,
+          select: %{
+            name: p.name,
+            version: p.version,
+            architecture: p.architecture,
+            package_manager: p.package_manager,
+            ecosystem: p.ecosystem,
+            purl: p.purl,
+            purl_canonical: p.purl_canonical,
+            cpes: p.cpes,
+            supplier: p.supplier,
+            license: p.license,
+            source: p.source,
+            evidence: p.evidence,
+            metadata: p.metadata
+          }
+        ),
+        prefix: "platform"
+      )
+    else
+      []
+    end
+  end
+
+  defp maybe_record_changed_history(scan_ref, current, previous_packages, context) do
+    if record_changed_history?(context) do
+      package_events = package_diff_events(previous_packages, context.packages)
+      package_event_count = insert_package_events(scan_ref, current, package_events, context)
+
+      insert_scan_history(scan_ref, current, package_event_count, context)
+
+      %{scan_history_recorded?: true, package_event_count: package_event_count}
+    else
+      %{scan_history_recorded?: false, package_event_count: 0}
+    end
+  end
+
+  defp record_changed_history?(context) do
+    successful_scan?(context) and not context.package_replacement_noop?
+  end
+
+  defp insert_scan_history(scan_ref, current, package_event_count, context) do
+    row = %{
+      scan_time: changed_scan_time(context),
+      scan_ref: scan_ref,
+      device_uid: context.device_uid,
+      agent_id: context.agent_id,
+      scan_id: context.scan_id,
+      collector_name: context.collector_name,
+      collector_version: context.collector_version,
+      state: context.state,
+      coverage_state: context.coverage_state,
+      package_count: context.package_count,
+      enabled_sources: context.enabled_sources,
+      manager_counts: context.manager_counts,
+      source_summaries: context.source_summaries,
+      artifact_count: if(is_nil(context.artifact_hash), do: 0, else: 1),
+      package_set_hash: context.package_set_hash,
+      previous_package_set_hash: Map.get(current || %{}, :package_set_hash),
+      server_package_set_hash: context.server_package_set_hash,
+      artifact_hash: context.artifact_hash,
+      hash_algorithm: context.hash_algorithm,
+      upload_reason: context.upload_reason,
+      package_set_hash_mismatch: context.package_set_hash_mismatch?,
+      package_event_count: package_event_count,
+      metadata: scan_history_metadata(current, context),
+      inserted_at: context.now
+    }
+
+    Repo.insert_all("endpoint_inventory_scan_history", [row], prefix: "platform")
+  end
+
+  defp insert_package_events(_scan_ref, _current, [], _context), do: 0
+
+  defp insert_package_events(scan_ref, current, package_events, context) do
+    scan_time = changed_scan_time(context)
+
+    rows =
+      Enum.map(package_events, fn event ->
+        package_event_row(scan_ref, current, event, scan_time, context)
+      end)
+
+    {count, _rows} =
+      Repo.insert_all("endpoint_inventory_package_events", rows,
+        prefix: "platform",
+        on_conflict: :nothing,
+        conflict_target: [:scan_time, :event_id]
+      )
+
+    count
+  end
+
+  defp package_diff_events(previous_packages, packages) do
+    previous_by_key = Map.new(previous_packages, &{package_identity_key(&1), &1})
+    current_by_key = Map.new(packages, &{package_identity_key(&1), &1})
+
+    added =
+      current_by_key
+      |> Map.drop(Map.keys(previous_by_key))
+      |> Map.values()
+      |> Enum.map(&%{event_type: @package_event_added, package: &1})
+
+    removed =
+      previous_by_key
+      |> Map.drop(Map.keys(current_by_key))
+      |> Map.values()
+      |> Enum.map(&%{event_type: @package_event_removed, previous_package: &1})
+
+    version_changed =
+      previous_by_key
+      |> Map.take(Map.keys(current_by_key))
+      |> Enum.flat_map(fn {key, previous_package} ->
+        package = Map.fetch!(current_by_key, key)
+
+        if package_version_changed?(previous_package, package) do
+          [
+            %{
+              event_type: @package_event_version_changed,
+              previous_package: previous_package,
+              package: package
+            }
+          ]
+        else
+          []
+        end
+      end)
+
+    added ++ removed ++ version_changed
+  end
+
+  defp package_event_row(scan_ref, current, event, scan_time, context) do
+    package = Map.get(event, :package) || Map.fetch!(event, :previous_package)
+    previous_package = Map.get(event, :previous_package)
+    event_type = Map.fetch!(event, :event_type)
+    coordinate_hash = package_event_coordinate_hash(event)
+
+    %{
+      event_id: package_event_id(context, event_type, coordinate_hash),
+      scan_time: scan_time,
+      scan_ref: scan_ref,
+      device_uid: context.device_uid,
+      agent_id: context.agent_id,
+      scan_id: context.scan_id,
+      event_type: event_type,
+      package_manager: package.package_manager,
+      ecosystem: package.ecosystem,
+      name: package.name,
+      architecture: package.architecture,
+      version: package.version,
+      previous_version: Map.get(previous_package || %{}, :version),
+      new_version: Map.get(event[:package] || %{}, :version),
+      purl: package.purl,
+      purl_canonical: package.purl_canonical,
+      previous_purl: Map.get(previous_package || %{}, :purl),
+      previous_purl_canonical: Map.get(previous_package || %{}, :purl_canonical),
+      cpes: package.cpes || [],
+      coordinate_hash: coordinate_hash,
+      package_set_hash: context.package_set_hash,
+      previous_package_set_hash: Map.get(current || %{}, :package_set_hash),
+      artifact_hash: context.artifact_hash,
+      metadata: package_event_metadata(event, context),
+      inserted_at: context.now
+    }
+  end
+
+  defp changed_scan_time(context) do
+    context.last_successful_scan_at || context.last_scan_at || context.now
+  end
+
+  defp scan_history_metadata(current, context) do
+    context.metadata
+    |> Map.merge(%{
+      "previous_scan_ref" => encode_uuid(Map.get(current || %{}, :id)),
+      "previous_scan_id" => Map.get(current || %{}, :scan_id),
+      "source" => "endpoint_inventory_history"
+    })
+    |> compact_map()
+  end
+
+  defp package_event_metadata(event, context) do
+    event
+    |> Map.take([:event_type])
+    |> Map.new(fn {key, value} -> {Atom.to_string(key), value} end)
+    |> Map.merge(%{
+      "source" => "endpoint_inventory_diff",
+      "package_set_hash" => context.package_set_hash,
+      "artifact_hash" => context.artifact_hash
+    })
+    |> compact_map()
+  end
+
+  defp package_identity_key(package) do
+    Enum.join(
+      [
+        normalized_coordinate_value(package.package_manager),
+        normalized_coordinate_value(package.name),
+        normalized_coordinate_value(package.architecture),
+        normalized_coordinate_value(package.ecosystem)
+      ],
+      <<0>>
+    )
+  end
+
+  defp package_version_changed?(previous_package, package) do
+    normalized_coordinate_value(previous_package.version) !=
+      normalized_coordinate_value(package.version) or
+      normalized_coordinate_value(previous_package.purl_canonical) !=
+        normalized_coordinate_value(package.purl_canonical)
+  end
+
+  defp package_event_coordinate_hash(event) do
+    parts =
+      [
+        event.event_type,
+        package_coordinate_fragment(Map.get(event, :previous_package)),
+        package_coordinate_fragment(Map.get(event, :package))
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(<<0>>)
+
+    :sha256
+    |> :crypto.hash(parts)
+    |> Base.encode16(case: :lower)
+  end
+
+  defp package_coordinate_fragment(nil), do: nil
+
+  defp package_coordinate_fragment(package) do
+    Enum.map_join(
+      [
+        package.package_manager,
+        package.name,
+        package.version,
+        package.architecture,
+        package.ecosystem,
+        package.purl_canonical
+      ],
+      <<0>>,
+      &normalized_coordinate_value/1
+    )
+  end
+
+  defp package_event_id(context, event_type, coordinate_hash) do
+    "inventory:#{context.agent_id}:#{context.scan_id}:#{event_type}:#{coordinate_hash}"
+  end
+
+  defp normalized_coordinate_value(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+  end
+
+  defp normalized_coordinate_value(nil), do: ""
+
+  defp normalized_coordinate_value(value),
+    do: value |> to_string() |> normalized_coordinate_value()
 
   defp apply_hash_freshness(context, current) do
     package_replacement_noop? = package_replacement_noop?(context, current)
