@@ -16,7 +16,7 @@
 - [x] 3.2 Add durable object upload flow for raw SBOM artifacts through datasvc or an agent-gateway relay.
 - [x] 3.3 Add Elixir migrations for endpoint inventory scan runs, SBOM artifacts, and normalized package/component rows in the `platform` schema.
 - [x] 3.4 Add ingestion code that validates artifact hashes and replaces the current inventory view only after normalized rows commit.
-- [ ] 3.5 Add retention cleanup for historical scans and raw artifacts.
+- [x] 3.5 Add retention cleanup for historical scans and raw artifacts.
 
 ## 4. Query And UI
 - [x] 4.1 Add Ash resources/API reads for scan status, artifact metadata, and package rows.

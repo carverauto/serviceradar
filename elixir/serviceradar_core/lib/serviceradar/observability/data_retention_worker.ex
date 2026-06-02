@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
     unique: [period: 3_600, states: [:available, :scheduled, :executing, :retryable]]
 
   alias Ecto.Adapters.SQL
+  alias ServiceRadar.Inventory.EndpointInventoryRetention
   alias ServiceRadar.Repo
 
   require Logger
@@ -18,6 +19,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_sweep_host_result_retention_days 7
   @default_sweep_execution_retention_days 30
   @default_trivy_retention_days 30
+  @default_endpoint_inventory_retention_days 30
   @default_dataset_snapshot_retention_days 14
   @default_topology_link_retention_days 30
   @query_timeout_ms 120_000
@@ -32,6 +34,7 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       prune_sweep_host_results(config, batch_size),
       prune_sweep_group_executions(config, batch_size),
       prune_trivy_reports(config, batch_size),
+      prune_endpoint_inventory(config, batch_size),
       prune_inactive_dataset_snapshots(
         "netflow_provider_dataset_snapshots",
         config,
@@ -105,6 +108,31 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
       retention_days,
       batch_size
     )
+  end
+
+  defp prune_endpoint_inventory(config, batch_size) do
+    retention_days =
+      Keyword.get(
+        config,
+        :endpoint_inventory_retention_days,
+        @default_endpoint_inventory_retention_days
+      )
+
+    case EndpointInventoryRetention.prune(
+           retention_days: retention_days,
+           batch_size: batch_size,
+           timeout: Keyword.get(config, :endpoint_inventory_datasvc_timeout_ms, 30_000)
+         ) do
+      {:ok, %{deleted_scans: deleted}} ->
+        deleted
+
+      {:error, error} ->
+        Logger.warning("Failed to prune retained endpoint inventory data",
+          reason: Exception.message(error)
+        )
+
+        0
+    end
   end
 
   defp prune_inactive_dataset_snapshots(table_name, config, batch_size) do
