@@ -410,6 +410,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     if record_changed_history?(context) do
       package_events = package_diff_events(previous_packages, context.packages)
       package_event_count = insert_package_events(scan_ref, current, package_events, context)
+      apply_current_count_changes(package_events, context)
 
       insert_scan_history(scan_ref, current, package_event_count, context)
 
@@ -516,10 +517,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     package = Map.get(event, :package) || Map.fetch!(event, :previous_package)
     previous_package = Map.get(event, :previous_package)
     event_type = Map.fetch!(event, :event_type)
-    coordinate_hash = package_event_coordinate_hash(event)
+    event_hash = package_event_coordinate_hash(event)
 
     %{
-      event_id: package_event_id(context, event_type, coordinate_hash),
+      event_id: package_event_id(context, event_type, event_hash),
       scan_time: scan_time,
       scan_ref: scan_ref,
       device_uid: context.device_uid,
@@ -538,7 +539,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       previous_purl: Map.get(previous_package || %{}, :purl),
       previous_purl_canonical: Map.get(previous_package || %{}, :purl_canonical),
       cpes: package.cpes || [],
-      coordinate_hash: coordinate_hash,
+      coordinate_hash: package_coordinate_hash(package),
       package_set_hash: context.package_set_hash,
       previous_package_set_hash: Map.get(current || %{}, :package_set_hash),
       artifact_hash: context.artifact_hash,
@@ -571,6 +572,171 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "artifact_hash" => context.artifact_hash
     })
     |> compact_map()
+  end
+
+  defp apply_current_count_changes([], _context), do: :ok
+
+  defp apply_current_count_changes(package_events, context) do
+    package_events
+    |> Enum.flat_map(&package_count_changes/1)
+    |> Enum.each(fn {package, delta, event} ->
+      event_id = package_count_event_id(context, event, package, delta)
+      host_count = upsert_current_package_count(package, delta, context)
+      insert_package_count_history(package, delta, host_count, event_id, context)
+
+      package
+      |> Map.get(:cpes, [])
+      |> Enum.uniq()
+      |> Enum.reject(&is_blank?/1)
+      |> Enum.each(fn cpe ->
+        cpe_host_count = upsert_current_cpe_count(cpe, delta, context)
+        insert_cpe_count_history(cpe, delta, cpe_host_count, event_id, context)
+      end)
+    end)
+
+    :ok
+  end
+
+  defp package_count_changes(%{event_type: @package_event_added, package: package} = event) do
+    [{package, 1, event}]
+  end
+
+  defp package_count_changes(
+         %{event_type: @package_event_removed, previous_package: package} = event
+       ) do
+    [{package, -1, event}]
+  end
+
+  defp package_count_changes(
+         %{
+           event_type: @package_event_version_changed,
+           previous_package: previous_package,
+           package: package
+         } = event
+       ) do
+    [{previous_package, -1, event}, {package, 1, event}]
+  end
+
+  defp upsert_current_package_count(package, delta, context) do
+    coordinate_hash = package_coordinate_hash(package)
+
+    %{rows: [[host_count]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.endpoint_inventory_current_package_counts (
+          coordinate_hash,
+          package_manager,
+          ecosystem,
+          name,
+          version,
+          architecture,
+          purl_canonical,
+          cpes,
+          host_count,
+          first_seen_at,
+          last_seen_at,
+          updated_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, GREATEST($9::integer, 0), $10, $10, $10)
+        ON CONFLICT (coordinate_hash) DO UPDATE SET
+          package_manager = EXCLUDED.package_manager,
+          ecosystem = EXCLUDED.ecosystem,
+          name = EXCLUDED.name,
+          version = EXCLUDED.version,
+          architecture = EXCLUDED.architecture,
+          purl_canonical = EXCLUDED.purl_canonical,
+          cpes = EXCLUDED.cpes,
+          host_count = GREATEST(0, endpoint_inventory_current_package_counts.host_count + $9::integer),
+          last_seen_at = $10,
+          updated_at = $10
+        RETURNING host_count
+        """,
+        [
+          coordinate_hash,
+          package.package_manager,
+          package.ecosystem,
+          package.name,
+          package.version,
+          package.architecture,
+          package.purl_canonical,
+          package.cpes || [],
+          delta,
+          context.now
+        ]
+      )
+
+    host_count
+  end
+
+  defp insert_package_count_history(package, delta, host_count, event_id, context) do
+    Repo.insert_all(
+      "endpoint_inventory_package_count_history",
+      [
+        %{
+          scan_time: changed_scan_time(context),
+          event_id: event_id,
+          coordinate_hash: package_coordinate_hash(package),
+          package_manager: package.package_manager,
+          ecosystem: package.ecosystem,
+          name: package.name,
+          version: package.version,
+          architecture: package.architecture,
+          purl_canonical: package.purl_canonical,
+          cpes: package.cpes || [],
+          host_count: host_count,
+          count_delta: delta,
+          agent_id: context.agent_id,
+          device_uid: context.device_uid,
+          scan_id: context.scan_id,
+          inserted_at: context.now
+        }
+      ],
+      prefix: "platform"
+    )
+  end
+
+  defp upsert_current_cpe_count(cpe, delta, context) do
+    %{rows: [[host_count]]} =
+      Repo.query!(
+        """
+        INSERT INTO platform.endpoint_inventory_current_cpe_counts (
+          cpe,
+          host_count,
+          first_seen_at,
+          last_seen_at,
+          updated_at
+        )
+        VALUES ($1, GREATEST($2::integer, 0), $3, $3, $3)
+        ON CONFLICT (cpe) DO UPDATE SET
+          host_count = GREATEST(0, endpoint_inventory_current_cpe_counts.host_count + $2::integer),
+          last_seen_at = $3,
+          updated_at = $3
+        RETURNING host_count
+        """,
+        [cpe, delta, context.now]
+      )
+
+    host_count
+  end
+
+  defp insert_cpe_count_history(cpe, delta, host_count, event_id, context) do
+    Repo.insert_all(
+      "endpoint_inventory_cpe_count_history",
+      [
+        %{
+          scan_time: changed_scan_time(context),
+          event_id: event_id,
+          cpe: cpe,
+          host_count: host_count,
+          count_delta: delta,
+          agent_id: context.agent_id,
+          device_uid: context.device_uid,
+          scan_id: context.scan_id,
+          inserted_at: context.now
+        }
+      ],
+      prefix: "platform"
+    )
   end
 
   defp package_identity_key(package) do
@@ -607,6 +773,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     |> Base.encode16(case: :lower)
   end
 
+  defp package_coordinate_hash(package) do
+    package
+    |> package_coordinate_fragment()
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+  end
+
   defp package_coordinate_fragment(nil), do: nil
 
   defp package_coordinate_fragment(package) do
@@ -628,6 +801,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     "inventory:#{context.agent_id}:#{context.scan_id}:#{event_type}:#{coordinate_hash}"
   end
 
+  defp package_count_event_id(context, event, package, delta) do
+    delta_key = if delta > 0, do: "inc", else: "dec"
+    coordinate_hash = package_coordinate_hash(package)
+
+    "inventory-count:#{context.agent_id}:#{context.scan_id}:#{event.event_type}:#{delta_key}:#{coordinate_hash}"
+  end
+
   defp normalized_coordinate_value(value) when is_binary(value) do
     value
     |> String.trim()
@@ -638,6 +818,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp normalized_coordinate_value(value),
     do: value |> to_string() |> normalized_coordinate_value()
+
+  defp is_blank?(value) when is_binary(value), do: String.trim(value) == ""
+  defp is_blank?(nil), do: true
+  defp is_blank?(_value), do: false
 
   defp apply_hash_freshness(context, current) do
     package_replacement_noop? = package_replacement_noop?(context, current)

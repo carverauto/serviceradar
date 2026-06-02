@@ -236,10 +236,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     device = create_device!(actor, "endpoint-inventory-history-device-#{unique}")
     agent_id = "endpoint-inventory-history-agent-#{unique}"
     create_agent!(actor, agent_id, device.uid)
+    nginx = "nginx-history-#{unique}"
+    openssl = "openssl-history-#{unique}"
+    curl = "curl-history-#{unique}"
 
     first_components = [
-      package_component("nginx", "1.24.0-2ubuntu7"),
-      package_component("openssl", "3.0.13-0ubuntu3")
+      package_component(nginx, "1.24.0-2ubuntu7"),
+      package_component(openssl, "3.0.13-0ubuntu3")
     ]
 
     assert {:ok, first} =
@@ -256,13 +259,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan_history_count(agent_id) == 1
 
     assert [
-             %{event_type: "added", name: "nginx", new_version: "1.24.0-2ubuntu7"},
-             %{event_type: "added", name: "openssl", new_version: "3.0.13-0ubuntu3"}
+             %{event_type: "added", name: ^nginx, new_version: "1.24.0-2ubuntu7"},
+             %{event_type: "added", name: ^openssl, new_version: "3.0.13-0ubuntu3"}
            ] = package_event_rows(agent_id, "scan-history-first-#{unique}")
 
     second_components = [
-      package_component("curl", "8.5.0-2ubuntu10"),
-      package_component("nginx", "1.24.1-2ubuntu7")
+      package_component(curl, "8.5.0-2ubuntu10"),
+      package_component(nginx, "1.24.1-2ubuntu7")
     ]
 
     assert {:ok, second} =
@@ -279,15 +282,24 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert scan_history_count(agent_id) == 2
 
     assert [
-             %{event_type: "added", name: "curl", new_version: "8.5.0-2ubuntu10"},
-             %{event_type: "removed", name: "openssl", previous_version: "3.0.13-0ubuntu3"},
+             %{event_type: "added", name: ^curl, new_version: "8.5.0-2ubuntu10"},
+             %{event_type: "removed", name: ^openssl, previous_version: "3.0.13-0ubuntu3"},
              %{
                event_type: "version_changed",
-               name: "nginx",
+               name: ^nginx,
                previous_version: "1.24.0-2ubuntu7",
                new_version: "1.24.1-2ubuntu7"
              }
            ] = package_event_rows(agent_id, "scan-history-second-#{unique}")
+
+    assert current_package_host_count(nginx, "1.24.0-2ubuntu7") == 0
+    assert current_package_host_count(nginx, "1.24.1-2ubuntu7") == 1
+    assert current_package_host_count(openssl, "3.0.13-0ubuntu3") == 0
+    assert current_package_host_count(curl, "8.5.0-2ubuntu10") == 1
+    assert current_cpe_host_count(package_cpe(nginx, "1.24.1-2ubuntu7")) == 1
+    assert current_cpe_host_count(package_cpe(openssl, "3.0.13-0ubuntu3")) == 0
+    assert package_count_history_count(agent_id) == 6
+    assert cpe_count_history_count(agent_id) == 6
 
     latest_scan = current_scan(agent_id)
     package_event_total = package_event_count(agent_id)
@@ -319,6 +331,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     if timescale_installed?() do
       assert "endpoint_inventory_scan_history" in endpoint_inventory_hypertables()
       assert "endpoint_inventory_package_events" in endpoint_inventory_hypertables()
+      assert "endpoint_inventory_package_count_history" in endpoint_inventory_hypertables()
+      assert "endpoint_inventory_cpe_count_history" in endpoint_inventory_hypertables()
+
+      assert "endpoint_inventory_package_counts_hourly" in endpoint_inventory_continuous_aggregates()
+
+      assert "endpoint_inventory_cpe_counts_hourly" in endpoint_inventory_continuous_aggregates()
     end
   end
 
@@ -465,13 +483,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       "name" => name,
       "version" => version,
       "purl" => "pkg:deb/#{name}@#{version}",
-      "cpe" => "cpe:2.3:a:#{name}:#{name}:#{version}:*:*:*:*:*:*:*",
+      "cpe" => package_cpe(name, version),
       "properties" => [
         %{"name" => "serviceradar:package_manager", "value" => package_manager},
         %{"name" => "serviceradar:architecture", "value" => architecture}
       ]
     }
   end
+
+  defp package_cpe(name, version), do: "cpe:2.3:a:#{name}:#{name}:#{version}:*:*:*:*:*:*:*"
 
   defp successful_upload do
     fn _metadata, _data, _opts -> {:ok, %{ok?: true}} end
@@ -546,6 +566,46 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     )
   end
 
+  defp current_package_host_count(name, version) do
+    Repo.one!(
+      from(c in "endpoint_inventory_current_package_counts",
+        where: c.name == ^name and c.version == ^version,
+        select: c.host_count
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp current_cpe_host_count(cpe) do
+    Repo.one!(
+      from(c in "endpoint_inventory_current_cpe_counts",
+        where: c.cpe == ^cpe,
+        select: c.host_count
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp package_count_history_count(agent_id) do
+    Repo.one!(
+      from(c in "endpoint_inventory_package_count_history",
+        where: c.agent_id == ^agent_id,
+        select: count(c.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp cpe_count_history_count(agent_id) do
+    Repo.one!(
+      from(c in "endpoint_inventory_cpe_count_history",
+        where: c.agent_id == ^agent_id,
+        select: count(c.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
   defp package_event_rows(agent_id, scan_id) do
     Repo.all(
       from(e in "endpoint_inventory_package_events",
@@ -578,7 +638,24 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       WHERE hypertable_schema = 'platform'
         AND hypertable_name IN (
           'endpoint_inventory_scan_history',
-          'endpoint_inventory_package_events'
+          'endpoint_inventory_package_events',
+          'endpoint_inventory_package_count_history',
+          'endpoint_inventory_cpe_count_history'
+        )
+      """)
+
+    Enum.map(rows, fn [name] -> name end)
+  end
+
+  defp endpoint_inventory_continuous_aggregates do
+    %{rows: rows} =
+      Repo.query!("""
+      SELECT view_name
+      FROM timescaledb_information.continuous_aggregates
+      WHERE view_schema = 'platform'
+        AND view_name IN (
+          'endpoint_inventory_package_counts_hourly',
+          'endpoint_inventory_cpe_counts_hourly'
         )
       """)
 
