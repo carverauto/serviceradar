@@ -65,10 +65,11 @@ const AF_INET6: u16 = 10;
 const FLOW_ENDPOINT_A: u8 = 1;
 #[allow(dead_code)]
 const FLOW_ENDPOINT_B: u8 = 2;
+// Wire size of the eBPF TcpSynSignatureRecord (#[repr(C)], see
+// rust/netprobe/ebpf/src/lib.rs). Userspace decodes it then builds the p0f
+// signature string itself via crate::p0f_encode.
 #[allow(dead_code)]
-const P0F_SIGNATURE_MAX_LEN: usize = 96;
-#[allow(dead_code)]
-const P0F_RING_RECORD_LEN: usize = 160;
+const TCP_SYN_RING_RECORD_LEN: usize = 104;
 
 #[derive(Clone, Debug, Default)]
 pub struct FingerprintAccumulator {
@@ -397,7 +398,7 @@ fn skip_dns_name(message: &[u8], offset: &mut usize) -> Option<()> {
 
 #[cfg(target_os = "linux")]
 #[allow(dead_code)]
-const P0F_SIGNATURES_MAP: &str = "p0f_signatures";
+const TCP_SYN_SIGNATURES_MAP: &str = "tcp_syn_signatures";
 
 #[cfg(feature = "remote-capture")]
 pub struct FingerprintEngine {
@@ -1075,14 +1076,46 @@ fn auxiliary_observation(
     }
 }
 
+// Raw TCP-SYN observation decoded from the tcp_syn_signatures ring buffer. The
+// p0f signature string is built from these fields in userspace (see
+// crate::p0f_encode) rather than in the eBPF program.
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
-pub struct P0fRingRecord {
+pub struct TcpSynRingRecord {
     pub version: u16,
+    pub ip_version: u16,
+    pub ttl: u8,
+    pub window_scale: u8,
+    pub options_len: u8,
+    pub payload_class: u8,
     pub source_endpoint: u8,
-    pub flow_key: FlowKey,
+    pub window_size: u16,
+    pub mss: u16,
+    pub quirks: u32,
     pub observed_ns: u64,
-    pub p0f_signature: String,
+    pub flow_key: FlowKey,
+    pub options_layout: [u8; 32],
+}
+
+impl TcpSynRingRecord {
+    // Build the canonical p0f signature string from the raw SYN fields. The
+    // encoder is allocation-free and ASCII-only, so UTF-8 decoding is total.
+    fn p0f_signature(&self) -> String {
+        let mut out = [0u8; crate::p0f_encode::P0F_SIGNATURE_MAX_LEN];
+        let len = crate::p0f_encode::encode(
+            &mut out,
+            self.ip_version,
+            self.ttl,
+            self.window_size,
+            self.mss,
+            &self.options_layout,
+            self.options_len,
+            self.window_scale,
+            self.payload_class,
+            self.quirks,
+        ) as usize;
+        String::from_utf8_lossy(&out[..len]).into_owned()
+    }
 }
 
 #[allow(dead_code)]
@@ -1101,7 +1134,7 @@ impl P0fSignatureEngine {
     pub fn event_from_ring_record(
         &self,
         interface_name: &str,
-        record: &P0fRingRecord,
+        record: &TcpSynRingRecord,
     ) -> Option<FingerprintEvent> {
         self.event_from_ring_record_with_accumulator(interface_name, record, None)
     }
@@ -1109,25 +1142,24 @@ impl P0fSignatureEngine {
     fn event_from_ring_record_with_accumulator(
         &self,
         interface_name: &str,
-        record: &P0fRingRecord,
+        record: &TcpSynRingRecord,
         accumulator: Option<&FingerprintAccumulator>,
     ) -> Option<FingerprintEvent> {
         if record.version != EVENT_VERSION {
             log::warn!(
-                "dropping unsupported p0f signature record version {}",
+                "dropping unsupported tcp syn signature record version {}",
                 record.version
             );
             return None;
         }
 
-        let matched = match self.matcher.match_signature(&record.p0f_signature) {
+        let p0f_signature = record.p0f_signature();
+
+        let matched = match self.matcher.match_signature(&p0f_signature) {
             Ok(Some(matched)) => matched,
             Ok(None) => return None,
             Err(error) => {
-                log::warn!(
-                    "failed to match p0f signature {:?}: {error}",
-                    record.p0f_signature
-                );
+                log::warn!("failed to match p0f signature {p0f_signature:?}: {error}");
                 return None;
             }
         };
@@ -1139,7 +1171,7 @@ impl P0fSignatureEngine {
             source_ip,
             interface_name,
             record.observed_ns.min(i64::MAX as u64) as i64,
-            record.p0f_signature.clone(),
+            p0f_signature,
             matched,
             accumulated,
         ))
@@ -1150,7 +1182,7 @@ impl P0fSignatureEngine {
         interface_name: &str,
         bytes: &[u8],
     ) -> Option<FingerprintEvent> {
-        self.event_from_ring_record(interface_name, &parse_p0f_ring_record(bytes)?)
+        self.event_from_ring_record(interface_name, &parse_tcp_syn_ring_record(bytes)?)
     }
 
     fn event_from_ring_bytes_with_accumulator(
@@ -1161,7 +1193,7 @@ impl P0fSignatureEngine {
     ) -> Option<FingerprintEvent> {
         self.event_from_ring_record_with_accumulator(
             interface_name,
-            &parse_p0f_ring_record(bytes)?,
+            &parse_tcp_syn_ring_record(bytes)?,
             accumulator,
         )
     }
@@ -1180,8 +1212,8 @@ pub struct P0fSignatureRing<'a> {
 impl<'a> P0fSignatureRing<'a> {
     pub fn from_ebpf(interface_name: impl Into<String>, ebpf: &'a mut aya::Ebpf) -> Result<Self> {
         let map = ebpf
-            .map_mut(P0F_SIGNATURES_MAP)
-            .ok_or_else(|| anyhow::anyhow!("{P0F_SIGNATURES_MAP} map is missing"))?;
+            .map_mut(TCP_SYN_SIGNATURES_MAP)
+            .ok_or_else(|| anyhow::anyhow!("{TCP_SYN_SIGNATURES_MAP} map is missing"))?;
         Ok(Self {
             interface_name: interface_name.into(),
             engine: P0fSignatureEngine::bundled()?,
@@ -1243,8 +1275,8 @@ impl P0fSignatureRuntime {
         metrics: Metrics,
     ) -> Result<Self> {
         let map = ebpf
-            .take_map(P0F_SIGNATURES_MAP)
-            .ok_or_else(|| anyhow::anyhow!("{P0F_SIGNATURES_MAP} map is missing"))?;
+            .take_map(TCP_SYN_SIGNATURES_MAP)
+            .ok_or_else(|| anyhow::anyhow!("{TCP_SYN_SIGNATURES_MAP} map is missing"))?;
         let mut consumer = P0fSignatureConsumer {
             interface_name: interface_name.into(),
             engine: P0fSignatureEngine::bundled()?,
@@ -1325,29 +1357,47 @@ impl P0fSignatureConsumer {
     }
 }
 
+// Decode a TcpSynSignatureRecord (eBPF #[repr(C)], 104 bytes) from raw ring
+// bytes. Field offsets mirror the explicit-padding layout in
+// rust/netprobe/ebpf/src/lib.rs; keep them in sync.
 #[allow(dead_code)]
-fn parse_p0f_ring_record(bytes: &[u8]) -> Option<P0fRingRecord> {
-    if bytes.len() != P0F_RING_RECORD_LEN {
+fn parse_tcp_syn_ring_record(bytes: &[u8]) -> Option<TcpSynRingRecord> {
+    if bytes.len() != TCP_SYN_RING_RECORD_LEN {
         return None;
     }
 
     let version = u16::from_ne_bytes(bytes.get(0..2)?.try_into().ok()?);
-    let source_endpoint = *bytes.get(2)?;
-    let flow_key = parse_flow_key(bytes.get(8..48)?)?;
-    let observed_ns = u64::from_ne_bytes(bytes.get(48..56)?.try_into().ok()?);
-    let p0f_len = usize::from(*bytes.get(152)?);
-    if p0f_len > P0F_SIGNATURE_MAX_LEN {
-        return None;
-    }
-    let p0f_bytes = bytes.get(56..56 + p0f_len)?;
-    let p0f_signature = std::str::from_utf8(p0f_bytes).ok()?.to_string();
+    let ip_version = u16::from_ne_bytes(bytes.get(2..4)?.try_into().ok()?);
+    let ttl = *bytes.get(4)?;
+    let window_scale = *bytes.get(5)?;
+    let options_len = *bytes.get(6)?;
+    let payload_class = *bytes.get(7)?;
+    let source_endpoint = *bytes.get(8)?;
+    // bytes[9] = reserved0 pad
+    let window_size = u16::from_ne_bytes(bytes.get(10..12)?.try_into().ok()?);
+    let mss = u16::from_ne_bytes(bytes.get(12..14)?.try_into().ok()?);
+    // bytes[14..16] = reserved1 pad
+    let quirks = u32::from_ne_bytes(bytes.get(16..20)?.try_into().ok()?);
+    // bytes[20..24] = reserved2 pad
+    let observed_ns = u64::from_ne_bytes(bytes.get(24..32)?.try_into().ok()?);
+    let flow_key = parse_flow_key(bytes.get(32..72)?)?;
+    let mut options_layout = [0u8; 32];
+    options_layout.copy_from_slice(bytes.get(72..104)?);
 
-    Some(P0fRingRecord {
+    Some(TcpSynRingRecord {
         version,
+        ip_version,
+        ttl,
+        window_scale,
+        options_len,
+        payload_class,
         source_endpoint,
-        flow_key,
+        window_size,
+        mss,
+        quirks,
         observed_ns,
-        p0f_signature,
+        flow_key,
+        options_layout,
     })
 }
 
@@ -1535,23 +1585,27 @@ fn source_ip(headers: &NetHeaders) -> Option<IpAddr> {
 #[cfg(test)]
 mod p0f_ring_tests {
     use super::{
-        parse_p0f_ring_record, source_ip_from_flow_key, DpiPayloadContext, FingerprintAccumulator,
-        P0fSignatureEngine, AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A, FLOW_ENDPOINT_B,
-        P0F_RING_RECORD_LEN,
+        parse_tcp_syn_ring_record, source_ip_from_flow_key, DpiPayloadContext,
+        FingerprintAccumulator, P0fSignatureEngine, AF_INET, EVENT_VERSION, FLOW_ENDPOINT_A,
+        FLOW_ENDPOINT_B, TCP_SYN_RING_RECORD_LEN,
     };
     use crate::af_xdp_classifier::FlowKey;
     use crate::proto::netprobe::fingerprint_event;
     use crate::recog::RecogService;
     use std::net::{IpAddr, Ipv4Addr};
 
-    #[test]
-    fn parses_p0f_ring_record_and_preserves_source_endpoint() {
-        let bytes = p0f_record_bytes(
-            FLOW_ENDPOINT_B,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
-        );
+    // p0f quirk bits mirrored from the eBPF TCP_SYN_QUIRK_* constants.
+    const QUIRK_DF: u32 = 1 << 1;
+    const QUIRK_ID_PLUS: u32 = 1 << 2;
 
-        let record = parse_p0f_ring_record(&bytes).unwrap();
+    // Canonical p0f signature the Linux fixture fields encode to.
+    const LINUX_P0F_SIGNATURE: &str = "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0";
+
+    #[test]
+    fn parses_tcp_syn_ring_record_and_encodes_p0f_in_userspace() {
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_B);
+
+        let record = parse_tcp_syn_ring_record(&bytes).unwrap();
 
         assert_eq!(record.version, EVENT_VERSION);
         assert_eq!(record.observed_ns, 123);
@@ -1560,18 +1614,19 @@ mod p0f_ring_tests {
             source_ip_from_flow_key(&record.flow_key, record.source_endpoint),
             Some(IpAddr::V4(Ipv4Addr::new(198, 51, 100, 20)))
         );
-        assert_eq!(
-            record.p0f_signature,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0"
-        );
+        // The p0f signature is built in userspace from the raw SYN fields.
+        assert_eq!(record.p0f_signature(), LINUX_P0F_SIGNATURE);
     }
 
     #[test]
-    fn builds_license_clean_event_from_p0f_ring_record() {
-        let bytes = p0f_record_bytes(
-            FLOW_ENDPOINT_B,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
-        );
+    fn rejects_wrong_length_tcp_syn_ring_record() {
+        assert!(parse_tcp_syn_ring_record(&[0; TCP_SYN_RING_RECORD_LEN - 1]).is_none());
+        assert!(parse_tcp_syn_ring_record(&[0; TCP_SYN_RING_RECORD_LEN + 1]).is_none());
+    }
+
+    #[test]
+    fn builds_license_clean_event_from_tcp_syn_ring_record() {
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_B);
         let engine = P0fSignatureEngine::bundled().unwrap();
 
         let event = engine.event_from_ring_bytes("eth0", &bytes).unwrap();
@@ -1582,10 +1637,7 @@ mod p0f_ring_tests {
         let Some(fingerprint_event::Evidence::LicenseClean(fingerprint)) = event.evidence else {
             panic!("expected license-clean fingerprint");
         };
-        assert_eq!(
-            fingerprint.p0f_signature,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0"
-        );
+        assert_eq!(fingerprint.p0f_signature, LINUX_P0F_SIGNATURE);
         assert_eq!(
             fingerprint
                 .p0f_match
@@ -1599,11 +1651,8 @@ mod p0f_ring_tests {
 
     #[test]
     fn enriches_p0f_ring_event_with_accumulated_ja4() {
-        let bytes = p0f_record_bytes(
-            FLOW_ENDPOINT_B,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
-        );
-        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_B);
+        let record = parse_tcp_syn_ring_record(&bytes).unwrap();
         let accumulator = FingerprintAccumulator::default();
         accumulator.observe_dpi_payload(record.flow_key, &tls_client_hello_payload(), 124);
         let engine = P0fSignatureEngine::bundled().unwrap();
@@ -1638,11 +1687,8 @@ mod p0f_ring_tests {
 
     #[test]
     fn enriches_p0f_ring_event_with_accumulated_hassh() {
-        let bytes = p0f_record_bytes(
-            FLOW_ENDPOINT_B,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
-        );
-        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_B);
+        let record = parse_tcp_syn_ring_record(&bytes).unwrap();
         let accumulator = FingerprintAccumulator::default();
         accumulator.observe_dpi_payload(record.flow_key, &ssh_kexinit_payload(), 124);
         let engine = P0fSignatureEngine::bundled().unwrap();
@@ -1676,11 +1722,8 @@ mod p0f_ring_tests {
 
     #[test]
     fn enriches_p0f_ring_event_with_accumulated_recog_ssh() {
-        let bytes = p0f_record_bytes(
-            FLOW_ENDPOINT_B,
-            "4:64:0:1460:29200,10:mss,sok,ts,nop,ws:df,id+:0",
-        );
-        let record = parse_p0f_ring_record(&bytes).unwrap();
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_B);
+        let record = parse_tcp_syn_ring_record(&bytes).unwrap();
         let accumulator = FingerprintAccumulator::default();
         accumulator.observe_dpi_payload_with_context(
             DpiPayloadContext {
@@ -1903,23 +1946,34 @@ mod p0f_ring_tests {
     }
 
     #[test]
-    fn rejects_malformed_p0f_ring_records() {
-        assert!(parse_p0f_ring_record(&[0; P0F_RING_RECORD_LEN - 1]).is_none());
-
-        let mut bytes = p0f_record_bytes(FLOW_ENDPOINT_A, "4:64:0:*:*,*:mss:df:0");
-        bytes[152] = 255;
-
-        assert!(parse_p0f_ring_record(&bytes).is_none());
+    fn source_endpoint_a_resolves_to_endpoint_a_addr() {
+        let bytes = tcp_syn_record_bytes(FLOW_ENDPOINT_A);
+        let record = parse_tcp_syn_ring_record(&bytes).unwrap();
+        assert_eq!(
+            source_ip_from_flow_key(&record.flow_key, record.source_endpoint),
+            Some(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 10)))
+        );
     }
 
-    fn p0f_record_bytes(source_endpoint: u8, signature: &str) -> Vec<u8> {
-        let mut bytes = vec![0u8; P0F_RING_RECORD_LEN];
-        bytes[0..2].copy_from_slice(&EVENT_VERSION.to_ne_bytes());
-        bytes[2] = source_endpoint;
-        write_flow_key(&mut bytes[8..48], fixture_flow_key(443, 51_234));
-        bytes[48..56].copy_from_slice(&123u64.to_ne_bytes());
-        bytes[56..56 + signature.len()].copy_from_slice(signature.as_bytes());
-        bytes[152] = signature.len() as u8;
+    // Builds a TcpSynSignatureRecord (eBPF #[repr(C)], 104 bytes, explicit
+    // padding) whose raw SYN fields encode to LINUX_P0F_SIGNATURE. Offsets mirror
+    // parse_tcp_syn_ring_record / the eBPF struct layout.
+    fn tcp_syn_record_bytes(source_endpoint: u8) -> Vec<u8> {
+        let mut bytes = vec![0u8; TCP_SYN_RING_RECORD_LEN];
+        bytes[0..2].copy_from_slice(&EVENT_VERSION.to_ne_bytes()); // version
+        bytes[2..4].copy_from_slice(&4u16.to_ne_bytes()); // ip_version
+        bytes[4] = 64; // ttl
+        bytes[5] = 10; // window_scale
+        bytes[6] = 5; // options_len
+        bytes[7] = 0; // payload_class (empty)
+        bytes[8] = source_endpoint;
+        bytes[10..12].copy_from_slice(&29_200u16.to_ne_bytes()); // window_size
+        bytes[12..14].copy_from_slice(&1_460u16.to_ne_bytes()); // mss
+        bytes[16..20].copy_from_slice(&(QUIRK_DF | QUIRK_ID_PLUS).to_ne_bytes()); // quirks
+        bytes[24..32].copy_from_slice(&123u64.to_ne_bytes()); // observed_ns
+        write_flow_key(&mut bytes[32..72], fixture_flow_key(443, 51_234));
+        // options_layout: mss(2),sok(4),ts(8),nop(1),ws(3)
+        bytes[72..77].copy_from_slice(&[2, 4, 8, 1, 3]);
         bytes
     }
 

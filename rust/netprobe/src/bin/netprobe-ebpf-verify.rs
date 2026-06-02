@@ -73,6 +73,11 @@ fn main() -> Result<()> {
                     .load()
                     .with_context(|| format!("verifier rejected tracepoint {name}"))?;
             }
+            Program::Xdp(program) => {
+                program
+                    .load()
+                    .with_context(|| format!("verifier rejected XDP program {name}"))?;
+            }
             other => {
                 anyhow::bail!(
                     "unexpected program type for {name}: {:?}",

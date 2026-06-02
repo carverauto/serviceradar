@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use aya::{
-    maps::HashMap as AyaHashMap,
-    programs::{tc, SchedClassifier, TcAttachType},
+    maps::{HashMap as AyaHashMap, ProgramArray},
+    programs::{tc, SchedClassifier, TcAttachType, Xdp, XdpFlags},
     Ebpf,
 };
 use nix::libc;
@@ -112,7 +112,14 @@ impl NetprobeEbpfRuntime {
             dpi_gate,
             fingerprint_accumulator,
         )?;
+        // Load the tail-call target (netprobe_tc_syn_signature) and populate the
+        // jump table BEFORE attaching the classifiers, so their tail calls land.
+        setup_tc_tail_calls(&mut ebpf)?;
         attach_tc_programs(&mut ebpf, &config.capture_interfaces)?;
+        // The XDP program owns the AF_XDP/XSKMAP redirect (TC cannot redirect into
+        // an XSKMAP). Attach after the classifier runtime has registered one XSK
+        // per rx queue, so the redirect has live socket targets.
+        attach_xdp_program(&mut ebpf, &config.capture_interfaces)?;
 
         Ok(Self {
             _classifier_runtime: classifier_runtime,
@@ -345,6 +352,42 @@ fn process_cpu_ticks() -> Result<u64> {
     Ok(user_ticks.saturating_add(system_ticks))
 }
 
+// Index in the tc_tail_calls ProgramArray; must match TC_TAIL_SYN_SIGNATURE in
+// the eBPF source (rust/netprobe/ebpf/src/lib.rs).
+const TC_TAIL_SYN_SIGNATURE: u32 = 0;
+
+// Loads the tail-call target (netprobe_tc_syn_signature) and registers its fd in
+// the tc_tail_calls jump table so the TC classifiers can bpf_tail_call into it.
+// The target is loaded (verified) but never attached to a hook.
+fn setup_tc_tail_calls(ebpf: &mut Ebpf) -> Result<()> {
+    let syn_fd = {
+        let program: &mut SchedClassifier = ebpf
+            .program_mut("netprobe_tc_syn_signature")
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "netprobe_tc_syn_signature program is missing from netprobe eBPF object"
+                )
+            })?
+            .try_into()?;
+        program
+            .load()
+            .context("failed to load TC program netprobe_tc_syn_signature")?;
+        program
+            .fd()
+            .context("netprobe_tc_syn_signature has no fd after load")?
+            .try_clone()
+            .context("failed to clone netprobe_tc_syn_signature fd")?
+    };
+    let mut jump_table: ProgramArray<_> = ebpf
+        .map_mut("tc_tail_calls")
+        .ok_or_else(|| anyhow::anyhow!("tc_tail_calls map is missing from netprobe eBPF object"))?
+        .try_into()?;
+    jump_table
+        .set(TC_TAIL_SYN_SIGNATURE, &syn_fd, 0)
+        .context("failed to register netprobe_tc_syn_signature in tc_tail_calls jump table")?;
+    Ok(())
+}
+
 fn attach_tc_programs(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
     for interface in interfaces {
         ensure_clsact(interface)?;
@@ -357,6 +400,39 @@ fn attach_tc_programs(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
         TcAttachType::Ingress,
     )?;
     attach_tc_program(ebpf, "netprobe_tc_egress", interfaces, TcAttachType::Egress)
+}
+
+fn attach_xdp_program(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
+    let program: &mut Xdp = ebpf
+        .program_mut("netprobe_xdp_ingress")
+        .ok_or_else(|| {
+            anyhow::anyhow!("netprobe_xdp_ingress program is missing from netprobe eBPF object")
+        })?
+        .try_into()?;
+    program
+        .load()
+        .context("failed to load XDP program netprobe_xdp_ingress")?;
+
+    for interface in interfaces {
+        // Try native/driver XDP first; fall back to generic (SKB) mode for NICs
+        // without native XDP support (e.g. virtio-net). AF_XDP capture works in
+        // either mode via XDP_COPY; native is just higher throughput.
+        match program.attach(interface, XdpFlags::default()) {
+            Ok(_) => {}
+            Err(err) => {
+                log::warn!(
+                    "native XDP attach failed on {interface} ({err:#}); retrying in SKB (generic) mode"
+                );
+                program
+                    .attach(interface, XdpFlags::SKB_MODE)
+                    .with_context(|| {
+                        format!("failed to attach netprobe_xdp_ingress to {interface}")
+                    })?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 fn attach_tc_program(

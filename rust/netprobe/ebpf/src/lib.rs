@@ -1,14 +1,12 @@
 #![no_std]
 #![no_main]
 
-mod p0f;
-
 use aya_ebpf::{
-    bindings::{BPF_ANY, TC_ACT_OK},
+    bindings::{xdp_action, BPF_ANY, TC_ACT_OK},
     helpers::bpf_ktime_get_ns,
-    macros::{classifier, kprobe, kretprobe, map, tracepoint},
-    maps::{HashMap as BpfHashMap, LruHashMap, RingBuf, XskMap},
-    programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext},
+    macros::{classifier, kprobe, kretprobe, map, tracepoint, xdp},
+    maps::{HashMap as BpfHashMap, LruHashMap, ProgramArray, RingBuf, XskMap},
+    programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext, XdpContext},
     EbpfContext,
 };
 use core::{ffi::c_void, panic::PanicInfo, ptr::addr_of_mut};
@@ -30,7 +28,14 @@ const TCP_MIN_HEADER_LEN: usize = 20;
 const UDP_HEADER_LEN: usize = 8;
 const TCP_FLAG_SYN: u8 = 0x02;
 const TCP_MAX_OPTIONS_LAYOUT: usize = 32;
-const TCP_SYN_QUIRK_MALFORMED_OPTIONS: u32 = 1 << 0;
+// p0f quirk bits emitted to userspace in TcpSynSignatureRecord.quirks. The
+// userspace encoder (rust/netprobe/src/p0f_encode.rs) renders these into the
+// p0f signature's quirks field; keep the bit values in sync with it.
+const TCP_SYN_QUIRK_MALFORMED_OPTIONS: u32 = 1 << 0; // "bad"
+const TCP_SYN_QUIRK_DF: u32 = 1 << 1; // "df": IPv4 don't-fragment set
+const TCP_SYN_QUIRK_ID_PLUS: u32 = 1 << 2; // "id+": DF set but IP ID non-zero
+const TCP_SYN_QUIRK_ID_MINUS: u32 = 1 << 3; // "id-": DF clear but IP ID zero
+const IPV4_FLAG_DF: u16 = 0x4000;
 const TCP_PAYLOAD_CLASS_EMPTY: u8 = 0;
 const TCP_PAYLOAD_CLASS_NON_EMPTY: u8 = 1;
 
@@ -42,8 +47,6 @@ const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
-const XSK_DEFAULT_QUEUE_COUNT: u32 = 1;
-const FLOW_REDIRECT_BUDGET: u32 = 16;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
 
@@ -179,34 +182,30 @@ pub struct InterfaceConfig {
     pub xsk_queue_count: u32,
 }
 
+// Raw TCP-SYN observation emitted to userspace. The p0f signature STRING is
+// built in userspace (rust/netprobe/src/p0f_encode.rs) from these fields — the
+// eBPF only parses the SYN, keeping the program cheap for the verifier. The
+// explicit reserved fields give a deterministic #[repr(C)] layout (104 bytes,
+// no implicit padding) that the userspace parser mirrors byte-for-byte.
 #[repr(C)]
 #[derive(Copy, Clone)]
 pub struct TcpSynSignatureRecord {
-    pub version: u16,
-    pub ip_version: u16,
-    pub ttl: u8,
-    pub window_scale: u8,
-    pub options_len: u8,
-    pub payload_class: u8,
-    pub window_size: u16,
-    pub mss: u16,
-    pub quirks: u32,
-    pub observed_ns: u64,
-    pub flow_key: FlowKey,
-    pub options_layout: [u8; TCP_MAX_OPTIONS_LAYOUT],
-}
-
-#[repr(C)]
-#[derive(Copy, Clone)]
-pub struct P0fRecord {
-    pub version: u16,
-    pub source_endpoint: u8,
-    pub reserved: [u8; 5],
-    pub flow_key: FlowKey,
-    pub observed_ns: u64,
-    pub p0f_string: [u8; p0f::P0F_SIGNATURE_MAX_LEN],
-    pub p0f_len: u8,
-    pub reserved_tail: [u8; 7],
+    pub version: u16,                                 // @0
+    pub ip_version: u16,                              // @2
+    pub ttl: u8,                                      // @4
+    pub window_scale: u8,                             // @5
+    pub options_len: u8,                              // @6
+    pub payload_class: u8,                            // @7
+    pub source_endpoint: u8, // @8  FLOW_ENDPOINT_A/B: which endpoint sent the SYN
+    pub reserved0: u8,       // @9
+    pub window_size: u16,    // @10
+    pub mss: u16,            // @12
+    pub reserved1: u16,      // @14
+    pub quirks: u32,         // @16
+    pub reserved2: u32,      // @20
+    pub observed_ns: u64,    // @24
+    pub flow_key: FlowKey,   // @32..72
+    pub options_layout: [u8; TCP_MAX_OPTIONS_LAYOUT], // @72..104
 }
 
 #[map(name = "flow_events")]
@@ -214,9 +213,6 @@ static FLOW_EVENTS: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "tcp_syn_signatures")]
 static TCP_SYN_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
-
-#[map(name = "p0f_signatures")]
-static P0F_SIGNATURES: RingBuf = RingBuf::pinned(1 << 20, 0);
 
 #[map(name = "flow_table")]
 static FLOW_TABLE: LruHashMap<FlowTableKey, FlowTableEntry> =
@@ -237,14 +233,71 @@ static INTERFACE_ALLOWLIST: BpfHashMap<u32, InterfaceConfig> =
 #[map(name = "xsk_sockets")]
 static XSK_SOCKETS: XskMap = XskMap::pinned(XSK_MAX_QUEUES, 0);
 
+// Tail-call jump table. The flow-accounting classifier hands the TCP-SYN
+// observation to netprobe_tc_syn_signature (index TC_TAIL_SYN_SIGNATURE) so the
+// SYN parse path runs with its own fresh 512-byte BPF stack budget — combined
+// with flow accounting in one program the call chain's stack exceeds the limit.
+// The userspace loader populates this with that program's fd.
+const TC_TAIL_SYN_SIGNATURE: u32 = 0;
+
+#[map(name = "tc_tail_calls")]
+static TC_TAIL_CALLS: ProgramArray = ProgramArray::pinned(4, 0);
+
 #[classifier]
 pub fn netprobe_tc_ingress(ctx: TcContext) -> i32 {
-    classify_and_maybe_redirect(ctx)
+    if account_flow(&ctx) {
+        // The tail call MUST live in the entry program: the BPF verifier rejects
+        // bpf_tail_call inside bpf-to-bpf subprograms. Falls through to TC_ACT_OK
+        // if the jump table is not yet populated.
+        let _ = unsafe { TC_TAIL_CALLS.tail_call(&ctx, TC_TAIL_SYN_SIGNATURE) };
+    }
+    TC_ACT_OK as i32
 }
 
 #[classifier]
 pub fn netprobe_tc_egress(ctx: TcContext) -> i32 {
-    classify_and_maybe_redirect(ctx)
+    if account_flow(&ctx) {
+        let _ = unsafe { TC_TAIL_CALLS.tail_call(&ctx, TC_TAIL_SYN_SIGNATURE) };
+    }
+    TC_ACT_OK as i32
+}
+
+// Tail-call target of netprobe_tc_{ingress,egress}: parses the TCP SYN and emits
+// the raw observation. A separate program so the verifier gives it its own
+// 512-byte stack budget (the SYN parse path's deepest frame is ~376 bytes; added
+// to the flow-accounting classifier's frame it exceeds the BPF stack limit).
+#[classifier]
+pub fn netprobe_tc_syn_signature(ctx: TcContext) -> i32 {
+    if interface_config(skb_interface_index(&ctx)).is_none() {
+        return TC_ACT_OK as i32;
+    }
+    emit_tcp_syn_signature_from_tc(&ctx, now_ns());
+    TC_ACT_OK as i32
+}
+
+#[xdp]
+pub fn netprobe_xdp_ingress(ctx: XdpContext) -> u32 {
+    xdp_redirect_to_af_xdp(&ctx)
+}
+
+// AF_XDP/XSKMAP redirect is only legal from an XDP hook: bpf_redirect_map into an
+// XSKMAP is rejected by the verifier for TC/sched_cls ("unknown func
+// bpf_redirect_map#51"). Redirect each frame into the AF_XDP socket bound to the
+// rx queue it arrived on; the userspace loader registers one XSK per rx queue
+// keyed by rx_queue_index, so the redirect key MUST be rx_queue_index (a flow
+// hash cannot pick the kernel's delivery queue).
+#[inline(always)]
+fn xdp_redirect_to_af_xdp(ctx: &XdpContext) -> u32 {
+    // SAFETY: ingress_ifindex/rx_queue_index are scalar xdp_md metadata valid for
+    // the XDP context lifetime. Deny-by-default for interfaces not in the allowlist.
+    let interface_index = unsafe { (*ctx.ctx).ingress_ifindex };
+    if interface_config(interface_index).is_none() {
+        return xdp_action::XDP_PASS;
+    }
+    let queue_id = unsafe { (*ctx.ctx).rx_queue_index };
+    XSK_SOCKETS
+        .redirect(queue_id, xdp_action::XDP_PASS as u64)
+        .unwrap_or(xdp_action::XDP_PASS)
 }
 
 #[kprobe(function = "tcp_connect")]
@@ -515,56 +568,51 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     ))
 }
 
-#[inline(always)]
-fn classify_and_maybe_redirect(ctx: TcContext) -> i32 {
-    let interface_index = skb_interface_index(&ctx);
-    let Some(interface_config) = interface_config(interface_index) else {
-        return TC_ACT_OK as i32;
-    };
-    let now = now_ns();
+// Flow accounting: counts packets per flow into flow_table so userspace can join
+// flow_table with flow_to_pid for netflow->process attribution. Returns true if
+// the interface is allowlisted, signalling the entry program to tail-call the
+// SYN-signature program. The AF_XDP redirect lives in netprobe_xdp_ingress (TC
+// cannot redirect into an XSKMAP). De-inlined (shared by both entries, verified
+// once); contains NO tail_call — bpf_tail_call is illegal inside subprograms.
+#[inline(never)]
+fn account_flow(ctx: &TcContext) -> bool {
+    let interface_index = skb_interface_index(ctx);
+    if interface_config(interface_index).is_none() {
+        return false;
+    }
 
-    emit_tcp_syn_signature_from_tc(&ctx, now);
+    if let Some(flow_key) = parse_flow_key(ctx) {
+        // Split out so the flow_table_key/entry locals don't share account_flow's
+        // stack frame with the (deep, address-heavy) parse_flow_key call chain —
+        // combined they exceed the 512-byte BPF stack limit. flow_key is passed
+        // by reference: a 40-byte by-value arg would overflow the 5-register
+        // bpf-to-bpf calling convention.
+        update_flow_table(interface_index, &flow_key, now_ns());
+    }
 
-    let Some(flow_key) = parse_flow_key(&ctx) else {
-        return TC_ACT_OK as i32;
-    };
-    let flow_table_key = flow_table_key(interface_index, flow_key);
+    true
+}
 
-    let redirect_budget = if interface_config.redirect_budget == 0 {
-        FLOW_REDIRECT_BUDGET
-    } else {
-        interface_config.redirect_budget
-    };
+// Not inlined: keeps the flow_table_key + entry locals in their own frame,
+// separate from account_flow's parse_flow_key chain (see account_flow).
+#[inline(never)]
+fn update_flow_table(interface_index: u32, flow_key: &FlowKey, now: u64) {
+    let flow_table_key = flow_table_key(interface_index, *flow_key);
     if let Some(entry_ptr) = FLOW_TABLE.get_ptr_mut(&flow_table_key) {
-        // SAFETY: The pointer is returned by the kernel for this map lookup and
-        // is valid for the duration of this eBPF program invocation. We only
-        // mutate this entry before returning to the verifier-controlled context.
+        // SAFETY: kernel-returned map pointer, valid for this invocation.
         let entry = unsafe { &mut *entry_ptr };
         entry.packets_seen = entry.packets_seen.saturating_add(1);
         entry.last_seen_ns = now;
-
-        if entry.classified_as != 0 {
-            return TC_ACT_OK as i32;
-        }
-
-        if entry.packets_redirected < redirect_budget {
-            entry.packets_redirected = entry.packets_redirected.saturating_add(1);
-            return redirect_to_af_xdp(&flow_key, &interface_config);
-        }
-
-        return TC_ACT_OK as i32;
+    } else {
+        let entry = FlowTableEntry {
+            classified_as: 0,
+            packets_seen: 1,
+            packets_redirected: 0,
+            reserved: 0,
+            last_seen_ns: now,
+        };
+        let _ = FLOW_TABLE.insert(&flow_table_key, &entry, BPF_ANY as u64);
     }
-
-    let entry = FlowTableEntry {
-        classified_as: 0,
-        packets_seen: 1,
-        packets_redirected: 1,
-        reserved: 0,
-        last_seen_ns: now,
-    };
-    let _ = FLOW_TABLE.insert(&flow_table_key, &entry, BPF_ANY as u64);
-
-    redirect_to_af_xdp(&flow_key, &interface_config)
 }
 
 #[inline(always)]
@@ -579,15 +627,9 @@ fn interface_config(interface_index: u32) -> Option<InterfaceConfig> {
     Some(*config)
 }
 
-#[inline(always)]
-fn redirect_to_af_xdp(flow_key: &FlowKey, interface_config: &InterfaceConfig) -> i32 {
-    let queue = xsk_queue_for_flow(flow_key, interface_config.xsk_queue_count);
-    XSK_SOCKETS
-        .redirect(queue, TC_ACT_OK as u64)
-        .unwrap_or(TC_ACT_OK as u32) as i32
-}
-
-#[inline(always)]
+// Not inlined: keeps the flow-key parse subtree out of account_flow so the
+// verifier checks it once (bpf-to-bpf) instead of re-exploring it inline.
+#[inline(never)]
 fn parse_flow_key(ctx: &TcContext) -> Option<FlowKey> {
     let mut offset = ETH_HEADER_LEN;
     let mut ethertype = load_be_u16(ctx, 12)?;
@@ -612,7 +654,10 @@ fn flow_table_key(interface_index: u32, flow: FlowKey) -> FlowTableKey {
     }
 }
 
-#[inline(always)]
+// Not inlined: the SYN-signature parse subtree is the bulk of this path's
+// verifier work. It is the tail-call target netprobe_tc_syn_signature and stays
+// a separate bpf-to-bpf function so the verifier checks it once.
+#[inline(never)]
 fn emit_tcp_syn_signature_from_tc(ctx: &TcContext, observed_ns: u64) {
     let mut offset = ETH_HEADER_LEN;
     let Some(mut ethertype) = load_be_u16(ctx, 12) else {
@@ -633,7 +678,12 @@ fn emit_tcp_syn_signature_from_tc(ctx: &TcContext, observed_ns: u64) {
     }
 }
 
-#[inline(always)]
+// Not inlined: splitting the IPv4/IPv6 SYN paths into their own bpf-to-bpf
+// frames keeps emit_tcp_syn_header_from_tc (inlined here) out of the parent's
+// frame and prevents it being inlined twice (once per protocol) into a single
+// frame, which blew past the 512-byte BPF stack limit. 3 args fit the 5-register
+// calling convention.
+#[inline(never)]
 fn emit_ipv4_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observed_ns: u64) {
     let Some(version_ihl) = load_u8(ctx, ip_offset) else {
         return;
@@ -661,6 +711,24 @@ fn emit_ipv4_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observ
     let Some(ttl) = load_u8(ctx, ip_offset + 8) else {
         return;
     };
+    // p0f IP-level quirks: df (don't-fragment set), id+ (DF set yet IP ID
+    // non-zero), id- (DF clear yet IP ID zero). Two cheap header reads — the
+    // major OS corpus entries (Linux/Windows/macOS/...) require df,id+.
+    let Some(ip_id) = load_be_u16(ctx, ip_offset + 4) else {
+        return;
+    };
+    let Some(flags_frag) = load_be_u16(ctx, ip_offset + 6) else {
+        return;
+    };
+    let mut ip_quirks = 0u32;
+    if flags_frag & IPV4_FLAG_DF != 0 {
+        ip_quirks |= TCP_SYN_QUIRK_DF;
+        if ip_id != 0 {
+            ip_quirks |= TCP_SYN_QUIRK_ID_PLUS;
+        }
+    } else if ip_id == 0 {
+        ip_quirks |= TCP_SYN_QUIRK_ID_MINUS;
+    }
     let mut source = [0u8; 16];
     let mut destination = [0u8; 16];
     let Some(source_ipv4) = load_bytes::<4>(ctx, ip_offset + 12) else {
@@ -689,10 +757,13 @@ fn emit_ipv4_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observ
         observed_ns,
         4,
         ttl,
+        ip_quirks,
     );
 }
 
-#[inline(always)]
+// Not inlined: see emit_ipv4_tcp_syn_signature_from_tc. Keeps its own stack
+// frame so emit_tcp_syn_header_from_tc isn't inlined into the shared parent.
+#[inline(never)]
 fn emit_ipv6_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observed_ns: u64) {
     let Some(version) = load_u8(ctx, ip_offset) else {
         return;
@@ -727,6 +798,8 @@ fn emit_ipv6_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observ
     let Some(destination_port) = load_be_u16(ctx, tcp_offset + 2) else {
         return;
     };
+    // IPv6 has no fragmentation flags / IP ID in the base header, so the
+    // df/id+/id- quirks do not apply.
     emit_tcp_syn_header_from_tc(
         ctx,
         tcp_offset,
@@ -739,10 +812,15 @@ fn emit_ipv6_tcp_syn_signature_from_tc(ctx: &TcContext, ip_offset: usize, observ
         observed_ns,
         6,
         hop_limit,
+        0,
     );
 }
 
+// Stays inlined: the parameter count exceeds the 5-register BPF bpf-to-bpf
+// calling convention (stack args unsupported). Inlined into its de-inlined
+// parent emit_tcp_syn_signature_from_tc, so it's still verified once there.
 #[inline(always)]
+#[allow(clippy::too_many_arguments)]
 fn emit_tcp_syn_header_from_tc(
     ctx: &TcContext,
     tcp_offset: usize,
@@ -755,6 +833,7 @@ fn emit_tcp_syn_header_from_tc(
     observed_ns: u64,
     ip_version: u16,
     ttl: u8,
+    ip_quirks: u32,
 ) {
     if tcp_segment_len < TCP_MIN_HEADER_LEN {
         return;
@@ -793,10 +872,9 @@ fn emit_tcp_syn_header_from_tc(
     };
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
-    // TcpSynSignatureRecord. Every field is initialized before the slot is
-    // submitted, and the mutable reference is only used during this invocation.
-    let source_endpoint;
-
+    // TcpSynSignatureRecord. Every field (including reserved padding) is
+    // initialized before submit, so no uninitialized ring memory is exposed to
+    // userspace, and the mutable reference is only used during this invocation.
     unsafe {
         addr_of_mut!((*record).version).write(EVENT_VERSION);
         addr_of_mut!((*record).ip_version).write(ip_version);
@@ -804,11 +882,16 @@ fn emit_tcp_syn_header_from_tc(
         addr_of_mut!((*record).window_scale).write(0);
         addr_of_mut!((*record).options_len).write(0);
         addr_of_mut!((*record).payload_class).write(payload_class);
+        addr_of_mut!((*record).reserved0).write(0);
         addr_of_mut!((*record).window_size).write(window_size);
         addr_of_mut!((*record).mss).write(0);
-        addr_of_mut!((*record).quirks).write(0);
+        addr_of_mut!((*record).reserved1).write(0);
+        // Seed quirks with the IP-level quirks; parse_tcp_options_from_tc ORs in
+        // the malformed-options quirk if it sees bad TCP options.
+        addr_of_mut!((*record).quirks).write(ip_quirks);
+        addr_of_mut!((*record).reserved2).write(0);
         addr_of_mut!((*record).observed_ns).write(observed_ns);
-        source_endpoint = write_canonical_flow_key(
+        let source_endpoint = write_canonical_flow_key(
             addr_of_mut!((*record).flow_key),
             address_family,
             IPPROTO_TCP,
@@ -817,6 +900,7 @@ fn emit_tcp_syn_header_from_tc(
             source_port,
             destination_port,
         );
+        addr_of_mut!((*record).source_endpoint).write(source_endpoint);
         addr_of_mut!((*record).options_layout).write([0; TCP_MAX_OPTIONS_LAYOUT]);
 
         parse_tcp_options_from_tc(
@@ -826,47 +910,10 @@ fn emit_tcp_syn_header_from_tc(
             &mut *record,
         );
     }
-    emit_p0f_signature(record, source_endpoint);
     entry.submit(0);
 }
 
-#[inline(always)]
-fn emit_p0f_signature(syn_record: *const TcpSynSignatureRecord, source_endpoint: u8) {
-    let Some(mut entry) = P0F_SIGNATURES.reserve::<P0fRecord>(0) else {
-        return;
-    };
-    let record = entry.as_mut_ptr();
-
-    // SAFETY: `syn_record` points to the initialized tcp_syn_signatures
-    // ring-buffer slot still owned by the caller. `record` points to a freshly
-    // reserved p0f_signatures slot. The p0f encoder writes only within the
-    // fixed-size p0f_string field and returns its bounded length.
-    unsafe {
-        addr_of_mut!((*record).version).write(EVENT_VERSION);
-        addr_of_mut!((*record).source_endpoint).write(source_endpoint);
-        addr_of_mut!((*record).reserved).write([0; 5]);
-        addr_of_mut!((*record).flow_key).write((*syn_record).flow_key);
-        addr_of_mut!((*record).observed_ns).write((*syn_record).observed_ns);
-        let p0f_len = p0f::encode(
-            &mut *addr_of_mut!((*record).p0f_string),
-            (*syn_record).ip_version,
-            (*syn_record).ttl,
-            (*syn_record).window_size,
-            (*syn_record).mss,
-            &(*syn_record).options_layout,
-            (*syn_record).options_len,
-            (*syn_record).window_scale,
-            (*syn_record).payload_class,
-            (*syn_record).quirks,
-        );
-        addr_of_mut!((*record).p0f_len).write(p0f_len);
-        addr_of_mut!((*record).reserved_tail).write([0; 7]);
-    }
-
-    entry.submit(0);
-}
-
-#[inline(always)]
+#[inline(never)]
 fn parse_tcp_options_from_tc(
     ctx: &TcContext,
     options_offset: usize,
@@ -958,7 +1005,10 @@ fn write_canonical_flow_key(
     }
 }
 
-#[inline(always)]
+// Not inlined: keeps the IPv4 parse (and its address buffers) in its own
+// bpf-to-bpf frame instead of being inlined alongside the IPv6 parser into
+// parse_flow_key, which pushed that combined frame past the BPF stack limit.
+#[inline(never)]
 fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     let version_ihl = load_u8(ctx, ip_offset)?;
     if version_ihl >> 4 != 4 {
@@ -1005,7 +1055,9 @@ fn parse_ipv4_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     )
 }
 
-#[inline(always)]
+// Not inlined: see parse_ipv4_flow_key. Own frame so it isn't inlined into
+// parse_flow_key alongside the IPv4 parser.
+#[inline(never)]
 fn parse_ipv6_flow_key(ctx: &TcContext, ip_offset: usize) -> Option<FlowKey> {
     let version = load_u8(ctx, ip_offset)? >> 4;
     if version != 6 {
@@ -1054,36 +1106,26 @@ fn canonical_flow_key(
     source_port: u16,
     destination_port: u16,
 ) -> CanonicalFlowKey {
-    let source_first = endpoint_less_or_equal(
+    // Delegate to the pointer-writing canonicalizer instead of building the
+    // FlowKey by value in each branch. The by-value construction duplicated the
+    // 16-byte address copies across both branches and blew the parse frame past
+    // the 512-byte BPF stack limit; write_canonical_flow_key writes each field
+    // in place exactly once.
+    let mut key = core::mem::MaybeUninit::<FlowKey>::uninit();
+    let source_endpoint = write_canonical_flow_key(
+        key.as_mut_ptr(),
+        address_family,
+        transport_protocol,
         &source_addr,
-        source_port,
         &destination_addr,
+        source_port,
         destination_port,
     );
-    if source_first {
-        CanonicalFlowKey {
-            key: FlowKey {
-                address_family,
-                transport_protocol,
-                endpoint_a_port: source_port,
-                endpoint_b_port: destination_port,
-                endpoint_a_addr: source_addr,
-                endpoint_b_addr: destination_addr,
-            },
-            source_endpoint: FLOW_ENDPOINT_A,
-        }
-    } else {
-        CanonicalFlowKey {
-            key: FlowKey {
-                address_family,
-                transport_protocol,
-                endpoint_a_port: destination_port,
-                endpoint_b_port: source_port,
-                endpoint_a_addr: destination_addr,
-                endpoint_b_addr: source_addr,
-            },
-            source_endpoint: FLOW_ENDPOINT_B,
-        }
+    // SAFETY: write_canonical_flow_key initializes every field of *key in both
+    // branches before returning.
+    CanonicalFlowKey {
+        key: unsafe { key.assume_init() },
+        source_endpoint,
     }
 }
 
@@ -1094,61 +1136,17 @@ fn endpoint_less_or_equal(
     right_addr: &[u8; 16],
     right_port: u16,
 ) -> bool {
-    let mut index = 0usize;
-    while index < 16 {
-        if left_addr[index] < right_addr[index] {
-            return true;
-        }
-        if left_addr[index] > right_addr[index] {
-            return false;
-        }
-        index += 1;
+    // Compare the 16-byte addresses as a single big-endian u128 rather than a
+    // byte-by-byte loop: LLVM unrolls the loop and spills each byte to the stack,
+    // which for full IPv6 addresses pushed parse_ipv6_flow_key's frame to ~392
+    // bytes (past the 512-byte BPF stack limit once nested under the classifier).
+    let left = u128::from_be_bytes(*left_addr);
+    let right = u128::from_be_bytes(*right_addr);
+    if left != right {
+        return left < right;
     }
 
     left_port <= right_port
-}
-
-fn xsk_queue_for_flow(flow_key: &FlowKey, configured_queue_count: u32) -> u32 {
-    let queue_count = normalized_xsk_queue_count(configured_queue_count);
-    if queue_count <= 1 {
-        return 0;
-    }
-
-    flow_hash(flow_key) % queue_count
-}
-
-fn normalized_xsk_queue_count(configured_queue_count: u32) -> u32 {
-    if configured_queue_count == 0 {
-        XSK_DEFAULT_QUEUE_COUNT
-    } else if configured_queue_count > XSK_MAX_QUEUES {
-        XSK_MAX_QUEUES
-    } else {
-        configured_queue_count
-    }
-}
-
-fn flow_hash(flow_key: &FlowKey) -> u32 {
-    let mut hash = 0x811c9dc5u32;
-    hash = fnv1a_u16(hash, flow_key.address_family);
-    hash = fnv1a_u16(hash, flow_key.transport_protocol);
-    hash = fnv1a_u16(hash, flow_key.endpoint_a_port);
-    hash = fnv1a_u16(hash, flow_key.endpoint_b_port);
-    hash = fnv1a_bytes(hash, &flow_key.endpoint_a_addr);
-    fnv1a_bytes(hash, &flow_key.endpoint_b_addr)
-}
-
-fn fnv1a_u16(hash: u32, value: u16) -> u32 {
-    fnv1a_bytes(hash, &value.to_be_bytes())
-}
-
-fn fnv1a_bytes(mut hash: u32, bytes: &[u8]) -> u32 {
-    let mut index = 0usize;
-    while index < bytes.len() {
-        hash ^= u32::from(bytes[index]);
-        hash = hash.wrapping_mul(0x0100_0193);
-        index += 1;
-    }
-    hash
 }
 
 fn load_u8(ctx: &TcContext, offset: usize) -> Option<u8> {

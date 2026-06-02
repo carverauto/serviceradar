@@ -31,6 +31,7 @@ pub mod muonfp;
 pub mod os_matcher;
 #[allow(dead_code)]
 pub mod p0f_corpus;
+pub mod p0f_encode;
 #[allow(dead_code)]
 pub mod p0f_matcher;
 pub mod proto;
