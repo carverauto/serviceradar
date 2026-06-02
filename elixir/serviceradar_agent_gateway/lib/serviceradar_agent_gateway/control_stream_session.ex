@@ -461,7 +461,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   defp enforce_command_result_payload_cap(%Monitoring.CommandResult{} = result) do
     if byte_size(result.payload_json || <<>>) > @max_command_result_payload_bytes do
-      %Monitoring.CommandResult{
+      %{
         result
         | success: false,
           message: "command result payload exceeded byte cap",
