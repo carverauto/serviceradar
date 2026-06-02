@@ -324,11 +324,18 @@ The system SHALL model endpoint software as first-class endpoint-side ontology e
 - **AND** advisory-side `Package AFFECTED_BY CVE` population, matcher policy, advisory feed, and CVSS scoring MAY be supplied by a separate change
 - **AND** host-scope endpoint findings SHALL be kept distinct from image-scope scanner findings
 
-#### Scenario: Canonical coordinate is stable
+#### Scenario: Canonical coordinate is stable and CPE-bearing
 - **GIVEN** packages reported by different package managers
 - **WHEN** they are normalized into `Package` entities
-- **THEN** each SHALL carry a canonical PURL (per the PURL spec, computed server-side at ingest) and CPE where available
-- **AND** the canonical PURL SHALL be the primary coordinate/dedup key with the identity tuple as deterministic fallback, and the stable join key for vulnerability matching
+- **THEN** each SHALL carry a canonical PURL (per the PURL spec, computed server-side at ingest)
+- **AND** the system SHALL populate candidate CPE(s) per package (derived server-side where the collector does not supply them), not only PURL, so CPE-indexed advisory feeds (e.g. VulnCheck NVD++) can match
+- **AND** the canonical PURL SHALL be the primary coordinate/dedup key with the identity tuple as deterministic fallback; CPE is a co-equal match coordinate, not a substitute for PURL
+
+#### Scenario: CPE matching is product-plus-version-range and lives in the matcher
+- **GIVEN** a CPE-indexed advisory feed with version-range applicability (e.g. `versionStartIncluding`/`versionEndExcluding`)
+- **WHEN** an endpoint package is matched against it
+- **THEN** matching SHALL be `vendor:product` membership plus evaluation of the installed version against the advisory version range, not coordinate equality
+- **AND** the PURL↔CPE normalization, version-range evaluation, and distro-backport false-positive handling SHALL live in the matcher (`add-cti-signal-coverage`), while this capability provides the indexed CPE coordinate it consumes
 
 ### Requirement: Endpoint Inventory Feeds The Causal Engine
 The system SHALL feed endpoint inventory to the causal engine through the platform's standard consumption paths, keyed on canonical identity, without a bespoke transport.
