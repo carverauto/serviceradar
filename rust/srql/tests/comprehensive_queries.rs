@@ -85,6 +85,19 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["agent_id"], "agent-1");
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["package_set_hash"], "sha256:current-package-set");
+                assert_eq!(result["unchanged_scan_count"], 0);
+                assert_eq!(result["freshness_verdict"], "fresh");
+                assert_eq!(result["freshness"]["verdict"], "fresh");
+            })),
+        },
+        TestCase {
             query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
             expected_count: 1,
             validator: Some(Box::new(|body| {

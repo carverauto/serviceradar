@@ -1,5 +1,6 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
 TRUNCATE endpoint_inventory_packages;
+TRUNCATE endpoint_inventory_scans;
 TRUNCATE ocsf_devices;
 WITH base AS (
     SELECT NOW() AS now_ts
@@ -127,6 +128,102 @@ SELECT 'device-delta',
     TRUE,
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_scans (
+    id,
+    device_uid,
+    agent_id,
+    scan_id,
+    collector_name,
+    collector_version,
+    state,
+    coverage_state,
+    package_count,
+    enabled_sources,
+    manager_counts,
+    source_summaries,
+    artifact_count,
+    current,
+    last_successful_scan_at,
+    last_scan_at,
+    last_changed_scan_at,
+    ingested_at,
+    package_set_hash,
+    artifact_hash,
+    hash_algorithm,
+    upload_reason,
+    server_package_set_hash,
+    package_set_hash_mismatch,
+    unchanged_scan_count,
+    reconcile_floor_due,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'scan-current',
+    'serviceradar-endpoint-inventory',
+    '1.0.0',
+    'scanned',
+    'complete',
+    2,
+    ARRAY ['dpkg'],
+    '{"dpkg":2}'::jsonb,
+    ARRAY ['{"source":"dpkg","state":"scanned","package_count":2}'::jsonb],
+    1,
+    TRUE,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '19 minutes',
+    'sha256:current-package-set',
+    'sha256:current-artifact',
+    'sha256-v1',
+    'changed',
+    'sha256:current-package-set',
+    FALSE,
+    0,
+    FALSE,
+    '{"fixture":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+    'device-alpha',
+    'agent-1',
+    'scan-historical',
+    'serviceradar-endpoint-inventory',
+    '1.0.0',
+    'scanned',
+    'complete',
+    1,
+    ARRAY ['dpkg'],
+    '{"dpkg":1}'::jsonb,
+    ARRAY ['{"source":"dpkg","state":"scanned","package_count":1}'::jsonb],
+    1,
+    FALSE,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    'sha256:historical-package-set',
+    'sha256:historical-artifact',
+    'sha256-v1',
+    'changed',
+    'sha256:historical-package-set',
+    FALSE,
+    0,
+    FALSE,
+    '{"fixture":"historical"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
 FROM base;
 
 WITH base AS (

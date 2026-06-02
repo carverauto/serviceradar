@@ -65,7 +65,7 @@
 - [x] 6.2 Add SRQL fields or query support for package name, version, package manager, PURL, CPE, and current-vs-historical inventory state.
 - [x] 6.3 Add a device/asset detail surface showing latest scan status, installed package inventory, and device risk posture.
 - [x] 6.4 Add operator controls for enabling sources, cadence, retention, and redaction.
-- [ ] 6.5 Add API/SRQL-visible freshness fields: `package_set_hash`, last scan time, last changed scan time, unchanged scan count, and the typed freshness verdict.
+- [x] 6.5 Add API/SRQL-visible freshness fields: `package_set_hash`, last scan time, last changed scan time, unchanged scan count, and the typed freshness verdict.
 - [ ] 6.6 Answer fleet membership/rollup ("which devices run coordinate X", "how many hosts have nginx") via maintained current-count tables, the GIN-indexed current-state `SELECT`, standing-question result aggregates, and TimescaleDB continuous aggregates — never an AGE traversal and never the deferred roaring index.
 - [ ] 6.7 Add an on-demand endpoint software query surface: a device-scoped check/refresh action and a bounded cohort/fleet query form that displays compact live results with freshness and the cohort coverage envelope.
 - [ ] 6.8 Seed an endpoint-inventory vulnerability `StatefulAlertRule` (`signal: :event`, subject-prefix `signals.causal.inventory`, `attribute_equals signal_type`, `group_by: device`, threshold 1) AND add an `evaluate_events` call inside `CausalSignals` gated on `signal_type=='inventory'`, dispatched async/bounded (it is a synchronous 15s `GenServer.call` — inline on fleet-patch volume back-pressures Broadway).

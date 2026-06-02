@@ -188,6 +188,121 @@ impl EndpointPackageRow {
     }
 }
 
+/// Endpoint inventory scan metadata and freshness state.
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(
+    table_name = crate::schema::endpoint_inventory_scans,
+    check_for_backend(diesel::pg::Pg)
+)]
+pub struct EndpointInventoryScanRow {
+    pub id: Uuid,
+    pub device_uid: Option<String>,
+    pub agent_id: String,
+    pub scan_id: String,
+    pub collector_name: Option<String>,
+    pub collector_version: Option<String>,
+    pub state: String,
+    pub coverage_state: String,
+    pub package_count: i32,
+    pub enabled_sources: Vec<String>,
+    pub manager_counts: DbJson,
+    pub source_summaries: Vec<DbJson>,
+    pub artifact_count: i32,
+    pub current: bool,
+    pub last_successful_scan_at: Option<DateTime<Utc>>,
+    pub last_scan_at: Option<DateTime<Utc>>,
+    pub last_changed_scan_at: Option<DateTime<Utc>>,
+    pub ingested_at: Option<DateTime<Utc>>,
+    pub package_set_hash: Option<String>,
+    pub artifact_hash: Option<String>,
+    pub hash_algorithm: Option<String>,
+    pub upload_reason: Option<String>,
+    pub server_package_set_hash: Option<String>,
+    pub package_set_hash_mismatch: bool,
+    pub unchanged_scan_count: i32,
+    pub reconcile_floor_due: bool,
+    pub metadata: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl EndpointInventoryScanRow {
+    pub fn into_json(self) -> serde_json::Value {
+        let device_uid = self.device_uid;
+        let device_id = device_uid.clone();
+        let freshness = endpoint_inventory_freshness(self.last_successful_scan_at);
+        let freshness_verdict = freshness
+            .get("verdict")
+            .and_then(|value| value.as_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "device_uid": device_uid,
+            "device_id": device_id,
+            "agent_id": self.agent_id,
+            "scan_id": self.scan_id,
+            "collector_name": self.collector_name,
+            "collector_version": self.collector_version,
+            "state": self.state,
+            "coverage_state": self.coverage_state,
+            "package_count": self.package_count,
+            "enabled_sources": self.enabled_sources,
+            "manager_counts": serde_json::Value::from(self.manager_counts),
+            "source_summaries": self.source_summaries.into_iter().map(serde_json::Value::from).collect::<Vec<_>>(),
+            "artifact_count": self.artifact_count,
+            "current": self.current,
+            "last_successful_scan_at": self.last_successful_scan_at,
+            "last_scan_at": self.last_scan_at,
+            "last_changed_scan_at": self.last_changed_scan_at,
+            "ingested_at": self.ingested_at,
+            "package_set_hash": self.package_set_hash,
+            "artifact_hash": self.artifact_hash,
+            "hash_algorithm": self.hash_algorithm,
+            "upload_reason": self.upload_reason,
+            "server_package_set_hash": self.server_package_set_hash,
+            "package_set_hash_mismatch": self.package_set_hash_mismatch,
+            "unchanged_scan_count": self.unchanged_scan_count,
+            "reconcile_floor_due": self.reconcile_floor_due,
+            "freshness_verdict": freshness_verdict,
+            "freshness": freshness,
+            "metadata": serde_json::Value::from(self.metadata),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+        })
+    }
+}
+
+const ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS: i64 = 86_400;
+
+fn endpoint_inventory_freshness(
+    last_successful_scan_at: Option<DateTime<Utc>>,
+) -> serde_json::Value {
+    let Some(last_successful) = last_successful_scan_at else {
+        return serde_json::json!({
+            "verdict": "unknown",
+            "age_seconds": null,
+            "stale_threshold_seconds": ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS,
+            "last_successful_scan_at": null,
+        });
+    };
+
+    let age_seconds = (Utc::now() - last_successful).num_seconds().max(0);
+    let verdict = if age_seconds > ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS {
+        "stale"
+    } else {
+        "fresh"
+    };
+
+    serde_json::json!({
+        "verdict": verdict,
+        "age_seconds": age_seconds,
+        "stale_threshold_seconds": ENDPOINT_INVENTORY_STALE_THRESHOLD_SECONDS,
+        "last_successful_scan_at": last_successful,
+    })
+}
+
 /// OCSF-aligned device row (OCSF v1.7.0 Device object)
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::ocsf_devices, check_for_backend(diesel::pg::Pg))]

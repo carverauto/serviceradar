@@ -59,6 +59,7 @@ pub enum Entity {
     Alerts,
     AddonStatuses,
     EndpointPackages,
+    EndpointInventoryScans,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -489,6 +490,11 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
         "alerts" | "alert" => Ok(Entity::Alerts),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
+        "endpoint_inventory_scans"
+        | "endpoint_inventory_scan"
+        | "endpoint_inventory_status"
+        | "endpoint_inventory_statuses"
+        | "endpoint_inventory_freshness" => Ok(Entity::EndpointInventoryScans),
         "endpoint_packages"
         | "endpoint_package"
         | "endpoint_inventory_packages"
@@ -1028,6 +1034,22 @@ mod tests {
         for raw in ["dashboards", "dashboard", "authored_dashboards"] {
             let ast = parse(&format!("in:{raw} status:active limit:10")).unwrap();
             assert_eq!(ast.entity, Entity::Dashboards, "entity alias {raw}");
+        }
+    }
+
+    #[test]
+    fn parses_endpoint_inventory_scan_entity_aliases() {
+        for raw in [
+            "endpoint_inventory_scans",
+            "endpoint_inventory_status",
+            "endpoint_inventory_freshness",
+        ] {
+            let ast = parse(&format!("in:{raw} freshness:fresh limit:10")).unwrap();
+            assert_eq!(
+                ast.entity,
+                Entity::EndpointInventoryScans,
+                "entity alias {raw}"
+            );
         }
     }
 

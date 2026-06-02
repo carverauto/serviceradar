@@ -3,6 +3,7 @@
 
 DROP TABLE IF EXISTS device_agent_availability;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
+DROP TABLE IF EXISTS endpoint_inventory_scans;
 DROP TABLE IF EXISTS ocsf_devices;
 
 CREATE TABLE ocsf_devices (
@@ -72,6 +73,38 @@ CREATE TABLE device_agent_availability (
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (device_uid, agent_id)
+);
+
+CREATE TABLE endpoint_inventory_scans (
+    id                          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid                  TEXT,
+    agent_id                    TEXT        NOT NULL,
+    scan_id                     TEXT        NOT NULL,
+    collector_name              TEXT,
+    collector_version           TEXT,
+    state                       TEXT        NOT NULL DEFAULT 'not_scanned',
+    coverage_state              TEXT        NOT NULL DEFAULT 'not_scanned',
+    package_count               INT         NOT NULL DEFAULT 0,
+    enabled_sources             TEXT[]      NOT NULL DEFAULT '{}',
+    manager_counts              JSONB       NOT NULL DEFAULT '{}',
+    source_summaries            JSONB       NOT NULL DEFAULT '[]',
+    artifact_count              INT         NOT NULL DEFAULT 0,
+    current                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    last_successful_scan_at     TIMESTAMPTZ,
+    last_scan_at                TIMESTAMPTZ,
+    last_changed_scan_at        TIMESTAMPTZ,
+    ingested_at                 TIMESTAMPTZ,
+    package_set_hash            TEXT,
+    artifact_hash               TEXT,
+    hash_algorithm              TEXT,
+    upload_reason               TEXT,
+    server_package_set_hash     TEXT,
+    package_set_hash_mismatch   BOOLEAN     NOT NULL DEFAULT FALSE,
+    unchanged_scan_count        INT         NOT NULL DEFAULT 0,
+    reconcile_floor_due         BOOLEAN     NOT NULL DEFAULT FALSE,
+    metadata                    JSONB       NOT NULL DEFAULT '{}',
+    inserted_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE endpoint_inventory_packages (

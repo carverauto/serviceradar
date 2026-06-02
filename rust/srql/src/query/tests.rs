@@ -1,4 +1,4 @@
-use super::{devices, endpoint_packages, gateways, interfaces, *};
+use super::{devices, endpoint_inventory_scans, endpoint_packages, gateways, interfaces, *};
 use crate::parser::{self, FilterOp, FilterValue, OrderDirection};
 use std::time::Duration as StdDuration;
 
