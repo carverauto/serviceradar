@@ -16,7 +16,10 @@
 
 package endpointinventory
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestCacheCanSkipFullScanRespectsForceFullScanInterval(t *testing.T) {
 	cfg := DefaultConfig()
@@ -38,5 +41,27 @@ func TestCacheCanSkipFullScanRespectsForceFullScanInterval(t *testing.T) {
 	manifest.ScansSinceFull = 1
 	if cacheCanSkipFullScan(cfg, manifest, current) {
 		t.Fatal("cache should not skip at the forced full scan interval")
+	}
+}
+
+func TestCacheCanSkipFullScanRespectsServerReconcileRequest(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Sources = []string{PackageSourceDpkg}
+	cfg.ForceFullScanInterval = 24
+	current := map[string]SourceMTime{
+		PackageSourceDpkg: {Source: PackageSourceDpkg, Path: "/var/lib/dpkg/status", Exists: true, MTimeUnixNano: 10, Size: 20},
+	}
+	requestedAt := time.Unix(100, 0).UTC()
+	manifest := &InventoryCacheManifest{
+		PackageSetHash:             "package-hash",
+		ArtifactHash:               "artifact-hash",
+		LastUploadedPackageSetHash: "package-hash",
+		LastUploadedArtifactHash:   "artifact-hash",
+		SourceMTimes:               copySourceMTimes(current),
+		ServerReconcileRequestedAt: &requestedAt,
+	}
+
+	if cacheCanSkipFullScan(cfg, manifest, current) {
+		t.Fatal("cache should not skip when the server requested a reconcile upload")
 	}
 }

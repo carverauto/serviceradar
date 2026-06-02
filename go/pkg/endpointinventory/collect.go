@@ -94,9 +94,11 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	packageSetHash := ComputePackageSetHash(packages)
 	artifactHash := ComputeArtifactHash(sbom)
 	uploadReason := UploadReasonChanged
+	serverReconcileRequested := cache != nil && cache.ServerReconcileRequestedAt != nil
 	if cache != nil &&
 		cache.LastUploadedPackageSetHash == packageSetHash &&
-		cache.LastUploadedArtifactHash == artifactHash {
+		cache.LastUploadedArtifactHash == artifactHash &&
+		!serverReconcileRequested {
 		uploadReason = UploadReasonUnchanged
 	}
 
@@ -121,6 +123,11 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 	if uploadReason == UploadReasonChanged {
 		payload.SBOM = &sbom
+		if serverReconcileRequested {
+			payload.Metadata["reason"] = "server_reconcile_floor"
+			payload.Metadata["server_reconcile_requested_at"] = cache.ServerReconcileRequestedAt
+			payload.Metadata["server_reconcile_reason"] = cache.ServerReconcileReason
+		}
 	} else {
 		payload.State = scanStateUnchanged
 		payload.CoverageState = coverageUnchanged

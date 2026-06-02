@@ -17,9 +17,14 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"testing"
+
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
+	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestEndpointInventoryForceFreshSingleFlight(t *testing.T) {
@@ -78,5 +83,62 @@ func TestEndpointInventoryCommandConfigUsesStatusPaths(t *testing.T) {
 	}
 	if cfg.CacheDir != filepath.Join(dir, "cache") {
 		t.Fatalf("cache dir = %q", cfg.CacheDir)
+	}
+}
+
+func TestEndpointInventoryAckDirectiveRequestsServerReconcile(t *testing.T) {
+	dir := t.TempDir()
+	cacheDir := filepath.Join(dir, "cache")
+
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: "agent-1",
+				EndpointInventory: &EndpointInventoryStatusConfig{
+					ConfigPath:  filepath.Join(dir, "missing-config.json"),
+					SpoolPath:   filepath.Join(dir, "spool", "latest.json"),
+					CacheDir:    cacheDir,
+					ProfilePath: filepath.Join(dir, "missing-profile.json"),
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	payload, err := json.Marshal(map[string]any{
+		"reconcile_floor": true,
+		"upload_reason":   endpointinventory.UploadReasonChanged,
+		"message":         "server reconcile floor reached",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	pl.recordEndpointInventoryUploadSuccesses(nil, &proto.GatewayStatusResponse{
+		Received: true,
+		Directives: []*proto.GatewayStatusDirective{
+			{
+				ServiceName:   endpointinventory.ServiceName,
+				ServiceType:   endpointinventory.ServiceType,
+				DirectiveType: endpointInventoryReconcileFloorDirective,
+				PayloadJson:   payload,
+			},
+		},
+	})
+
+	cfg, err := pl.endpointInventoryCommandConfig()
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest, err := endpointinventory.ReadCacheManifest(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if manifest == nil || manifest.ServerReconcileRequestedAt == nil {
+		t.Fatalf("expected server reconcile request in manifest: %#v", manifest)
+	}
+	if manifest.ServerReconcileReason != "server reconcile floor reached" {
+		t.Fatalf("server reconcile reason = %q", manifest.ServerReconcileReason)
 	}
 }

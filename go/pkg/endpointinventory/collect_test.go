@@ -100,6 +100,38 @@ func TestRunnerUsesCacheForUnchangedSourceMTimes(t *testing.T) {
 	}
 }
 
+func TestRunnerForcesFullUploadAfterServerReconcileRequest(t *testing.T) {
+	tmpDir := t.TempDir()
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
+	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
+
+	firstPayload, err := NewRunner(cfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkUploadSucceeded(cfg, firstPayload, time.Unix(11, 0).UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkServerReconcileRequested(cfg, time.Unix(12, 0).UTC(), "reconcile floor"); err != nil {
+		t.Fatal(err)
+	}
+
+	secondPayload, err := NewRunner(cfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if secondPayload.UploadReason != UploadReasonChanged || secondPayload.SBOM == nil {
+		t.Fatalf("server reconcile should force full changed upload: %#v", secondPayload)
+	}
+	if secondPayload.PackageSetHash != firstPayload.PackageSetHash ||
+		secondPayload.ArtifactHash != firstPayload.ArtifactHash {
+		t.Fatalf("reconcile upload should preserve unchanged hashes: %#v", secondPayload)
+	}
+	if secondPayload.Metadata["reason"] != "server_reconcile_floor" {
+		t.Fatalf("metadata reason = %#v, want server_reconcile_floor", secondPayload.Metadata["reason"])
+	}
+}
+
 func TestRunnerReparsesWhenSourceMTimeChanges(t *testing.T) {
 	tmpDir := t.TempDir()
 	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)

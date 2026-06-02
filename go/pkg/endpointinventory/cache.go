@@ -83,6 +83,9 @@ func cacheCanSkipFullScan(cfg Config, manifest *InventoryCacheManifest, current 
 	if manifest == nil || manifest.PackageSetHash == "" || manifest.ArtifactHash == "" {
 		return false
 	}
+	if manifest.ServerReconcileRequestedAt != nil {
+		return false
+	}
 	if cfg.ForceFullScanInterval <= 1 {
 		return false
 	}

@@ -35,6 +35,17 @@ defmodule ServiceRadar.ResultsRouter do
 
   @impl true
   def handle_cast({:results_update, status}, state) do
+    _result = process_and_publish(status)
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def handle_call({:results_update, status}, _from, state) do
+    {:reply, process_and_publish(status), state}
+  end
+
+  defp process_and_publish(status) do
     service_type = status[:service_type] || "unknown"
     source = status[:source] || "unknown"
     service_name = status[:service_name] || "unknown"
@@ -46,18 +57,22 @@ defmodule ServiceRadar.ResultsRouter do
 
     case process(status) do
       :ok ->
-        ServiceStateRegistry.upsert_from_status(status)
-        ServiceStatusPubSub.broadcast_update(status)
+        publish_status_update(status)
+        :ok
 
-      {:ok, _result} ->
-        ServiceStateRegistry.upsert_from_status(status)
-        ServiceStatusPubSub.broadcast_update(status)
+      {:ok, _result} = ok ->
+        publish_status_update(status)
+        ok
 
-      {:error, reason} ->
+      {:error, reason} = error ->
         Logger.warning("Results processing failed: #{inspect(reason)}")
+        error
     end
+  end
 
-    {:noreply, state}
+  defp publish_status_update(status) do
+    ServiceStateRegistry.upsert_from_status(status)
+    ServiceStatusPubSub.broadcast_update(status)
   end
 
   defp process(%{source: source, service_type: "sync"} = status)

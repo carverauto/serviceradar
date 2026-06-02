@@ -119,6 +119,8 @@ type InventoryCacheManifest struct {
 	UnchangedScanCount         int                    `json:"unchanged_scan_count"`
 	FullScanCount              int                    `json:"full_scan_count"`
 	PendingUpload              *PendingUploadState    `json:"pending_upload,omitempty"`
+	ServerReconcileRequestedAt *time.Time             `json:"server_reconcile_requested_at,omitempty"`
+	ServerReconcileReason      string                 `json:"server_reconcile_reason,omitempty"`
 	UpdatedAt                  time.Time              `json:"updated_at"`
 }
 

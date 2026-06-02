@@ -69,6 +69,9 @@ func TestUploadRetryAndSuccessUpdatePendingState(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := MarkServerReconcileRequested(cfg, time.Unix(90, 0).UTC(), "server floor"); err != nil {
+		t.Fatal(err)
+	}
 
 	failedAt := time.Unix(100, 0).UTC()
 	if err := MarkUploadFailed(cfg, payload, failedAt, errEndpointInventoryUploadTestGatewayUnavailable); err != nil {
@@ -97,6 +100,9 @@ func TestUploadRetryAndSuccessUpdatePendingState(t *testing.T) {
 	}
 	if manifest.PendingUpload != nil {
 		t.Fatalf("pending upload should be cleared: %#v", manifest.PendingUpload)
+	}
+	if manifest.ServerReconcileRequestedAt != nil || manifest.ServerReconcileReason != "" {
+		t.Fatalf("server reconcile request should be cleared after success: %#v", manifest)
 	}
 	if manifest.LastUploadedPackageSetHash != payload.PackageSetHash ||
 		manifest.LastUploadedArtifactHash != payload.ArtifactHash {

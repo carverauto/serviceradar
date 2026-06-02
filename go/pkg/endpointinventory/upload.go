@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -93,6 +94,8 @@ func MarkUploadSucceeded(cfg Config, payload *ScanPayload, uploadedAt time.Time)
 	manifest.LastUploadedPackageSetHash = payload.PackageSetHash
 	manifest.LastUploadedArtifactHash = payload.ArtifactHash
 	manifest.PendingUpload = nil
+	manifest.ServerReconcileRequestedAt = nil
+	manifest.ServerReconcileReason = ""
 	manifest.UpdatedAt = uploadedAt.UTC()
 
 	if err := WriteCacheManifest(cfg, manifest); err != nil {
@@ -104,6 +107,40 @@ func MarkUploadSucceeded(cfg Config, payload *ScanPayload, uploadedAt time.Time)
 	}
 
 	return nil
+}
+
+func MarkServerReconcileRequested(cfg Config, requestedAt time.Time, reason string) error {
+	manifest, err := ReadCacheManifest(cfg)
+	if err != nil {
+		return err
+	}
+	if manifest == nil {
+		manifest = &InventoryCacheManifest{
+			SchemaVersion:   CacheVersion,
+			AgentID:         cfg.AgentID,
+			Packages:        []Package{},
+			SourceSummaries: []SourceSummary{},
+			SourceMTimes:    map[string]SourceMTime{},
+		}
+	}
+
+	requested := requestedAt.UTC()
+	if requested.IsZero() {
+		requested = time.Now().UTC()
+	}
+
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "server_reconcile_floor"
+	}
+
+	manifest.SchemaVersion = CacheVersion
+	manifest.AgentID = cfg.AgentID
+	manifest.ServerReconcileRequestedAt = &requested
+	manifest.ServerReconcileReason = reason
+	manifest.UpdatedAt = requested
+
+	return WriteCacheManifest(cfg, manifest)
 }
 
 func MarkUploadFailed(cfg Config, payload *ScanPayload, failedAt time.Time, cause error) error {

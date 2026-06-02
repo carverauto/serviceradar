@@ -315,26 +315,26 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
 
     # Process each service status
-    processed_count =
+    {processed_count, directives} =
       services
       |> Enum.reject(&is_nil/1)
-      |> Enum.reduce(0, fn
-        %Monitoring.GatewayServiceStatus{} = service, acc ->
+      |> Enum.reduce({0, []}, fn
+        %Monitoring.GatewayServiceStatus{} = service, {count, directives} ->
           try do
-            process_service_status(service, metadata)
-            acc + 1
+            service_directives = process_service_status(service, metadata)
+            {count + 1, directives ++ service_directives}
           rescue
             e in GRPC.RPCError ->
               log_invalid_service_status(metadata, service, e)
 
-              acc
+              {count, directives}
 
             e ->
               Logger.warning(
                 "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
               )
 
-              acc
+              {count, directives}
           end
 
         _other, acc ->
@@ -349,7 +349,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     record_push_metrics(agent_id, processed_count)
     reconcile_agent_release(agent_id)
 
-    %Monitoring.GatewayStatusResponse{received: true}
+    %Monitoring.GatewayStatusResponse{received: true, directives: directives}
   end
 
   @doc """
@@ -378,7 +378,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     Logger.info("Completed streaming status reception: #{state.total_services} total services")
 
-    %Monitoring.GatewayStatusResponse{received: true}
+    %Monitoring.GatewayStatusResponse{received: true, directives: state.directives}
   end
 
   @doc """
@@ -512,12 +512,50 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp forward_service_status(service, status) do
     case StatusProcessor.process(status) do
       :ok ->
-        :ok
+        []
+
+      {:ok, result} ->
+        gateway_status_directives(service, result)
 
       {:error, reason} ->
         Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+        []
     end
   end
+
+  defp gateway_status_directives(service, %{directives: directives}) when is_map(directives) do
+    Enum.flat_map(directives, fn {target, payload} ->
+      build_gateway_status_directive(service, target, payload)
+    end)
+  end
+
+  defp gateway_status_directives(_service, _result), do: []
+
+  defp build_gateway_status_directive(service, target, payload) when is_map(payload) and map_size(payload) > 0 do
+    case Jason.encode(payload) do
+      {:ok, payload_json} ->
+        [
+          %Monitoring.GatewayStatusDirective{
+            service_name: service.service_name || to_string(target),
+            service_type: service.service_type || "",
+            directive_type: gateway_status_directive_type(target, payload),
+            payload_json: payload_json
+          }
+        ]
+
+      {:error, reason} ->
+        Logger.warning("Dropping unencodable gateway status directive: #{inspect(reason)}")
+        []
+    end
+  end
+
+  defp build_gateway_status_directive(_service, _target, _payload), do: []
+
+  defp gateway_status_directive_type(target, %{"reconcile_floor" => true}) do
+    "#{target}.reconcile_floor"
+  end
+
+  defp gateway_status_directive_type(target, _payload), do: "#{target}.ack"
 
   defp log_invalid_service_status(metadata, service, %GRPC.RPCError{} = error) do
     Logger.warning(
@@ -1162,7 +1200,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       expected_idx: 0,
       pinned_total_chunks: nil,
       registered?: false,
-      stream_bytes: 0
+      stream_bytes: 0,
+      directives: []
     }
   end
 
@@ -1184,7 +1223,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     ensure_stream_registration(state.registered?, identity, agent_id, partition, chunk, stream)
 
     metadata = chunk_metadata(agent_id, partition, peer_ip, chunk, chunk_index, total_chunks)
-    process_chunk_services(services, metadata)
+    directives = process_chunk_services(services, metadata)
 
     next_stream_status_state(
       state,
@@ -1193,7 +1232,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       pinned_total_chunks,
       chunk_index,
       stream_bytes,
-      chunk
+      chunk,
+      directives
     )
   end
 
@@ -1383,20 +1423,33 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   end
 
   defp process_chunk_services(services, metadata) do
-    Enum.each(services, fn service ->
+    Enum.flat_map(services, fn service ->
       try do
         process_service_status(service, metadata)
       rescue
         e in GRPC.RPCError ->
           log_invalid_service_status(metadata, service, e)
+          []
 
         e ->
           Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
+          []
       end
     end)
   end
 
-  defp next_stream_status_state(state, agent_id, total_services, pinned_total_chunks, chunk_index, stream_bytes, chunk) do
+  defp next_stream_status_state(
+         state,
+         agent_id,
+         total_services,
+         pinned_total_chunks,
+         chunk_index,
+         stream_bytes,
+         chunk,
+         directives
+       ) do
+    directives = state.directives ++ directives
+
     if chunk.is_final do
       validate_final_chunk!(chunk_index, pinned_total_chunks)
       record_push_metrics(agent_id, total_services)
@@ -1411,7 +1464,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            expected_idx: chunk_index + 1,
            pinned_total_chunks: pinned_total_chunks,
            registered?: true,
-           stream_bytes: stream_bytes
+           stream_bytes: stream_bytes,
+           directives: directives
        }}
     else
       {:cont,
@@ -1422,7 +1476,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
            expected_idx: chunk_index + 1,
            pinned_total_chunks: pinned_total_chunks,
            registered?: true,
-           stream_bytes: stream_bytes
+           stream_bytes: stream_bytes,
+           directives: directives
        }}
     end
   end

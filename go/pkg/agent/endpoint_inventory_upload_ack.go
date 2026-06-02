@@ -19,6 +19,7 @@ package agent
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
@@ -27,9 +28,21 @@ import (
 
 var errGatewayStatusNotAcknowledged = errors.New("gateway did not acknowledge status push")
 
-func (p *PushLoop) recordEndpointInventoryUploadSuccesses(statuses []*proto.GatewayServiceStatus) {
+const endpointInventoryReconcileFloorDirective = "endpoint_inventory.reconcile_floor"
+
+type endpointInventoryGatewayDirective struct {
+	ReconcileFloor bool   `json:"reconcile_floor"`
+	UploadReason   string `json:"upload_reason"`
+	Message        string `json:"message"`
+}
+
+func (p *PushLoop) recordEndpointInventoryUploadSuccesses(
+	statuses []*proto.GatewayServiceStatus,
+	resp *proto.GatewayStatusResponse,
+) {
 	payloads := endpointInventoryUploadPayloads(statuses)
-	if len(payloads) == 0 {
+	directives := endpointInventoryGatewayDirectives(resp)
+	if len(payloads) == 0 && len(directives) == 0 {
 		return
 	}
 
@@ -40,6 +53,16 @@ func (p *PushLoop) recordEndpointInventoryUploadSuccesses(statuses []*proto.Gate
 	}
 
 	now := time.Now().UTC()
+	for _, directive := range directives {
+		reason := directive.Message
+		if reason == "" {
+			reason = directive.UploadReason
+		}
+		if err := endpointinventory.MarkServerReconcileRequested(cfg, now, reason); err != nil {
+			p.logger.Warn().Err(err).Msg("Failed to record endpoint inventory reconcile directive")
+		}
+	}
+
 	for _, payload := range payloads {
 		if err := endpointinventory.MarkUploadSucceeded(cfg, &payload, now); err != nil &&
 			!errors.Is(err, endpointinventory.ErrNoPendingUpload) {
@@ -89,4 +112,37 @@ func endpointInventoryUploadPayloads(statuses []*proto.GatewayServiceStatus) []e
 	}
 
 	return payloads
+}
+
+func endpointInventoryGatewayDirectives(resp *proto.GatewayStatusResponse) []endpointInventoryGatewayDirective {
+	if resp == nil {
+		return nil
+	}
+
+	directives := make([]endpointInventoryGatewayDirective, 0, 1)
+	for _, directive := range resp.GetDirectives() {
+		if directive == nil || !isEndpointInventoryDirective(directive) {
+			continue
+		}
+
+		payload := endpointInventoryGatewayDirective{}
+		if len(directive.GetPayloadJson()) > 0 {
+			if err := json.Unmarshal(directive.GetPayloadJson(), &payload); err != nil {
+				continue
+			}
+		}
+		if !payload.ReconcileFloor && directive.GetDirectiveType() != endpointInventoryReconcileFloorDirective {
+			continue
+		}
+
+		directives = append(directives, payload)
+	}
+
+	return directives
+}
+
+func isEndpointInventoryDirective(directive *proto.GatewayStatusDirective) bool {
+	return directive.GetServiceName() == endpointinventory.ServiceName ||
+		directive.GetServiceType() == endpointinventory.ServiceType ||
+		strings.HasPrefix(directive.GetDirectiveType(), "endpoint_inventory.")
 }

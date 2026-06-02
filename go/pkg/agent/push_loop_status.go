@@ -94,7 +94,7 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	}
 
 	if resp.Received {
-		p.recordEndpointInventoryUploadSuccesses(statuses)
+		p.recordEndpointInventoryUploadSuccesses(statuses, resp)
 		logEvent := p.logger.Info()
 		if reason == statusPushReasonHeartbeat {
 			logEvent = p.logger.Debug()
