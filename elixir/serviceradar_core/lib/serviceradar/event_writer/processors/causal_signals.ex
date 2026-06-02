@@ -530,6 +530,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "security" -> "security"
       "routing" -> "routing"
       "health" -> "health"
+      "inventory" -> "inventory"
       "bmp" -> "routing"
       "siem" -> "security"
       "unknown" -> "unknown"
@@ -548,6 +549,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp domain_rank("security"), do: 3
   defp domain_rank("routing"), do: 2
+  defp domain_rank("inventory"), do: 2
   defp domain_rank("health"), do: 1
   defp domain_rank(_), do: 0
 
@@ -617,6 +619,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp type_uid_for("bmp"), do: 100_811
   defp type_uid_for("siem"), do: 100_812
+  defp type_uid_for("inventory"), do: 100_813
   defp type_uid_for(_), do: 100_810
 
   defp normalize_device(payload) do

@@ -96,6 +96,45 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row1.id == row2.id
     end
 
+    test "normalizes inventory package-change signals as a first-class causal domain" do
+      payload = %{
+        "event_id" => "inventory:agent-a:scan-a:added:coord-hash",
+        "signal_type" => "inventory",
+        "event_type" => "added",
+        "timestamp" => "2026-06-02T12:00:00Z",
+        "severity" => "low",
+        "signal_domain" => "inventory",
+        "message" => "endpoint package added",
+        "device_uid" => "sr:test-device",
+        "package" => %{
+          "purl_canonical" => "pkg:deb/debian/nginx@1.24.0?arch=amd64",
+          "cpes" => ["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"]
+        }
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "signals.causal.inventory.added", received_at: DateTime.utc_now()}
+      }
+
+      row = CausalSignals.parse_message(message)
+      replayed_row = CausalSignals.parse_message(message)
+
+      assert row
+      assert row.id == replayed_row.id
+      assert row.type_uid == 100_813
+      assert row.metadata["signal_type"] == "inventory"
+      assert row.metadata["primary_domain"] == "inventory"
+      assert row.metadata["signal_domains"] == ["inventory"]
+      assert row.metadata["event_type"] == "added"
+      assert row.metadata["source"]["subject"] == "signals.causal.inventory.added"
+      assert row.metadata["explainability"]["source_signal_refs"] == [
+               "inventory:agent-a:scan-a:added:coord-hash"
+             ]
+
+      assert row.device == %{}
+    end
+
     test "includes grouped contexts and explainability metadata" do
       payload = %{
         "event_id" => "ctx-1",
