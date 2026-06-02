@@ -6,6 +6,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.AgentCommands.StatusHandler
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -31,6 +32,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
        %{
          test_pid: opts[:test_pid],
          ack_before_reply?: Keyword.get(opts, :ack_before_reply?, false),
+         auto_result?: Keyword.get(opts, :auto_result?, false),
          marker: Keyword.get(opts, :marker)
        }}
     end
@@ -44,6 +46,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       end
 
       maybe_ack_before_reply(command, state)
+      maybe_broadcast_result(command, context, state)
       {:reply, {:ok, command.command_id}, state}
     end
 
@@ -63,6 +66,33 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
     end
 
     defp maybe_ack_before_reply(_command, _state), do: :ok
+
+    defp maybe_broadcast_result(command, context, %{auto_result?: true}) do
+      Task.start(fn ->
+        Process.sleep(25)
+
+        AgentCommandPubSub.broadcast_result(%{
+          command_id: command.command_id,
+          command_type: command.command_type,
+          agent_id: Map.get(context, :agent_id),
+          response_subject: Map.get(context, :response_subject),
+          success: true,
+          message: "done",
+          payload: %{
+            "agent_id" => Map.get(context, :agent_id),
+            "matched" => true,
+            "match_count" => 1,
+            "freshness" => %{
+              "verdict" => "fresh",
+              "age_seconds" => 1,
+              "stale_threshold_seconds" => 3600
+            }
+          }
+        })
+      end)
+    end
+
+    defp maybe_broadcast_result(_command, _context, _state), do: :ok
   end
 
   defmodule CrashingControlSession do
@@ -213,6 +243,119 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
         |> Ash.read!(actor: actor)
 
       assert commands == []
+    end
+
+    test "endpoint inventory cohort cache query rejects target sets over the cap", %{
+      agent_id: agent_id
+    } do
+      assert {:error,
+              {:cohort_too_large,
+               %{
+                 targeted: 2,
+                 cap: 1,
+                 fallback: fallback
+               }}} =
+               AgentCommandBus.dispatch_endpoint_inventory_cohort_cache_query(
+                 %{predicate: %{name: "nginx"}},
+                 agent_ids: [agent_id, "agent-other"],
+                 cohort_cap: 1
+               )
+
+      assert fallback =~ "SRQL"
+    end
+
+    test "endpoint inventory cohort cache query aggregates command-scoped results", %{
+      agent_id: agent_id
+    } do
+      second_agent_id = "#{agent_id}-second"
+      offline_agent_id = "#{agent_id}-offline"
+      query_id = Ecto.UUID.generate()
+
+      {_pid, _metadata} =
+        start_control_session(
+          agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]},
+          auto_result?: true
+        )
+
+      {_pid, _metadata} =
+        start_control_session(
+          second_agent_id,
+          self(),
+          %{partition_id: "default", capabilities: ["endpoint-inventory"]},
+          auto_result?: true
+        )
+
+      assert {:ok, cohort} =
+               AgentCommandBus.dispatch_endpoint_inventory_cohort_cache_query(
+                 %{predicate: %{name: "nginx"}},
+                 agent_ids: [agent_id, second_agent_id, offline_agent_id],
+                 query_id: query_id,
+                 timeout_ms: 1_000,
+                 cohort_concurrency: 2
+               )
+
+      assert cohort.query_id == query_id
+      assert cohort.response_subject == AgentCommandPubSub.topic(query_id)
+      assert cohort.command_type == "endpoint_inventory.cohort_cache_query"
+
+      assert cohort.coverage == %{
+               targeted: 3,
+               answered: 2,
+               offline: 1,
+               expired: 0,
+               pending: 0,
+               complete?: true
+             }
+
+      assert Enum.count(cohort.dispatches, &(&1.status == :dispatched)) == 2
+      assert Enum.count(cohort.results) == 2
+
+      assert Enum.all?(
+               cohort.results,
+               &(&1.response_subject == AgentCommandPubSub.topic(query_id))
+             )
+
+      assert Enum.all?(cohort.results, &(&1.payload["match_count"] == 1))
+    end
+
+    test "endpoint inventory cache query persists command result lifecycle", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      ensure_status_handler_started()
+
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["endpoint-inventory"]
+        })
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch_endpoint_inventory_cache_query(agent_id, %{
+                 mode: "exists",
+                 predicate: %{name: "nginx"}
+               })
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, _context}, 1_000
+
+      AgentCommandPubSub.broadcast_result(%{
+        command_id: command.command_id,
+        command_type: command.command_type,
+        agent_id: agent_id,
+        success: true,
+        message: "done",
+        payload: %{
+          "matched" => true,
+          "match_count" => 1,
+          "freshness" => %{"verdict" => "fresh"}
+        }
+      })
+
+      command_record = wait_for_status(command_id, :completed, actor)
+      assert command_record.result_payload["matched"] == true
+      assert command_record.result_payload["match_count"] == 1
     end
 
     test "endpoint inventory force fresh requires permission before dispatch", %{
@@ -877,7 +1020,8 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
 
     {:ok, pid} =
       TestControlSession.start_link(
-        [name: name, test_pid: test_pid] ++ Keyword.take(opts, [:ack_before_reply?, :marker])
+        [name: name, test_pid: test_pid] ++
+          Keyword.take(opts, [:ack_before_reply?, :auto_result?, :marker])
       )
 
     on_exit(fn ->

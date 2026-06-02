@@ -44,14 +44,38 @@ defmodule ServiceRadar.AgentCommands.PubSub do
   end
 
   defp broadcast_command_scoped_result(data, event) do
-    case Map.get(data, :command_id) || Map.get(data, "command_id") do
-      command_id when is_binary(command_id) and command_id != "" ->
-        safe_broadcast(topic(command_id), event)
+    data
+    |> command_scoped_topics()
+    |> Enum.each(&safe_broadcast(&1, event))
+  end
 
-      _ ->
-        :ok
+  defp command_scoped_topics(data) do
+    [
+      command_topic(data),
+      response_subject_topic(data)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp command_topic(data) do
+    case Map.get(data, :command_id) || Map.get(data, "command_id") do
+      command_id when is_binary(command_id) and command_id != "" -> topic(command_id)
+      _ -> nil
     end
   end
+
+  defp response_subject_topic(data) do
+    subject = Map.get(data, :response_subject) || Map.get(data, "response_subject")
+
+    if valid_response_subject?(subject), do: subject
+  end
+
+  defp valid_response_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, "#{topic()}:")
+  end
+
+  defp valid_response_subject?(_subject), do: false
 
   defp safe_broadcast(topic, event) do
     case Process.whereis(@pubsub) do

@@ -4,6 +4,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   """
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Camera.RelaySourceResolver
   alias ServiceRadar.ControlRepo
   alias ServiceRadar.Credentials.CredentialRedactor
@@ -23,10 +24,13 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   @max_concurrent_bulk_mtr_jobs 1
   @max_concurrent_endpoint_inventory_queries 8
   @max_concurrent_endpoint_inventory_force_fresh 1
+  @max_endpoint_inventory_cohort_size 128
+  @max_endpoint_inventory_cohort_concurrency 16
   @send_timeout 5_000
   @endpoint_inventory_capability "endpoint-inventory"
   @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
   @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
+  @endpoint_inventory_cohort_query_type "endpoint_inventory.cohort_cache_query"
   @endpoint_inventory_force_fresh_permission "endpoint_inventory.force_fresh_scan"
   @endpoint_inventory_force_fresh_rate_bucket :endpoint_inventory_force_fresh_scan
   @endpoint_inventory_force_fresh_rate_limit 4
@@ -332,6 +336,51 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       payload,
       endpoint_inventory_opts(opts)
     )
+  end
+
+  def dispatch_endpoint_inventory_cohort_cache_query(payload, opts \\ []) when is_map(payload) do
+    query_id = normalize_cohort_query_id(Keyword.get(opts, :query_id))
+    response_subject = AgentCommandPubSub.topic(query_id)
+    partition = resolve_endpoint_inventory_cohort_partition(opts)
+    requested_agent_ids = endpoint_inventory_cohort_agent_ids(payload, opts)
+    payload = normalize_endpoint_inventory_cohort_query_payload(payload)
+
+    with {:ok, targets, coverage_seed} <-
+           resolve_endpoint_inventory_cohort_targets(partition, requested_agent_ids),
+         :ok <- ensure_endpoint_inventory_cohort_cap(coverage_seed.targeted, opts),
+         :ok <- subscribe_to_command_topic(query_id) do
+      dispatches =
+        dispatch_endpoint_inventory_cohort_targets(
+          targets,
+          payload,
+          query_id,
+          response_subject,
+          opts
+        )
+
+      successful_command_ids = successful_cohort_command_ids(dispatches)
+
+      results =
+        collect_endpoint_inventory_cohort_results(
+          successful_command_ids,
+          endpoint_inventory_cohort_timeout_ms(opts)
+        )
+
+      {:ok,
+       %{
+         query_id: query_id,
+         command_type: @endpoint_inventory_cohort_query_type,
+         response_subject: response_subject,
+         results: Map.values(results),
+         dispatches: dispatches,
+         coverage:
+           endpoint_inventory_cohort_coverage(
+             coverage_seed,
+             dispatches,
+             map_size(results)
+           )
+       }}
+    end
   end
 
   def dispatch_endpoint_inventory_force_fresh_scan(agent_id, payload, opts \\ [])
@@ -651,6 +700,20 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     })
   end
 
+  defp normalize_endpoint_inventory_cohort_query_payload(payload) do
+    payload
+    |> put_endpoint_inventory_default_mode("count")
+    |> normalize_endpoint_inventory_query_payload()
+  end
+
+  defp put_endpoint_inventory_default_mode(payload, mode) do
+    if payload_value(payload, :mode) do
+      payload
+    else
+      Map.put(payload, :mode, mode)
+    end
+  end
+
   defp normalize_endpoint_inventory_force_fresh_payload(payload) do
     query = payload_value(payload, :query)
 
@@ -681,6 +744,241 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
 
   defp normalize_endpoint_inventory_metadata(metadata) when is_map(metadata), do: metadata
   defp normalize_endpoint_inventory_metadata(_metadata), do: %{}
+
+  defp normalize_cohort_query_id(nil), do: Ecto.UUID.generate()
+  defp normalize_cohort_query_id(""), do: Ecto.UUID.generate()
+  defp normalize_cohort_query_id(query_id) when is_binary(query_id), do: query_id
+  defp normalize_cohort_query_id(query_id), do: to_string(query_id)
+
+  defp resolve_endpoint_inventory_cohort_partition(opts) do
+    opts
+    |> Keyword.get(:required_partition, Keyword.get(opts, :partition_id, "default"))
+    |> normalize_partition()
+  end
+
+  defp endpoint_inventory_cohort_agent_ids(payload, opts) do
+    case Keyword.fetch(opts, :agent_ids) do
+      {:ok, agent_ids} ->
+        normalize_cohort_agent_ids(agent_ids)
+
+      :error ->
+        case payload_value(payload, :agent_ids) do
+          nil -> :all
+          agent_ids -> normalize_cohort_agent_ids(agent_ids)
+        end
+    end
+  end
+
+  defp normalize_cohort_agent_ids(:all), do: :all
+
+  defp normalize_cohort_agent_ids(agent_ids) do
+    agent_ids
+    |> List.wrap()
+    |> Enum.map(&normalize_agent_id/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp resolve_endpoint_inventory_cohort_targets(partition, :all) do
+    targets =
+      list_online_sessions()
+      |> Enum.filter(&endpoint_inventory_cohort_session?(&1, partition))
+      |> Enum.uniq_by(& &1.agent_id)
+      |> Enum.sort_by(& &1.agent_id)
+
+    {:ok, targets, %{targeted: length(targets), offline: 0}}
+  end
+
+  defp resolve_endpoint_inventory_cohort_targets(partition, requested_agent_ids)
+       when is_list(requested_agent_ids) do
+    sessions_by_agent =
+      list_online_sessions()
+      |> Enum.filter(&endpoint_inventory_cohort_session?(&1, partition))
+      |> Map.new(fn session -> {session.agent_id, session} end)
+
+    targets =
+      Enum.flat_map(requested_agent_ids, fn agent_id ->
+        case Map.fetch(sessions_by_agent, agent_id) do
+          {:ok, session} -> [session]
+          :error -> []
+        end
+      end)
+
+    {:ok, targets,
+     %{
+       targeted: length(requested_agent_ids),
+       offline: length(requested_agent_ids) - length(targets)
+     }}
+  end
+
+  defp endpoint_inventory_cohort_session?(session, partition) do
+    session.partition_id == partition and @endpoint_inventory_capability in session.capabilities
+  end
+
+  defp ensure_endpoint_inventory_cohort_cap(targeted, opts) do
+    cap = endpoint_inventory_cohort_cap(opts)
+
+    if targeted > cap do
+      {:error,
+       {:cohort_too_large,
+        %{
+          targeted: targeted,
+          cap: cap,
+          fallback: "Use SRQL persisted inventory or fleet aggregates for larger cohorts"
+        }}}
+    else
+      :ok
+    end
+  end
+
+  defp endpoint_inventory_cohort_cap(opts) do
+    opts
+    |> Keyword.get(:cohort_cap, @max_endpoint_inventory_cohort_size)
+    |> max(0)
+  end
+
+  defp endpoint_inventory_cohort_concurrency(opts) do
+    opts
+    |> Keyword.get(:cohort_concurrency, @max_endpoint_inventory_cohort_concurrency)
+    |> max(1)
+  end
+
+  defp endpoint_inventory_cohort_timeout_ms(opts) do
+    ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
+    Keyword.get(opts, :timeout_ms, ttl_seconds * 1_000)
+  end
+
+  defp subscribe_to_command_topic(query_id) do
+    case AgentCommandPubSub.subscribe(query_id) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:pubsub_subscribe_failed, reason}}
+    end
+  rescue
+    exception -> {:error, {:pubsub_subscribe_failed, Exception.message(exception)}}
+  end
+
+  defp dispatch_endpoint_inventory_cohort_targets(
+         targets,
+         payload,
+         query_id,
+         response_subject,
+         opts
+       ) do
+    targets
+    |> Task.async_stream(
+      &dispatch_endpoint_inventory_cohort_target(
+        &1,
+        payload,
+        query_id,
+        response_subject,
+        opts
+      ),
+      max_concurrency: endpoint_inventory_cohort_concurrency(opts),
+      timeout: @send_timeout + 1_000,
+      ordered: false
+    )
+    |> Enum.map(fn
+      {:ok, dispatch} -> dispatch
+      {:exit, reason} -> %{agent_id: nil, status: :failed, reason: {:dispatch_exit, reason}}
+    end)
+  end
+
+  defp dispatch_endpoint_inventory_cohort_target(
+         session,
+         payload,
+         query_id,
+         response_subject,
+         opts
+       ) do
+    context =
+      opts
+      |> Keyword.get(:context, %{})
+      |> normalize_context()
+      |> Map.merge(%{
+        cohort_query_id: query_id,
+        response_subject: response_subject
+      })
+
+    dispatch_opts =
+      opts
+      |> Keyword.put(:context, context)
+      |> Keyword.put(:required_partition, session.partition_id)
+      |> Keyword.put(:required_gateway_node, gateway_node_from_metadata(session.metadata))
+
+    case dispatch_endpoint_inventory_cache_query(session.agent_id, payload, dispatch_opts) do
+      {:ok, command_id} ->
+        %{agent_id: session.agent_id, command_id: command_id, status: :dispatched}
+
+      {:error, reason} ->
+        %{agent_id: session.agent_id, status: :failed, reason: reason}
+    end
+  end
+
+  defp successful_cohort_command_ids(dispatches) do
+    dispatches
+    |> Enum.flat_map(fn
+      %{command_id: command_id, status: :dispatched} when is_binary(command_id) -> [command_id]
+      _ -> []
+    end)
+    |> MapSet.new()
+  end
+
+  defp collect_endpoint_inventory_cohort_results(expected_command_ids, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + max(timeout_ms, 0)
+    do_collect_endpoint_inventory_cohort_results(expected_command_ids, deadline, %{})
+  end
+
+  defp do_collect_endpoint_inventory_cohort_results(expected_command_ids, deadline, results) do
+    remaining_ms = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    cond do
+      map_size(results) == MapSet.size(expected_command_ids) ->
+        results
+
+      remaining_ms == 0 ->
+        results
+
+      true ->
+        receive do
+          {:command_result, %{command_id: command_id} = result} ->
+            if MapSet.member?(expected_command_ids, command_id) do
+              do_collect_endpoint_inventory_cohort_results(
+                expected_command_ids,
+                deadline,
+                Map.put(results, command_id, result)
+              )
+            else
+              do_collect_endpoint_inventory_cohort_results(
+                expected_command_ids,
+                deadline,
+                results
+              )
+            end
+
+          _other ->
+            do_collect_endpoint_inventory_cohort_results(expected_command_ids, deadline, results)
+        after
+          remaining_ms -> results
+        end
+    end
+  end
+
+  defp endpoint_inventory_cohort_coverage(coverage_seed, dispatches, answered) do
+    dispatch_failures = Enum.count(dispatches, &(&1.status == :failed))
+    dispatched = Enum.count(dispatches, &(&1.status == :dispatched))
+    expired = max(dispatched - answered, 0)
+
+    %{
+      targeted: coverage_seed.targeted,
+      answered: answered,
+      offline: coverage_seed.offline + dispatch_failures,
+      expired: expired,
+      pending: 0,
+      complete?:
+        answered + coverage_seed.offline + dispatch_failures == coverage_seed.targeted and
+          expired == 0
+    }
+  end
 
   defp authorize_endpoint_inventory_force_fresh(actor) do
     if RBAC.has_permission?(actor, @endpoint_inventory_force_fresh_permission) do
@@ -1026,8 +1324,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     end
   end
 
-  defp command_response_subject(command_id),
-    do: "#{ServiceRadar.AgentCommands.PubSub.topic(command_id)}"
+  defp command_response_subject(command_id), do: "#{AgentCommandPubSub.topic(command_id)}"
 
   defp endpoint_inventory_command_type?(@endpoint_inventory_cache_query_type), do: true
   defp endpoint_inventory_command_type?(@endpoint_inventory_force_fresh_scan_type), do: true
