@@ -6,6 +6,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -198,6 +199,81 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
                "architecture" => "amd64"
              }
            }
+  end
+
+  test "upserts endpoint vulnerability risk contribution from vuln-match payload", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-risk-device-#{unique}")
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_vulnerability_match(%{
+               "event_id" => "inventory-vuln-#{unique}",
+               "agent_id" => "endpoint-inventory-risk-agent-#{unique}",
+               "scan_id" => "scan-risk-#{unique}",
+               "device_uid" => device.uid,
+               "cve" => "CVE-2026-#{unique}",
+               "cvss_score" => 9.8,
+               "package_set_hash" => "package-set-risk-#{unique}",
+               "package" => %{
+                 "name" => "nginx",
+                 "version" => "1.24.0-2ubuntu7",
+                 "purl_canonical" => "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
+               }
+             })
+
+    assert result == %{
+             active?: true,
+             device_uid: device.uid,
+             risk_contribution_upserted?: true,
+             score: 98,
+             source: "endpoint_inventory",
+             source_ref: device.uid
+           }
+
+    assert contribution = endpoint_inventory_risk_contribution(device.uid)
+    assert contribution.active == true
+    assert contribution.score == 98
+    assert contribution.risk_level == "Critical"
+    assert contribution.metadata["cve"] == "CVE-2026-#{unique}"
+    assert contribution.metadata["package"]["name"] == "nginx"
+
+    assert device_risk(device.uid) == %{risk_score: 98, risk_level_id: 4, risk_level: "Critical"}
+  end
+
+  test "resolved endpoint vuln-match deactivates risk contribution and recomputes device risk", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-risk-resolved-device-#{unique}")
+
+    :ok =
+      DeviceRiskReducer.upsert_contribution(%{
+        device_uid: device.uid,
+        source: "endpoint_inventory",
+        source_ref: device.uid,
+        score: 82,
+        reason: "initial endpoint vulnerability",
+        metadata: %{"test" => "risk-resolved-#{unique}"}
+      })
+
+    assert device_risk(device.uid).risk_score == 82
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_vulnerability_match(%{
+               "device_uid" => device.uid,
+               "status" => "removed",
+               "cvss_score" => 0,
+               "package" => %{"name" => "nginx"}
+             })
+
+    assert result.active? == false
+    assert result.score == 0
+
+    assert contribution = endpoint_inventory_risk_contribution(device.uid)
+    assert contribution.active == false
+    assert contribution.resolved_at
+
+    assert device_risk(device.uid) == %{risk_score: nil, risk_level_id: nil, risk_level: nil}
   end
 
   test "unchanged package_set_hash updates scan freshness without replacing current packages", %{
@@ -732,6 +808,37 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       from(c in "endpoint_inventory_cpe_count_history",
         where: c.agent_id == ^agent_id,
         select: count(c.id)
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp endpoint_inventory_risk_contribution(device_uid) do
+    Repo.one(
+      from(c in "device_risk_contributions",
+        where: c.device_uid == ^device_uid and c.source == "endpoint_inventory",
+        select: %{
+          active: c.active,
+          score: c.score,
+          risk_level: c.risk_level,
+          resolved_at: c.resolved_at,
+          metadata: c.metadata
+        },
+        limit: 1
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp device_risk(device_uid) do
+    Repo.one!(
+      from(d in "ocsf_devices",
+        where: d.uid == ^device_uid,
+        select: %{
+          risk_score: d.risk_score,
+          risk_level_id: d.risk_level_id,
+          risk_level: d.risk_level
+        }
       ),
       prefix: "platform"
     )

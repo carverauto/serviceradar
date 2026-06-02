@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryArtifactStore
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Repo
@@ -23,6 +24,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @package_event_removed "removed"
   @package_event_version_changed "version_changed"
   @package_change_signal_schema_version "serviceradar.endpoint_inventory.package_change.v1"
+  @risk_source "endpoint_inventory"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
   @successful_states ["scanned", "complete", "success", "unchanged"]
@@ -110,6 +112,181 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   def ingest_report(_payload, _opts), do: {:error, :invalid_endpoint_inventory_payload}
+
+  @spec ingest_vulnerability_match(map(), keyword()) :: {:ok, map()} | {:error, term()}
+  def ingest_vulnerability_match(payload, opts \\ [])
+
+  def ingest_vulnerability_match(payload, opts) when is_map(payload) do
+    case vulnerability_match_device_uid(payload) do
+      nil ->
+        {:ok,
+         %{
+           risk_contribution_upserted?: false,
+           reason: :missing_device_uid
+         }}
+
+      device_uid ->
+        upsert_vulnerability_risk(device_uid, payload, opts)
+    end
+  end
+
+  def ingest_vulnerability_match(_payload, _opts),
+    do: {:error, :invalid_endpoint_inventory_vulnerability_match_payload}
+
+  defp upsert_vulnerability_risk(device_uid, payload, opts) do
+    cvss_score = vulnerability_cvss_score(payload)
+    score = cvss_risk_score(cvss_score)
+    now = DateTime.utc_now()
+    active? = vulnerability_match_active?(payload)
+
+    :ok =
+      DeviceRiskReducer.upsert_contribution(
+        %{
+          device_uid: device_uid,
+          source: @risk_source,
+          source_ref: device_uid,
+          score: score,
+          reason: vulnerability_risk_reason(payload, cvss_score),
+          active: active?,
+          occurred_at: vulnerability_match_time(payload) || now,
+          resolved_at: if(active?, do: nil, else: now),
+          metadata: vulnerability_risk_metadata(payload, cvss_score, score)
+        },
+        opts
+      )
+
+    {:ok,
+     %{
+       device_uid: device_uid,
+       source: @risk_source,
+       source_ref: device_uid,
+       score: score,
+       active?: active?,
+       risk_contribution_upserted?: true
+     }}
+  end
+
+  defp vulnerability_match_device_uid(payload) do
+    string_value(payload, :device_uid) ||
+      string_value(payload, :device_id) ||
+      payload
+      |> map_value(:device)
+      |> string_value(:uid)
+  end
+
+  defp vulnerability_cvss_score(payload) do
+    vulnerability = map_value(payload, :vulnerability)
+    advisory = map_value(payload, :advisory)
+
+    first_number_value(payload, [
+      :cvss_score,
+      :cvssScore,
+      :cvss,
+      :cvss_base_score,
+      :cvssBaseScore
+    ]) ||
+      first_number_value(vulnerability, [:cvss_score, :cvssScore, :cvss, :base_score, :baseScore]) ||
+      first_number_value(advisory, [:cvss_score, :cvssScore, :cvss, :base_score, :baseScore]) ||
+      0.0
+  end
+
+  defp first_number_value(map, keys) do
+    Enum.find_value(keys, &number_value(map, &1))
+  end
+
+  defp cvss_risk_score(cvss_score) do
+    cvss_score
+    |> Kernel.*(10)
+    |> round()
+    |> max(0)
+    |> min(100)
+  end
+
+  defp vulnerability_match_active?(payload) do
+    case value(payload, :active, :missing) do
+      false ->
+        false
+
+      value when value in [0] ->
+        false
+
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> String.downcase()
+        |> then(&(&1 not in ["false", "0"]))
+
+      _ ->
+        payload
+        |> string_value(:status)
+        |> resolved_vulnerability_status?()
+        |> Kernel.not()
+    end
+  end
+
+  defp resolved_vulnerability_status?(nil), do: false
+
+  defp resolved_vulnerability_status?(status) do
+    status
+    |> String.downcase()
+    |> Kernel.in(["fixed", "not_affected", "not_vulnerable", "patched", "removed", "resolved"])
+  end
+
+  defp vulnerability_match_time(payload) do
+    datetime_value(payload, :observed_at) ||
+      datetime_value(payload, :timestamp) ||
+      datetime_value(payload, :time)
+  end
+
+  defp vulnerability_risk_reason(payload, cvss_score) do
+    [
+      vulnerability_identifier(payload),
+      package_name(payload),
+      "CVSS #{format_cvss(cvss_score)}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp vulnerability_identifier(payload) do
+    vulnerability = map_value(payload, :vulnerability)
+    advisory = map_value(payload, :advisory)
+
+    string_value(payload, :cve) ||
+      string_value(payload, :cve_id) ||
+      string_value(payload, :vulnerability_id) ||
+      string_value(vulnerability, :cve) ||
+      string_value(vulnerability, :id) ||
+      string_value(advisory, :cve) ||
+      string_value(advisory, :id)
+  end
+
+  defp package_name(payload) do
+    package = map_value(payload, :package)
+
+    string_value(payload, :package_name) || string_value(package, :name)
+  end
+
+  defp format_cvss(cvss_score) do
+    cvss_score
+    |> Float.round(1)
+    |> :erlang.float_to_binary(decimals: 1)
+  end
+
+  defp vulnerability_risk_metadata(payload, cvss_score, score) do
+    compact_map(%{
+      "source" => @risk_source,
+      "event_id" => string_value(payload, :event_id),
+      "agent_id" => string_value(payload, :agent_id),
+      "scan_id" => string_value(payload, :scan_id),
+      "package_set_hash" => string_value(payload, :package_set_hash),
+      "artifact_hash" => string_value(payload, :artifact_hash),
+      "cve" => vulnerability_identifier(payload),
+      "cvss_score" => cvss_score,
+      "risk_score" => score,
+      "package" => map_value(payload, :package)
+    })
+  end
 
   defp build_context(payload, agent_id, scan_id, actor, opts) do
     now = DateTime.utc_now()
@@ -654,7 +831,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp package_change_message(_event_type, row), do: "endpoint package changed: #{row.name}"
 
   defp package_change_package(row) do
-    %{
+    compact_map(%{
       "package_manager" => row.package_manager,
       "ecosystem" => row.ecosystem,
       "name" => row.name,
@@ -668,19 +845,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "previous_purl_canonical" => row.previous_purl_canonical,
       "cpes" => row.cpes || [],
       "coordinate_hash" => row.coordinate_hash
-    }
-    |> compact_map()
+    })
   end
 
   defp previous_package(%{
          previous_version: nil,
          previous_purl: nil,
          previous_purl_canonical: nil
-       }),
-       do: nil
+       }), do: nil
 
   defp previous_package(row) do
-    %{
+    compact_map(%{
       "package_manager" => row.package_manager,
       "ecosystem" => row.ecosystem,
       "name" => row.name,
@@ -688,8 +863,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "version" => row.previous_version,
       "purl" => row.previous_purl,
       "purl_canonical" => row.previous_purl_canonical
-    }
-    |> compact_map()
+    })
   end
 
   defp publish_package_change_signals([], _opts), do: 0
@@ -1916,10 +2090,35 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp integer_value(_map, _key, default), do: default
 
+  defp number_value(map, key) when is_map(map) do
+    case value(map, key) do
+      value when is_integer(value) ->
+        value * 1.0
+
+      value when is_float(value) ->
+        value
+
+      value when is_binary(value) ->
+        parse_float(value)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp number_value(_map, _key), do: nil
+
   defp parse_integer(value, default) do
     case Integer.parse(String.trim(value)) do
       {int, _rest} -> int
       :error -> default
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(String.trim(value)) do
+      {float, _rest} -> float
+      :error -> nil
     end
   end
 
