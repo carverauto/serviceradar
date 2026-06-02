@@ -70,6 +70,7 @@ diesel::table! {
         package_manager -> Text,
         ecosystem -> Nullable<Text>,
         purl -> Nullable<Text>,
+        purl_canonical -> Text,
         cpes -> Array<Text>,
         supplier -> Nullable<Text>,
         license -> Nullable<Text>,

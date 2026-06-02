@@ -10,8 +10,8 @@ use crate::{
         current as col_current, device_uid as col_device_uid, ecosystem as col_ecosystem,
         endpoint_inventory_packages, inserted_at as col_inserted_at, license as col_license,
         name as col_name, package_manager as col_package_manager, purl as col_purl,
-        source as col_source, supplier as col_supplier, updated_at as col_updated_at,
-        version as col_version,
+        purl_canonical as col_purl_canonical, source as col_source, supplier as col_supplier,
+        updated_at as col_updated_at, version as col_version,
     },
     time::TimeRange,
 };
@@ -131,7 +131,10 @@ fn apply_filter<'a>(
         "ecosystem" => {
             query = apply_text_filter!(query, filter, col_ecosystem)?;
         }
-        "purl" => {
+        "purl" | "purl_canonical" | "canonical_purl" => {
+            query = apply_text_filter!(query, filter, col_purl_canonical)?;
+        }
+        "raw_purl" => {
             query = apply_text_filter!(query, filter, col_purl)?;
         }
         "supplier" => {
@@ -235,7 +238,9 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "device_uid" | "device_id" | "agent_id" | "name" | "package" | "version"
         | "architecture" | "arch" | "package_manager" | "manager" | "ecosystem" | "purl"
-        | "supplier" | "license" | "source" => collect_text_params(params, filter),
+        | "purl_canonical" | "canonical_purl" | "raw_purl" | "supplier" | "license" | "source" => {
+            collect_text_params(params, filter)
+        }
         "current" => {
             params.push(BindParam::Bool(parse_bool(filter.value.as_scalar()?)?));
             Ok(())
@@ -408,6 +413,9 @@ mod tests {
             "package_manager",
             "ecosystem",
             "purl",
+            "purl_canonical",
+            "canonical_purl",
+            "raw_purl",
             "supplier",
             "license",
             "source",

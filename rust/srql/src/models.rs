@@ -141,6 +141,7 @@ pub struct EndpointPackageRow {
     pub package_manager: String,
     pub ecosystem: Option<String>,
     pub purl: Option<String>,
+    pub purl_canonical: String,
     pub cpes: Vec<String>,
     pub supplier: Option<String>,
     pub license: Option<String>,
@@ -157,6 +158,7 @@ impl EndpointPackageRow {
         let device_uid = self.device_uid;
         let device_id = device_uid.clone();
         let manager = self.package_manager.clone();
+        let canonical_purl = self.purl_canonical.clone();
 
         serde_json::json!({
             "id": self.id.to_string(),
@@ -171,6 +173,8 @@ impl EndpointPackageRow {
             "manager": manager,
             "ecosystem": self.ecosystem,
             "purl": self.purl,
+            "purl_canonical": self.purl_canonical,
+            "canonical_purl": canonical_purl,
             "cpes": self.cpes,
             "supplier": self.supplier,
             "license": self.license,

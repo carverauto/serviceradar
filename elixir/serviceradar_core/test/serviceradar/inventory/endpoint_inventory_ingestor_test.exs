@@ -41,6 +41,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert [package] = current_packages(agent_id)
     assert package.name == "nginx"
     assert package.package_manager == "dpkg"
+    assert package.purl == "pkg:deb/nginx@1.24.0-2ubuntu7"
+    assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
     assert package.device_uid == device.uid
     assert artifact_count(first.scan_ref) == 1
 
@@ -65,6 +67,46 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert empty_success.current? == true
     assert current_scan(agent_id).scan_id == "scan-empty-#{unique}"
     assert current_packages(agent_id) == []
+  end
+
+  test "normalizes canonical purl and deduplicates by canonical coordinate", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-canonical-device-#{unique}")
+    agent_id = "endpoint-inventory-canonical-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    components = [
+      %{
+        "type" => "library",
+        "name" => "nginx",
+        "version" => "1.24.0-2ubuntu7",
+        "purl" => "pkg:DEB/nginx@1.24.0-2ubuntu7?arch=amd64",
+        "properties" => [
+          %{"name" => "serviceradar:package_manager", "value" => "dpkg"},
+          %{"name" => "serviceradar:architecture", "value" => "amd64"}
+        ]
+      },
+      %{
+        "type" => "library",
+        "name" => "nginx",
+        "version" => "1.24.0-2ubuntu7",
+        "properties" => [
+          %{"name" => "serviceradar:package_manager", "value" => "dpkg"},
+          %{"name" => "serviceradar:architecture", "value" => "amd64"}
+        ]
+      }
+    ]
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-canonical-#{unique}", components: components),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.package_count == 1
+    assert [package] = current_packages(agent_id)
+    assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
   end
 
   defp scan_payload(agent_id, scan_id, opts \\ []) do
@@ -128,6 +170,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         select: %{
           name: p.name,
           package_manager: p.package_manager,
+          purl: p.purl,
+          purl_canonical: p.purl_canonical,
           device_uid: p.device_uid
         }
       ),

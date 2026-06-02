@@ -14,6 +14,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   @collector_name "serviceradar-endpoint-inventory"
   @successful_states ["scanned", "complete", "success"]
+  @package_manager_purl_types %{
+    "apk" => "apk",
+    "dpkg" => "deb",
+    "rpm" => "rpm"
+  }
+  @package_manager_namespaces %{
+    "apk" => "alpine",
+    "deb" => "debian",
+    "dpkg" => "debian",
+    "rpm" => "rpm"
+  }
 
   @spec ingest_report(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_report(payload, opts \\ [])
@@ -288,7 +299,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     packages
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq_by(fn package ->
-      {package.name, package.version, package.package_manager, package.architecture, package.purl}
+      package.purl_canonical ||
+        {package.package_manager, package.name, package.version, package.architecture}
     end)
   end
 
@@ -304,6 +316,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         package_manager: package_manager,
         ecosystem: string_value(package, :ecosystem),
         purl: string_value(package, :purl),
+        purl_canonical: canonical_purl(package, package_manager),
         cpes: string_list_value(package, :cpes),
         supplier: string_value(package, :supplier),
         license: string_value(package, :license),
@@ -329,6 +342,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         package_manager: package_manager,
         ecosystem: Map.get(properties, "serviceradar:ecosystem"),
         purl: string_value(component, :purl),
+        purl_canonical: canonical_purl(component, package_manager, properties),
         cpes: component_cpes(component),
         supplier: supplier(component),
         license: license(component),
@@ -340,6 +354,154 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp normalize_component(_component), do: nil
+
+  defp canonical_purl(package, package_manager, properties \\ %{}) do
+    attrs = %{
+      package_manager: package_manager,
+      ecosystem:
+        string_value(package, :ecosystem) || Map.get(properties, "serviceradar:ecosystem"),
+      name: string_value(package, :name),
+      version: string_value(package, :version),
+      architecture:
+        string_value(package, :architecture) || Map.get(properties, "serviceradar:architecture")
+    }
+
+    case parse_purl(string_value(package, :purl), attrs) do
+      nil -> fallback_purl(attrs)
+      canonical -> canonical
+    end
+  end
+
+  defp parse_purl(nil, _attrs), do: nil
+
+  defp parse_purl("pkg:" <> rest, attrs) do
+    {path_and_version, qualifiers} = split_once(rest, "?")
+    {path, version} = split_once(path_and_version, "@")
+    {type, package_path} = split_once(path, "/")
+
+    type = purl_type(type, attrs.package_manager)
+
+    case package_path_segments(package_path) do
+      [] ->
+        nil
+
+      segments ->
+        name = List.last(segments)
+
+        namespace =
+          segments
+          |> Enum.drop(-1)
+          |> normalize_namespace(type, attrs)
+
+        qualifier_map =
+          qualifiers
+          |> decode_qualifiers()
+          |> Map.put_new("arch", attrs.architecture)
+          |> compact_map()
+
+        build_purl(type, namespace, name, version || attrs.version, qualifier_map)
+    end
+  end
+
+  defp parse_purl(_purl, _attrs), do: nil
+
+  defp fallback_purl(attrs) do
+    type = purl_type(attrs.ecosystem, attrs.package_manager)
+    namespace = normalize_namespace([], type, attrs)
+    qualifiers = compact_map(%{"arch" => attrs.architecture})
+
+    build_purl(type, namespace, attrs.name, attrs.version, qualifiers)
+  end
+
+  defp purl_type(type, package_manager) do
+    normalized = normalize_token(type) || normalize_token(package_manager)
+    Map.get(@package_manager_purl_types, normalized, normalized || "generic")
+  end
+
+  defp normalize_namespace([], type, attrs) do
+    namespace =
+      normalize_token(attrs.ecosystem) ||
+        Map.get(@package_manager_namespaces, type) ||
+        Map.get(@package_manager_namespaces, normalize_token(attrs.package_manager))
+
+    if namespace, do: [namespace], else: []
+  end
+
+  defp normalize_namespace(segments, _type, _attrs) do
+    Enum.map(segments, &String.downcase/1)
+  end
+
+  defp package_path_segments(path) when is_binary(path) do
+    path
+    |> String.split("/", trim: true)
+    |> Enum.map(&decode_uri_component/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp package_path_segments(_path), do: []
+
+  defp build_purl(_type, _namespace, nil, _version, _qualifiers), do: nil
+
+  defp build_purl(type, namespace, name, version, qualifiers) do
+    path =
+      (namespace ++ [name])
+      |> Enum.map(&encode_uri_component/1)
+      |> Enum.join("/")
+
+    version_part = if version, do: "@#{encode_uri_component(version)}", else: ""
+    qualifier_part = encoded_qualifiers(qualifiers)
+
+    "pkg:#{type}/#{path}#{version_part}#{qualifier_part}"
+  end
+
+  defp decode_qualifiers(nil), do: %{}
+
+  defp decode_qualifiers(query) do
+    query
+    |> URI.query_decoder()
+    |> Map.new(fn {key, value} -> {String.downcase(key), value} end)
+  rescue
+    ArgumentError -> %{}
+  end
+
+  defp encoded_qualifiers(qualifiers) when map_size(qualifiers) == 0, do: ""
+
+  defp encoded_qualifiers(qualifiers) do
+    encoded =
+      qualifiers
+      |> Enum.sort_by(fn {key, _value} -> key end)
+      |> Enum.map_join("&", fn {key, value} ->
+        "#{encode_uri_component(key)}=#{encode_uri_component(value)}"
+      end)
+
+    "?#{encoded}"
+  end
+
+  defp split_once(value, marker) do
+    case String.split(value, marker, parts: 2) do
+      [left, right] -> {left, right}
+      [left] -> {left, nil}
+    end
+  end
+
+  defp normalize_token(nil), do: nil
+
+  defp normalize_token(value) when is_binary(value) do
+    value =
+      value
+      |> String.trim()
+      |> String.downcase()
+
+    if value == "", do: nil, else: value
+  end
+
+  defp decode_uri_component(value), do: URI.decode(value)
+
+  defp encode_uri_component(value) do
+    value
+    |> to_string()
+    |> URI.encode(&URI.char_unreserved?/1)
+  end
 
   defp normalize_sources(sources) do
     sources

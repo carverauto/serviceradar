@@ -167,6 +167,8 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 col("package_manager", ColumnType::Text, None),
                 col("ecosystem", ColumnType::Text, None),
                 col("purl", ColumnType::Text, None),
+                col("purl_canonical", ColumnType::Text, None),
+                col("canonical_purl", ColumnType::Text, None),
                 col("cpes", ColumnType::TextArray, None),
                 col("supplier", ColumnType::Text, None),
                 col("license", ColumnType::Text, None),
