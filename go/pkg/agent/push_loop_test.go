@@ -15,6 +15,7 @@ import (
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/bumblebee"
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -87,6 +88,73 @@ func TestBuildStatusSignatureDetectsAvailabilityChange(t *testing.T) {
 
 	if signatureA == signatureB {
 		t.Fatalf("expected signatures to differ when availability changes")
+	}
+}
+
+func TestEndpointInventoryStandingQuestionCountsFromStatuses(t *testing.T) {
+	evaluatedAt := time.Unix(1_735_689_600, 0).UTC()
+	lastScanAt := evaluatedAt.Add(-time.Hour)
+	payload := endpointinventory.ScanPayload{
+		SchemaVersion: endpointinventory.SchemaVersion,
+		AgentID:       "agent-1",
+		ScanID:        "scan-1",
+		State:         "scanned",
+		CoverageState: "complete",
+		PackageCount:  1,
+		StandingQuestionResultCounts: []endpointinventory.StandingQuestionResultCount{
+			{
+				QuestionID:      "nginx-installed",
+				QuestionVersion: "v3",
+				PredicateHash:   "sha256:predicate",
+				Mode:            endpointinventory.QueryModeCount,
+				Matched:         true,
+				Count:           2,
+				PackageSetHash:  "sha256:package-set",
+				EvaluatedAt:     evaluatedAt,
+				Freshness: endpointinventory.FreshnessVerdict{
+					Verdict:               endpointinventory.FreshnessFresh,
+					AgeSeconds:            3600,
+					StaleThresholdSeconds: 86_400,
+					LastSuccessfulScanAt:  &lastScanAt,
+				},
+				Labels: map[string]string{"coordinate": "nginx"},
+			},
+		},
+	}
+	message, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	counts := endpointInventoryStandingQuestionCountsFromStatuses([]*proto.GatewayServiceStatus{
+		{
+			ServiceName: endpointinventory.ServiceName,
+			ServiceType: endpointinventory.ServiceType,
+			Message:     message,
+		},
+	})
+	if len(counts) != 1 {
+		t.Fatalf("standing question count len = %d, want 1", len(counts))
+	}
+	count := counts[0]
+	if count.QuestionId != "nginx-installed" ||
+		count.QuestionVersion != "v3" ||
+		count.PredicateHash != "sha256:predicate" ||
+		count.Mode != endpointinventory.QueryModeCount ||
+		!count.Matched ||
+		count.Count != 2 ||
+		count.PackageSetHash != "sha256:package-set" ||
+		count.HashAlgorithm != endpointinventory.HashAlgorithm ||
+		count.EvaluatedAtUnix != evaluatedAt.Unix() {
+		t.Fatalf("unexpected standing question count: %#v", count)
+	}
+	if count.Freshness == nil ||
+		count.Freshness.Verdict != endpointinventory.FreshnessFresh ||
+		count.Freshness.LastSuccessfulScanAtUnix != lastScanAt.Unix() {
+		t.Fatalf("unexpected freshness: %#v", count.Freshness)
+	}
+	if count.Labels["coordinate"] != "nginx" {
+		t.Fatalf("labels = %#v", count.Labels)
 	}
 }
 

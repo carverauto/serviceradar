@@ -329,6 +329,11 @@ defmodule Monitoring.GatewayStatusRequest do
   field :hostname, 12, type: :string
   field :os, 13, type: :string
   field :arch, 14, type: :string
+
+  field :endpoint_inventory_standing_question_counts, 15,
+    repeated: true,
+    type: Monitoring.EndpointInventoryStandingQuestionResultCount,
+    json_name: "endpointInventoryStandingQuestionCounts"
 end
 
 defmodule Monitoring.GatewayStatusResponse do
@@ -380,6 +385,11 @@ defmodule Monitoring.GatewayStatusChunk do
   field :hostname, 15, type: :string
   field :os, 16, type: :string
   field :arch, 17, type: :string
+
+  field :endpoint_inventory_standing_question_counts, 18,
+    repeated: true,
+    type: Monitoring.EndpointInventoryStandingQuestionResultCount,
+    json_name: "endpointInventoryStandingQuestionCounts"
 end
 
 defmodule Monitoring.GatewayServiceStatus do
@@ -669,7 +679,7 @@ defmodule Monitoring.ControlStreamRequest do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof(:payload, 0)
+  oneof :payload, 0
 
   field :hello, 1, type: Monitoring.ControlStreamHello, oneof: 0
   field :command_ack, 2, type: Monitoring.CommandAck, json_name: "commandAck", oneof: 0
@@ -692,7 +702,7 @@ defmodule Monitoring.ControlStreamResponse do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof(:payload, 0)
+  oneof :payload, 0
 
   field :command, 1, type: Monitoring.CommandRequest, oneof: 0
   field :config, 2, type: Monitoring.AgentConfigResponse, oneof: 0
@@ -1149,6 +1159,63 @@ defmodule Monitoring.EndpointInventoryPackagePredicate do
   field :cpe, 8, type: :string
 end
 
+defmodule Monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Monitoring.EndpointInventoryStandingQuestionResultCount do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.EndpointInventoryStandingQuestionResultCount",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :schema, 1, type: :string
+  field :question_id, 2, type: :string, json_name: "questionId"
+  field :question_version, 3, type: :string, json_name: "questionVersion"
+  field :predicate_hash, 4, type: :string, json_name: "predicateHash"
+  field :mode, 5, type: :string
+  field :matched, 6, type: :bool
+  field :count, 7, type: :int32
+  field :package_set_hash, 8, type: :string, json_name: "packageSetHash"
+  field :hash_algorithm, 9, type: :string, json_name: "hashAlgorithm"
+  field :evaluated_at_unix, 10, type: :int64, json_name: "evaluatedAtUnix"
+  field :freshness, 11, type: Monitoring.EndpointInventoryFreshness
+
+  field :labels, 12,
+    repeated: true,
+    type: Monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry,
+    map: true
+
+  field :metadata, 13,
+    repeated: true,
+    type: Monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry,
+    map: true
+end
+
 defmodule Monitoring.EndpointInventoryQueryResult do
   @moduledoc false
 
@@ -1516,11 +1583,11 @@ defmodule Monitoring.AgentService.Service do
 
   use GRPC.Service, name: "monitoring.AgentService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:GetStatus, Monitoring.StatusRequest, Monitoring.StatusResponse)
+  rpc :GetStatus, Monitoring.StatusRequest, Monitoring.StatusResponse
 
-  rpc(:GetResults, Monitoring.ResultsRequest, Monitoring.ResultsResponse)
+  rpc :GetResults, Monitoring.ResultsRequest, Monitoring.ResultsResponse
 
-  rpc(:StreamResults, Monitoring.ResultsRequest, stream(Monitoring.ResultsChunk))
+  rpc :StreamResults, Monitoring.ResultsRequest, stream(Monitoring.ResultsChunk)
 end
 
 defmodule Monitoring.AgentService.Stub do
@@ -1534,27 +1601,23 @@ defmodule Monitoring.AgentGatewayService.Service do
 
   use GRPC.Service, name: "monitoring.AgentGatewayService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse)
+  rpc :Hello, Monitoring.AgentHelloRequest, Monitoring.AgentHelloResponse
 
-  rpc(:GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse)
+  rpc :GetConfig, Monitoring.AgentConfigRequest, Monitoring.AgentConfigResponse
 
-  rpc(:StreamConfig, Monitoring.AgentConfigRequest, stream(Monitoring.AgentConfigChunk))
+  rpc :StreamConfig, Monitoring.AgentConfigRequest, stream(Monitoring.AgentConfigChunk)
 
-  rpc(:PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse)
+  rpc :PushStatus, Monitoring.GatewayStatusRequest, Monitoring.GatewayStatusResponse
 
-  rpc(:StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse)
+  rpc :StreamStatus, stream(Monitoring.GatewayStatusChunk), Monitoring.GatewayStatusResponse
 
-  rpc(
-    :ControlStream,
-    stream(Monitoring.ControlStreamRequest),
-    stream(Monitoring.ControlStreamResponse)
-  )
+  rpc :ControlStream,
+      stream(Monitoring.ControlStreamRequest),
+      stream(Monitoring.ControlStreamResponse)
 
-  rpc(
-    :ResolveCredentialGrant,
-    Monitoring.CredentialBrokerResolveRequest,
-    Monitoring.CredentialBrokerResolveResponse
-  )
+  rpc :ResolveCredentialGrant,
+      Monitoring.CredentialBrokerResolveRequest,
+      Monitoring.CredentialBrokerResolveResponse
 end
 
 defmodule Monitoring.AgentGatewayService.Stub do

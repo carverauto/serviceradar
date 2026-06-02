@@ -154,6 +154,79 @@ func TestEndpointInventorySpoolServiceReturnsPendingUploadWhenDue(t *testing.T) 
 	}
 }
 
+func TestEndpointInventorySpoolServiceAttachesStandingQuestionCountsFromManifest(t *testing.T) {
+	tmpDir := t.TempDir()
+	spoolDir := filepath.Join(tmpDir, "spool")
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cfg := endpointinventory.DefaultConfig()
+	cfg.AgentID = endpointInventorySpoolTestAgentID
+	cfg.SpoolDir = spoolDir
+	cfg.CacheDir = cacheDir
+	cfg.TmpDir = filepath.Join(tmpDir, "tmp")
+	payload := endpointInventoryFullUploadPayload(time.Now().UTC())
+	payload.SBOM = nil
+	payload.UploadReason = endpointinventory.UploadReasonUnchanged
+	evaluatedAt := time.Unix(1_735_689_600, 0).UTC()
+
+	if err := endpointinventory.WriteSpool(cfg, payload); err != nil {
+		t.Fatal(err)
+	}
+	if err := endpointinventory.WriteCacheManifest(cfg, &endpointinventory.InventoryCacheManifest{
+		SchemaVersion:   endpointinventory.CacheVersion,
+		AgentID:         endpointInventorySpoolTestAgentID,
+		PackageSetHash:  payload.PackageSetHash,
+		ArtifactHash:    payload.ArtifactHash,
+		HashAlgorithm:   endpointinventory.HashAlgorithm,
+		SourceMTimes:    map[string]endpointinventory.SourceMTime{},
+		Packages:        []endpointinventory.Package{},
+		SourceSummaries: []endpointinventory.SourceSummary{},
+		StandingQuestionResultCounts: []endpointinventory.StandingQuestionResultCount{
+			{
+				QuestionID:     "nginx-installed",
+				PredicateHash:  "sha256:predicate",
+				Mode:           endpointinventory.QueryModeExists,
+				Matched:        true,
+				Count:          1,
+				PackageSetHash: payload.PackageSetHash,
+				HashAlgorithm:  endpointinventory.HashAlgorithm,
+				EvaluatedAt:    evaluatedAt,
+			},
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewEndpointInventorySpoolService(
+		endpointInventorySpoolTestAgentID,
+		&EndpointInventoryStatusConfig{
+			SpoolPath: endpointinventory.LatestPath(spoolDir),
+			CacheDir:  cacheDir,
+			TmpDir:    cfg.TmpDir,
+		},
+	)
+	status, err := service.GetStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var got endpointinventory.ScanPayload
+	if err := json.Unmarshal(status.Message, &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got.StandingQuestionResultCounts) != 1 {
+		t.Fatalf("standing question counts = %#v, want one count", got.StandingQuestionResultCounts)
+	}
+	count := got.StandingQuestionResultCounts[0]
+	if count.QuestionID != "nginx-installed" ||
+		count.PredicateHash != "sha256:predicate" ||
+		count.Mode != endpointinventory.QueryModeExists ||
+		!count.Matched ||
+		count.Count != 1 ||
+		!count.EvaluatedAt.Equal(evaluatedAt) {
+		t.Fatalf("unexpected standing question count: %#v", count)
+	}
+}
+
 func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 	tmpDir := t.TempDir()
 	spoolPath := filepath.Join(tmpDir, "latest.json")

@@ -21,11 +21,12 @@ package endpointinventory
 import "time"
 
 const (
-	SchemaVersion = "serviceradar.endpoint_inventory.scan.v1"
-	CacheVersion  = "serviceradar.endpoint_inventory.cache.v1"
-	ServiceName   = "endpoint_inventory"
-	ServiceType   = "endpoint_inventory"
-	SourceResults = "results"
+	SchemaVersion                     = "serviceradar.endpoint_inventory.scan.v1"
+	CacheVersion                      = "serviceradar.endpoint_inventory.cache.v1"
+	ServiceName                       = "endpoint_inventory"
+	ServiceType                       = "endpoint_inventory"
+	SourceResults                     = "results"
+	StandingQuestionResultCountSchema = "serviceradar.endpoint_inventory.standing_question_result_count.v1"
 
 	CycloneDXFormat      = "CycloneDX"
 	CycloneDXSpecVersion = "1.6"
@@ -81,47 +82,65 @@ type RuntimeProfile struct {
 }
 
 type ScanPayload struct {
-	SchemaVersion        string          `json:"schema_version"`
-	AgentID              string          `json:"agent_id"`
-	ScanID               string          `json:"scan_id"`
-	CollectorVersion     string          `json:"collector_version,omitempty"`
-	State                string          `json:"state"`
-	CoverageState        string          `json:"coverage_state"`
-	LastScanAt           time.Time       `json:"last_scan_at"`
-	LastSuccessfulScanAt *time.Time      `json:"last_successful_scan_at,omitempty"`
-	OS                   OSInfo          `json:"os,omitempty"`
-	Sources              []SourceSummary `json:"sources"`
-	PackageCount         int             `json:"package_count"`
-	PackageSetHash       string          `json:"package_set_hash,omitempty"`
-	ArtifactHash         string          `json:"artifact_hash,omitempty"`
-	HashAlgorithm        string          `json:"hash_algorithm,omitempty"`
-	UploadReason         string          `json:"upload_reason,omitempty"`
-	SBOM                 *CycloneDXBOM   `json:"sbom,omitempty"`
-	Metadata             map[string]any  `json:"metadata,omitempty"`
+	SchemaVersion                string                        `json:"schema_version"`
+	AgentID                      string                        `json:"agent_id"`
+	ScanID                       string                        `json:"scan_id"`
+	CollectorVersion             string                        `json:"collector_version,omitempty"`
+	State                        string                        `json:"state"`
+	CoverageState                string                        `json:"coverage_state"`
+	LastScanAt                   time.Time                     `json:"last_scan_at"`
+	LastSuccessfulScanAt         *time.Time                    `json:"last_successful_scan_at,omitempty"`
+	OS                           OSInfo                        `json:"os,omitempty"`
+	Sources                      []SourceSummary               `json:"sources"`
+	PackageCount                 int                           `json:"package_count"`
+	PackageSetHash               string                        `json:"package_set_hash,omitempty"`
+	ArtifactHash                 string                        `json:"artifact_hash,omitempty"`
+	HashAlgorithm                string                        `json:"hash_algorithm,omitempty"`
+	UploadReason                 string                        `json:"upload_reason,omitempty"`
+	StandingQuestionResultCounts []StandingQuestionResultCount `json:"standing_question_result_counts,omitempty"`
+	SBOM                         *CycloneDXBOM                 `json:"sbom,omitempty"`
+	Metadata                     map[string]any                `json:"metadata,omitempty"`
 }
 
 type InventoryCacheManifest struct {
-	SchemaVersion              string                 `json:"schema_version"`
-	AgentID                    string                 `json:"agent_id"`
-	PackageSetHash             string                 `json:"package_set_hash,omitempty"`
-	ArtifactHash               string                 `json:"artifact_hash,omitempty"`
-	LastUploadedPackageSetHash string                 `json:"last_uploaded_package_set_hash,omitempty"`
-	LastUploadedArtifactHash   string                 `json:"last_uploaded_artifact_hash,omitempty"`
-	HashAlgorithm              string                 `json:"hash_algorithm,omitempty"`
-	PackageCount               int                    `json:"package_count"`
-	Packages                   []Package              `json:"packages"`
-	SourceSummaries            []SourceSummary        `json:"source_summaries"`
-	SourceMTimes               map[string]SourceMTime `json:"source_mtimes"`
-	LastScanAt                 time.Time              `json:"last_scan_at"`
-	LastSuccessfulScanAt       *time.Time             `json:"last_successful_scan_at,omitempty"`
-	LastChangedScanAt          *time.Time             `json:"last_changed_scan_at,omitempty"`
-	ScansSinceFull             int                    `json:"scans_since_full"`
-	UnchangedScanCount         int                    `json:"unchanged_scan_count"`
-	FullScanCount              int                    `json:"full_scan_count"`
-	PendingUpload              *PendingUploadState    `json:"pending_upload,omitempty"`
-	ServerReconcileRequestedAt *time.Time             `json:"server_reconcile_requested_at,omitempty"`
-	ServerReconcileReason      string                 `json:"server_reconcile_reason,omitempty"`
-	UpdatedAt                  time.Time              `json:"updated_at"`
+	SchemaVersion                string                        `json:"schema_version"`
+	AgentID                      string                        `json:"agent_id"`
+	PackageSetHash               string                        `json:"package_set_hash,omitempty"`
+	ArtifactHash                 string                        `json:"artifact_hash,omitempty"`
+	LastUploadedPackageSetHash   string                        `json:"last_uploaded_package_set_hash,omitempty"`
+	LastUploadedArtifactHash     string                        `json:"last_uploaded_artifact_hash,omitempty"`
+	HashAlgorithm                string                        `json:"hash_algorithm,omitempty"`
+	PackageCount                 int                           `json:"package_count"`
+	Packages                     []Package                     `json:"packages"`
+	SourceSummaries              []SourceSummary               `json:"source_summaries"`
+	SourceMTimes                 map[string]SourceMTime        `json:"source_mtimes"`
+	StandingQuestionResultCounts []StandingQuestionResultCount `json:"standing_question_result_counts,omitempty"`
+	LastScanAt                   time.Time                     `json:"last_scan_at"`
+	LastSuccessfulScanAt         *time.Time                    `json:"last_successful_scan_at,omitempty"`
+	LastChangedScanAt            *time.Time                    `json:"last_changed_scan_at,omitempty"`
+	ScansSinceFull               int                           `json:"scans_since_full"`
+	UnchangedScanCount           int                           `json:"unchanged_scan_count"`
+	FullScanCount                int                           `json:"full_scan_count"`
+	PendingUpload                *PendingUploadState           `json:"pending_upload,omitempty"`
+	ServerReconcileRequestedAt   *time.Time                    `json:"server_reconcile_requested_at,omitempty"`
+	ServerReconcileReason        string                        `json:"server_reconcile_reason,omitempty"`
+	UpdatedAt                    time.Time                     `json:"updated_at"`
+}
+
+type StandingQuestionResultCount struct {
+	Schema          string            `json:"schema,omitempty"`
+	QuestionID      string            `json:"question_id"`
+	QuestionVersion string            `json:"question_version,omitempty"`
+	PredicateHash   string            `json:"predicate_hash"`
+	Mode            string            `json:"mode"`
+	Matched         bool              `json:"matched"`
+	Count           int               `json:"count"`
+	PackageSetHash  string            `json:"package_set_hash,omitempty"`
+	HashAlgorithm   string            `json:"hash_algorithm,omitempty"`
+	EvaluatedAt     time.Time         `json:"evaluated_at"`
+	Freshness       FreshnessVerdict  `json:"freshness,omitempty"`
+	Labels          map[string]string `json:"labels,omitempty"`
+	Metadata        map[string]string `json:"metadata,omitempty"`
 }
 
 type PendingUploadState struct {

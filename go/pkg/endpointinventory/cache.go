@@ -183,6 +183,7 @@ func fullScanManifest(
 	manifest.Packages = append([]Package(nil), packages...)
 	manifest.SourceSummaries = append([]SourceSummary(nil), payload.Sources...)
 	manifest.SourceMTimes = copySourceMTimes(current)
+	manifest.StandingQuestionResultCounts = copyStandingQuestionResultCounts(payload.StandingQuestionResultCounts)
 	manifest.LastScanAt = scannedAt
 	manifest.LastSuccessfulScanAt = payload.LastSuccessfulScanAt
 	manifest.ScansSinceFull = 0
@@ -242,6 +243,7 @@ func copyCacheManifest(previous *InventoryCacheManifest) *InventoryCacheManifest
 	manifest.Packages = append([]Package(nil), previous.Packages...)
 	manifest.SourceSummaries = append([]SourceSummary(nil), previous.SourceSummaries...)
 	manifest.SourceMTimes = copySourceMTimes(previous.SourceMTimes)
+	manifest.StandingQuestionResultCounts = copyStandingQuestionResultCounts(previous.StandingQuestionResultCounts)
 
 	return &manifest
 }
@@ -250,6 +252,28 @@ func copySourceMTimes(sourceMTimes map[string]SourceMTime) map[string]SourceMTim
 	copied := make(map[string]SourceMTime, len(sourceMTimes))
 	for source, sourceMTime := range sourceMTimes {
 		copied[source] = sourceMTime
+	}
+
+	return copied
+}
+
+func copyStandingQuestionResultCounts(counts []StandingQuestionResultCount) []StandingQuestionResultCount {
+	copied := make([]StandingQuestionResultCount, 0, len(counts))
+	for _, count := range counts {
+		next := count
+		if count.Labels != nil {
+			next.Labels = make(map[string]string, len(count.Labels))
+			for key, value := range count.Labels {
+				next.Labels[key] = value
+			}
+		}
+		if count.Metadata != nil {
+			next.Metadata = make(map[string]string, len(count.Metadata))
+			for key, value := range count.Metadata {
+				next.Metadata[key] = value
+			}
+		}
+		copied = append(copied, next)
 	}
 
 	return copied

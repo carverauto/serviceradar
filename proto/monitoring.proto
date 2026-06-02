@@ -215,6 +215,7 @@ message GatewayStatusRequest {
   string hostname = 12;        // Agent host name at push time
   string os = 13;              // Agent runtime OS at push time
   string arch = 14;            // Agent runtime architecture at push time
+  repeated EndpointInventoryStandingQuestionResultCount endpoint_inventory_standing_question_counts = 15;
 }
 
 // GatewayStatusResponse is the response from the gateway after receiving status.
@@ -250,6 +251,7 @@ message GatewayStatusChunk {
   string hostname = 15;        // Agent host name at push time
   string os = 16;              // Agent runtime OS at push time
   string arch = 17;            // Agent runtime architecture at push time
+  repeated EndpointInventoryStandingQuestionResultCount endpoint_inventory_standing_question_counts = 18;
 }
 
 // GatewayServiceStatus represents a single service status pushed by an agent.
@@ -725,6 +727,24 @@ message EndpointInventoryPackagePredicate {
   string purl = 6;
   string purl_canonical = 7;
   string cpe = 8;
+}
+
+// EndpointInventoryStandingQuestionResultCount is a compact heartbeat result
+// for an operator-defined inventory predicate evaluated against local cache.
+message EndpointInventoryStandingQuestionResultCount {
+  string schema = 1;
+  string question_id = 2;
+  string question_version = 3;
+  string predicate_hash = 4;
+  string mode = 5; // exists or count
+  bool matched = 6;
+  int32 count = 7;
+  string package_set_hash = 8;
+  string hash_algorithm = 9;
+  int64 evaluated_at_unix = 10;
+  EndpointInventoryFreshness freshness = 11;
+  map<string, string> labels = 12;
+  map<string, string> metadata = 13;
 }
 
 // EndpointInventoryQueryResult is the compact typed response for

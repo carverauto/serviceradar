@@ -18,12 +18,15 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"math"
 	"os"
 	"runtime"
 	"strings"
 	"time"
 
+	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -73,17 +76,18 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	}
 
 	req := &proto.GatewayStatusRequest{
-		Services:  statuses,
-		GatewayId: gatewayID,
-		AgentId:   agentID,
-		Timestamp: time.Now().UnixNano(),
-		Partition: partition,
-		SourceIp:  p.getSourceIP(),
-		KvStoreId: kvStoreID,
-		Version:   runtimeMetadata.Version,
-		Hostname:  runtimeMetadata.Hostname,
-		Os:        runtimeMetadata.Os,
-		Arch:      runtimeMetadata.Arch,
+		Services:                                statuses,
+		GatewayId:                               gatewayID,
+		AgentId:                                 agentID,
+		Timestamp:                               time.Now().UnixNano(),
+		Partition:                               partition,
+		SourceIp:                                p.getSourceIP(),
+		KvStoreId:                               kvStoreID,
+		Version:                                 runtimeMetadata.Version,
+		Hostname:                                runtimeMetadata.Hostname,
+		Os:                                      runtimeMetadata.Os,
+		Arch:                                    runtimeMetadata.Arch,
+		EndpointInventoryStandingQuestionCounts: endpointInventoryStandingQuestionCountsFromStatuses(statuses),
 	}
 
 	resp, err := p.gateway.PushStatus(ctx, req)
@@ -585,4 +589,109 @@ func currentRuntimeMetadata() statusRuntimeMetadata {
 		Os:       runtime.GOOS,
 		Arch:     runtime.GOARCH,
 	}
+}
+
+func endpointInventoryStandingQuestionCountsFromStatuses(
+	statuses []*proto.GatewayServiceStatus,
+) []*proto.EndpointInventoryStandingQuestionResultCount {
+	counts := make([]*proto.EndpointInventoryStandingQuestionResultCount, 0)
+
+	for _, status := range statuses {
+		if status == nil || !isEndpointInventoryStatus(status) {
+			continue
+		}
+
+		var payload endpointinventory.ScanPayload
+		if err := json.Unmarshal(status.GetMessage(), &payload); err != nil {
+			continue
+		}
+
+		for _, count := range payload.StandingQuestionResultCounts {
+			if strings.TrimSpace(count.QuestionID) == "" {
+				continue
+			}
+			counts = append(counts, endpointInventoryStandingQuestionCountToProto(count))
+		}
+	}
+
+	if len(counts) == 0 {
+		return nil
+	}
+
+	return counts
+}
+
+func isEndpointInventoryStatus(status *proto.GatewayServiceStatus) bool {
+	return status.GetServiceName() == endpointinventory.ServiceName ||
+		status.GetServiceType() == endpointinventory.ServiceType
+}
+
+func endpointInventoryStandingQuestionCountToProto(
+	count endpointinventory.StandingQuestionResultCount,
+) *proto.EndpointInventoryStandingQuestionResultCount {
+	evaluatedAtUnix := int64(0)
+	if !count.EvaluatedAt.IsZero() {
+		evaluatedAtUnix = count.EvaluatedAt.UTC().Unix()
+	}
+
+	return &proto.EndpointInventoryStandingQuestionResultCount{
+		Schema:          firstNonEmpty(count.Schema, endpointinventory.StandingQuestionResultCountSchema),
+		QuestionId:      count.QuestionID,
+		QuestionVersion: count.QuestionVersion,
+		PredicateHash:   count.PredicateHash,
+		Mode:            count.Mode,
+		Matched:         count.Matched,
+		Count:           boundedInt32(count.Count),
+		PackageSetHash:  count.PackageSetHash,
+		HashAlgorithm:   firstNonEmpty(count.HashAlgorithm, endpointinventory.HashAlgorithm),
+		EvaluatedAtUnix: evaluatedAtUnix,
+		Freshness:       endpointInventoryFreshnessToProto(count.Freshness),
+		Labels:          copyStringMap(count.Labels),
+		Metadata:        copyStringMap(count.Metadata),
+	}
+}
+
+func endpointInventoryFreshnessToProto(freshness endpointinventory.FreshnessVerdict) *proto.EndpointInventoryFreshness {
+	if freshness.Verdict == "" &&
+		freshness.AgeSeconds == 0 &&
+		freshness.StaleThresholdSeconds == 0 &&
+		freshness.LastSuccessfulScanAt == nil {
+		return nil
+	}
+
+	lastSuccessfulScanAtUnix := int64(0)
+	if freshness.LastSuccessfulScanAt != nil {
+		lastSuccessfulScanAtUnix = freshness.LastSuccessfulScanAt.UTC().Unix()
+	}
+
+	return &proto.EndpointInventoryFreshness{
+		Verdict:                  freshness.Verdict,
+		AgeSeconds:               freshness.AgeSeconds,
+		StaleThresholdSeconds:    freshness.StaleThresholdSeconds,
+		LastSuccessfulScanAtUnix: lastSuccessfulScanAtUnix,
+	}
+}
+
+func boundedInt32(value int) int32 {
+	if value < 0 {
+		return 0
+	}
+	if value > math.MaxInt32 {
+		return math.MaxInt32
+	}
+
+	return int32(value)
+}
+
+func copyStringMap(values map[string]string) map[string]string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	copied := make(map[string]string, len(values))
+	for key, value := range values {
+		copied[key] = value
+	}
+
+	return copied
 }

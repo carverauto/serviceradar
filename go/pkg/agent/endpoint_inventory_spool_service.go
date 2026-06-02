@@ -94,7 +94,12 @@ func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
 	}
 	if manifest != nil && manifest.PendingUpload != nil {
 		if endpointinventory.PendingUploadDue(s.cfg, manifest, time.Now().UTC()) {
-			return os.ReadFile(endpointinventory.PendingUploadPath(s.cfg.SpoolDir))
+			data, err := os.ReadFile(endpointinventory.PendingUploadPath(s.cfg.SpoolDir))
+			if err != nil {
+				return nil, err
+			}
+
+			return attachEndpointInventoryStandingQuestionCounts(data, manifest), nil
 		}
 
 		data, err := os.ReadFile(s.spoolPath)
@@ -102,7 +107,7 @@ func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
 			return nil, err
 		}
 
-		return deferEndpointInventoryUpload(s.cfg, data, manifest), nil
+		return attachEndpointInventoryStandingQuestionCounts(deferEndpointInventoryUpload(s.cfg, data, manifest), manifest), nil
 	}
 
 	data, err := os.ReadFile(s.spoolPath)
@@ -110,7 +115,7 @@ func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
 		return nil, err
 	}
 
-	return suppressEndpointInventoryUploadedSBOM(data), nil
+	return attachEndpointInventoryStandingQuestionCounts(suppressEndpointInventoryUploadedSBOM(data), manifest), nil
 }
 
 func (s *EndpointInventorySpoolService) notScannedStatus() *proto.StatusResponse {
@@ -204,6 +209,34 @@ func suppressEndpointInventoryUploadedSBOM(data []byte) []byte {
 	}
 	payload.Metadata["reason"] = "upload_already_acknowledged"
 
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}
+
+func attachEndpointInventoryStandingQuestionCounts(
+	data []byte,
+	manifest *endpointinventory.InventoryCacheManifest,
+) []byte {
+	if manifest == nil || len(manifest.StandingQuestionResultCounts) == 0 {
+		return data
+	}
+
+	var payload endpointinventory.ScanPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+	if len(payload.StandingQuestionResultCounts) > 0 {
+		return data
+	}
+
+	payload.StandingQuestionResultCounts = append(
+		[]endpointinventory.StandingQuestionResultCount(nil),
+		manifest.StandingQuestionResultCounts...,
+	)
 	updated, err := json.Marshal(payload)
 	if err != nil {
 		return data
