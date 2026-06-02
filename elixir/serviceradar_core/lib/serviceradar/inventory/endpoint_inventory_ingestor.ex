@@ -174,12 +174,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp vulnerability_match_device_uid(payload) do
-    string_value(payload, :device_uid) ||
-      string_value(payload, :device_id) ||
-      payload
-      |> map_value(:device)
-      |> string_value(:uid)
+    Enum.find_value(
+      [
+        string_value(payload, :device_uid),
+        string_value(payload, :device_id),
+        payload |> map_value(:device) |> string_value(:uid)
+      ],
+      &canonical_device_uid/1
+    )
   end
+
+  defp canonical_device_uid("sr:" <> _ = device_uid), do: device_uid
+  defp canonical_device_uid(_device_uid), do: nil
 
   defp vulnerability_cvss_score(payload) do
     vulnerability = map_value(payload, :vulnerability)
@@ -455,8 +461,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     now = DateTime.utc_now()
 
     device_uid =
-      string_value(payload, :device_uid) || resolve_agent_device_uid(agent_id, actor) ||
-        existing_scan_device_uid(agent_id)
+      Enum.find_value(
+        [
+          string_value(payload, :device_uid),
+          resolve_agent_device_uid(agent_id, actor),
+          existing_scan_device_uid(agent_id)
+        ],
+        &canonical_device_uid/1
+      )
 
     packages = normalize_packages(payload)
     sources = normalize_sources(list_value(payload, :sources))

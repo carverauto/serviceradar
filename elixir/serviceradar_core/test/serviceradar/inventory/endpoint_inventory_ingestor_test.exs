@@ -31,6 +31,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     agent_id = "endpoint-inventory-agent-#{unique}"
     create_agent!(actor, agent_id, device.uid)
 
+    assert String.starts_with?(device.uid, "sr:")
+
     assert {:ok, first} =
              EndpointInventoryIngestor.ingest_report(scan_payload(agent_id, "scan-#{unique}"),
                actor: actor,
@@ -75,6 +77,27 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert empty_success.current? == true
     assert current_scan(agent_id).scan_id == "scan-empty-#{unique}"
     assert current_packages(agent_id) == []
+  end
+
+  test "nulls non-canonical endpoint inventory device uid payloads", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-noncanonical-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-noncanonical-#{unique}")
+      |> Map.put("device_uid", "endpoint-inventory-device-#{unique}")
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.device_uid == nil
+    assert current_scan(agent_id).device_uid == nil
+    assert [%{device_uid: nil}] = current_packages(agent_id)
+    assert artifact_device_uids(result.scan_ref) == [nil]
   end
 
   test "normalizes canonical purl and deduplicates by canonical coordinate", %{actor: actor} do
@@ -724,6 +747,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         where: s.agent_id == ^agent_id and s.current == true,
         select: %{
           id: s.id,
+          device_uid: s.device_uid,
           scan_id: s.scan_id,
           state: s.state,
           package_count: s.package_count,
@@ -962,6 +986,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     )
   end
 
+  defp artifact_device_uids(scan_ref) do
+    Repo.all(
+      from(a in "endpoint_inventory_artifacts",
+        where: a.scan_ref == ^scan_ref,
+        order_by: [asc: a.id],
+        select: a.device_uid
+      ),
+      prefix: "platform"
+    )
+  end
+
   defp artifact_content_count(artifact_hash) do
     Repo.one!(
       from(c in "endpoint_inventory_artifact_contents",
@@ -999,13 +1034,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
   defp create_device!(actor, uid) do
     now = DateTime.utc_now()
+    uid = canonical_test_device_uid(uid)
 
     Device
     |> Ash.Changeset.for_create(
       :create,
       %{
         uid: uid,
-        hostname: "#{uid}.local",
+        hostname: "#{String.replace(uid, ":", "-")}.local",
         type_id: 0,
         is_available: true,
         first_seen_time: now,
@@ -1015,6 +1051,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     )
     |> Ash.create!(actor: actor)
   end
+
+  defp canonical_test_device_uid("sr:" <> _ = uid), do: uid
+  defp canonical_test_device_uid(uid), do: "sr:#{uid}"
 
   defp test_age_risk_summary_projector(test_pid) do
     fn device_uid, summary ->
