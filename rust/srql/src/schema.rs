@@ -59,6 +59,33 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
+    endpoint_inventory_packages (id) {
+        id -> Uuid,
+        scan_ref -> Uuid,
+        device_uid -> Nullable<Text>,
+        agent_id -> Text,
+        name -> Text,
+        version -> Nullable<Text>,
+        architecture -> Nullable<Text>,
+        package_manager -> Text,
+        ecosystem -> Nullable<Text>,
+        purl -> Nullable<Text>,
+        cpes -> Array<Text>,
+        supplier -> Nullable<Text>,
+        license -> Nullable<Text>,
+        source -> Nullable<Text>,
+        evidence -> Jsonb,
+        current -> Bool,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
     /// OCSF Device Inventory (aligned with OCSF v1.7.0 Device object)
     ocsf_devices (uid) {
         // OCSF Core Identity

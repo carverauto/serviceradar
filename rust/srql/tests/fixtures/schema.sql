@@ -2,6 +2,7 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_inventory_packages;
 DROP TABLE IF EXISTS ocsf_devices;
 
 CREATE TABLE ocsf_devices (
@@ -71,6 +72,28 @@ CREATE TABLE device_agent_availability (
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (device_uid, agent_id)
+);
+
+CREATE TABLE endpoint_inventory_packages (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_ref            UUID        NOT NULL DEFAULT gen_random_uuid(),
+    device_uid          TEXT,
+    agent_id            TEXT        NOT NULL,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT,
+    purl                TEXT,
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    supplier            TEXT,
+    license             TEXT,
+    source              TEXT,
+    evidence            JSONB       NOT NULL DEFAULT '{}',
+    current             BOOLEAN     NOT NULL DEFAULT FALSE,
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 DROP TABLE IF EXISTS gateways;

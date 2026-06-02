@@ -72,6 +72,25 @@ async fn comprehensive_queries_match_fixtures() {
                 assert_eq!(body["results"][0]["name"], "handle_request")
             })),
         },
+        TestCase {
+            query: "in:endpoint_packages device_id:device-alpha package_manager:dpkg name:nginx current:true sort:name:asc",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["device_id"], "device-alpha");
+                assert_eq!(result["package_manager"], "dpkg");
+                assert_eq!(result["current"], true);
+            })),
+        },
+        TestCase {
+            query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["purl"], "pkg:deb/nginx@1.24.0-2ubuntu7")
+            })),
+        },
         // Device Query Tests
         TestCase {
             // device-delta is 8 days old, so last_7d should exclude it.

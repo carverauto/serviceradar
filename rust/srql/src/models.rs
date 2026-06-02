@@ -124,6 +124,66 @@ impl AddonStatusRow {
     }
 }
 
+/// Endpoint package inventory row collected by the native endpoint inventory add-on.
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(
+    table_name = crate::schema::endpoint_inventory_packages,
+    check_for_backend(diesel::pg::Pg)
+)]
+pub struct EndpointPackageRow {
+    pub id: Uuid,
+    pub scan_ref: Uuid,
+    pub device_uid: Option<String>,
+    pub agent_id: String,
+    pub name: String,
+    pub version: Option<String>,
+    pub architecture: Option<String>,
+    pub package_manager: String,
+    pub ecosystem: Option<String>,
+    pub purl: Option<String>,
+    pub cpes: Vec<String>,
+    pub supplier: Option<String>,
+    pub license: Option<String>,
+    pub source: Option<String>,
+    pub evidence: DbJson,
+    pub current: bool,
+    pub metadata: DbJson,
+    pub inserted_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+impl EndpointPackageRow {
+    pub fn into_json(self) -> serde_json::Value {
+        let device_uid = self.device_uid;
+        let device_id = device_uid.clone();
+        let manager = self.package_manager.clone();
+
+        serde_json::json!({
+            "id": self.id.to_string(),
+            "scan_ref": self.scan_ref.to_string(),
+            "device_uid": device_uid,
+            "device_id": device_id,
+            "agent_id": self.agent_id,
+            "name": self.name,
+            "version": self.version,
+            "architecture": self.architecture,
+            "package_manager": self.package_manager,
+            "manager": manager,
+            "ecosystem": self.ecosystem,
+            "purl": self.purl,
+            "cpes": self.cpes,
+            "supplier": self.supplier,
+            "license": self.license,
+            "source": self.source,
+            "evidence": serde_json::Value::from(self.evidence),
+            "current": self.current,
+            "metadata": serde_json::Value::from(self.metadata),
+            "inserted_at": self.inserted_at,
+            "updated_at": self.updated_at,
+        })
+    }
+}
+
 /// OCSF-aligned device row (OCSF v1.7.0 Device object)
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::ocsf_devices, check_for_backend(diesel::pg::Pg))]

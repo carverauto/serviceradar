@@ -155,6 +155,42 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::EndpointPackages => VizMeta {
+            columns: vec![
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("scan_ref", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("device_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("agent_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("name", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("version", ColumnType::Text, None),
+                col("architecture", ColumnType::Text, None),
+                col("package_manager", ColumnType::Text, None),
+                col("ecosystem", ColumnType::Text, None),
+                col("purl", ColumnType::Text, None),
+                col("cpes", ColumnType::TextArray, None),
+                col("supplier", ColumnType::Text, None),
+                col("license", ColumnType::Text, None),
+                col("source", ColumnType::Text, None),
+                col("current", ColumnType::Bool, None),
+                col(
+                    "inserted_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col(
+                    "updated_at",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("metadata", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::Devices => VizMeta {
             columns: vec![
                 col("uid", ColumnType::Text, Some(ColumnSemantic::Id)),

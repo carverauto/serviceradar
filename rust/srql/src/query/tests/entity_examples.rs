@@ -86,3 +86,31 @@ fn addon_statuses_example_agent_and_state() {
         "expected reported_at desc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn endpoint_packages_example_name_manager_and_cpe() {
+    let query = r#"in:endpoint_packages device_id:device-alpha name:nginx manager:dpkg cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true sort:name:asc"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::EndpointPackages));
+    let (sql, params) =
+        endpoint_packages::to_sql_and_params(&plan).expect("should build endpoint package SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"endpoint_inventory_packages\""),
+        "expected query against endpoint_inventory_packages, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"endpoint_inventory_packages\".\"device_uid\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"name\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"package_manager\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"current\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"cpes\" &&"),
+        "expected device/name/manager/current/cpe filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"endpoint_inventory_packages\".\"name\" asc"),
+        "expected name asc ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 7);
+}

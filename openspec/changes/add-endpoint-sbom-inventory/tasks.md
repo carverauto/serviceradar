@@ -20,13 +20,13 @@
 
 ## 4. Query And UI
 - [x] 4.1 Add Ash resources/API reads for scan status, artifact metadata, and package rows.
-- [ ] 4.2 Add SRQL fields or query support for package name, version, package manager, PURL, CPE, and current-vs-historical inventory state.
+- [x] 4.2 Add SRQL fields or query support for package name, version, package manager, PURL, CPE, and current-vs-historical inventory state.
 - [ ] 4.3 Add a device/asset detail surface showing latest scan status and installed package inventory.
 - [ ] 4.4 Add operator controls for enabling sources, cadence, retention, and redaction.
 
 ## 5. Validation
 - [ ] 5.1 Run focused Go tests for collector and spool validation.
 - [x] 5.2 Run Elixir migration/resource tests for ingestion and current inventory replacement.
-- [ ] 5.3 Run SRQL tests for endpoint package predicates and projections.
+- [x] 5.3 Run SRQL tests for endpoint package predicates and projections.
 - [ ] 5.4 Run web-ng tests for inventory status and package UI.
 - [ ] 5.5 Run OpenSpec validation and focused build/test commands before rollout.

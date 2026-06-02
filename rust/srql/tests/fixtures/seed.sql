@@ -1,4 +1,5 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
+TRUNCATE endpoint_inventory_packages;
 TRUNCATE ocsf_devices;
 WITH base AS (
     SELECT NOW() AS now_ts
@@ -126,6 +127,93 @@ SELECT 'device-delta',
     TRUE,
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_packages (
+    id,
+    scan_ref,
+    device_uid,
+    agent_id,
+    name,
+    version,
+    architecture,
+    package_manager,
+    ecosystem,
+    purl,
+    cpes,
+    supplier,
+    license,
+    source,
+    evidence,
+    current,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT '11111111-1111-4111-8111-111111111111'::uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
+    'nginx',
+    'BSD-2-Clause',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    TRUE,
+    '{"scan":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT '22222222-2222-4222-8222-222222222222'::uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'openssl',
+    '3.0.13-0ubuntu3.5',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
+    'OpenSSL Project',
+    'Apache-2.0',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    TRUE,
+    '{"scan":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT '33333333-3333-4333-8333-333333333333'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+    'device-alpha',
+    'agent-1',
+    'nginx',
+    '1.22.1-9',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/nginx@1.22.1-9',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*'],
+    'nginx',
+    'BSD-2-Clause',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    FALSE,
+    '{"scan":"historical"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
 FROM base;
 
 WITH base AS (

@@ -58,6 +58,7 @@ pub enum Entity {
     Flows,
     Alerts,
     AddonStatuses,
+    EndpointPackages,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -488,6 +489,11 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
         "alerts" | "alert" => Ok(Entity::Alerts),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
+        "endpoint_packages"
+        | "endpoint_package"
+        | "endpoint_inventory_packages"
+        | "endpoint_inventory"
+        | "packages" => Ok(Entity::EndpointPackages),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported entity '{other}'"
         ))),
