@@ -42,6 +42,7 @@ const (
 	defaultMaxPackages      = 100000
 	defaultMaxOutputBytes   = 32 * 1024 * 1024
 	defaultFullScanInterval = 24
+	defaultCacheStale       = "24h"
 )
 
 var (
@@ -66,6 +67,7 @@ func DefaultConfig() Config {
 		RPMDatabasePaths:      defaultRPMDatabasePaths(),
 		Sources:               defaultPackageSources(),
 		ForceFullScanInterval: defaultFullScanInterval,
+		CacheStaleThreshold:   defaultCacheStale,
 		MaxPackages:           defaultMaxPackages,
 		MaxOutputBytes:        defaultMaxOutputBytes,
 	}
@@ -144,6 +146,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.ForceFullScanInterval <= 0 {
 		cfg.ForceFullScanInterval = defaultFullScanInterval
 	}
+	if cfg.CacheStaleThreshold == "" {
+		cfg.CacheStaleThreshold = defaultCacheStale
+	}
 	if cfg.MaxPackages <= 0 {
 		cfg.MaxPackages = defaultMaxPackages
 	}
@@ -157,23 +162,36 @@ func applyRuntimeProfileFile(cfg *Config) error {
 		return nil
 	}
 
-	data, err := os.ReadFile(cfg.ProfilePath)
+	profile, err := LoadRuntimeProfile(cfg.ProfilePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("read runtime profile: %w", err)
-	}
-
-	var profile RuntimeProfile
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&profile); err != nil {
-		return fmt.Errorf("decode runtime profile: %w", err)
+		return err
 	}
 
 	ApplyRuntimeProfile(cfg, profile)
 	return nil
+}
+
+func ApplyRuntimeProfileFile(cfg *Config) error {
+	return applyRuntimeProfileFile(cfg)
+}
+
+func LoadRuntimeProfile(path string) (RuntimeProfile, error) {
+	var profile RuntimeProfile
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return profile, err
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&profile); err != nil {
+		return profile, fmt.Errorf("decode runtime profile: %w", err)
+	}
+
+	return profile, nil
 }
 
 func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
@@ -193,8 +211,14 @@ func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
 	if profile.Sources != nil {
 		cfg.Sources = append([]string(nil), profile.Sources...)
 	}
+	if profile.ForceFreshEnabled != nil {
+		cfg.ForceFreshEnabled = *profile.ForceFreshEnabled
+	}
 	if profile.ForceFullScanInterval != nil {
 		cfg.ForceFullScanInterval = *profile.ForceFullScanInterval
+	}
+	if strings.TrimSpace(profile.CacheStaleThreshold) != "" {
+		cfg.CacheStaleThreshold = strings.TrimSpace(profile.CacheStaleThreshold)
 	}
 	if profile.MaxPackages != nil {
 		cfg.MaxPackages = *profile.MaxPackages
@@ -220,6 +244,9 @@ func validateConfig(cfg Config) error {
 	}
 	if cfg.MaxOutputBytes <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidMaxOutputSize, cfg.MaxOutputBytes)
+	}
+	if _, err := time.ParseDuration(cfg.CacheStaleThreshold); err != nil {
+		return fmt.Errorf("invalid cache_stale_threshold: %w", err)
 	}
 	for _, source := range cfg.Sources {
 		switch source {

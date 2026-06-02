@@ -37,6 +37,8 @@ type endpointInventoryConfigPayload struct {
 	Cadence        string   `json:"cadence,omitempty"`
 	CollectPaths   bool     `json:"collect_paths,omitempty"`
 	CollectHashes  bool     `json:"collect_file_hashes,omitempty"`
+	ForceFresh     bool     `json:"force_fresh_enabled,omitempty"`
+	CacheStale     string   `json:"cache_stale_threshold,omitempty"`
 }
 
 func parseGatewayEndpointInventoryConfig(configJSON []byte) (*endpointInventoryConfigPayload, error) {
@@ -80,10 +82,15 @@ func (p *endpointInventoryConfigPayload) runtimeProfile(agentID string) endpoint
 
 	enabled := p.Enabled
 	profile := endpointinventory.RuntimeProfile{
-		Enabled:     &enabled,
-		AgentID:     agentID,
-		ScanTimeout: p.ScanTimeout,
-		Sources:     append([]string(nil), p.Sources...),
+		Enabled:             &enabled,
+		AgentID:             agentID,
+		ScanTimeout:         p.ScanTimeout,
+		Sources:             append([]string(nil), p.Sources...),
+		CacheStaleThreshold: p.CacheStale,
+	}
+	if p.ForceFresh {
+		forceFresh := true
+		profile.ForceFreshEnabled = &forceFresh
 	}
 	if p.MaxPackages > 0 {
 		maxPackages := int(p.MaxPackages)

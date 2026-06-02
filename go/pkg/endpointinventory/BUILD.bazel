@@ -4,6 +4,7 @@ go_library(
     name = "endpointinventory",
     srcs = [
         "cache.go",
+        "commands.go",
         "collect.go",
         "config.go",
         "cyclonedx.go",
@@ -21,6 +22,7 @@ go_test(
     name = "endpointinventory_test",
     srcs = [
         "cache_test.go",
+        "commands_test.go",
         "collect_test.go",
         "hashes_test.go",
         "packages_test.go",

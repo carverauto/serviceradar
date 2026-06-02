@@ -16,7 +16,7 @@
 - [x] 2.6 Add deterministic `package_set_hash` over normalized sorted package identities (`package_manager`, `name`, `version`, `architecture`, canonical `purl`), with a 1-byte algorithm-version prefix and volatile CycloneDX metadata excluded; add a separate `artifact_hash` over canonicalized CycloneDX component payload bytes with scan provenance excluded.
 - [x] 2.7 Persist the local last-known-good inventory cache (manifest, `package_set_hash`, `artifact_hash`, source summaries, last-seen package-DB mtimes, last uploaded hashes).
 - [x] 2.8 Gate scheduled scans on source-database mtime so unchanged hosts skip parsing entirely (with a forced full re-parse every Nth cycle); change reporting so unchanged inventories send lightweight status/hash summaries instead of full uploads.
-- [ ] 2.9 Add typed endpoint inventory on-demand command handling that evaluates bounded predicates against the local cache and returns compact COUNT/EXISTS and DETAIL results; support an authorized device-scoped fresh scan behind a per-agent single-flight semaphore.
+- [x] 2.9 Add typed endpoint inventory on-demand command handling that evaluates bounded predicates against the local cache and returns compact COUNT/EXISTS and DETAIL results; support an authorized device-scoped fresh scan behind a per-agent single-flight semaphore.
 - [ ] 2.10 Add jittered upload scheduling (runtime-profile upload jitter, distinct from the scan-timer randomized delay) so correlated fleet changes spread over a window.
 - [ ] 2.11 Add bounded retry/buffering of changed uploads when the control plane is unavailable, without losing previous uploaded-hash metadata.
 

@@ -166,6 +166,7 @@ func fullScanManifest(
 	cfg Config,
 	previous *InventoryCacheManifest,
 	payload *ScanPayload,
+	packages []Package,
 	current map[string]SourceMTime,
 	scannedAt time.Time,
 ) *InventoryCacheManifest {
@@ -176,6 +177,7 @@ func fullScanManifest(
 	manifest.ArtifactHash = payload.ArtifactHash
 	manifest.HashAlgorithm = payload.HashAlgorithm
 	manifest.PackageCount = payload.PackageCount
+	manifest.Packages = append([]Package(nil), packages...)
 	manifest.SourceSummaries = append([]SourceSummary(nil), payload.Sources...)
 	manifest.SourceMTimes = copySourceMTimes(current)
 	manifest.LastScanAt = scannedAt
@@ -199,12 +201,14 @@ func fullScanManifest(
 func copyCacheManifest(previous *InventoryCacheManifest) *InventoryCacheManifest {
 	if previous == nil {
 		return &InventoryCacheManifest{
+			Packages:        []Package{},
 			SourceSummaries: []SourceSummary{},
 			SourceMTimes:    map[string]SourceMTime{},
 		}
 	}
 
 	manifest := *previous
+	manifest.Packages = append([]Package(nil), previous.Packages...)
 	manifest.SourceSummaries = append([]SourceSummary(nil), previous.SourceSummaries...)
 	manifest.SourceMTimes = copySourceMTimes(previous.SourceMTimes)
 

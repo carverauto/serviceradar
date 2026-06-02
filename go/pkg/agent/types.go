@@ -197,9 +197,19 @@ type BumblebeeStatusConfig struct {
 
 type EndpointInventoryStatusConfig struct {
 	Enabled     bool   `json:"enabled"`
+	ConfigPath  string `json:"config_path,omitempty"`
 	SpoolPath   string `json:"spool_path,omitempty"`
+	CacheDir    string `json:"cache_dir,omitempty"`
 	ProfilePath string `json:"profile_path,omitempty"`
 	TmpDir      string `json:"tmp_dir,omitempty"`
+}
+
+func (c *EndpointInventoryStatusConfig) effectiveConfigPath() string {
+	if c == nil || c.ConfigPath == "" {
+		return "/etc/serviceradar/endpoint-inventory.json"
+	}
+
+	return c.ConfigPath
 }
 
 func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
@@ -208,6 +218,14 @@ func (c *EndpointInventoryStatusConfig) effectiveSpoolPath() string {
 	}
 
 	return c.SpoolPath
+}
+
+func (c *EndpointInventoryStatusConfig) effectiveCacheDir() string {
+	if c == nil || c.CacheDir == "" {
+		return endpointinventory.DefaultConfig().CacheDir
+	}
+
+	return c.CacheDir
 }
 
 func (c *EndpointInventoryStatusConfig) effectiveProfilePath() string {

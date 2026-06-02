@@ -125,7 +125,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		payload.Metadata["reason"] = "full_scan_hash_unchanged"
 	}
 
-	if err := WriteCacheManifest(r.cfg, fullScanManifest(r.cfg, cache, payload, sourceMTimes, started)); err != nil {
+	if err := WriteCacheManifest(r.cfg, fullScanManifest(r.cfg, cache, payload, packages, sourceMTimes, started)); err != nil {
 		return nil, err
 	}
 

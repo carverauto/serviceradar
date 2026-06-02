@@ -27,6 +27,11 @@
       "title": "Spool directory",
       "default": "/var/lib/serviceradar/endpoint-inventory/spool"
     },
+    "cache_dir": {
+      "type": "string",
+      "title": "Local cache directory",
+      "default": "/var/lib/serviceradar/endpoint-inventory/cache"
+    },
     "tmp_dir": {
       "type": "string",
       "title": "Temporary directory",
@@ -58,6 +63,19 @@
       "title": "rpm binary path",
       "default": "rpm"
     },
+    "rpm_database_paths": {
+      "type": "array",
+      "title": "RPM database candidate paths",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "/usr/lib/sysimage/rpm/rpmdb.sqlite",
+        "/var/lib/rpm/rpmdb.sqlite",
+        "/var/lib/rpm/Packages",
+        "/var/lib/rpm"
+      ]
+    },
     "sources": {
       "type": "array",
       "title": "Package sources",
@@ -73,6 +91,25 @@
       "title": "Maximum packages",
       "minimum": 1,
       "default": 100000
+    },
+    "force_full_scan_interval": {
+      "type": "integer",
+      "title": "Forced full scan interval",
+      "description": "Maximum number of unchanged scheduled scans before a full package database reparse is forced.",
+      "minimum": 1,
+      "default": 24
+    },
+    "cache_stale_threshold": {
+      "type": "string",
+      "title": "Cache stale threshold",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "24h"
+    },
+    "force_fresh_enabled": {
+      "type": "boolean",
+      "title": "Allow force-fresh commands",
+      "description": "When true, authorized device-scoped on-demand commands may run a fresh endpoint inventory scan. Disabled by default.",
+      "default": false
     },
     "max_output_bytes": {
       "type": "integer",

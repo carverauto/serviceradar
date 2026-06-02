@@ -34,6 +34,9 @@ const (
 	HashAlgorithm         = "sha256-v1"
 	UploadReasonChanged   = "changed"
 	UploadReasonUnchanged = "unchanged"
+
+	CommandTypeCacheQuery     = "endpoint_inventory.cache_query"
+	CommandTypeForceFreshScan = "endpoint_inventory.force_fresh_scan"
 )
 
 type Config struct {
@@ -50,7 +53,9 @@ type Config struct {
 	RPMPath               string   `json:"rpm_path"`
 	RPMDatabasePaths      []string `json:"rpm_database_paths"`
 	Sources               []string `json:"sources"`
+	ForceFreshEnabled     bool     `json:"force_fresh_enabled"`
 	ForceFullScanInterval int      `json:"force_full_scan_interval"`
+	CacheStaleThreshold   string   `json:"cache_stale_threshold"`
 	MaxPackages           int      `json:"max_packages"`
 	MaxOutputBytes        int64    `json:"max_output_bytes"`
 }
@@ -60,7 +65,9 @@ type RuntimeProfile struct {
 	AgentID               string   `json:"agent_id,omitempty"`
 	ScanTimeout           string   `json:"scan_timeout,omitempty"`
 	Sources               []string `json:"sources,omitempty"`
+	ForceFreshEnabled     *bool    `json:"force_fresh_enabled,omitempty"`
 	ForceFullScanInterval *int     `json:"force_full_scan_interval,omitempty"`
+	CacheStaleThreshold   string   `json:"cache_stale_threshold,omitempty"`
 	MaxPackages           *int     `json:"max_packages,omitempty"`
 	MaxOutputBytes        *int64   `json:"max_output_bytes,omitempty"`
 }
@@ -94,6 +101,7 @@ type InventoryCacheManifest struct {
 	LastUploadedArtifactHash   string                 `json:"last_uploaded_artifact_hash,omitempty"`
 	HashAlgorithm              string                 `json:"hash_algorithm,omitempty"`
 	PackageCount               int                    `json:"package_count"`
+	Packages                   []Package              `json:"packages"`
 	SourceSummaries            []SourceSummary        `json:"source_summaries"`
 	SourceMTimes               map[string]SourceMTime `json:"source_mtimes"`
 	LastScanAt                 time.Time              `json:"last_scan_at"`
