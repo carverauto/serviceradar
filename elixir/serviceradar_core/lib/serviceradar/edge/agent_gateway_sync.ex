@@ -166,6 +166,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
     # Link the agent to the device
     link_agent_to_device(agent_id, device_uid, actor)
+    backfill_endpoint_inventory_device_uid(agent_id, device_uid)
     retire_superseded_agents(agent_id, device_uid, attrs, actor)
     {:ok, device_uid}
   end
@@ -490,6 +491,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
 
       {:error, _} ->
         # Agent not found yet, will be linked on next update
+        :ok
+    end
+  end
+
+  defp backfill_endpoint_inventory_device_uid(agent_id, device_uid) do
+    case IdentityReconciler.backfill_endpoint_inventory_device_uid_for_agent(agent_id, device_uid) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to backfill endpoint inventory device UID for agent #{agent_id}: #{inspect(reason)}"
+        )
+
         :ok
     end
   end
