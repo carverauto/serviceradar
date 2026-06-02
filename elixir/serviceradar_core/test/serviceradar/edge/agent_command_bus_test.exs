@@ -10,6 +10,7 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.ProcessRegistry
+  alias ServiceRadar.Security.RateLimiter
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -87,6 +88,10 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   setup do
+    if :ets.whereis(RateLimiter.__table__()) != :undefined do
+      :ets.delete_all_objects(RateLimiter.__table__())
+    end
+
     agent_id = "agent-#{System.unique_integer([:positive])}"
     actor = SystemActor.system(:agent_command_bus_test)
     {:ok, agent_id: agent_id, actor: actor}
@@ -149,6 +154,163 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
   end
 
   describe "command status updates" do
+    test "endpoint inventory cache query dispatch uses typed payload and command-scoped response subject",
+         %{agent_id: agent_id, actor: actor} do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["endpoint-inventory"]
+        })
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch_endpoint_inventory_cache_query(agent_id, %{
+                 mode: "count",
+                 predicate: %{name: "nginx"},
+                 stale_threshold_seconds: 3600
+               })
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      assert command.command_type == "endpoint_inventory.cache_query"
+
+      payload = Jason.decode!(command.payload_json)
+      response_subject = "agent:commands:#{command.command_id}"
+
+      assert command.command_id == uuid_text(command_id)
+      assert payload["schema"] == "serviceradar.endpoint_inventory.query_request.v1"
+      assert payload["mode"] == "count"
+      assert payload["predicate"] == %{"name" => "nginx"}
+      assert payload["stale_threshold_seconds"] == 3600
+      assert payload["metadata"]["response_subject"] == response_subject
+      assert context.response_subject == response_subject
+      assert context.required_capability == "endpoint-inventory"
+
+      command_record = wait_for_status(command_id, :sent, actor)
+      assert command_record.command_type == "endpoint_inventory.cache_query"
+    end
+
+    test "endpoint inventory dispatch rejects SBOM bytes on command payload", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      assert {:error, :endpoint_inventory_command_blob_payload_denied} =
+               AgentCommandBus.dispatch(agent_id, "endpoint_inventory.cache_query", %{
+                 "mode" => "exists",
+                 "predicate" => %{"name" => "nginx"},
+                 "sbom" => %{"components" => []}
+               })
+
+      assert {:error, :endpoint_inventory_command_blob_payload_denied} =
+               AgentCommandBus.dispatch(agent_id, "endpoint_inventory.cache_query", %{
+                 "mode" => "exists",
+                 "metadata" => %{"artifact_json" => %{"components" => []}}
+               })
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(
+          agent_id == ^agent_id and command_type == "endpoint_inventory.cache_query"
+        )
+        |> Ash.read!(actor: actor)
+
+      assert commands == []
+    end
+
+    test "endpoint inventory force fresh requires permission before dispatch", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      unauthorized_actor = %{id: "operator-no-force", role: :operator}
+
+      assert {:error, :endpoint_inventory_force_fresh_unauthorized} =
+               AgentCommandBus.dispatch_endpoint_inventory_force_fresh_scan(
+                 agent_id,
+                 %{sources: ["dpkg"]},
+                 actor: unauthorized_actor
+               )
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(
+          agent_id == ^agent_id and command_type == "endpoint_inventory.force_fresh_scan"
+        )
+        |> Ash.read!(actor: actor)
+
+      assert commands == []
+    end
+
+    test "endpoint inventory force fresh is rate limited before dispatch", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      authorized_actor = %{id: "admin-force-rate", role: :admin}
+
+      assert :ok =
+               RateLimiter.check_and_record(
+                 :endpoint_inventory_force_fresh_scan,
+                 {agent_id, "admin-force-rate"},
+                 limit: 1,
+                 window_seconds: 60
+               )
+
+      assert {:error, {:rate_limited, :endpoint_inventory_force_fresh_scan, retry_after}} =
+               AgentCommandBus.dispatch_endpoint_inventory_force_fresh_scan(
+                 agent_id,
+                 %{sources: ["dpkg"]},
+                 actor: authorized_actor,
+                 force_fresh_rate_limit: 1,
+                 force_fresh_rate_window_seconds: 60
+               )
+
+      assert retry_after > 0
+
+      commands =
+        AgentCommand
+        |> Ash.Query.filter(
+          agent_id == ^agent_id and command_type == "endpoint_inventory.force_fresh_scan"
+        )
+        |> Ash.read!(actor: actor)
+
+      assert commands == []
+    end
+
+    test "endpoint inventory force fresh dispatch is capacity limited", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["endpoint-inventory"]
+        })
+
+      authorized_actor = %{id: "admin-force", role: :admin}
+
+      assert {:ok, first_command_id} =
+               AgentCommandBus.dispatch_endpoint_inventory_force_fresh_scan(
+                 agent_id,
+                 %{sources: ["dpkg"]},
+                 actor: authorized_actor
+               )
+
+      assert {:error, {:agent_busy, :endpoint_inventory_force_fresh_running}} =
+               AgentCommandBus.dispatch_endpoint_inventory_force_fresh_scan(
+                 agent_id,
+                 %{sources: ["rpm"]},
+                 actor: authorized_actor
+               )
+
+      assert_receive {:send_command, %Monitoring.CommandRequest{} = command, context}, 1_000
+      payload = Jason.decode!(command.payload_json)
+
+      assert command.command_type == "endpoint_inventory.force_fresh_scan"
+      assert payload["authorized"] == true
+      assert payload["sources"] == ["dpkg"]
+      assert payload["metadata"]["response_subject"] == "agent:commands:#{command.command_id}"
+      assert context.required_capability == "endpoint-inventory"
+
+      _command_record = wait_for_status(first_command_id, :sent, actor)
+    end
+
     test "ack, progress, and result persist lifecycle", %{agent_id: agent_id, actor: actor} do
       ensure_status_handler_started()
 

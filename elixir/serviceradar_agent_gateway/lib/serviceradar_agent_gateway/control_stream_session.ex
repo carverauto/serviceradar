@@ -13,6 +13,8 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
   require Logger
 
+  @max_command_result_payload_bytes 64 * 1024
+
   @type state :: %{
           stream: GRPC.Server.Stream.t(),
           agent_id: String.t() | nil,
@@ -217,6 +219,7 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
 
       {:command_result, result} ->
         {command_meta, commands} = Map.pop(state.commands, result.command_id, %{})
+        result = enforce_command_result_payload_cap(result)
         broadcast_result(result, command_meta, state)
         {:noreply, %{state | commands: commands}}
 
@@ -453,6 +456,19 @@ defmodule ServiceRadarAgentGateway.ControlStreamSession do
     case Jason.decode(payload) do
       {:ok, decoded} -> decoded
       {:error, _} -> nil
+    end
+  end
+
+  defp enforce_command_result_payload_cap(%Monitoring.CommandResult{} = result) do
+    if byte_size(result.payload_json || <<>>) > @max_command_result_payload_bytes do
+      %Monitoring.CommandResult{
+        result
+        | success: false,
+          message: "command result payload exceeded byte cap",
+          payload_json: Jason.encode!(%{"error" => "payload_too_large"})
+      }
+    else
+      result
     end
   end
 

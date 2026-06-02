@@ -10,16 +10,27 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandCleanupWorker
   alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Identity.RBAC
   alias ServiceRadar.ProcessRegistry
   alias ServiceRadar.Repo
+  alias ServiceRadar.Security.RateLimiter
 
   require Logger
 
   @default_ttl_seconds 60
-  @active_mtr_statuses [:queued, :sent, :acknowledged, :running]
+  @active_command_statuses [:queued, :sent, :acknowledged, :running]
   @max_concurrent_on_demand_mtr 2
   @max_concurrent_bulk_mtr_jobs 1
+  @max_concurrent_endpoint_inventory_queries 8
+  @max_concurrent_endpoint_inventory_force_fresh 1
   @send_timeout 5_000
+  @endpoint_inventory_capability "endpoint-inventory"
+  @endpoint_inventory_cache_query_type "endpoint_inventory.cache_query"
+  @endpoint_inventory_force_fresh_scan_type "endpoint_inventory.force_fresh_scan"
+  @endpoint_inventory_force_fresh_permission "endpoint_inventory.force_fresh_scan"
+  @endpoint_inventory_force_fresh_rate_bucket :endpoint_inventory_force_fresh_scan
+  @endpoint_inventory_force_fresh_rate_limit 4
+  @endpoint_inventory_force_fresh_rate_window_seconds 300
 
   def dispatch(agent_id, command_type, payload, opts \\ []) do
     ttl_seconds = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
@@ -46,10 +57,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     ash_opts = [actor: SystemActor.system(:agent_command_bus)]
 
     with :ok <- reject_sensitive_transmit_payload(transmit_payload),
-         payload_json = encode_payload(transmit_payload),
+         :ok <- reject_endpoint_inventory_blob_payload(command_type, transmit_payload),
          :ok <- ensure_dispatch_capacity(agent_id, command_type, source, ash_opts),
          {:ok, command} <- create_command(command_attrs, ash_opts) do
       _ = AgentCommandCleanupWorker.ensure_scheduled()
+
+      payload_json =
+        encode_payload(command_payload_for_transmit(command_type, transmit_payload, command))
+
+      context = command_context_for_transmit(command_type, context, command)
 
       dispatch_created_command(command, %{
         agent_id: agent_id,
@@ -71,6 +87,15 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       :ok
     else
       {:error, :sensitive_transmit_payload_denied}
+    end
+  end
+
+  defp reject_endpoint_inventory_blob_payload(command_type, payload) do
+    if endpoint_inventory_command_type?(command_type) and
+         contains_endpoint_inventory_blob_key?(payload) do
+      {:error, :endpoint_inventory_command_blob_payload_denied}
+    else
+      :ok
     end
   end
 
@@ -297,6 +322,38 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     )
   end
 
+  def dispatch_endpoint_inventory_cache_query(agent_id, payload, opts \\ [])
+      when is_map(payload) do
+    payload = normalize_endpoint_inventory_query_payload(payload)
+
+    dispatch(
+      agent_id,
+      @endpoint_inventory_cache_query_type,
+      payload,
+      endpoint_inventory_opts(opts)
+    )
+  end
+
+  def dispatch_endpoint_inventory_force_fresh_scan(agent_id, payload, opts \\ [])
+      when is_map(payload) do
+    actor = Keyword.get(opts, :actor)
+
+    with :ok <- authorize_endpoint_inventory_force_fresh(actor),
+         :ok <- enforce_endpoint_inventory_force_fresh_rate_limit(agent_id, actor, opts) do
+      payload =
+        payload
+        |> normalize_endpoint_inventory_force_fresh_payload()
+        |> Map.put(:authorized, true)
+
+      dispatch(
+        agent_id,
+        @endpoint_inventory_force_fresh_scan_type,
+        payload,
+        endpoint_inventory_opts(opts)
+      )
+    end
+  end
+
   def start_camera_relay(agent_id, payload, opts \\ []) do
     payload = normalize_camera_relay_start_payload(payload)
 
@@ -385,6 +442,66 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
       {:error, {:control_session_exit, reason}}
   end
 
+  defp ensure_dispatch_capacity(
+         agent_id,
+         @endpoint_inventory_cache_query_type,
+         _source,
+         _ash_opts
+       ) do
+    now = DateTime.utc_now()
+
+    case count_active_commands(
+           agent_id,
+           @endpoint_inventory_cache_query_type,
+           @max_concurrent_endpoint_inventory_queries,
+           now
+         ) do
+      {:ok, count} when count >= @max_concurrent_endpoint_inventory_queries ->
+        {:error, {:agent_busy, :too_many_endpoint_inventory_queries}}
+
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to evaluate endpoint inventory query dispatch capacity",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
+  defp ensure_dispatch_capacity(
+         agent_id,
+         @endpoint_inventory_force_fresh_scan_type,
+         _source,
+         _ash_opts
+       ) do
+    now = DateTime.utc_now()
+
+    case count_active_commands(
+           agent_id,
+           @endpoint_inventory_force_fresh_scan_type,
+           @max_concurrent_endpoint_inventory_force_fresh,
+           now
+         ) do
+      {:ok, count} when count >= @max_concurrent_endpoint_inventory_force_fresh ->
+        {:error, {:agent_busy, :endpoint_inventory_force_fresh_running}}
+
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Failed to evaluate endpoint inventory force-fresh dispatch capacity",
+          agent_id: agent_id,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+    end
+  end
+
   defp ensure_dispatch_capacity(_agent_id, _command_type, :automation, _ash_opts), do: :ok
 
   defp ensure_dispatch_capacity(agent_id, "mtr.run", _source, _ash_opts) do
@@ -450,7 +567,7 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
     ) active
     """
 
-    statuses = Enum.map(@active_mtr_statuses, &Atom.to_string/1)
+    statuses = Enum.map(@active_command_statuses, &Atom.to_string/1)
 
     case control_repo().query(sql, [agent_id, command_type, statuses, now, limit]) do
       {:ok, %{rows: [[count]]}} -> {:ok, count}
@@ -515,6 +632,94 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   end
 
   defp normalize_camera_relay_stop_payload(_payload), do: %{}
+
+  defp endpoint_inventory_opts(opts) do
+    opts
+    |> add_context(%{required_capability: @endpoint_inventory_capability})
+    |> Keyword.put(:required_capability, @endpoint_inventory_capability)
+  end
+
+  defp normalize_endpoint_inventory_query_payload(payload) do
+    reject_nil_values(%{
+      schema:
+        payload_value(payload, :schema) || "serviceradar.endpoint_inventory.query_request.v1",
+      mode: payload_value(payload, :mode) || "exists",
+      predicate: normalize_endpoint_inventory_predicate(payload_value(payload, :predicate)),
+      limit: payload_value(payload, :limit),
+      stale_threshold_seconds: payload_value(payload, :stale_threshold_seconds),
+      metadata: normalize_endpoint_inventory_metadata(payload_value(payload, :metadata))
+    })
+  end
+
+  defp normalize_endpoint_inventory_force_fresh_payload(payload) do
+    query = payload_value(payload, :query)
+
+    reject_nil_values(%{
+      schema:
+        payload_value(payload, :schema) ||
+          "serviceradar.endpoint_inventory.force_fresh_scan_request.v1",
+      sources: List.wrap(payload_value(payload, :sources)),
+      query: if(is_map(query), do: normalize_endpoint_inventory_query_payload(query)),
+      metadata: normalize_endpoint_inventory_metadata(payload_value(payload, :metadata))
+    })
+  end
+
+  defp normalize_endpoint_inventory_predicate(predicate) when is_map(predicate) do
+    reject_nil_values(%{
+      package_manager: payload_value(predicate, :package_manager),
+      name: payload_value(predicate, :name),
+      version: payload_value(predicate, :version),
+      architecture: payload_value(predicate, :architecture),
+      ecosystem: payload_value(predicate, :ecosystem),
+      purl: payload_value(predicate, :purl),
+      purl_canonical: payload_value(predicate, :purl_canonical),
+      cpe: payload_value(predicate, :cpe)
+    })
+  end
+
+  defp normalize_endpoint_inventory_predicate(_predicate), do: %{}
+
+  defp normalize_endpoint_inventory_metadata(metadata) when is_map(metadata), do: metadata
+  defp normalize_endpoint_inventory_metadata(_metadata), do: %{}
+
+  defp authorize_endpoint_inventory_force_fresh(actor) do
+    if RBAC.has_permission?(actor, @endpoint_inventory_force_fresh_permission) do
+      :ok
+    else
+      {:error, :endpoint_inventory_force_fresh_unauthorized}
+    end
+  end
+
+  defp enforce_endpoint_inventory_force_fresh_rate_limit(agent_id, actor, opts) do
+    limit = Keyword.get(opts, :force_fresh_rate_limit, @endpoint_inventory_force_fresh_rate_limit)
+
+    window_seconds =
+      Keyword.get(
+        opts,
+        :force_fresh_rate_window_seconds,
+        @endpoint_inventory_force_fresh_rate_window_seconds
+      )
+
+    case RateLimiter.check_and_record(
+           @endpoint_inventory_force_fresh_rate_bucket,
+           {agent_id, requested_by_id(actor)},
+           limit: limit,
+           window_seconds: window_seconds
+         ) do
+      :ok ->
+        :ok
+
+      {:error, retry_after_seconds} ->
+        {:error,
+         {:rate_limited, @endpoint_inventory_force_fresh_rate_bucket, retry_after_seconds}}
+    end
+  end
+
+  defp reject_nil_values(map) do
+    map
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
 
   defp resolve_camera_relay_payload(payload, opts) do
     RelaySourceResolver.resolve_start_payload(
@@ -798,6 +1003,61 @@ defmodule ServiceRadar.Edge.AgentCommandBus do
   defp requested_by_id(%{id: id}), do: to_string(id)
   defp requested_by_id(%{email: email}) when is_binary(email), do: email
   defp requested_by_id(_), do: nil
+
+  defp command_context_for_transmit(command_type, context, command) do
+    if endpoint_inventory_command_type?(command_type) do
+      Map.put_new(context, :response_subject, command_response_subject(command.id))
+    else
+      context
+    end
+  end
+
+  defp command_payload_for_transmit(command_type, payload, command) do
+    if endpoint_inventory_command_type?(command_type) do
+      metadata =
+        payload
+        |> payload_value(:metadata)
+        |> normalize_endpoint_inventory_metadata()
+        |> Map.put_new("response_subject", command_response_subject(command.id))
+
+      Map.put(payload, :metadata, metadata)
+    else
+      payload
+    end
+  end
+
+  defp command_response_subject(command_id),
+    do: "#{ServiceRadar.AgentCommands.PubSub.topic(command_id)}"
+
+  defp endpoint_inventory_command_type?(@endpoint_inventory_cache_query_type), do: true
+  defp endpoint_inventory_command_type?(@endpoint_inventory_force_fresh_scan_type), do: true
+  defp endpoint_inventory_command_type?(_command_type), do: false
+
+  defp contains_endpoint_inventory_blob_key?(payload) when is_map(payload) do
+    Enum.any?(payload, fn {key, value} ->
+      (endpoint_inventory_blob_key?(key) and present_blob_value?(value)) or
+        contains_endpoint_inventory_blob_key?(value)
+    end)
+  end
+
+  defp contains_endpoint_inventory_blob_key?(payload) when is_list(payload) do
+    Enum.any?(payload, &contains_endpoint_inventory_blob_key?/1)
+  end
+
+  defp contains_endpoint_inventory_blob_key?(_payload), do: false
+
+  defp endpoint_inventory_blob_key?(key) do
+    key
+    |> to_string()
+    |> String.downcase()
+    |> Kernel.in(["sbom", "bom", "artifact_bytes", "artifact_json", "artifact_payload"])
+  end
+
+  defp present_blob_value?(nil), do: false
+  defp present_blob_value?(""), do: false
+  defp present_blob_value?([]), do: false
+  defp present_blob_value?(%{} = value), do: map_size(value) > 0
+  defp present_blob_value?(_value), do: true
 
   defp registry_available? do
     Process.whereis(ProcessRegistry.registry_name()) != nil
