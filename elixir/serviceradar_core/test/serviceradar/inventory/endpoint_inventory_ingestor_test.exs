@@ -140,6 +140,142 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
   end
 
+  test "unchanged package_set_hash updates scan freshness without replacing current packages", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-unchanged-device-#{unique}")
+    agent_id = "endpoint-inventory-unchanged-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-full-#{unique}"),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    first_scan = current_scan(agent_id)
+    assert first_scan.package_set_hash
+    assert first.package_count == 1
+    assert package_row_count(agent_id) == 1
+    assert [%{scan_ref: package_scan_ref}] = current_packages(agent_id)
+
+    unchanged_payload =
+      agent_id
+      |> scan_payload("scan-unchanged-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => first_scan.package_count,
+        "package_set_hash" => first_scan.package_set_hash,
+        "artifact_hash" => "artifact-hash-#{unique}",
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, unchanged} =
+             EndpointInventoryIngestor.ingest_report(unchanged_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert unchanged.current? == true
+    assert unchanged.package_rows_replaced? == false
+    assert unchanged.package_set_hash_mismatch? == false
+    assert unchanged.reconcile_floor? == false
+    assert unchanged.package_count == 1
+    assert package_row_count(agent_id) == 1
+
+    refreshed_scan = current_scan(agent_id)
+    assert refreshed_scan.scan_id == "scan-unchanged-#{unique}"
+    assert refreshed_scan.state == "unchanged"
+    assert refreshed_scan.package_set_hash == first_scan.package_set_hash
+    assert refreshed_scan.unchanged_scan_count == 1
+    assert refreshed_scan.last_changed_scan_at == first_scan.last_changed_scan_at
+    assert refreshed_scan.reconcile_floor_due == false
+
+    assert [%{name: "nginx", scan_ref: ^package_scan_ref}] = current_packages(agent_id)
+  end
+
+  test "changed uploads recompute package_set_hash server-side and flag mismatches", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-mismatch-device-#{unique}")
+    agent_id = "endpoint-inventory-mismatch-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    payload =
+      agent_id
+      |> scan_payload("scan-mismatch-#{unique}")
+      |> Map.merge(%{
+        "package_set_hash" => "reported-bad-hash-#{unique}",
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "changed"
+      })
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.package_rows_replaced? == true
+    assert result.package_set_hash_mismatch? == true
+
+    scan = current_scan(agent_id)
+    assert scan.package_set_hash == scan.server_package_set_hash
+    assert scan.package_set_hash != "reported-bad-hash-#{unique}"
+    assert scan.package_set_hash_mismatch == true
+  end
+
+  test "unchanged scans past reconcile floor return full-upload directive", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-reconcile-device-#{unique}")
+    agent_id = "endpoint-inventory-reconcile-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, _first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-floor-full-#{unique}"),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    first_scan = current_scan(agent_id)
+
+    unchanged_payload =
+      agent_id
+      |> scan_payload("scan-floor-unchanged-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => first_scan.package_count,
+        "package_set_hash" => first_scan.package_set_hash,
+        "hash_algorithm" => "sha256-v1",
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(unchanged_payload,
+               actor: actor,
+               upload_object: successful_upload(),
+               reconcile_floor_scan_count: 1,
+               reconcile_floor_max_age_days: 0
+             )
+
+    assert result.reconcile_floor? == true
+    assert result.directives["endpoint_inventory"]["reconcile_floor"] == true
+    assert result.directives["endpoint_inventory"]["upload_reason"] == "changed"
+
+    scan = current_scan(agent_id)
+    assert scan.reconcile_floor_due == true
+    assert scan.unchanged_scan_count == 1
+  end
+
   defp scan_payload(agent_id, scan_id, opts \\ []) do
     components =
       Keyword.get(opts, :components, [
@@ -187,7 +323,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     Repo.one!(
       from(s in "endpoint_inventory_scans",
         where: s.agent_id == ^agent_id and s.current == true,
-        select: %{scan_id: s.scan_id, package_count: s.package_count}
+        select: %{
+          id: s.id,
+          scan_id: s.scan_id,
+          state: s.state,
+          package_count: s.package_count,
+          package_set_hash: s.package_set_hash,
+          server_package_set_hash: s.server_package_set_hash,
+          package_set_hash_mismatch: s.package_set_hash_mismatch,
+          unchanged_scan_count: s.unchanged_scan_count,
+          last_changed_scan_at: s.last_changed_scan_at,
+          reconcile_floor_due: s.reconcile_floor_due
+        }
       ),
       prefix: "platform"
     )
@@ -199,12 +346,23 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
         where: p.agent_id == ^agent_id and p.current == true,
         order_by: [asc: p.name],
         select: %{
+          scan_ref: p.scan_ref,
           name: p.name,
           package_manager: p.package_manager,
           purl: p.purl,
           purl_canonical: p.purl_canonical,
           device_uid: p.device_uid
         }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp package_row_count(agent_id) do
+    Repo.one!(
+      from(p in "endpoint_inventory_packages",
+        where: p.agent_id == ^agent_id,
+        select: count(p.id)
       ),
       prefix: "platform"
     )

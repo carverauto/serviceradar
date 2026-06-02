@@ -11,9 +11,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   alias ServiceRadar.Repo
 
   require Ash.Query
+  require Logger
 
   @collector_name "serviceradar-endpoint-inventory"
-  @successful_states ["scanned", "complete", "success"]
+  @hash_algorithm "sha256-v1"
+  @hash_algorithm_version 1
+  @upload_reason_changed "changed"
+  @upload_reason_unchanged "unchanged"
+  @default_reconcile_floor_scan_count 24
+  @default_reconcile_floor_max_age_days 7
+  @successful_states ["scanned", "complete", "success", "unchanged"]
   @package_manager_purl_types %{
     "apk" => "apk",
     "dpkg" => "deb",
@@ -34,12 +41,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
     with {:ok, agent_id} <- required_string(payload, :agent_id),
          {:ok, scan_id} <- required_string(payload, :scan_id),
-         {:ok, context} <- build_context(payload, agent_id, scan_id, actor),
+         {:ok, context} <- build_context(payload, agent_id, scan_id, actor, opts),
          {:ok, artifact} <- maybe_upload_artifact(payload, context, opts) do
       Repo.transaction(fn ->
+        current = current_scan_snapshot(context.agent_id)
+        context = apply_hash_freshness(context, current)
         scan_ref = upsert_scan(context, artifact)
         replace_artifact(scan_ref, context, artifact)
-        package_count = replace_packages(scan_ref, context)
+        package_count = maybe_replace_packages(scan_ref, context)
         maybe_promote_current(scan_ref, context)
 
         %{
@@ -49,6 +58,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           scan_ref: scan_ref,
           package_count: package_count,
           artifact_uploaded?: not is_nil(artifact),
+          package_rows_replaced?: not context.package_replacement_noop?,
+          package_set_hash_mismatch?: context.package_set_hash_mismatch?,
+          reconcile_floor?: context.reconcile_floor_due?,
+          directives: scan_ack_directives(context),
           current?: successful_scan?(context)
         }
       end)
@@ -57,7 +70,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   def ingest_report(_payload, _opts), do: {:error, :invalid_endpoint_inventory_payload}
 
-  defp build_context(payload, agent_id, scan_id, actor) do
+  defp build_context(payload, agent_id, scan_id, actor, opts) do
     now = DateTime.utc_now()
 
     device_uid =
@@ -66,6 +79,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
     packages = normalize_packages(payload)
     sources = normalize_sources(list_value(payload, :sources))
+    reported_hash = string_value(payload, :package_set_hash)
+    server_hash = server_package_set_hash(packages)
 
     {:ok,
      %{
@@ -82,6 +97,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        manager_counts: manager_counts(packages),
        source_summaries: sources,
        packages: packages,
+       reported_package_set_hash: reported_hash,
+       package_set_hash: reported_hash || server_hash,
+       artifact_hash: string_value(payload, :artifact_hash),
+       hash_algorithm: string_value(payload, :hash_algorithm) || @hash_algorithm,
+       upload_reason: string_value(payload, :upload_reason) || inferred_upload_reason(payload),
+       server_package_set_hash: server_hash,
+       package_set_hash_mismatch?: false,
+       package_replacement_noop?: false,
+       unchanged_scan_count: 0,
+       last_changed_scan_at: nil,
+       reconcile_floor_due?: false,
+       reconcile_floor_scan_count:
+         Keyword.get(opts, :reconcile_floor_scan_count, @default_reconcile_floor_scan_count),
+       reconcile_floor_max_age_days:
+         Keyword.get(opts, :reconcile_floor_max_age_days, @default_reconcile_floor_max_age_days),
        last_scan_at:
          datetime_value(payload, :last_scan_at) || datetime_value(payload, :scanned_at) || now,
        last_successful_scan_at: successful_scan_time(payload, now),
@@ -125,7 +155,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       current: false,
       last_successful_scan_at: context.last_successful_scan_at,
       last_scan_at: context.last_scan_at,
+      last_changed_scan_at: context.last_changed_scan_at,
       ingested_at: context.ingested_at,
+      package_set_hash: context.package_set_hash,
+      artifact_hash: context.artifact_hash,
+      hash_algorithm: context.hash_algorithm,
+      upload_reason: context.upload_reason,
+      server_package_set_hash: context.server_package_set_hash,
+      package_set_hash_mismatch: context.package_set_hash_mismatch?,
+      unchanged_scan_count: context.unchanged_scan_count,
+      reconcile_floor_due: context.reconcile_floor_due?,
       metadata: scan_metadata(context),
       inserted_at: context.now,
       updated_at: context.now
@@ -152,7 +191,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
              :current,
              :last_successful_scan_at,
              :last_scan_at,
+             :last_changed_scan_at,
              :ingested_at,
+             :package_set_hash,
+             :artifact_hash,
+             :hash_algorithm,
+             :upload_reason,
+             :server_package_set_hash,
+             :package_set_hash_mismatch,
+             :unchanged_scan_count,
+             :reconcile_floor_due,
              :metadata,
              :updated_at
            ]},
@@ -233,6 +281,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     length(rows)
   end
 
+  defp maybe_replace_packages(_scan_ref, %{package_replacement_noop?: true} = context) do
+    context.package_count
+  end
+
+  defp maybe_replace_packages(scan_ref, context), do: replace_packages(scan_ref, context)
+
   defp maybe_promote_current(scan_ref, context) do
     if context.state in @successful_states do
       promote_current(scan_ref, context)
@@ -252,13 +306,15 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       prefix: "platform"
     )
 
-    Repo.update_all(
-      from(p in "endpoint_inventory_packages",
-        where: p.agent_id == ^context.agent_id and p.current == true
-      ),
-      [set: [current: false, updated_at: now]],
-      prefix: "platform"
-    )
+    if not context.package_replacement_noop? do
+      Repo.update_all(
+        from(p in "endpoint_inventory_packages",
+          where: p.agent_id == ^context.agent_id and p.current == true
+        ),
+        [set: [current: false, updated_at: now]],
+        prefix: "platform"
+      )
+    end
 
     Repo.update_all(
       from(s in "endpoint_inventory_scans", where: s.id == ^scan_ref),
@@ -266,14 +322,152 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       prefix: "platform"
     )
 
-    Repo.update_all(
-      from(p in "endpoint_inventory_packages", where: p.scan_ref == ^scan_ref),
-      [set: [current: true, updated_at: now]],
+    if not context.package_replacement_noop? do
+      Repo.update_all(
+        from(p in "endpoint_inventory_packages", where: p.scan_ref == ^scan_ref),
+        [set: [current: true, updated_at: now]],
+        prefix: "platform"
+      )
+    end
+  end
+
+  defp successful_scan?(context), do: context.state in @successful_states
+
+  defp current_scan_snapshot(agent_id) do
+    Repo.one(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id and s.current == true,
+        select: %{
+          id: s.id,
+          package_count: s.package_count,
+          package_set_hash: s.package_set_hash,
+          server_package_set_hash: s.server_package_set_hash,
+          last_changed_scan_at: s.last_changed_scan_at,
+          unchanged_scan_count: s.unchanged_scan_count
+        },
+        limit: 1
+      ),
       prefix: "platform"
     )
   end
 
-  defp successful_scan?(context), do: context.state in @successful_states
+  defp apply_hash_freshness(context, current) do
+    package_replacement_noop? = package_replacement_noop?(context, current)
+    server_hash = effective_server_package_set_hash(context, current, package_replacement_noop?)
+    mismatch? = package_set_hash_mismatch?(context.reported_package_set_hash, server_hash)
+
+    package_set_hash =
+      effective_package_set_hash(context, current, package_replacement_noop?, server_hash)
+
+    unchanged_count = unchanged_scan_count(context, current, package_replacement_noop?)
+    last_changed_at = last_changed_scan_at(context, current, package_replacement_noop?)
+    reconcile_floor_due? = reconcile_floor_due?(context, last_changed_at, unchanged_count)
+
+    if mismatch? do
+      Logger.warning(
+        "Endpoint inventory package_set_hash mismatch: agent_id=#{context.agent_id} scan_id=#{context.scan_id} reported=#{context.reported_package_set_hash} server=#{server_hash}"
+      )
+    end
+
+    %{
+      context
+      | package_set_hash: package_set_hash,
+        server_package_set_hash: server_hash,
+        package_set_hash_mismatch?: mismatch?,
+        package_replacement_noop?: package_replacement_noop?,
+        unchanged_scan_count: unchanged_count,
+        last_changed_scan_at: last_changed_at,
+        reconcile_floor_due?: reconcile_floor_due?
+    }
+  end
+
+  defp package_replacement_noop?(context, current) do
+    successful_scan?(context) and not is_nil(current) and
+      reported_package_set_hash(context) not in [nil, ""] and
+      reported_package_set_hash(context) == current.package_set_hash and
+      context.upload_reason == @upload_reason_unchanged
+  end
+
+  defp reported_package_set_hash(context) do
+    context.reported_package_set_hash || context.package_set_hash
+  end
+
+  defp effective_server_package_set_hash(context, current, true) do
+    context.server_package_set_hash || Map.get(current || %{}, :server_package_set_hash) ||
+      Map.get(current || %{}, :package_set_hash)
+  end
+
+  defp effective_server_package_set_hash(context, _current, false) do
+    context.server_package_set_hash
+  end
+
+  defp effective_package_set_hash(context, current, true, _server_hash) do
+    reported_package_set_hash(context) || Map.get(current || %{}, :package_set_hash)
+  end
+
+  defp effective_package_set_hash(context, _current, false, server_hash) do
+    server_hash || reported_package_set_hash(context)
+  end
+
+  defp package_set_hash_mismatch?(nil, _server_hash), do: false
+  defp package_set_hash_mismatch?(_package_set_hash, nil), do: false
+
+  defp package_set_hash_mismatch?(package_set_hash, server_hash),
+    do: package_set_hash != server_hash
+
+  defp unchanged_scan_count(_context, current, true) do
+    Map.get(current || %{}, :unchanged_scan_count, 0) + 1
+  end
+
+  defp unchanged_scan_count(context, _current, false) do
+    if successful_scan?(context), do: 0, else: 0
+  end
+
+  defp last_changed_scan_at(_context, current, true) do
+    Map.get(current || %{}, :last_changed_scan_at)
+  end
+
+  defp last_changed_scan_at(context, _current, false) do
+    if successful_scan?(context) and changed_upload?(context) do
+      context.last_successful_scan_at || context.last_scan_at
+    end
+  end
+
+  defp changed_upload?(context), do: context.upload_reason != @upload_reason_unchanged
+
+  defp reconcile_floor_due?(context, last_changed_at, unchanged_scan_count) do
+    successful_scan?(context) and context.upload_reason == @upload_reason_unchanged and
+      (scan_floor_due?(context.reconcile_floor_scan_count, unchanged_scan_count) or
+         age_floor_due?(context, last_changed_at))
+  end
+
+  defp scan_floor_due?(scan_count_floor, unchanged_scan_count)
+       when is_integer(scan_count_floor) and scan_count_floor > 0 do
+    unchanged_scan_count >= scan_count_floor
+  end
+
+  defp scan_floor_due?(_scan_count_floor, _unchanged_scan_count), do: false
+
+  defp age_floor_due?(context, %DateTime{} = last_changed_at) do
+    max_age_days = context.reconcile_floor_max_age_days
+
+    is_integer(max_age_days) and max_age_days > 0 and
+      DateTime.diff(context.last_scan_at, last_changed_at, :day) >= max_age_days
+  end
+
+  defp age_floor_due?(_context, _last_changed_at), do: false
+
+  defp scan_ack_directives(%{reconcile_floor_due?: true}) do
+    %{
+      "endpoint_inventory" => %{
+        "reconcile_floor" => true,
+        "upload_reason" => @upload_reason_changed,
+        "message" => "server reconcile floor reached; next scan must perform a full upload"
+      }
+    }
+  end
+
+  defp scan_ack_directives(_context), do: %{}
 
   defp delete_scan_rows(table, scan_ref) do
     query = from(r in table, where: r.scan_ref == ^scan_ref)
@@ -538,12 +732,62 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     |> Map.new(fn {manager, rows} -> {manager, length(rows)} end)
   end
 
+  defp server_package_set_hash([]), do: nil
+
+  defp server_package_set_hash(packages) do
+    lines =
+      packages
+      |> Enum.flat_map(&package_hash_line/1)
+      |> Enum.sort()
+
+    payload = Enum.join(lines, "\n")
+
+    :sha256
+    |> :crypto.hash([<<@hash_algorithm_version>>, payload])
+    |> Base.encode16(case: :lower)
+  end
+
+  defp package_hash_line(package) do
+    name = trimmed(package.name)
+    package_manager = trimmed(package.package_manager)
+
+    if name == "" or package_manager == "" do
+      []
+    else
+      [
+        IO.iodata_to_binary([
+          "{\"package_manager\":",
+          json_string(package_manager),
+          ",\"name\":",
+          json_string(name),
+          ",\"version\":",
+          json_string(trimmed(package.version)),
+          ",\"architecture\":",
+          json_string(trimmed(package.architecture)),
+          ",\"purl_canonical\":",
+          json_string(trimmed(package.purl_canonical)),
+          "}"
+        ])
+      ]
+    end
+  end
+
   defp scan_metadata(context) do
     context.metadata
     |> Map.merge(%{
       "schema_version" => string_value(context.payload, :schema_version),
       "os" => map_value(context.payload, :os),
       "source" => "endpoint_inventory",
+      "reported_package_set_hash" => context.reported_package_set_hash,
+      "package_set_hash" => context.package_set_hash,
+      "artifact_hash" => context.artifact_hash,
+      "hash_algorithm" => context.hash_algorithm,
+      "upload_reason" => context.upload_reason,
+      "server_package_set_hash" => context.server_package_set_hash,
+      "package_set_hash_mismatch" => context.package_set_hash_mismatch?,
+      "unchanged_scan_count" => context.unchanged_scan_count,
+      "last_changed_scan_at" => iso8601(context.last_changed_scan_at),
+      "reconcile_floor_due" => context.reconcile_floor_due?,
       "raw_package_count" => integer_value(context.payload, :package_count, nil)
     })
     |> compact_map()
@@ -598,7 +842,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp scan_state(payload) do
     case string_value(payload, :state) || string_value(payload, :status) do
-      value when value in ["scanned", "scan_failed", "not_scanned"] -> value
+      value when value in ["scanned", "scan_failed", "not_scanned", "unchanged"] -> value
       value when value in ["complete", "success"] -> "scanned"
       "failed" -> "scan_failed"
       _ -> "scanned"
@@ -620,8 +864,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
           datetime_value(payload, :last_scan_at) ||
           fallback
 
+      "unchanged" ->
+        datetime_value(payload, :last_successful_scan_at) ||
+          datetime_value(payload, :last_scan_at) ||
+          fallback
+
       _ ->
         datetime_value(payload, :last_successful_scan_at)
+    end
+  end
+
+  defp inferred_upload_reason(payload) do
+    if map_size(map_value(payload, :sbom)) > 0 or list_value(payload, :packages) != [] do
+      @upload_reason_changed
+    else
+      @upload_reason_unchanged
     end
   end
 
@@ -790,6 +1047,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp metadata(map) when is_map(map), do: map_value(map, :metadata)
   defp metadata(_map), do: %{}
+
+  defp trimmed(nil), do: ""
+
+  defp trimmed(value) when is_binary(value), do: String.trim(value)
+
+  defp trimmed(value), do: value |> to_string() |> String.trim()
+
+  defp json_string(value), do: Jason.encode!(value)
+
+  defp iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  defp iso8601(_value), do: nil
 
   defp compact_map(map) do
     map
