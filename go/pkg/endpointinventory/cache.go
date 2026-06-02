@@ -193,6 +193,8 @@ func fullScanManifest(
 	if payload.UploadReason == UploadReasonChanged {
 		manifest.LastChangedScanAt = payload.LastSuccessfulScanAt
 		manifest.UnchangedScanCount = 0
+		manifest.ServerReconcileRequestedAt = nil
+		manifest.ServerReconcileReason = ""
 		manifest.PendingUpload = pendingUploadState(cfg, previous, payload, scannedAt)
 	} else {
 		manifest.UnchangedScanCount++

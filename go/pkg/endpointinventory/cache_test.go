@@ -65,3 +65,29 @@ func TestCacheCanSkipFullScanRespectsServerReconcileRequest(t *testing.T) {
 		t.Fatal("cache should not skip when the server requested a reconcile upload")
 	}
 }
+
+func TestFullScanManifestClearsServerReconcileRequestOnChangedUpload(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.AgentID = "agent-1"
+	requestedAt := time.Unix(100, 0).UTC()
+	scannedAt := time.Unix(120, 0).UTC()
+	previous := &InventoryCacheManifest{
+		ServerReconcileRequestedAt: &requestedAt,
+		ServerReconcileReason:      "reconcile floor",
+	}
+	payload := &ScanPayload{
+		ScanID:               "scan-1",
+		PackageSetHash:       "package-hash",
+		ArtifactHash:         "artifact-hash",
+		HashAlgorithm:        HashAlgorithm,
+		PackageCount:         1,
+		LastSuccessfulScanAt: &scannedAt,
+		UploadReason:         UploadReasonChanged,
+	}
+
+	manifest := fullScanManifest(cfg, previous, payload, []Package{{Name: "nginx"}}, nil, scannedAt)
+
+	if manifest.ServerReconcileRequestedAt != nil || manifest.ServerReconcileReason != "" {
+		t.Fatalf("server reconcile request should clear after changed upload: %#v", manifest)
+	}
+}

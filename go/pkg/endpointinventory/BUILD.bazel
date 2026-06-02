@@ -24,6 +24,7 @@ go_test(
     srcs = [
         "cache_test.go",
         "commands_test.go",
+        "config_test.go",
         "collect_test.go",
         "hashes_test.go",
         "packages_test.go",

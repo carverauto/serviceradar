@@ -809,6 +809,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp promote_current(scan_ref, context) do
     now = context.now
 
+    if context.package_replacement_noop? do
+      Repo.update_all(
+        from(p in "endpoint_inventory_packages",
+          where: p.agent_id == ^context.agent_id and p.current == true
+        ),
+        [set: [scan_ref: scan_ref, updated_at: now]],
+        prefix: "platform"
+      )
+    end
+
     Repo.update_all(
       from(s in "endpoint_inventory_scans",
         where: s.agent_id == ^context.agent_id and s.current == true

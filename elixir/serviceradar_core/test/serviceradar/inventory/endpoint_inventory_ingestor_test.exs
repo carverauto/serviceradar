@@ -392,7 +392,19 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert refreshed_scan.last_changed_scan_at == first_scan.last_changed_scan_at
     assert refreshed_scan.reconcile_floor_due == false
 
-    assert [%{name: "nginx", scan_ref: ^package_scan_ref}] = current_packages(agent_id)
+    assert refreshed_scan.id != package_scan_ref
+    assert [%{name: "nginx", scan_ref: scan_ref}] = current_packages(agent_id)
+    assert scan_ref == refreshed_scan.id
+
+    Repo.delete_all(
+      from(s in "endpoint_inventory_scans",
+        where: s.agent_id == ^agent_id and s.current == false
+      ),
+      prefix: "platform"
+    )
+
+    assert [%{name: "nginx", scan_ref: scan_ref_after_retention}] = current_packages(agent_id)
+    assert scan_ref_after_retention == refreshed_scan.id
   end
 
   test "emits endpoint inventory cost and volume telemetry", %{actor: actor} do
