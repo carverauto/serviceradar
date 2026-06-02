@@ -151,7 +151,7 @@ The system SHALL compute the package-set hash from a pinned canonical encoding a
 - **GIVEN** two scans of an unchanged host produce CycloneDX artifacts that differ only in BOM serial number, BOM timestamp, JSON key order, or CPE enrichment
 - **WHEN** the agent computes the package-set hash
 - **THEN** both scans SHALL produce the same package-set hash
-- **AND** the hash SHALL be computed over sorted normalized package identity fields (package manager, name, version, architecture, PURL), not raw artifact bytes
+- **AND** the hash SHALL be computed over sorted normalized package identity fields (package manager, name, version, architecture, canonical PURL), not raw artifact bytes
 
 #### Scenario: Hash carries an algorithm version
 - **GIVEN** the package-set hash algorithm
@@ -208,23 +208,29 @@ The system SHALL store current inventory for point lookups separately from histo
 - **AND** the agent SHALL NOT be required to compute diffs against a local previous-state cache
 
 ### Requirement: Endpoint Inventory Fleet Rollups Use Incremental Aggregates
-The system SHALL answer fleet rollup questions from incrementally-maintained TimescaleDB continuous aggregates rather than scanning the current package tables. Current-state tables are point-lookup shaped and SHALL NOT be the substrate for fleet `GROUP BY` aggregations. The `endpoint_inventory_packages.cpes` column SHALL have a GIN index and the `purl` column SHALL be indexed so CPE and PURL predicates run as index scans.
+The system SHALL answer fleet rollup questions from maintained current-count tables, standing-question result aggregates, or TimescaleDB continuous aggregates rather than ad hoc aggregate scans of the current package tables. Current-state tables are point-lookup and membership shaped and SHALL NOT be the substrate for fleet `GROUP BY` scans. The `endpoint_inventory_packages.cpes` column SHALL have a GIN index and the canonical PURL column SHALL be indexed so CPE and PURL predicates run as index scans.
 
 #### Scenario: Fleet rollup served from incremental aggregate
 - **GIVEN** an operator asks how many hosts have a package, version, or CPE
 - **WHEN** the system answers the rollup
 - **THEN** it SHALL serve the answer from an incremental fleet aggregate
-- **AND** it SHALL NOT run a full GROUP BY over the live current package rows
+- **AND** it SHALL NOT run an ad hoc full GROUP BY over the live current package rows
+
+#### Scenario: Current count served from maintained counts
+- **GIVEN** an operator asks for the current count of hosts matching a package coordinate
+- **WHEN** the package coordinate exists in current inventory
+- **THEN** the system SHALL answer from a maintained current-count table or standing-question aggregate
+- **AND** the count SHALL be updated from package diff events rather than recomputed by scanning all current package rows
 
 #### Scenario: Rollup includes offline hosts
 - **GIVEN** some hosts with the package are currently offline
 - **WHEN** a fleet rollup is computed
 - **THEN** the rollup SHALL include those hosts based on their latest known inventory
 
-#### Scenario: Indexed CPE and PURL filters
+#### Scenario: Indexed CPE and canonical PURL filters
 - **GIVEN** a large current package table
-- **WHEN** an SRQL predicate filters by CPE or PURL
-- **THEN** the query SHALL use the GIN index on `cpes` or the `purl` index
+- **WHEN** an SRQL predicate filters by CPE or canonical PURL
+- **THEN** the query SHALL use the GIN index on `cpes` or the canonical PURL index
 - **AND** it SHALL NOT fall back to a sequential scan of the current package rows
 
 ### Requirement: Live Endpoint Inventory Answers Carry Freshness And Coverage
@@ -303,7 +309,7 @@ The system SHALL expose endpoint inventory cost and volume signals so operators 
 - **THEN** the system SHALL expose object-store bytes for SBOM artifacts, current package-row counts, and autovacuum/compression lag for inventory tables
 
 ### Requirement: Endpoint Inventory Models A Software Ontology
-The system SHALL model endpoint software as first-class ontology entities and relationships, relationally and SRQL-queryable, so the causal engine and automations can reason over inventory.
+The system SHALL model endpoint software as first-class endpoint-side ontology entities and relationships, relationally and SRQL-queryable, so the causal engine and automations can reason over inventory.
 
 #### Scenario: Device-package relationship is relational
 - **GIVEN** a device has current endpoint inventory
@@ -311,18 +317,18 @@ The system SHALL model endpoint software as first-class ontology entities and re
 - **THEN** the system SHALL expose a `Device HAS_PACKAGE` relationship linking the canonical device UID to a normalized `Package` entity keyed on a canonical PURL/CPE coordinate
 - **AND** the relationship SHALL be a CNPG current-state relation queryable via SRQL, NOT an AGE graph edge
 
-#### Scenario: Package-vulnerability edge modeled by feed-agnostic coordinate match
+#### Scenario: Package-vulnerability input modeled by feed-agnostic coordinate match
 - **GIVEN** a `Package` entity with a canonical PURL/CPE coordinate
 - **WHEN** an advisory from any feed references that coordinate
-- **THEN** the system SHALL represent a `Package AFFECTED_BY CVE` relationship via coordinate match on canonical PURL/CPE, with the `{package_manager, name, version, architecture}` tuple as the fallback for feeds that omit PURL
-- **AND** the advisory feed and CVSS scoring MAY be supplied by a separate change, while this capability SHALL provide the `Package` entity, the edge, and the match interface
+- **THEN** this capability SHALL provide the endpoint package coordinate input for matching on canonical PURL/CPE, with the `{package_manager, name, version, architecture}` tuple as the fallback for feeds that omit PURL
+- **AND** advisory-side `Package AFFECTED_BY CVE` population, matcher policy, advisory feed, and CVSS scoring MAY be supplied by a separate change
 - **AND** host-scope endpoint findings SHALL be kept distinct from image-scope scanner findings
 
 #### Scenario: Canonical coordinate is stable
 - **GIVEN** packages reported by different package managers
 - **WHEN** they are normalized into `Package` entities
 - **THEN** each SHALL carry a canonical PURL (per the PURL spec, computed server-side at ingest) and CPE where available
-- **AND** the canonical PURL SHALL be the primary coordinate/dedup key with the identity tuple as deterministic fallback, and the stable join key for the edge and vulnerability matching
+- **AND** the canonical PURL SHALL be the primary coordinate/dedup key with the identity tuple as deterministic fallback, and the stable join key for vulnerability matching
 
 ### Requirement: Endpoint Inventory Feeds The Causal Engine
 The system SHALL feed endpoint inventory to the causal engine through the platform's standard consumption paths, keyed on canonical identity, without a bespoke transport.

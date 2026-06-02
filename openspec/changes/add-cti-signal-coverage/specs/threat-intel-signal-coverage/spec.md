@@ -68,12 +68,13 @@ The system SHALL support opt-in Envoy-based HTTP, TLS, and WAF telemetry so URL,
 - **THEN** ServiceRadar SHALL create a finding that links the observable, request event, related asset, source provider, and evidence count
 
 ### Requirement: Agent SBOM And Endpoint CTI Matching
-The system SHALL collect endpoint software and SBOM inventory from agents so file hash, package, product, and CVE observables can be matched against assets.
+The system SHALL match endpoint software and SBOM inventory supplied by the endpoint inventory capability so file hash, package, product, and CVE observables can be matched against assets. The endpoint inventory capability owns endpoint-side package collection, canonical package coordinates, and current device/package relations; this capability owns advisory/feed import, advisory-side vulnerability coordinates, matcher policy, CVSS scoring, and resulting CTI/vulnerability findings.
 
 #### Scenario: Agent submits SBOM
 - **GIVEN** SBOM collection is enabled for an agent
 - **WHEN** the agent scans installed software or receives a configured SBOM source
-- **THEN** ServiceRadar SHALL store a durable SBOM artifact and normalized package/component rows linked to the asset
+- **THEN** the endpoint inventory capability SHALL store a durable SBOM artifact and normalized package/component rows linked to the asset
+- **AND** this capability SHALL consume those rows through the canonical PURL/CPE coordinate contract rather than redefining endpoint package storage
 
 #### Scenario: File hash CTI matches endpoint inventory
 - **GIVEN** an imported file hash observable
@@ -86,6 +87,7 @@ The system SHALL collect endpoint software and SBOM inventory from agents so fil
 - **AND** an asset SBOM or package inventory contains an affected component
 - **WHEN** the vulnerability matcher runs
 - **THEN** ServiceRadar SHALL create or update an affected-asset finding with package, version, CVE, source provider, severity, and evidence context
+- **AND** host-scope endpoint findings SHALL remain distinct from image-scope scanner findings such as Trivy image findings
 
 ### Requirement: Edge SIEM CTI Sightings
 The system SHALL allow assigned edge Wasm plugins to import SIEM or customer-local security sightings into the same CTI sighting contract.

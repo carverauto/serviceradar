@@ -39,7 +39,8 @@ Device inventory SHALL provide an operator-facing path to ask live endpoint soft
 #### Scenario: Full upload requested after live match
 - **GIVEN** an on-demand query identifies a matching package on an agent
 - **WHEN** an authorized operator requests full artifact upload or a fresh scan for that agent
-- **THEN** if the request triggers a fresh scan, the system SHALL require the `endpoint_inventory.force_fresh_scan` permission, force-fresh policy enablement, an available per-agent single-flight semaphore, and an unexhausted per-partition rate limit
+- **THEN** if the request triggers a fresh scan, the control plane SHALL require the `endpoint_inventory.force_fresh_scan` permission, force-fresh policy enablement, and an unexhausted per-partition rate limit before dispatch
+- **AND** the agent SHALL enforce its per-agent single-flight semaphore before running the scan
 - **AND** a request that only uploads the agent's already-cached artifact SHALL require normal inventory authorization and route the bytes through the datasvc relay rather than the command stream
 - **AND** the uploaded artifact SHALL become queryable only after normal ingestion validation succeeds
 

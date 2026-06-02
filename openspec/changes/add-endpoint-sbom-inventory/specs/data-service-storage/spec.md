@@ -1,13 +1,13 @@
 ## ADDED Requirements
 
 ### Requirement: Endpoint SBOM Object Storage
-Datasvc SHALL store endpoint SBOM artifacts as bounded durable objects with explicit ownership, content identity, and provenance metadata.
+Datasvc SHALL store endpoint SBOM component payload bytes as bounded durable objects with explicit ownership and content identity. Scan-specific provenance metadata SHALL be persisted outside the content-addressed bytes so identical component payloads can deduplicate across hosts.
 
-#### Scenario: Valid endpoint SBOM object stored
+#### Scenario: Valid endpoint SBOM payload object stored
 - **GIVEN** an authorized endpoint inventory upload provides a CycloneDX JSON artifact within configured size limits
 - **WHEN** datasvc stores the artifact
-- **THEN** the object SHALL be written under an endpoint inventory object key
-- **AND** datasvc SHALL persist artifact format, SHA-256 digest, byte size, scan ID, agent ID, package-set hash, upload reason, and upload timestamp metadata
+- **THEN** the canonicalized component payload bytes SHALL be written under an endpoint inventory object key addressed by artifact hash
+- **AND** scan-specific metadata such as scan ID, agent ID, device UID, package-set hash, upload reason, and upload timestamp SHALL be persisted as artifact metadata rows rather than included in the hashed payload bytes
 
 #### Scenario: Existing endpoint SBOM object reused
 - **GIVEN** an authorized endpoint inventory upload whose artifact digest matches a content-addressed object already stored
@@ -28,12 +28,12 @@ Datasvc SHALL store endpoint SBOM artifacts as bounded durable objects with expl
 - **AND** ingestion SHALL record the scan artifact as failed rather than current
 
 ### Requirement: Endpoint SBOM Artifacts Are Deduplicated Across Hosts
-Datasvc SHALL avoid storing duplicate SBOM artifact bytes across hosts that share an identical inventory.
+Datasvc SHALL avoid storing duplicate SBOM component payload bytes across hosts that share an identical inventory.
 
 #### Scenario: Identical artifacts across hosts stored once
 - **GIVEN** many hosts share an identical golden-image inventory that produces the same artifact hash
 - **WHEN** their SBOM artifacts are uploaded
-- **THEN** datasvc SHALL store the artifact bytes once, content-addressed by artifact hash
+- **THEN** datasvc SHALL store the component payload bytes once, content-addressed by artifact hash
 - **AND** each scan SHALL reference the shared object rather than storing duplicate bytes
 
 ### Requirement: Endpoint SBOM Bytes Do Not Traverse The Command Stream

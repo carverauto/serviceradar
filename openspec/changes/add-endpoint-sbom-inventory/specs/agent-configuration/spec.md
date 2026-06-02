@@ -84,12 +84,13 @@ The agent SHALL spread correlated endpoint inventory uploads over a window to av
 - **AND** uploads SHALL be distributed over the jitter window rather than sent simultaneously
 
 ### Requirement: Force-Fresh Endpoint Inventory Scans Are Guarded
-The agent SHALL treat a force-fresh endpoint inventory scan as a guarded, optional, device-scoped capability that is disabled by default. Authorization uses the `endpoint_inventory.force_fresh_scan` RBAC permission on the requesting actor, and dispatch is bounded by a per-agent single-flight semaphore and a per-partition rate limit.
+The agent SHALL treat a force-fresh endpoint inventory scan as a guarded, optional, device-scoped capability that is disabled by default. The control plane authorizes the requesting actor before dispatch; the agent enforces local policy, disabled-source rejection, and a per-agent single-flight semaphore.
 
 #### Scenario: Force-fresh requires authorization and policy
-- **GIVEN** an on-demand command requests a fresh scan
+- **GIVEN** the control plane has authorized an on-demand command that requests a fresh scan
 - **WHEN** the agent receives the command
-- **THEN** it SHALL run the fresh scan only if the requester holds the `endpoint_inventory.force_fresh_scan` permission and policy allows the requested sources
+- **THEN** it SHALL run the fresh scan only if endpoint inventory policy allows the requested sources
+- **AND** it SHALL reject disabled sources even if the command was server-authorized
 
 #### Scenario: Force-fresh is single-flight per agent
 - **GIVEN** a force-fresh scan is already running on an agent
@@ -102,16 +103,6 @@ The agent SHALL treat a force-fresh endpoint inventory scan as a guarded, option
 - **WHEN** a fresh-scan command is received
 - **THEN** the agent SHALL answer from its local cache or report fresh-scan unavailable
 - **AND** it SHALL NOT run a package-manager rescan
-
-#### Scenario: Per-partition rate limit enforced
-- **GIVEN** a partition has exhausted its force-fresh rate limit
-- **WHEN** another force-fresh command is dispatched for an agent in that partition
-- **THEN** the command SHALL be rejected with a rate-limit error rather than forwarded
-
-#### Scenario: Inventory command dispatch capacity enforced
-- **GIVEN** the command bus dispatches inventory commands
-- **WHEN** an inventory command is submitted
-- **THEN** dispatch SHALL enforce capacity for the inventory command type rather than defaulting to accept
 
 ### Requirement: Agent Status Heartbeat Carries Standing-Question Result Counts
 The agent status heartbeat SHALL be designed to carry operator-defined standing-question result counts as a forward-compatible field, so continuously-evaluated fleet predicates can feed continuous aggregates without a later protocol change.
