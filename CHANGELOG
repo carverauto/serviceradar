@@ -1,3 +1,17 @@
+# ServiceRadar v1.2.85
+
+NetFlow process attribution, netprobe eBPF capture, and endpoint inventory ingestion.
+
+## Whats New
+
+**1.2.85**
+- Correlated netprobe process attribution with collected NetFlow into attributed-flow records via a control-plane DB-side join, and wired the Attributed Flows view to live data.
+- Fixed netprobe eBPF capture: moved p0f signature encoding to userspace to satisfy the verifier, made the eBPF object build hermetic for RBE/publish, committed previously gitignored vendored sources, and moved the netprobe add-on config schema to JSON Schema draft-07.
+- Added endpoint SBOM inventory ingestion storage and seeded the endpoint-inventory native add-on package.
+- Bundled the endpoint-inventory and netprobe add-on config schemas inside serviceradar_core so Elixir release images build.
+- Made the native add-on publish lane and binary-size gates RBE-compatible.
+- Fixed Armis northbound "Run now" to trigger immediately and repaired demo NATS import ACLs.
+
 # ServiceRadar v1.2.84
 
 Native add-on platform, host visibility, and flow attribution.
