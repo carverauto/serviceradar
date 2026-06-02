@@ -22,7 +22,7 @@ The system SHALL collect endpoint software inventory only when an agent has an e
 - **AND** those sources SHALL require separate policy flags
 
 ### Requirement: Endpoint SBOM Artifacts Use CycloneDX JSON
-The system SHALL generate and ingest endpoint SBOM artifacts in CycloneDX JSON format for the first supported implementation.
+The system SHALL generate and ingest endpoint SBOM artifacts in CycloneDX JSON format as the supported endpoint SBOM format.
 
 #### Scenario: Collector produces valid SBOM
 - **GIVEN** endpoint inventory collection is enabled for an agent
@@ -50,7 +50,7 @@ The system SHALL compute deterministic endpoint inventory hashes so scheduled sc
 - **AND** a new scheduled scan produces package-set hash `H`
 - **WHEN** the agent reports the scan result
 - **THEN** it SHALL send scan status, source summaries, counts, freshness, and hash metadata
-- **AND** it SHALL NOT upload the full SBOM artifact or normalized package rows unless policy forces refresh
+- **AND** it SHALL NOT upload the full SBOM artifact or normalized package rows unless the reconcile-floor interval is reached or an authorized force-fresh-scan command is received
 
 #### Scenario: Changed scan uploads new inventory
 - **GIVEN** an agent has a previous successful endpoint inventory upload with package-set hash `H1`
@@ -143,3 +143,161 @@ The system SHALL support bounded on-demand endpoint software queries against con
 - **WHEN** the command is submitted
 - **THEN** the live command SHALL fail fast for that agent through the command lifecycle
 - **AND** the UI/API MAY show the latest persisted inventory state separately with its freshness timestamp
+
+### Requirement: Endpoint Inventory Hash Canonicalization Is Pinned And Versioned
+The system SHALL compute the package-set hash from a pinned canonical encoding and SHALL detect agent/collector hash errors server-side so the upload gate cannot silently degrade or be poisoned.
+
+#### Scenario: Canonicalization excludes volatile metadata
+- **GIVEN** two scans of an unchanged host produce CycloneDX artifacts that differ only in BOM serial number, BOM timestamp, JSON key order, or CPE enrichment
+- **WHEN** the agent computes the package-set hash
+- **THEN** both scans SHALL produce the same package-set hash
+- **AND** the hash SHALL be computed over sorted normalized package identity fields (package manager, name, version, architecture, PURL), not raw artifact bytes
+
+#### Scenario: Hash carries an algorithm version
+- **GIVEN** the package-set hash algorithm
+- **WHEN** the agent emits a package-set hash
+- **THEN** the hash SHALL be prefixed with an algorithm version identifier
+- **AND** a change to the canonicalization algorithm SHALL be distinguishable from a change to package content
+
+#### Scenario: Server recomputes and flags hash mismatch
+- **GIVEN** an agent uploads a changed inventory with a reported package-set hash
+- **WHEN** ingestion processes the changed upload
+- **THEN** ingestion SHALL recompute the package-set hash from the normalized rows
+- **AND** a mismatch with the agent-reported hash SHALL be recorded and surfaced as an operator-visible signal without silently dropping the inventory
+
+#### Scenario: Reconcile floor forces periodic full upload
+- **GIVEN** an agent has reported unchanged package-set hashes for longer than the configured reconcile window, measured in both elapsed time (M days) and scan count (N scans), whichever is reached first
+- **WHEN** the next scan is acknowledged
+- **THEN** ingestion SHALL return a reconcile-floor directive and the agent SHALL respond with a full changed-path upload regardless of hash
+- **AND** the server SHALL track per-agent time-since-last-changed-upload as the backstop so a stuck or incorrect hash SHALL NOT suppress inventory beyond the reconcile window
+
+### Requirement: Endpoint Inventory Collection Skips Unchanged Hosts
+The collector SHALL avoid parsing package databases when no source database has changed since the last successful scan.
+
+#### Scenario: Unchanged package databases skip parsing
+- **GIVEN** the collector recorded the modification times of the OS package databases at the last successful scan
+- **WHEN** a scheduled scan runs and no package database modification time has changed
+- **THEN** the collector SHALL skip parsing and emit a lightweight unchanged status
+- **AND** it SHALL NOT fork package-manager enumeration for that cycle
+
+#### Scenario: Periodic forced full re-parse
+- **GIVEN** package databases have not changed for several consecutive cycles
+- **WHEN** the configured forced re-parse interval is reached
+- **THEN** the collector SHALL perform a full parse regardless of modification times
+- **AND** modification-time-preserving changes SHALL be detected at least every forced interval
+
+### Requirement: Endpoint Inventory Storage Separates Current State From History
+The system SHALL store current inventory for point lookups separately from historical inventory, and SHALL compute package diffs server-side. Historical scans and package events SHALL be stored in TimescaleDB hypertables (created via the `maybe_create_hypertable` convention, with compression and `add_retention_policy`); ClickHouse or another separate columnar engine is out of scope, though DuckDB MAY be added later for ad-hoc analytics.
+
+#### Scenario: Current state holds only deduped latest rows
+- **GIVEN** a device has a current endpoint inventory
+- **WHEN** inventory is queried for that device
+- **THEN** the current package/component rows SHALL be served from current-state tables
+- **AND** unchanged scans SHALL NOT delete and recreate those rows
+
+#### Scenario: History stored as time-series with independent retention
+- **GIVEN** changed inventory scans and server-computed package add/remove events
+- **WHEN** they are persisted
+- **THEN** they SHALL be stored as time-partitioned history with compression and a retention policy independent of current-state retention
+- **AND** "when did this package appear or disappear?" SHALL be answerable from history without retaining every unchanged scan
+
+#### Scenario: Package diffs computed server-side
+- **GIVEN** a changed inventory upload is ingested
+- **WHEN** ingestion normalizes the scan
+- **THEN** added, removed, and changed components relative to the previous current inventory SHALL be computed server-side and recorded as history events
+- **AND** the agent SHALL NOT be required to compute diffs against a local previous-state cache
+
+### Requirement: Endpoint Inventory Fleet Rollups Use Incremental Aggregates
+The system SHALL answer fleet rollup questions from incrementally-maintained TimescaleDB continuous aggregates rather than scanning the current package tables. Current-state tables are point-lookup shaped and SHALL NOT be the substrate for fleet `GROUP BY` aggregations. The `endpoint_inventory_packages.cpes` column SHALL have a GIN index and the `purl` column SHALL be indexed so CPE and PURL predicates run as index scans.
+
+#### Scenario: Fleet rollup served from incremental aggregate
+- **GIVEN** an operator asks how many hosts have a package, version, or CPE
+- **WHEN** the system answers the rollup
+- **THEN** it SHALL serve the answer from an incremental fleet aggregate
+- **AND** it SHALL NOT run a full GROUP BY over the live current package rows
+
+#### Scenario: Rollup includes offline hosts
+- **GIVEN** some hosts with the package are currently offline
+- **WHEN** a fleet rollup is computed
+- **THEN** the rollup SHALL include those hosts based on their latest known inventory
+
+#### Scenario: Indexed CPE and PURL filters
+- **GIVEN** a large current package table
+- **WHEN** an SRQL predicate filters by CPE or PURL
+- **THEN** the query SHALL use the GIN index on `cpes` or the `purl` index
+- **AND** it SHALL NOT fall back to a sequential scan of the current package rows
+
+### Requirement: Live Endpoint Inventory Answers Carry Freshness And Coverage
+Every live endpoint inventory answer SHALL carry a typed freshness verdict, and cohort answers SHALL carry a coverage envelope.
+
+#### Scenario: Answer carries a freshness verdict
+- **GIVEN** an agent answers an on-demand query from its local cache
+- **WHEN** the answer is returned
+- **THEN** it SHALL include a freshness verdict of fresh, stale, or unknown with the cache age and stale threshold
+- **AND** a stale answer SHALL be distinguishable from a fresh answer
+
+#### Scenario: Stale data distinguishable from no match
+- **GIVEN** an on-demand query finds no matching package
+- **WHEN** the answer is returned
+- **THEN** "no match in fresh data", "no match in stale data", and "agent offline" SHALL be distinct outcomes
+
+#### Scenario: Cohort answer carries a coverage envelope
+- **GIVEN** a cohort on-demand query
+- **WHEN** results are aggregated
+- **THEN** the response SHALL report targeted, answered, offline, expired, and pending counts
+- **AND** a partial cohort answer SHALL NOT be presented as complete
+
+### Requirement: Cohort Endpoint Inventory Queries Are Bounded
+Cohort and fleet on-demand queries SHALL be bounded in concurrency, size, and result scope.
+
+#### Scenario: Cohort dispatched with bounded concurrency and cap
+- **GIVEN** an operator submits a cohort on-demand query
+- **WHEN** the gateway dispatches the query
+- **THEN** it SHALL resolve eligible connected, capable, and authorized agents once
+- **AND** dispatch SHALL use bounded concurrency rather than unbounded or strictly serial fan-out
+
+#### Scenario: Cohort above cap rejected with fallback guidance
+- **GIVEN** a cohort target set exceeds the configured cohort cap
+- **WHEN** the query is submitted
+- **THEN** the live cohort query SHALL be rejected
+- **AND** the operator SHALL be directed to SRQL/persisted state or fleet aggregates
+
+#### Scenario: Results scoped to a per-command topic
+- **GIVEN** a cohort on-demand query with a query ID
+- **WHEN** agents return results
+- **THEN** results SHALL be delivered on a per-command result topic for that query
+- **AND** a requester SHALL NOT receive another command's results
+
+#### Scenario: Count mode is default and responses are bounded
+- **GIVEN** a fleet on-demand question
+- **WHEN** no detail mode is requested
+- **THEN** agents SHALL return compact COUNT/EXISTS responses rather than full matched detail
+- **AND** no live query response SHALL carry SBOM artifact bytes
+
+### Requirement: Endpoint Inventory Ingest Uses A Bounded Admission Queue
+The system SHALL route endpoint inventory ingest through a bounded admission queue rather than inline-synchronous processing, so correlated mass change degrades gracefully.
+
+#### Scenario: Correlated mass change is back-pressured
+- **GIVEN** a fleet-wide change causes many agents to upload changed inventory at nearly the same time
+- **WHEN** ingest admission reaches its bound
+- **THEN** further uploads SHALL be back-pressured or deferred rather than processed inline
+- **AND** the database SHALL NOT be driven by an unbounded synchronized ingest burst
+
+#### Scenario: Queue saturation returns a defer status
+- **GIVEN** the ingest admission queue is at capacity
+- **WHEN** a new upload arrives
+- **THEN** ingestion SHALL return a defer/retry status rather than accept the upload synchronously
+
+### Requirement: Endpoint Inventory Exposes Cost And Volume Observability
+The system SHALL expose endpoint inventory cost and volume signals so operators can detect waste and runaway growth.
+
+#### Scenario: Upload reason and ratio are observable
+- **GIVEN** endpoint inventory is collecting across a fleet
+- **WHEN** an operator inspects inventory telemetry
+- **THEN** the system SHALL expose per-agent upload-reason counts (changed, unchanged, reconcile-floor, force-fresh) and the changed-vs-unchanged ratio
+- **AND** sustained hash-flapping (a high changed ratio on hosts that should be stable) SHALL be detectable
+
+#### Scenario: Storage growth is observable
+- **GIVEN** endpoint inventory data is accumulating
+- **WHEN** an operator inspects inventory telemetry
+- **THEN** the system SHALL expose object-store bytes for SBOM artifacts, current package-row counts, and autovacuum/compression lag for inventory tables

@@ -38,6 +38,43 @@ Device inventory SHALL provide an operator-facing path to ask live endpoint soft
 
 #### Scenario: Full upload requested after live match
 - **GIVEN** an on-demand query identifies a matching package on an agent
-- **WHEN** an authorized operator requests full artifact upload for that agent
-- **THEN** the system SHALL trigger a bounded upload or fresh scan according to endpoint inventory policy
+- **WHEN** an authorized operator requests full artifact upload or a fresh scan for that agent
+- **THEN** if the request triggers a fresh scan, the system SHALL require the `endpoint_inventory.force_fresh_scan` permission, force-fresh policy enablement, an available per-agent single-flight semaphore, and an unexhausted per-partition rate limit
+- **AND** a request that only uploads the agent's already-cached artifact SHALL require normal inventory authorization and route the bytes through the datasvc relay rather than the command stream
 - **AND** the uploaded artifact SHALL become queryable only after normal ingestion validation succeeds
+
+### Requirement: Device Endpoint Inventory Answers Report Freshness And Coverage
+Device inventory SHALL report freshness on device answers and coverage on cohort answers.
+
+#### Scenario: Device live answer reports freshness
+- **GIVEN** a device-scoped live endpoint software question
+- **WHEN** the answer is displayed
+- **THEN** it SHALL include the freshness verdict, cache age, and package-set hash
+
+#### Scenario: Cohort answer reports coverage
+- **GIVEN** a cohort live endpoint software question
+- **WHEN** the answer is displayed
+- **THEN** it SHALL distinguish live matches, live non-matches, stale answers, offline agents, expired commands, and latest persisted state
+
+### Requirement: Endpoint Inventory Rows Survive Identity Reconciliation
+Device inventory SHALL keep endpoint inventory rows attributed correctly across identity resolution and device merges.
+
+#### Scenario: Pre-enrollment rows backfilled
+- **GIVEN** endpoint inventory rows were written with a null canonical device UID before reconciliation
+- **WHEN** the reporting agent first acquires a canonical device UID
+- **THEN** those rows SHALL be backfilled to the canonical device UID
+- **AND** the device detail view SHALL show that inventory rather than reporting it unavailable
+
+#### Scenario: Merge reassigns inventory rows
+- **GIVEN** two devices with endpoint inventory are merged
+- **WHEN** the merge resolves a surviving canonical UID
+- **THEN** endpoint inventory scan and package rows SHALL be reassigned to the surviving canonical UID
+
+### Requirement: Device Inventory Exposes Fleet Software Rollups
+Device inventory SHALL expose fleet rollups of endpoint software without scanning the current-state package tables.
+
+#### Scenario: Fleet rollup query
+- **GIVEN** an operator asks for the count of devices with a package, version, or CPE
+- **WHEN** the system answers
+- **THEN** it SHALL serve the count from an incremental fleet aggregate that includes offline and last-known hosts
+- **AND** it SHALL NOT run a full scan over current package rows

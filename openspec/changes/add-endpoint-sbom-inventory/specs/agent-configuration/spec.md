@@ -29,7 +29,7 @@ The agent SHALL validate local endpoint inventory spool artifacts before upload.
 - **GIVEN** the endpoint inventory collector writes a valid bounded CycloneDX JSON artifact to the configured spool location
 - **WHEN** the agent reads the spool artifact
 - **THEN** the agent SHALL validate format, size, scan metadata, and digest
-- **AND** it SHALL upload the artifact and normalized summary through the configured control-plane path only when the package-set or artifact hash changed or policy forces refresh
+- **AND** it SHALL upload the artifact and normalized summary through the configured control-plane path only when the package-set or artifact hash changed, the reconcile-floor interval is reached, or an authorized force-fresh-scan command is received
 
 #### Scenario: Invalid spool artifact rejected
 - **GIVEN** the endpoint inventory collector writes malformed JSON or a mismatched digest
@@ -73,3 +73,51 @@ The agent SHALL enforce endpoint inventory policy and command bounds before runn
 - **WHEN** an on-demand command requests a fresh language-manifest scan
 - **THEN** the agent SHALL reject the fresh source request
 - **AND** it SHALL NOT collect the disabled source
+
+### Requirement: Endpoint Inventory Uploads Are Jittered
+The agent SHALL spread correlated endpoint inventory uploads over a window to avoid synchronized fleet upload bursts.
+
+#### Scenario: Correlated changes spread over a window
+- **GIVEN** many agents detect a changed package set at nearly the same time, such as a fleet-wide patch
+- **WHEN** they schedule changed-inventory uploads
+- **THEN** each agent SHALL apply a configured upload jitter, distinct from the scan-timer randomized delay, before uploading
+- **AND** uploads SHALL be distributed over the jitter window rather than sent simultaneously
+
+### Requirement: Force-Fresh Endpoint Inventory Scans Are Guarded
+The agent SHALL treat a force-fresh endpoint inventory scan as a guarded, optional, device-scoped capability that is disabled by default. Authorization uses the `endpoint_inventory.force_fresh_scan` RBAC permission on the requesting actor, and dispatch is bounded by a per-agent single-flight semaphore and a per-partition rate limit.
+
+#### Scenario: Force-fresh requires authorization and policy
+- **GIVEN** an on-demand command requests a fresh scan
+- **WHEN** the agent receives the command
+- **THEN** it SHALL run the fresh scan only if the requester holds the `endpoint_inventory.force_fresh_scan` permission and policy allows the requested sources
+
+#### Scenario: Force-fresh is single-flight per agent
+- **GIVEN** a force-fresh scan is already running on an agent
+- **WHEN** another force-fresh command arrives for that agent
+- **THEN** the agent SHALL NOT start a second concurrent scan
+- **AND** it SHALL coalesce or reject the additional request
+
+#### Scenario: Force-fresh disabled by default
+- **GIVEN** endpoint inventory policy does not enable force-fresh
+- **WHEN** a fresh-scan command is received
+- **THEN** the agent SHALL answer from its local cache or report fresh-scan unavailable
+- **AND** it SHALL NOT run a package-manager rescan
+
+#### Scenario: Per-partition rate limit enforced
+- **GIVEN** a partition has exhausted its force-fresh rate limit
+- **WHEN** another force-fresh command is dispatched for an agent in that partition
+- **THEN** the command SHALL be rejected with a rate-limit error rather than forwarded
+
+#### Scenario: Inventory command dispatch capacity enforced
+- **GIVEN** the command bus dispatches inventory commands
+- **WHEN** an inventory command is submitted
+- **THEN** dispatch SHALL enforce capacity for the inventory command type rather than defaulting to accept
+
+### Requirement: Agent Status Heartbeat Carries Standing-Question Result Counts
+The agent status heartbeat SHALL be designed to carry operator-defined standing-question result counts as a forward-compatible field, so continuously-evaluated fleet predicates can feed continuous aggregates without a later protocol change.
+
+#### Scenario: Heartbeat includes standing-question counts
+- **GIVEN** an agent has evaluated standing inventory predicates against its local cache
+- **WHEN** it sends its next status heartbeat
+- **THEN** the heartbeat SHALL include standing-question result counts in a structured field
+- **AND** the field SHALL be present in the protocol even if the server-side consumer is not yet implemented
