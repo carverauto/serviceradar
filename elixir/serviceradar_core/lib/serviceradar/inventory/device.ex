@@ -724,6 +724,13 @@ defmodule ServiceRadar.Inventory.Device do
       description "Bumblebee exposure findings associated with this device"
     end
 
+    has_many :endpoint_inventory_packages, ServiceRadar.Inventory.EndpointInventoryPackage do
+      source_attribute :uid
+      destination_attribute :device_uid
+      public? true
+      description "Current and historical endpoint software package rows linked to this device"
+    end
+
     belongs_to :availability_source_profile, ServiceRadar.Inventory.AvailabilitySourceProfile do
       source_attribute :availability_source_profile_id
       destination_attribute :id

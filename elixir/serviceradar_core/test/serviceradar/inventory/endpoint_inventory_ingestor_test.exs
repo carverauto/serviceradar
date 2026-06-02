@@ -43,7 +43,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package.package_manager == "dpkg"
     assert package.purl == "pkg:deb/nginx@1.24.0-2ubuntu7"
     assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
+    assert package.endpoint_package_ref
     assert package.device_uid == device.uid
+
+    assert endpoint_package(package.endpoint_package_ref).coordinate_key ==
+             "purl:#{package.purl_canonical}"
+
     assert artifact_count(first.scan_ref) == 1
 
     assert {:ok, failed} =
@@ -529,7 +534,25 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           package_manager: p.package_manager,
           purl: p.purl,
           purl_canonical: p.purl_canonical,
+          endpoint_package_ref: p.endpoint_package_ref,
           device_uid: p.device_uid
+        }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp endpoint_package(package_ref) do
+    Repo.one!(
+      from(p in "endpoint_packages",
+        where: p.id == ^package_ref,
+        select: %{
+          id: p.id,
+          coordinate_key: p.coordinate_key,
+          purl_canonical: p.purl_canonical,
+          package_manager: p.package_manager,
+          name: p.name,
+          source_scope: p.source_scope
         }
       ),
       prefix: "platform"

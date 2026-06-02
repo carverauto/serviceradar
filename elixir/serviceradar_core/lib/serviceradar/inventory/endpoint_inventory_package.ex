@@ -36,6 +36,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackage do
         :ecosystem,
         :purl,
         :purl_canonical,
+        :endpoint_package_ref,
         :cpes,
         :supplier,
         :license,
@@ -116,6 +117,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackage do
       public?(true)
     end
 
+    attribute :endpoint_package_ref, :uuid do
+      allow_nil?(false)
+      public?(true)
+    end
+
     attribute :cpes, {:array, :string} do
       allow_nil?(false)
       default([])
@@ -159,6 +165,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackage do
   relationships do
     belongs_to :scan, ServiceRadar.Inventory.EndpointInventoryScan do
       source_attribute(:scan_ref)
+      destination_attribute(:id)
+      define_attribute?(false)
+      allow_nil?(false)
+      public?(true)
+    end
+
+    belongs_to :package, ServiceRadar.Inventory.EndpointPackage do
+      source_attribute(:endpoint_package_ref)
       destination_attribute(:id)
       define_attribute?(false)
       allow_nil?(false)

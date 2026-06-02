@@ -66,6 +66,7 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.EndpointInventoryArtifactContent
     resource ServiceRadar.Inventory.EndpointInventoryPackage
     resource ServiceRadar.Inventory.EndpointInventoryScan
+    resource ServiceRadar.Inventory.EndpointPackage
   end
 
   authorization do

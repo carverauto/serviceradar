@@ -285,11 +285,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp replace_packages(scan_ref, context) do
     delete_scan_rows("endpoint_inventory_packages", scan_ref)
+    endpoint_package_refs = ensure_endpoint_packages(context.packages, context.now)
 
     rows =
       Enum.map(context.packages, fn package ->
         Map.merge(package, %{
           scan_ref: scan_ref,
+          endpoint_package_ref:
+            Map.fetch!(endpoint_package_refs, package_coordinate_key(package)),
           device_uid: context.device_uid,
           agent_id: context.agent_id,
           current: false,
@@ -310,6 +313,91 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp maybe_replace_packages(scan_ref, context), do: replace_packages(scan_ref, context)
+
+  defp ensure_endpoint_packages([], _now), do: %{}
+
+  defp ensure_endpoint_packages(packages, now) do
+    rows =
+      packages
+      |> Enum.map(&endpoint_package_row(&1, now))
+      |> Enum.uniq_by(& &1.coordinate_key)
+
+    {_count, returned} =
+      Repo.insert_all("endpoint_packages", rows,
+        prefix: "platform",
+        on_conflict:
+          {:replace,
+           [
+             :purl_canonical,
+             :primary_cpe,
+             :cpes,
+             :package_manager,
+             :name,
+             :version,
+             :architecture,
+             :ecosystem,
+             :source_scope,
+             :metadata,
+             :updated_at
+           ]},
+        conflict_target: [:coordinate_key],
+        returning: [:id, :coordinate_key]
+      )
+
+    Map.new(returned, fn row -> {row.coordinate_key, row.id} end)
+  end
+
+  defp endpoint_package_row(package, now) do
+    cpes =
+      package
+      |> Map.get(:cpes, [])
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    %{
+      coordinate_key: package_coordinate_key(package),
+      purl_canonical: package.purl_canonical,
+      primary_cpe: List.first(cpes),
+      cpes: cpes,
+      package_manager: package.package_manager,
+      name: package.name,
+      version: package.version,
+      architecture: package.architecture,
+      ecosystem: package.ecosystem,
+      source_scope: "host",
+      metadata: %{"source" => "endpoint_inventory"},
+      inserted_at: now,
+      updated_at: now
+    }
+  end
+
+  defp package_coordinate_key(package) do
+    case trimmed(package.purl_canonical) do
+      "" ->
+        fallback_coordinate_key(package)
+
+      purl_canonical ->
+        "purl:#{purl_canonical}"
+    end
+  end
+
+  defp fallback_coordinate_key(package) do
+    encoded =
+      [
+        trimmed(package.package_manager),
+        trimmed(package.name),
+        trimmed(package.version),
+        trimmed(package.architecture)
+      ]
+      |> Enum.join("\u0000")
+      |> then(&:crypto.hash(:sha256, &1))
+      |> Base.url_encode64(padding: false)
+
+    "fallback:#{encoded}"
+  end
 
   defp maybe_promote_current(scan_ref, context) do
     if context.state in @successful_states do
