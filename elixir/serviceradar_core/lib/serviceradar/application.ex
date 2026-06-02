@@ -108,6 +108,10 @@ defmodule ServiceRadar.Application do
         # Sync ingestion queue/coalescer
         sync_ingestor_queue_child(),
 
+        # Bounded endpoint inventory ingestion admission queue
+        endpoint_inventory_ingestor_task_supervisor_child(),
+        endpoint_inventory_ingestor_queue_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -259,6 +263,14 @@ defmodule ServiceRadar.Application do
 
   defp sync_ingestor_queue_child do
     ServiceRadar.Inventory.SyncIngestorQueue
+  end
+
+  defp endpoint_inventory_ingestor_task_supervisor_child do
+    {Task.Supervisor, name: ServiceRadar.EndpointInventoryIngestor.TaskSupervisor}
+  end
+
+  defp endpoint_inventory_ingestor_queue_child do
+    ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   end
 
   defp registry_children do

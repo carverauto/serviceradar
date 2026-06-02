@@ -8,6 +8,7 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.BumblebeeIngestor
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
+  alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
@@ -35,17 +36,17 @@ defmodule ServiceRadar.ResultsRouter do
 
   @impl true
   def handle_cast({:results_update, status}, state) do
-    _result = process_and_publish(status)
+    _result = process_and_publish(status, wait_for_endpoint_inventory?: false)
 
     {:noreply, state}
   end
 
   @impl true
   def handle_call({:results_update, status}, _from, state) do
-    {:reply, process_and_publish(status), state}
+    {:reply, process_and_publish(status, wait_for_endpoint_inventory?: true), state}
   end
 
-  defp process_and_publish(status) do
+  defp process_and_publish(status, opts) do
     service_type = status[:service_type] || "unknown"
     source = status[:source] || "unknown"
     service_name = status[:service_name] || "unknown"
@@ -55,7 +56,7 @@ defmodule ServiceRadar.ResultsRouter do
         "service=#{service_name}"
     )
 
-    case process(status) do
+    case process(status, opts) do
       :ok ->
         publish_status_update(status)
         :ok
@@ -73,72 +74,81 @@ defmodule ServiceRadar.ResultsRouter do
   defp publish_status_update(status) do
     ServiceStateRegistry.upsert_from_status(status)
     ServiceStatusPubSub.broadcast_update(status)
+  rescue
+    error ->
+      Logger.warning("Service status publish failed", error: inspect(error))
+  catch
+    :exit, reason ->
+      Logger.warning("Service status publish failed", reason: inspect(reason))
   end
 
-  defp process(%{source: source, service_type: "sync"} = status)
+  defp process(%{source: source, service_type: "sync"} = status, _opts)
        when source in ["results", :results] do
     handle_sync_results(status)
   end
 
-  defp process(%{source: source, service_type: "sweep"} = status)
+  defp process(%{source: source, service_type: "sweep"} = status, _opts)
        when source in ["results", :results] do
     handle_sweep_results(status)
   end
 
-  defp process(%{source: source, service_type: service_type} = status)
+  defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in ["icmp", "ping"] do
     handle_icmp_results(status)
   end
 
-  defp process(%{source: source, service_type: service_type} = status)
+  defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in ["mapper", "mapper_discovery"] do
     handle_mapper_results(status)
   end
 
-  defp process(%{source: source, service_type: service_type} = status)
+  defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and
               service_type in ["passive-netprobe", :passive_netprobe] do
     schedule_sync_ingestion(status)
   end
 
-  defp process(%{source: source, service_type: "mapper_interfaces"} = status)
+  defp process(%{source: source, service_type: "mapper_interfaces"} = status, _opts)
        when source in ["results", :results] do
     handle_mapper_interfaces(status)
   end
 
-  defp process(%{source: source, service_type: "mapper_topology"} = status)
+  defp process(%{source: source, service_type: "mapper_topology"} = status, _opts)
        when source in ["results", :results] do
     handle_mapper_topology(status)
   end
 
-  defp process(%{source: source, service_type: "bumblebee"} = status)
+  defp process(%{source: source, service_type: "bumblebee"} = status, _opts)
        when source in ["results", :results] do
     handle_bumblebee_results(status)
   end
 
-  defp process(%{source: source, service_type: "endpoint_inventory"} = status)
+  defp process(%{source: source, service_type: "endpoint_inventory"} = status, opts)
        when source in ["results", :results] do
-    handle_endpoint_inventory_results(status)
+    handle_endpoint_inventory_results(status, opts)
   end
 
-  defp process(%{source: source} = status) when source in ["sysmon-metrics", :sysmon_metrics] do
+  defp process(%{source: source} = status, _opts)
+       when source in ["sysmon-metrics", :sysmon_metrics] do
     handle_sysmon_metrics(status)
   end
 
-  defp process(%{source: source} = status) when source in ["snmp-metrics", :snmp_metrics] do
+  defp process(%{source: source} = status, _opts)
+       when source in ["snmp-metrics", :snmp_metrics] do
     handle_snmp_metrics(status)
   end
 
-  defp process(%{source: source} = status) when source in ["plugin-result", :plugin_result] do
+  defp process(%{source: source} = status, _opts)
+       when source in ["plugin-result", :plugin_result] do
     handle_plugin_results(status)
   end
 
-  defp process(%{source: source, service_type: "mtr"} = status)
+  defp process(%{source: source, service_type: "mtr"} = status, _opts)
        when source in ["results", :results] do
     handle_mtr_results(status)
   end
 
-  defp process(_status), do: :ok
+  defp process(_status, _opts), do: :ok
 
   defp handle_sync_results(status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path
@@ -167,11 +177,19 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
-  defp handle_endpoint_inventory_results(status) do
+  defp handle_endpoint_inventory_results(status, opts) do
     with {:ok, payload} <- decode_payload(status[:message]) do
-      payload
-      |> Map.put_new("agent_id", status[:agent_id])
-      |> EndpointInventoryIngestor.ingest_report()
+      payload = Map.put_new(payload, "agent_id", status[:agent_id])
+
+      if Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true) do
+        if Keyword.get(opts, :wait_for_endpoint_inventory?, false) do
+          EndpointInventoryIngestorQueue.enqueue_and_wait(payload)
+        else
+          EndpointInventoryIngestorQueue.enqueue(payload)
+        end
+      else
+        EndpointInventoryIngestor.ingest_report(payload)
+      end
     end
   end
 
