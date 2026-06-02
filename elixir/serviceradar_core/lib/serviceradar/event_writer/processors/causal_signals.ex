@@ -14,6 +14,8 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
   alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
@@ -47,7 +49,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         |> Enum.map(&build_routing_event_row/1)
         |> Enum.reject(&is_nil/1)
 
-      ocsf_rows =
+      all_ocsf_rows =
         parsed_rows
         |> Enum.filter(&persist_to_ocsf?/1)
         |> Enum.map(fn %{
@@ -60,10 +62,17 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         end)
         |> Enum.reject(&is_nil/1)
 
-      _ = insert_rows(@routing_table, routing_rows)
-      ocsf_count = insert_rows(table_name(), ocsf_rows)
-      enqueue_inventory_alert_evaluation(ocsf_rows, ocsf_count)
+      {ash_ocsf_rows, bulk_ocsf_rows} =
+        Enum.split_with(all_ocsf_rows, &inventory_vulnerability_finding_row?/1)
 
+      _ = insert_rows(@routing_table, routing_rows)
+      bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
+      recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
+
+      enqueue_inventory_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
+      enqueue_inventory_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
+
+      ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
       {:ok, length(parsed_rows)}
     end
@@ -138,6 +147,83 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     count
   end
 
+  defp record_ocsf_events([]), do: []
+
+  defp record_ocsf_events(rows) when is_list(rows) do
+    actor = SystemActor.system(:causal_signals)
+
+    rows
+    |> Enum.reduce([], fn row, recorded ->
+      case record_ocsf_event(row, actor) do
+        {:ok, event} ->
+          [event | recorded]
+
+        :duplicate ->
+          recorded
+
+        {:error, reason} ->
+          Logger.warning("Failed to record CausalSignals OCSF event through Ash",
+            reason: inspect(reason),
+            event_id: inspect(row[:id])
+          )
+
+          recorded
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp record_ocsf_event(row, actor) do
+    attrs = ash_ocsf_event_attrs(row)
+
+    cond do
+      is_nil(attrs[:id]) or is_nil(attrs[:time]) ->
+        {:error, :missing_event_identity}
+
+      ocsf_event_exists?(attrs[:id], attrs[:time]) ->
+        :duplicate
+
+      true ->
+        OcsfEvent
+        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+        |> Ash.create()
+    end
+  end
+
+  defp ash_ocsf_event_attrs(row) do
+    row
+    |> Map.drop([:created_at])
+    |> Map.update(:id, nil, &uuid_string/1)
+  end
+
+  defp uuid_string(<<_::128>> = id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid_string(id) when is_binary(id), do: id
+  defp uuid_string(_id), do: nil
+
+  defp ocsf_event_exists?(id, %DateTime{} = time) when is_binary(id) do
+    case Ecto.UUID.dump(id) do
+      {:ok, dumped_id} ->
+        case ServiceRadar.Repo.query(
+               "SELECT 1 FROM platform.ocsf_events WHERE time = $1 AND id = $2 LIMIT 1",
+               [time, dumped_id]
+             ) do
+          {:ok, %{num_rows: count}} -> count > 0
+          {:error, _reason} -> false
+        end
+
+      :error ->
+        false
+    end
+  end
+
+  defp ocsf_event_exists?(_id, _time), do: false
+
   defp enqueue_inventory_alert_evaluation(_ocsf_rows, inserted_count)
        when not is_integer(inserted_count) or inserted_count <= 0,
        do: :ok
@@ -161,6 +247,15 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp inventory_event_row?(%{metadata: %{"signal_type" => "inventory"}}), do: true
   defp inventory_event_row?(%{unmapped: %{"signal_type" => "inventory"}}), do: true
   defp inventory_event_row?(_row), do: false
+
+  defp inventory_vulnerability_finding_row?(
+         %{class_uid: @ocsf_vulnerability_finding_class_uid} =
+           row
+       ) do
+    inventory_event_row?(row)
+  end
+
+  defp inventory_vulnerability_finding_row?(_row), do: false
 
   defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
     case Ecto.UUID.load(id) do
