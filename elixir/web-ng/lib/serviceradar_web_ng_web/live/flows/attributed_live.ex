@@ -2,67 +2,105 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  @fixture_rows [
-    %{
-      id: "fixture-nginx",
-      timestamp: "2026-05-29 14:32:10Z",
-      source: "10.42.10.12",
-      source_port: 53_844,
-      destination: "198.51.100.20",
-      destination_port: 443,
-      bytes: 1_482_240,
-      packets: 1042,
-      protocol: "TCP",
-      pid: 1234,
-      comm: "nginx",
-      cmdline: "/usr/sbin/nginx args:sha256:31f0e4c8",
-      uid: 101,
-      container_id: "cri-o://web-frontend"
-    },
-    %{
-      id: "fixture-postgres",
-      timestamp: "2026-05-29 14:31:42Z",
-      source: "10.42.10.31",
-      source_port: 46_012,
-      destination: "10.42.20.15",
-      destination_port: 5432,
-      bytes: 384_512,
-      packets: 284,
-      protocol: "TCP",
-      pid: 2874,
-      comm: "postgres",
-      cmdline: "/usr/lib/postgresql/18/bin/postgres args:sha256:9aa1d730",
-      uid: 999,
-      container_id: "containerd://timescale"
-    },
-    %{
-      id: "fixture-unattributed",
-      timestamp: "2026-05-29 14:30:58Z",
-      source: "203.0.113.44",
-      source_port: 62_001,
-      destination: "10.42.10.12",
-      destination_port: 22,
-      bytes: 22_184,
-      packets: 64,
-      protocol: "TCP",
-      pid: nil,
-      comm: nil,
-      cmdline: nil,
-      uid: nil,
-      container_id: nil
-    }
-  ]
+  alias ServiceRadarWebNG.Repo
+
+  @refresh_interval_ms 5_000
+  @row_limit 200
+
+  # Attributed flows are netflow/sflow records the control plane joined with
+  # netprobe process attribution; the joiner tags them event_type=attributed_flow
+  # and stashes the process context under ocsf_payload->'attribution'.
+  @attributed_flows_sql """
+  SELECT
+    time,
+    src_endpoint_ip,
+    src_endpoint_port,
+    dst_endpoint_ip,
+    dst_endpoint_port,
+    protocol_name,
+    COALESCE(bytes_total, 0)::bigint,
+    COALESCE(packets_total, 0)::bigint,
+    ocsf_payload -> 'attribution' ->> 'pid',
+    ocsf_payload -> 'attribution' ->> 'comm',
+    ocsf_payload -> 'attribution' ->> 'redacted_cmdline',
+    ocsf_payload -> 'attribution' ->> 'uid',
+    ocsf_payload -> 'attribution' ->> 'container_id'
+  FROM platform.ocsf_network_activity
+  WHERE ocsf_payload ->> 'event_type' = 'attributed_flow'
+    AND time > now() - interval '24 hours'
+  ORDER BY time DESC
+  LIMIT #{@row_limit}
+  """
 
   @impl true
   def mount(_params, _session, socket) do
-    rows = @fixture_rows
+    if connected?(socket), do: Process.send_after(self(), :refresh, @refresh_interval_ms)
+    rows = fetch_attributed_flows()
 
     {:ok,
      socket
      |> assign(:page_title, "Attributed Flows")
-     |> assign(:rows, rows)
      |> assign(:summary, summarize(rows))
      |> stream(:attributed_flows, rows, dom_id: &flow_dom_id/1)}
+  end
+
+  @impl true
+  def handle_info(:refresh, socket) do
+    Process.send_after(self(), :refresh, @refresh_interval_ms)
+    rows = fetch_attributed_flows()
+
+    {:noreply,
+     socket
+     |> assign(:summary, summarize(rows))
+     |> stream(:attributed_flows, rows, reset: true, dom_id: &flow_dom_id/1)}
+  end
+
+  defp fetch_attributed_flows do
+    case Repo.query(@attributed_flows_sql, []) do
+      {:ok, %{rows: rows}} -> Enum.map(rows, &row_from_db/1)
+      {:error, _} -> []
+    end
+  rescue
+    _ -> []
+  end
+
+  defp row_from_db([time, src, src_port, dst, dst_port, protocol, bytes, packets, pid, comm, cmdline, uid, container_id]) do
+    %{
+      id: "#{iso(time)}-#{src}:#{src_port}-#{dst}:#{dst_port}",
+      timestamp: format_ts(time),
+      source: to_string(src || "-"),
+      source_port: src_port,
+      destination: to_string(dst || "-"),
+      destination_port: dst_port,
+      bytes: bytes || 0,
+      packets: packets || 0,
+      protocol: protocol || "-",
+      pid: parse_int(pid),
+      comm: comm,
+      cmdline: cmdline,
+      uid: parse_int(uid),
+      container_id: container_id
+    }
+  end
+
+  defp iso(%DateTime{} = t), do: DateTime.to_iso8601(t)
+  defp iso(%NaiveDateTime{} = t), do: NaiveDateTime.to_iso8601(t)
+  defp iso(other), do: to_string(other)
+
+  defp format_ts(%DateTime{} = t), do: t |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+  defp format_ts(%NaiveDateTime{} = t), do: t |> NaiveDateTime.truncate(:second) |> NaiveDateTime.to_iso8601()
+
+  defp format_ts(other), do: to_string(other)
+
+  defp parse_int(nil), do: nil
+  defp parse_int(v) when is_integer(v), do: v
+
+  defp parse_int(v) when is_binary(v) do
+    case Integer.parse(v) do
+      {n, _} -> n
+      :error -> nil
+    end
   end
 
   @impl true
