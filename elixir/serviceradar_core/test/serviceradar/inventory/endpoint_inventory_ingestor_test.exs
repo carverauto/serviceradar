@@ -145,6 +145,61 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
   end
 
+  test "derives endpoint-side CPE match input and host-scoped fallback tuple", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-coordinate-device-#{unique}")
+    agent_id = "endpoint-inventory-coordinate-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    payload =
+      agent_id
+      |> scan_payload("scan-coordinate-#{unique}", components: [])
+      |> Map.put("packages", [
+        %{
+          "name" => "libssl3",
+          "version" => "3.0.13-0ubuntu3",
+          "architecture" => "amd64",
+          "package_manager" => "dpkg",
+          "ecosystem" => "deb",
+          "purl" => "pkg:deb/libssl3@3.0.13-0ubuntu3"
+        }
+      ])
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.package_count == 1
+    assert [package] = current_packages(agent_id)
+
+    assert package.cpes == [
+             "cpe:2.3:a:openssl:openssl:3.0.13-0ubuntu3:*:*:*:*:*:*:*"
+           ]
+
+    normalized_package = endpoint_package(package.endpoint_package_ref)
+
+    assert normalized_package.source_scope == "host"
+
+    assert normalized_package.primary_cpe ==
+             "cpe:2.3:a:openssl:openssl:3.0.13-0ubuntu3:*:*:*:*:*:*:*"
+
+    assert normalized_package.cpes == package.cpes
+
+    assert normalized_package.metadata["match_input"] == %{
+             "scope" => "host",
+             "canonical_purl" => package.purl_canonical,
+             "candidate_cpes" => package.cpes,
+             "fallback_tuple" => %{
+               "package_manager" => "dpkg",
+               "name" => "libssl3",
+               "version" => "3.0.13-0ubuntu3",
+               "architecture" => "amd64"
+             }
+           }
+  end
+
   test "unchanged package_set_hash updates scan freshness without replacing current packages", %{
     actor: actor
   } do
@@ -534,6 +589,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           package_manager: p.package_manager,
           purl: p.purl,
           purl_canonical: p.purl_canonical,
+          cpes: p.cpes,
           endpoint_package_ref: p.endpoint_package_ref,
           device_uid: p.device_uid
         }
@@ -550,9 +606,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           id: p.id,
           coordinate_key: p.coordinate_key,
           purl_canonical: p.purl_canonical,
+          primary_cpe: p.primary_cpe,
+          cpes: p.cpes,
           package_manager: p.package_manager,
           name: p.name,
-          source_scope: p.source_scope
+          source_scope: p.source_scope,
+          metadata: p.metadata
         }
       ),
       prefix: "platform"

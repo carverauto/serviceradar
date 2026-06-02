@@ -35,6 +35,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     "dpkg" => "debian",
     "rpm" => "rpm"
   }
+  @known_cpe_products %{
+    "curl" => [{"haxx", "curl"}],
+    "libcurl" => [{"haxx", "curl"}],
+    "libcurl4" => [{"haxx", "curl"}],
+    "libssl" => [{"openssl", "openssl"}],
+    "libssl1.1" => [{"openssl", "openssl"}],
+    "libssl3" => [{"openssl", "openssl"}],
+    "nginx" => [{"nginx", "nginx"}],
+    "openssl" => [{"openssl", "openssl"}],
+    "openssh" => [{"openbsd", "openssh"}],
+    "openssh-client" => [{"openbsd", "openssh"}],
+    "openssh-server" => [{"openbsd", "openssh"}],
+    "postgresql" => [{"postgresql", "postgresql"}],
+    "postgresql-client" => [{"postgresql", "postgresql"}]
+  }
 
   @spec ingest_report(map(), keyword()) :: {:ok, map()} | {:error, term()}
   def ingest_report(payload, opts \\ [])
@@ -348,14 +363,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp endpoint_package_row(package, now) do
-    cpes =
-      package
-      |> Map.get(:cpes, [])
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map(&String.trim/1)
-      |> Enum.reject(&(&1 == ""))
-      |> Enum.uniq()
-      |> Enum.sort()
+    cpes = normalize_cpes(Map.get(package, :cpes, []))
 
     %{
       coordinate_key: package_coordinate_key(package),
@@ -368,9 +376,28 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       architecture: package.architecture,
       ecosystem: package.ecosystem,
       source_scope: "host",
-      metadata: %{"source" => "endpoint_inventory"},
+      metadata: endpoint_package_metadata(package, cpes),
       inserted_at: now,
       updated_at: now
+    }
+  end
+
+  defp endpoint_package_metadata(package, cpes) do
+    %{
+      "source" => "endpoint_inventory",
+      "match_input" =>
+        compact_map(%{
+          "scope" => "host",
+          "canonical_purl" => trimmed_or_nil(package.purl_canonical),
+          "candidate_cpes" => cpes,
+          "fallback_tuple" =>
+            compact_map(%{
+              "package_manager" => trimmed_or_nil(package.package_manager),
+              "name" => trimmed_or_nil(package.name),
+              "version" => trimmed_or_nil(package.version),
+              "architecture" => trimmed_or_nil(package.architecture)
+            })
+        })
     }
   end
 
@@ -1237,6 +1264,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     package_manager = string_value(package, :package_manager) || string_value(package, :manager)
 
     if name && package_manager do
+      purl_canonical = canonical_purl(package, package_manager)
+
       %{
         name: name,
         version: string_value(package, :version),
@@ -1244,8 +1273,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         package_manager: package_manager,
         ecosystem: string_value(package, :ecosystem),
         purl: string_value(package, :purl),
-        purl_canonical: canonical_purl(package, package_manager),
-        cpes: string_list_value(package, :cpes),
+        purl_canonical: purl_canonical,
+        cpes:
+          package
+          |> string_list_value(:cpes)
+          |> candidate_cpes(name, string_value(package, :version)),
         supplier: string_value(package, :supplier),
         license: string_value(package, :license),
         source: string_value(package, :source),
@@ -1263,15 +1295,21 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     package_manager = Map.get(properties, "serviceradar:package_manager")
 
     if name && package_manager do
+      purl_canonical = canonical_purl(component, package_manager, properties)
+      version = string_value(component, :version)
+
       %{
         name: name,
-        version: string_value(component, :version),
+        version: version,
         architecture: Map.get(properties, "serviceradar:architecture"),
         package_manager: package_manager,
         ecosystem: Map.get(properties, "serviceradar:ecosystem"),
         purl: string_value(component, :purl),
-        purl_canonical: canonical_purl(component, package_manager, properties),
-        cpes: component_cpes(component),
+        purl_canonical: purl_canonical,
+        cpes:
+          component
+          |> component_cpes()
+          |> candidate_cpes(name, version),
         supplier: supplier(component),
         license: license(component),
         source: Map.get(properties, "serviceradar:source"),
@@ -1636,6 +1674,56 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     end
   end
 
+  defp candidate_cpes(cpes, name, version) do
+    supplied = normalize_cpes(cpes)
+
+    derived =
+      name
+      |> known_cpe_products()
+      |> Enum.map(fn {vendor, product} ->
+        build_cpe23(vendor, product, version)
+      end)
+
+    normalize_cpes(supplied ++ derived)
+  end
+
+  defp known_cpe_products(name) do
+    normalized = normalize_token(name)
+
+    Map.get(@known_cpe_products, normalized, [])
+  end
+
+  defp build_cpe23(vendor, product, version) do
+    "cpe:2.3:a:#{cpe23_part(vendor)}:#{cpe23_part(product)}:#{cpe23_part(version || "*")}:*:*:*:*:*:*:*"
+  end
+
+  defp normalize_cpes(cpes) do
+    cpes
+    |> List.wrap()
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&String.trim(to_string(&1)))
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp cpe23_part(nil), do: "*"
+
+  defp cpe23_part(value) do
+    case value |> to_string() |> String.trim() do
+      "" ->
+        "*"
+
+      part ->
+        part
+        |> String.downcase()
+        |> String.replace("\\", "\\\\")
+        |> String.replace(":", "\\:")
+        |> String.replace("*", "\\*")
+        |> String.replace("?", "\\?")
+    end
+  end
+
   defp supplier(component) do
     case map_value(component, :supplier) do
       supplier when map_size(supplier) > 0 -> string_value(supplier, :name)
@@ -1787,6 +1875,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   defp trimmed(value) when is_binary(value), do: String.trim(value)
 
   defp trimmed(value), do: value |> to_string() |> String.trim()
+
+  defp trimmed_or_nil(value) do
+    case trimmed(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
 
   defp json_string(value), do: Jason.encode!(value)
 
