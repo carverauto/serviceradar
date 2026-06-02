@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
 
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
 
   def assign_defaults(socket, opts) when is_list(opts) do
@@ -109,6 +110,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:active_camera_relay_session, nil)
     |> assign(:last_camera_relay_session, nil)
     |> assign(:active_tab, "details")
+    |> EndpointInventoryRuntime.assign_defaults()
   end
 
   defp default_srql do

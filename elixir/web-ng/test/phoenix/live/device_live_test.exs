@@ -1442,6 +1442,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "Endpoint Software", 10_000)
 
     assert html =~ "Endpoint Software"
+    assert html =~ "Live Query"
+    assert html =~ "Cohort Query"
+    assert html =~ "endpoint_inventory_query"
+    assert html =~ "endpoint_inventory_cohort_query"
     assert html =~ "scanned"
     assert html =~ "complete"
     assert html =~ agent_id

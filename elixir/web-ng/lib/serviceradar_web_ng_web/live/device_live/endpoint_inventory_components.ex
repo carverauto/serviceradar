@@ -9,7 +9,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:artifacts, :list, default: [])
   attr(:error, :string, default: nil)
   attr(:has_inventory, :boolean, default: false)
+  attr(:show_controls, :boolean, default: false)
   attr(:device_row, :map, default: nil)
+  attr(:query_form, :any, required: true)
+  attr(:cohort_form, :any, required: true)
+  attr(:live_query_result, :map, default: nil)
+  attr(:cohort_query_result, :map, default: nil)
+  attr(:command_notice, :string, default: nil)
+  attr(:command_error, :string, default: nil)
+  attr(:query_running, :boolean, default: false)
+  attr(:force_refresh_running, :boolean, default: false)
+  attr(:cohort_running, :boolean, default: false)
 
   def endpoint_inventory_section(assigns) do
     assigns =
@@ -21,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
     ~H"""
     <section
-      :if={@has_inventory or is_binary(@error)}
+      :if={@has_inventory or @show_controls or is_binary(@error)}
       class="rounded-lg border border-base-300 bg-base-100 shadow-sm"
     >
       <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 md:flex-row md:items-center md:justify-between">
@@ -78,6 +88,100 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 />
               </tbody>
             </table>
+          </div>
+
+          <div class="rounded border border-base-300 p-3">
+            <div class="mb-3 flex items-center justify-between gap-2">
+              <h3 class="text-xs font-semibold uppercase text-base-content/60">Live Query</h3>
+              <span :if={@command_notice} class="text-xs text-success">{@command_notice}</span>
+            </div>
+
+            <div
+              :if={@command_error}
+              class="mb-3 rounded border border-error/30 bg-error/10 px-3 py-2 text-xs text-error"
+            >
+              {@command_error}
+            </div>
+
+            <.form for={@query_form} phx-submit="endpoint_inventory_query" class="grid gap-2">
+              <div class="grid gap-2 md:grid-cols-2">
+                <.input field={@query_form[:name]} label="Package" placeholder="nginx" />
+                <.input field={@query_form[:package_manager]} label="Manager" placeholder="dpkg" />
+                <.input field={@query_form[:version]} label="Version" />
+                <.input
+                  field={@query_form[:agent_id]}
+                  label="Agent"
+                  placeholder={field(@scan, :agent_id) || "agent id"}
+                />
+              </div>
+              <.input field={@query_form[:purl_canonical]} label="Canonical PURL" />
+              <.input field={@query_form[:cpe]} label="CPE" />
+              <div class="flex flex-wrap items-center gap-2">
+                <.input
+                  field={@query_form[:mode]}
+                  type="select"
+                  label="Mode"
+                  options={[{"Exists", "exists"}, {"Detail", "detail"}]}
+                />
+                <button
+                  class="btn btn-sm btn-primary"
+                  type="submit"
+                  name="action"
+                  value="query"
+                  disabled={@query_running}
+                >
+                  <.icon name="hero-magnifying-glass" class="h-4 w-4" /> Check
+                </button>
+                <button
+                  class="btn btn-sm btn-outline"
+                  type="submit"
+                  name="action"
+                  value="force_refresh"
+                  disabled={@force_refresh_running}
+                >
+                  <.icon name="hero-arrow-path" class="h-4 w-4" /> Refresh
+                </button>
+              </div>
+            </.form>
+
+            <.live_query_result result={@live_query_result} />
+          </div>
+
+          <div class="rounded border border-base-300 p-3">
+            <h3 class="mb-3 text-xs font-semibold uppercase text-base-content/60">Cohort Query</h3>
+            <.form for={@cohort_form} phx-submit="endpoint_inventory_cohort_query" class="grid gap-2">
+              <div class="grid gap-2 md:grid-cols-2">
+                <.input field={@cohort_form[:name]} label="Package" placeholder="nginx" />
+                <.input field={@cohort_form[:package_manager]} label="Manager" placeholder="dpkg" />
+                <.input field={@cohort_form[:version]} label="Version" />
+                <.input
+                  field={@cohort_form[:mode]}
+                  type="select"
+                  label="Mode"
+                  options={[{"Count", "count"}, {"Exists", "exists"}, {"Detail", "detail"}]}
+                />
+              </div>
+              <.input field={@cohort_form[:purl_canonical]} label="Canonical PURL" />
+              <.input field={@cohort_form[:cpe]} label="CPE" />
+              <div class="grid gap-2 md:grid-cols-[0.55fr_1fr_auto] md:items-end">
+                <.input
+                  field={@cohort_form[:cohort]}
+                  type="select"
+                  label="Targets"
+                  options={[{"Connected", "connected"}, {"Custom", "custom"}]}
+                />
+                <.input
+                  field={@cohort_form[:agent_ids]}
+                  label="Agents"
+                  placeholder="agent-a, agent-b"
+                />
+                <button class="btn btn-sm btn-secondary" type="submit" disabled={@cohort_running}>
+                  <.icon name="hero-users" class="h-4 w-4" /> Query
+                </button>
+              </div>
+            </.form>
+
+            <.cohort_query_result result={@cohort_query_result} />
           </div>
 
           <div :if={@artifacts != []} class="overflow-hidden rounded border border-base-300">
@@ -160,6 +264,95 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     """
   end
 
+  attr(:result, :map, default: nil)
+
+  defp live_query_result(assigns) do
+    ~H"""
+    <div :if={is_map(@result)} class="mt-3 rounded bg-base-200/40 p-3">
+      <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-4">
+        <.result_stat label="Matched" value={bool_display(field(@result, :matched))} />
+        <.result_stat label="Matches" value={field(@result, :match_count) || 0} />
+        <.result_stat label="Freshness" value={freshness_verdict(field(@result, :freshness))} />
+        <.result_stat label="Hash" value={truncate_hash(field(@result, :package_set_hash))} mono />
+      </div>
+      <div
+        :if={result_packages(@result) != []}
+        class="mt-3 overflow-hidden rounded border border-base-300"
+      >
+        <table class="table table-xs">
+          <thead>
+            <tr>
+              <th>Package</th>
+              <th>Version</th>
+              <th>Manager</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={package <- result_packages(@result)}>
+              <td>{field(package, :name)}</td>
+              <td class="font-mono">{empty_dash(field(package, :version))}</td>
+              <td>{field(package, :package_manager)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:result, :map, default: nil)
+
+  defp cohort_query_result(assigns) do
+    ~H"""
+    <div :if={is_map(@result)} class="mt-3 rounded bg-base-200/40 p-3">
+      <% coverage = field(@result, :coverage) || %{} %>
+      <div class="grid grid-cols-2 gap-2 text-xs md:grid-cols-5">
+        <.result_stat label="Targeted" value={field(coverage, :targeted) || 0} />
+        <.result_stat label="Answered" value={field(coverage, :answered) || 0} />
+        <.result_stat label="Offline" value={field(coverage, :offline) || 0} />
+        <.result_stat label="Expired" value={field(coverage, :expired) || 0} />
+        <.result_stat label="Pending" value={field(coverage, :pending) || 0} />
+      </div>
+      <div
+        :if={cohort_results(@result) != []}
+        class="mt-3 overflow-hidden rounded border border-base-300"
+      >
+        <table class="table table-xs">
+          <thead>
+            <tr>
+              <th>Agent</th>
+              <th>Device</th>
+              <th>Matched</th>
+              <th>Freshness</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- cohort_results(@result)}>
+              <td class="font-mono">{field(row, :agent_id)}</td>
+              <td class="font-mono">{field(row, :device_uid)}</td>
+              <td>{bool_display(field(row, :matched))}</td>
+              <td>{freshness_verdict(field(row, :freshness))}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:mono, :boolean, default: false)
+
+  defp result_stat(assigns) do
+    ~H"""
+    <div class="rounded border border-base-300 bg-base-100 px-2 py-1">
+      <div class="text-[0.62rem] font-semibold uppercase text-base-content/50">{@label}</div>
+      <div class={["truncate font-semibold", @mono && "font-mono"]}>{empty_dash(@value)}</div>
+    </div>
+    """
+  end
+
   attr(:scan, :any, default: nil)
 
   defp scan_status_badge(assigns) do
@@ -195,6 +388,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp device_value(_row, _key), do: nil
 
   defp inventory_count(scan, fallback), do: field(scan, :package_count) || fallback || 0
+
+  defp result_packages(result), do: field(result, :packages) || []
+  defp cohort_results(result), do: field(result, :results) || []
+
+  defp bool_display(true), do: "yes"
+  defp bool_display(false), do: "no"
+  defp bool_display(nil), do: "-"
+
+  defp freshness_verdict(%{} = freshness), do: field(freshness, :verdict) || "unknown"
+  defp freshness_verdict(value) when is_binary(value), do: value
+  defp freshness_verdict(_value), do: "unknown"
 
   defp risk_score_display(nil), do: "-"
   defp risk_score_display(value), do: to_string(value)

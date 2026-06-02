@@ -204,14 +204,27 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               />
 
               <.endpoint_inventory_section
-                :if={@has_software_inventory or is_binary(@endpoint_inventory_error)}
+                :if={
+                  @has_software_inventory or device_has_agent?(@device_row) or
+                    is_binary(@endpoint_inventory_error)
+                }
                 scan={@endpoint_inventory_scan}
                 scans={@endpoint_inventory_scans}
                 packages={@endpoint_inventory_packages}
                 artifacts={@endpoint_inventory_artifacts}
                 error={@endpoint_inventory_error}
                 has_inventory={@has_software_inventory}
+                show_controls={device_has_agent?(@device_row)}
                 device_row={@device_row}
+                query_form={@endpoint_inventory_query_form}
+                cohort_form={@endpoint_inventory_cohort_form}
+                live_query_result={@endpoint_inventory_live_query_result}
+                cohort_query_result={@endpoint_inventory_cohort_query_result}
+                command_notice={@endpoint_inventory_command_notice}
+                command_error={@endpoint_inventory_command_error}
+                query_running={@endpoint_inventory_query_running}
+                force_refresh_running={@endpoint_inventory_force_refresh_running}
+                cohort_running={@endpoint_inventory_cohort_running}
               />
 
               <.virtualization_section
@@ -437,6 +450,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
   defp can_view_active_fingerprint?(scope), do: RBAC.can?(scope, "networks.sweeps.banner_grab")
   defp can_launch_northbound_actions?(scope), do: RBAC.can?(scope, "northbound.actions.launch")
+
+  defp device_has_agent?(%{} = row) do
+    case Map.get(row, "agent_id") || Map.get(row, :agent_id) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
+  end
+
+  defp device_has_agent?(_row), do: false
 
   defp sysmon_metrics_visible?(assigns) do
     Map.get(assigns, :sysmon_presence, false)
