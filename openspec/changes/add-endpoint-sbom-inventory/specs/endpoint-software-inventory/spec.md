@@ -301,3 +301,125 @@ The system SHALL expose endpoint inventory cost and volume signals so operators 
 - **GIVEN** endpoint inventory data is accumulating
 - **WHEN** an operator inspects inventory telemetry
 - **THEN** the system SHALL expose object-store bytes for SBOM artifacts, current package-row counts, and autovacuum/compression lag for inventory tables
+
+### Requirement: Endpoint Inventory Models A Software Ontology
+The system SHALL model endpoint software as first-class ontology entities and relationships, relationally and SRQL-queryable, so the causal engine and automations can reason over inventory.
+
+#### Scenario: Device-package relationship is relational
+- **GIVEN** a device has current endpoint inventory
+- **WHEN** inventory is normalized
+- **THEN** the system SHALL expose a `Device HAS_PACKAGE` relationship linking the canonical device UID to a normalized `Package` entity keyed on a canonical PURL/CPE coordinate
+- **AND** the relationship SHALL be a CNPG current-state relation queryable via SRQL, NOT an AGE graph edge
+
+#### Scenario: Package-vulnerability edge modeled by feed-agnostic coordinate match
+- **GIVEN** a `Package` entity with a canonical PURL/CPE coordinate
+- **WHEN** an advisory from any feed references that coordinate
+- **THEN** the system SHALL represent a `Package AFFECTED_BY CVE` relationship via coordinate match on canonical PURL/CPE, with the `{package_manager, name, version, architecture}` tuple as the fallback for feeds that omit PURL
+- **AND** the advisory feed and CVSS scoring MAY be supplied by a separate change, while this capability SHALL provide the `Package` entity, the edge, and the match interface
+- **AND** host-scope endpoint findings SHALL be kept distinct from image-scope scanner findings
+
+#### Scenario: Canonical coordinate is stable
+- **GIVEN** packages reported by different package managers
+- **WHEN** they are normalized into `Package` entities
+- **THEN** each SHALL carry a canonical PURL (per the PURL spec, computed server-side at ingest) and CPE where available
+- **AND** the canonical PURL SHALL be the primary coordinate/dedup key with the identity tuple as deterministic fallback, and the stable join key for the edge and vulnerability matching
+
+### Requirement: Endpoint Inventory Feeds The Causal Engine
+The system SHALL feed endpoint inventory to the causal engine through the platform's standard consumption paths, keyed on canonical identity, without a bespoke transport.
+
+#### Scenario: Inventory keyed on canonical identity
+- **GIVEN** endpoint inventory rows, the device-package relation, findings, and any derived index
+- **WHEN** they are persisted or indexed
+- **THEN** they SHALL key on the canonical device identity (`ocsf_devices.uid`)
+- **AND** the system SHALL NOT introduce a parallel inventory-only ID space, and `ocsf_events.device.uid` == `ocsf_devices` PK == AGE `Device.id` SHALL agree on one canonical string
+
+#### Scenario: Current state and risk attributes queryable via SRQL
+- **GIVEN** the causal engine hydrates its context
+- **WHEN** it requests current inventory state, the device-package relation, or device risk posture
+- **THEN** current-state rows and the relation SHALL be retrievable via SRQL over CNPG, and the bounded Device risk attributes via `graph_cypher` on the Device vertex
+- **AND** there SHALL be no package subgraph to traverse
+
+#### Scenario: Change events and findings published for live consumption
+- **GIVEN** a changed inventory scan is ingested
+- **WHEN** the server computes the package diff and any coordinate match
+- **THEN** it SHALL publish package-change events and vulnerability findings through the `CausalSignals`/event-writer path into `ocsf_events`
+- **AND** they SHALL be available to the engine sub-second and SRQL-queryable
+
+#### Scenario: History excluded from CDC
+- **GIVEN** the inventory history hypertable
+- **WHEN** CDC/logical-replication allowlists are configured
+- **THEN** the history hypertable SHALL NOT be on the CDC allowlist
+- **AND** history SHALL be queried on-demand via SRQL instead
+
+### Requirement: Endpoint Inventory Emits OCSF Vulnerability Findings
+The system SHALL emit endpoint vulnerability findings as OCSF Vulnerability Findings correlatable to the canonical device.
+
+#### Scenario: Vulnerability finding shape
+- **GIVEN** an endpoint package matches an advisory coordinate
+- **WHEN** the finding is emitted
+- **THEN** it SHALL be an OCSF Vulnerability Finding (`class_uid=2004`) with `severity_id` mapped from CVSS, `device={"uid": <canonical device UID>}` populated directly, and the CVE and package in its grouped context
+- **AND** `primary_domain` SHALL be `security`
+
+#### Scenario: Finding suppressed without canonical identity
+- **GIVEN** an inventory scan whose `device_uid` is not yet resolved
+- **WHEN** a coordinate match occurs
+- **THEN** the finding SHALL be suppressed rather than emitted with an empty device
+- **AND** it SHALL be emitted once the canonical device UID is resolved
+
+### Requirement: Endpoint Vulnerability Findings Are Alert-Eligible And Automatable
+The system SHALL make endpoint vulnerability findings drive alerts and northbound automation without an operator viewing the topology graph.
+
+#### Scenario: Per-device alert fires
+- **GIVEN** a seeded endpoint-inventory vulnerability alert rule grouped by device
+- **WHEN** a matching finding is routed
+- **THEN** the alert engine SHALL evaluate it (with explicit wiring from the inventory signal path) and fire a per-device alert with the standard fired/recovered lifecycle
+
+#### Scenario: Northbound automation triggers
+- **GIVEN** a vulnerability finding is recorded
+- **WHEN** it is written through the record path that drives northbound automations
+- **THEN** ticket/quarantine/webhook handlers SHALL be eligible to fire on it
+
+### Requirement: Endpoint Inventory Enriches Device Risk State
+The system SHALL enrich device risk state from endpoint vulnerability findings, independent of the event path.
+
+#### Scenario: Risk contribution recorded with MAX-wins arbitration
+- **GIVEN** a device has matching endpoint vulnerabilities
+- **WHEN** risk is enriched at ingest
+- **THEN** the system SHALL record an `endpoint_inventory` risk contribution (CVSS-derived, bounded) and recompute device risk with MAX-wins multi-source arbitration
+- **AND** the enrichment SHALL NOT be blocked for inactive/decommissioned devices, and SHALL converge when the offending package is removed
+
+### Requirement: Endpoint Inventory Does Not Bloat The Topology Graph
+The system SHALL keep package membership out of the AGE topology graph and SHALL NOT alter the canonical device identity shape.
+
+#### Scenario: Only a bounded risk summary touches the graph
+- **GIVEN** a device's endpoint risk summary changes
+- **WHEN** the graph is updated
+- **THEN** the system SHALL SET at most a bounded fixed set of risk-summary scalars on the EXISTING `Device` vertex
+- **AND** it SHALL NOT create `Package` vertices or `HAS_PACKAGE`/`AFFECTED_BY` edges in the topology graph
+
+#### Scenario: Membership is an index scan, not a graph traversal
+- **GIVEN** a "which devices run coordinate X" query
+- **WHEN** it is answered
+- **THEN** it SHALL be an index scan over `endpoint_inventory_packages` (canonical PURL / GIN `cpes`)
+- **AND** it SHALL NOT traverse the AGE graph
+
+#### Scenario: Canonical device id shape is unchanged
+- **GIVEN** the device identity
+- **WHEN** inventory and any derived ordinal are stored
+- **THEN** `ocsf_devices.uid` SHALL remain the canonical identity and SHALL NOT gain a derived-ordinal column
+- **AND** any `u32` ordinal SHALL live only in a derived dictionary table and the deferred in-memory index
+
+### Requirement: Endpoint Inventory Maintains A Stable Device Ordinal Dictionary
+The system SHALL maintain a stable, dense, merge-safe `uid → u32` ordinal dictionary so a fleet inverted index can be added later without retrofitting under load.
+
+#### Scenario: Ordinal derived from canonical uid
+- **GIVEN** a confirmed device with a canonical `ocsf_devices.uid`
+- **WHEN** an ordinal is allocated
+- **THEN** it SHALL be a dense `u32` referencing `ocsf_devices.uid`, never reused
+- **AND** a device merge SHALL tombstone the dead UID's ordinal and ensure the survivor has one
+
+#### Scenario: Inverted index is deferred and additive
+- **GIVEN** no interactive cohort/drill-down consumer exists yet
+- **WHEN** fleet membership or cohort resolution is needed
+- **THEN** the GIN-indexed current-state `SELECT` SHALL serve it
+- **AND** the roaring inverted index MAY be built later as an in-memory, rebuildable accelerator keyed on the ordinal dictionary, consumed by neither the causal engine nor the automation pipeline
