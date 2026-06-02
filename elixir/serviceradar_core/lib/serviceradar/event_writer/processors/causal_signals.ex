@@ -16,6 +16,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
+  alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
 
   require Logger
 
@@ -61,6 +62,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
       _ = insert_rows(@routing_table, routing_rows)
       ocsf_count = insert_rows(table_name(), ocsf_rows)
+      enqueue_inventory_alert_evaluation(ocsf_rows, ocsf_count)
 
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
       {:ok, length(parsed_rows)}
@@ -134,6 +136,47 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false)
 
     count
+  end
+
+  defp enqueue_inventory_alert_evaluation(_ocsf_rows, inserted_count)
+       when not is_integer(inserted_count) or inserted_count <= 0,
+       do: :ok
+
+  defp enqueue_inventory_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
+    ocsf_rows
+    |> Enum.filter(&inventory_event_row?/1)
+    |> Enum.map(&alert_evaluation_row/1)
+    |> alert_evaluation_queue().enqueue_events()
+    |> case do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Endpoint inventory alert evaluation enqueue failed",
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp inventory_event_row?(%{metadata: %{"signal_type" => "inventory"}}), do: true
+  defp inventory_event_row?(%{unmapped: %{"signal_type" => "inventory"}}), do: true
+  defp inventory_event_row?(_row), do: false
+
+  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> %{row | id: uuid}
+      :error -> row
+    end
+  end
+
+  defp alert_evaluation_row(row), do: row
+
+  defp alert_evaluation_queue do
+    Application.get_env(
+      :serviceradar_core,
+      :stateful_alert_evaluation_queue,
+      StatefulAlertEvaluationQueue
+    )
   end
 
   defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do

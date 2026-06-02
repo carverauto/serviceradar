@@ -112,6 +112,10 @@ defmodule ServiceRadar.Application do
         endpoint_inventory_ingestor_task_supervisor_child(),
         endpoint_inventory_ingestor_queue_child(),
 
+        # Bounded async stateful alert evaluation for bursty event sources
+        stateful_alert_evaluation_task_supervisor_child(),
+        stateful_alert_evaluation_queue_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -271,6 +275,18 @@ defmodule ServiceRadar.Application do
 
   defp endpoint_inventory_ingestor_queue_child do
     ServiceRadar.Inventory.EndpointInventoryIngestorQueue
+  end
+
+  defp stateful_alert_evaluation_task_supervisor_child do
+    if repo_enabled?() do
+      {Task.Supervisor, name: ServiceRadar.StatefulAlertEvaluation.TaskSupervisor}
+    end
+  end
+
+  defp stateful_alert_evaluation_queue_child do
+    if repo_enabled?() do
+      ServiceRadar.Observability.StatefulAlertEvaluationQueue
+    end
   end
 
   defp registry_children do
