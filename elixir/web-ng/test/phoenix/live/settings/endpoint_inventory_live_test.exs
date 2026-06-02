@@ -1,8 +1,11 @@
 defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLiveTest do
-  use ServiceRadarWebNGWeb.ConnCase, async: true
+  use ServiceRadarWebNGWeb.ConnCase, async: false
 
   import Phoenix.LiveViewTest
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.RBAC
+  alias ServiceRadar.Inventory.EndpointInventorySettings
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.AccountsFixtures
 
@@ -16,6 +19,11 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLiveTest do
   end
 
   test "updates endpoint inventory settings", %{conn: conn} do
+    assert {:ok, %EndpointInventorySettings{}} =
+             EndpointInventorySettings.create(%{retention_days: 30},
+               actor: SystemActor.system(:endpoint_inventory_settings_test)
+             )
+
     {:ok, lv, _html} = live(conn, ~p"/settings/agents/endpoint-inventory")
 
     lv
@@ -26,7 +34,8 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLiveTest do
     })
     |> render_submit()
 
-    assert render(lv) =~ "Saved endpoint inventory settings"
+    assert {:ok, %EndpointInventorySettings{retention_days: 45}} =
+             EndpointInventorySettings.get_settings(actor: SystemActor.system(:endpoint_inventory_settings_test))
   end
 
   test "viewer is blocked from endpoint inventory settings", %{conn: conn} do
@@ -41,7 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLiveTest do
 
   defp register_and_log_in_admin_user(%{conn: conn}) do
     user = AccountsFixtures.user_fixture(%{role: :admin})
-    scope = Scope.for_user(user)
+    scope = Scope.for_user(user, permissions: RBAC.permissions_for_user(user))
 
     %{conn: log_in_user(conn, user), user: user, scope: scope}
   end

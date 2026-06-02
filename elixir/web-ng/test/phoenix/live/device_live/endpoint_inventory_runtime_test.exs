@@ -110,6 +110,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
   defp socket do
     %Phoenix.LiveView.Socket{
       assigns: %{
+        __changed__: %{},
+        flash: %{},
         current_scope: %{user: %{id: "user-1"}},
         device_uid: "sr:test-device",
         device_row: %{"partition_id" => "default", "agent_id" => "agent-1"},
