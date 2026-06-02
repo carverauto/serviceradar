@@ -39,6 +39,10 @@ type endpointInventoryConfigPayload struct {
 	CollectHashes  bool     `json:"collect_file_hashes,omitempty"`
 	ForceFresh     bool     `json:"force_fresh_enabled,omitempty"`
 	CacheStale     string   `json:"cache_stale_threshold,omitempty"`
+	UploadJitter   string   `json:"upload_jitter,omitempty"`
+	RetryInitial   string   `json:"upload_retry_initial,omitempty"`
+	RetryMax       string   `json:"upload_retry_max,omitempty"`
+	RetryAttempts  int32    `json:"upload_retry_max_attempts,omitempty"`
 }
 
 func parseGatewayEndpointInventoryConfig(configJSON []byte) (*endpointInventoryConfigPayload, error) {
@@ -87,10 +91,17 @@ func (p *endpointInventoryConfigPayload) runtimeProfile(agentID string) endpoint
 		ScanTimeout:         p.ScanTimeout,
 		Sources:             append([]string(nil), p.Sources...),
 		CacheStaleThreshold: p.CacheStale,
+		UploadJitter:        p.UploadJitter,
+		UploadRetryInitial:  p.RetryInitial,
+		UploadRetryMax:      p.RetryMax,
 	}
 	if p.ForceFresh {
 		forceFresh := true
 		profile.ForceFreshEnabled = &forceFresh
+	}
+	if p.RetryAttempts > 0 {
+		retryAttempts := int(p.RetryAttempts)
+		profile.UploadRetryMaxAttempts = &retryAttempts
 	}
 	if p.MaxPackages > 0 {
 		maxPackages := int(p.MaxPackages)

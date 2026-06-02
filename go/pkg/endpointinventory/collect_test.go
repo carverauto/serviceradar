@@ -61,7 +61,7 @@ Version: 1.24.0-2ubuntu7
 
 func TestRunnerUsesCacheForUnchangedSourceMTimes(t *testing.T) {
 	tmpDir := t.TempDir()
-	dpkgPath := writeEndpointInventoryFixture(t, tmpDir, "1.24.0-2ubuntu7")
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
 	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
 
 	firstPayload, err := NewRunner(cfg).Run(context.Background())
@@ -71,12 +71,17 @@ func TestRunnerUsesCacheForUnchangedSourceMTimes(t *testing.T) {
 	if firstPayload.UploadReason != UploadReasonChanged || firstPayload.SBOM == nil {
 		t.Fatalf("first payload should be full changed upload: %#v", firstPayload)
 	}
+	if err := MarkUploadSucceeded(cfg, firstPayload, time.Unix(11, 0).UTC()); err != nil {
+		t.Fatal(err)
+	}
 
 	manifest, err := ReadCacheManifest(cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest == nil || manifest.PackageSetHash != firstPayload.PackageSetHash {
+	if manifest == nil ||
+		manifest.PackageSetHash != firstPayload.PackageSetHash ||
+		manifest.LastUploadedPackageSetHash != firstPayload.PackageSetHash {
 		t.Fatalf("unexpected cache manifest: %#v", manifest)
 	}
 
@@ -97,11 +102,14 @@ func TestRunnerUsesCacheForUnchangedSourceMTimes(t *testing.T) {
 
 func TestRunnerReparsesWhenSourceMTimeChanges(t *testing.T) {
 	tmpDir := t.TempDir()
-	dpkgPath := writeEndpointInventoryFixture(t, tmpDir, "1.24.0-2ubuntu7")
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
 	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
 
 	firstPayload, err := NewRunner(cfg).Run(context.Background())
 	if err != nil {
+		t.Fatal(err)
+	}
+	if err := MarkUploadSucceeded(cfg, firstPayload, time.Unix(11, 0).UTC()); err != nil {
 		t.Fatal(err)
 	}
 
@@ -151,7 +159,7 @@ func TestBuildCycloneDXIncludesAgentAndOSProperties(t *testing.T) {
 	}
 }
 
-func writeEndpointInventoryFixture(t *testing.T, tmpDir string, version string) string {
+func writeEndpointInventoryFixture(t *testing.T, tmpDir string) string {
 	t.Helper()
 
 	osReleasePath := filepath.Join(tmpDir, "os-release")
@@ -167,7 +175,7 @@ PRETTY_NAME="Ubuntu 24.04 LTS"
 	if err := os.WriteFile(dpkgPath, []byte(`Package: nginx
 Status: install ok installed
 Architecture: amd64
-Version: `+version+`
+Version: 1.24.0-2ubuntu7
 `), 0600); err != nil {
 		t.Fatal(err)
 	}

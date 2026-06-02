@@ -13,6 +13,7 @@ go_library(
         "profile.go",
         "spool.go",
         "types.go",
+        "upload.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/endpointinventory",
     visibility = ["//visibility:public"],
@@ -27,6 +28,7 @@ go_test(
         "hashes_test.go",
         "packages_test.go",
         "spool_test.go",
+        "upload_test.go",
     ],
     embed = [":endpointinventory"],
 )

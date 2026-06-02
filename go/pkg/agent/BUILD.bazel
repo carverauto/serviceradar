@@ -20,6 +20,7 @@ go_library(
         "endpoint_inventory_commands.go",
         "endpoint_inventory_config.go",
         "endpoint_inventory_spool_service.go",
+        "endpoint_inventory_upload_ack.go",
         "errors.go",
         "icmp_checker.go",
         "interfaces.go",

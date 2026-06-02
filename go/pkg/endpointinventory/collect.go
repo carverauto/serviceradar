@@ -94,7 +94,9 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	packageSetHash := ComputePackageSetHash(packages)
 	artifactHash := ComputeArtifactHash(sbom)
 	uploadReason := UploadReasonChanged
-	if cache != nil && cache.PackageSetHash == packageSetHash && cache.ArtifactHash == artifactHash {
+	if cache != nil &&
+		cache.LastUploadedPackageSetHash == packageSetHash &&
+		cache.LastUploadedArtifactHash == artifactHash {
 		uploadReason = UploadReasonUnchanged
 	}
 

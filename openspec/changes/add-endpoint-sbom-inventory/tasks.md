@@ -17,8 +17,8 @@
 - [x] 2.7 Persist the local last-known-good inventory cache (manifest, `package_set_hash`, `artifact_hash`, source summaries, last-seen package-DB mtimes, last uploaded hashes).
 - [x] 2.8 Gate scheduled scans on source-database mtime so unchanged hosts skip parsing entirely (with a forced full re-parse every Nth cycle); change reporting so unchanged inventories send lightweight status/hash summaries instead of full uploads.
 - [x] 2.9 Add typed endpoint inventory on-demand command handling that evaluates bounded predicates against the local cache and returns compact COUNT/EXISTS and DETAIL results; support an authorized device-scoped fresh scan behind a per-agent single-flight semaphore.
-- [ ] 2.10 Add jittered upload scheduling (runtime-profile upload jitter, distinct from the scan-timer randomized delay) so correlated fleet changes spread over a window.
-- [ ] 2.11 Add bounded retry/buffering of changed uploads when the control plane is unavailable, without losing previous uploaded-hash metadata.
+- [x] 2.10 Add jittered upload scheduling (runtime-profile upload jitter, distinct from the scan-timer randomized delay) so correlated fleet changes spread over a window.
+- [x] 2.11 Add bounded retry/buffering of changed uploads when the control plane is unavailable, without losing previous uploaded-hash metadata.
 
 ## 3. Transport, Hashing, And Command Bus
 (Storage/ingestion items previously numbered 3.3–3.5 were relocated to section 4 during the architecture revision.)
@@ -75,7 +75,7 @@
 - [ ] 7.1 Run focused Go tests for collector, mtime gate, spool validation, hashing determinism/version, and local cache fallback.
 - [x] 7.2 Run Elixir migration/resource tests for ingestion and current inventory replacement.
 - [x] 7.3 Run SRQL tests for endpoint package predicates and projections.
-- [ ] 7.4 Run Go tests for hash-gated upload decisions, jittered scheduling, and typed on-demand query command handling (COUNT/EXISTS and DETAIL, device-scoped force-fresh authorization).
+- [x] 7.4 Run Go tests for hash-gated upload decisions, jittered scheduling, and typed on-demand query command handling (COUNT/EXISTS and DETAIL, device-scoped force-fresh authorization).
 - [ ] 7.5 Run Elixir tests for: unchanged `package_set_hash` no-op + server-side recompute/mismatch flag + reconcile-floor; canonical-PURL determinism + fallback-tuple dedup; content-addressed component-payload dedupe with separate provenance metadata; maintained current counts; hypertable history + compression + continuous aggregates; GIN index usage; `sr:`-uid CHECK/guard (fix the mis-claiming fixture); `device_fleet_ordinals` allocation + device-merge tombstone/reassign + NULL-uid backfill.
 - [ ] 7.6 Run agent-gateway tests for bounded cohort scatter-gather (cohort cap, per-command topic isolation), dispatch capacity/rate enforcement, server-side force-fresh RBAC denial-before-dispatch, agent-side semaphore behavior, and `CommandResult` payload cap.
 - [ ] 7.7 Run web-ng tests for inventory status, freshness verdict, package UI, fleet rollup, device risk posture, and on-demand/cohort query UI.

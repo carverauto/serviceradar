@@ -40,36 +40,44 @@ const (
 )
 
 type Config struct {
-	Enabled               bool     `json:"enabled"`
-	AgentID               string   `json:"agent_id"`
-	ProfilePath           string   `json:"profile_path"`
-	SpoolDir              string   `json:"spool_dir"`
-	CacheDir              string   `json:"cache_dir"`
-	TmpDir                string   `json:"tmp_dir"`
-	ScanTimeout           string   `json:"scan_timeout"`
-	OSReleasePath         string   `json:"os_release_path"`
-	DpkgStatusPath        string   `json:"dpkg_status_path"`
-	APKInstalledPath      string   `json:"apk_installed_path"`
-	RPMPath               string   `json:"rpm_path"`
-	RPMDatabasePaths      []string `json:"rpm_database_paths"`
-	Sources               []string `json:"sources"`
-	ForceFreshEnabled     bool     `json:"force_fresh_enabled"`
-	ForceFullScanInterval int      `json:"force_full_scan_interval"`
-	CacheStaleThreshold   string   `json:"cache_stale_threshold"`
-	MaxPackages           int      `json:"max_packages"`
-	MaxOutputBytes        int64    `json:"max_output_bytes"`
+	Enabled                bool     `json:"enabled"`
+	AgentID                string   `json:"agent_id"`
+	ProfilePath            string   `json:"profile_path"`
+	SpoolDir               string   `json:"spool_dir"`
+	CacheDir               string   `json:"cache_dir"`
+	TmpDir                 string   `json:"tmp_dir"`
+	ScanTimeout            string   `json:"scan_timeout"`
+	OSReleasePath          string   `json:"os_release_path"`
+	DpkgStatusPath         string   `json:"dpkg_status_path"`
+	APKInstalledPath       string   `json:"apk_installed_path"`
+	RPMPath                string   `json:"rpm_path"`
+	RPMDatabasePaths       []string `json:"rpm_database_paths"`
+	Sources                []string `json:"sources"`
+	ForceFreshEnabled      bool     `json:"force_fresh_enabled"`
+	ForceFullScanInterval  int      `json:"force_full_scan_interval"`
+	UploadJitter           string   `json:"upload_jitter"`
+	UploadRetryInitial     string   `json:"upload_retry_initial"`
+	UploadRetryMax         string   `json:"upload_retry_max"`
+	UploadRetryMaxAttempts int      `json:"upload_retry_max_attempts"`
+	CacheStaleThreshold    string   `json:"cache_stale_threshold"`
+	MaxPackages            int      `json:"max_packages"`
+	MaxOutputBytes         int64    `json:"max_output_bytes"`
 }
 
 type RuntimeProfile struct {
-	Enabled               *bool    `json:"enabled,omitempty"`
-	AgentID               string   `json:"agent_id,omitempty"`
-	ScanTimeout           string   `json:"scan_timeout,omitempty"`
-	Sources               []string `json:"sources,omitempty"`
-	ForceFreshEnabled     *bool    `json:"force_fresh_enabled,omitempty"`
-	ForceFullScanInterval *int     `json:"force_full_scan_interval,omitempty"`
-	CacheStaleThreshold   string   `json:"cache_stale_threshold,omitempty"`
-	MaxPackages           *int     `json:"max_packages,omitempty"`
-	MaxOutputBytes        *int64   `json:"max_output_bytes,omitempty"`
+	Enabled                *bool    `json:"enabled,omitempty"`
+	AgentID                string   `json:"agent_id,omitempty"`
+	ScanTimeout            string   `json:"scan_timeout,omitempty"`
+	Sources                []string `json:"sources,omitempty"`
+	ForceFreshEnabled      *bool    `json:"force_fresh_enabled,omitempty"`
+	ForceFullScanInterval  *int     `json:"force_full_scan_interval,omitempty"`
+	UploadJitter           string   `json:"upload_jitter,omitempty"`
+	UploadRetryInitial     string   `json:"upload_retry_initial,omitempty"`
+	UploadRetryMax         string   `json:"upload_retry_max,omitempty"`
+	UploadRetryMaxAttempts *int     `json:"upload_retry_max_attempts,omitempty"`
+	CacheStaleThreshold    string   `json:"cache_stale_threshold,omitempty"`
+	MaxPackages            *int     `json:"max_packages,omitempty"`
+	MaxOutputBytes         *int64   `json:"max_output_bytes,omitempty"`
 }
 
 type ScanPayload struct {
@@ -110,7 +118,23 @@ type InventoryCacheManifest struct {
 	ScansSinceFull             int                    `json:"scans_since_full"`
 	UnchangedScanCount         int                    `json:"unchanged_scan_count"`
 	FullScanCount              int                    `json:"full_scan_count"`
+	PendingUpload              *PendingUploadState    `json:"pending_upload,omitempty"`
 	UpdatedAt                  time.Time              `json:"updated_at"`
+}
+
+type PendingUploadState struct {
+	ScanID         string     `json:"scan_id"`
+	PackageSetHash string     `json:"package_set_hash"`
+	ArtifactHash   string     `json:"artifact_hash"`
+	UploadReason   string     `json:"upload_reason"`
+	AvailableAfter time.Time  `json:"available_after"`
+	NextAttemptAt  *time.Time `json:"next_attempt_at,omitempty"`
+	Attempts       int        `json:"attempts"`
+	Exhausted      bool       `json:"exhausted,omitempty"`
+	LastAttemptAt  *time.Time `json:"last_attempt_at,omitempty"`
+	LastError      string     `json:"last_error,omitempty"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 type SourceMTime struct {

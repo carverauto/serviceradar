@@ -187,15 +187,43 @@ func fullScanManifest(
 	manifest.UpdatedAt = scannedAt
 
 	if payload.UploadReason == UploadReasonChanged {
-		manifest.LastUploadedPackageSetHash = payload.PackageSetHash
-		manifest.LastUploadedArtifactHash = payload.ArtifactHash
 		manifest.LastChangedScanAt = payload.LastSuccessfulScanAt
 		manifest.UnchangedScanCount = 0
+		manifest.PendingUpload = pendingUploadState(cfg, previous, payload, scannedAt)
 	} else {
 		manifest.UnchangedScanCount++
 	}
 
 	return manifest
+}
+
+func pendingUploadState(
+	cfg Config,
+	previous *InventoryCacheManifest,
+	payload *ScanPayload,
+	scannedAt time.Time,
+) *PendingUploadState {
+	if !PayloadRequiresFullUpload(payload) {
+		return nil
+	}
+
+	if pendingMatchesPayload(previous, payload) {
+		pending := *previous.PendingUpload
+		pending.UpdatedAt = scannedAt
+		return &pending
+	}
+
+	availableAfter := scannedAt.Add(PendingUploadDelay(cfg, payload)).UTC()
+
+	return &PendingUploadState{
+		ScanID:         payload.ScanID,
+		PackageSetHash: payload.PackageSetHash,
+		ArtifactHash:   payload.ArtifactHash,
+		UploadReason:   payload.UploadReason,
+		AvailableAfter: availableAfter,
+		CreatedAt:      scannedAt,
+		UpdatedAt:      scannedAt,
+	}
 }
 
 func copyCacheManifest(previous *InventoryCacheManifest) *InventoryCacheManifest {

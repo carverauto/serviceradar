@@ -89,10 +89,12 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	resp, err := p.gateway.PushStatus(ctx, req)
 	if err != nil {
 		p.logger.Error().Err(err).Int("status_count", len(statuses)).Msg("Failed to push status to gateway")
+		p.recordEndpointInventoryUploadFailures(statuses, err)
 		return false
 	}
 
 	if resp.Received {
+		p.recordEndpointInventoryUploadSuccesses(statuses)
 		logEvent := p.logger.Info()
 		if reason == statusPushReasonHeartbeat {
 			logEvent = p.logger.Debug()
@@ -105,6 +107,7 @@ func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.Ga
 	}
 
 	p.logger.Warn().Msg("Gateway did not acknowledge status push")
+	p.recordEndpointInventoryUploadFailures(statuses, errGatewayStatusNotAcknowledged)
 	return false
 }
 
