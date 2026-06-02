@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceRiskReducer
   alias ServiceRadar.Inventory.EndpointInventoryArtifactStore
+  alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.NetworkDiscovery.TopologyGraph
   alias ServiceRadar.Repo
@@ -65,6 +66,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     with {:ok, agent_id} <- required_string(payload, :agent_id),
          {:ok, scan_id} <- required_string(payload, :scan_id),
          {:ok, context} <- build_context(payload, agent_id, scan_id, actor, opts),
+         {:ok, context} <- allocate_device_fleet_ordinal(context, opts),
          {:ok, artifact} <- maybe_upload_artifact(payload, context, opts) do
       context = apply_artifact_metadata(context, artifact)
 
@@ -127,6 +129,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
          }}
 
       device_uid ->
+        allocate_vulnerability_match_device_fleet_ordinal(device_uid, opts)
         upsert_vulnerability_risk(device_uid, payload, opts)
     end
   end
@@ -397,6 +400,56 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        do: apply(module, function, [device_uid, summary | extra_args])
 
   defp invoke_age_risk_summary_projector(_projector, _device_uid, _summary), do: :ok
+
+  defp allocate_device_fleet_ordinal(context, opts) do
+    case invoke_device_fleet_ordinal_allocator(context.device_uid, opts) do
+      {:ok, ordinal} ->
+        {:ok, Map.put(context, :device_fleet_ordinal, ordinal)}
+
+      {:error, reason} ->
+        {:error, {:device_fleet_ordinal_allocation_failed, reason}}
+    end
+  end
+
+  defp allocate_vulnerability_match_device_fleet_ordinal(device_uid, opts) do
+    case invoke_device_fleet_ordinal_allocator(device_uid, opts) do
+      {:ok, _ordinal} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Endpoint inventory device fleet ordinal allocation failed: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  end
+
+  defp invoke_device_fleet_ordinal_allocator(device_uid, opts) do
+    allocator =
+      Keyword.get(
+        opts,
+        :device_fleet_ordinal_allocator,
+        {EndpointInventoryFleetOrdinal, :ensure_allocated, []}
+      )
+
+    case call_device_fleet_ordinal_allocator(allocator, device_uid) do
+      {:ok, _ordinal} = result -> result
+      :ok -> {:ok, nil}
+      nil -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:invalid_device_fleet_ordinal_allocator_result, other}}
+    end
+  end
+
+  defp call_device_fleet_ordinal_allocator(allocator, device_uid) when is_function(allocator, 1),
+    do: allocator.(device_uid)
+
+  defp call_device_fleet_ordinal_allocator({module, function, extra_args}, device_uid)
+       when is_atom(module) and is_atom(function) and is_list(extra_args),
+       do: apply(module, function, [device_uid | extra_args])
+
+  defp call_device_fleet_ordinal_allocator(_allocator, _device_uid), do: {:ok, nil}
 
   defp build_context(payload, agent_id, scan_id, actor, opts) do
     now = DateTime.utc_now()

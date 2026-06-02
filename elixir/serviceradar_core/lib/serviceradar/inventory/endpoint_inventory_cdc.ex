@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryCDC do
     "endpoint_inventory_artifacts",
     "endpoint_inventory_artifact_contents",
     "endpoint_packages",
+    "device_fleet_ordinals",
     "endpoint_inventory_current_package_counts",
     "endpoint_inventory_current_cpe_counts"
   ]

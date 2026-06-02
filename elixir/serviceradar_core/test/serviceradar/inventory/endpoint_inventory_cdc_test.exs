@@ -8,6 +8,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryCDCTest do
     assert "endpoint_inventory_packages" in EndpointInventoryCDC.cdc_candidate_tables()
     assert "endpoint_inventory_artifacts" in EndpointInventoryCDC.cdc_candidate_tables()
     assert "endpoint_packages" in EndpointInventoryCDC.cdc_candidate_tables()
+    assert "device_fleet_ordinals" in EndpointInventoryCDC.cdc_candidate_tables()
 
     refute "endpoint_inventory_scan_history" in EndpointInventoryCDC.cdc_candidate_tables()
     refute "endpoint_inventory_package_events" in EndpointInventoryCDC.cdc_candidate_tables()
@@ -37,6 +38,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryCDCTest do
     assert EndpointInventoryCDC.cdc_allowed?("endpoint_inventory_packages")
     assert EndpointInventoryCDC.cdc_allowed?("platform.endpoint_inventory_packages")
     assert EndpointInventoryCDC.cdc_allowed?(:endpoint_inventory_packages)
+    assert EndpointInventoryCDC.cdc_allowed?("platform.device_fleet_ordinals")
 
     refute EndpointInventoryCDC.cdc_allowed?("public.endpoint_inventory_packages")
     refute EndpointInventoryCDC.cdc_allowed?("endpoint_inventory_package_events")

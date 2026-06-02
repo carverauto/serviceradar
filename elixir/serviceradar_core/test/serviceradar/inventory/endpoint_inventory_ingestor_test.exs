@@ -7,6 +7,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceRiskReducer
+  alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.Inventory.EndpointInventoryIngestor
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -46,6 +47,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert package.purl_canonical == "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
     assert package.endpoint_package_ref
     assert package.device_uid == device.uid
+    assert is_integer(EndpointInventoryFleetOrdinal.ordinal_for(device.uid))
 
     assert endpoint_package(package.endpoint_package_ref).coordinate_key ==
              "purl:#{package.purl_canonical}"
