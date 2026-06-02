@@ -85,6 +85,41 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
+            query: "in:endpoint_packages rollup_stats:current_counts package_manager:dpkg name:nginx",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "current_counts");
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["package_manager"], "dpkg");
+                assert_eq!(result["host_count"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages rollup_stats:current_cpe_counts cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "current_cpe_counts");
+                assert_eq!(
+                    result["cpe"],
+                    "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"
+                );
+                assert_eq!(result["host_count"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages time:last_2h rollup_stats:package_counts_hourly package_manager:dpkg name:nginx",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "package_counts_hourly");
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["host_count"], 1);
+                assert_eq!(result["sample_count"], 1);
+            })),
+        },
+        TestCase {
             query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
             expected_count: 1,
             validator: Some(Box::new(|body| {

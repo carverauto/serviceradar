@@ -4,6 +4,10 @@
 DROP TABLE IF EXISTS device_agent_availability;
 DROP TABLE IF EXISTS endpoint_inventory_packages;
 DROP TABLE IF EXISTS endpoint_inventory_scans;
+DROP TABLE IF EXISTS endpoint_inventory_current_package_counts;
+DROP TABLE IF EXISTS endpoint_inventory_current_cpe_counts;
+DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
+DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
 DROP TABLE IF EXISTS ocsf_devices;
 
 CREATE TABLE ocsf_devices (
@@ -118,6 +122,7 @@ CREATE TABLE endpoint_inventory_packages (
     package_manager     TEXT        NOT NULL,
     ecosystem           TEXT,
     purl                TEXT,
+    purl_canonical      TEXT        NOT NULL,
     cpes                TEXT[]      NOT NULL DEFAULT '{}',
     supplier            TEXT,
     license             TEXT,
@@ -127,6 +132,53 @@ CREATE TABLE endpoint_inventory_packages (
     metadata            JSONB       NOT NULL DEFAULT '{}',
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_current_package_counts (
+    coordinate_hash     TEXT        PRIMARY KEY,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    purl_canonical      TEXT,
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    host_count          INT         NOT NULL DEFAULT 0,
+    first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_current_cpe_counts (
+    cpe                 TEXT        PRIMARY KEY,
+    host_count          INT         NOT NULL DEFAULT 0,
+    first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_package_counts_hourly (
+    bucket              TIMESTAMPTZ NOT NULL,
+    coordinate_hash     TEXT        NOT NULL,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT        NOT NULL DEFAULT '',
+    name                TEXT        NOT NULL,
+    version             TEXT        NOT NULL DEFAULT '',
+    architecture        TEXT        NOT NULL DEFAULT '',
+    purl_canonical      TEXT        NOT NULL DEFAULT '',
+    max_host_count      INT         NOT NULL DEFAULT 0,
+    min_host_count      INT         NOT NULL DEFAULT 0,
+    net_count_delta     INT         NOT NULL DEFAULT 0,
+    sample_count        BIGINT      NOT NULL DEFAULT 0
+);
+
+CREATE TABLE endpoint_inventory_cpe_counts_hourly (
+    bucket              TIMESTAMPTZ NOT NULL,
+    cpe                 TEXT        NOT NULL,
+    max_host_count      INT         NOT NULL DEFAULT 0,
+    min_host_count      INT         NOT NULL DEFAULT 0,
+    net_count_delta     INT         NOT NULL DEFAULT 0,
+    sample_count        BIGINT      NOT NULL DEFAULT 0
 );
 
 DROP TABLE IF EXISTS gateways;

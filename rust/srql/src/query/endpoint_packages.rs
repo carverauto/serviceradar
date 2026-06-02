@@ -3,6 +3,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::EndpointPackageRow,
     parser::{Entity, Filter, FilterOp, FilterValue, OrderClause, OrderDirection},
     schema::endpoint_inventory_packages::dsl::{
@@ -15,10 +16,14 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::dsl::not;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Jsonb, Text, Timestamptz};
 use diesel::{PgArrayExpressionMethods, PgTextExpressionMethods};
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -34,6 +39,20 @@ type EndpointPackagesQuery<'a> = BoxedSelectStatement<
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
     ensure_entity(plan)?;
+
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let rows: Vec<EndpointPackageRollupPayload> = rollup_sql
+            .to_boxed_query()
+            .load::<EndpointPackageRollupPayload>(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+
+        return Ok(rows
+            .into_iter()
+            .map(|row| serde_json::Value::from(row.payload))
+            .collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<EndpointPackageRow> = query
         .select(EndpointPackageRow::as_select())
@@ -51,6 +70,18 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let sql = rewrite_placeholders(&rollup_sql.sql);
+        let params = rollup_sql
+            .binds
+            .into_iter()
+            .map(bind_param_from_rollup)
+            .collect();
+
+        return Ok((sql, params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -91,6 +122,12 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 }
 
 fn build_query(plan: &QueryPlan) -> Result<EndpointPackagesQuery<'static>> {
+    if let Some(rollup) = plan.rollup_stats.as_deref() {
+        return Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for endpoint_packages: '{rollup}'"
+        )));
+    }
+
     let mut query = endpoint_inventory_packages.into_boxed::<Pg>();
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -103,6 +140,338 @@ fn build_query(plan: &QueryPlan) -> Result<EndpointPackagesQuery<'static>> {
 
     query = apply_ordering(query, &plan.order);
     Ok(query)
+}
+
+#[derive(Debug, Clone)]
+struct EndpointPackageRollupSql {
+    sql: String,
+    binds: Vec<SqlBindValue>,
+}
+
+impl EndpointPackageRollupSql {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+
+        for bind in &self.binds {
+            query = bind.apply(query);
+        }
+
+        query
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+struct EndpointPackageRollupPayload {
+    #[diesel(sql_type = Jsonb)]
+    payload: DbJson,
+}
+
+#[derive(Debug, Clone)]
+enum SqlBindValue {
+    Text(String),
+    TextArray(Vec<String>),
+    Timestamp(DateTime<Utc>),
+}
+
+impl SqlBindValue {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            Self::Text(value) => query.bind::<Text, _>(value.clone()),
+            Self::TextArray(value) => {
+                query.bind::<diesel::sql_types::Array<Text>, _>(value.clone())
+            }
+            Self::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_rollup(value: SqlBindValue) -> BindParam {
+    match value {
+        SqlBindValue::Text(value) => BindParam::Text(value),
+        SqlBindValue::TextArray(value) => BindParam::TextArray(value),
+        SqlBindValue::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<EndpointPackageRollupSql>> {
+    let rollup_type = match plan.rollup_stats.as_ref() {
+        Some(value) if !value.trim().is_empty() => value.trim(),
+        _ => return Ok(None),
+    };
+
+    match rollup_type {
+        "current_counts" | "current_package_counts" | "package_current_counts" => {
+            build_current_package_counts_rollup(plan)
+        }
+        "current_cpe_counts" | "cpe_current_counts" => build_current_cpe_counts_rollup(plan),
+        "package_counts_hourly" | "historical_counts" | "history_counts" => {
+            build_package_counts_hourly_rollup(plan)
+        }
+        "cpe_counts_hourly" | "historical_cpe_counts" => build_cpe_counts_hourly_rollup(plan),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for endpoint_packages: '{other}' (supported: current_counts, current_cpe_counts, package_counts_hourly, cpe_counts_hourly)"
+        ))),
+    }
+    .map(Some)
+}
+
+fn build_current_package_counts_rollup(plan: &QueryPlan) -> Result<EndpointPackageRollupSql> {
+    if plan.time_range.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "endpoint_packages rollup_stats:current_counts does not support time filters".into(),
+        ));
+    }
+
+    let mut binds = Vec::new();
+    let where_sql = build_package_count_where(&plan.filters, &mut binds)?;
+    let sql = format!(
+        r#"SELECT jsonb_build_object(
+    'rollup_type', 'current_counts',
+    'coordinate_hash', coordinate_hash,
+    'package_manager', package_manager,
+    'ecosystem', ecosystem,
+    'name', name,
+    'version', version,
+    'architecture', architecture,
+    'purl_canonical', purl_canonical,
+    'canonical_purl', purl_canonical,
+    'cpes', cpes,
+    'host_count', host_count,
+    'first_seen_at', first_seen_at,
+    'last_seen_at', last_seen_at,
+    'updated_at', updated_at
+) AS payload
+FROM endpoint_inventory_current_package_counts
+{where_sql}
+ORDER BY host_count DESC, package_manager ASC, name ASC, version ASC NULLS LAST
+LIMIT {} OFFSET {}"#,
+        plan.limit, plan.offset
+    );
+
+    Ok(EndpointPackageRollupSql { sql, binds })
+}
+
+fn build_current_cpe_counts_rollup(plan: &QueryPlan) -> Result<EndpointPackageRollupSql> {
+    if plan.time_range.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "endpoint_packages rollup_stats:current_cpe_counts does not support time filters"
+                .into(),
+        ));
+    }
+
+    let mut binds = Vec::new();
+    let where_sql = build_cpe_count_where(&plan.filters, &mut binds)?;
+    let sql = format!(
+        r#"SELECT jsonb_build_object(
+    'rollup_type', 'current_cpe_counts',
+    'cpe', cpe,
+    'host_count', host_count,
+    'first_seen_at', first_seen_at,
+    'last_seen_at', last_seen_at,
+    'updated_at', updated_at
+) AS payload
+FROM endpoint_inventory_current_cpe_counts
+{where_sql}
+ORDER BY host_count DESC, cpe ASC
+LIMIT {} OFFSET {}"#,
+        plan.limit, plan.offset
+    );
+
+    Ok(EndpointPackageRollupSql { sql, binds })
+}
+
+fn build_package_counts_hourly_rollup(plan: &QueryPlan) -> Result<EndpointPackageRollupSql> {
+    let mut binds = Vec::new();
+    let where_sql = build_package_count_where(&plan.filters, &mut binds)?;
+    let time_sql = build_bucket_time_clause(&plan.time_range, &mut binds);
+    let where_sql = join_where_clauses(where_sql, time_sql);
+    let sql = format!(
+        r#"SELECT jsonb_build_object(
+    'rollup_type', 'package_counts_hourly',
+    'bucket', bucket,
+    'coordinate_hash', coordinate_hash,
+    'package_manager', package_manager,
+    'ecosystem', NULLIF(ecosystem, ''),
+    'name', name,
+    'version', NULLIF(version, ''),
+    'architecture', NULLIF(architecture, ''),
+    'purl_canonical', NULLIF(purl_canonical, ''),
+    'canonical_purl', NULLIF(purl_canonical, ''),
+    'host_count', max_host_count,
+    'max_host_count', max_host_count,
+    'min_host_count', min_host_count,
+    'net_count_delta', net_count_delta,
+    'sample_count', sample_count
+) AS payload
+FROM endpoint_inventory_package_counts_hourly
+{where_sql}
+ORDER BY bucket DESC, max_host_count DESC, package_manager ASC, name ASC
+LIMIT {} OFFSET {}"#,
+        plan.limit, plan.offset
+    );
+
+    Ok(EndpointPackageRollupSql { sql, binds })
+}
+
+fn build_cpe_counts_hourly_rollup(plan: &QueryPlan) -> Result<EndpointPackageRollupSql> {
+    let mut binds = Vec::new();
+    let where_sql = build_cpe_count_where(&plan.filters, &mut binds)?;
+    let time_sql = build_bucket_time_clause(&plan.time_range, &mut binds);
+    let where_sql = join_where_clauses(where_sql, time_sql);
+    let sql = format!(
+        r#"SELECT jsonb_build_object(
+    'rollup_type', 'cpe_counts_hourly',
+    'bucket', bucket,
+    'cpe', cpe,
+    'host_count', max_host_count,
+    'max_host_count', max_host_count,
+    'min_host_count', min_host_count,
+    'net_count_delta', net_count_delta,
+    'sample_count', sample_count
+) AS payload
+FROM endpoint_inventory_cpe_counts_hourly
+{where_sql}
+ORDER BY bucket DESC, max_host_count DESC, cpe ASC
+LIMIT {} OFFSET {}"#,
+        plan.limit, plan.offset
+    );
+
+    Ok(EndpointPackageRollupSql { sql, binds })
+}
+
+fn build_package_count_where(filters: &[Filter], binds: &mut Vec<SqlBindValue>) -> Result<String> {
+    let mut clauses = Vec::new();
+
+    for filter in filters {
+        match filter.field.as_str() {
+            "name" | "package" => clauses.push(text_clause("name", filter, binds)?),
+            "version" => clauses.push(text_clause("version", filter, binds)?),
+            "architecture" | "arch" => clauses.push(text_clause("architecture", filter, binds)?),
+            "package_manager" | "manager" => {
+                clauses.push(text_clause("package_manager", filter, binds)?);
+            }
+            "ecosystem" => clauses.push(text_clause("ecosystem", filter, binds)?),
+            "purl" | "purl_canonical" | "canonical_purl" => {
+                clauses.push(text_clause("purl_canonical", filter, binds)?);
+            }
+            "cpe" | "cpes" => clauses.push(array_overlap_clause("cpes", filter, binds)?),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "endpoint package rollups do not support filter field '{other}'"
+                )));
+            }
+        }
+    }
+
+    Ok(where_from_clauses(clauses))
+}
+
+fn build_cpe_count_where(filters: &[Filter], binds: &mut Vec<SqlBindValue>) -> Result<String> {
+    let mut clauses = Vec::new();
+
+    for filter in filters {
+        match filter.field.as_str() {
+            "cpe" | "cpes" => clauses.push(text_clause("cpe", filter, binds)?),
+            other => {
+                return Err(ServiceError::InvalidRequest(format!(
+                    "endpoint CPE rollups do not support filter field '{other}'"
+                )));
+            }
+        }
+    }
+
+    Ok(where_from_clauses(clauses))
+}
+
+fn build_bucket_time_clause(
+    time_range: &Option<TimeRange>,
+    binds: &mut Vec<SqlBindValue>,
+) -> String {
+    let Some(TimeRange { start, end }) = time_range else {
+        return String::new();
+    };
+
+    let start_idx = push_bind(binds, SqlBindValue::Timestamp(*start));
+    let end_idx = push_bind(binds, SqlBindValue::Timestamp(*end));
+    format!("bucket >= ${start_idx} AND bucket <= ${end_idx}")
+}
+
+fn text_clause(column: &str, filter: &Filter, binds: &mut Vec<SqlBindValue>) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq => {
+            let idx = push_bind(
+                binds,
+                SqlBindValue::Text(filter.value.as_scalar()?.to_string()),
+            );
+            Ok(format!("{column} = ${idx}"))
+        }
+        FilterOp::In => {
+            let values = filter.value.as_list()?.to_vec();
+            let idx = push_bind(binds, SqlBindValue::TextArray(values));
+            Ok(format!("{column} = ANY(${idx})"))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "endpoint package rollup filter {column} only supports equality and membership"
+        ))),
+    }
+}
+
+fn array_overlap_clause(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<SqlBindValue>,
+) -> Result<String> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::In => {
+            let values = cpe_values(&filter.value)?;
+            let idx = push_bind(binds, SqlBindValue::TextArray(values));
+            Ok(format!("{column} && ${idx}"))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "endpoint package rollup filter {column} only supports equality and membership"
+        ))),
+    }
+}
+
+fn push_bind(binds: &mut Vec<SqlBindValue>, value: SqlBindValue) -> usize {
+    binds.push(value);
+    binds.len()
+}
+
+fn where_from_clauses(clauses: Vec<String>) -> String {
+    if clauses.is_empty() {
+        String::new()
+    } else {
+        format!("WHERE {}", clauses.join(" AND "))
+    }
+}
+
+fn join_where_clauses(first: String, second: String) -> String {
+    match (first.is_empty(), second.is_empty()) {
+        (true, true) => String::new(),
+        (false, true) => first,
+        (true, false) => format!("WHERE {second}"),
+        (false, false) => format!("{first} AND {second}"),
+    }
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut output = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '$' && matches!(chars.peek(), Some(next) if next.is_ascii_digit()) {
+            while matches!(chars.peek(), Some(next) if next.is_ascii_digit()) {
+                chars.next();
+            }
+            output.push('?');
+        } else {
+            output.push(ch);
+        }
+    }
+
+    output
 }
 
 fn apply_filter<'a>(
@@ -402,6 +771,13 @@ mod tests {
         }
     }
 
+    fn rollup_plan(rollup: &str, filters: Vec<Filter>) -> QueryPlan {
+        QueryPlan {
+            rollup_stats: Some(rollup.to_string()),
+            ..plan_with(filters)
+        }
+    }
+
     #[test]
     fn builds_query_with_package_filters() {
         for field in [
@@ -464,6 +840,75 @@ mod tests {
                 "unexpected error: {err}"
             ),
             Ok(_) => panic!("expected error for unsupported filter field"),
+        }
+    }
+
+    #[test]
+    fn current_counts_rollup_uses_maintained_count_table() {
+        let plan = rollup_plan(
+            "current_counts",
+            vec![Filter {
+                field: "name".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("nginx".to_string()),
+            }],
+        );
+
+        let (sql, params) = to_sql_and_params(&plan).expect("current counts rollup SQL");
+
+        assert!(
+            sql.contains("endpoint_inventory_current_package_counts"),
+            "expected current count table in SQL, got: {sql}"
+        );
+        assert!(
+            !sql.contains("endpoint_inventory_packages"),
+            "rollup must not aggregate live current package rows, got: {sql}"
+        );
+        assert!(
+            !sql.to_ascii_uppercase().contains("GROUP BY"),
+            "current rollup must not GROUP BY current-state rows, got: {sql}"
+        );
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn package_counts_hourly_rollup_uses_continuous_aggregate() {
+        let mut plan = rollup_plan(
+            "package_counts_hourly",
+            vec![Filter {
+                field: "package_manager".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("dpkg".to_string()),
+            }],
+        );
+        plan.time_range = Some(TimeRange {
+            start: Utc::now() - chrono::Duration::hours(2),
+            end: Utc::now(),
+        });
+
+        let (sql, params) = to_sql_and_params(&plan).expect("hourly package count SQL");
+
+        assert!(
+            sql.contains("endpoint_inventory_package_counts_hourly"),
+            "expected package count CAGG in SQL, got: {sql}"
+        );
+        assert!(
+            !sql.contains("endpoint_inventory_packages"),
+            "historical rollup must not scan package current-state rows, got: {sql}"
+        );
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn unsupported_rollup_returns_bounded_error() {
+        let plan = rollup_plan("ad_hoc_group_by", Vec::new());
+
+        match to_sql_and_params(&plan) {
+            Err(err) => assert!(
+                err.to_string().contains("unsupported rollup_stats type"),
+                "unexpected error: {err}"
+            ),
+            Ok(_) => panic!("expected unsupported rollup error"),
         }
     }
 }
