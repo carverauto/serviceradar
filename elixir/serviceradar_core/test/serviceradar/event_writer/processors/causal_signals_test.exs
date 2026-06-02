@@ -128,11 +128,88 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert row.metadata["signal_domains"] == ["inventory"]
       assert row.metadata["event_type"] == "added"
       assert row.metadata["source"]["subject"] == "signals.causal.inventory.added"
+
       assert row.metadata["explainability"]["source_signal_refs"] == [
                "inventory:agent-a:scan-a:added:coord-hash"
              ]
 
       assert row.device == %{}
+    end
+
+    test "emits inventory vulnerability matches as OCSF vulnerability findings" do
+      payload = %{
+        "event_id" => "inventory-vuln:agent-a:scan-a:CVE-2026-1234:coord-hash",
+        "signal_type" => "inventory",
+        "event_type" => "vulnerability_match",
+        "timestamp" => "2026-06-02T12:30:00Z",
+        "signal_domain" => "inventory",
+        "device_uid" => "sr:test-device",
+        "cvss_score" => 9.8,
+        "cve" => "CVE-2026-1234",
+        "package" => %{
+          "package_manager" => "dpkg",
+          "name" => "nginx",
+          "version" => "1.24.0-2ubuntu7",
+          "purl_canonical" => "pkg:deb/ubuntu/nginx@1.24.0-2ubuntu7?arch=amd64",
+          "cpes" => ["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"]
+        }
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{
+          subject: "signals.causal.inventory.vulnerability_match",
+          received_at: DateTime.utc_now()
+        }
+      }
+
+      row = CausalSignals.parse_message(message)
+
+      assert row
+      assert row.class_uid == 2004
+      assert row.category_uid == 2
+      assert row.type_uid == 200_401
+      assert row.activity_id == 1
+      assert row.severity_id == 5
+      assert row.severity == "Critical"
+      assert row.device == %{"uid" => "sr:test-device"}
+      assert row.metadata["signal_type"] == "inventory"
+      assert row.metadata["primary_domain"] == "security"
+      assert "security" in row.metadata["signal_domains"]
+      assert "inventory" in row.metadata["signal_domains"]
+      assert %{"type" => "cve", "id" => "CVE-2026-1234"} in row.metadata["grouped_contexts"]
+
+      assert %{
+               "type" => "package",
+               "id" => "pkg:deb/ubuntu/nginx@1.24.0-2ubuntu7?arch=amd64"
+             } in row.metadata["grouped_contexts"]
+
+      assert row.metadata["vulnerability_finding"]["cvss_score"] == 9.8
+      assert row.metadata["vulnerability_finding"]["cve"] == "CVE-2026-1234"
+      assert row.unmapped["package"]["name"] == "nginx"
+    end
+
+    test "suppresses inventory vulnerability findings without canonical device UID" do
+      payload = %{
+        "event_id" => "inventory-vuln:agent-a:scan-a:CVE-2026-1234:coord-hash",
+        "signal_type" => "inventory",
+        "event_type" => "vulnerability_match",
+        "timestamp" => "2026-06-02T12:30:00Z",
+        "cvss_score" => 9.8,
+        "cve" => "CVE-2026-1234",
+        "package" => %{"name" => "nginx", "version" => "1.24.0-2ubuntu7"}
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.inventory.vulnerability_match",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row == nil
     end
 
     test "includes grouped contexts and explainability metadata" do
