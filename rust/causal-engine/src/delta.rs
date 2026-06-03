@@ -136,6 +136,7 @@ mod tests {
                 is_available: Some(true),
                 is_managed: Some(true),
                 risk_score: None,
+                gateway_id: None,
             }],
             services: vec![],
         };

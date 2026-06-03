@@ -35,6 +35,9 @@ pub struct Device {
     pub is_managed: Option<bool>,
     /// MAX-wins device risk from `DeviceRiskReducer` (composed into C5/C7/C10).
     pub risk_score: Option<i64>,
+    /// Observability gateway this device reports through (shared-fate key for C3).
+    #[serde(default)]
+    pub gateway_id: Option<EntityId>,
     // TODO(1.5/1.8): bounded `pkg_*` risk-summary scalars projected onto the
     // Device vertex (pkg_worst_severity / pkg_critical_count / pkg_kev_count /
     // pkg_has_unpatched_rce).

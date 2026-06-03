@@ -156,6 +156,10 @@ fn map_device(row: &serde_json::Value) -> Option<Device> {
         is_available: row.get("is_available").and_then(|v| v.as_bool()),
         is_managed: row.get("is_managed").and_then(|v| v.as_bool()),
         risk_score: row.get("risk_score").and_then(|v| v.as_i64()),
+        gateway_id: row
+            .get("gateway_id")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string()),
     })
 }
 
