@@ -54,5 +54,20 @@ mix_release(
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
     ],
+    # Membrane precompiled OS-dep tarballs (x86_64 linux), pinned in MODULE.bazel.
+    # Staged into the sandbox and copied by Bundlex's patched download/2 so
+    # `mix deps.compile` does not need github.com egress on the CI runner.
+    precompiled_os_deps = [
+        "@membrane_precompiled_fdk_aac//file",
+        "@membrane_precompiled_lame//file",
+        "@membrane_precompiled_mad//file",
+        "@membrane_precompiled_opus//file",
+        "@membrane_precompiled_portaudio//file",
+        "@membrane_precompiled_sdl2//file",
+        "@membrane_precompiled_libvpx//file",
+        "@membrane_precompiled_srt//file",
+        "@membrane_precompiled_srtp//file",
+        "@membrane_precompiled_ffmpeg//file",
+    ],
     workdir_name = "serviceradar_core_elx",
 )

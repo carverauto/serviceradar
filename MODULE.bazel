@@ -942,6 +942,112 @@ http_file(
     ],
 )
 
+# --- Membrane precompiled OS-deps (x86_64 linux) ----------------------------
+# core-elx pulls ~13 Membrane plugins (via vendored boombox) that use
+# `membrane_precompiled_dependency_provider`. At `mix deps.compile`, Bundlex
+# (pinned to github tag v1.5.4) downloads one precompiled OS-dep tarball per dep
+# from github.com. The Forgejo CI runner lacks github.com egress, so those
+# downloads fail. We pin each tarball here (Bazel repo-fetch DOES have egress),
+# stage them into the build sandbox via //build:mix_release.bzl, and patch
+# Bundlex's `download/2` to copy from the staged dir by URL basename.
+#
+# URLs/versions are taken from each plugin's bundlex.exs `:version` option,
+# resolved through Membrane.PrecompiledDependencyProvider 0.2.2:
+#   generic: .../precompiled_<dep>/releases/download/v<ver>/<dep>_linux_x86.tar.gz
+#   ffmpeg:  .../precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linux64.tar.xz
+# `downloaded_file_path` matches the URL basename so the version-independent
+# copy-by-basename patch finds them.
+
+http_file(
+    name = "membrane_precompiled_fdk_aac",
+    downloaded_file_path = "fdk-aac_linux_x86.tar.gz",
+    sha256 = "f5c68b1dfdb5a04ac2f9e0a53336c4cd6a8244008ee51a711473e28fa004ecac",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_fdk-aac/releases/download/v2.0.3/fdk-aac_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_lame",
+    downloaded_file_path = "lame_linux_x86.tar.gz",
+    sha256 = "a2d6f3293f6bb304a159ec1192d7d984ecbc805e9bb5ef978d488766bdb0095d",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_lame/releases/download/v3.100/lame_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_mad",
+    downloaded_file_path = "mad_linux_x86.tar.gz",
+    sha256 = "6012e5f72a8e4e624e588d8a3a03e58fc757316a97fd16781f0c9d5d12cf2313",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_mad/releases/download/v0.15.1b/mad_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_opus",
+    downloaded_file_path = "opus_linux_x86.tar.gz",
+    sha256 = "90c115850cb99b653cd3e0237e084926652f4e2bcb9d5e1e36acc4bcc5d2ddaf",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_opus/releases/download/v1.5.2/opus_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_portaudio",
+    downloaded_file_path = "portaudio_linux_x86.tar.gz",
+    sha256 = "813fa51109fc637af13535d032dd11bf952347a494081df305d46a517e449b05",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_portaudio/releases/download/v19.7.0/portaudio_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_sdl2",
+    downloaded_file_path = "sdl2_linux_x86.tar.gz",
+    sha256 = "0c26f1082d8a3a55fda6c95b25eef30a2b6bdddfd66ead35ee19fa3c84e2ef47",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_sdl2/releases/download/v2.32.10/sdl2_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_libvpx",
+    downloaded_file_path = "libvpx_linux_x86.tar.gz",
+    sha256 = "845be3392218f02425d9fa93dfacfb101f9ab9d4169bce8e35a7cebadd207e1f",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_libvpx/releases/download/v1.15.2/libvpx_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srt",
+    downloaded_file_path = "srt_linux_x86.tar.gz",
+    sha256 = "78f13b6d2a623140ec150c630c4c8e279fcd2dd79b63825f37fc4428cc86d328",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srt/releases/download/v1.5.4/srt_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_srtp",
+    downloaded_file_path = "srtp_linux_x86.tar.gz",
+    sha256 = "53470adc38e70df6648cfef37538889c1eebf7d414541a7d6cec4500aa29b347",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_srtp/releases/download/v2.7.0/srtp_linux_x86.tar.gz",
+    ],
+)
+
+http_file(
+    name = "membrane_precompiled_ffmpeg",
+    downloaded_file_path = "ffmpeg_linux64.tar.xz",
+    sha256 = "128f1b77ebb0f9520048629d430b41825520457d7b02ba8fd1fda5966c988661",
+    urls = [
+        "https://github.com/membraneframework-precompiled/precompiled_ffmpeg/releases/download/v6.0.1/ffmpeg_linux64.tar.xz",
+    ],
+)
+
 http_file(
     name = "debian_libc6_amd64_deb",
     sha256 = "ba4f88f73dbc3ae9055f3c20f4523bfdbaf1ad13ff95e258924f77d20b4fbedf",
