@@ -139,6 +139,7 @@ mod tests {
                 gateway_id: None,
             }],
             services: vec![],
+            edges: vec![],
         };
 
         let delta = parse_state_change(&state_change_envelope(
@@ -161,6 +162,7 @@ mod tests {
                 id: "agent-1:grpc:datasvc".to_string(),
                 available: Some(true),
             }],
+            edges: vec![],
         };
 
         let delta = parse_state_change(&state_change_envelope(

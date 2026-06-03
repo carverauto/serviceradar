@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use crate::domain_model::{Context, Device};
+use crate::domain_model::{Context, Device, EdgeKind};
 use crate::error::Result;
 
 /// A gateway is flagged as a shared-fate root cause when at least this many of
@@ -66,6 +66,7 @@ impl Reasoner {
     pub fn evaluate(&self, ctx: &Context) -> Result<Vec<Verdict>> {
         let mut verdicts = Vec::new();
         verdicts.extend(c3_gateway_shared_fate(ctx));
+        verdicts.extend(c4_management_unobservable(ctx));
         Ok(verdicts)
     }
 }
@@ -114,10 +115,42 @@ fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
     verdicts
 }
 
+/// C4 — management-unobservable suppression.
+///
+/// A device whose manager (via `MANAGED_BY`) is unavailable cannot be observed
+/// through that manager, so its availability is `Unknown` rather than failed —
+/// suppressing false "down" classifications for devices behind a dead manager.
+fn c4_management_unobservable(ctx: &Context) -> Vec<Verdict> {
+    let availability: HashMap<&str, Option<bool>> = ctx
+        .devices
+        .iter()
+        .map(|d| (d.uid.as_str(), d.is_available))
+        .collect();
+
+    let mut verdicts = Vec::new();
+    for edge in &ctx.edges {
+        // `src` is managed by `dst`; if the manager `dst` is unavailable, the
+        // managed device `src` is unobservable through it.
+        if edge.kind == EdgeKind::ManagedBy
+            && availability.get(edge.dst.as_str()) == Some(&Some(false))
+        {
+            verdicts.push(Verdict {
+                entity_id: edge.src.clone(),
+                classification: Classification::Unknown,
+                reason: format!(
+                    "manager {} is unavailable; availability is unobservable, not failed",
+                    edge.dst
+                ),
+            });
+        }
+    }
+    verdicts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_model::{Context, Device};
+    use crate::domain_model::{Context, Device, EdgeKind, TopologyEdge};
 
     fn device(uid: &str, available: Option<bool>, gateway: Option<&str>) -> Device {
         Device {
@@ -145,6 +178,7 @@ mod tests {
                 device("sr:device:c", Some(true), Some("sr:gw:1")),
             ],
             services: vec![],
+            edges: vec![],
         };
 
         let verdicts = c3_gateway_shared_fate(&ctx);
@@ -172,6 +206,7 @@ mod tests {
                 device("sr:device:x", Some(false), None),
             ],
             services: vec![],
+            edges: vec![],
         };
         assert!(c3_gateway_shared_fate(&ctx).is_empty());
     }
@@ -185,10 +220,49 @@ mod tests {
                 device("sr:device:b", Some(false), Some("sr:gw:1")),
             ],
             services: vec![],
+            edges: vec![],
         };
         let verdicts = reasoner.evaluate(&ctx).expect("evaluate");
         assert!(verdicts
             .iter()
             .any(|v| v.entity_id == "sr:gw:1" && v.classification == Classification::RootCause));
+    }
+
+    fn managed_by(child: &str, manager: &str) -> TopologyEdge {
+        TopologyEdge {
+            src: child.to_string(),
+            dst: manager.to_string(),
+            kind: EdgeKind::ManagedBy,
+        }
+    }
+
+    #[test]
+    fn c4_marks_devices_behind_a_dead_manager_unknown() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:mgr", Some(false), None),
+                device("sr:device:child", Some(false), None),
+            ],
+            services: vec![],
+            edges: vec![managed_by("sr:device:child", "sr:device:mgr")],
+        };
+        let verdicts = c4_management_unobservable(&ctx);
+        assert_eq!(
+            classification_of(&verdicts, "sr:device:child"),
+            Some(&Classification::Unknown)
+        );
+    }
+
+    #[test]
+    fn c4_no_verdict_when_manager_available() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:mgr", Some(true), None),
+                device("sr:device:child", Some(false), None),
+            ],
+            services: vec![],
+            edges: vec![managed_by("sr:device:child", "sr:device:mgr")],
+        };
+        assert!(c4_management_unobservable(&ctx).is_empty());
     }
 }
