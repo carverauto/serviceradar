@@ -29,11 +29,11 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ## 1. Phase 1 — V1 Engine (weeks)
 
-### 1.1 Scaffold rust/causal-engine in the workspace (capability: causal-engine)
-- [ ] 1.1.1 Create new top-level Rust crate `rust/causal-engine`, peer to `rust/srql`, as a single binary / single FUSED pod (hydrator + reasoner in-process; DeepCausality requires in-process `Context` access).
-- [ ] 1.1.2 Add modules: `context_hydrator`, `domain_model`, `reasoner`, `emitter`, `snapshot`; define a `ContextStore` trait between hydrator and reasoner to preserve a future split.
-- [ ] 1.1.3 Add dependencies `deep_causality 0.13`, `deep_causality_sparse 0.1`, `deep_causality_tensor 0.4`, `deep_causality_topology 0.5`, and `ultragraph = "0.9"` (0.9.0 already ships the Gap G structural + pathway-betweenness algorithms; see 0.1).
-- [ ] 1.1.4 Wire startup/shutdown, config, and logging consistent with `rust/srql`; single-pod restart in seconds via snapshot (HA/leader-election/sharding are non-goals for V1).
+### 1.1 Scaffold rust/causal-engine in the workspace (capability: causal-engine) — DONE
+- [x] 1.1.1 Created top-level crate `rust/causal-engine` (single binary, single FUSED pod), added to workspace members + Cargo.lock; BUILD.bazel mirrors rust/srql (`all_crate_deps`). Verified `cargo check` / `cargo clippy --all-targets -D warnings` / `cargo fmt --check` + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin} --config=ci` (RBE) all green.
+- [x] 1.1.2 Modules `context_hydrator` (`ContextStore` trait + stub), `domain_model` (Context/Device/Service, canonical sr: ids), `reasoner` (Verdict/Classification + stub), `emitter` (stub), `snapshot` (stub); plus `config` (`CAUSAL_ENGINE_*` via envy) + `error` (thiserror).
+- [ ] 1.1.3 Heavy integration deps DEFERRED to the increment that first uses them (srql + async-nats in 1.2; `ultragraph = "0.9"` + deep_causality{,_sparse,_tensor,_topology} in 1.3) to keep each crate_universe change scoped.
+- [ ] 1.1.4 (partial) Config (envy) + tracing logging + snapshot-restore-on-start wired and a fused tick loop runs; graceful shutdown lands with the real hydrator/NATS in 1.2.
 
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine)
 - [ ] 1.2.1 Feed 1: integrate `EmbeddedSrql` (`rust/srql/src/lib.rs:31-40`) calling `QueryEngine::execute_query` (`rust/srql/src/query/mod.rs`) for cold-start current state, on-demand TimescaleDB continuous-aggregate queries, and AGE topology snapshots via the `graph_cypher` entity (`rust/srql/src/query/graph_cypher.rs`).
