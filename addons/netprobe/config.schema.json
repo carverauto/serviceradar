@@ -1,14 +1,14 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Host Network Visibility (netprobe) Configuration",
-  "description": "Operator-facing netprobe config. Mirrors proto agent.netprobe.v1.VisibilityAgentConfig; the agent translates monitoring VisibilityConfig into this shape and pushes it to netprobe over IPC.",
+  "description": "Operator-facing netprobe config. Toggle Enabled to turn on eBPF process attribution — no other fields are required. The capture / DPI / device-binding fields are optional and only needed for passive packet fingerprinting. Mirrors proto agent.netprobe.v1.VisibilityAgentConfig.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
     "enabled": {
       "type": "boolean",
       "title": "Enabled",
-      "description": "Master switch for capture. When false, netprobe stays up for lifecycle IPC but captures nothing.",
+      "description": "Master switch. When on, netprobe runs eBPF process attribution (the flow-to-process source behind attributed flows); packet capture/DPI additionally engage only if capture interfaces or device bindings are set below.",
       "default": false
     },
     "capture_interfaces": {
@@ -22,7 +22,8 @@
       "type": "integer",
       "title": "Default sample interval (ms)",
       "description": "Default per-device fingerprint sampling interval; overridable per device binding.",
-      "minimum": 0
+      "minimum": 0,
+      "default": 0
     },
     "flow_table_max_entries": {
       "type": "integer",
@@ -42,7 +43,8 @@
       "type": "integer",
       "title": "External flow match window (ms)",
       "description": "Temporal window for matching external (non-process) flows by 5-tuple.",
-      "minimum": 0
+      "minimum": 0,
+      "default": 0
     },
     "dpi": { "$ref": "#/definitions/dpi" },
     "device_bindings": {

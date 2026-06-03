@@ -1,6 +1,12 @@
 name: Publish Native Add-ons
 
 on:
+  # Republish native add-ons on every release tag so the published artifacts (and the
+  # versions surfaced in the add-ons UI) track the code, instead of only on manual dispatch.
+  # Pairs with release.yml, which builds the images on the same `v*` tags.
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
       tag:
