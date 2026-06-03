@@ -12,6 +12,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Identity.AliasEvents
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Identity.IdentityCache
@@ -195,8 +196,11 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     {resolved_updates, device_records, identifier_records, interface_records} =
       resolve_updates(normalized_updates, actor)
 
+    previous_device_states = previous_device_states(device_records)
+
     case upsert_devices(device_records) do
       {:ok, remap} ->
+        publish_device_state_transitions(device_records, previous_device_states, remap)
         invalidate_identity_cache_for_device_records(device_records)
 
         # An IP-conflict recovery may have rewritten device uids during the
@@ -260,6 +264,88 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     Enum.map(resolved, fn {update, device_id} ->
       {update, Map.get(remap, device_id, device_id)}
     end)
+  end
+
+  # add-causal-engine (Decision 1): capture prior device availability/managed
+  # state BEFORE the bulk upsert so transitions can be published to
+  # cdc.platform.ocsf_devices afterward. Gated behind the feed flag so disabled
+  # deployments incur no extra read; best-effort (never affects ingestion).
+  defp previous_device_states(device_records) do
+    if StateChangePublisher.enabled?() do
+      uids =
+        device_records
+        |> Enum.map(&Map.get(&1, :uid))
+        |> Enum.reject(&is_nil/1)
+        |> Enum.uniq()
+
+      case uids do
+        [] ->
+          %{}
+
+        uids ->
+          from(d in Device,
+            where: d.uid in ^uids,
+            select: {d.uid, d.is_available, d.is_managed}
+          )
+          |> Repo.all()
+          |> Map.new(fn {uid, available, managed} ->
+            {uid, %{is_available: available, is_managed: managed}}
+          end)
+      end
+    else
+      %{}
+    end
+  rescue
+    _ -> %{}
+  end
+
+  defp publish_device_state_transitions(_records, previous, _remap) when map_size(previous) == 0,
+    do: :ok
+
+  defp publish_device_state_transitions(device_records, previous, remap) do
+    Enum.each(device_records, fn record ->
+      original_uid = Map.get(record, :uid)
+      final_uid = Map.get(remap, original_uid, original_uid)
+      prior = Map.get(previous, original_uid)
+
+      if is_map(prior) and is_binary(final_uid) do
+        maybe_publish_device_field(
+          final_uid,
+          "is_available",
+          prior.is_available,
+          Map.get(record, :is_available)
+        )
+
+        maybe_publish_device_field(
+          final_uid,
+          "is_managed",
+          prior.is_managed,
+          Map.get(record, :is_managed)
+        )
+      end
+    end)
+
+    :ok
+  rescue
+    error ->
+      Logger.warning("state-change publish (ocsf_devices) failed: #{Exception.message(error)}")
+      :ok
+  end
+
+  # The device upsert COALESCEs a nil incoming value (keeping the stored one), so
+  # a transition only occurs when the incoming value is non-nil and differs.
+  defp maybe_publish_device_field(_uid, _field, _old, nil), do: :ok
+  defp maybe_publish_device_field(_uid, _field, old, new) when old == new, do: :ok
+
+  defp maybe_publish_device_field(uid, field, old, new) do
+    StateChangePublisher.publish_transition(
+      "ocsf_devices",
+      uid,
+      field: field,
+      old: old,
+      new: new,
+      entity_type: "device"
+    )
   end
 
   defp invalidate_identity_cache_for_device_records(records) do

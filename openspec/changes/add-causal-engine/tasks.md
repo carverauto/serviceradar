@@ -7,6 +7,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ## 0. Phase 0 — Pre-V1 (days)
 
 ### 0.1 Gap G — ultragraph upstream dependency (capability: causal-reasoning)
+- [x] 0.1.0 Handoff spec authored (`runbooks/gap-g-ultragraph-handoff.md`) and routed to the DeepCausality author (upstream `ultragraph` is not forked by ServiceRadar).
 - [ ] 0.1.1 File the committed Phase-0 upstream PR against the `ultragraph` crate adding `articulation_points`, `bridges`, `is_reachable`, `pathway_betweenness_centrality`, and `unfreeze` (~200 LOC Tarjan/biconnected-components) on a new `StructuralGraphAlgorithms` trait (today 0.8 ships only `betweenness_centrality` + `freeze` under `CentralityGraphAlgorithms`).
 - [ ] 0.1.2 Add CSR-aware tests on the frozen `CsmGraph` for each new algorithm (articulation points, bridges, reachability, pathway centrality) covering disconnected and single-node graphs.
 - [ ] 0.1.3 Track the upstream release version and pin it; record that causaloids C4, C5, C5b, C7, C8, C9 gate on this release and the full causaloid set ships at launch.
@@ -21,7 +22,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `cdc.platform.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget. NOT pgoutput CDC / NOT logical replication.
 - [x] 0.3.1b Hook `health_events` (tap `HealthTracker.record_state_change/3` — old/new already in hand).
 - [x] 0.3.1c Hook `service_state` (NOT the `service_status` hypertable): pre-fetch prior availability in `ServiceStateRegistry.upsert_from_status/1` (gated behind `enabled?/0`) and publish only on a real transition; keyed by composite service identity (Decision 2).
-- [ ] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex` (raw `Repo.insert_all` bulk path: pre-fetch is_available/is_managed for the uids being written, diff after the upsert, publish per changed device; scope to is_available+is_managed, defer risk_score). DEFERRED — highest-risk edit; do with focused attention.
+- [x] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex`: gated pre-fetch of prior is_available/is_managed by uid before `upsert_devices`, diff after `{:ok, remap}` (publishes against the remapped final uid). COALESCE-aware — only a non-nil incoming value that differs counts as a transition; risk_score deferred (separate DeviceRiskReducer rollup hook).
 - [ ] 0.3.1e Hook virtualization + AGE-projection transition write-sites (not yet grounded). DEFERRED.
 - [x] 0.3.2 `service_state` (not the `service_status` hypertable) is the transition surface; the publisher targets only current-state tables. Add an explicit hypertable-exclusion guard/test when the ocsf_devices/virt hooks land.
 - [x] 0.3.3 Identity per table: `ocsf_devices` → `sr:` `uid`; `service_state` → composite `agent_id:service_type:service_name` (Decision 2); `health_events` → writer `entity_id`. The engine maps `(table, entity_uid)` into one canonical space.
