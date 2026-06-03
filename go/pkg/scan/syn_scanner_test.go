@@ -27,6 +27,7 @@ import (
 	"net"
 	"os"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"testing"
 	"time"
@@ -369,6 +370,76 @@ func TestSYNScannerRetryAndRateMetricAccounting(t *testing.T) {
 	assert.Equal(t, uint64(1), stats.SourcePortWaits)
 	assert.Equal(t, uint64(25*time.Millisecond), stats.RateLimitWaitNanos)
 	assert.Equal(t, uint64(10*time.Millisecond), stats.SourcePortWaitNanos)
+}
+
+func TestSYNScannerRunRingReaderPersistsCursor(t *testing.T) {
+	t.Parallel()
+
+	const (
+		blockSize = 64
+		blockNr   = 3
+	)
+
+	scanner := &SYNScanner{
+		ringPollTimeoutMs: 1,
+		logger:            logger.NewTestLogger(),
+	}
+	ring := &ringBuf{
+		fd:        -1,
+		mem:       make([]byte, blockSize*blockNr),
+		blockSize: blockSize,
+		blockNr:   blockNr,
+		cursor:    1,
+	}
+
+	markRingBlockReady(t, ring, 1)
+	runSyntheticRingReaderUntil(t, scanner, ring, func() bool {
+		return atomic.LoadUint32(&ring.cursor) == 2 &&
+			atomic.LoadUint64(&scanner.stats.RingBlocksProcessed) == 1 &&
+			loadU32(ring.block(1), h1_status_off)&tpStatusUser == 0
+	})
+
+	markRingBlockReady(t, ring, 2)
+	runSyntheticRingReaderUntil(t, scanner, ring, func() bool {
+		return atomic.LoadUint32(&ring.cursor) == 0 &&
+			atomic.LoadUint64(&scanner.stats.RingBlocksProcessed) == 2 &&
+			loadU32(ring.block(2), h1_status_off)&tpStatusUser == 0
+	})
+}
+
+func markRingBlockReady(t *testing.T, ring *ringBuf, idx uint32) {
+	t.Helper()
+
+	blk := ring.block(idx)
+	require.NotNil(t, blk)
+	require.GreaterOrEqual(t, len(blk), int(h1_first_pkt_off+uint32Size))
+
+	storeU32(blk, h1_status_off, tpStatusUser)
+	hostEndian.PutUint32(blk[h1_num_pkts_off:h1_num_pkts_off+uint32Size], 0)
+	hostEndian.PutUint32(blk[h1_first_pkt_off:h1_first_pkt_off+uint32Size], h1_first_pkt_off+uint32Size)
+}
+
+func runSyntheticRingReaderUntil(t *testing.T, scanner *SYNScanner, ring *ringBuf, ready func() bool) {
+	t.Helper()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+
+	go func() {
+		defer close(done)
+		scanner.runRingReader(ctx, ring)
+	}()
+
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Fatal("timed out waiting for synthetic ring reader to stop")
+		}
+	}()
+
+	require.Eventually(t, ready, time.Second, 10*time.Millisecond)
 }
 
 func newTestSYNScannerForIPv6Reply(
