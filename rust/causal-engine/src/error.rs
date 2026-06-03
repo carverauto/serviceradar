@@ -13,6 +13,10 @@ pub enum CausalEngineError {
     #[error("hydration error: {0}")]
     Hydration(String),
 
+    /// NATS connection or subscription error.
+    #[error("nats error: {0}")]
+    Nats(String),
+
     /// Causaloid evaluation failed.
     #[error("reasoning error: {0}")]
     Reasoning(String),

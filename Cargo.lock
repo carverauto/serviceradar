@@ -1125,6 +1125,7 @@ dependencies = [
  "async-trait",
  "chrono",
  "envy",
+ "futures",
  "pretty_assertions",
  "serde 1.0.228",
  "serde_json 1.0.150",

@@ -6,13 +6,14 @@
 
 use std::time::Duration;
 
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use causal_engine::config::Config;
 use causal_engine::context_hydrator::{ContextHydrator, ContextStore};
 use causal_engine::emitter::Emitter;
 use causal_engine::reasoner::Reasoner;
 use causal_engine::snapshot::SnapshotStore;
+use causal_engine::{nats, subscriber};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -21,20 +22,34 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     info!(?config, "starting causal-engine");
 
+    let (nats_client, jetstream) = nats::connect(&config).await?;
     let hydrator = ContextHydrator::connect().await?;
     let reasoner = Reasoner::new();
-    let emitter = Emitter::connect(&config.nats_url).await?;
+    let emitter = Emitter::new(jetstream);
     let snapshot = SnapshotStore::new();
 
     // TODO(1.7): restore-on-start, then catch up from the JetStream sequence.
     snapshot.restore()?;
 
-    let mut tick = tokio::time::interval(Duration::from_millis(config.tick_interval_ms));
+    // Live push input: apply `signals.state.>` deltas to the shared Context
+    // between SRQL refreshes (best-effort; refresh reconciles any gaps).
+    let _subscriber = subscriber::spawn(nats_client, hydrator.shared_context());
+
+    // Two cadences: reason frequently; re-snapshot (reconcile + pick up new
+    // entities) on a slower interval. Both operate on the one shared Context.
+    let mut reason = tokio::time::interval(Duration::from_millis(config.tick_interval_ms));
+    let mut refresh = tokio::time::interval(Duration::from_millis(config.refresh_interval_ms));
     loop {
-        tick.tick().await;
-        match run_tick(&hydrator, &reasoner, &emitter).await {
-            Ok(count) => info!(verdicts = count, "reasoning tick complete"),
-            Err(err) => error!(error = %err, "reasoning tick failed"),
+        tokio::select! {
+            _ = reason.tick() => match run_tick(&hydrator, &reasoner, &emitter).await {
+                Ok(count) => info!(verdicts = count, "reasoning tick complete"),
+                Err(err) => error!(error = %err, "reasoning tick failed"),
+            },
+            _ = refresh.tick() => {
+                if let Err(err) = hydrator.refresh().await {
+                    warn!(error = %err, "context refresh failed");
+                }
+            }
         }
     }
 }

@@ -5,9 +5,12 @@
 //! future hydrator/reasoner split (a gRPC/NATS implementation) without a
 //! rewrite (add-causal-engine design.md, the `ContextStore` decision).
 
+use std::sync::Arc;
+
 use async_trait::async_trait;
 use srql::config::AppConfig;
 use srql::{EmbeddedSrql, QueryDirection, QueryRequest};
+use tokio::sync::RwLock;
 use tracing::warn;
 
 use crate::domain_model::{Context, Device, Service};
@@ -25,34 +28,58 @@ pub trait ContextStore: Send + Sync {
 
 /// V1 in-process hydrator.
 ///
-/// Feed 1 (current-state snapshot) is implemented here via `EmbeddedSrql` over
-/// CNPG. TODO(1.2b): add the live-delta feeds and merge them into the `Context`:
-///   - a JetStream subscriber for the existing causal subjects
-///     (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF);
-///   - a JetStream subscriber for the app-level `signals.state.<table>`
-///     state-change feed (Phase 0, Decision 1).
+/// Holds the shared `Context`: seeded by an initial `EmbeddedSrql` snapshot in
+/// [`ContextHydrator::connect`], refreshed periodically by
+/// [`ContextHydrator::refresh`] (reconcile + pick up new entities), and kept
+/// current between refreshes by the live `signals.state.>` subscriber
+/// ([`crate::subscriber`]), which applies deltas to the same shared `Context`.
 ///
-/// Also broaden coverage to interfaces, agents, gateways, flows, virtualization,
-/// BGP, MTR, and health transitions. Never consume TimescaleDB hypertable CDC
-/// (those are queried on demand here).
+/// TODO(1.2b+): a subscriber for the existing causal subjects
+/// (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF), and
+/// broaden coverage to interfaces, agents, gateways, flows, virtualization, BGP,
+/// MTR, and health transitions. Never consume TimescaleDB hypertable CDC (those
+/// are queried on demand here).
 pub struct ContextHydrator {
     srql: EmbeddedSrql,
+    ctx: Arc<RwLock<Context>>,
     max_rows: i64,
 }
 
 impl ContextHydrator {
-    /// Open a CNPG pool via `EmbeddedSrql`, using srql's `AppConfig`
-    /// (`SRQL_*` / `DATABASE_URL` env) shared across the deployment.
+    /// Open a CNPG pool via `EmbeddedSrql` (srql `AppConfig` from `SRQL_*` /
+    /// `DATABASE_URL` env) and seed the shared `Context` with an initial snapshot.
     pub async fn connect() -> Result<Self> {
         let config = AppConfig::from_env()
             .map_err(|e| CausalEngineError::Hydration(format!("srql config: {e}")))?;
         let srql = EmbeddedSrql::new(config)
             .await
             .map_err(|e| CausalEngineError::Hydration(format!("embedded srql: {e}")))?;
-        Ok(Self {
+        let hydrator = Self {
             srql,
+            ctx: Arc::new(RwLock::new(Context::default())),
             max_rows: DEFAULT_MAX_HYDRATION_ROWS,
-        })
+        };
+        hydrator.refresh().await?;
+        Ok(hydrator)
+    }
+
+    /// Re-snapshot current state from CNPG and replace the shared `Context`.
+    /// Called periodically to reconcile and pick up new entities; live
+    /// `signals.state.>` deltas keep the `Context` current between refreshes.
+    pub async fn refresh(&self) -> Result<()> {
+        let devices = self.query("in:devices").await?;
+        let services = self.query("in:services").await?;
+        let snapshot = Context {
+            devices: devices.iter().filter_map(map_device).collect(),
+            services: services.iter().filter_map(map_service).collect(),
+        };
+        *self.ctx.write().await = snapshot;
+        Ok(())
+    }
+
+    /// A handle to the shared `Context` for the live state-change subscriber.
+    pub fn shared_context(&self) -> Arc<RwLock<Context>> {
+        Arc::clone(&self.ctx)
     }
 
     /// Run an SRQL query and return its result rows, surfacing engine-side errors.
@@ -85,15 +112,9 @@ impl ContextHydrator {
 #[async_trait]
 impl ContextStore for ContextHydrator {
     async fn current_context(&self) -> Result<Context> {
-        // Feed 1: current-state snapshot via EmbeddedSrql. TODO(1.2b): merge live
-        // JetStream + signals.state.<table> deltas and broaden entity coverage.
-        let devices = self.query("in:devices").await?;
-        let services = self.query("in:services").await?;
-
-        Ok(Context {
-            devices: devices.iter().filter_map(map_device).collect(),
-            services: services.iter().filter_map(map_service).collect(),
-        })
+        // The shared Context is seeded by `refresh` and kept current by the live
+        // `signals.state.>` subscriber; hand the reasoner a clone under a read lock.
+        Ok(self.ctx.read().await.clone())
     }
 }
 

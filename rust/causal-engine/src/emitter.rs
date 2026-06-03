@@ -8,7 +8,7 @@
 //! DETERMINISTIC so re-emitting the same verdict is idempotent (the processor
 //! dedupes on `event_identity`).
 
-use async_nats::jetstream::{self, Context as JetStreamContext};
+use async_nats::jetstream::Context as JetStreamContext;
 use chrono::Utc;
 use serde_json::{json, Value};
 
@@ -21,19 +21,12 @@ const PREDICTION_SUBJECT_ROOT: &str = "signals.causal.predictions";
 /// Publishes verdicts to the prediction subject via JetStream.
 pub struct Emitter {
     js: JetStreamContext,
-    subject_root: String,
 }
 
 impl Emitter {
-    /// Connect to NATS and obtain a JetStream context.
-    pub async fn connect(nats_url: &str) -> Result<Self> {
-        let client = async_nats::connect(nats_url)
-            .await
-            .map_err(|e| CausalEngineError::Emit(format!("nats connect: {e}")))?;
-        Ok(Self {
-            js: jetstream::new(client),
-            subject_root: PREDICTION_SUBJECT_ROOT.to_string(),
-        })
+    /// Build an emitter over an existing JetStream context (see [`crate::nats::connect`]).
+    pub fn new(js: JetStreamContext) -> Self {
+        Self { js }
     }
 
     /// Publish a batch of verdicts, one message per verdict, awaiting each ack.
@@ -43,8 +36,7 @@ impl Emitter {
             let payload = serde_json::to_vec(&envelope)
                 .map_err(|e| CausalEngineError::Emit(format!("encode: {e}")))?;
             let subject = format!(
-                "{}.{}",
-                self.subject_root,
+                "{PREDICTION_SUBJECT_ROOT}.{}",
                 subject_token(&verdict.entity_id)
             );
             self.js

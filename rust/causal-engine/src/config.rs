@@ -14,12 +14,25 @@ pub struct Config {
     /// CNPG port.
     #[serde(default = "default_cnpg_port")]
     pub cnpg_port: u16,
-    /// NATS URL (JetStream deltas in 1.2; `signals.causal.predictions` emit in 1.6).
+    /// NATS URL (live `signals.state.>` deltas in; `signals.causal.predictions` out).
     #[serde(default = "default_nats_url")]
     pub nats_url: String,
-    /// Reasoning-tick cadence in milliseconds (delta-driven ticks land in 1.2).
+    /// Optional NATS mTLS root CA path.
+    #[serde(default)]
+    pub nats_ca_file: Option<String>,
+    /// Optional NATS mTLS client certificate path.
+    #[serde(default)]
+    pub nats_cert_file: Option<String>,
+    /// Optional NATS mTLS client key path.
+    #[serde(default)]
+    pub nats_key_file: Option<String>,
+    /// Reasoning-tick cadence in milliseconds.
     #[serde(default = "default_tick_interval_ms")]
     pub tick_interval_ms: u64,
+    /// Full SRQL re-snapshot cadence in milliseconds (reconciles + picks up new
+    /// entities; live `signals.state.>` deltas keep the Context current between).
+    #[serde(default = "default_refresh_interval_ms")]
+    pub refresh_interval_ms: u64,
     /// On-disk Context snapshot path for fast restart (task 1.7).
     #[serde(default = "default_snapshot_path")]
     pub snapshot_path: String,
@@ -39,6 +52,10 @@ fn default_nats_url() -> String {
 
 fn default_tick_interval_ms() -> u64 {
     5_000
+}
+
+fn default_refresh_interval_ms() -> u64 {
+    30_000
 }
 
 fn default_snapshot_path() -> String {

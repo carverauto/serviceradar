@@ -18,8 +18,10 @@ pub mod delta;
 pub mod domain_model;
 pub mod emitter;
 pub mod error;
+pub mod nats;
 pub mod reasoner;
 pub mod snapshot;
+pub mod subscriber;
 
 pub use config::Config;
 pub use context_hydrator::{ContextHydrator, ContextStore};
