@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   use ServiceRadarWebNGWeb, :controller
 
   alias ServiceRadar.Edge.OnboardingPackage
+  alias ServiceRadar.Security.Events, as: SecurityEvents
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Edge.BundleGenerator
   alias ServiceRadarWebNG.Edge.ComponentTemplates
@@ -198,20 +199,25 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
   """
   def download(conn, %{"id" => id}) do
     download_token = extract_download_token(conn)
+    source_ip = ClientIP.get(conn)
+    route = "/api/admin/edge-packages/:id/download"
 
     if download_token in [nil, ""] do
+      record_onboarding_audit({:failure, :missing_download_token}, id, source_ip, route)
+
       conn
       |> put_status(:bad_request)
       |> json(%{error: "download_token is required"})
     else
-      source_ip = ClientIP.get(conn)
       actor = nil
 
       case download_with_token(id, download_token, source_ip, actor) do
         {:ok, result} ->
+          record_onboarding_audit(:success, id, source_ip, route)
           json(conn, result)
 
         {:error, reason} ->
+          record_onboarding_audit({:failure, reason}, id, source_ip, route)
           handle_download_error(conn, reason)
       end
     end
@@ -329,20 +335,26 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
     download_token = extract_download_token(conn)
     source_ip = ClientIP.get(conn)
     base_url = ServiceRadarWebNGWeb.Endpoint.url()
+    route = "/api/edge-packages/:id/bundle"
 
     if download_token in [nil, ""] do
+      record_onboarding_audit({:failure, :missing_download_token}, id, source_ip, route)
+
       conn
       |> put_status(:bad_request)
       |> json(%{error: "download token is required"})
     else
       case bundle_with_token(id, download_token, source_ip, base_url) do
         {:ok, tarball, filename} ->
+          record_onboarding_audit(:success, id, source_ip, route)
+
           conn
           |> put_resp_content_type("application/gzip")
           |> put_resp_header("content-disposition", "attachment; filename=\"#{filename}\"")
           |> send_resp(200, tarball)
 
         {:error, reason} ->
+          record_onboarding_audit({:failure, reason}, id, source_ip, route)
           handle_bundle_error(conn, reason)
       end
     end
@@ -433,6 +445,44 @@ defmodule ServiceRadarWebNGWeb.Api.EdgeController do
          actor: onboarding_token_actor(payload)
        }}
     end
+  end
+
+  # Emit a structured audit event (surfaced at /settings/audit/events) and a log line for
+  # every edge-onboarding bundle/download attempt — success and failure — so operators can
+  # see when an agent enrolls and exactly why an attempt was rejected.
+  defp record_onboarding_audit(outcome, package_id, source_ip, route) do
+    {kind, severity, reason} =
+      case outcome do
+        :success -> {:edge_onboarding_succeeded, :info, nil}
+        {:failure, reason} -> {:edge_onboarding_failed, :warning, reason}
+      end
+
+    ip = source_ip || "unknown"
+
+    if is_nil(reason) do
+      Logger.info("edge onboarding bundle delivered package_id=#{package_id} ip=#{ip} route=#{route}")
+    else
+      Logger.warning(
+        "edge onboarding attempt failed package_id=#{package_id} ip=#{ip} route=#{route} reason=#{inspect(reason)}"
+      )
+    end
+
+    details =
+      if is_nil(reason) do
+        %{package_id: package_id}
+      else
+        %{package_id: package_id, reason: inspect(reason)}
+      end
+
+    SecurityEvents.record(%{
+      kind: kind,
+      severity: severity,
+      ip: source_ip,
+      route: route,
+      details: details
+    })
+
+    :ok
   end
 
   defp onboarding_token_actor(%{pkg: package_id, partition_id: partition_id}) do
