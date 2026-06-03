@@ -17,7 +17,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 0.2.4 Post-deploy: run a full canonical-topology refresh so stored `telemetry_eligible` reconciles (the edit changes computed eligibility, not existing rows retroactively).
 
 ### 0.3 App-level state-change-events publisher in core-elx (Decision 1) (capability: observability-signals) — PARTIAL
-- [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `cdc.platform.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget. NOT pgoutput CDC / NOT logical replication.
+- [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `signals.state.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget. NOT pgoutput CDC / NOT logical replication.
 - [x] 0.3.1b Hook `health_events` (tap `HealthTracker.record_state_change/3` — old/new already in hand).
 - [x] 0.3.1c Hook `service_state` (NOT the `service_status` hypertable): pre-fetch prior availability in `ServiceStateRegistry.upsert_from_status/1` (gated behind `enabled?/0`) and publish only on a real transition; keyed by composite service identity (Decision 2).
 - [x] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex`: gated pre-fetch of prior is_available/is_managed by uid before `upsert_devices`, diff after `{:ok, remap}` (publishes against the remapped final uid). COALESCE-aware — only a non-nil incoming value that differs counts as a transition; risk_score deferred (separate DeviceRiskReducer rollup hook).
@@ -25,7 +25,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 0.3.2 `service_state` (not the `service_status` hypertable) is the transition surface; the publisher targets only current-state tables. Add an explicit hypertable-exclusion guard/test when the ocsf_devices/virt hooks land.
 - [x] 0.3.3 Identity per table: `ocsf_devices` → `sr:` `uid`; `service_state` → composite `agent_id:service_type:service_name` (Decision 2); `health_events` → writer `entity_id`. The engine maps `(table, entity_uid)` into one canonical space.
 - [x] 0.3.4 Envelope carries before/after (`explainability.old/new`), `partition_id`, per-node monotonic `seq`, `event_time`, and `event_identity` (engine dedupes on `event_identity`). Unit test: `test/serviceradar/event_writer/state_change_publisher_test.exs`.
-- [ ] 0.3.5 Provision the `cdc.platform.>` JetStream STREAM + consumer/processor with the Phase-1 engine consumer (see 1.2.3) — deferred so app startup is not coupled to a not-yet-existing processor module.
+- [ ] 0.3.5 Provision the `signals.state.>` JetStream STREAM + consumer/processor with the Phase-1 engine consumer (see 1.2.3) — deferred so app startup is not coupled to a not-yet-existing processor module.
 
 ## 1. Phase 1 — V1 Engine (weeks)
 
@@ -38,7 +38,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feed 1 done
 - [x] 1.2.1 Feed 1 (current-state snapshot): `ContextHydrator::connect()` builds `EmbeddedSrql` from srql `AppConfig::from_env`, and `current_context()` runs SRQL queries (`in:devices`, `in:services`) via `QueryEngine::execute_query`, mapping result rows into the `Context` (Device/Service). On-demand continuous-aggregate + AGE `graph_cypher` queries land as coverage broadens (1.2b). Unit-tested row mappers.
 - [ ] 1.2.2 Feed 2: JetStream subscriber for live deltas on EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF). (1.2b)
-- [ ] 1.2.3 Feed 3: app-level `cdc.platform.<table>` state-change-events. Delta parse/apply CORE landed (`delta.rs`: `parse_state_change` of the StateChangePublisher envelope + `apply_delta` mutating the in-memory Context for ocsf_devices is_available/is_managed and service_state available; unit-tested). REMAINING: the async JetStream subscriber maintaining a shared Context (Arc<RwLock>) that applies deltas between snapshots, + provision the `cdc.platform.>` stream. (1.2b)
+- [ ] 1.2.3 Feed 3: app-level `signals.state.<table>` state-change-events. Delta parse/apply CORE landed (`delta.rs`: `parse_state_change` of the StateChangePublisher envelope + `apply_delta` mutating the in-memory Context for ocsf_devices is_available/is_managed and service_state available; unit-tested). REMAINING: the async JetStream subscriber maintaining a shared Context (Arc<RwLock>) that applies deltas between snapshots, + provision the `signals.state.>` stream. (1.2b)
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
 - [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 

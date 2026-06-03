@@ -63,7 +63,7 @@ defmodule ServiceRadar.EventWriter.StateChangePublisherTest do
   end
 
   describe "build_envelope/3" do
-    test "builds a normalized cdc.platform envelope" do
+    test "builds a normalized signals.state envelope" do
       env =
         StateChangePublisher.build_envelope("ocsf_devices", "sr:device:abc",
           field: "is_available",
@@ -74,11 +74,11 @@ defmodule ServiceRadar.EventWriter.StateChangePublisherTest do
         )
 
       assert env["schema_version"] == "1.0"
-      assert env["signal_type"] == "cdc"
+      assert env["signal_type"] == "state_change"
       assert env["event_type"] == "state_transition"
       assert env["primary_domain"] == "data_change"
       assert env["signal_domains"] == ["data_change"]
-      assert env["source"]["subject"] == "cdc.platform.ocsf_devices"
+      assert env["source"]["subject"] == "signals.state.ocsf_devices"
       assert env["source"]["collector"] == "serviceradar_core"
 
       assert env["source_identity"] == %{

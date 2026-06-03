@@ -29,7 +29,7 @@ pub trait ContextStore: Send + Sync {
 /// CNPG. TODO(1.2b): add the live-delta feeds and merge them into the `Context`:
 ///   - a JetStream subscriber for the existing causal subjects
 ///     (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF);
-///   - a JetStream subscriber for the app-level `cdc.platform.<table>`
+///   - a JetStream subscriber for the app-level `signals.state.<table>`
 ///     state-change feed (Phase 0, Decision 1).
 ///
 /// Also broaden coverage to interfaces, agents, gateways, flows, virtualization,
@@ -86,7 +86,7 @@ impl ContextHydrator {
 impl ContextStore for ContextHydrator {
     async fn current_context(&self) -> Result<Context> {
         // Feed 1: current-state snapshot via EmbeddedSrql. TODO(1.2b): merge live
-        // JetStream + cdc.platform.<table> deltas and broaden entity coverage.
+        // JetStream + signals.state.<table> deltas and broaden entity coverage.
         let devices = self.query("in:devices").await?;
         let services = self.query("in:services").await?;
 

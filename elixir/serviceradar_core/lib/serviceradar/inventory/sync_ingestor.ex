@@ -268,7 +268,7 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
 
   # add-causal-engine (Decision 1): capture prior device availability/managed
   # state BEFORE the bulk upsert so transitions can be published to
-  # cdc.platform.ocsf_devices afterward. Gated behind the feed flag so disabled
+  # signals.state.ocsf_devices afterward. Gated behind the feed flag so disabled
   # deployments incur no extra read; best-effort (never affects ingestion).
   defp previous_device_states(device_records) do
     if StateChangePublisher.enabled?() do

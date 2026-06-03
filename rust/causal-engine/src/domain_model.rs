@@ -12,7 +12,7 @@ pub type EntityId = String;
 ///
 /// TODO(1.2): populate from `EmbeddedSrql` (current state + on-demand
 /// continuous-aggregate queries + AGE topology) merged with JetStream and
-/// `cdc.platform.<table>` deltas. Extend with interfaces, agents, gateways,
+/// `signals.state.<table>` deltas. Extend with interfaces, agents, gateways,
 /// flows, virtualization, BGP, MTR, and health-transition state.
 #[derive(Debug, Clone, Default)]
 pub struct Context {

@@ -55,7 +55,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   def upsert_from_status(_), do: :ok
 
   # add-causal-engine (Decision 1): capture prior availability BEFORE the upsert
-  # so a transition can be published to cdc.platform.service_state afterward.
+  # so a transition can be published to signals.state.service_state afterward.
   # Gated behind the feed flag (StateChangePublisher.enabled?/0) so disabled
   # deployments incur no extra read; best-effort (never affects the upsert).
   defp previous_service_availability(attrs, actor) do

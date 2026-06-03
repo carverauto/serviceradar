@@ -106,7 +106,7 @@ Non-Goals (V1):
 
 ### Decision 1 — Live state deltas via app-level NATS change-events, not pgoutput CDC
 
-The engine subscribes to `cdc.platform.<table>` subjects to which core-elx
+The engine subscribes to `signals.state.<table>` subjects to which core-elx
 publishes **application-level state TRANSITIONS** for `ocsf_devices`,
 `service_status`, and `health_events` (plus virtualization and AGE-projection
 state). This is emitted by application code at the point of transition, not by
@@ -123,7 +123,7 @@ on-demand via SRQL).
 Alternatives considered:
 
 - **pgoutput logical replication / a CDC slot republishing to
-  `cdc.platform.<table>`** (what the Integration-assessment originally
+  `signals.state.<table>`** (what the Integration-assessment originally
   proposed). Rejected: no logical replication exists today; a slot adds
   operational surface (slot lag, WAL retention, schema-drift coupling) and
   emits row images without transition semantics, forcing the engine to diff
@@ -255,7 +255,7 @@ Alternatives considered:
   endpoint-cluster summary node. Mitigation: route verdicts through
   `RuntimeGraph` canonicalization and resolve to the summary id when one exists;
   add a shadow-phase divergence check for unrendered verdicts.
-- **Change-event ordering / at-least-once.** App-level `cdc.platform.<table>`
+- **Change-event ordering / at-least-once.** App-level `signals.state.<table>`
   events are at-least-once and may arrive out of order. Mitigation: transitions
   carry old->new + a monotonic marker; the hydrator applies them idempotently
   against current Context state and reconciles against periodic SRQL snapshots

@@ -2,7 +2,7 @@
 //!
 //! OpenSpec change: `add-causal-engine`. This is the single-pod fused V1 service:
 //! a [`context_hydrator`] feeds a DeepCausality `Context` from CNPG (via
-//! `EmbeddedSrql`), JetStream deltas, and the `cdc.platform.<table>` app-level
+//! `EmbeddedSrql`), JetStream deltas, and the `signals.state.<table>` app-level
 //! state-change feed; a [`reasoner`] evaluates causaloids C1–C13 over an
 //! `ultragraph` `CsmGraph`; and an [`emitter`] publishes verdicts on
 //! `signals.causal.predictions`, which the existing `CausalSignals` processor

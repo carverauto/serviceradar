@@ -37,7 +37,7 @@ The engine SHALL hydrate its causal `Context` using the embedded SRQL query engi
 
 ### Requirement: Live Delta Ingestion
 
-The engine SHALL keep its `Context` current by consuming live deltas from two sources. First, it SHALL run a JetStream subscriber on the EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, and the zen-consumer OCSF output). Second, it SHALL subscribe to the app-level state-change-events feed in which core-elx publishes `ocsf_devices`, `service_status`, and `health_events` (and virtualization and AGE-projection) state TRANSITIONS to `cdc.platform.<table>` subjects. This feed is an APPLICATION-LEVEL change-event feed; the engine MUST NOT consume pgoutput CDC, MUST NOT consume logical replication, and MUST NOT stream TimescaleDB hypertables (those are queried on demand per Context Hydration via EmbeddedSrql).
+The engine SHALL keep its `Context` current by consuming live deltas from two sources. First, it SHALL run a JetStream subscriber on the EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, and the zen-consumer OCSF output). Second, it SHALL subscribe to the app-level state-change-events feed in which core-elx publishes `ocsf_devices`, `service_status`, and `health_events` (and virtualization and AGE-projection) state TRANSITIONS to `signals.state.<table>` subjects. This feed is an APPLICATION-LEVEL change-event feed; the engine MUST NOT consume pgoutput CDC, MUST NOT consume logical replication, and MUST NOT stream TimescaleDB hypertables (those are queried on demand per Context Hydration via EmbeddedSrql).
 
 #### Scenario: Live causal subjects update the Context
 
@@ -47,7 +47,7 @@ The engine SHALL keep its `Context` current by consuming live deltas from two so
 
 #### Scenario: App-level state transitions update the Context
 
-- **WHEN** core-elx publishes a state transition for `ocsf_devices`, `service_status`, or `health_events` to `cdc.platform.<table>`
+- **WHEN** core-elx publishes a state transition for `ocsf_devices`, `service_status`, or `health_events` to `signals.state.<table>`
 - **THEN** the engine SHALL apply the transition to the in-process `Context`
 
 #### Scenario: Hypertable and pgoutput CDC are not consumed

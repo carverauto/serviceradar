@@ -1,6 +1,6 @@
 //! Live state-change deltas (task 1.2b).
 //!
-//! Parses the `cdc.platform.<table>` envelopes published by core-elx's
+//! Parses the `signals.state.<table>` envelopes published by core-elx's
 //! `StateChangePublisher` (Phase 0, Decision 1) into typed deltas and applies
 //! them to the in-memory `Context` between full `EmbeddedSrql` snapshots. The
 //! async JetStream subscriber that drives this lands as the next sub-step of 1.2.
@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use crate::domain_model::Context;
 
-/// A parsed state transition from a `cdc.platform.<table>` envelope.
+/// A parsed state transition from a `signals.state.<table>` envelope.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StateChangeDelta {
     /// Source current-state table (e.g. `ocsf_devices`, `service_state`).
@@ -22,7 +22,7 @@ pub struct StateChangeDelta {
     pub new_value: Value,
 }
 
-/// Parse a `cdc.platform.<table>` envelope (the `StateChangePublisher` shape)
+/// Parse a `signals.state.<table>` envelope (the `StateChangePublisher` shape)
 /// into a delta. Returns `None` when the envelope is not a usable transition.
 pub fn parse_state_change(envelope: &Value) -> Option<StateChangeDelta> {
     let identity = envelope.get("source_identity")?;
@@ -92,9 +92,9 @@ mod tests {
     use crate::domain_model::{Context, Device, Service};
     use serde_json::json;
 
-    fn cdc_envelope(table: &str, entity_uid: &str, field: &str, new: Value) -> Value {
+    fn state_change_envelope(table: &str, entity_uid: &str, field: &str, new: Value) -> Value {
         json!({
-            "signal_type": "cdc",
+            "signal_type": "state_change",
             "source_identity": { "table": table, "entity_uid": entity_uid },
             "explainability": { "field": field, "old": Value::Null, "new": new }
         })
@@ -102,7 +102,7 @@ mod tests {
 
     #[test]
     fn parses_a_device_transition() {
-        let d = parse_state_change(&cdc_envelope(
+        let d = parse_state_change(&state_change_envelope(
             "ocsf_devices",
             "sr:device:abc",
             "is_available",
@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn rejects_malformed_envelopes() {
         assert!(parse_state_change(&json!({})).is_none());
-        assert!(parse_state_change(&cdc_envelope(
+        assert!(parse_state_change(&state_change_envelope(
             "ocsf_devices",
             "",
             "is_available",
@@ -140,7 +140,7 @@ mod tests {
             services: vec![],
         };
 
-        let delta = parse_state_change(&cdc_envelope(
+        let delta = parse_state_change(&state_change_envelope(
             "ocsf_devices",
             "sr:device:abc",
             "is_available",
@@ -162,7 +162,7 @@ mod tests {
             }],
         };
 
-        let delta = parse_state_change(&cdc_envelope(
+        let delta = parse_state_change(&state_change_envelope(
             "service_state",
             "agent-1:grpc:datasvc",
             "available",
@@ -177,7 +177,7 @@ mod tests {
     #[test]
     fn ignores_unknown_entity_or_table() {
         let mut ctx = Context::default();
-        let delta = parse_state_change(&cdc_envelope(
+        let delta = parse_state_change(&state_change_envelope(
             "ocsf_devices",
             "sr:device:missing",
             "is_available",

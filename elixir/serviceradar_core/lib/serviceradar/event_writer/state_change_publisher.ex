@@ -1,6 +1,6 @@
 defmodule ServiceRadar.EventWriter.StateChangePublisher do
   @moduledoc """
-  Publishes app-level state TRANSITIONS to `cdc.platform.<table>` NATS subjects
+  Publishes app-level state TRANSITIONS to `signals.state.<table>` NATS subjects
   for the causal engine to consume (OpenSpec change `add-causal-engine`,
   Decision 1: app-level NATS change-events).
 
@@ -28,10 +28,10 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
   require Logger
 
   @schema_version "1.0"
-  @signal_type "cdc"
+  @signal_type "state_change"
   @event_type "state_transition"
-  @subject_prefix "cdc.platform."
-  @telemetry [:serviceradar, :cdc, :published]
+  @subject_prefix "signals.state."
+  @telemetry [:serviceradar, :state_change, :published]
 
   @type transition_opt ::
           {:field, String.t()}
@@ -54,7 +54,7 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
 
   @doc """
   Builds a transition envelope for `(table, entity_uid)` and publishes it to
-  `cdc.platform.<table>`. No-ops when the feed is disabled or when `entity_uid`
+  `signals.state.<table>`. No-ops when the feed is disabled or when `entity_uid`
   is not a usable (non-empty binary) identifier.
   """
   @spec publish_transition(String.t(), term(), [transition_opt()]) :: :ok
@@ -77,7 +77,7 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
   end
 
   @doc """
-  Publishes a pre-built envelope to `cdc.platform.<table>`. Self-gating on
+  Publishes a pre-built envelope to `signals.state.<table>`. Self-gating on
   `enabled?/0`; never raises.
   """
   @spec publish(String.t(), map()) :: :ok

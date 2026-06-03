@@ -3,24 +3,24 @@
 ## ADDED Requirements
 
 ### Requirement: State-Change Event Feed
-The system SHALL publish application-level state-TRANSITION events for current-state tables to NATS subjects of the form `cdc.platform.<table>` so that the causal engine can consume live state deltas without logical replication or pgoutput CDC. The feed SHALL cover the current-state tables `ocsf_devices`, `service_status`, and `health_events` (and MAY cover additional current-state projections such as virtualization and AGE topology projection). Delivery SHALL be at-least-once, and consumers SHALL treat events as idempotent on the canonical entity identity. The feed SHALL NEVER stream TimescaleDB hypertables; hypertable state SHALL be queried on-demand via SRQL/EmbeddedSrql instead.
+The system SHALL publish application-level state-TRANSITION events for current-state tables to NATS subjects of the form `signals.state.<table>` so that the causal engine can consume live state deltas without logical replication or pgoutput CDC. The feed SHALL cover the current-state tables `ocsf_devices`, `service_status`, and `health_events` (and MAY cover additional current-state projections such as virtualization and AGE topology projection). Delivery SHALL be at-least-once, and consumers SHALL treat events as idempotent on the canonical entity identity. The feed SHALL NEVER stream TimescaleDB hypertables; hypertable state SHALL be queried on-demand via SRQL/EmbeddedSrql instead.
 
 This is an application-emitted change feed, NOT logical replication. Events SHALL be published only when a row TRANSITIONS to a new state, not on every write, and SHALL carry the canonical `sr:`-prefixed entity identity (for example `ocsf_devices.uid`) so a consumer can reconcile against the canonical ID space without inventing a parallel one.
 
 #### Scenario: Device state transition published to NATS
 - **WHEN** an `ocsf_devices` row transitions to a new health or risk state
-- **THEN** the system SHALL publish a state-change event to `cdc.platform.ocsf_devices`
+- **THEN** the system SHALL publish a state-change event to `signals.state.ocsf_devices`
 - **AND** the event SHALL include the canonical device uid and the prior and new state values
 
 #### Scenario: Service status transition published to NATS
 - **WHEN** a `service_status` row transitions between availability states
-- **THEN** the system SHALL publish a state-change event to `cdc.platform.service_status`
+- **THEN** the system SHALL publish a state-change event to `signals.state.service_status`
 - **AND** delivery SHALL be at-least-once so a transient consumer outage does not silently drop the transition
 
 #### Scenario: Hypertables are never streamed on the feed
 - **GIVEN** a TimescaleDB hypertable such as a metrics or rule-history table receives writes
 - **WHEN** those writes occur
-- **THEN** the system SHALL NOT publish per-row change events for the hypertable on `cdc.platform.<table>`
+- **THEN** the system SHALL NOT publish per-row change events for the hypertable on `signals.state.<table>`
 - **AND** hypertable state SHALL be obtained on-demand via SRQL instead
 
 #### Scenario: Consumer treats redelivery idempotently

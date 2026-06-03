@@ -176,7 +176,7 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   defp maybe_broadcast_health_event(_event, false), do: :ok
 
   # add-causal-engine (Decision 1): mirror every health-state transition onto the
-  # cdc.platform.health_events feed for the causal engine. Self-gated (no-op when
+  # signals.state.health_events feed for the causal engine. Self-gated (no-op when
   # the feed is disabled) and best-effort — never affects the health-event write.
   defp maybe_publish_state_change(event) do
     ServiceRadar.EventWriter.StateChangePublisher.publish_transition(
