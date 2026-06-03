@@ -8,6 +8,7 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
+    mem, ptr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -35,13 +36,26 @@ const FLOW_ENDPOINT_B: u8 = 2;
 /// have to truncate.
 const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 #[cfg(target_os = "linux")]
-const FLOW_ATTRIBUTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
-// Periodically clear the per-flow dedup so the CURRENT flow_to_pid snapshot is
-// re-broadcast. Makes the attribution drain durable: a (re)connecting, briefly
-// lagging, or previously-absent agent reliably receives live attributions
-// instead of permanently losing the one-time broadcast (the broadcast channel
-// drops sends when no receiver is attached). Bounded; also caps `seen` growth.
+// Idle backoff for the flow-attribution ring reader. The reader drains the
+// FLOW_EVENTS BPF ring buffer (a cheap mmap read — no map scan); when the ring
+// is empty it sleeps this long before checking again, keeping idle CPU near
+// zero while staying responsive to new flows.
+const FLOW_ATTRIBUTION_RING_IDLE_SLEEP: Duration = Duration::from_millis(250);
+#[cfg(target_os = "linux")]
+// Re-broadcast the live attribution cache on this cadence. Makes the drain
+// durable: a (re)connecting, briefly lagging, or previously-absent agent
+// reliably receives live attributions instead of permanently losing the
+// one-time broadcast (the broadcast channel drops sends when no receiver is
+// attached). Also the point at which stale cache entries are pruned.
 const FLOW_ATTRIBUTION_RESEND_INTERVAL: Duration = Duration::from_secs(15);
+#[cfg(target_os = "linux")]
+// Drop a cached attribution that has not been refreshed by a new ring record
+// within this window. TCP flows are normally evicted on close; this bounds the
+// cache for flows that never emit a close (and caps memory regardless of churn).
+const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+// Mirrors EVENT_TCP_CLOSE in the eBPF: a close record evicts the flow.
+const EVENT_TCP_CLOSE: u16 = 3;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -82,6 +96,42 @@ pub struct ProcessInfoRecord {
 // SAFETY: ProcessInfoRecord is #[repr(C)], Copy, and contains only integer
 // fields and a fixed byte array. Its layout mirrors the eBPF process_info map value.
 unsafe impl aya::Pod for ProcessInfoRecord {}
+
+// Userspace mirror of the eBPF `FlowAttributionRecord` submitted to the
+// `flow_events` BPF ring buffer (rust/netprobe/ebpf/src/lib.rs). #[repr(C)] and
+// laid out byte-for-byte with the eBPF struct so a ring slot can be read
+// directly with `ptr::read_unaligned`. Only `inet_sock_set_state` records carry
+// a populated `tuple`; the per-packet tcp_connect/accept/close and udp send/recv
+// probes submit an empty tuple, so those records have no usable 5-tuple and are
+// skipped by the consumer.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FlowTupleRecord {
+    family: u16,
+    protocol: u16,
+    source_port: u16,
+    destination_port: u16,
+    source_addr: [u8; 16],
+    destination_addr: [u8; 16],
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FlowAttributionRecord {
+    version: u16,
+    event_kind: u16,
+    pid: u32,
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    socket_address: u64,
+    old_state: i32,
+    new_state: i32,
+    tuple: FlowTupleRecord,
+    comm: [u8; 16],
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessDetails {
@@ -217,7 +267,7 @@ impl ProcfsEnricher {
 
 #[cfg(target_os = "linux")]
 pub struct AyaAttributionReader {
-    flow_to_pid: aya::maps::HashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
+    ring: aya::maps::RingBuf<aya::maps::MapData>,
     process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
     procfs: ProcfsEnricher,
 }
@@ -225,33 +275,74 @@ pub struct AyaAttributionReader {
 #[cfg(target_os = "linux")]
 impl AyaAttributionReader {
     pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
-        let flow_to_pid = ebpf.take_map("flow_to_pid").ok_or_else(|| {
-            anyhow::anyhow!("flow_to_pid map is missing from netprobe eBPF object")
+        let flow_events = ebpf.take_map("flow_events").ok_or_else(|| {
+            anyhow::anyhow!("flow_events map is missing from netprobe eBPF object")
         })?;
         let process_info = ebpf.take_map("process_info").ok_or_else(|| {
             anyhow::anyhow!("process_info map is missing from netprobe eBPF object")
         })?;
 
         Ok(Self {
-            flow_to_pid: aya::maps::HashMap::try_from(flow_to_pid)?,
+            ring: aya::maps::RingBuf::try_from(flow_events)?,
             process_info: aya::maps::HashMap::try_from(process_info)?,
             procfs: ProcfsEnricher::host(),
         })
     }
 
-    pub fn snapshot(&self) -> Vec<AttributedFlow> {
-        self.flow_to_pid
-            .iter()
-            .filter_map(Result::ok)
-            .map(|(flow, pid)| {
-                let process = self
-                    .process_info
-                    .get(&pid.tgid, 0)
-                    .ok()
-                    .map(|record| self.procfs.process_details(&record));
-                AttributedFlow { flow, pid, process }
-            })
-            .collect()
+    /// Drain every record currently queued in the FLOW_EVENTS ring buffer,
+    /// copying each into an owned `FlowAttributionRecord`. Reading the ring is a
+    /// cheap mmap operation (no `bpf_map_get_next_key` scan), so this is
+    /// O(new records) rather than O(map capacity) like the old map snapshot —
+    /// which is what keeps idle CPU near zero.
+    fn drain_records(&mut self) -> Vec<FlowAttributionRecord> {
+        let mut records = Vec::new();
+        while let Some(item) = self.ring.next() {
+            let bytes = item.as_ref();
+            if bytes.len() >= mem::size_of::<FlowAttributionRecord>() {
+                // SAFETY: FlowAttributionRecord is #[repr(C)] and mirrors the eBPF
+                // layout byte-for-byte; the slot is at least that many bytes. Read
+                // unaligned because the ring slot carries no alignment guarantee.
+                records.push(unsafe {
+                    ptr::read_unaligned(bytes.as_ptr() as *const FlowAttributionRecord)
+                });
+            }
+        }
+        records
+    }
+
+    /// Build an `AttributedFlow` from a ring record. Returns `None` for records
+    /// without a usable 5-tuple (the per-packet tcp/udp probes emit empty
+    /// tuples). The record's `tuple` is directional with the local socket as the
+    /// source, so endpoint A is always the local side — matching the local/remote
+    /// semantics the map-snapshot path produced via the canonical key.
+    fn attributed_flow_from_record(&self, record: &FlowAttributionRecord) -> Option<AttributedFlow> {
+        let flow = flow_key_from_record(record)?;
+        let pid = FlowPidRecord {
+            version: record.version,
+            event_kind: record.event_kind,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            socket_address: record.socket_address,
+            last_seen_ns: 0,
+            old_state: record.old_state,
+            new_state: record.new_state,
+            local_endpoint: FLOW_ENDPOINT_A,
+            reserved: [0; 7],
+        };
+        let info = ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            comm: record.comm,
+        };
+        let process = Some(self.procfs.process_details(&info));
+        Some(AttributedFlow { flow, pid, process })
     }
 
     fn process_snapshot(&self) -> ProcessSnapshot {
@@ -275,7 +366,7 @@ pub struct FlowAttributionRuntime {
 #[allow(dead_code)]
 impl FlowAttributionRuntime {
     pub fn start(
-        reader: AyaAttributionReader,
+        mut reader: AyaAttributionReader,
         tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
         process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
         metrics: Metrics,
@@ -284,21 +375,21 @@ impl FlowAttributionRuntime {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
         let thread = thread::Builder::new()
-            .name("netprobe-flow-attribution-map-reader".to_owned())
+            .name("netprobe-flow-attribution-ring-reader".to_owned())
             .spawn(move || {
-                let mut seen = HashSet::new();
+                // Live attribution cache, keyed by (flow, pid, tgid). New flows are
+                // broadcast immediately; the whole cache is re-broadcast every
+                // RESEND_INTERVAL so a late/reconnecting agent still receives them.
+                let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
                 let mut last_process_snapshot =
                     process_snapshot_interval.map(|interval| Instant::now() - interval);
                 let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
+                    let drained = drain_ring(&mut reader, &tx, &metrics, &mut cache);
                     if last_resend.elapsed() >= FLOW_ATTRIBUTION_RESEND_INTERVAL {
-                        // Re-broadcast the live snapshot so attributions survive an
-                        // absent/reconnecting/lagging agent (broadcast sends drop when
-                        // no receiver is attached and are otherwise never re-sent).
-                        seen.clear();
+                        resend_cache(&tx, &metrics, &mut cache);
                         last_resend = Instant::now();
                     }
-                    emit_snapshot(&reader, &tx, &metrics, &mut seen);
                     if let Some(interval) = process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
                         if last.elapsed() >= interval {
@@ -306,7 +397,9 @@ impl FlowAttributionRuntime {
                             *last = Instant::now();
                         }
                     }
-                    thread::sleep(FLOW_ATTRIBUTION_POLL_INTERVAL);
+                    if drained == 0 {
+                        thread::sleep(FLOW_ATTRIBUTION_RING_IDLE_SLEEP);
+                    }
                 }
             })?;
 
@@ -330,25 +423,105 @@ impl Drop for FlowAttributionRuntime {
 }
 
 #[cfg(target_os = "linux")]
-fn emit_snapshot(
-    reader: &AyaAttributionReader,
+struct CachedAttribution {
+    event: FlowAttributionEvent,
+    last_seen: Instant,
+}
+
+// Drain the ring buffer and emit a flow-attribution event for every newly-seen
+// flow. A record for an already-cached flow refreshes the cached event (so the
+// next resend carries its latest state) without re-broadcasting. A close record
+// evicts the flow. Returns the number of records drained so the caller can
+// distinguish a busy ring (loop again) from an idle one (sleep).
+#[cfg(target_os = "linux")]
+fn drain_ring(
+    reader: &mut AyaAttributionReader,
     tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
     metrics: &Metrics,
-    seen: &mut HashSet<FlowAttributionJoinKey>,
-) {
-    for flow in reader.snapshot() {
-        let key = FlowAttributionJoinKey::from(&flow);
-        if !seen.insert(key) {
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+) -> usize {
+    let records = reader.drain_records();
+    let drained = records.len();
+    for record in &records {
+        if record.event_kind == EVENT_TCP_CLOSE {
+            if let Some(key) = join_key_from_record(record) {
+                cache.remove(&key);
+            }
             continue;
         }
+        let Some(flow) = reader.attributed_flow_from_record(record) else {
+            continue;
+        };
+        let key = FlowAttributionJoinKey::from(&flow);
         let Some(event) = flow.event() else {
             continue;
         };
+        if let Some(existing) = cache.get_mut(&key) {
+            existing.event = event;
+            existing.last_seen = Instant::now();
+        } else {
+            metrics.inc_flow_attribution_events();
+            if tx.send(event.clone()).is_err() {
+                metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+            }
+            cache.insert(
+                key,
+                CachedAttribution {
+                    event,
+                    last_seen: Instant::now(),
+                },
+            );
+        }
+    }
+    drained
+}
+
+// Prune stale entries, then re-broadcast every live attribution so an
+// absent/reconnecting/lagging agent reliably receives them (broadcast sends are
+// dropped when no receiver is attached and are otherwise never re-sent).
+#[cfg(target_os = "linux")]
+fn resend_cache(
+    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    metrics: &Metrics,
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+) {
+    cache.retain(|_, entry| entry.last_seen.elapsed() < FLOW_ATTRIBUTION_CACHE_TTL);
+    for entry in cache.values() {
         metrics.inc_flow_attribution_events();
-        if tx.send(event).is_err() {
+        if tx.send(entry.event.clone()).is_err() {
             metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
         }
     }
+}
+
+// Directional FlowKey from a ring record's tuple: endpoint A is the local socket
+// (source), endpoint B the peer. Returns None for empty / non-IP / non-TCP-UDP
+// tuples (the per-packet probes that submit FlowTuple::empty).
+#[cfg(target_os = "linux")]
+fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
+    if record.tuple.family != AF_INET && record.tuple.family != AF_INET6 {
+        return None;
+    }
+    if record.tuple.protocol != IPPROTO_TCP && record.tuple.protocol != IPPROTO_UDP {
+        return None;
+    }
+    Some(FlowKey {
+        address_family: record.tuple.family,
+        transport_protocol: record.tuple.protocol,
+        endpoint_a_port: record.tuple.source_port,
+        endpoint_b_port: record.tuple.destination_port,
+        endpoint_a_addr: record.tuple.source_addr,
+        endpoint_b_addr: record.tuple.destination_addr,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn join_key_from_record(record: &FlowAttributionRecord) -> Option<FlowAttributionJoinKey> {
+    Some(FlowAttributionJoinKey {
+        flow: flow_key_from_record(record)?,
+        pid: record.pid,
+        tgid: record.tgid,
+    })
 }
 
 #[cfg(target_os = "linux")]
