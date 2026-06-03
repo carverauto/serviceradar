@@ -133,6 +133,14 @@ cd "$repo_root"
 tag="${tag_prefix}${version}"
 demo_argocd_source_file="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
 
+# The in-place edits below use GNU sed syntax (the `-i` form and the
+# `/match/{n;s/.../;}` block). BSD/macOS sed rejects both, so prefer gsed when
+# present (brew install gnu-sed) and fall back to sed on Linux/CI.
+SED=sed
+if command -v gsed >/dev/null 2>&1; then
+    SED=gsed
+fi
+
 # Ensure the working tree is clean apart from allowed files.
 if [[ "$dry_run" == "false" ]]; then
     mapfile -t dirty < <(git status --porcelain)
@@ -168,15 +176,15 @@ chart_file="helm/serviceradar/Chart.yaml"
 if [[ "$dry_run" == "true" ]]; then
     echo "[dry-run] Would update $chart_file version and appVersion to $version"
 else
-    sed -i "s/^version: .*/version: $version/" "$chart_file"
-    sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
+    "$SED" -i "s/^version: .*/version: $version/" "$chart_file"
+    "$SED" -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
 fi
 
 if [[ -f "$demo_argocd_source_file" ]]; then
     if [[ "$dry_run" == "true" ]]; then
         echo "[dry-run] Would update $demo_argocd_source_file global.imageTag to $tag"
     else
-        sed -i "/name: global.imageTag/{n;s/value: .*/value: $tag/;}" "$demo_argocd_source_file"
+        "$SED" -i "/name: global.imageTag/{n;s/value: .*/value: $tag/;}" "$demo_argocd_source_file"
     fi
 fi
 
