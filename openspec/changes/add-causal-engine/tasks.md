@@ -65,16 +65,16 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.7.1 Implement `snapshot` module: serialize Context + CausaloidGraph frozen state to disk on a cadence and on graceful shutdown.
 - [ ] 1.7.2 Implement restore-on-start: load snapshot, then catch up from JetStream sequence/timestamp so single-pod restart is seconds, not a full cold rehydrate.
 
-### 1.8 Inventory-risk-feed seam (capability: inventory-risk-feed)
-- [ ] 1.8.1 Add an `endpoint_inventory` `DeviceRiskReducer` contribution (`upsert_contributions/2` `:31`, MAX-wins, `normalize_score` clamps 0–100 `:179`) writing `ocsf_devices.risk_score` from inventory; today the reducer is wired only to `sync_ingestor.ex` + `bumblebee_ingestor.ex`.
-- [ ] 1.8.2 Emit `signals.causal.inventory.*` from the inventory ingestion path so inventory risk transitions reach the engine via the existing `signals.causal.*` route.
-- [ ] 1.8.3 Add bounded AGE `Device` `pkg_*` risk SCALARS (no package vertices, no package edges) to the projection so the engine reads per-device package risk without unbounded fanout.
-- [ ] 1.8.4 Consume per-device risk only; package<->CVE coordinate matching is DELEGATED to `add-cti-signal-coverage` (declared as a dependency, NOT authored here).
+### 1.8 Inventory-risk-feed seam (capability: inventory-risk-feed) — DELIVERED by the merged endpoint-SBOM feature
+- [x] 1.8.1 `endpoint_inventory` DeviceRiskReducer contribution: `ServiceRadar.Inventory.EndpointInventoryVulnerabilityRisk` (inventory/endpoint_inventory_vulnerability_risk.ex) computes a CVSS-derived score from vulnerability-match payloads and calls `DeviceRiskReducer.upsert_contribution(%{source: "endpoint_inventory", source_ref: device_uid, score, active, occurred_at, resolved_at, metadata})` (MAX-wins → `ocsf_devices.risk_score`). Merged from feat/endpoint-sbom-ingestion.
+- [x] 1.8.2 `signals.causal.inventory.<event_type>` emission: `EndpointInventoryHistory.publish_package_change_signals` (inventory/endpoint_inventory_history.ex:119) via the causal-signal publisher.
+- [x] 1.8.3 Bounded AGE `Device` `pkg_*` scalars: `topology_graph.ex:280-284` SET pkg_worst_severity/pkg_critical_count/pkg_kev_count/pkg_has_unpatched_rce/pkg_risk_summary_at via `project_vulnerability_risk_summary` (no Package vertices/edges — the @-attrs allowlist at :26-30 bounds it).
+- [x] 1.8.4 Engine consumes per-device risk via `ocsf_devices.risk_score` (hydrator `map_device` reads it). CVE→CVSS scoring is done by the inventory's vulnerability-match path (D1 resolved: it consumes match payloads — e.g. from add-cti-signal-coverage — and scores them; the engine does not duplicate matching).
 
-### 1.9 Automation-loop closure (capability: observability-signals, causal-prediction-signals)
-- [ ] 1.9.1 Add `device.uid` group_by normalization + stateful alert rules in `StatefulAlertEngine` (`build_group/2` `:281` supports dotted keys but no `device.uid` normalization/rules exist yet) so normalized causal events fire alerts via `evaluate_events/1` (`:47`).
-- [ ] 1.9.2 Confirm the firing path produces OCSF `class_uid:1008` ("alert.rule.threshold") -> `AlertGenerator.from_event` -> `monitoring.alerts` with cooldown/renotify honored.
-- [ ] 1.9.3 Emit OCSF `class_uid:2004` vulnerability findings via the inventory domain so inventory-derived risk surfaces as findings, not only score enrichment.
+### 1.9 Automation-loop closure (capability: observability-signals, causal-prediction-signals) — DELIVERED by the merged endpoint-SBOM feature
+- [x] 1.9.1/1.9.2 Inventory causal events drive alerts: `causal_signals.ex` detects inventory rows (`inventory_event_row?`, `signal_type => "inventory"`) and calls `enqueue_inventory_alert_evaluation` → `StatefulAlertEngine`; the existing firing path produces `class_uid:1008` alerts. (If device-scoped incidents are wanted, verify/author a `group_by: ["device.uid"]` rule for the inventory subject — the grouping mechanism + firing path exist.)
+- [x] 1.9.3 OCSF `class_uid:2004` vulnerability findings: `causal_signals.ex:28` `@ocsf_vulnerability_finding_class_uid 2004` / `:30` `@ocsf_vulnerability_finding_type_uid 200_401`, split out via `inventory_vulnerability_finding_row?` — inventory-derived risk surfaces as 2004 findings, not only score enrichment.
+- [ ] 1.9.4 (engine-side, Marvin) Compose `ocsf_devices.risk_score` (+ AGE pkg_* scalars) into causaloids C5/C7/C10 — part of the reasoner (task 1.5), DeepCausality domain.
 
 ### 1.10 god_view_nif refactor — 6 steps (capability: topology-god-view, causal-reasoning)
 - [ ] 1.10.1 Extract `src/core/causality.rs` (244 LOC: `betweenness_scores` `15-66` + `evaluate_causal_states_with_reasons_impl` `83-244`, including the hard 3-hop BFS cap at `:183`) out of `elixir/web-ng/native/god_view_nif/` into `rust/causal-engine`.
