@@ -35,12 +35,12 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.1.3 Heavy integration deps DEFERRED to the increment that first uses them (srql + async-nats in 1.2; `ultragraph = "0.9"` + deep_causality{,_sparse,_tensor,_topology} in 1.3) to keep each crate_universe change scoped.
 - [ ] 1.1.4 (partial) Config (envy) + tracing logging + snapshot-restore-on-start wired and a fused tick loop runs; graceful shutdown lands with the real hydrator/NATS in 1.2.
 
-### 1.2 Hydrator — three ingestion feeds (capability: causal-engine)
-- [ ] 1.2.1 Feed 1: integrate `EmbeddedSrql` (`rust/srql/src/lib.rs:31-40`) calling `QueryEngine::execute_query` (`rust/srql/src/query/mod.rs`) for cold-start current state, on-demand TimescaleDB continuous-aggregate queries, and AGE topology snapshots via the `graph_cypher` entity (`rust/srql/src/query/graph_cypher.rs`).
-- [ ] 1.2.2 Feed 2: add a JetStream subscriber for live deltas on EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen-consumer OCSF output).
-- [ ] 1.2.3 Feed 3: add a JetStream subscriber for the app-level state-change-events on `cdc.platform.<table>` (from 0.3) and merge into Context.
-- [ ] 1.2.4 Single-point identity validation at ingestion: reject/normalize any entity not carrying a canonical `sr:`-prefixed ID; the engine MUST NOT invent a parallel ID space.
-- [ ] 1.2.5 Handle endpoint-cluster summary nodes: detect when a device ID was summarized by `GodViewStream` so a verdict on a clustered device does not silently fail to render.
+### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feed 1 done
+- [x] 1.2.1 Feed 1 (current-state snapshot): `ContextHydrator::connect()` builds `EmbeddedSrql` from srql `AppConfig::from_env`, and `current_context()` runs SRQL queries (`in:devices`, `in:services`) via `QueryEngine::execute_query`, mapping result rows into the `Context` (Device/Service). On-demand continuous-aggregate + AGE `graph_cypher` queries land as coverage broadens (1.2b). Unit-tested row mappers.
+- [ ] 1.2.2 Feed 2: JetStream subscriber for live deltas on EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF). (1.2b)
+- [ ] 1.2.3 Feed 3: JetStream subscriber for the app-level `cdc.platform.<table>` state-change-events (from 0.3) + provision that stream; merge into Context. (1.2b)
+- [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
+- [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 
 ### 1.3 Reasoner — CausaloidGraph over ultragraph CSR (capability: causal-reasoning)
 - [ ] 1.3.1 Build the `CausaloidGraph` on an ultragraph `CsmGraph` (CSR); `freeze()` before each reasoning tick.

@@ -21,7 +21,7 @@ async fn main() -> anyhow::Result<()> {
     let config = Config::from_env()?;
     info!(?config, "starting causal-engine");
 
-    let hydrator = ContextHydrator::new();
+    let hydrator = ContextHydrator::connect().await?;
     let reasoner = Reasoner::new();
     let emitter = Emitter::connect(&config.nats_url).await?;
     let snapshot = SnapshotStore::new();

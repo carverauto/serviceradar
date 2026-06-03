@@ -5940,7 +5940,7 @@
           "REPO_MAPPING:rules_rust+,bazel_tools bazel_tools",
           "REPO_MAPPING:rules_rust+,rules_cc rules_cc+",
           "REPO_MAPPING:rules_rust+,rules_rust rules_rust+",
-          "FILE:@@//Cargo.lock 5e48bc7fded467f432769c3207d6ee76ece51a63086704216e8f389206c56eaf",
+          "FILE:@@//Cargo.lock 8acfdb34ef76956a35ab12aee3165aa86791307cc209d38a10e954f471af910a",
           "FILE:@@//.cargo/config.toml 27c60a3b9d7893c0f4b12a98d0ebc58f6167511406c83ea185c3f661358ec6a9",
           "FILE:@@//Cargo.toml e147e4130437b2c6e859607b06ed51fbb7d5fca2fe2950a3a7c0dcf6ae2757e2",
           "FILE:@@//rust/kvutil/Cargo.toml 085479fc9a0a1a74a895cc40fc9752f24a30cf2e12edaeaf184c86cd5b48e576",
@@ -5960,7 +5960,7 @@
           "FILE:@@//third_party/rust_patches/rperf-0.1.25/Cargo.toml a49a0cc326dec79389f9b60200d117e98356bdf5a48b79d943ebed9795140cd9",
           "FILE:@@//rust/flow-collector/Cargo.toml 730fcdd2eaacc57c5ae2d2eda8210d52f334c0db5e50a1a19816ddc8846cc067",
           "FILE:@@//rust/srql/Cargo.toml 8b449856e44197ca63160b171b4c8bce215b97cf5f7681a80994d24cf3e36373",
-          "FILE:@@//rust/causal-engine/Cargo.toml 32ccbd2e811c26cb863a6ddef821e95dc1c8747bdc866853f82b5c64de572d10",
+          "FILE:@@//rust/causal-engine/Cargo.toml 1a27bbe26bcf58f98df3b181601cbdb21efced8219028b5a4433409af61b9526",
           "FILE:@@//rust/fieldsurvey-sidekick/Cargo.toml 33f73305ac02024bc06e8dc26941aed427648d3c0e96a68b8dd13f13922b2c3f",
           "FILE:@@//rust/rdp-adapter/Cargo.toml abacda3a8de3fdb2d02cbe025d980bf2171ce4758fdebf579a25ab393954da65",
           "FILE:@@//rust/addon-sdk/Cargo.toml a47893e2e7959d9b7f93787e9d9dd65ef2be2a9e1d2b24b1864090ed052717f3"
