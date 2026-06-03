@@ -1,3 +1,12 @@
+# ServiceRadar v1.2.89
+
+Fixes the edge-agent bundle download crashing with a 500 (the last blocker to actually enrolling an agent).
+
+## Whats New
+
+**1.2.89**
+- Fixed `OnboardingPackages.deliver/3` crashing with a 500 (`MatchError` on `#Ash.NotLoaded<:calculation, :nats_creds_ciphertext>`) when an enrolling agent downloaded its bundle. `nats_creds_ciphertext` is an AshCloak calculation with `decrypt_by_default([])`, so it is not loaded after the `:deliver` transition; the code passed the unloaded value to `Vault.decrypt`, which Cloak rejected. It now loads the calculation (best-effort) and uses its already-decrypted value directly — dropping the bogus second decrypt that would also have silently lost the creds — and guards the unloaded/absent case so packages without attached NATS creds still deliver.
+
 # ServiceRadar v1.2.88
 
 Makes edge-agent onboarding work end to end (enrollment was unusable), fixes assigning native add-ons from the UI, and adds onboarding audit visibility.
