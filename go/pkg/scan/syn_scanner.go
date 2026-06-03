@@ -1082,6 +1082,7 @@ type ringBuf struct {
 	mem       []byte
 	blockSize uint32
 	blockNr   uint32
+	cursor    uint32
 }
 
 func setupTPacketV3(fd int, blockSize, blockNr, frameSize, retireMs uint32) (*ringBuf, error) {
@@ -1163,6 +1164,10 @@ func (r *ringBuf) block(i uint32) []byte {
 
 //nolint:gocyclo // Complex packet processing logic with inherent branching
 func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
+	if r == nil || r.blockNr == 0 {
+		return
+	}
+
 	// Build pollfd set: ring FD + optional wake FD for cancellation
 	var pfd []unix.PollFd
 	if s.wakeFD > 0 {
@@ -1174,7 +1179,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 		pfd = []unix.PollFd{{Fd: int32(r.fd), Events: unix.POLLIN | unix.POLLERR | unix.POLLHUP | unix.POLLNVAL}}
 	}
 
-	cur := uint32(0)
+	cur := atomic.LoadUint32(&r.cursor) % r.blockNr
 
 	for {
 		// First, drain any ready blocks without polling
@@ -1242,6 +1247,7 @@ func (s *SYNScanner) runRingReader(ctx context.Context, r *ringBuf) {
 			storeU32(blk, h1_status_off, 0)
 
 			cur = (cur + 1) % r.blockNr
+			atomic.StoreUint32(&r.cursor, cur)
 			drained = true
 
 			// Update stats counter for each processed block
