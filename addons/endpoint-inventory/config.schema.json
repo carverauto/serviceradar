@@ -27,6 +27,11 @@
       "title": "Spool directory",
       "default": "/var/lib/serviceradar/endpoint-inventory/spool"
     },
+    "cache_dir": {
+      "type": "string",
+      "title": "Local cache directory",
+      "default": "/var/lib/serviceradar/endpoint-inventory/cache"
+    },
     "tmp_dir": {
       "type": "string",
       "title": "Temporary directory",
@@ -58,6 +63,19 @@
       "title": "rpm binary path",
       "default": "rpm"
     },
+    "rpm_database_paths": {
+      "type": "array",
+      "title": "RPM database candidate paths",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "/usr/lib/sysimage/rpm/rpmdb.sqlite",
+        "/var/lib/rpm/rpmdb.sqlite",
+        "/var/lib/rpm/Packages",
+        "/var/lib/rpm"
+      ]
+    },
     "sources": {
       "type": "array",
       "title": "Package sources",
@@ -68,11 +86,74 @@
       },
       "default": ["dpkg", "rpm", "apk"]
     },
+    "cadence": {
+      "type": "string",
+      "title": "Collection cadence",
+      "description": "Target interval for scheduled endpoint inventory collection. The native timer uses this policy value for operator visibility and future timer reconciliation.",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "12h"
+    },
+    "collect_paths": {
+      "type": "boolean",
+      "title": "Collect file paths",
+      "description": "When false, package file-path evidence is omitted from endpoint inventory artifacts.",
+      "default": false
+    },
+    "collect_file_hashes": {
+      "type": "boolean",
+      "title": "Collect file hashes",
+      "description": "When false, package file-hash evidence is omitted from endpoint inventory artifacts.",
+      "default": false
+    },
     "max_packages": {
       "type": "integer",
       "title": "Maximum packages",
       "minimum": 1,
       "default": 100000
+    },
+    "force_full_scan_interval": {
+      "type": "integer",
+      "title": "Forced full scan interval",
+      "description": "Maximum number of unchanged scheduled scans before a full package database reparse is forced.",
+      "minimum": 1,
+      "default": 24
+    },
+    "cache_stale_threshold": {
+      "type": "string",
+      "title": "Cache stale threshold",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "24h"
+    },
+    "upload_jitter": {
+      "type": "string",
+      "title": "Changed upload jitter",
+      "description": "Maximum delay applied before exposing a changed full-inventory upload. This is distinct from the scan timer delay.",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "0s"
+    },
+    "upload_retry_initial": {
+      "type": "string",
+      "title": "Initial upload retry delay",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "5m"
+    },
+    "upload_retry_max": {
+      "type": "string",
+      "title": "Maximum upload retry delay",
+      "pattern": "^[0-9]+(ns|us|µs|ms|s|m|h)$",
+      "default": "1h"
+    },
+    "upload_retry_max_attempts": {
+      "type": "integer",
+      "title": "Maximum upload retry attempts",
+      "minimum": 1,
+      "default": 5
+    },
+    "force_fresh_enabled": {
+      "type": "boolean",
+      "title": "Allow force-fresh commands",
+      "description": "When true, authorized device-scoped on-demand commands may run a fresh endpoint inventory scan. Disabled by default.",
+      "default": false
     },
     "max_output_bytes": {
       "type": "integer",

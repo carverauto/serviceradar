@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.FlowRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MetadataData
@@ -118,6 +119,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_info({:command_progress, %{command_type: "mtr.run"} = msg}, socket) do
     {:noreply, MtrRuntime.refresh_if_relevant(socket, msg, get_device_ip(socket.assigns.results))}
+  end
+
+  def handle_info({:command_result, %{command_type: "endpoint_inventory." <> _} = msg}, socket) do
+    {:noreply, EndpointInventoryRuntime.apply_command_update(socket, :result, msg)}
+  end
+
+  def handle_info({:command_ack, %{command_type: "endpoint_inventory." <> _} = msg}, socket) do
+    {:noreply, EndpointInventoryRuntime.apply_command_update(socket, :ack, msg)}
+  end
+
+  def handle_info({:command_progress, %{command_type: "endpoint_inventory." <> _} = msg}, socket) do
+    {:noreply, EndpointInventoryRuntime.apply_command_update(socket, :progress, msg)}
   end
 
   def handle_info({:mtr_trace_ingested, event}, socket) do
@@ -767,6 +780,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       {:error, reason} ->
         {:noreply, put_flash(socket, :error, reason)}
     end
+  end
+
+  def handle_event("endpoint_inventory_query", %{"endpoint_inventory_query" => params} = event, socket) do
+    socket =
+      case Map.get(event, "action") do
+        "force_refresh" -> EndpointInventoryRuntime.dispatch_force_refresh(socket, params)
+        _ -> EndpointInventoryRuntime.dispatch_device_query(socket, params)
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("endpoint_inventory_force_refresh", %{"endpoint_inventory_query" => params}, socket) do
+    {:noreply, EndpointInventoryRuntime.dispatch_force_refresh(socket, params)}
+  end
+
+  def handle_event("endpoint_inventory_cohort_query", %{"endpoint_inventory_cohort_query" => params}, socket) do
+    {:noreply, EndpointInventoryRuntime.dispatch_cohort_query(socket, params)}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do

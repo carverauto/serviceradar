@@ -135,6 +135,32 @@ defmodule ServiceRadar.Observability.RuleSeeder do
   defp default_stateful_rules do
     [
       %{
+        name: "endpoint_inventory_vulnerability",
+        description:
+          "Raise one active vulnerability incident per canonical endpoint device from endpoint inventory findings.",
+        priority: 45,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "signals.causal.inventory",
+          "attribute_equals" => %{"signal_type" => "inventory"}
+        },
+        group_by: ["device"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.security.endpoint_inventory.vulnerability",
+          "message" => "Endpoint inventory vulnerability detected"
+        },
+        alert: %{
+          "title" => "Endpoint Inventory Vulnerability",
+          "severity" => "critical"
+        }
+      },
+      %{
         name: "falco_critical_incident",
         description:
           "Collapse repeated Falco critical detections into one active incident per rule and host.",

@@ -108,7 +108,17 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
             "enabled" => true,
             "sources" => ["dpkg", "rpm"],
             "scan_timeout" => "5m",
-            "max_packages" => 100_000
+            "cadence" => "6h",
+            "collect_paths" => true,
+            "collect_file_hashes" => true,
+            "max_packages" => 100_000,
+            "force_fresh_enabled" => true,
+            "force_full_scan_interval" => 24,
+            "cache_stale_threshold" => "36h",
+            "upload_jitter" => "10m",
+            "upload_retry_initial" => "30s",
+            "upload_retry_max" => "15m",
+            "upload_retry_max_attempts" => 4
           }
         },
         actor: actor
@@ -132,6 +142,10 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
     assert addon.params["enabled"] == true
     assert addon.params["sources"] == ["dpkg", "rpm"]
     assert addon.params["scan_timeout"] == "5m"
+    assert addon.params["cadence"] == "6h"
+    assert addon.params["collect_paths"] == true
+    assert addon.params["collect_file_hashes"] == true
+    assert addon.params["force_fresh_enabled"] == true
 
     proto = AgentConfigGenerator.to_proto_response(config)
     assert [proto_addon] = proto.addons
@@ -141,6 +155,19 @@ defmodule ServiceRadar.Plugins.EndpointInventoryAddonPackageSeederTest do
     assert proto_addon.artifact_object_key == object_key
     assert proto_addon.artifact_sha256 == sha
     assert proto_addon.artifact_signature == signature
+
+    assert proto.endpoint_inventory_config.enabled == true
+    assert proto.endpoint_inventory_config.sources == ["dpkg", "rpm"]
+    assert proto.endpoint_inventory_config.cadence == "6h"
+    assert proto.endpoint_inventory_config.collect_paths == true
+    assert proto.endpoint_inventory_config.collect_file_hashes == true
+    assert proto.endpoint_inventory_config.force_fresh_enabled == true
+    assert proto.endpoint_inventory_config.force_full_scan_interval == 24
+    assert proto.endpoint_inventory_config.cache_stale_threshold == "36h"
+    assert proto.endpoint_inventory_config.upload_jitter == "10m"
+    assert proto.endpoint_inventory_config.upload_retry_initial == "30s"
+    assert proto.endpoint_inventory_config.upload_retry_max == "15m"
+    assert proto.endpoint_inventory_config.upload_retry_max_attempts == 4
   end
 
   test "is a no-op without configured artifacts", %{actor: actor, unique_id: unique_id} do

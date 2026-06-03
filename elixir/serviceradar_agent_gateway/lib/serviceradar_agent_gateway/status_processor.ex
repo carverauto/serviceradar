@@ -45,20 +45,30 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   ## Returns
 
     - `:ok` on success
+    - `{:ok, result}` when synchronous processing returns an acknowledgement result
     - `{:error, reason}` on failure
   """
-  @spec process(map()) :: :ok | {:error, term()}
+  @spec process(map()) :: :ok | {:ok, term()} | {:error, term()}
   def process(status) do
-    with :ok <- validate_status(status),
-         status = normalize_status(status),
-         :ok <- forward(status) do
-      # Track this agent for UI visibility
-      track_agent(status)
-      :ok
+    with :ok <- validate_status(status) do
+      status = normalize_status(status)
+
+      case forward(status) do
+        :ok ->
+          track_agent(status)
+          :ok
+
+        {:ok, _result} = ok ->
+          track_agent(status)
+          ok
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 
-  @spec forward(map(), keyword()) :: :ok | {:error, term()}
+  @spec forward(map(), keyword()) :: :ok | {:ok, term()} | {:error, term()}
   def forward(status, opts \\ []) do
     buffer_on_failure = Keyword.get(opts, :buffer_on_failure, true)
     from_buffer = Keyword.get(opts, :from_buffer, false)
@@ -68,6 +78,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :ok ->
         emit_forward_metrics(:ok, status, from_buffer, started_at)
         :ok
+
+      {:ok, _result} = ok ->
+        emit_forward_metrics(:ok, status, from_buffer, started_at)
+        ok
 
       {:error, reason} ->
         if buffer_on_failure and should_buffer?(status) do
@@ -156,6 +170,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :ok ->
         :ok
 
+      {:ok, _result} = ok ->
+        ok
+
       {:error, :not_available} ->
         forward_distributed(status, handler)
     end
@@ -172,8 +189,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       pid when is_pid(pid) ->
         try do
-          GenServer.cast(pid, message)
-          :ok
+          if ack_result_status?(status) do
+            GenServer.call(pid, message, 30_000)
+          else
+            GenServer.cast(pid, message)
+            :ok
+          end
         catch
           :exit, _ -> {:error, :not_available}
         end
@@ -188,10 +209,17 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       {:ok, node} ->
         try do
           # Cast to the core handler on the remote node
-          GenServer.cast({handler, node}, message)
+          result =
+            if ack_result_status?(status) do
+              GenServer.call({handler, node}, message, 30_000)
+            else
+              GenServer.cast({handler, node}, message)
+              :ok
+            end
+
           Logger.debug("Forwarded status to #{inspect(handler)} on #{node}")
 
-          :ok
+          result
         catch
           :exit, reason ->
             Logger.warning("Failed to forward status to core on #{node}: #{inspect(reason)}")
@@ -205,6 +233,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp handler_message(status), do: {:status_update, status}
+
+  defp ack_result_status?(%{source: source, service_type: service_type})
+       when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
+
+  defp ack_result_status?(_status), do: false
 
   # Find a node that has the handler running
   defp find_handler_node(handler) do

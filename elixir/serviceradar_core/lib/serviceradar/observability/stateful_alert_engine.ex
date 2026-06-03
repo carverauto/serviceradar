@@ -1401,6 +1401,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       resource_attributes: Map.get(record, :resource_attributes) || %{},
       log_attributes: event_log_attributes(record),
       log_resource_attributes: event_log_resource_attributes(record),
+      device: record_device(record),
       unmapped: Map.get(record, :unmapped) || %{},
       tags: Map.get(record, :tags) || %{},
       metadata: Map.get(record, :metadata) || %{}
@@ -1423,6 +1424,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       sources.resource_attributes,
       sources.log_attributes,
       sources.log_resource_attributes,
+      sources.device,
       sources.unmapped,
       sources.tags,
       sources.metadata
@@ -1458,6 +1460,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   defp record_field_value(record, "metric_name"), do: fetch_attr(record, :metric_name)
   defp record_field_value(record, "metric_type"), do: fetch_attr(record, :metric_type)
   defp record_field_value(record, "unit"), do: fetch_attr(record, :unit)
+  defp record_field_value(record, "device"), do: record_device_uid(record)
+  defp record_field_value(record, "device.uid"), do: record_device_uid(record)
+
+  defp record_field_value(record, "device_uid"),
+    do: fetch_attr(record, :device_uid) || record_device_uid(record)
+
   defp record_field_value(record, "device_id"), do: fetch_attr(record, :device_id)
   defp record_field_value(record, "agent_id"), do: fetch_attr(record, :agent_id)
   defp record_field_value(record, "gateway_id"), do: fetch_attr(record, :gateway_id)
@@ -1474,11 +1482,27 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
 
   defp record_field_value(record, "serviceradar.device_id"), do: fetch_attr(record, :device_id)
 
+  defp record_field_value(record, "serviceradar.device_uid"),
+    do: fetch_attr(record, :device_uid) || record_device_uid(record)
+
   defp record_field_value(record, "serviceradar.agent_id"), do: fetch_attr(record, :agent_id)
 
   defp record_field_value(record, "serviceradar.gateway_id"), do: fetch_attr(record, :gateway_id)
 
   defp record_field_value(_record, _key), do: nil
+
+  defp record_device(record) do
+    case fetch_attr(record, :device) do
+      %{} = device -> device
+      _ -> %{}
+    end
+  end
+
+  defp record_device_uid(record) do
+    record
+    |> record_device()
+    |> map_value("uid")
+  end
 
   defp fetch_attr(map, key) when is_map(map) and is_atom(key) do
     case Map.fetch(map, key) do

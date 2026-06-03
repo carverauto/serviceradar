@@ -658,6 +658,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           show: can_sysmon
         },
         %{
+          label: "Endpoint Inventory",
+          href: ~p"/settings/agents/endpoint-inventory",
+          active: String.starts_with?(path, "/settings/agents/endpoint-inventory"),
+          show: can_edge
+        },
+        %{
           label: "Plugins",
           href: ~p"/settings/agents/plugins",
           active:

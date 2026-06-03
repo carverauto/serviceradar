@@ -146,6 +146,13 @@ config :serviceradar_core,
   ]
 
 config :serviceradar_core,
+  endpoint_inventory_ingestor_async: true,
+  endpoint_inventory_ingestor_max_concurrency: 4,
+  endpoint_inventory_ingestor_queue_max_pending: 256,
+  endpoint_inventory_ingestor_admission_timeout_ms: 5_000,
+  endpoint_inventory_ingestor_timeout_ms: 30_000
+
+config :serviceradar_core,
   mtr_automation_enabled: false,
   mtr_automation_baseline_enabled: false,
   mtr_automation_trigger_enabled: false,

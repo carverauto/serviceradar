@@ -86,3 +86,85 @@ fn addon_statuses_example_agent_and_state() {
         "expected reported_at desc ordering, got: {sql}"
     );
 }
+
+#[test]
+fn endpoint_packages_example_name_manager_and_cpe() {
+    let query = r#"in:endpoint_packages device_id:device-alpha name:nginx manager:dpkg cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true sort:name:asc"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::EndpointPackages));
+    let (sql, params) =
+        endpoint_packages::to_sql_and_params(&plan).expect("should build endpoint package SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"endpoint_inventory_packages\""),
+        "expected query against endpoint_inventory_packages, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"endpoint_inventory_packages\".\"device_uid\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"name\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"package_manager\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"current\" =")
+            && lower.contains("\"endpoint_inventory_packages\".\"cpes\" &&"),
+        "expected device/name/manager/current/cpe filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"endpoint_inventory_packages\".\"name\" asc"),
+        "expected name asc ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 7);
+}
+
+#[test]
+fn endpoint_package_catalog_example_purl_and_cpe() {
+    let query = r#"in:endpoint_package_catalog canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" source_scope:host sort:name:asc"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::EndpointPackageCatalog));
+    let (sql, params) = endpoint_package_catalog::to_sql_and_params(&plan)
+        .expect("should build endpoint package catalog SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"endpoint_packages\""),
+        "expected query against endpoint_packages, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"endpoint_packages\".\"purl_canonical\" =")
+            && lower.contains("\"endpoint_packages\".\"cpes\" &&")
+            && lower.contains("\"endpoint_packages\".\"source_scope\" ="),
+        "expected purl/cpe/source_scope filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"endpoint_packages\".\"name\" asc"),
+        "expected name asc ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 5);
+}
+
+#[test]
+fn endpoint_inventory_scans_example_freshness_and_hash() {
+    let query =
+        "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:abc sort:last_scan_at:desc";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::EndpointInventoryScans));
+    let (sql, params) = endpoint_inventory_scans::to_sql_and_params(&plan)
+        .expect("should build endpoint inventory scan SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("from \"endpoint_inventory_scans\""),
+        "expected query against endpoint_inventory_scans, got: {sql}"
+    );
+    assert!(
+        lower.contains("\"endpoint_inventory_scans\".\"device_uid\" =")
+            && lower.contains("\"endpoint_inventory_scans\".\"current\" =")
+            && lower.contains("\"endpoint_inventory_scans\".\"package_set_hash\" =")
+            && lower.contains("\"endpoint_inventory_scans\".\"last_successful_scan_at\" > now() - interval '24 hours'"),
+        "expected device/current/hash/freshness filters in SQL, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"endpoint_inventory_scans\".\"last_scan_at\" desc"),
+        "expected last_scan_at desc ordering, got: {sql}"
+    );
+    assert_eq!(params.len(), 5);
+}

@@ -54,4 +54,36 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.source == "results"
     assert forwarded.message == status.message
   end
+
+  test "returns endpoint inventory acknowledgement directives from local core status handler" do
+    parent = self()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:status_update, status}} ->
+            GenServer.reply(from, {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}})
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = %{
+      service_name: "endpoint_inventory",
+      service_type: "endpoint_inventory",
+      source: "results",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: Jason.encode!(%{"scan_id" => "scan-1", "state" => "unchanged"})
+    }
+
+    assert {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}} =
+             StatusProcessor.process(status)
+
+    assert_receive {:forwarded, forwarded}
+    assert forwarded.service_name == "endpoint_inventory"
+    assert forwarded.service_type == "endpoint_inventory"
+  end
 end

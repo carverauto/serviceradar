@@ -234,6 +234,82 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(history, &(&1.event_type == :recovered))
   end
 
+  test "groups endpoint vulnerability findings by OCSF device uid", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:endpoint-vuln-device-#{unique}"
+    alert_title = "Endpoint vulnerability #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "endpoint-vulnerability-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.inventory",
+            "attribute_equals" => %{"signal_type" => "inventory"}
+          },
+          group_by: ["device"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.security.endpoint_inventory.vulnerability",
+            "message" => "Endpoint inventory vulnerability detected"
+          },
+          alert: %{
+            "title" => alert_title,
+            "severity" => "critical"
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    event = %{
+      id: Ash.UUID.generate(),
+      time: DateTime.utc_now(),
+      class_uid: 2004,
+      category_uid: 2,
+      type_uid: 200_401,
+      activity_id: 1,
+      severity_id: OCSF.severity_critical(),
+      severity: OCSF.severity_name(OCSF.severity_critical()),
+      message: "CVE matched installed package",
+      log_name: "signals.causal.inventory.vulnerability",
+      log_provider: "serviceradar.core",
+      device: %{"uid" => device_uid},
+      unmapped: %{
+        "log_attributes" => %{
+          "signal_type" => "inventory",
+          "cve" => "CVE-2026-#{unique}",
+          "package" => %{
+            "name" => "nginx",
+            "purl_canonical" => "pkg:deb/debian/nginx@1.24.0-2ubuntu7?arch=amd64"
+          }
+        }
+      }
+    }
+
+    assert :ok = StatefulAlertEngine.evaluate_events([event])
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn alert -> alert.title == alert_title end)
+
+    assert [active_alert] = active_alerts
+    assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
+    assert active_alert.metadata["incident_group_key"] == "device=#{device_uid}"
+    assert active_alert.metadata["incident_group_values"] == %{"device" => device_uid}
+  end
+
   test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
        %{actor: actor} do
     unique = System.unique_integer([:positive])

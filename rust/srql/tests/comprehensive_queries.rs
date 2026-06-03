@@ -58,7 +58,7 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:events device_id:\"device-alpha\" time:last_10m",
+            query: "in:events device_id:\"device-alpha\" class_uid:4001 time:last_10m",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["message"], "Device scoped event");
@@ -70,6 +70,104 @@ async fn comprehensive_queries_match_fixtures() {
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["name"], "handle_request")
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages device_id:device-alpha package_manager:dpkg name:nginx current:true sort:name:asc",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["device_id"], "device-alpha");
+                assert_eq!(result["package_manager"], "dpkg");
+                assert_eq!(result["current"], true);
+                assert_eq!(
+                    result["package_id"],
+                    "aaaaaaaa-1111-4111-8111-111111111111"
+                );
+                assert_eq!(result["has_package"]["relation"], "HAS_PACKAGE");
+                assert_eq!(result["has_package"]["device_uid"], "device-alpha");
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_package_catalog canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* source_scope:host",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["package_id"], "aaaaaaaa-1111-4111-8111-111111111111");
+                assert_eq!(result["canonical_purl"], "pkg:deb/nginx@1.24.0-2ubuntu7");
+                assert_eq!(result["source_scope"], "host");
+            })),
+        },
+        TestCase {
+            query: "in:events class_uid:2004 device_id:device-alpha canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* cve:CVE-2026-0001",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["class_uid"], 2004);
+                assert_eq!(result["source_device_uid"], "device-alpha");
+                assert_eq!(result["metadata"]["primary_domain"], "security");
+                assert_eq!(
+                    result["metadata"]["vulnerability_finding"]["package"]["purl_canonical"],
+                    "pkg:deb/nginx@1.24.0-2ubuntu7"
+                );
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages rollup_stats:current_counts package_manager:dpkg name:nginx",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "current_counts");
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["package_manager"], "dpkg");
+                assert_eq!(result["host_count"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages rollup_stats:current_cpe_counts cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "current_cpe_counts");
+                assert_eq!(
+                    result["cpe"],
+                    "cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"
+                );
+                assert_eq!(result["host_count"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_packages time:last_2h rollup_stats:package_counts_hourly package_manager:dpkg name:nginx",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["rollup_type"], "package_counts_hourly");
+                assert_eq!(result["name"], "nginx");
+                assert_eq!(result["host_count"], 1);
+                assert_eq!(result["sample_count"], 1);
+            })),
+        },
+        TestCase {
+            query: "in:endpoint_inventory_status device_id:device-alpha current:true freshness:fresh package_set_hash:sha256:current-package-set",
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                let result = &body["results"][0];
+                assert_eq!(result["agent_id"], "agent-1");
+                assert_eq!(result["device_uid"], "device-alpha");
+                assert_eq!(result["package_set_hash"], "sha256:current-package-set");
+                assert_eq!(result["unchanged_scan_count"], 0);
+                assert_eq!(result["freshness_verdict"], "fresh");
+                assert_eq!(result["freshness"]["verdict"], "fresh");
+            })),
+        },
+        TestCase {
+            query: r#"in:packages cpe:"cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*" current:true"#,
+            expected_count: 1,
+            validator: Some(Box::new(|body| {
+                assert_eq!(body["results"][0]["purl"], "pkg:deb/nginx@1.24.0-2ubuntu7")
             })),
         },
         // Device Query Tests

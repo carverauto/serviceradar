@@ -19,6 +19,7 @@ defmodule ServiceRadar.Monitoring.OcsfEvent do
   require Logger
 
   @event_fields [
+    :id,
     :time,
     :class_uid,
     :category_uid,

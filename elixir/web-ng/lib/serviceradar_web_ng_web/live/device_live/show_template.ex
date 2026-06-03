@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   import ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents
+  import ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents
   import ServiceRadarWebNGWeb.DeviceLive.FlowComponents
   import ServiceRadarWebNGWeb.DeviceLive.HealthcheckComponents
   import ServiceRadarWebNGWeb.DeviceLive.InterfaceComponents
@@ -55,7 +56,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       )
       |> assign(:device_ansible_managed, DeviceStateData.ansible_managed?(device_row))
       |> assign(:device_deleted, DeviceStateData.deleted?(device_row))
-      |> assign(:device_active, device_active_state(device_row, MetadataData.row_metadata(device_row)))
+      |> assign(
+        :device_active,
+        device_active_state(device_row, MetadataData.row_metadata(device_row))
+      )
       |> assign(:device_display_name, DeviceStateData.display_name(device_row))
       |> assign(:agent_device, DeviceStateData.agent?(device_row))
       |> assign(
@@ -64,13 +68,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
       )
       |> assign(
         :proxmox_console_path,
-        DeviceStateData.proxmox_console_path(assigns.device_uid, Map.get(assigns, :virtualization_summary))
+        DeviceStateData.proxmox_console_path(
+          assigns.device_uid,
+          Map.get(assigns, :virtualization_summary)
+        )
       )
       |> assign(
         :proxmox_console_action_label,
         DeviceStateData.proxmox_console_action_label(Map.get(assigns, :virtualization_summary))
       )
-      |> assign(:rdp_target_path, RemoteAccessData.rdp_target_new_path(assigns.device_uid, device_row))
+      |> assign(
+        :rdp_target_path,
+        RemoteAccessData.rdp_target_new_path(assigns.device_uid, device_row)
+      )
       |> assign(
         :active_fingerprint_tab_visible,
         active_fingerprint_tab_visible?(device_row, assigns.current_scope)
@@ -121,7 +131,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             No device row returned for this query.
           </div>
 
-    <!-- View Mode -->
           <.device_summary_section
             :if={is_map(@device_row) and not @editing}
             device_row={@device_row}
@@ -129,7 +138,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             editing={@editing}
           />
 
-    <!-- Edit Mode -->
           <.device_edit_section
             :if={is_map(@device_row) and @editing}
             device_row={@device_row}
@@ -138,7 +146,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             snmp_credential_form={@snmp_credential_form}
           />
 
-    <!-- Tabs Navigation -->
           <.device_tabs
             :if={is_map(@device_row)}
             device_row={@device_row}
@@ -153,7 +160,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             has_mtr={@has_mtr}
           />
 
-    <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
@@ -191,6 +197,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
+              />
+
+              <.endpoint_inventory_section
+                :if={
+                  @has_software_inventory or device_has_agent?(@device_row) or
+                    is_binary(@endpoint_inventory_error)
+                }
+                scan={@endpoint_inventory_scan}
+                scans={@endpoint_inventory_scans}
+                packages={@endpoint_inventory_packages}
+                artifacts={@endpoint_inventory_artifacts}
+                error={@endpoint_inventory_error}
+                has_inventory={@has_software_inventory}
+                show_controls={device_has_agent?(@device_row)}
+                device_row={@device_row}
+                query_form={@endpoint_inventory_query_form}
+                cohort_form={@endpoint_inventory_cohort_form}
+                live_query_result={@endpoint_inventory_live_query_result}
+                cohort_query_result={@endpoint_inventory_cohort_query_result}
+                command_notice={@endpoint_inventory_command_notice}
+                command_error={@endpoint_inventory_command_error}
+                query_running={@endpoint_inventory_query_running}
+                force_refresh_running={@endpoint_inventory_force_refresh_running}
+                cohort_running={@endpoint_inventory_cohort_running}
               />
 
               <.virtualization_section
@@ -242,12 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             </div>
           </div>
 
-    <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
 
-    <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
               interfaces={@network_interfaces}
@@ -264,7 +292,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             />
           </div>
 
-    <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
               flows={@device_flows}
@@ -304,7 +331,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             />
           </div>
 
-    <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
               <.sysmon_profile_card
@@ -316,19 +342,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             </div>
           </div>
 
-    <!-- Active Fingerprint Tab Content -->
           <div :if={
             @active_tab == "active-fingerprint" and can_view_active_fingerprint?(@current_scope)
           }>
             <.active_fingerprint_tab_content device_row={@device_row} />
           </div>
 
-    <!-- Process Listeners Tab Content -->
           <div :if={@active_tab == "process-listeners"}>
             <.process_listeners_tab_content device_row={@device_row} />
           </div>
 
-    <!-- MTR Diagnostics Tab Content -->
           <.mtr_tab_content
             :if={@active_tab == "mtr"}
             device_uid={@device_uid}
@@ -416,6 +439,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp can_run_ansible?(scope), do: RBAC.can?(scope, "ansible.runs.launch")
   defp can_view_active_fingerprint?(scope), do: RBAC.can?(scope, "networks.sweeps.banner_grab")
   defp can_launch_northbound_actions?(scope), do: RBAC.can?(scope, "northbound.actions.launch")
+
+  defp device_has_agent?(%{} = row) do
+    case Map.get(row, "agent_id") || Map.get(row, :agent_id) do
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> false
+    end
+  end
+
+  defp device_has_agent?(_row), do: false
 
   defp sysmon_metrics_visible?(assigns) do
     Map.get(assigns, :sysmon_presence, false)

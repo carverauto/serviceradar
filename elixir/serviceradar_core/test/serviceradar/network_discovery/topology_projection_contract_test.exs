@@ -478,6 +478,54 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyProjectionContractTest do
   end
 
   describe "canonical rebuild query contract" do
+    test "endpoint inventory risk summary query is bounded to device scalar properties" do
+      query =
+        TopologyGraph.endpoint_inventory_risk_summary_query("sr:device-risk", %{
+          pkg_worst_severity: "critical",
+          pkg_critical_count: 2,
+          pkg_kev_count: 1,
+          pkg_has_unpatched_rce: true,
+          pkg_risk_summary_at: "2026-06-02T12:00:00Z"
+        })
+
+      assert TopologyGraph.endpoint_inventory_risk_summary_fields() == [
+               :pkg_worst_severity,
+               :pkg_critical_count,
+               :pkg_kev_count,
+               :pkg_has_unpatched_rce,
+               :pkg_risk_summary_at
+             ]
+
+      assert query =~ "MERGE (d:Device {id: 'sr:device-risk'})"
+      assert query =~ "SET d.pkg_worst_severity = 'critical'"
+      assert query =~ "SET d.pkg_critical_count = 2"
+      assert query =~ "SET d.pkg_kev_count = 1"
+      assert query =~ "SET d.pkg_has_unpatched_rce = true"
+      assert query =~ "SET d.pkg_risk_summary_at = '2026-06-02T12:00:00Z'"
+      assert length(Regex.scan(~r/SET d\.pkg_/, query)) == 5
+
+      refute query =~ "Package"
+      refute query =~ "HAS_PACKAGE"
+      refute query =~ "AFFECTED_BY"
+      refute query =~ "CREATE"
+      refute query =~ "]-"
+      refute query =~ "->"
+    end
+
+    test "endpoint inventory risk summary query clears absent advisory scoring to unknown defaults" do
+      query = TopologyGraph.endpoint_inventory_risk_summary_query("sr:device-risk", %{})
+
+      assert query =~ "SET d.pkg_worst_severity = 'unknown'"
+      assert query =~ "SET d.pkg_critical_count = 0"
+      assert query =~ "SET d.pkg_kev_count = 0"
+      assert query =~ "SET d.pkg_has_unpatched_rce = false"
+      assert length(Regex.scan(~r/SET d\.pkg_/, query)) == 5
+
+      refute query =~ "Package"
+      refute query =~ "HAS_PACKAGE"
+      refute query =~ "AFFECTED_BY"
+    end
+
     test "mapper upsert queries preserve local-side device ip identity" do
       payload = %{
         local_device_id: "sr:ap-a",

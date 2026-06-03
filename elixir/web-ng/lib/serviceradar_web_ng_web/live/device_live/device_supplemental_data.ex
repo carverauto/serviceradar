@@ -1,11 +1,13 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   @moduledoc false
 
-  import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents, only: [virtualization_guests?: 1]
+  import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents,
+    only: [virtualization_guests?: 1]
 
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.FlowData
   alias ServiceRadarWebNGWeb.DeviceLive.InterfaceData
   alias ServiceRadarWebNGWeb.DeviceLive.IpAliasData
@@ -97,7 +99,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     discovery_jobs = Map.get(parallel_results, :mapper, [])
     discovery_job = DiscoveryData.pick_discovery_job(discovery_jobs)
     has_discovery_job = not is_nil(discovery_job)
-    network_interfaces = InterfaceData.filter_interfaces_for_display(network_interfaces, device_row)
+
+    network_interfaces =
+      InterfaceData.filter_interfaces_for_display(network_interfaces, device_row)
 
     interface_settings = extract_interface_settings(parallel_results, load_interfaces_data?)
     favorited_interfaces = interface_settings.favorited
@@ -114,7 +118,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
         scope
       )
 
-    network_interfaces = InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
+    network_interfaces =
+      InterfaceData.apply_interface_settings(network_interfaces, interface_settings.by_uid)
 
     has_ifaces =
       determine_has_ifaces(
@@ -149,10 +154,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     {northbound_device_history, northbound_device_history_error} =
       Map.get(parallel_results, :northbound_history, {[], nil})
 
+    endpoint_inventory = Map.get(parallel_results, :endpoint_inventory, %{})
+
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
       agent_availability: Map.get(parallel_results, :agent_availability, []),
       healthcheck_summary: Map.get(parallel_results, :healthcheck, %{}),
+      endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
+      endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
+      endpoint_inventory_packages: Map.get(endpoint_inventory, :packages, []),
+      endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
+      endpoint_inventory_error: Map.get(endpoint_inventory, :error),
+      has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
       virtualization_summary: virtualization_summary,
       has_virtualization_guests: virtualization_guests?(virtualization_summary),
       sweep_results: Map.get(parallel_results, :sweep, []),
@@ -225,20 +238,53 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       DeviceTaskData.timed(slow_device_task_ms, :mapper, fn ->
         DiscoveryData.load_mapper_jobs_for_device(scope, device_row)
       end),
-      DeviceTaskData.timed(slow_device_task_ms, :aliases, fn -> IpAliasData.load(scope, uid, show_stale) end),
-      DeviceTaskData.timed(slow_device_task_ms, :northbound_history, fn -> NorthboundHistoryData.load(scope, uid) end)
+      DeviceTaskData.timed(slow_device_task_ms, :aliases, fn ->
+        IpAliasData.load(scope, uid, show_stale)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :northbound_history, fn ->
+        NorthboundHistoryData.load(scope, uid)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :endpoint_inventory, fn ->
+        EndpointInventoryData.load(scope, uid)
+      end)
     ]
 
     base_tasks
     |> maybe_add_profile_task(requested_tab, uid, scope, slow_device_task_ms)
-    |> maybe_add_interface_tasks(load_interfaces_data?, srql_module, uid, scope, slow_device_task_ms)
-    |> maybe_add_flow_tasks(load_flows_data?, srql_module, uid, scope, params, slow_device_task_ms, flows_limit)
-    |> maybe_add_log_tasks(load_logs_data?, srql_module, uid, scope, params, slow_device_task_ms, logs_limit)
+    |> maybe_add_interface_tasks(
+      load_interfaces_data?,
+      srql_module,
+      uid,
+      scope,
+      slow_device_task_ms
+    )
+    |> maybe_add_flow_tasks(
+      load_flows_data?,
+      srql_module,
+      uid,
+      scope,
+      params,
+      slow_device_task_ms,
+      flows_limit
+    )
+    |> maybe_add_log_tasks(
+      load_logs_data?,
+      srql_module,
+      uid,
+      scope,
+      params,
+      slow_device_task_ms,
+      logs_limit
+    )
   end
 
   defp maybe_add_profile_task(tasks, "profiles", uid, scope, slow_device_task_ms) do
     tasks ++
-      [DeviceTaskData.timed(slow_device_task_ms, :profile, fn -> SysmonProfileData.load_profile_info(scope, uid) end)]
+      [
+        DeviceTaskData.timed(slow_device_task_ms, :profile, fn ->
+          SysmonProfileData.load_profile_info(scope, uid)
+        end)
+      ]
   end
 
   defp maybe_add_profile_task(tasks, _active_tab, _uid, _scope, _slow_device_task_ms), do: tasks
@@ -257,7 +303,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
 
   defp maybe_add_interface_tasks(tasks, false, srql_module, uid, scope, slow_device_task_ms) do
     tasks ++
-      [DeviceTaskData.timed(slow_device_task_ms, :has_ifaces, fn -> detect_has_interfaces(srql_module, uid, scope) end)]
+      [
+        DeviceTaskData.timed(slow_device_task_ms, :has_ifaces, fn ->
+          detect_has_interfaces(srql_module, uid, scope)
+        end)
+      ]
   end
 
   defp maybe_add_flow_tasks(tasks, true, srql_module, uid, scope, params, slow_device_task_ms, flows_limit) do
@@ -276,7 +326,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   end
 
   defp maybe_add_flow_tasks(tasks, false, srql_module, uid, scope, _params, slow_device_task_ms, _flows_limit) do
-    tasks ++ [DeviceTaskData.timed(slow_device_task_ms, :has_flows, fn -> detect_has_flows(srql_module, uid, scope) end)]
+    tasks ++
+      [
+        DeviceTaskData.timed(slow_device_task_ms, :has_flows, fn ->
+          detect_has_flows(srql_module, uid, scope)
+        end)
+      ]
   end
 
   defp maybe_add_log_tasks(tasks, true, srql_module, uid, scope, params, slow_device_task_ms, logs_limit) do
@@ -303,12 +358,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
   end
 
   defp extract_interface_results(parallel_results, true), do: Map.get(parallel_results, :interfaces, {[], nil})
+
   defp extract_interface_results(_parallel_results, false), do: {[], nil}
 
   defp extract_flow_results(parallel_results, true), do: Map.get(parallel_results, :flows, {[], %{}, nil})
+
   defp extract_flow_results(_parallel_results, false), do: {[], %{}, nil}
 
   defp extract_log_results(parallel_results, true), do: Map.get(parallel_results, :logs, {[], %{}, nil})
+
   defp extract_log_results(_parallel_results, false), do: {[], %{}, nil}
 
   defp extract_interface_settings(parallel_results, true) do

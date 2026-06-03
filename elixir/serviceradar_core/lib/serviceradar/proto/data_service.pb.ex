@@ -1,7 +1,11 @@
 defmodule Proto.ObjectMetadata.AttributesEntry do
   @moduledoc false
 
-  use Protobuf, map: true, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ObjectMetadata.AttributesEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :string
@@ -10,7 +14,10 @@ end
 defmodule Proto.ObjectMetadata do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ObjectMetadata",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :domain, 2, type: :string
@@ -24,7 +31,10 @@ end
 defmodule Proto.ObjectUploadChunk do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ObjectUploadChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :metadata, 1, type: Proto.ObjectMetadata
   field :data, 2, type: :bytes
@@ -35,7 +45,10 @@ end
 defmodule Proto.ObjectInfo do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ObjectInfo",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :metadata, 1, type: Proto.ObjectMetadata
   field :sha256, 2, type: :string
@@ -48,7 +61,10 @@ end
 defmodule Proto.UploadObjectResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.UploadObjectResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :info, 1, type: Proto.ObjectInfo
 end
@@ -56,7 +72,10 @@ end
 defmodule Proto.DownloadObjectRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.DownloadObjectRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -64,7 +83,10 @@ end
 defmodule Proto.ObjectDownloadChunk do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ObjectDownloadChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :info, 1, type: Proto.ObjectInfo
   field :data, 2, type: :bytes
@@ -75,7 +97,10 @@ end
 defmodule Proto.DeleteObjectRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.DeleteObjectRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -83,7 +108,10 @@ end
 defmodule Proto.DeleteObjectResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.DeleteObjectResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :deleted, 1, type: :bool
 end
@@ -91,7 +119,10 @@ end
 defmodule Proto.GetObjectInfoRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.GetObjectInfoRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
 end
@@ -99,7 +130,10 @@ end
 defmodule Proto.GetObjectInfoResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.GetObjectInfoResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :info, 1, type: Proto.ObjectInfo
   field :found, 2, type: :bool
@@ -108,7 +142,10 @@ end
 defmodule Proto.ListObjectsRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ListObjectsRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :prefix, 1, type: :string
   field :domain, 2, type: :string
@@ -119,7 +156,10 @@ end
 defmodule Proto.ListObjectsResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "proto.ListObjectsResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :objects, 1, repeated: true, type: Proto.ObjectInfo
   field :next_page_token, 2, type: :string, json_name: "nextPageToken"
@@ -128,7 +168,7 @@ end
 defmodule Proto.DataService.Service do
   @moduledoc false
 
-  use GRPC.Service, name: "proto.DataService", protoc_gen_elixir_version: "0.13.0"
+  use GRPC.Service, name: "proto.DataService", protoc_gen_elixir_version: "0.16.0"
 
   rpc(:UploadObject, stream(Proto.ObjectUploadChunk), Proto.UploadObjectResponse)
 

@@ -318,7 +318,137 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
-    ] ++ camera_relay_metrics()
+    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics()
+  end
+
+  @doc """
+  Returns endpoint inventory cost and volume metric definitions.
+  """
+  @spec endpoint_inventory_metrics() :: list()
+  def endpoint_inventory_metrics do
+    import Telemetry.Metrics
+
+    ingest_event = [:serviceradar, :endpoint_inventory, :ingest, :scan]
+    storage_event = [:serviceradar, :endpoint_inventory, :storage]
+    table_event = [:serviceradar, :endpoint_inventory, :table]
+
+    [
+      counter("serviceradar.endpoint_inventory.ingest.scan.count",
+        event_name: ingest_event,
+        measurement: :count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory scan reports ingested"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.changed_upload.count",
+        event_name: ingest_event,
+        measurement: :changed_upload_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory scan reports on the changed upload path"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.unchanged_upload.count",
+        event_name: ingest_event,
+        measurement: :unchanged_upload_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory scan reports on the unchanged hash path"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.package_rows_replaced.count",
+        event_name: ingest_event,
+        measurement: :package_rows_replaced_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory ingests that replaced current package rows"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.artifact_uploaded.count",
+        event_name: ingest_event,
+        measurement: :artifact_uploaded_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory ingests that stored or referenced an artifact"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.hash_mismatch.count",
+        event_name: ingest_event,
+        measurement: :package_set_hash_mismatch_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory ingests with package-set hash mismatches"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.reconcile_floor.count",
+        event_name: ingest_event,
+        measurement: :reconcile_floor_count,
+        tags: [:upload_reason],
+        description: "Number of endpoint inventory unchanged scans that reached reconcile floor"
+      ),
+      counter("serviceradar.endpoint_inventory.ingest.package_event.count",
+        event_name: ingest_event,
+        measurement: :package_event_count,
+        tags: [:upload_reason],
+        description: "Number of server-computed endpoint inventory package diff events"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.artifact_object.bytes",
+        event_name: storage_event,
+        measurement: :artifact_object_bytes,
+        description: "Deduplicated endpoint SBOM artifact bytes in object storage"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.current_package_rows.count",
+        event_name: storage_event,
+        measurement: :current_package_row_count,
+        description: "Current endpoint inventory package row count"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.current_scans.count",
+        event_name: storage_event,
+        measurement: :current_scan_count,
+        description: "Current endpoint inventory scan row count"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.current_package_count_rows.count",
+        event_name: storage_event,
+        measurement: :current_package_count_rows,
+        description: "Rows in maintained endpoint inventory package count table"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.current_cpe_count_rows.count",
+        event_name: storage_event,
+        measurement: :current_cpe_count_rows,
+        description: "Rows in maintained endpoint inventory CPE count table"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.recent_changed.ratio",
+        event_name: storage_event,
+        measurement: :recent_changed_ratio,
+        description:
+          "Ratio of recent endpoint inventory reports that used the changed upload path"
+      ),
+      last_value("serviceradar.endpoint_inventory.storage.recent_unchanged.ratio",
+        event_name: storage_event,
+        measurement: :recent_unchanged_ratio,
+        description:
+          "Ratio of recent endpoint inventory reports that used the unchanged hash path"
+      ),
+      last_value("serviceradar.endpoint_inventory.table.live_rows.count",
+        event_name: table_event,
+        measurement: :live_rows,
+        tags: [:table, :table_kind],
+        description: "Postgres live row estimate for endpoint inventory tables"
+      ),
+      last_value("serviceradar.endpoint_inventory.table.dead_rows.count",
+        event_name: table_event,
+        measurement: :dead_rows,
+        tags: [:table, :table_kind],
+        description: "Postgres dead row estimate for endpoint inventory tables"
+      ),
+      last_value("serviceradar.endpoint_inventory.table.autovacuum_lag.seconds",
+        event_name: table_event,
+        measurement: :autovacuum_lag_seconds,
+        tags: [:table, :table_kind],
+        description: "Seconds since last autovacuum/vacuum for endpoint inventory tables"
+      ),
+      last_value("serviceradar.endpoint_inventory.table.compression_lag.seconds",
+        event_name: table_event,
+        measurement: :compression_lag_seconds,
+        tags: [:table, :table_kind],
+        description: "Oldest uncompressed Timescale chunk age for endpoint inventory history"
+      ),
+      last_value("serviceradar.endpoint_inventory.table.uncompressed_chunks.count",
+        event_name: table_event,
+        measurement: :uncompressed_chunk_count,
+        tags: [:table, :table_kind],
+        description: "Uncompressed Timescale chunk count for endpoint inventory history"
+      )
+    ]
   end
 
   @doc """
@@ -444,7 +574,8 @@ defmodule ServiceRadar.Telemetry do
       {__MODULE__, :measure_cluster_size, []},
       {__MODULE__, :measure_registry_sizes, []},
       {__MODULE__, :measure_active_gateways, []},
-      {__MODULE__, :measure_active_agents, []}
+      {__MODULE__, :measure_active_agents, []},
+      {ServiceRadar.Inventory.EndpointInventoryTelemetry, :measure_cost_volume, []}
     ]
   end
 

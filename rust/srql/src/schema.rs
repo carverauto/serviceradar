@@ -59,6 +59,94 @@ diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 
+    endpoint_inventory_scans (id) {
+        id -> Uuid,
+        device_uid -> Nullable<Text>,
+        agent_id -> Text,
+        scan_id -> Text,
+        collector_name -> Nullable<Text>,
+        collector_version -> Nullable<Text>,
+        state -> Text,
+        coverage_state -> Text,
+        package_count -> Int4,
+        enabled_sources -> Array<Text>,
+        manager_counts -> Jsonb,
+        source_summaries -> Array<Jsonb>,
+        artifact_count -> Int4,
+        current -> Bool,
+        last_successful_scan_at -> Nullable<Timestamptz>,
+        last_scan_at -> Nullable<Timestamptz>,
+        last_changed_scan_at -> Nullable<Timestamptz>,
+        ingested_at -> Nullable<Timestamptz>,
+        package_set_hash -> Nullable<Text>,
+        artifact_hash -> Nullable<Text>,
+        hash_algorithm -> Nullable<Text>,
+        upload_reason -> Nullable<Text>,
+        server_package_set_hash -> Nullable<Text>,
+        package_set_hash_mismatch -> Bool,
+        unchanged_scan_count -> Int4,
+        reconcile_floor_due -> Bool,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    endpoint_inventory_packages (id) {
+        id -> Uuid,
+        scan_ref -> Uuid,
+        device_uid -> Nullable<Text>,
+        agent_id -> Text,
+        name -> Text,
+        version -> Nullable<Text>,
+        architecture -> Nullable<Text>,
+        package_manager -> Text,
+        ecosystem -> Nullable<Text>,
+        purl -> Nullable<Text>,
+        purl_canonical -> Text,
+        endpoint_package_ref -> Uuid,
+        cpes -> Array<Text>,
+        supplier -> Nullable<Text>,
+        license -> Nullable<Text>,
+        source -> Nullable<Text>,
+        evidence -> Jsonb,
+        current -> Bool,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
+    endpoint_packages (id) {
+        id -> Uuid,
+        coordinate_key -> Text,
+        purl_canonical -> Nullable<Text>,
+        primary_cpe -> Nullable<Text>,
+        cpes -> Array<Text>,
+        package_manager -> Text,
+        name -> Text,
+        version -> Nullable<Text>,
+        architecture -> Nullable<Text>,
+        ecosystem -> Nullable<Text>,
+        source_scope -> Text,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::pg::sql_types::Array;
+    use diesel::sql_types::*;
+
     /// OCSF Device Inventory (aligned with OCSF v1.7.0 Device object)
     ocsf_devices (uid) {
         // OCSF Core Identity

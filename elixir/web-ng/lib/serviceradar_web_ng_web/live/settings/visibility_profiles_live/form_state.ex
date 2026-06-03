@@ -41,8 +41,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       "target_query" => profile.target_query || "",
       "priority" => to_string(profile.priority || 0),
       "capture_interfaces" => Enum.join(profile.capture_interfaces || [], "\n"),
-      "sample_interval_ms" =>
-        to_string(profile.sample_interval_ms || @default_sample_interval_ms),
+      "sample_interval_ms" => to_string(profile.sample_interval_ms || @default_sample_interval_ms),
       "retention_days" => to_string(profile.retention_days || @default_retention_days),
       "partition_id" => profile.partition_id || @default_partition,
       "fingerprint" => %{
@@ -108,8 +107,7 @@ defmodule ServiceRadarWebNGWeb.Settings.VisibilityProfilesLive.FormState do
       },
       dpi: %{
         "enabled" => dpi_enabled?,
-        "protocols" =>
-          if(dpi_enabled?, do: selected_dpi_protocols(form["dpi"]["protocols"]), else: [])
+        "protocols" => if(dpi_enabled?, do: selected_dpi_protocols(form["dpi"]["protocols"]), else: [])
       },
       flow_attribution: selected_flow_attribution(form["flow_attribution"]),
       process_snapshot_interval_s: parse_int(form["process_snapshot_interval_s"], 0)

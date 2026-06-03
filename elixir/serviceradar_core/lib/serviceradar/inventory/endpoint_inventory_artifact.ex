@@ -26,8 +26,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifact do
 
       accept [
         :scan_ref,
+        :artifact_content_ref,
         :agent_id,
         :device_uid,
+        :artifact_hash,
         :object_key,
         :bucket,
         :domain,
@@ -38,6 +40,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifact do
         :size_bytes,
         :storage_backend,
         :uploaded_at,
+        :reused_content,
         :metadata
       ]
     end
@@ -66,12 +69,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifact do
       public? true
     end
 
+    attribute :artifact_content_ref, :uuid do
+      public? true
+    end
+
     attribute :agent_id, :string do
       allow_nil? false
       public? true
     end
 
     attribute :device_uid, :string do
+      public? true
+    end
+
+    attribute :artifact_hash, :string do
       public? true
     end
 
@@ -125,6 +136,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifact do
       public? true
     end
 
+    attribute :reused_content, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
     attribute :metadata, :map do
       allow_nil? false
       default %{}
@@ -142,9 +159,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryArtifact do
       allow_nil? false
       public? true
     end
-  end
 
-  identities do
-    identity :unique_object_key, [:object_key]
+    belongs_to :content, ServiceRadar.Inventory.EndpointInventoryArtifactContent do
+      source_attribute :artifact_content_ref
+      destination_attribute :id
+      define_attribute? false
+      allow_nil? true
+      public? true
+    end
   end
 end

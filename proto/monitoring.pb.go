@@ -1539,21 +1539,22 @@ func (x *SweepScannerStats) GetMaxQueueDepth() uint64 {
 
 // GatewayStatusRequest is sent by agents to push their status to the gateway.
 type GatewayStatusRequest struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
-	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway receiving this status
-	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`       // Agent sending this status
-	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                            // Partition identifier
-	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`              // Host IP where agent is running
-	KvStoreId     string                  `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`         // KV store identifier this agent is using
-	ConfigSource  string                  `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
-	Version       string                  `protobuf:"bytes,11,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
-	Hostname      string                  `protobuf:"bytes,12,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
-	Os            string                  `protobuf:"bytes,13,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
-	Arch          string                  `protobuf:"bytes,14,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state                                   protoimpl.MessageState                          `protogen:"open.v1"`
+	Services                                []*GatewayServiceStatus                         `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId                               string                                          `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"` // Gateway receiving this status
+	AgentId                                 string                                          `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`       // Agent sending this status
+	Timestamp                               int64                                           `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition                               string                                          `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`                            // Partition identifier
+	SourceIp                                string                                          `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`              // Host IP where agent is running
+	KvStoreId                               string                                          `protobuf:"bytes,7,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`         // KV store identifier this agent is using
+	ConfigSource                            string                                          `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
+	Version                                 string                                          `protobuf:"bytes,11,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
+	Hostname                                string                                          `protobuf:"bytes,12,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
+	Os                                      string                                          `protobuf:"bytes,13,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
+	Arch                                    string                                          `protobuf:"bytes,14,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
+	EndpointInventoryStandingQuestionCounts []*EndpointInventoryStandingQuestionResultCount `protobuf:"bytes,15,rep,name=endpoint_inventory_standing_question_counts,json=endpointInventoryStandingQuestionCounts,proto3" json:"endpoint_inventory_standing_question_counts,omitempty"`
+	unknownFields                           protoimpl.UnknownFields
+	sizeCache                               protoimpl.SizeCache
 }
 
 func (x *GatewayStatusRequest) Reset() {
@@ -1670,10 +1671,18 @@ func (x *GatewayStatusRequest) GetArch() string {
 	return ""
 }
 
+func (x *GatewayStatusRequest) GetEndpointInventoryStandingQuestionCounts() []*EndpointInventoryStandingQuestionResultCount {
+	if x != nil {
+		return x.EndpointInventoryStandingQuestionCounts
+	}
+	return nil
+}
+
 // GatewayStatusResponse is the response from the gateway after receiving status.
 type GatewayStatusResponse struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Received      bool                   `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	state         protoimpl.MessageState    `protogen:"open.v1"`
+	Received      bool                      `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	Directives    []*GatewayStatusDirective `protobuf:"bytes,2,rep,name=directives,proto3" json:"directives,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1715,31 +1724,109 @@ func (x *GatewayStatusResponse) GetReceived() bool {
 	return false
 }
 
-// GatewayStatusChunk is used for streaming large status payloads.
-type GatewayStatusChunk struct {
-	state         protoimpl.MessageState  `protogen:"open.v1"`
-	Services      []*GatewayServiceStatus `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
-	GatewayId     string                  `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
-	AgentId       string                  `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Timestamp     int64                   `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
-	Partition     string                  `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
-	SourceIp      string                  `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
-	IsFinal       bool                    `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`                // Whether this is the last chunk
-	ChunkIndex    int32                   `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`       // Order of this chunk
-	TotalChunks   int32                   `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`    // Total number of chunks
-	KvStoreId     string                  `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`        // KV store identifier this agent is using
-	ConfigSource  string                  `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
-	Version       string                  `protobuf:"bytes,14,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
-	Hostname      string                  `protobuf:"bytes,15,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
-	Os            string                  `protobuf:"bytes,16,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
-	Arch          string                  `protobuf:"bytes,17,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
+func (x *GatewayStatusResponse) GetDirectives() []*GatewayStatusDirective {
+	if x != nil {
+		return x.Directives
+	}
+	return nil
+}
+
+// GatewayStatusDirective carries bounded server-to-agent instructions produced
+// while processing a status payload.
+type GatewayStatusDirective struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	ServiceName   string                 `protobuf:"bytes,1,opt,name=service_name,json=serviceName,proto3" json:"service_name,omitempty"`
+	ServiceType   string                 `protobuf:"bytes,2,opt,name=service_type,json=serviceType,proto3" json:"service_type,omitempty"`
+	DirectiveType string                 `protobuf:"bytes,3,opt,name=directive_type,json=directiveType,proto3" json:"directive_type,omitempty"`
+	PayloadJson   []byte                 `protobuf:"bytes,4,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
+func (x *GatewayStatusDirective) Reset() {
+	*x = GatewayStatusDirective{}
+	mi := &file_monitoring_proto_msgTypes[13]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GatewayStatusDirective) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GatewayStatusDirective) ProtoMessage() {}
+
+func (x *GatewayStatusDirective) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[13]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GatewayStatusDirective.ProtoReflect.Descriptor instead.
+func (*GatewayStatusDirective) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{13}
+}
+
+func (x *GatewayStatusDirective) GetServiceName() string {
+	if x != nil {
+		return x.ServiceName
+	}
+	return ""
+}
+
+func (x *GatewayStatusDirective) GetServiceType() string {
+	if x != nil {
+		return x.ServiceType
+	}
+	return ""
+}
+
+func (x *GatewayStatusDirective) GetDirectiveType() string {
+	if x != nil {
+		return x.DirectiveType
+	}
+	return ""
+}
+
+func (x *GatewayStatusDirective) GetPayloadJson() []byte {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return nil
+}
+
+// GatewayStatusChunk is used for streaming large status payloads.
+type GatewayStatusChunk struct {
+	state                                   protoimpl.MessageState                          `protogen:"open.v1"`
+	Services                                []*GatewayServiceStatus                         `protobuf:"bytes,1,rep,name=services,proto3" json:"services,omitempty"`
+	GatewayId                               string                                          `protobuf:"bytes,2,opt,name=gateway_id,json=gatewayId,proto3" json:"gateway_id,omitempty"`
+	AgentId                                 string                                          `protobuf:"bytes,3,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Timestamp                               int64                                           `protobuf:"varint,4,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Partition                               string                                          `protobuf:"bytes,5,opt,name=partition,proto3" json:"partition,omitempty"`
+	SourceIp                                string                                          `protobuf:"bytes,6,opt,name=source_ip,json=sourceIp,proto3" json:"source_ip,omitempty"`
+	IsFinal                                 bool                                            `protobuf:"varint,7,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`                // Whether this is the last chunk
+	ChunkIndex                              int32                                           `protobuf:"varint,8,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`       // Order of this chunk
+	TotalChunks                             int32                                           `protobuf:"varint,9,opt,name=total_chunks,json=totalChunks,proto3" json:"total_chunks,omitempty"`    // Total number of chunks
+	KvStoreId                               string                                          `protobuf:"bytes,10,opt,name=kv_store_id,json=kvStoreId,proto3" json:"kv_store_id,omitempty"`        // KV store identifier this agent is using
+	ConfigSource                            string                                          `protobuf:"bytes,13,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"` // Source of sysmon config: "remote", "local", "cached", "default"
+	Version                                 string                                          `protobuf:"bytes,14,opt,name=version,proto3" json:"version,omitempty"`                               // Agent runtime version at push time
+	Hostname                                string                                          `protobuf:"bytes,15,opt,name=hostname,proto3" json:"hostname,omitempty"`                             // Agent host name at push time
+	Os                                      string                                          `protobuf:"bytes,16,opt,name=os,proto3" json:"os,omitempty"`                                         // Agent runtime OS at push time
+	Arch                                    string                                          `protobuf:"bytes,17,opt,name=arch,proto3" json:"arch,omitempty"`                                     // Agent runtime architecture at push time
+	EndpointInventoryStandingQuestionCounts []*EndpointInventoryStandingQuestionResultCount `protobuf:"bytes,18,rep,name=endpoint_inventory_standing_question_counts,json=endpointInventoryStandingQuestionCounts,proto3" json:"endpoint_inventory_standing_question_counts,omitempty"`
+	unknownFields                           protoimpl.UnknownFields
+	sizeCache                               protoimpl.SizeCache
+}
+
 func (x *GatewayStatusChunk) Reset() {
 	*x = GatewayStatusChunk{}
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1751,7 +1838,7 @@ func (x *GatewayStatusChunk) String() string {
 func (*GatewayStatusChunk) ProtoMessage() {}
 
 func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[13]
+	mi := &file_monitoring_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1764,7 +1851,7 @@ func (x *GatewayStatusChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayStatusChunk.ProtoReflect.Descriptor instead.
 func (*GatewayStatusChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{13}
+	return file_monitoring_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *GatewayStatusChunk) GetServices() []*GatewayServiceStatus {
@@ -1872,6 +1959,13 @@ func (x *GatewayStatusChunk) GetArch() string {
 	return ""
 }
 
+func (x *GatewayStatusChunk) GetEndpointInventoryStandingQuestionCounts() []*EndpointInventoryStandingQuestionResultCount {
+	if x != nil {
+		return x.EndpointInventoryStandingQuestionCounts
+	}
+	return nil
+}
+
 // GatewayServiceStatus represents a single service status pushed by an agent.
 type GatewayServiceStatus struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -1891,7 +1985,7 @@ type GatewayServiceStatus struct {
 
 func (x *GatewayServiceStatus) Reset() {
 	*x = GatewayServiceStatus{}
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1903,7 +1997,7 @@ func (x *GatewayServiceStatus) String() string {
 func (*GatewayServiceStatus) ProtoMessage() {}
 
 func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[14]
+	mi := &file_monitoring_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1916,7 +2010,7 @@ func (x *GatewayServiceStatus) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GatewayServiceStatus.ProtoReflect.Descriptor instead.
 func (*GatewayServiceStatus) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{14}
+	return file_monitoring_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *GatewayServiceStatus) GetServiceName() string {
@@ -2008,7 +2102,7 @@ type AgentHelloRequest struct {
 
 func (x *AgentHelloRequest) Reset() {
 	*x = AgentHelloRequest{}
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2020,7 +2114,7 @@ func (x *AgentHelloRequest) String() string {
 func (*AgentHelloRequest) ProtoMessage() {}
 
 func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[15]
+	mi := &file_monitoring_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2033,7 +2127,7 @@ func (x *AgentHelloRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloRequest.ProtoReflect.Descriptor instead.
 func (*AgentHelloRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{15}
+	return file_monitoring_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *AgentHelloRequest) GetAgentId() string {
@@ -2122,7 +2216,7 @@ type AgentHelloResponse struct {
 
 func (x *AgentHelloResponse) Reset() {
 	*x = AgentHelloResponse{}
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2134,7 +2228,7 @@ func (x *AgentHelloResponse) String() string {
 func (*AgentHelloResponse) ProtoMessage() {}
 
 func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[16]
+	mi := &file_monitoring_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2147,7 +2241,7 @@ func (x *AgentHelloResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentHelloResponse.ProtoReflect.Descriptor instead.
 func (*AgentHelloResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{16}
+	return file_monitoring_proto_rawDescGZIP(), []int{17}
 }
 
 func (x *AgentHelloResponse) GetAccepted() bool {
@@ -2210,7 +2304,7 @@ type AgentConfigRequest struct {
 
 func (x *AgentConfigRequest) Reset() {
 	*x = AgentConfigRequest{}
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2222,7 +2316,7 @@ func (x *AgentConfigRequest) String() string {
 func (*AgentConfigRequest) ProtoMessage() {}
 
 func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[17]
+	mi := &file_monitoring_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2235,7 +2329,7 @@ func (x *AgentConfigRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigRequest.ProtoReflect.Descriptor instead.
 func (*AgentConfigRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{17}
+	return file_monitoring_proto_rawDescGZIP(), []int{18}
 }
 
 func (x *AgentConfigRequest) GetAgentId() string {
@@ -2287,7 +2381,7 @@ type AgentConfigResponse struct {
 
 func (x *AgentConfigResponse) Reset() {
 	*x = AgentConfigResponse{}
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2299,7 +2393,7 @@ func (x *AgentConfigResponse) String() string {
 func (*AgentConfigResponse) ProtoMessage() {}
 
 func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[18]
+	mi := &file_monitoring_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2312,7 +2406,7 @@ func (x *AgentConfigResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigResponse.ProtoReflect.Descriptor instead.
 func (*AgentConfigResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{18}
+	return file_monitoring_proto_rawDescGZIP(), []int{19}
 }
 
 func (x *AgentConfigResponse) GetNotModified() bool {
@@ -2444,7 +2538,7 @@ type AddonAssignmentConfig struct {
 
 func (x *AddonAssignmentConfig) Reset() {
 	*x = AddonAssignmentConfig{}
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2456,7 +2550,7 @@ func (x *AddonAssignmentConfig) String() string {
 func (*AddonAssignmentConfig) ProtoMessage() {}
 
 func (x *AddonAssignmentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[19]
+	mi := &file_monitoring_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2469,7 +2563,7 @@ func (x *AddonAssignmentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AddonAssignmentConfig.ProtoReflect.Descriptor instead.
 func (*AddonAssignmentConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{19}
+	return file_monitoring_proto_rawDescGZIP(), []int{20}
 }
 
 func (x *AddonAssignmentConfig) GetAddonId() string {
@@ -2595,7 +2689,7 @@ type AgentConfigChunk struct {
 
 func (x *AgentConfigChunk) Reset() {
 	*x = AgentConfigChunk{}
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2607,7 +2701,7 @@ func (x *AgentConfigChunk) String() string {
 func (*AgentConfigChunk) ProtoMessage() {}
 
 func (x *AgentConfigChunk) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[20]
+	mi := &file_monitoring_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2620,7 +2714,7 @@ func (x *AgentConfigChunk) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentConfigChunk.ProtoReflect.Descriptor instead.
 func (*AgentConfigChunk) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{20}
+	return file_monitoring_proto_rawDescGZIP(), []int{21}
 }
 
 func (x *AgentConfigChunk) GetAgentId() string {
@@ -2705,7 +2799,7 @@ type ControlStreamHello struct {
 
 func (x *ControlStreamHello) Reset() {
 	*x = ControlStreamHello{}
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2717,7 +2811,7 @@ func (x *ControlStreamHello) String() string {
 func (*ControlStreamHello) ProtoMessage() {}
 
 func (x *ControlStreamHello) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[21]
+	mi := &file_monitoring_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2730,7 +2824,7 @@ func (x *ControlStreamHello) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamHello.ProtoReflect.Descriptor instead.
 func (*ControlStreamHello) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{21}
+	return file_monitoring_proto_rawDescGZIP(), []int{22}
 }
 
 func (x *ControlStreamHello) GetAgentId() string {
@@ -2817,7 +2911,7 @@ type CommandRequest struct {
 
 func (x *CommandRequest) Reset() {
 	*x = CommandRequest{}
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2829,7 +2923,7 @@ func (x *CommandRequest) String() string {
 func (*CommandRequest) ProtoMessage() {}
 
 func (x *CommandRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[22]
+	mi := &file_monitoring_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2842,7 +2936,7 @@ func (x *CommandRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandRequest.ProtoReflect.Descriptor instead.
 func (*CommandRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{22}
+	return file_monitoring_proto_rawDescGZIP(), []int{23}
 }
 
 func (x *CommandRequest) GetCommandId() string {
@@ -2893,7 +2987,7 @@ type CommandAck struct {
 
 func (x *CommandAck) Reset() {
 	*x = CommandAck{}
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[24]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2905,7 +2999,7 @@ func (x *CommandAck) String() string {
 func (*CommandAck) ProtoMessage() {}
 
 func (x *CommandAck) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[23]
+	mi := &file_monitoring_proto_msgTypes[24]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2918,7 +3012,7 @@ func (x *CommandAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandAck.ProtoReflect.Descriptor instead.
 func (*CommandAck) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{23}
+	return file_monitoring_proto_rawDescGZIP(), []int{24}
 }
 
 func (x *CommandAck) GetCommandId() string {
@@ -2964,7 +3058,7 @@ type CommandProgress struct {
 
 func (x *CommandProgress) Reset() {
 	*x = CommandProgress{}
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -2976,7 +3070,7 @@ func (x *CommandProgress) String() string {
 func (*CommandProgress) ProtoMessage() {}
 
 func (x *CommandProgress) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[24]
+	mi := &file_monitoring_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2989,7 +3083,7 @@ func (x *CommandProgress) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandProgress.ProtoReflect.Descriptor instead.
 func (*CommandProgress) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{24}
+	return file_monitoring_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *CommandProgress) GetCommandId() string {
@@ -3049,7 +3143,7 @@ type CommandResult struct {
 
 func (x *CommandResult) Reset() {
 	*x = CommandResult{}
-	mi := &file_monitoring_proto_msgTypes[25]
+	mi := &file_monitoring_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3061,7 +3155,7 @@ func (x *CommandResult) String() string {
 func (*CommandResult) ProtoMessage() {}
 
 func (x *CommandResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[25]
+	mi := &file_monitoring_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3074,7 +3168,7 @@ func (x *CommandResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CommandResult.ProtoReflect.Descriptor instead.
 func (*CommandResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{25}
+	return file_monitoring_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *CommandResult) GetCommandId() string {
@@ -3130,7 +3224,7 @@ type ConfigAck struct {
 
 func (x *ConfigAck) Reset() {
 	*x = ConfigAck{}
-	mi := &file_monitoring_proto_msgTypes[26]
+	mi := &file_monitoring_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3142,7 +3236,7 @@ func (x *ConfigAck) String() string {
 func (*ConfigAck) ProtoMessage() {}
 
 func (x *ConfigAck) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[26]
+	mi := &file_monitoring_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3155,7 +3249,7 @@ func (x *ConfigAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConfigAck.ProtoReflect.Descriptor instead.
 func (*ConfigAck) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{26}
+	return file_monitoring_proto_rawDescGZIP(), []int{27}
 }
 
 func (x *ConfigAck) GetConfigVersion() string {
@@ -3192,7 +3286,7 @@ type ConsoleFrame struct {
 
 func (x *ConsoleFrame) Reset() {
 	*x = ConsoleFrame{}
-	mi := &file_monitoring_proto_msgTypes[27]
+	mi := &file_monitoring_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3204,7 +3298,7 @@ func (x *ConsoleFrame) String() string {
 func (*ConsoleFrame) ProtoMessage() {}
 
 func (x *ConsoleFrame) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[27]
+	mi := &file_monitoring_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3217,7 +3311,7 @@ func (x *ConsoleFrame) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsoleFrame.ProtoReflect.Descriptor instead.
 func (*ConsoleFrame) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{27}
+	return file_monitoring_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *ConsoleFrame) GetSessionId() string {
@@ -3308,7 +3402,7 @@ type ControlStreamRequest struct {
 
 func (x *ControlStreamRequest) Reset() {
 	*x = ControlStreamRequest{}
-	mi := &file_monitoring_proto_msgTypes[28]
+	mi := &file_monitoring_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3320,7 +3414,7 @@ func (x *ControlStreamRequest) String() string {
 func (*ControlStreamRequest) ProtoMessage() {}
 
 func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[28]
+	mi := &file_monitoring_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3333,7 +3427,7 @@ func (x *ControlStreamRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamRequest.ProtoReflect.Descriptor instead.
 func (*ControlStreamRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{28}
+	return file_monitoring_proto_rawDescGZIP(), []int{29}
 }
 
 func (x *ControlStreamRequest) GetPayload() isControlStreamRequest_Payload {
@@ -3452,7 +3546,7 @@ type ControlStreamResponse struct {
 
 func (x *ControlStreamResponse) Reset() {
 	*x = ControlStreamResponse{}
-	mi := &file_monitoring_proto_msgTypes[29]
+	mi := &file_monitoring_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3464,7 +3558,7 @@ func (x *ControlStreamResponse) String() string {
 func (*ControlStreamResponse) ProtoMessage() {}
 
 func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[29]
+	mi := &file_monitoring_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3477,7 +3571,7 @@ func (x *ControlStreamResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControlStreamResponse.ProtoReflect.Descriptor instead.
 func (*ControlStreamResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{29}
+	return file_monitoring_proto_rawDescGZIP(), []int{30}
 }
 
 func (x *ControlStreamResponse) GetPayload() isControlStreamResponse_Payload {
@@ -3554,7 +3648,7 @@ type CredentialBrokerResolveRequest struct {
 
 func (x *CredentialBrokerResolveRequest) Reset() {
 	*x = CredentialBrokerResolveRequest{}
-	mi := &file_monitoring_proto_msgTypes[30]
+	mi := &file_monitoring_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3566,7 +3660,7 @@ func (x *CredentialBrokerResolveRequest) String() string {
 func (*CredentialBrokerResolveRequest) ProtoMessage() {}
 
 func (x *CredentialBrokerResolveRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[30]
+	mi := &file_monitoring_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3579,7 +3673,7 @@ func (x *CredentialBrokerResolveRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialBrokerResolveRequest.ProtoReflect.Descriptor instead.
 func (*CredentialBrokerResolveRequest) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{30}
+	return file_monitoring_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *CredentialBrokerResolveRequest) GetAgentId() string {
@@ -3648,7 +3742,7 @@ type CredentialBrokerResolveResponse struct {
 
 func (x *CredentialBrokerResolveResponse) Reset() {
 	*x = CredentialBrokerResolveResponse{}
-	mi := &file_monitoring_proto_msgTypes[31]
+	mi := &file_monitoring_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3660,7 +3754,7 @@ func (x *CredentialBrokerResolveResponse) String() string {
 func (*CredentialBrokerResolveResponse) ProtoMessage() {}
 
 func (x *CredentialBrokerResolveResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[31]
+	mi := &file_monitoring_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3673,7 +3767,7 @@ func (x *CredentialBrokerResolveResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CredentialBrokerResolveResponse.ProtoReflect.Descriptor instead.
 func (*CredentialBrokerResolveResponse) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{31}
+	return file_monitoring_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *CredentialBrokerResolveResponse) GetSuccess() bool {
@@ -3736,7 +3830,7 @@ type PluginConfig struct {
 
 func (x *PluginConfig) Reset() {
 	*x = PluginConfig{}
-	mi := &file_monitoring_proto_msgTypes[32]
+	mi := &file_monitoring_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3748,7 +3842,7 @@ func (x *PluginConfig) String() string {
 func (*PluginConfig) ProtoMessage() {}
 
 func (x *PluginConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[32]
+	mi := &file_monitoring_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3761,7 +3855,7 @@ func (x *PluginConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginConfig.ProtoReflect.Descriptor instead.
 func (*PluginConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{32}
+	return file_monitoring_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *PluginConfig) GetAssignments() []*PluginAssignmentConfig {
@@ -3791,7 +3885,7 @@ type PluginEngineLimits struct {
 
 func (x *PluginEngineLimits) Reset() {
 	*x = PluginEngineLimits{}
-	mi := &file_monitoring_proto_msgTypes[33]
+	mi := &file_monitoring_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3803,7 +3897,7 @@ func (x *PluginEngineLimits) String() string {
 func (*PluginEngineLimits) ProtoMessage() {}
 
 func (x *PluginEngineLimits) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[33]
+	mi := &file_monitoring_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3816,7 +3910,7 @@ func (x *PluginEngineLimits) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginEngineLimits.ProtoReflect.Descriptor instead.
 func (*PluginEngineLimits) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{33}
+	return file_monitoring_proto_rawDescGZIP(), []int{34}
 }
 
 func (x *PluginEngineLimits) GetMaxMemoryMb() int32 {
@@ -3878,7 +3972,7 @@ type PluginAssignmentConfig struct {
 
 func (x *PluginAssignmentConfig) Reset() {
 	*x = PluginAssignmentConfig{}
-	mi := &file_monitoring_proto_msgTypes[34]
+	mi := &file_monitoring_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -3890,7 +3984,7 @@ func (x *PluginAssignmentConfig) String() string {
 func (*PluginAssignmentConfig) ProtoMessage() {}
 
 func (x *PluginAssignmentConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[34]
+	mi := &file_monitoring_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -3903,7 +3997,7 @@ func (x *PluginAssignmentConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PluginAssignmentConfig.ProtoReflect.Descriptor instead.
 func (*PluginAssignmentConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{34}
+	return file_monitoring_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *PluginAssignmentConfig) GetAssignmentId() string {
@@ -4082,7 +4176,7 @@ type BumblebeeConfig struct {
 
 func (x *BumblebeeConfig) Reset() {
 	*x = BumblebeeConfig{}
-	mi := &file_monitoring_proto_msgTypes[35]
+	mi := &file_monitoring_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4094,7 +4188,7 @@ func (x *BumblebeeConfig) String() string {
 func (*BumblebeeConfig) ProtoMessage() {}
 
 func (x *BumblebeeConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[35]
+	mi := &file_monitoring_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4107,7 +4201,7 @@ func (x *BumblebeeConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BumblebeeConfig.ProtoReflect.Descriptor instead.
 func (*BumblebeeConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{35}
+	return file_monitoring_proto_rawDescGZIP(), []int{36}
 }
 
 func (x *BumblebeeConfig) GetEnabled() bool {
@@ -4218,7 +4312,7 @@ type BumblebeeCatalogAssignment struct {
 
 func (x *BumblebeeCatalogAssignment) Reset() {
 	*x = BumblebeeCatalogAssignment{}
-	mi := &file_monitoring_proto_msgTypes[36]
+	mi := &file_monitoring_proto_msgTypes[37]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4230,7 +4324,7 @@ func (x *BumblebeeCatalogAssignment) String() string {
 func (*BumblebeeCatalogAssignment) ProtoMessage() {}
 
 func (x *BumblebeeCatalogAssignment) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[36]
+	mi := &file_monitoring_proto_msgTypes[37]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4243,7 +4337,7 @@ func (x *BumblebeeCatalogAssignment) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BumblebeeCatalogAssignment.ProtoReflect.Descriptor instead.
 func (*BumblebeeCatalogAssignment) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{36}
+	return file_monitoring_proto_rawDescGZIP(), []int{37}
 }
 
 func (x *BumblebeeCatalogAssignment) GetSchemaVersion() string {
@@ -4304,23 +4398,30 @@ func (x *BumblebeeCatalogAssignment) GetPromotedAt() string {
 
 // EndpointInventoryConfig defines the optional endpoint package/SBOM inventory profile.
 type EndpointInventoryConfig struct {
-	state             protoimpl.MessageState `protogen:"open.v1"`
-	Enabled           bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	AgentId           string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Sources           []string               `protobuf:"bytes,3,rep,name=sources,proto3" json:"sources,omitempty"`
-	ScanTimeout       string                 `protobuf:"bytes,4,opt,name=scan_timeout,json=scanTimeout,proto3" json:"scan_timeout,omitempty"`
-	MaxPackages       int32                  `protobuf:"varint,5,opt,name=max_packages,json=maxPackages,proto3" json:"max_packages,omitempty"`
-	MaxOutputBytes    int64                  `protobuf:"varint,6,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
-	Cadence           string                 `protobuf:"bytes,7,opt,name=cadence,proto3" json:"cadence,omitempty"`
-	CollectPaths      bool                   `protobuf:"varint,8,opt,name=collect_paths,json=collectPaths,proto3" json:"collect_paths,omitempty"`
-	CollectFileHashes bool                   `protobuf:"varint,9,opt,name=collect_file_hashes,json=collectFileHashes,proto3" json:"collect_file_hashes,omitempty"`
-	unknownFields     protoimpl.UnknownFields
-	sizeCache         protoimpl.SizeCache
+	state                  protoimpl.MessageState `protogen:"open.v1"`
+	Enabled                bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	AgentId                string                 `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Sources                []string               `protobuf:"bytes,3,rep,name=sources,proto3" json:"sources,omitempty"`
+	ScanTimeout            string                 `protobuf:"bytes,4,opt,name=scan_timeout,json=scanTimeout,proto3" json:"scan_timeout,omitempty"`
+	MaxPackages            int32                  `protobuf:"varint,5,opt,name=max_packages,json=maxPackages,proto3" json:"max_packages,omitempty"`
+	MaxOutputBytes         int64                  `protobuf:"varint,6,opt,name=max_output_bytes,json=maxOutputBytes,proto3" json:"max_output_bytes,omitempty"`
+	Cadence                string                 `protobuf:"bytes,7,opt,name=cadence,proto3" json:"cadence,omitempty"`
+	CollectPaths           bool                   `protobuf:"varint,8,opt,name=collect_paths,json=collectPaths,proto3" json:"collect_paths,omitempty"`
+	CollectFileHashes      bool                   `protobuf:"varint,9,opt,name=collect_file_hashes,json=collectFileHashes,proto3" json:"collect_file_hashes,omitempty"`
+	ForceFreshEnabled      bool                   `protobuf:"varint,10,opt,name=force_fresh_enabled,json=forceFreshEnabled,proto3" json:"force_fresh_enabled,omitempty"`
+	ForceFullScanInterval  int32                  `protobuf:"varint,11,opt,name=force_full_scan_interval,json=forceFullScanInterval,proto3" json:"force_full_scan_interval,omitempty"`
+	CacheStaleThreshold    string                 `protobuf:"bytes,12,opt,name=cache_stale_threshold,json=cacheStaleThreshold,proto3" json:"cache_stale_threshold,omitempty"`
+	UploadJitter           string                 `protobuf:"bytes,13,opt,name=upload_jitter,json=uploadJitter,proto3" json:"upload_jitter,omitempty"`
+	UploadRetryInitial     string                 `protobuf:"bytes,14,opt,name=upload_retry_initial,json=uploadRetryInitial,proto3" json:"upload_retry_initial,omitempty"`
+	UploadRetryMax         string                 `protobuf:"bytes,15,opt,name=upload_retry_max,json=uploadRetryMax,proto3" json:"upload_retry_max,omitempty"`
+	UploadRetryMaxAttempts int32                  `protobuf:"varint,16,opt,name=upload_retry_max_attempts,json=uploadRetryMaxAttempts,proto3" json:"upload_retry_max_attempts,omitempty"`
+	unknownFields          protoimpl.UnknownFields
+	sizeCache              protoimpl.SizeCache
 }
 
 func (x *EndpointInventoryConfig) Reset() {
 	*x = EndpointInventoryConfig{}
-	mi := &file_monitoring_proto_msgTypes[37]
+	mi := &file_monitoring_proto_msgTypes[38]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4332,7 +4433,7 @@ func (x *EndpointInventoryConfig) String() string {
 func (*EndpointInventoryConfig) ProtoMessage() {}
 
 func (x *EndpointInventoryConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[37]
+	mi := &file_monitoring_proto_msgTypes[38]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4345,7 +4446,7 @@ func (x *EndpointInventoryConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventoryConfig.ProtoReflect.Descriptor instead.
 func (*EndpointInventoryConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{37}
+	return file_monitoring_proto_rawDescGZIP(), []int{38}
 }
 
 func (x *EndpointInventoryConfig) GetEnabled() bool {
@@ -4411,21 +4512,71 @@ func (x *EndpointInventoryConfig) GetCollectFileHashes() bool {
 	return false
 }
 
+func (x *EndpointInventoryConfig) GetForceFreshEnabled() bool {
+	if x != nil {
+		return x.ForceFreshEnabled
+	}
+	return false
+}
+
+func (x *EndpointInventoryConfig) GetForceFullScanInterval() int32 {
+	if x != nil {
+		return x.ForceFullScanInterval
+	}
+	return 0
+}
+
+func (x *EndpointInventoryConfig) GetCacheStaleThreshold() string {
+	if x != nil {
+		return x.CacheStaleThreshold
+	}
+	return ""
+}
+
+func (x *EndpointInventoryConfig) GetUploadJitter() string {
+	if x != nil {
+		return x.UploadJitter
+	}
+	return ""
+}
+
+func (x *EndpointInventoryConfig) GetUploadRetryInitial() string {
+	if x != nil {
+		return x.UploadRetryInitial
+	}
+	return ""
+}
+
+func (x *EndpointInventoryConfig) GetUploadRetryMax() string {
+	if x != nil {
+		return x.UploadRetryMax
+	}
+	return ""
+}
+
+func (x *EndpointInventoryConfig) GetUploadRetryMaxAttempts() int32 {
+	if x != nil {
+		return x.UploadRetryMaxAttempts
+	}
+	return 0
+}
+
 // EndpointInventoryReport is the typed endpoint software inventory payload
 // produced by an agent after a collector scan. Raw SBOM bytes are stored
 // separately as a durable object and referenced by artifact.
 type EndpointInventoryReport struct {
-	state         protoimpl.MessageState             `protogen:"open.v1"`
-	Metadata      *EndpointInventoryScanMetadata     `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
-	Artifact      *EndpointInventoryArtifactRef      `protobuf:"bytes,2,opt,name=artifact,proto3" json:"artifact,omitempty"`
-	Packages      []*EndpointInventoryPackageSummary `protobuf:"bytes,3,rep,name=packages,proto3" json:"packages,omitempty"`
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
+	state          protoimpl.MessageState             `protogen:"open.v1"`
+	Metadata       *EndpointInventoryScanMetadata     `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Artifact       *EndpointInventoryArtifactRef      `protobuf:"bytes,2,opt,name=artifact,proto3" json:"artifact,omitempty"`
+	Packages       []*EndpointInventoryPackageSummary `protobuf:"bytes,3,rep,name=packages,proto3" json:"packages,omitempty"`
+	CohortCoverage *EndpointInventoryCohortCoverage   `protobuf:"bytes,4,opt,name=cohort_coverage,json=cohortCoverage,proto3" json:"cohort_coverage,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
 }
 
 func (x *EndpointInventoryReport) Reset() {
 	*x = EndpointInventoryReport{}
-	mi := &file_monitoring_proto_msgTypes[38]
+	mi := &file_monitoring_proto_msgTypes[39]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4437,7 +4588,7 @@ func (x *EndpointInventoryReport) String() string {
 func (*EndpointInventoryReport) ProtoMessage() {}
 
 func (x *EndpointInventoryReport) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[38]
+	mi := &file_monitoring_proto_msgTypes[39]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4450,7 +4601,7 @@ func (x *EndpointInventoryReport) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventoryReport.ProtoReflect.Descriptor instead.
 func (*EndpointInventoryReport) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{38}
+	return file_monitoring_proto_rawDescGZIP(), []int{39}
 }
 
 func (x *EndpointInventoryReport) GetMetadata() *EndpointInventoryScanMetadata {
@@ -4474,6 +4625,13 @@ func (x *EndpointInventoryReport) GetPackages() []*EndpointInventoryPackageSumma
 	return nil
 }
 
+func (x *EndpointInventoryReport) GetCohortCoverage() *EndpointInventoryCohortCoverage {
+	if x != nil {
+		return x.CohortCoverage
+	}
+	return nil
+}
+
 // EndpointInventoryScanMetadata captures scan-level provenance and state.
 type EndpointInventoryScanMetadata struct {
 	state                    protoimpl.MessageState            `protogen:"open.v1"`
@@ -4493,13 +4651,20 @@ type EndpointInventoryScanMetadata struct {
 	Redaction                map[string]string                 `protobuf:"bytes,14,rep,name=redaction,proto3" json:"redaction,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	IngestionStatus          string                            `protobuf:"bytes,15,opt,name=ingestion_status,json=ingestionStatus,proto3" json:"ingestion_status,omitempty"`
 	IngestionError           string                            `protobuf:"bytes,16,opt,name=ingestion_error,json=ingestionError,proto3" json:"ingestion_error,omitempty"`
+	PackageSetHash           string                            `protobuf:"bytes,17,opt,name=package_set_hash,json=packageSetHash,proto3" json:"package_set_hash,omitempty"`
+	ArtifactHash             string                            `protobuf:"bytes,18,opt,name=artifact_hash,json=artifactHash,proto3" json:"artifact_hash,omitempty"`
+	HashAlgorithm            string                            `protobuf:"bytes,19,opt,name=hash_algorithm,json=hashAlgorithm,proto3" json:"hash_algorithm,omitempty"`
+	UploadReason             string                            `protobuf:"bytes,20,opt,name=upload_reason,json=uploadReason,proto3" json:"upload_reason,omitempty"`
+	LastChangedScanAtUnix    int64                             `protobuf:"varint,21,opt,name=last_changed_scan_at_unix,json=lastChangedScanAtUnix,proto3" json:"last_changed_scan_at_unix,omitempty"`
+	UnchangedScanCount       int32                             `protobuf:"varint,22,opt,name=unchanged_scan_count,json=unchangedScanCount,proto3" json:"unchanged_scan_count,omitempty"`
+	Freshness                *EndpointInventoryFreshness       `protobuf:"bytes,23,opt,name=freshness,proto3" json:"freshness,omitempty"`
 	unknownFields            protoimpl.UnknownFields
 	sizeCache                protoimpl.SizeCache
 }
 
 func (x *EndpointInventoryScanMetadata) Reset() {
 	*x = EndpointInventoryScanMetadata{}
-	mi := &file_monitoring_proto_msgTypes[39]
+	mi := &file_monitoring_proto_msgTypes[40]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4511,7 +4676,7 @@ func (x *EndpointInventoryScanMetadata) String() string {
 func (*EndpointInventoryScanMetadata) ProtoMessage() {}
 
 func (x *EndpointInventoryScanMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[39]
+	mi := &file_monitoring_proto_msgTypes[40]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4524,7 +4689,7 @@ func (x *EndpointInventoryScanMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventoryScanMetadata.ProtoReflect.Descriptor instead.
 func (*EndpointInventoryScanMetadata) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{39}
+	return file_monitoring_proto_rawDescGZIP(), []int{40}
 }
 
 func (x *EndpointInventoryScanMetadata) GetSchemaVersion() string {
@@ -4639,6 +4804,218 @@ func (x *EndpointInventoryScanMetadata) GetIngestionError() string {
 	return ""
 }
 
+func (x *EndpointInventoryScanMetadata) GetPackageSetHash() string {
+	if x != nil {
+		return x.PackageSetHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryScanMetadata) GetArtifactHash() string {
+	if x != nil {
+		return x.ArtifactHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryScanMetadata) GetHashAlgorithm() string {
+	if x != nil {
+		return x.HashAlgorithm
+	}
+	return ""
+}
+
+func (x *EndpointInventoryScanMetadata) GetUploadReason() string {
+	if x != nil {
+		return x.UploadReason
+	}
+	return ""
+}
+
+func (x *EndpointInventoryScanMetadata) GetLastChangedScanAtUnix() int64 {
+	if x != nil {
+		return x.LastChangedScanAtUnix
+	}
+	return 0
+}
+
+func (x *EndpointInventoryScanMetadata) GetUnchangedScanCount() int32 {
+	if x != nil {
+		return x.UnchangedScanCount
+	}
+	return 0
+}
+
+func (x *EndpointInventoryScanMetadata) GetFreshness() *EndpointInventoryFreshness {
+	if x != nil {
+		return x.Freshness
+	}
+	return nil
+}
+
+// EndpointInventoryFreshness describes whether an inventory answer is backed
+// by current enough local or persisted data.
+type EndpointInventoryFreshness struct {
+	state                    protoimpl.MessageState `protogen:"open.v1"`
+	Verdict                  string                 `protobuf:"bytes,1,opt,name=verdict,proto3" json:"verdict,omitempty"` // fresh, stale, or unknown
+	AgeSeconds               int64                  `protobuf:"varint,2,opt,name=age_seconds,json=ageSeconds,proto3" json:"age_seconds,omitempty"`
+	StaleThresholdSeconds    int64                  `protobuf:"varint,3,opt,name=stale_threshold_seconds,json=staleThresholdSeconds,proto3" json:"stale_threshold_seconds,omitempty"`
+	LastSuccessfulScanAtUnix int64                  `protobuf:"varint,4,opt,name=last_successful_scan_at_unix,json=lastSuccessfulScanAtUnix,proto3" json:"last_successful_scan_at_unix,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryFreshness) Reset() {
+	*x = EndpointInventoryFreshness{}
+	mi := &file_monitoring_proto_msgTypes[41]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryFreshness) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryFreshness) ProtoMessage() {}
+
+func (x *EndpointInventoryFreshness) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[41]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryFreshness.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryFreshness) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{41}
+}
+
+func (x *EndpointInventoryFreshness) GetVerdict() string {
+	if x != nil {
+		return x.Verdict
+	}
+	return ""
+}
+
+func (x *EndpointInventoryFreshness) GetAgeSeconds() int64 {
+	if x != nil {
+		return x.AgeSeconds
+	}
+	return 0
+}
+
+func (x *EndpointInventoryFreshness) GetStaleThresholdSeconds() int64 {
+	if x != nil {
+		return x.StaleThresholdSeconds
+	}
+	return 0
+}
+
+func (x *EndpointInventoryFreshness) GetLastSuccessfulScanAtUnix() int64 {
+	if x != nil {
+		return x.LastSuccessfulScanAtUnix
+	}
+	return 0
+}
+
+// EndpointInventoryCohortCoverage summarizes bounded live-query fan-out.
+type EndpointInventoryCohortCoverage struct {
+	state           protoimpl.MessageState `protogen:"open.v1"`
+	Targeted        int32                  `protobuf:"varint,1,opt,name=targeted,proto3" json:"targeted,omitempty"`
+	Answered        int32                  `protobuf:"varint,2,opt,name=answered,proto3" json:"answered,omitempty"`
+	Offline         int32                  `protobuf:"varint,3,opt,name=offline,proto3" json:"offline,omitempty"`
+	Expired         int32                  `protobuf:"varint,4,opt,name=expired,proto3" json:"expired,omitempty"`
+	Pending         int32                  `protobuf:"varint,5,opt,name=pending,proto3" json:"pending,omitempty"`
+	Rejected        int32                  `protobuf:"varint,6,opt,name=rejected,proto3" json:"rejected,omitempty"`
+	RejectionReason string                 `protobuf:"bytes,7,opt,name=rejection_reason,json=rejectionReason,proto3" json:"rejection_reason,omitempty"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryCohortCoverage) Reset() {
+	*x = EndpointInventoryCohortCoverage{}
+	mi := &file_monitoring_proto_msgTypes[42]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryCohortCoverage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryCohortCoverage) ProtoMessage() {}
+
+func (x *EndpointInventoryCohortCoverage) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[42]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryCohortCoverage.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryCohortCoverage) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{42}
+}
+
+func (x *EndpointInventoryCohortCoverage) GetTargeted() int32 {
+	if x != nil {
+		return x.Targeted
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetAnswered() int32 {
+	if x != nil {
+		return x.Answered
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetOffline() int32 {
+	if x != nil {
+		return x.Offline
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetExpired() int32 {
+	if x != nil {
+		return x.Expired
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetPending() int32 {
+	if x != nil {
+		return x.Pending
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetRejected() int32 {
+	if x != nil {
+		return x.Rejected
+	}
+	return 0
+}
+
+func (x *EndpointInventoryCohortCoverage) GetRejectionReason() string {
+	if x != nil {
+		return x.RejectionReason
+	}
+	return ""
+}
+
 // EndpointInventorySourceSummary reports coverage for one collector source.
 type EndpointInventorySourceSummary struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -4652,7 +5029,7 @@ type EndpointInventorySourceSummary struct {
 
 func (x *EndpointInventorySourceSummary) Reset() {
 	*x = EndpointInventorySourceSummary{}
-	mi := &file_monitoring_proto_msgTypes[40]
+	mi := &file_monitoring_proto_msgTypes[43]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4664,7 +5041,7 @@ func (x *EndpointInventorySourceSummary) String() string {
 func (*EndpointInventorySourceSummary) ProtoMessage() {}
 
 func (x *EndpointInventorySourceSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[40]
+	mi := &file_monitoring_proto_msgTypes[43]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4677,7 +5054,7 @@ func (x *EndpointInventorySourceSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventorySourceSummary.ProtoReflect.Descriptor instead.
 func (*EndpointInventorySourceSummary) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{40}
+	return file_monitoring_proto_rawDescGZIP(), []int{43}
 }
 
 func (x *EndpointInventorySourceSummary) GetSource() string {
@@ -4727,7 +5104,7 @@ type EndpointInventoryArtifactRef struct {
 
 func (x *EndpointInventoryArtifactRef) Reset() {
 	*x = EndpointInventoryArtifactRef{}
-	mi := &file_monitoring_proto_msgTypes[41]
+	mi := &file_monitoring_proto_msgTypes[44]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4739,7 +5116,7 @@ func (x *EndpointInventoryArtifactRef) String() string {
 func (*EndpointInventoryArtifactRef) ProtoMessage() {}
 
 func (x *EndpointInventoryArtifactRef) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[41]
+	mi := &file_monitoring_proto_msgTypes[44]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4752,7 +5129,7 @@ func (x *EndpointInventoryArtifactRef) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventoryArtifactRef.ProtoReflect.Descriptor instead.
 func (*EndpointInventoryArtifactRef) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{41}
+	return file_monitoring_proto_rawDescGZIP(), []int{44}
 }
 
 func (x *EndpointInventoryArtifactRef) GetObjectKey() string {
@@ -4840,13 +5217,14 @@ type EndpointInventoryPackageSummary struct {
 	License        string                 `protobuf:"bytes,9,opt,name=license,proto3" json:"license,omitempty"`
 	Source         string                 `protobuf:"bytes,10,opt,name=source,proto3" json:"source,omitempty"`
 	Evidence       map[string]string      `protobuf:"bytes,11,rep,name=evidence,proto3" json:"evidence,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	PurlCanonical  string                 `protobuf:"bytes,12,opt,name=purl_canonical,json=purlCanonical,proto3" json:"purl_canonical,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *EndpointInventoryPackageSummary) Reset() {
 	*x = EndpointInventoryPackageSummary{}
-	mi := &file_monitoring_proto_msgTypes[42]
+	mi := &file_monitoring_proto_msgTypes[45]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -4858,7 +5236,7 @@ func (x *EndpointInventoryPackageSummary) String() string {
 func (*EndpointInventoryPackageSummary) ProtoMessage() {}
 
 func (x *EndpointInventoryPackageSummary) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[42]
+	mi := &file_monitoring_proto_msgTypes[45]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -4871,7 +5249,7 @@ func (x *EndpointInventoryPackageSummary) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EndpointInventoryPackageSummary.ProtoReflect.Descriptor instead.
 func (*EndpointInventoryPackageSummary) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{42}
+	return file_monitoring_proto_rawDescGZIP(), []int{45}
 }
 
 func (x *EndpointInventoryPackageSummary) GetName() string {
@@ -4951,6 +5329,617 @@ func (x *EndpointInventoryPackageSummary) GetEvidence() map[string]string {
 	return nil
 }
 
+func (x *EndpointInventoryPackageSummary) GetPurlCanonical() string {
+	if x != nil {
+		return x.PurlCanonical
+	}
+	return ""
+}
+
+// EndpointInventoryQueryRequest is the typed payload for
+// endpoint_inventory.cache_query.
+type EndpointInventoryQueryRequest struct {
+	state                 protoimpl.MessageState             `protogen:"open.v1"`
+	Schema                string                             `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	Mode                  string                             `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"` // exists, count, or detail
+	Predicate             *EndpointInventoryPackagePredicate `protobuf:"bytes,3,opt,name=predicate,proto3" json:"predicate,omitempty"`
+	Limit                 int32                              `protobuf:"varint,4,opt,name=limit,proto3" json:"limit,omitempty"`
+	StaleThresholdSeconds int64                              `protobuf:"varint,5,opt,name=stale_threshold_seconds,json=staleThresholdSeconds,proto3" json:"stale_threshold_seconds,omitempty"`
+	Metadata              map[string]string                  `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields         protoimpl.UnknownFields
+	sizeCache             protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryQueryRequest) Reset() {
+	*x = EndpointInventoryQueryRequest{}
+	mi := &file_monitoring_proto_msgTypes[46]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryQueryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryQueryRequest) ProtoMessage() {}
+
+func (x *EndpointInventoryQueryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[46]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryQueryRequest.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryQueryRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{46}
+}
+
+func (x *EndpointInventoryQueryRequest) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryRequest) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryRequest) GetPredicate() *EndpointInventoryPackagePredicate {
+	if x != nil {
+		return x.Predicate
+	}
+	return nil
+}
+
+func (x *EndpointInventoryQueryRequest) GetLimit() int32 {
+	if x != nil {
+		return x.Limit
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryRequest) GetStaleThresholdSeconds() int64 {
+	if x != nil {
+		return x.StaleThresholdSeconds
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+// EndpointInventoryForceFreshScanRequest is the typed payload for
+// endpoint_inventory.force_fresh_scan. It is device-scoped only.
+type EndpointInventoryForceFreshScanRequest struct {
+	state         protoimpl.MessageState         `protogen:"open.v1"`
+	Schema        string                         `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	Authorized    bool                           `protobuf:"varint,2,opt,name=authorized,proto3" json:"authorized,omitempty"`
+	Sources       []string                       `protobuf:"bytes,3,rep,name=sources,proto3" json:"sources,omitempty"`
+	Query         *EndpointInventoryQueryRequest `protobuf:"bytes,4,opt,name=query,proto3" json:"query,omitempty"`
+	Metadata      map[string]string              `protobuf:"bytes,5,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) Reset() {
+	*x = EndpointInventoryForceFreshScanRequest{}
+	mi := &file_monitoring_proto_msgTypes[47]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryForceFreshScanRequest) ProtoMessage() {}
+
+func (x *EndpointInventoryForceFreshScanRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[47]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryForceFreshScanRequest.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryForceFreshScanRequest) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{47}
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) GetAuthorized() bool {
+	if x != nil {
+		return x.Authorized
+	}
+	return false
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) GetSources() []string {
+	if x != nil {
+		return x.Sources
+	}
+	return nil
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) GetQuery() *EndpointInventoryQueryRequest {
+	if x != nil {
+		return x.Query
+	}
+	return nil
+}
+
+func (x *EndpointInventoryForceFreshScanRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type EndpointInventoryPackagePredicate struct {
+	state          protoimpl.MessageState `protogen:"open.v1"`
+	PackageManager string                 `protobuf:"bytes,1,opt,name=package_manager,json=packageManager,proto3" json:"package_manager,omitempty"`
+	Name           string                 `protobuf:"bytes,2,opt,name=name,proto3" json:"name,omitempty"`
+	Version        string                 `protobuf:"bytes,3,opt,name=version,proto3" json:"version,omitempty"`
+	Architecture   string                 `protobuf:"bytes,4,opt,name=architecture,proto3" json:"architecture,omitempty"`
+	Ecosystem      string                 `protobuf:"bytes,5,opt,name=ecosystem,proto3" json:"ecosystem,omitempty"`
+	Purl           string                 `protobuf:"bytes,6,opt,name=purl,proto3" json:"purl,omitempty"`
+	PurlCanonical  string                 `protobuf:"bytes,7,opt,name=purl_canonical,json=purlCanonical,proto3" json:"purl_canonical,omitempty"`
+	Cpe            string                 `protobuf:"bytes,8,opt,name=cpe,proto3" json:"cpe,omitempty"`
+	unknownFields  protoimpl.UnknownFields
+	sizeCache      protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryPackagePredicate) Reset() {
+	*x = EndpointInventoryPackagePredicate{}
+	mi := &file_monitoring_proto_msgTypes[48]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryPackagePredicate) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryPackagePredicate) ProtoMessage() {}
+
+func (x *EndpointInventoryPackagePredicate) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[48]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryPackagePredicate.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryPackagePredicate) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{48}
+}
+
+func (x *EndpointInventoryPackagePredicate) GetPackageManager() string {
+	if x != nil {
+		return x.PackageManager
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetArchitecture() string {
+	if x != nil {
+		return x.Architecture
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetEcosystem() string {
+	if x != nil {
+		return x.Ecosystem
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetPurl() string {
+	if x != nil {
+		return x.Purl
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetPurlCanonical() string {
+	if x != nil {
+		return x.PurlCanonical
+	}
+	return ""
+}
+
+func (x *EndpointInventoryPackagePredicate) GetCpe() string {
+	if x != nil {
+		return x.Cpe
+	}
+	return ""
+}
+
+// EndpointInventoryStandingQuestionResultCount is a compact heartbeat result
+// for an operator-defined inventory predicate evaluated against local cache.
+type EndpointInventoryStandingQuestionResultCount struct {
+	state           protoimpl.MessageState      `protogen:"open.v1"`
+	Schema          string                      `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	QuestionId      string                      `protobuf:"bytes,2,opt,name=question_id,json=questionId,proto3" json:"question_id,omitempty"`
+	QuestionVersion string                      `protobuf:"bytes,3,opt,name=question_version,json=questionVersion,proto3" json:"question_version,omitempty"`
+	PredicateHash   string                      `protobuf:"bytes,4,opt,name=predicate_hash,json=predicateHash,proto3" json:"predicate_hash,omitempty"`
+	Mode            string                      `protobuf:"bytes,5,opt,name=mode,proto3" json:"mode,omitempty"` // exists or count
+	Matched         bool                        `protobuf:"varint,6,opt,name=matched,proto3" json:"matched,omitempty"`
+	Count           int32                       `protobuf:"varint,7,opt,name=count,proto3" json:"count,omitempty"`
+	PackageSetHash  string                      `protobuf:"bytes,8,opt,name=package_set_hash,json=packageSetHash,proto3" json:"package_set_hash,omitempty"`
+	HashAlgorithm   string                      `protobuf:"bytes,9,opt,name=hash_algorithm,json=hashAlgorithm,proto3" json:"hash_algorithm,omitempty"`
+	EvaluatedAtUnix int64                       `protobuf:"varint,10,opt,name=evaluated_at_unix,json=evaluatedAtUnix,proto3" json:"evaluated_at_unix,omitempty"`
+	Freshness       *EndpointInventoryFreshness `protobuf:"bytes,11,opt,name=freshness,proto3" json:"freshness,omitempty"`
+	Labels          map[string]string           `protobuf:"bytes,12,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Metadata        map[string]string           `protobuf:"bytes,13,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields   protoimpl.UnknownFields
+	sizeCache       protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) Reset() {
+	*x = EndpointInventoryStandingQuestionResultCount{}
+	mi := &file_monitoring_proto_msgTypes[49]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryStandingQuestionResultCount) ProtoMessage() {}
+
+func (x *EndpointInventoryStandingQuestionResultCount) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[49]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryStandingQuestionResultCount.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryStandingQuestionResultCount) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{49}
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetQuestionId() string {
+	if x != nil {
+		return x.QuestionId
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetQuestionVersion() string {
+	if x != nil {
+		return x.QuestionVersion
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetPredicateHash() string {
+	if x != nil {
+		return x.PredicateHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetMatched() bool {
+	if x != nil {
+		return x.Matched
+	}
+	return false
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetPackageSetHash() string {
+	if x != nil {
+		return x.PackageSetHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetHashAlgorithm() string {
+	if x != nil {
+		return x.HashAlgorithm
+	}
+	return ""
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetEvaluatedAtUnix() int64 {
+	if x != nil {
+		return x.EvaluatedAtUnix
+	}
+	return 0
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetFreshness() *EndpointInventoryFreshness {
+	if x != nil {
+		return x.Freshness
+	}
+	return nil
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetLabels() map[string]string {
+	if x != nil {
+		return x.Labels
+	}
+	return nil
+}
+
+func (x *EndpointInventoryStandingQuestionResultCount) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+// EndpointInventoryQueryResult is the compact typed response for
+// endpoint_inventory.cache_query and optional force-fresh query responses.
+type EndpointInventoryQueryResult struct {
+	state                    protoimpl.MessageState             `protogen:"open.v1"`
+	Schema                   string                             `protobuf:"bytes,1,opt,name=schema,proto3" json:"schema,omitempty"`
+	AgentId                  string                             `protobuf:"bytes,2,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	DeviceUid                string                             `protobuf:"bytes,3,opt,name=device_uid,json=deviceUid,proto3" json:"device_uid,omitempty"`
+	Mode                     string                             `protobuf:"bytes,4,opt,name=mode,proto3" json:"mode,omitempty"`
+	Matched                  bool                               `protobuf:"varint,5,opt,name=matched,proto3" json:"matched,omitempty"`
+	Count                    int32                              `protobuf:"varint,6,opt,name=count,proto3" json:"count,omitempty"`
+	Packages                 []*EndpointInventoryPackageSummary `protobuf:"bytes,7,rep,name=packages,proto3" json:"packages,omitempty"`
+	PackageSetHash           string                             `protobuf:"bytes,8,opt,name=package_set_hash,json=packageSetHash,proto3" json:"package_set_hash,omitempty"`
+	ArtifactHash             string                             `protobuf:"bytes,9,opt,name=artifact_hash,json=artifactHash,proto3" json:"artifact_hash,omitempty"`
+	HashAlgorithm            string                             `protobuf:"bytes,10,opt,name=hash_algorithm,json=hashAlgorithm,proto3" json:"hash_algorithm,omitempty"`
+	LastSuccessfulScanAtUnix int64                              `protobuf:"varint,11,opt,name=last_successful_scan_at_unix,json=lastSuccessfulScanAtUnix,proto3" json:"last_successful_scan_at_unix,omitempty"`
+	LastChangedScanAtUnix    int64                              `protobuf:"varint,12,opt,name=last_changed_scan_at_unix,json=lastChangedScanAtUnix,proto3" json:"last_changed_scan_at_unix,omitempty"`
+	UnchangedScanCount       int32                              `protobuf:"varint,13,opt,name=unchanged_scan_count,json=unchangedScanCount,proto3" json:"unchanged_scan_count,omitempty"`
+	SourceSummaries          []*EndpointInventorySourceSummary  `protobuf:"bytes,14,rep,name=source_summaries,json=sourceSummaries,proto3" json:"source_summaries,omitempty"`
+	Freshness                *EndpointInventoryFreshness        `protobuf:"bytes,15,opt,name=freshness,proto3" json:"freshness,omitempty"`
+	StaleThresholdSeconds    int64                              `protobuf:"varint,16,opt,name=stale_threshold_seconds,json=staleThresholdSeconds,proto3" json:"stale_threshold_seconds,omitempty"`
+	EvaluatedAtUnix          int64                              `protobuf:"varint,17,opt,name=evaluated_at_unix,json=evaluatedAtUnix,proto3" json:"evaluated_at_unix,omitempty"`
+	Truncated                bool                               `protobuf:"varint,18,opt,name=truncated,proto3" json:"truncated,omitempty"`
+	UnsupportedCapabilities  []string                           `protobuf:"bytes,19,rep,name=unsupported_capabilities,json=unsupportedCapabilities,proto3" json:"unsupported_capabilities,omitempty"`
+	CohortCoverage           *EndpointInventoryCohortCoverage   `protobuf:"bytes,20,opt,name=cohort_coverage,json=cohortCoverage,proto3" json:"cohort_coverage,omitempty"`
+	unknownFields            protoimpl.UnknownFields
+	sizeCache                protoimpl.SizeCache
+}
+
+func (x *EndpointInventoryQueryResult) Reset() {
+	*x = EndpointInventoryQueryResult{}
+	mi := &file_monitoring_proto_msgTypes[50]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *EndpointInventoryQueryResult) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*EndpointInventoryQueryResult) ProtoMessage() {}
+
+func (x *EndpointInventoryQueryResult) ProtoReflect() protoreflect.Message {
+	mi := &file_monitoring_proto_msgTypes[50]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use EndpointInventoryQueryResult.ProtoReflect.Descriptor instead.
+func (*EndpointInventoryQueryResult) Descriptor() ([]byte, []int) {
+	return file_monitoring_proto_rawDescGZIP(), []int{50}
+}
+
+func (x *EndpointInventoryQueryResult) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetAgentId() string {
+	if x != nil {
+		return x.AgentId
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetDeviceUid() string {
+	if x != nil {
+		return x.DeviceUid
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetMode() string {
+	if x != nil {
+		return x.Mode
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetMatched() bool {
+	if x != nil {
+		return x.Matched
+	}
+	return false
+}
+
+func (x *EndpointInventoryQueryResult) GetCount() int32 {
+	if x != nil {
+		return x.Count
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetPackages() []*EndpointInventoryPackageSummary {
+	if x != nil {
+		return x.Packages
+	}
+	return nil
+}
+
+func (x *EndpointInventoryQueryResult) GetPackageSetHash() string {
+	if x != nil {
+		return x.PackageSetHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetArtifactHash() string {
+	if x != nil {
+		return x.ArtifactHash
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetHashAlgorithm() string {
+	if x != nil {
+		return x.HashAlgorithm
+	}
+	return ""
+}
+
+func (x *EndpointInventoryQueryResult) GetLastSuccessfulScanAtUnix() int64 {
+	if x != nil {
+		return x.LastSuccessfulScanAtUnix
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetLastChangedScanAtUnix() int64 {
+	if x != nil {
+		return x.LastChangedScanAtUnix
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetUnchangedScanCount() int32 {
+	if x != nil {
+		return x.UnchangedScanCount
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetSourceSummaries() []*EndpointInventorySourceSummary {
+	if x != nil {
+		return x.SourceSummaries
+	}
+	return nil
+}
+
+func (x *EndpointInventoryQueryResult) GetFreshness() *EndpointInventoryFreshness {
+	if x != nil {
+		return x.Freshness
+	}
+	return nil
+}
+
+func (x *EndpointInventoryQueryResult) GetStaleThresholdSeconds() int64 {
+	if x != nil {
+		return x.StaleThresholdSeconds
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetEvaluatedAtUnix() int64 {
+	if x != nil {
+		return x.EvaluatedAtUnix
+	}
+	return 0
+}
+
+func (x *EndpointInventoryQueryResult) GetTruncated() bool {
+	if x != nil {
+		return x.Truncated
+	}
+	return false
+}
+
+func (x *EndpointInventoryQueryResult) GetUnsupportedCapabilities() []string {
+	if x != nil {
+		return x.UnsupportedCapabilities
+	}
+	return nil
+}
+
+func (x *EndpointInventoryQueryResult) GetCohortCoverage() *EndpointInventoryCohortCoverage {
+	if x != nil {
+		return x.CohortCoverage
+	}
+	return nil
+}
+
 // SysmonConfig defines system monitoring configuration for the embedded sysmon collector.
 type SysmonConfig struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
@@ -4988,7 +5977,7 @@ type SysmonConfig struct {
 
 func (x *SysmonConfig) Reset() {
 	*x = SysmonConfig{}
-	mi := &file_monitoring_proto_msgTypes[43]
+	mi := &file_monitoring_proto_msgTypes[51]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5000,7 +5989,7 @@ func (x *SysmonConfig) String() string {
 func (*SysmonConfig) ProtoMessage() {}
 
 func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[43]
+	mi := &file_monitoring_proto_msgTypes[51]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5013,7 +6002,7 @@ func (x *SysmonConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SysmonConfig.ProtoReflect.Descriptor instead.
 func (*SysmonConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{43}
+	return file_monitoring_proto_rawDescGZIP(), []int{51}
 }
 
 func (x *SysmonConfig) GetEnabled() bool {
@@ -5136,7 +6125,7 @@ type AgentCheckConfig struct {
 
 func (x *AgentCheckConfig) Reset() {
 	*x = AgentCheckConfig{}
-	mi := &file_monitoring_proto_msgTypes[44]
+	mi := &file_monitoring_proto_msgTypes[52]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5148,7 +6137,7 @@ func (x *AgentCheckConfig) String() string {
 func (*AgentCheckConfig) ProtoMessage() {}
 
 func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[44]
+	mi := &file_monitoring_proto_msgTypes[52]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5161,7 +6150,7 @@ func (x *AgentCheckConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AgentCheckConfig.ProtoReflect.Descriptor instead.
 func (*AgentCheckConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{44}
+	return file_monitoring_proto_rawDescGZIP(), []int{52}
 }
 
 func (x *AgentCheckConfig) GetCheckId() string {
@@ -5257,7 +6246,7 @@ type SNMPConfig struct {
 
 func (x *SNMPConfig) Reset() {
 	*x = SNMPConfig{}
-	mi := &file_monitoring_proto_msgTypes[45]
+	mi := &file_monitoring_proto_msgTypes[53]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5269,7 +6258,7 @@ func (x *SNMPConfig) String() string {
 func (*SNMPConfig) ProtoMessage() {}
 
 func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[45]
+	mi := &file_monitoring_proto_msgTypes[53]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5282,7 +6271,7 @@ func (x *SNMPConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPConfig.ProtoReflect.Descriptor instead.
 func (*SNMPConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{45}
+	return file_monitoring_proto_rawDescGZIP(), []int{53}
 }
 
 func (x *SNMPConfig) GetEnabled() bool {
@@ -5329,7 +6318,7 @@ type VisibilityConfig struct {
 
 func (x *VisibilityConfig) Reset() {
 	*x = VisibilityConfig{}
-	mi := &file_monitoring_proto_msgTypes[46]
+	mi := &file_monitoring_proto_msgTypes[54]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5341,7 +6330,7 @@ func (x *VisibilityConfig) String() string {
 func (*VisibilityConfig) ProtoMessage() {}
 
 func (x *VisibilityConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[46]
+	mi := &file_monitoring_proto_msgTypes[54]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5354,7 +6343,7 @@ func (x *VisibilityConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisibilityConfig.ProtoReflect.Descriptor instead.
 func (*VisibilityConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{46}
+	return file_monitoring_proto_rawDescGZIP(), []int{54}
 }
 
 func (x *VisibilityConfig) GetEnabled() bool {
@@ -5415,7 +6404,7 @@ type VisibilityBinaryOverrides struct {
 
 func (x *VisibilityBinaryOverrides) Reset() {
 	*x = VisibilityBinaryOverrides{}
-	mi := &file_monitoring_proto_msgTypes[47]
+	mi := &file_monitoring_proto_msgTypes[55]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5427,7 +6416,7 @@ func (x *VisibilityBinaryOverrides) String() string {
 func (*VisibilityBinaryOverrides) ProtoMessage() {}
 
 func (x *VisibilityBinaryOverrides) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[47]
+	mi := &file_monitoring_proto_msgTypes[55]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5440,7 +6429,7 @@ func (x *VisibilityBinaryOverrides) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisibilityBinaryOverrides.ProtoReflect.Descriptor instead.
 func (*VisibilityBinaryOverrides) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{47}
+	return file_monitoring_proto_rawDescGZIP(), []int{55}
 }
 
 func (x *VisibilityBinaryOverrides) GetPath() string {
@@ -5464,7 +6453,7 @@ type VisibilityDeviceBinding struct {
 
 func (x *VisibilityDeviceBinding) Reset() {
 	*x = VisibilityDeviceBinding{}
-	mi := &file_monitoring_proto_msgTypes[48]
+	mi := &file_monitoring_proto_msgTypes[56]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5476,7 +6465,7 @@ func (x *VisibilityDeviceBinding) String() string {
 func (*VisibilityDeviceBinding) ProtoMessage() {}
 
 func (x *VisibilityDeviceBinding) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[48]
+	mi := &file_monitoring_proto_msgTypes[56]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5489,7 +6478,7 @@ func (x *VisibilityDeviceBinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisibilityDeviceBinding.ProtoReflect.Descriptor instead.
 func (*VisibilityDeviceBinding) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{48}
+	return file_monitoring_proto_rawDescGZIP(), []int{56}
 }
 
 func (x *VisibilityDeviceBinding) GetIp() string {
@@ -5545,7 +6534,7 @@ type VisibilityFingerprintConfig struct {
 
 func (x *VisibilityFingerprintConfig) Reset() {
 	*x = VisibilityFingerprintConfig{}
-	mi := &file_monitoring_proto_msgTypes[49]
+	mi := &file_monitoring_proto_msgTypes[57]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5557,7 +6546,7 @@ func (x *VisibilityFingerprintConfig) String() string {
 func (*VisibilityFingerprintConfig) ProtoMessage() {}
 
 func (x *VisibilityFingerprintConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[49]
+	mi := &file_monitoring_proto_msgTypes[57]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5570,7 +6559,7 @@ func (x *VisibilityFingerprintConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisibilityFingerprintConfig.ProtoReflect.Descriptor instead.
 func (*VisibilityFingerprintConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{49}
+	return file_monitoring_proto_rawDescGZIP(), []int{57}
 }
 
 func (x *VisibilityFingerprintConfig) GetTcp() bool {
@@ -5604,7 +6593,7 @@ type VisibilityDpiConfig struct {
 
 func (x *VisibilityDpiConfig) Reset() {
 	*x = VisibilityDpiConfig{}
-	mi := &file_monitoring_proto_msgTypes[50]
+	mi := &file_monitoring_proto_msgTypes[58]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5616,7 +6605,7 @@ func (x *VisibilityDpiConfig) String() string {
 func (*VisibilityDpiConfig) ProtoMessage() {}
 
 func (x *VisibilityDpiConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[50]
+	mi := &file_monitoring_proto_msgTypes[58]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5629,7 +6618,7 @@ func (x *VisibilityDpiConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use VisibilityDpiConfig.ProtoReflect.Descriptor instead.
 func (*VisibilityDpiConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{50}
+	return file_monitoring_proto_rawDescGZIP(), []int{58}
 }
 
 func (x *VisibilityDpiConfig) GetEnabled() bool {
@@ -5670,7 +6659,7 @@ type SNMPTargetConfig struct {
 
 func (x *SNMPTargetConfig) Reset() {
 	*x = SNMPTargetConfig{}
-	mi := &file_monitoring_proto_msgTypes[51]
+	mi := &file_monitoring_proto_msgTypes[59]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5682,7 +6671,7 @@ func (x *SNMPTargetConfig) String() string {
 func (*SNMPTargetConfig) ProtoMessage() {}
 
 func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[51]
+	mi := &file_monitoring_proto_msgTypes[59]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5695,7 +6684,7 @@ func (x *SNMPTargetConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPTargetConfig.ProtoReflect.Descriptor instead.
 func (*SNMPTargetConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{51}
+	return file_monitoring_proto_rawDescGZIP(), []int{59}
 }
 
 func (x *SNMPTargetConfig) GetId() string {
@@ -5790,7 +6779,7 @@ type SNMPv3Auth struct {
 
 func (x *SNMPv3Auth) Reset() {
 	*x = SNMPv3Auth{}
-	mi := &file_monitoring_proto_msgTypes[52]
+	mi := &file_monitoring_proto_msgTypes[60]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5802,7 +6791,7 @@ func (x *SNMPv3Auth) String() string {
 func (*SNMPv3Auth) ProtoMessage() {}
 
 func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[52]
+	mi := &file_monitoring_proto_msgTypes[60]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5815,7 +6804,7 @@ func (x *SNMPv3Auth) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPv3Auth.ProtoReflect.Descriptor instead.
 func (*SNMPv3Auth) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{52}
+	return file_monitoring_proto_rawDescGZIP(), []int{60}
 }
 
 func (x *SNMPv3Auth) GetUsername() string {
@@ -5874,7 +6863,7 @@ type SNMPOIDConfig struct {
 
 func (x *SNMPOIDConfig) Reset() {
 	*x = SNMPOIDConfig{}
-	mi := &file_monitoring_proto_msgTypes[53]
+	mi := &file_monitoring_proto_msgTypes[61]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5886,7 +6875,7 @@ func (x *SNMPOIDConfig) String() string {
 func (*SNMPOIDConfig) ProtoMessage() {}
 
 func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[53]
+	mi := &file_monitoring_proto_msgTypes[61]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5899,7 +6888,7 @@ func (x *SNMPOIDConfig) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SNMPOIDConfig.ProtoReflect.Descriptor instead.
 func (*SNMPOIDConfig) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{53}
+	return file_monitoring_proto_rawDescGZIP(), []int{61}
 }
 
 func (x *SNMPOIDConfig) GetOid() string {
@@ -5951,7 +6940,7 @@ type MtrMplsLabel struct {
 
 func (x *MtrMplsLabel) Reset() {
 	*x = MtrMplsLabel{}
-	mi := &file_monitoring_proto_msgTypes[54]
+	mi := &file_monitoring_proto_msgTypes[62]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -5963,7 +6952,7 @@ func (x *MtrMplsLabel) String() string {
 func (*MtrMplsLabel) ProtoMessage() {}
 
 func (x *MtrMplsLabel) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[54]
+	mi := &file_monitoring_proto_msgTypes[62]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -5976,7 +6965,7 @@ func (x *MtrMplsLabel) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrMplsLabel.ProtoReflect.Descriptor instead.
 func (*MtrMplsLabel) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{54}
+	return file_monitoring_proto_rawDescGZIP(), []int{62}
 }
 
 func (x *MtrMplsLabel) GetLabel() int32 {
@@ -6019,7 +7008,7 @@ type MtrAsnInfo struct {
 
 func (x *MtrAsnInfo) Reset() {
 	*x = MtrAsnInfo{}
-	mi := &file_monitoring_proto_msgTypes[55]
+	mi := &file_monitoring_proto_msgTypes[63]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6031,7 +7020,7 @@ func (x *MtrAsnInfo) String() string {
 func (*MtrAsnInfo) ProtoMessage() {}
 
 func (x *MtrAsnInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[55]
+	mi := &file_monitoring_proto_msgTypes[63]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6044,7 +7033,7 @@ func (x *MtrAsnInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrAsnInfo.ProtoReflect.Descriptor instead.
 func (*MtrAsnInfo) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{55}
+	return file_monitoring_proto_rawDescGZIP(), []int{63}
 }
 
 func (x *MtrAsnInfo) GetAsn() int32 {
@@ -6087,7 +7076,7 @@ type MtrHopResult struct {
 
 func (x *MtrHopResult) Reset() {
 	*x = MtrHopResult{}
-	mi := &file_monitoring_proto_msgTypes[56]
+	mi := &file_monitoring_proto_msgTypes[64]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6099,7 +7088,7 @@ func (x *MtrHopResult) String() string {
 func (*MtrHopResult) ProtoMessage() {}
 
 func (x *MtrHopResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[56]
+	mi := &file_monitoring_proto_msgTypes[64]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6112,7 +7101,7 @@ func (x *MtrHopResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrHopResult.ProtoReflect.Descriptor instead.
 func (*MtrHopResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{56}
+	return file_monitoring_proto_rawDescGZIP(), []int{64}
 }
 
 func (x *MtrHopResult) GetHopNumber() int32 {
@@ -6254,7 +7243,7 @@ type MtrTraceResult struct {
 
 func (x *MtrTraceResult) Reset() {
 	*x = MtrTraceResult{}
-	mi := &file_monitoring_proto_msgTypes[57]
+	mi := &file_monitoring_proto_msgTypes[65]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6266,7 +7255,7 @@ func (x *MtrTraceResult) String() string {
 func (*MtrTraceResult) ProtoMessage() {}
 
 func (x *MtrTraceResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[57]
+	mi := &file_monitoring_proto_msgTypes[65]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6279,7 +7268,7 @@ func (x *MtrTraceResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrTraceResult.ProtoReflect.Descriptor instead.
 func (*MtrTraceResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{57}
+	return file_monitoring_proto_rawDescGZIP(), []int{65}
 }
 
 func (x *MtrTraceResult) GetTarget() string {
@@ -6376,7 +7365,7 @@ type MtrCheckResult struct {
 
 func (x *MtrCheckResult) Reset() {
 	*x = MtrCheckResult{}
-	mi := &file_monitoring_proto_msgTypes[58]
+	mi := &file_monitoring_proto_msgTypes[66]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6388,7 +7377,7 @@ func (x *MtrCheckResult) String() string {
 func (*MtrCheckResult) ProtoMessage() {}
 
 func (x *MtrCheckResult) ProtoReflect() protoreflect.Message {
-	mi := &file_monitoring_proto_msgTypes[58]
+	mi := &file_monitoring_proto_msgTypes[66]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6401,7 +7390,7 @@ func (x *MtrCheckResult) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use MtrCheckResult.ProtoReflect.Descriptor instead.
 func (*MtrCheckResult) Descriptor() ([]byte, []int) {
-	return file_monitoring_proto_rawDescGZIP(), []int{58}
+	return file_monitoring_proto_rawDescGZIP(), []int{66}
 }
 
 func (x *MtrCheckResult) GetCheckId() string {
@@ -6590,7 +7579,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x10max_active_dials\x18\x1a \x01(\x04R\x0emaxActiveDials\x12\x1f\n" +
 	"\vqueue_depth\x18\x1b \x01(\x04R\n" +
 	"queueDepth\x12&\n" +
-	"\x0fmax_queue_depth\x18\x1c \x01(\x04R\rmaxQueueDepth\"\x92\x03\n" +
+	"\x0fmax_queue_depth\x18\x1c \x01(\x04R\rmaxQueueDepth\"\xab\x04\n" +
 	"\x14GatewayStatusRequest\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -6605,10 +7594,19 @@ const file_monitoring_proto_rawDesc = "" +
 	"\aversion\x18\v \x01(\tR\aversion\x12\x1a\n" +
 	"\bhostname\x18\f \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\r \x01(\tR\x02os\x12\x12\n" +
-	"\x04arch\x18\x0e \x01(\tR\x04archJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
-	"\"3\n" +
+	"\x04arch\x18\x0e \x01(\tR\x04arch\x12\x96\x01\n" +
+	"+endpoint_inventory_standing_question_counts\x18\x0f \x03(\v28.monitoring.EndpointInventoryStandingQuestionResultCountR'endpointInventoryStandingQuestionCountsJ\x04\b\b\x10\tJ\x04\b\t\x10\n" +
+	"\"w\n" +
 	"\x15GatewayStatusResponse\x12\x1a\n" +
-	"\breceived\x18\x01 \x01(\bR\breceived\"\xef\x03\n" +
+	"\breceived\x18\x01 \x01(\bR\breceived\x12B\n" +
+	"\n" +
+	"directives\x18\x02 \x03(\v2\".monitoring.GatewayStatusDirectiveR\n" +
+	"directives\"\xa8\x01\n" +
+	"\x16GatewayStatusDirective\x12!\n" +
+	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12!\n" +
+	"\fservice_type\x18\x02 \x01(\tR\vserviceType\x12%\n" +
+	"\x0edirective_type\x18\x03 \x01(\tR\rdirectiveType\x12!\n" +
+	"\fpayload_json\x18\x04 \x01(\fR\vpayloadJson\"\x88\x05\n" +
 	"\x12GatewayStatusChunk\x12<\n" +
 	"\bservices\x18\x01 \x03(\v2 .monitoring.GatewayServiceStatusR\bservices\x12\x1d\n" +
 	"\n" +
@@ -6627,7 +7625,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\aversion\x18\x0e \x01(\tR\aversion\x12\x1a\n" +
 	"\bhostname\x18\x0f \x01(\tR\bhostname\x12\x0e\n" +
 	"\x02os\x18\x10 \x01(\tR\x02os\x12\x12\n" +
-	"\x04arch\x18\x11 \x01(\tR\x04archJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
+	"\x04arch\x18\x11 \x01(\tR\x04arch\x12\x96\x01\n" +
+	"+endpoint_inventory_standing_question_counts\x18\x12 \x03(\v28.monitoring.EndpointInventoryStandingQuestionResultCountR'endpointInventoryStandingQuestionCountsJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xd5\x02\n" +
 	"\x14GatewayServiceStatus\x12!\n" +
 	"\fservice_name\x18\x01 \x01(\tR\vserviceName\x12\x1c\n" +
 	"\tavailable\x18\x02 \x01(\bR\tavailable\x12\x18\n" +
@@ -6886,7 +7885,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\n" +
 	"size_bytes\x18\a \x01(\x03R\tsizeBytes\x12\x1f\n" +
 	"\vpromoted_at\x18\b \x01(\tR\n" +
-	"promotedAt\"\xc7\x02\n" +
+	"promotedAt\"\xa0\x05\n" +
 	"\x17EndpointInventoryConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12\x19\n" +
 	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x18\n" +
@@ -6896,11 +7895,20 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x10max_output_bytes\x18\x06 \x01(\x03R\x0emaxOutputBytes\x12\x18\n" +
 	"\acadence\x18\a \x01(\tR\acadence\x12#\n" +
 	"\rcollect_paths\x18\b \x01(\bR\fcollectPaths\x12.\n" +
-	"\x13collect_file_hashes\x18\t \x01(\bR\x11collectFileHashes\"\xef\x01\n" +
+	"\x13collect_file_hashes\x18\t \x01(\bR\x11collectFileHashes\x12.\n" +
+	"\x13force_fresh_enabled\x18\n" +
+	" \x01(\bR\x11forceFreshEnabled\x127\n" +
+	"\x18force_full_scan_interval\x18\v \x01(\x05R\x15forceFullScanInterval\x122\n" +
+	"\x15cache_stale_threshold\x18\f \x01(\tR\x13cacheStaleThreshold\x12#\n" +
+	"\rupload_jitter\x18\r \x01(\tR\fuploadJitter\x120\n" +
+	"\x14upload_retry_initial\x18\x0e \x01(\tR\x12uploadRetryInitial\x12(\n" +
+	"\x10upload_retry_max\x18\x0f \x01(\tR\x0euploadRetryMax\x129\n" +
+	"\x19upload_retry_max_attempts\x18\x10 \x01(\x05R\x16uploadRetryMaxAttempts\"\xc5\x02\n" +
 	"\x17EndpointInventoryReport\x12E\n" +
 	"\bmetadata\x18\x01 \x01(\v2).monitoring.EndpointInventoryScanMetadataR\bmetadata\x12D\n" +
 	"\bartifact\x18\x02 \x01(\v2(.monitoring.EndpointInventoryArtifactRefR\bartifact\x12G\n" +
-	"\bpackages\x18\x03 \x03(\v2+.monitoring.EndpointInventoryPackageSummaryR\bpackages\"\x90\x06\n" +
+	"\bpackages\x18\x03 \x03(\v2+.monitoring.EndpointInventoryPackageSummaryR\bpackages\x12T\n" +
+	"\x0fcohort_coverage\x18\x04 \x01(\v2+.monitoring.EndpointInventoryCohortCoverageR\x0ecohortCoverage\"\xdd\b\n" +
 	"\x1dEndpointInventoryScanMetadata\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\tR\rschemaVersion\x12\x17\n" +
 	"\ascan_id\x18\x02 \x01(\tR\x06scanId\x12\x19\n" +
@@ -6919,10 +7927,31 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0fenabled_sources\x18\r \x03(\tR\x0eenabledSources\x12V\n" +
 	"\tredaction\x18\x0e \x03(\v28.monitoring.EndpointInventoryScanMetadata.RedactionEntryR\tredaction\x12)\n" +
 	"\x10ingestion_status\x18\x0f \x01(\tR\x0fingestionStatus\x12'\n" +
-	"\x0fingestion_error\x18\x10 \x01(\tR\x0eingestionError\x1a<\n" +
+	"\x0fingestion_error\x18\x10 \x01(\tR\x0eingestionError\x12(\n" +
+	"\x10package_set_hash\x18\x11 \x01(\tR\x0epackageSetHash\x12#\n" +
+	"\rartifact_hash\x18\x12 \x01(\tR\fartifactHash\x12%\n" +
+	"\x0ehash_algorithm\x18\x13 \x01(\tR\rhashAlgorithm\x12#\n" +
+	"\rupload_reason\x18\x14 \x01(\tR\fuploadReason\x128\n" +
+	"\x19last_changed_scan_at_unix\x18\x15 \x01(\x03R\x15lastChangedScanAtUnix\x120\n" +
+	"\x14unchanged_scan_count\x18\x16 \x01(\x05R\x12unchangedScanCount\x12D\n" +
+	"\tfreshness\x18\x17 \x01(\v2&.monitoring.EndpointInventoryFreshnessR\tfreshness\x1a<\n" +
 	"\x0eRedactionEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x01\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcf\x01\n" +
+	"\x1aEndpointInventoryFreshness\x12\x18\n" +
+	"\averdict\x18\x01 \x01(\tR\averdict\x12\x1f\n" +
+	"\vage_seconds\x18\x02 \x01(\x03R\n" +
+	"ageSeconds\x126\n" +
+	"\x17stale_threshold_seconds\x18\x03 \x01(\x03R\x15staleThresholdSeconds\x12>\n" +
+	"\x1clast_successful_scan_at_unix\x18\x04 \x01(\x03R\x18lastSuccessfulScanAtUnix\"\xee\x01\n" +
+	"\x1fEndpointInventoryCohortCoverage\x12\x1a\n" +
+	"\btargeted\x18\x01 \x01(\x05R\btargeted\x12\x1a\n" +
+	"\banswered\x18\x02 \x01(\x05R\banswered\x12\x18\n" +
+	"\aoffline\x18\x03 \x01(\x05R\aoffline\x12\x18\n" +
+	"\aexpired\x18\x04 \x01(\x05R\aexpired\x12\x18\n" +
+	"\apending\x18\x05 \x01(\x05R\apending\x12\x1a\n" +
+	"\brejected\x18\x06 \x01(\x05R\brejected\x12)\n" +
+	"\x10rejection_reason\x18\a \x01(\tR\x0frejectionReason\"\x89\x01\n" +
 	"\x1eEndpointInventorySourceSummary\x12\x16\n" +
 	"\x06source\x18\x01 \x01(\tR\x06source\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12#\n" +
@@ -6944,7 +7973,7 @@ const file_monitoring_proto_rawDesc = "" +
 	" \x03(\v26.monitoring.EndpointInventoryArtifactRef.MetadataEntryR\bmetadata\x1a;\n" +
 	"\rMetadataEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xc4\x03\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xeb\x03\n" +
 	"\x1fEndpointInventoryPackageSummary\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -6957,10 +7986,86 @@ const file_monitoring_proto_rawDesc = "" +
 	"\alicense\x18\t \x01(\tR\alicense\x12\x16\n" +
 	"\x06source\x18\n" +
 	" \x01(\tR\x06source\x12U\n" +
-	"\bevidence\x18\v \x03(\v29.monitoring.EndpointInventoryPackageSummary.EvidenceEntryR\bevidence\x1a;\n" +
+	"\bevidence\x18\v \x03(\v29.monitoring.EndpointInventoryPackageSummary.EvidenceEntryR\bevidence\x12%\n" +
+	"\x0epurl_canonical\x18\f \x01(\tR\rpurlCanonical\x1a;\n" +
 	"\rEvidenceEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xfa\x04\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xf8\x02\n" +
+	"\x1dEndpointInventoryQueryRequest\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x12\n" +
+	"\x04mode\x18\x02 \x01(\tR\x04mode\x12K\n" +
+	"\tpredicate\x18\x03 \x01(\v2-.monitoring.EndpointInventoryPackagePredicateR\tpredicate\x12\x14\n" +
+	"\x05limit\x18\x04 \x01(\x05R\x05limit\x126\n" +
+	"\x17stale_threshold_seconds\x18\x05 \x01(\x03R\x15staleThresholdSeconds\x12S\n" +
+	"\bmetadata\x18\x06 \x03(\v27.monitoring.EndpointInventoryQueryRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xd6\x02\n" +
+	"&EndpointInventoryForceFreshScanRequest\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x1e\n" +
+	"\n" +
+	"authorized\x18\x02 \x01(\bR\n" +
+	"authorized\x12\x18\n" +
+	"\asources\x18\x03 \x03(\tR\asources\x12?\n" +
+	"\x05query\x18\x04 \x01(\v2).monitoring.EndpointInventoryQueryRequestR\x05query\x12\\\n" +
+	"\bmetadata\x18\x05 \x03(\v2@.monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x89\x02\n" +
+	"!EndpointInventoryPackagePredicate\x12'\n" +
+	"\x0fpackage_manager\x18\x01 \x01(\tR\x0epackageManager\x12\x12\n" +
+	"\x04name\x18\x02 \x01(\tR\x04name\x12\x18\n" +
+	"\aversion\x18\x03 \x01(\tR\aversion\x12\"\n" +
+	"\farchitecture\x18\x04 \x01(\tR\farchitecture\x12\x1c\n" +
+	"\tecosystem\x18\x05 \x01(\tR\tecosystem\x12\x12\n" +
+	"\x04purl\x18\x06 \x01(\tR\x04purl\x12%\n" +
+	"\x0epurl_canonical\x18\a \x01(\tR\rpurlCanonical\x12\x10\n" +
+	"\x03cpe\x18\b \x01(\tR\x03cpe\"\xfa\x05\n" +
+	",EndpointInventoryStandingQuestionResultCount\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x1f\n" +
+	"\vquestion_id\x18\x02 \x01(\tR\n" +
+	"questionId\x12)\n" +
+	"\x10question_version\x18\x03 \x01(\tR\x0fquestionVersion\x12%\n" +
+	"\x0epredicate_hash\x18\x04 \x01(\tR\rpredicateHash\x12\x12\n" +
+	"\x04mode\x18\x05 \x01(\tR\x04mode\x12\x18\n" +
+	"\amatched\x18\x06 \x01(\bR\amatched\x12\x14\n" +
+	"\x05count\x18\a \x01(\x05R\x05count\x12(\n" +
+	"\x10package_set_hash\x18\b \x01(\tR\x0epackageSetHash\x12%\n" +
+	"\x0ehash_algorithm\x18\t \x01(\tR\rhashAlgorithm\x12*\n" +
+	"\x11evaluated_at_unix\x18\n" +
+	" \x01(\x03R\x0fevaluatedAtUnix\x12D\n" +
+	"\tfreshness\x18\v \x01(\v2&.monitoring.EndpointInventoryFreshnessR\tfreshness\x12\\\n" +
+	"\x06labels\x18\f \x03(\v2D.monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntryR\x06labels\x12b\n" +
+	"\bmetadata\x18\r \x03(\v2F.monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntryR\bmetadata\x1a9\n" +
+	"\vLabelsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xcf\a\n" +
+	"\x1cEndpointInventoryQueryResult\x12\x16\n" +
+	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x19\n" +
+	"\bagent_id\x18\x02 \x01(\tR\aagentId\x12\x1d\n" +
+	"\n" +
+	"device_uid\x18\x03 \x01(\tR\tdeviceUid\x12\x12\n" +
+	"\x04mode\x18\x04 \x01(\tR\x04mode\x12\x18\n" +
+	"\amatched\x18\x05 \x01(\bR\amatched\x12\x14\n" +
+	"\x05count\x18\x06 \x01(\x05R\x05count\x12G\n" +
+	"\bpackages\x18\a \x03(\v2+.monitoring.EndpointInventoryPackageSummaryR\bpackages\x12(\n" +
+	"\x10package_set_hash\x18\b \x01(\tR\x0epackageSetHash\x12#\n" +
+	"\rartifact_hash\x18\t \x01(\tR\fartifactHash\x12%\n" +
+	"\x0ehash_algorithm\x18\n" +
+	" \x01(\tR\rhashAlgorithm\x12>\n" +
+	"\x1clast_successful_scan_at_unix\x18\v \x01(\x03R\x18lastSuccessfulScanAtUnix\x128\n" +
+	"\x19last_changed_scan_at_unix\x18\f \x01(\x03R\x15lastChangedScanAtUnix\x120\n" +
+	"\x14unchanged_scan_count\x18\r \x01(\x05R\x12unchangedScanCount\x12U\n" +
+	"\x10source_summaries\x18\x0e \x03(\v2*.monitoring.EndpointInventorySourceSummaryR\x0fsourceSummaries\x12D\n" +
+	"\tfreshness\x18\x0f \x01(\v2&.monitoring.EndpointInventoryFreshnessR\tfreshness\x126\n" +
+	"\x17stale_threshold_seconds\x18\x10 \x01(\x03R\x15staleThresholdSeconds\x12*\n" +
+	"\x11evaluated_at_unix\x18\x11 \x01(\x03R\x0fevaluatedAtUnix\x12\x1c\n" +
+	"\ttruncated\x18\x12 \x01(\bR\ttruncated\x129\n" +
+	"\x18unsupported_capabilities\x18\x13 \x03(\tR\x17unsupportedCapabilities\x12T\n" +
+	"\x0fcohort_coverage\x18\x14 \x01(\v2+.monitoring.EndpointInventoryCohortCoverageR\x0ecohortCoverage\"\xfa\x04\n" +
 	"\fSysmonConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12'\n" +
 	"\x0fsample_interval\x18\x02 \x01(\tR\x0esampleInterval\x12\x1f\n" +
@@ -7184,81 +8289,93 @@ func file_monitoring_proto_rawDescGZIP() []byte {
 }
 
 var file_monitoring_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 67)
+var file_monitoring_proto_msgTypes = make([]protoimpl.MessageInfo, 79)
 var file_monitoring_proto_goTypes = []any{
-	(SNMPVersion)(0),                        // 0: monitoring.SNMPVersion
-	(SNMPSecurityLevel)(0),                  // 1: monitoring.SNMPSecurityLevel
-	(SNMPAuthProtocol)(0),                   // 2: monitoring.SNMPAuthProtocol
-	(SNMPPrivProtocol)(0),                   // 3: monitoring.SNMPPrivProtocol
-	(SNMPDataType)(0),                       // 4: monitoring.SNMPDataType
-	(SweepCompletionStatus_Status)(0),       // 5: monitoring.SweepCompletionStatus.Status
-	(*DeviceStatusRequest)(nil),             // 6: monitoring.DeviceStatusRequest
-	(*StatusRequest)(nil),                   // 7: monitoring.StatusRequest
-	(*ResultsRequest)(nil),                  // 8: monitoring.ResultsRequest
-	(*StatusResponse)(nil),                  // 9: monitoring.StatusResponse
-	(*SidecarStatus)(nil),                   // 10: monitoring.SidecarStatus
-	(*ResultsResponse)(nil),                 // 11: monitoring.ResultsResponse
-	(*SweepServiceStatus)(nil),              // 12: monitoring.SweepServiceStatus
-	(*PortStatus)(nil),                      // 13: monitoring.PortStatus
-	(*ResultsChunk)(nil),                    // 14: monitoring.ResultsChunk
-	(*SweepCompletionStatus)(nil),           // 15: monitoring.SweepCompletionStatus
-	(*SweepScannerStats)(nil),               // 16: monitoring.SweepScannerStats
-	(*GatewayStatusRequest)(nil),            // 17: monitoring.GatewayStatusRequest
-	(*GatewayStatusResponse)(nil),           // 18: monitoring.GatewayStatusResponse
-	(*GatewayStatusChunk)(nil),              // 19: monitoring.GatewayStatusChunk
-	(*GatewayServiceStatus)(nil),            // 20: monitoring.GatewayServiceStatus
-	(*AgentHelloRequest)(nil),               // 21: monitoring.AgentHelloRequest
-	(*AgentHelloResponse)(nil),              // 22: monitoring.AgentHelloResponse
-	(*AgentConfigRequest)(nil),              // 23: monitoring.AgentConfigRequest
-	(*AgentConfigResponse)(nil),             // 24: monitoring.AgentConfigResponse
-	(*AddonAssignmentConfig)(nil),           // 25: monitoring.AddonAssignmentConfig
-	(*AgentConfigChunk)(nil),                // 26: monitoring.AgentConfigChunk
-	(*ControlStreamHello)(nil),              // 27: monitoring.ControlStreamHello
-	(*CommandRequest)(nil),                  // 28: monitoring.CommandRequest
-	(*CommandAck)(nil),                      // 29: monitoring.CommandAck
-	(*CommandProgress)(nil),                 // 30: monitoring.CommandProgress
-	(*CommandResult)(nil),                   // 31: monitoring.CommandResult
-	(*ConfigAck)(nil),                       // 32: monitoring.ConfigAck
-	(*ConsoleFrame)(nil),                    // 33: monitoring.ConsoleFrame
-	(*ControlStreamRequest)(nil),            // 34: monitoring.ControlStreamRequest
-	(*ControlStreamResponse)(nil),           // 35: monitoring.ControlStreamResponse
-	(*CredentialBrokerResolveRequest)(nil),  // 36: monitoring.CredentialBrokerResolveRequest
-	(*CredentialBrokerResolveResponse)(nil), // 37: monitoring.CredentialBrokerResolveResponse
-	(*PluginConfig)(nil),                    // 38: monitoring.PluginConfig
-	(*PluginEngineLimits)(nil),              // 39: monitoring.PluginEngineLimits
-	(*PluginAssignmentConfig)(nil),          // 40: monitoring.PluginAssignmentConfig
-	(*BumblebeeConfig)(nil),                 // 41: monitoring.BumblebeeConfig
-	(*BumblebeeCatalogAssignment)(nil),      // 42: monitoring.BumblebeeCatalogAssignment
-	(*EndpointInventoryConfig)(nil),         // 43: monitoring.EndpointInventoryConfig
-	(*EndpointInventoryReport)(nil),         // 44: monitoring.EndpointInventoryReport
-	(*EndpointInventoryScanMetadata)(nil),   // 45: monitoring.EndpointInventoryScanMetadata
-	(*EndpointInventorySourceSummary)(nil),  // 46: monitoring.EndpointInventorySourceSummary
-	(*EndpointInventoryArtifactRef)(nil),    // 47: monitoring.EndpointInventoryArtifactRef
-	(*EndpointInventoryPackageSummary)(nil), // 48: monitoring.EndpointInventoryPackageSummary
-	(*SysmonConfig)(nil),                    // 49: monitoring.SysmonConfig
-	(*AgentCheckConfig)(nil),                // 50: monitoring.AgentCheckConfig
-	(*SNMPConfig)(nil),                      // 51: monitoring.SNMPConfig
-	(*VisibilityConfig)(nil),                // 52: monitoring.VisibilityConfig
-	(*VisibilityBinaryOverrides)(nil),       // 53: monitoring.VisibilityBinaryOverrides
-	(*VisibilityDeviceBinding)(nil),         // 54: monitoring.VisibilityDeviceBinding
-	(*VisibilityFingerprintConfig)(nil),     // 55: monitoring.VisibilityFingerprintConfig
-	(*VisibilityDpiConfig)(nil),             // 56: monitoring.VisibilityDpiConfig
-	(*SNMPTargetConfig)(nil),                // 57: monitoring.SNMPTargetConfig
-	(*SNMPv3Auth)(nil),                      // 58: monitoring.SNMPv3Auth
-	(*SNMPOIDConfig)(nil),                   // 59: monitoring.SNMPOIDConfig
-	(*MtrMplsLabel)(nil),                    // 60: monitoring.MtrMplsLabel
-	(*MtrAsnInfo)(nil),                      // 61: monitoring.MtrAsnInfo
-	(*MtrHopResult)(nil),                    // 62: monitoring.MtrHopResult
-	(*MtrTraceResult)(nil),                  // 63: monitoring.MtrTraceResult
-	(*MtrCheckResult)(nil),                  // 64: monitoring.MtrCheckResult
-	nil,                                     // 65: monitoring.AgentHelloRequest.LabelsEntry
-	nil,                                     // 66: monitoring.ControlStreamHello.LabelsEntry
-	nil,                                     // 67: monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	nil,                                     // 68: monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	nil,                                     // 69: monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	nil,                                     // 70: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	nil,                                     // 71: monitoring.SysmonConfig.ThresholdsEntry
-	nil,                                     // 72: monitoring.AgentCheckConfig.SettingsEntry
+	(SNMPVersion)(0),                                     // 0: monitoring.SNMPVersion
+	(SNMPSecurityLevel)(0),                               // 1: monitoring.SNMPSecurityLevel
+	(SNMPAuthProtocol)(0),                                // 2: monitoring.SNMPAuthProtocol
+	(SNMPPrivProtocol)(0),                                // 3: monitoring.SNMPPrivProtocol
+	(SNMPDataType)(0),                                    // 4: monitoring.SNMPDataType
+	(SweepCompletionStatus_Status)(0),                    // 5: monitoring.SweepCompletionStatus.Status
+	(*DeviceStatusRequest)(nil),                          // 6: monitoring.DeviceStatusRequest
+	(*StatusRequest)(nil),                                // 7: monitoring.StatusRequest
+	(*ResultsRequest)(nil),                               // 8: monitoring.ResultsRequest
+	(*StatusResponse)(nil),                               // 9: monitoring.StatusResponse
+	(*SidecarStatus)(nil),                                // 10: monitoring.SidecarStatus
+	(*ResultsResponse)(nil),                              // 11: monitoring.ResultsResponse
+	(*SweepServiceStatus)(nil),                           // 12: monitoring.SweepServiceStatus
+	(*PortStatus)(nil),                                   // 13: monitoring.PortStatus
+	(*ResultsChunk)(nil),                                 // 14: monitoring.ResultsChunk
+	(*SweepCompletionStatus)(nil),                        // 15: monitoring.SweepCompletionStatus
+	(*SweepScannerStats)(nil),                            // 16: monitoring.SweepScannerStats
+	(*GatewayStatusRequest)(nil),                         // 17: monitoring.GatewayStatusRequest
+	(*GatewayStatusResponse)(nil),                        // 18: monitoring.GatewayStatusResponse
+	(*GatewayStatusDirective)(nil),                       // 19: monitoring.GatewayStatusDirective
+	(*GatewayStatusChunk)(nil),                           // 20: monitoring.GatewayStatusChunk
+	(*GatewayServiceStatus)(nil),                         // 21: monitoring.GatewayServiceStatus
+	(*AgentHelloRequest)(nil),                            // 22: monitoring.AgentHelloRequest
+	(*AgentHelloResponse)(nil),                           // 23: monitoring.AgentHelloResponse
+	(*AgentConfigRequest)(nil),                           // 24: monitoring.AgentConfigRequest
+	(*AgentConfigResponse)(nil),                          // 25: monitoring.AgentConfigResponse
+	(*AddonAssignmentConfig)(nil),                        // 26: monitoring.AddonAssignmentConfig
+	(*AgentConfigChunk)(nil),                             // 27: monitoring.AgentConfigChunk
+	(*ControlStreamHello)(nil),                           // 28: monitoring.ControlStreamHello
+	(*CommandRequest)(nil),                               // 29: monitoring.CommandRequest
+	(*CommandAck)(nil),                                   // 30: monitoring.CommandAck
+	(*CommandProgress)(nil),                              // 31: monitoring.CommandProgress
+	(*CommandResult)(nil),                                // 32: monitoring.CommandResult
+	(*ConfigAck)(nil),                                    // 33: monitoring.ConfigAck
+	(*ConsoleFrame)(nil),                                 // 34: monitoring.ConsoleFrame
+	(*ControlStreamRequest)(nil),                         // 35: monitoring.ControlStreamRequest
+	(*ControlStreamResponse)(nil),                        // 36: monitoring.ControlStreamResponse
+	(*CredentialBrokerResolveRequest)(nil),               // 37: monitoring.CredentialBrokerResolveRequest
+	(*CredentialBrokerResolveResponse)(nil),              // 38: monitoring.CredentialBrokerResolveResponse
+	(*PluginConfig)(nil),                                 // 39: monitoring.PluginConfig
+	(*PluginEngineLimits)(nil),                           // 40: monitoring.PluginEngineLimits
+	(*PluginAssignmentConfig)(nil),                       // 41: monitoring.PluginAssignmentConfig
+	(*BumblebeeConfig)(nil),                              // 42: monitoring.BumblebeeConfig
+	(*BumblebeeCatalogAssignment)(nil),                   // 43: monitoring.BumblebeeCatalogAssignment
+	(*EndpointInventoryConfig)(nil),                      // 44: monitoring.EndpointInventoryConfig
+	(*EndpointInventoryReport)(nil),                      // 45: monitoring.EndpointInventoryReport
+	(*EndpointInventoryScanMetadata)(nil),                // 46: monitoring.EndpointInventoryScanMetadata
+	(*EndpointInventoryFreshness)(nil),                   // 47: monitoring.EndpointInventoryFreshness
+	(*EndpointInventoryCohortCoverage)(nil),              // 48: monitoring.EndpointInventoryCohortCoverage
+	(*EndpointInventorySourceSummary)(nil),               // 49: monitoring.EndpointInventorySourceSummary
+	(*EndpointInventoryArtifactRef)(nil),                 // 50: monitoring.EndpointInventoryArtifactRef
+	(*EndpointInventoryPackageSummary)(nil),              // 51: monitoring.EndpointInventoryPackageSummary
+	(*EndpointInventoryQueryRequest)(nil),                // 52: monitoring.EndpointInventoryQueryRequest
+	(*EndpointInventoryForceFreshScanRequest)(nil),       // 53: monitoring.EndpointInventoryForceFreshScanRequest
+	(*EndpointInventoryPackagePredicate)(nil),            // 54: monitoring.EndpointInventoryPackagePredicate
+	(*EndpointInventoryStandingQuestionResultCount)(nil), // 55: monitoring.EndpointInventoryStandingQuestionResultCount
+	(*EndpointInventoryQueryResult)(nil),                 // 56: monitoring.EndpointInventoryQueryResult
+	(*SysmonConfig)(nil),                                 // 57: monitoring.SysmonConfig
+	(*AgentCheckConfig)(nil),                             // 58: monitoring.AgentCheckConfig
+	(*SNMPConfig)(nil),                                   // 59: monitoring.SNMPConfig
+	(*VisibilityConfig)(nil),                             // 60: monitoring.VisibilityConfig
+	(*VisibilityBinaryOverrides)(nil),                    // 61: monitoring.VisibilityBinaryOverrides
+	(*VisibilityDeviceBinding)(nil),                      // 62: monitoring.VisibilityDeviceBinding
+	(*VisibilityFingerprintConfig)(nil),                  // 63: monitoring.VisibilityFingerprintConfig
+	(*VisibilityDpiConfig)(nil),                          // 64: monitoring.VisibilityDpiConfig
+	(*SNMPTargetConfig)(nil),                             // 65: monitoring.SNMPTargetConfig
+	(*SNMPv3Auth)(nil),                                   // 66: monitoring.SNMPv3Auth
+	(*SNMPOIDConfig)(nil),                                // 67: monitoring.SNMPOIDConfig
+	(*MtrMplsLabel)(nil),                                 // 68: monitoring.MtrMplsLabel
+	(*MtrAsnInfo)(nil),                                   // 69: monitoring.MtrAsnInfo
+	(*MtrHopResult)(nil),                                 // 70: monitoring.MtrHopResult
+	(*MtrTraceResult)(nil),                               // 71: monitoring.MtrTraceResult
+	(*MtrCheckResult)(nil),                               // 72: monitoring.MtrCheckResult
+	nil,                                                  // 73: monitoring.AgentHelloRequest.LabelsEntry
+	nil,                                                  // 74: monitoring.ControlStreamHello.LabelsEntry
+	nil,                                                  // 75: monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	nil,                                                  // 76: monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	nil,                                                  // 77: monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	nil,                                                  // 78: monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	nil,                                                  // 79: monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	nil,                                                  // 80: monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	nil,                                                  // 81: monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	nil,                                                  // 82: monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	nil,                                                  // 83: monitoring.SysmonConfig.ThresholdsEntry
+	nil,                                                  // 84: monitoring.AgentCheckConfig.SettingsEntry
 }
 var file_monitoring_proto_depIdxs = []int32{
 	15, // 0: monitoring.ResultsRequest.completion_status:type_name -> monitoring.SweepCompletionStatus
@@ -7267,82 +8384,98 @@ var file_monitoring_proto_depIdxs = []int32{
 	13, // 3: monitoring.SweepServiceStatus.ports:type_name -> monitoring.PortStatus
 	5,  // 4: monitoring.SweepCompletionStatus.status:type_name -> monitoring.SweepCompletionStatus.Status
 	16, // 5: monitoring.SweepCompletionStatus.scanner_stats:type_name -> monitoring.SweepScannerStats
-	20, // 6: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
-	20, // 7: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
-	65, // 8: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
-	50, // 9: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
-	49, // 10: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
-	51, // 11: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
-	52, // 12: monitoring.AgentConfigResponse.visibility_config:type_name -> monitoring.VisibilityConfig
-	38, // 13: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
-	41, // 14: monitoring.AgentConfigResponse.bumblebee_config:type_name -> monitoring.BumblebeeConfig
-	25, // 15: monitoring.AgentConfigResponse.addons:type_name -> monitoring.AddonAssignmentConfig
-	43, // 16: monitoring.AgentConfigResponse.endpoint_inventory_config:type_name -> monitoring.EndpointInventoryConfig
-	66, // 17: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
-	27, // 18: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
-	29, // 19: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
-	30, // 20: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
-	31, // 21: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
-	32, // 22: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
-	33, // 23: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
-	28, // 24: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
-	24, // 25: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
-	33, // 26: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
-	67, // 27: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
-	40, // 28: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
-	39, // 29: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
-	42, // 30: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
-	45, // 31: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
-	47, // 32: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
-	48, // 33: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
-	46, // 34: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
-	68, // 35: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
-	69, // 36: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
-	70, // 37: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
-	71, // 38: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
-	72, // 39: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
-	57, // 40: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
-	53, // 41: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
-	54, // 42: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
-	56, // 43: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
-	55, // 44: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
-	56, // 45: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
-	0,  // 46: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
-	58, // 47: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
-	59, // 48: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
-	1,  // 49: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
-	2,  // 50: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
-	3,  // 51: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
-	4,  // 52: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
-	61, // 53: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
-	60, // 54: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
-	62, // 55: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
-	63, // 56: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
-	7,  // 57: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
-	8,  // 58: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
-	8,  // 59: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
-	21, // 60: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
-	23, // 61: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
-	23, // 62: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
-	17, // 63: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
-	19, // 64: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
-	34, // 65: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
-	36, // 66: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
-	9,  // 67: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
-	11, // 68: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
-	14, // 69: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
-	22, // 70: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
-	24, // 71: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
-	26, // 72: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
-	18, // 73: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
-	18, // 74: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
-	35, // 75: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
-	37, // 76: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
-	67, // [67:77] is the sub-list for method output_type
-	57, // [57:67] is the sub-list for method input_type
-	57, // [57:57] is the sub-list for extension type_name
-	57, // [57:57] is the sub-list for extension extendee
-	0,  // [0:57] is the sub-list for field type_name
+	21, // 6: monitoring.GatewayStatusRequest.services:type_name -> monitoring.GatewayServiceStatus
+	55, // 7: monitoring.GatewayStatusRequest.endpoint_inventory_standing_question_counts:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount
+	19, // 8: monitoring.GatewayStatusResponse.directives:type_name -> monitoring.GatewayStatusDirective
+	21, // 9: monitoring.GatewayStatusChunk.services:type_name -> monitoring.GatewayServiceStatus
+	55, // 10: monitoring.GatewayStatusChunk.endpoint_inventory_standing_question_counts:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount
+	73, // 11: monitoring.AgentHelloRequest.labels:type_name -> monitoring.AgentHelloRequest.LabelsEntry
+	58, // 12: monitoring.AgentConfigResponse.checks:type_name -> monitoring.AgentCheckConfig
+	57, // 13: monitoring.AgentConfigResponse.sysmon_config:type_name -> monitoring.SysmonConfig
+	59, // 14: monitoring.AgentConfigResponse.snmp_config:type_name -> monitoring.SNMPConfig
+	60, // 15: monitoring.AgentConfigResponse.visibility_config:type_name -> monitoring.VisibilityConfig
+	39, // 16: monitoring.AgentConfigResponse.plugin_config:type_name -> monitoring.PluginConfig
+	42, // 17: monitoring.AgentConfigResponse.bumblebee_config:type_name -> monitoring.BumblebeeConfig
+	26, // 18: monitoring.AgentConfigResponse.addons:type_name -> monitoring.AddonAssignmentConfig
+	44, // 19: monitoring.AgentConfigResponse.endpoint_inventory_config:type_name -> monitoring.EndpointInventoryConfig
+	74, // 20: monitoring.ControlStreamHello.labels:type_name -> monitoring.ControlStreamHello.LabelsEntry
+	28, // 21: monitoring.ControlStreamRequest.hello:type_name -> monitoring.ControlStreamHello
+	30, // 22: monitoring.ControlStreamRequest.command_ack:type_name -> monitoring.CommandAck
+	31, // 23: monitoring.ControlStreamRequest.command_progress:type_name -> monitoring.CommandProgress
+	32, // 24: monitoring.ControlStreamRequest.command_result:type_name -> monitoring.CommandResult
+	33, // 25: monitoring.ControlStreamRequest.config_ack:type_name -> monitoring.ConfigAck
+	34, // 26: monitoring.ControlStreamRequest.console_frame:type_name -> monitoring.ConsoleFrame
+	29, // 27: monitoring.ControlStreamResponse.command:type_name -> monitoring.CommandRequest
+	25, // 28: monitoring.ControlStreamResponse.config:type_name -> monitoring.AgentConfigResponse
+	34, // 29: monitoring.ControlStreamResponse.console_frame:type_name -> monitoring.ConsoleFrame
+	75, // 30: monitoring.CredentialBrokerResolveResponse.fields:type_name -> monitoring.CredentialBrokerResolveResponse.FieldsEntry
+	41, // 31: monitoring.PluginConfig.assignments:type_name -> monitoring.PluginAssignmentConfig
+	40, // 32: monitoring.PluginConfig.engine_limits:type_name -> monitoring.PluginEngineLimits
+	43, // 33: monitoring.BumblebeeConfig.catalog:type_name -> monitoring.BumblebeeCatalogAssignment
+	46, // 34: monitoring.EndpointInventoryReport.metadata:type_name -> monitoring.EndpointInventoryScanMetadata
+	50, // 35: monitoring.EndpointInventoryReport.artifact:type_name -> monitoring.EndpointInventoryArtifactRef
+	51, // 36: monitoring.EndpointInventoryReport.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	48, // 37: monitoring.EndpointInventoryReport.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	49, // 38: monitoring.EndpointInventoryScanMetadata.sources:type_name -> monitoring.EndpointInventorySourceSummary
+	76, // 39: monitoring.EndpointInventoryScanMetadata.redaction:type_name -> monitoring.EndpointInventoryScanMetadata.RedactionEntry
+	47, // 40: monitoring.EndpointInventoryScanMetadata.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	77, // 41: monitoring.EndpointInventoryArtifactRef.metadata:type_name -> monitoring.EndpointInventoryArtifactRef.MetadataEntry
+	78, // 42: monitoring.EndpointInventoryPackageSummary.evidence:type_name -> monitoring.EndpointInventoryPackageSummary.EvidenceEntry
+	54, // 43: monitoring.EndpointInventoryQueryRequest.predicate:type_name -> monitoring.EndpointInventoryPackagePredicate
+	79, // 44: monitoring.EndpointInventoryQueryRequest.metadata:type_name -> monitoring.EndpointInventoryQueryRequest.MetadataEntry
+	52, // 45: monitoring.EndpointInventoryForceFreshScanRequest.query:type_name -> monitoring.EndpointInventoryQueryRequest
+	80, // 46: monitoring.EndpointInventoryForceFreshScanRequest.metadata:type_name -> monitoring.EndpointInventoryForceFreshScanRequest.MetadataEntry
+	47, // 47: monitoring.EndpointInventoryStandingQuestionResultCount.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	81, // 48: monitoring.EndpointInventoryStandingQuestionResultCount.labels:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.LabelsEntry
+	82, // 49: monitoring.EndpointInventoryStandingQuestionResultCount.metadata:type_name -> monitoring.EndpointInventoryStandingQuestionResultCount.MetadataEntry
+	51, // 50: monitoring.EndpointInventoryQueryResult.packages:type_name -> monitoring.EndpointInventoryPackageSummary
+	49, // 51: monitoring.EndpointInventoryQueryResult.source_summaries:type_name -> monitoring.EndpointInventorySourceSummary
+	47, // 52: monitoring.EndpointInventoryQueryResult.freshness:type_name -> monitoring.EndpointInventoryFreshness
+	48, // 53: monitoring.EndpointInventoryQueryResult.cohort_coverage:type_name -> monitoring.EndpointInventoryCohortCoverage
+	83, // 54: monitoring.SysmonConfig.thresholds:type_name -> monitoring.SysmonConfig.ThresholdsEntry
+	84, // 55: monitoring.AgentCheckConfig.settings:type_name -> monitoring.AgentCheckConfig.SettingsEntry
+	65, // 56: monitoring.SNMPConfig.targets:type_name -> monitoring.SNMPTargetConfig
+	61, // 57: monitoring.VisibilityConfig.binary_overrides:type_name -> monitoring.VisibilityBinaryOverrides
+	62, // 58: monitoring.VisibilityConfig.device_bindings:type_name -> monitoring.VisibilityDeviceBinding
+	64, // 59: monitoring.VisibilityConfig.dpi:type_name -> monitoring.VisibilityDpiConfig
+	63, // 60: monitoring.VisibilityDeviceBinding.fingerprint:type_name -> monitoring.VisibilityFingerprintConfig
+	64, // 61: monitoring.VisibilityDeviceBinding.dpi:type_name -> monitoring.VisibilityDpiConfig
+	0,  // 62: monitoring.SNMPTargetConfig.version:type_name -> monitoring.SNMPVersion
+	66, // 63: monitoring.SNMPTargetConfig.v3_auth:type_name -> monitoring.SNMPv3Auth
+	67, // 64: monitoring.SNMPTargetConfig.oids:type_name -> monitoring.SNMPOIDConfig
+	1,  // 65: monitoring.SNMPv3Auth.security_level:type_name -> monitoring.SNMPSecurityLevel
+	2,  // 66: monitoring.SNMPv3Auth.auth_protocol:type_name -> monitoring.SNMPAuthProtocol
+	3,  // 67: monitoring.SNMPv3Auth.priv_protocol:type_name -> monitoring.SNMPPrivProtocol
+	4,  // 68: monitoring.SNMPOIDConfig.data_type:type_name -> monitoring.SNMPDataType
+	69, // 69: monitoring.MtrHopResult.asn:type_name -> monitoring.MtrAsnInfo
+	68, // 70: monitoring.MtrHopResult.mpls_labels:type_name -> monitoring.MtrMplsLabel
+	70, // 71: monitoring.MtrTraceResult.hops:type_name -> monitoring.MtrHopResult
+	71, // 72: monitoring.MtrCheckResult.trace:type_name -> monitoring.MtrTraceResult
+	7,  // 73: monitoring.AgentService.GetStatus:input_type -> monitoring.StatusRequest
+	8,  // 74: monitoring.AgentService.GetResults:input_type -> monitoring.ResultsRequest
+	8,  // 75: monitoring.AgentService.StreamResults:input_type -> monitoring.ResultsRequest
+	22, // 76: monitoring.AgentGatewayService.Hello:input_type -> monitoring.AgentHelloRequest
+	24, // 77: monitoring.AgentGatewayService.GetConfig:input_type -> monitoring.AgentConfigRequest
+	24, // 78: monitoring.AgentGatewayService.StreamConfig:input_type -> monitoring.AgentConfigRequest
+	17, // 79: monitoring.AgentGatewayService.PushStatus:input_type -> monitoring.GatewayStatusRequest
+	20, // 80: monitoring.AgentGatewayService.StreamStatus:input_type -> monitoring.GatewayStatusChunk
+	35, // 81: monitoring.AgentGatewayService.ControlStream:input_type -> monitoring.ControlStreamRequest
+	37, // 82: monitoring.AgentGatewayService.ResolveCredentialGrant:input_type -> monitoring.CredentialBrokerResolveRequest
+	9,  // 83: monitoring.AgentService.GetStatus:output_type -> monitoring.StatusResponse
+	11, // 84: monitoring.AgentService.GetResults:output_type -> monitoring.ResultsResponse
+	14, // 85: monitoring.AgentService.StreamResults:output_type -> monitoring.ResultsChunk
+	23, // 86: monitoring.AgentGatewayService.Hello:output_type -> monitoring.AgentHelloResponse
+	25, // 87: monitoring.AgentGatewayService.GetConfig:output_type -> monitoring.AgentConfigResponse
+	27, // 88: monitoring.AgentGatewayService.StreamConfig:output_type -> monitoring.AgentConfigChunk
+	18, // 89: monitoring.AgentGatewayService.PushStatus:output_type -> monitoring.GatewayStatusResponse
+	18, // 90: monitoring.AgentGatewayService.StreamStatus:output_type -> monitoring.GatewayStatusResponse
+	36, // 91: monitoring.AgentGatewayService.ControlStream:output_type -> monitoring.ControlStreamResponse
+	38, // 92: monitoring.AgentGatewayService.ResolveCredentialGrant:output_type -> monitoring.CredentialBrokerResolveResponse
+	83, // [83:93] is the sub-list for method output_type
+	73, // [73:83] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_monitoring_proto_init() }
@@ -7350,7 +8483,7 @@ func file_monitoring_proto_init() {
 	if File_monitoring_proto != nil {
 		return
 	}
-	file_monitoring_proto_msgTypes[28].OneofWrappers = []any{
+	file_monitoring_proto_msgTypes[29].OneofWrappers = []any{
 		(*ControlStreamRequest_Hello)(nil),
 		(*ControlStreamRequest_CommandAck)(nil),
 		(*ControlStreamRequest_CommandProgress)(nil),
@@ -7358,7 +8491,7 @@ func file_monitoring_proto_init() {
 		(*ControlStreamRequest_ConfigAck)(nil),
 		(*ControlStreamRequest_ConsoleFrame)(nil),
 	}
-	file_monitoring_proto_msgTypes[29].OneofWrappers = []any{
+	file_monitoring_proto_msgTypes[30].OneofWrappers = []any{
 		(*ControlStreamResponse_Command)(nil),
 		(*ControlStreamResponse_Config)(nil),
 		(*ControlStreamResponse_ConsoleFrame)(nil),
@@ -7369,7 +8502,7 @@ func file_monitoring_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_monitoring_proto_rawDesc), len(file_monitoring_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   67,
+			NumMessages:   79,
 			NumExtensions: 0,
 			NumServices:   2,
 		},

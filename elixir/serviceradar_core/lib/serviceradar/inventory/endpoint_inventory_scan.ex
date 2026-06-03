@@ -42,7 +42,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
         :current,
         :last_successful_scan_at,
         :last_scan_at,
+        :last_changed_scan_at,
         :ingested_at,
+        :package_set_hash,
+        :artifact_hash,
+        :hash_algorithm,
+        :upload_reason,
+        :server_package_set_hash,
+        :package_set_hash_mismatch,
+        :unchanged_scan_count,
+        :reconcile_floor_due,
         :metadata
       ]
     end
@@ -62,7 +71,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
         :current,
         :last_successful_scan_at,
         :last_scan_at,
+        :last_changed_scan_at,
         :ingested_at,
+        :package_set_hash,
+        :artifact_hash,
+        :hash_algorithm,
+        :upload_reason,
+        :server_package_set_hash,
+        :package_set_hash_mismatch,
+        :unchanged_scan_count,
+        :reconcile_floor_due,
         :metadata
       ]
     end
@@ -177,7 +195,49 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
       public? true
     end
 
+    attribute :last_changed_scan_at, :utc_datetime_usec do
+      public? true
+    end
+
     attribute :ingested_at, :utc_datetime_usec do
+      public? true
+    end
+
+    attribute :package_set_hash, :string do
+      public? true
+    end
+
+    attribute :artifact_hash, :string do
+      public? true
+    end
+
+    attribute :hash_algorithm, :string do
+      public? true
+    end
+
+    attribute :upload_reason, :string do
+      public? true
+    end
+
+    attribute :server_package_set_hash, :string do
+      public? true
+    end
+
+    attribute :package_set_hash_mismatch, :boolean do
+      allow_nil? false
+      default false
+      public? true
+    end
+
+    attribute :unchanged_scan_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+    end
+
+    attribute :reconcile_floor_due, :boolean do
+      allow_nil? false
+      default false
       public? true
     end
 
@@ -217,6 +277,20 @@ defmodule ServiceRadar.Inventory.EndpointInventoryScan do
     has_many :packages, ServiceRadar.Inventory.EndpointInventoryPackage do
       source_attribute :id
       destination_attribute :scan_ref
+      public? true
+    end
+  end
+
+  calculations do
+    calculate :freshness_verdict,
+              :string,
+              expr(
+                fragment(
+                  "CASE WHEN ? IS NULL THEN 'unknown' WHEN ? > NOW() - INTERVAL '24 hours' THEN 'fresh' ELSE 'stale' END",
+                  last_successful_scan_at,
+                  last_successful_scan_at
+                )
+              ) do
       public? true
     end
   end

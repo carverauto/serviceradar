@@ -48,6 +48,11 @@ func BuildCycloneDX(cfg Config, timestamp time.Time, osInfo OSInfo, packages []P
 	properties := []CycloneDXProperty{
 		{Name: "serviceradar:schema_version", Value: SchemaVersion},
 		{Name: "serviceradar:agent_id", Value: cfg.AgentID},
+		{Name: "serviceradar:collection_cadence", Value: cfg.Cadence},
+		{Name: "serviceradar:collect_paths", Value: fmt.Sprintf("%t", cfg.CollectPaths)},
+		{Name: "serviceradar:collect_file_hashes", Value: fmt.Sprintf("%t", cfg.CollectFileHashes)},
+		{Name: "serviceradar:redaction_paths", Value: redactionState(cfg.CollectPaths)},
+		{Name: "serviceradar:redaction_file_hashes", Value: redactionState(cfg.CollectFileHashes)},
 	}
 	if osInfo.ID != "" {
 		properties = append(properties, CycloneDXProperty{Name: "serviceradar:os_id", Value: osInfo.ID})

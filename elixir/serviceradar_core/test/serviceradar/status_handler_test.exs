@@ -49,6 +49,38 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
+  test "returns results router acknowledgement on synchronous status update" do
+    parent = self()
+
+    router_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_call", from, {:results_update, status}} ->
+            send(parent, {:forwarded, status})
+
+            GenServer.reply(
+              from,
+              {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
+            )
+        end
+      end)
+
+    Process.register(router_pid, ServiceRadar.ResultsRouter)
+
+    status = %{
+      source: "results",
+      service_type: "endpoint_inventory",
+      service_name: "endpoint_inventory",
+      message: Jason.encode!(%{"scan_id" => "scan-1"})
+    }
+
+    assert {:reply, {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}},
+            %{}} =
+             StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+    assert_receive {:forwarded, ^status}
+  end
+
   describe "flow-attribution source" do
     setup do
       if pid = Process.whereis(AttributedFlowJoiner) do

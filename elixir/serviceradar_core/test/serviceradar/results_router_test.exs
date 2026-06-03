@@ -7,6 +7,7 @@ defmodule ServiceRadar.ResultsRouterTest do
 
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.ResultsRouter
 
   defmodule TestIngestor do
@@ -41,17 +42,51 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
   end
 
+  defmodule TestEndpointInventoryIngestor do
+    @moduledoc false
+
+    def ingest_report(payload, opts) do
+      if pid = Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid) do
+        send(pid, {:endpoint_inventory_ingest, payload, opts})
+      end
+
+      {:ok,
+       %{
+         agent_id: payload["agent_id"],
+         scan_id: payload["scan_id"],
+         directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
+       }}
+    end
+  end
+
   setup do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_sweep = Application.get_env(:serviceradar_core, :sweep_ingestor)
     previous_sysmon = Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor)
     previous_plugin = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
+    previous_endpoint = Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor)
+
+    previous_endpoint_async =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor_async)
+
+    previous_endpoint_test_pid =
+      Application.get_env(:serviceradar_core, :endpoint_inventory_router_test_pid)
+
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sweep_ingestor, TestSweepIngestor)
     Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, TestSysmonIngestor)
     Application.put_env(:serviceradar_core, :plugin_result_ingestor, TestPluginIngestor)
+
+    Application.put_env(
+      :serviceradar_core,
+      :endpoint_inventory_ingestor,
+      TestEndpointInventoryIngestor
+    )
+
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, false)
+    Application.put_env(:serviceradar_core, :endpoint_inventory_router_test_pid, self())
 
     on_exit(fn ->
       if is_nil(previous) do
@@ -83,6 +118,10 @@ defmodule ServiceRadar.ResultsRouterTest do
       else
         Application.put_env(:serviceradar_core, :plugin_result_ingestor, previous_plugin)
       end
+
+      restore_env(:endpoint_inventory_ingestor, previous_endpoint)
+      restore_env(:endpoint_inventory_ingestor_async, previous_endpoint_async)
+      restore_env(:endpoint_inventory_router_test_pid, previous_endpoint_test_pid)
     end)
 
     :ok
@@ -438,5 +477,88 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert_receive {:plugin_ingest, decoded, ^status}
     assert %{"summary" => "plugin ok"} = decoded
+  end
+
+  test "routes asynchronous endpoint inventory payloads through bounded queue" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
+    restart_endpoint_inventory_queue()
+
+    payload = %{"scan_id" => "scan-router-async"}
+
+    status = %{
+      source: "results",
+      service_type: "endpoint_inventory",
+      message: Jason.encode!(payload),
+      agent_id: "agent-router-async"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+
+    expected_payload = Map.put(payload, "agent_id", "agent-router-async")
+    assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
+    assert Keyword.keyword?(opts)
+  end
+
+  test "waits for endpoint inventory queue acknowledgement on synchronous status call" do
+    Application.put_env(:serviceradar_core, :endpoint_inventory_ingestor_async, true)
+    restart_endpoint_inventory_queue()
+
+    payload = %{"scan_id" => "scan-router-sync"}
+
+    status = %{
+      source: "results",
+      service_type: "endpoint_inventory",
+      message: Jason.encode!(payload),
+      agent_id: "agent-router-sync"
+    }
+
+    assert {:reply,
+            {:ok,
+             %{
+               agent_id: "agent-router-sync",
+               scan_id: "scan-router-sync",
+               directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}
+             }}, %{}} = ResultsRouter.handle_call({:results_update, status}, self(), %{})
+
+    expected_payload = Map.put(payload, "agent_id", "agent-router-sync")
+    assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
+    assert Keyword.keyword?(opts)
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)
+
+  defp restart_endpoint_inventory_queue do
+    restart_task_supervisor(ServiceRadar.EndpointInventoryIngestor.TaskSupervisor)
+    stop_process(EndpointInventoryIngestorQueue)
+
+    case start_supervised(EndpointInventoryIngestorQueue) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
+  end
+
+  defp restart_task_supervisor(name) do
+    stop_process(name)
+
+    case start_supervised({Task.Supervisor, name: name}) do
+      {:ok, pid} -> pid
+      {:error, {:already_started, pid}} -> pid
+    end
+  end
+
+  defp stop_process(name) do
+    if pid = Process.whereis(name) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :shutdown)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> :ok
+      end
+    end
+
+    :ok
   end
 end
