@@ -208,7 +208,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   @doc """
-  Creates a MANAGED_BY edge from a device to its management device.
+  Creates a MANAGED_BY edge from a device to its management device, plus the
+  reverse MANAGES edge (Gap D) so the causal engine can traverse manager ->
+  managed directly (e.g. C4 management-unobservable / C5 redundancy reasoning)
+  without scanning every MANAGED_BY edge in reverse.
   """
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(device_uid, management_device_uid)
@@ -224,6 +227,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
       MERGE (child)-[r:MANAGED_BY]->(mgmt)
       SET r.source = 'mapper'
+      MERGE (mgmt)-[rev:MANAGES]->(child)
+      SET rev.source = 'mapper'
       """
 
       case Graph.execute(cypher) do

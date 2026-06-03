@@ -32,7 +32,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.1 Scaffold rust/causal-engine in the workspace (capability: causal-engine) — DONE
 - [x] 1.1.1 Created top-level crate `rust/causal-engine` (single binary, single FUSED pod), added to workspace members + Cargo.lock; BUILD.bazel mirrors rust/srql (`all_crate_deps`). Verified `cargo check` / `cargo clippy --all-targets -D warnings` / `cargo fmt --check` + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin} --config=ci` (RBE) all green.
 - [x] 1.1.2 Modules `context_hydrator` (`ContextStore` trait + stub), `domain_model` (Context/Device/Service, canonical sr: ids), `reasoner` (Verdict/Classification + stub), `emitter` (stub), `snapshot` (stub); plus `config` (`CAUSAL_ENGINE_*` via envy) + `error` (thiserror).
-- [ ] 1.1.3 Heavy integration deps DEFERRED to the increment that first uses them (srql + async-nats in 1.2; `ultragraph = "0.9"` + deep_causality{,_sparse,_tensor,_topology} in 1.3) to keep each crate_universe change scoped.
+- [x] 1.1.3 Heavy integration deps added per-increment: srql + async-nats (1.2); `ultragraph = "0.9"` (1.3/1.4.2 graph causaloids — crate_universe repinned, Cargo.lock + MODULE.bazel.lock committed). deep_causality{,_sparse,_tensor,_topology} NOT pulled in V1 — the causaloids are plain Rust over `Context` + `ultragraph` graph algos (see 1.3 note); the DeepCausality `CausaloidGraph` wrapper is a future refinement.
 - [ ] 1.1.4 (partial) Config (envy) + tracing logging + snapshot-restore-on-start wired and a fused tick loop runs; graceful shutdown lands with the real hydrator/NATS in 1.2.
 
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feeds 1 + 3 done
@@ -42,20 +42,20 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
 - [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 
-### 1.3 Reasoner — CausaloidGraph over ultragraph CSR (capability: causal-reasoning) — → DeepCausality author (Marvin)
-> HAND-OFF: 1.3 / 1.4 (C1–C13) / 1.5 (risk composition) + the 1.10 `causality.rs` extraction are the DeepCausality author's. The ServiceRadar seams are ready and green — `ContextStore`/`Context` (input), the `Reasoner::evaluate` stub, `Verdict` + emitter (output → `signals.causal.predictions`), and `ultragraph 0.9` (Gap G already upstream). Risk inputs: `ocsf_devices.risk_score` + AGE `pkg_*` scalars. See `runbooks/reasoner-handoff.md`. The 1.10 NIF cutover + 1.2 feed-2 follow once the reasoner produces verdicts.
-- [ ] 1.3.1 Build the `CausaloidGraph` on an ultragraph `CsmGraph` (CSR); `freeze()` before each reasoning tick.
-- [ ] 1.3.2 `unfreeze()` ONLY when topology actually changes (a state-change-event that mutates vertices/edges), not on every metric delta.
-- [ ] 1.3.3 Implement the reasoning tick loop: hydrate Context, freeze, evaluate causaloids, collect verdicts, hand off to emitter.
+### 1.3 Reasoner — causaloids over a frozen ultragraph CSR (capability: causal-reasoning) — DONE (V1)
+> V1 SHAPE: the causaloid LOGIC is plain Rust over the hydrated `Context` (state/metrics/risk) plus, for the structural causaloids, a frozen `ultragraph` 0.9 `CsmGraph` built per tick in `graph.rs` (`TopologyGraph::from_connects_to`). This is lighter than wrapping every causaloid in a DeepCausality `Causaloid`/`CausaloidGraph` and is fully unit-testable against hand-built `Context`s (54 tests). The DeepCausality `CausaloidGraph` wrapper + topology-change-gated `unfreeze()` (1.3.1/1.3.2) remain a future optimization; correctness and the verdict contract are unaffected.
+- [~] 1.3.1 Graph causaloids build & `freeze()` an `ultragraph` `CsmGraph` from `Context` CONNECTS_TO edges each tick (`graph.rs`). The explicit DeepCausality `CausaloidGraph` wrapper is deferred (V1 uses plain-Rust causaloids + the frozen graph for algos).
+- [~] 1.3.2 V1 rebuilds+freezes the graph per evaluate (cheap at V1 scale); incremental `unfreeze()`-on-topology-change is a Phase-2 scale optimization.
+- [x] 1.3.3 Reasoning tick loop: hydrate `Context` → `Reasoner::evaluate` (build/freeze graph, run C1–C13, compose risk) → collect `Verdict`s → emitter (`main.rs` reason tick).
 
-### 1.4 Implement causaloids C1–C13 (capability: causal-reasoning)
-- [ ] 1.4.1 Implement the 7 non-graph causaloids (not gated on Gap G) operating on Context state/metrics/risk: C1 (virt host→guest cascade), C2 (datastore→guest disk), C3 (gateway/agent root-cause, incl. Gap E out-of-band distinction), C6 (interface saturation, capacity-eligible edges only), C11 (flap-rate precursor), C12 (operator-rule promotion from `stateful_alert_rules`), C13 (discovery-gap disambiguation).
-- [ ] 1.4.2 Implement the 6 graph causaloids using ultragraph 0.9 methods: C4, C5, C5b, C7, C8, C9 (`articulation_points` / `bridges` for single-point-of-failure and redundancy reasoning, `is_reachable` for blast-radius / management reachability, `pathway_betweenness_centrality` for criticality). Note in code which causaloid calls which algorithm.
-- [ ] 1.4.3 Verify the 6 graph causaloids compile and run against the pinned `ultragraph 0.9`; the full C1–C13 set ships together (no upstream gate remains).
+### 1.4 Implement causaloids C1–C13 (capability: causal-reasoning) — DONE
+- [x] 1.4.1 Non-graph causaloids over `Context` state/metrics/risk (`reasoner.rs`): C1 (virt host→guest cascade), C2 (datastore→guest-disk cascade), C3 (gateway/agent root-cause, incl. Gap E out-of-band suppression via `GatewayClass`), C6 (interface saturation on capacity-eligible `links` only), C7 (service-stack collapse over `DEPENDS_ON`), C11 (flap-rate precursor), C12 (operator-rule promotion from `operator_rules`), C13 (discovery-gap disambiguation). C8 (BGP withdrawal) reads explicit `bgp_routes` downstream lists.
+- [x] 1.4.2 Graph causaloids over the frozen `ultragraph` 0.9 `CsmGraph` (`graph.rs` + `reasoner.rs`): C4 (`MANAGED_BY` unobservable), C5 (`articulation_points`), C5b (`bridges`), C9 (`betweenness_centrality`), C10 (`is_reachable` blast radius). Each call site notes the algorithm it uses.
+- [x] 1.4.3 Verified against pinned `ultragraph 0.9`: `cargo clippy --all-targets -D warnings` + 54 unit tests + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin,causal_engine_test} --config=ci` (RBE) green. Full C1–C13 set ships together; no upstream gate remains.
 
-### 1.5 Risk composition into C5/C7/C10 (capability: causal-reasoning, inventory-risk-feed)
-- [ ] 1.5.1 Feed per-device risk (`ocsf_devices.risk_score` / `risk_level_id` / `risk_level`) into causaloids C5, C7, and C10 as an evidence input.
-- [ ] 1.5.2 Consume risk via `DeviceRiskReducer` MAX-wins semantics only; do NOT author any purl/cpe coordinate-matching here (DELEGATED to `add-cti-signal-coverage`).
+### 1.5 Risk composition into C5/C7/C10 (capability: causal-reasoning, inventory-risk-feed) — DONE
+- [x] 1.5.1 `device_risk()` composes per-device `ocsf_devices.risk_score` + bounded `pkg_severity` (AGE `pkg_worst_severity`, CVSS ×10) into a 0..=100 risk that RAISES — never lowers — the predicted `Verdict.severity` of C5/C7/C10 for the affected node; the structural classification is unchanged (`raise_severity_to` is monotonic). Unit-tested.
+- [x] 1.5.2 Risk is consumed via the `DeviceRiskReducer` MAX-wins `risk_score` (+ the bounded pkg scalar) only; no purl/cpe coordinate-matching here (DELEGATED to `add-cti-signal-coverage`).
 
 ### 1.6 Emitter — signals.causal.predictions producer (capability: causal-prediction-signals) — DONE (engine side)
 - [x] 1.6.1 `rust/causal-engine/src/emitter.rs`: `Emitter` connects NATS JetStream (`async_nats` 0.48) and publishes one message per verdict on `signals.causal.predictions.<entity>` with a DETERMINISTIC `event_identity` (`pred:<entity>:<classification>`, stable across restarts), awaiting each ack. Unit-tested envelope builder + determinism + subject sanitization.
@@ -75,17 +75,20 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.9 Automation-loop closure (capability: observability-signals, causal-prediction-signals) — DELIVERED by the merged endpoint-SBOM feature
 - [x] 1.9.1/1.9.2 Inventory causal events drive alerts: `causal_signals.ex` detects inventory rows (`inventory_event_row?`, `signal_type => "inventory"`) and calls `enqueue_inventory_alert_evaluation` → `StatefulAlertEngine`; the existing firing path produces `class_uid:1008` alerts. (If device-scoped incidents are wanted, verify/author a `group_by: ["device.uid"]` rule for the inventory subject — the grouping mechanism + firing path exist.)
 - [x] 1.9.3 OCSF `class_uid:2004` vulnerability findings: `causal_signals.ex:28` `@ocsf_vulnerability_finding_class_uid 2004` / `:30` `@ocsf_vulnerability_finding_type_uid 200_401`, split out via `inventory_vulnerability_finding_row?` — inventory-derived risk surfaces as 2004 findings, not only score enrichment.
-- [ ] 1.9.4 (engine-side, Marvin) Compose `ocsf_devices.risk_score` (+ AGE pkg_* scalars) into causaloids C5/C7/C10 — part of the reasoner (task 1.5), DeepCausality domain.
+- [x] 1.9.4 (engine-side) `ocsf_devices.risk_score` + AGE pkg_* scalars composed into C5/C7/C10 — done in task 1.5 (`device_risk` / `Verdict::raise_severity_to`).
 
 ### 1.10 god_view_nif refactor — 6 steps (capability: topology-god-view, causal-reasoning)
-- [ ] 1.10.1 Extract `src/core/causality.rs` (244 LOC: `betweenness_scores` `15-66` + `evaluate_causal_states_with_reasons_impl` `83-244`, including the hard 3-hop BFS cap at `:183`) out of `elixir/web-ng/native/god_view_nif/` into `rust/causal-engine`.
-- [ ] 1.10.2 Demote the NIF to a ~50-line renderer stub; keep the UI accelerators that STAY: `layout.rs` (543), `arrow_serde.rs` (494), `telemetry.rs` (352), `utils.rs` (457), `lib.rs` rustler bindings (815).
-- [ ] 1.10.3 Drop `deep_causality` and `ultragraph` deps from the NIF crate now that reasoning moved to the engine.
-- [ ] 1.10.4 Rejoin the NIF crate to the workspace by populating the empty `[workspace]` block at `Cargo.toml:23` (sibling `srql_nif` too).
-- [ ] 1.10.5 Run incremental/reversible SHADOW mode: engine verdicts and NIF verdicts computed in parallel, diffed, with no UI cutover.
-- [ ] 1.10.6 CUTOVER: switch the God-View render to consume engine-produced `signals.causal.predictions` -> normalized `ocsf_events` -> `GodViewSnapshot` 4 buckets (`root_cause|affected|healthy|unknown`, `:38-42`, `@schema_version 2`); retire the NIF reasoning path.
+> Step 1 is reversible/code-only and DONE. Steps 2–6 are deploy-gated and ordered so the live God-View never loses reasoning — see `runbooks/god-view-nif-cutover.md`. Demoting the NIF or dropping its deps before the engine is deployed and proven at parity would blank the God-View overlay, so they follow engine deployment, not this PR.
+- [x] 1.10.1 Extracted `core/causality.rs` (`betweenness_scores` + `evaluate_causal_states_with_reasons_impl`, incl. the 3-hop BFS cap) into `rust/causal-engine/src/god_view.rs`, dropping the dead DeepCausality `CausaloidGraph` (built-frozen-but-never-queried). State codes (0=root/1=affected/2=healthy/3=unknown) + reason strings preserved verbatim for an exact shadow diff. 5 unit tests.
+- [ ] 1.10.2 (deploy-gated) Demote the NIF to a renderer stub; keep the UI accelerators that STAY: `layout.rs`, `arrow_serde.rs`, `telemetry.rs`, `utils.rs`, `lib.rs` bindings.
+- [ ] 1.10.3 (deploy-gated) Drop `deep_causality` and `ultragraph` from the NIF crate (currently `ultragraph = "0.8"`).
+- [ ] 1.10.4 (deploy-gated) Rejoin the NIF crate to the workspace by populating the empty `[workspace]` block (sibling `srql_nif` too); re-run `bazel build` for the NIF targets.
+- [ ] 1.10.5 (deploy-gated, do FIRST) SHADOW mode: engine verdicts vs NIF verdicts computed in parallel and diffed, no UI cutover, until parity.
+- [ ] 1.10.6 (deploy-gated) CUTOVER: God-View render consumes engine `signals.causal.predictions` -> `ocsf_events` -> `GodViewSnapshot` 4 buckets (`@schema_version 2`); retire the NIF reasoning path.
 
 ## 2. Phase 2 — Gap A service-flow-bridge (months)
+
+> FUTURE-PHASE (Phases 2–4): captured as spec deltas (`specs/service-flow-bridge`, `specs/health-events`, `specs/device-components` — `openspec validate --strict` passes) with declared cross-proposal dependencies (`add-service-oriented-plugin-monitoring`, `add-device-environmental-snmp-metrics`, `add-structured-hypervisor-storage-enrichment`). They are NOT V1 implementation and several cannot land until their substrate proposals do. The V1 engine already carries the seams: `AttributedFlow`/C10 (Gap A), the 4-bucket `Classification` ↔ health vocabulary (Gap C), and `Contains`/`BackedBy` edges + structural causaloids (Gap F).
 
 ### 2.1 Service identity + flow binding (capability: service-flow-bridge)
 - [ ] 2.1.1 Build OTEL-derived service edges from `observability/otel_trace.ex` (`service_name:156-159`, `trace_id`, `span_id`, `parent_span_id` STRING) and `otel_trace_summary.ex` (`root_service_name`, `service_set`).
@@ -112,16 +115,17 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ## 5. Phase 5 — Gap E OOB flag + Gap D reverse MANAGES (when convenient)
 
 ### 5.1 Out-of-band gateway flag (capability: age-graph, topology-causal-overlays)
+> ENGINE-READY: C3 already consumes `Device.gateway_class` (`InBand|OutOfBand|Management`) and suppresses OOB/management gateways from data-plane root-cause blame (task 1.4.1). 5.1.1/5.1.2 are the DATA-SOURCE side — a `gateways.network_class` column migration + AGE projection so the hydrator can populate `gateway_class`. Deferred (migration-bearing; the engine no-ops safely with `gateway_class = None`).
 - [ ] 5.1.1 Gap E: add `gateways.network_class` enum (`in-band|out-of-band|management`) so causaloids do not treat a management/OOB path as in-band reachability.
-- [ ] 5.1.2 Surface `network_class` into the AGE projection / overlay evidence so structural causaloids weight OOB paths correctly.
+- [ ] 5.1.2 Surface `network_class` into the AGE projection / overlay evidence + the hydrator's `map_device` so structural causaloids weight OOB paths correctly.
 
 ### 5.2 Reverse MANAGES edge (capability: age-graph)
-- [ ] 5.2.1 Gap D: add a reverse `MANAGES` edge (inverse of `MANAGED_BY`) plus an index so the engine can traverse manager -> managed without a full scan.
+- [x] 5.2.1 Gap D: `topology_graph.ex` `upsert_managed_by/2` now also MERGEs the reverse `(mgmt)-[:MANAGES]->(child)` edge (additive, mirrors the `MANAGED_BY` MERGE) so the engine can traverse manager -> managed directly. A dedicated AGE edge index is a follow-on optimization (the reverse edge already avoids the full reverse scan).
 
 ## 6. Validation
 
-- [ ] 6.1 Run `openspec validate add-causal-engine --strict` and resolve all issues (every requirement has >=1 `#### Scenario:`; headers use exact `## ADDED|MODIFIED|REMOVED|RENAMED Requirements`).
-- [ ] 6.2 Add/update Bazel `BUILD` files for the new `rust/causal-engine` crate AND for the rejoined `god_view_nif` / `srql_nif` workspace members (this repo requires Bazel BUILD updates when adding Rust deps; `cargo`/`go test` can pass while `bazel test` breaks).
-- [ ] 6.3 Update Bazel `BUILD` deps for any new Go/Elixir imports introduced by the core-elx publisher (0.3), `DeviceRiskReducer` inventory wiring (1.8), and `StatefulAlertEngine` `device.uid` rules (1.9).
-- [ ] 6.4 Run `bazel build`/`bazel test` for affected targets and confirm green.
-- [ ] 6.5 Verify cross-references resolve: `add-cti-signal-coverage`, `add-service-oriented-plugin-monitoring`, `add-device-environmental-snmp-metrics`, `add-structured-hypervisor-storage-enrichment`, `add-endpoint-sbom-inventory`, `add-bmp-dual-path-observability`, `refactor-topology-read-model-for-carrier-scale`, `improve-mapper-topology-fidelity`, `add-multipath-topology-discovery` are declared as dependencies in `proposal.md`.
+- [x] 6.1 `openspec validate add-causal-engine --strict` → "Change 'add-causal-engine' is valid" (every requirement has ≥1 `#### Scenario:`; exact `## ADDED|MODIFIED Requirements` headers).
+- [x] 6.2 `rust/causal-engine` BUILD.bazel mirrors rust/srql (`all_crate_deps`); the new `ultragraph` dep was picked up by `crate_universe` (`Cargo.lock` + `MODULE.bazel.lock` committed). The `god_view_nif`/`srql_nif` workspace rejoin is part of the deploy-gated 1.10.4 (cutover runbook), not this PR.
+- [x] 6.3 No new Go/Elixir imports introduced this phase needed BUILD edits (the Phase-0 publisher + Gap D edit are same-module additions; SBOM wiring landed with its own feature). Re-checked.
+- [x] 6.4 `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin,causal_engine_test} --config=ci` (RBE/BuildBuddy) green; 54 `cargo test` + clippy `-D warnings` + `cargo fmt --check` green.
+- [x] 6.5 Cross-references declared in `proposal.md` (verified present): `add-cti-signal-coverage`, `add-service-oriented-plugin-monitoring`, `add-device-environmental-snmp-metrics`, `add-structured-hypervisor-storage-enrichment`, `add-endpoint-sbom-inventory`, `add-bmp-dual-path-observability`, `refactor-topology-read-model-for-carrier-scale`, `improve-mapper-topology-fidelity`, `add-multipath-topology-discovery`.
