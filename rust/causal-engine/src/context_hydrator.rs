@@ -5,6 +5,7 @@
 //! future hydrator/reasoner split (a gRPC/NATS implementation) without a
 //! rewrite (add-causal-engine design.md, the `ContextStore` decision).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -13,12 +14,19 @@ use srql::{EmbeddedSrql, QueryDirection, QueryRequest};
 use tokio::sync::RwLock;
 use tracing::warn;
 
-use crate::domain_model::{Context, Device, Service};
+use crate::domain_model::{Context, Device, EdgeKind, Service, TopologyEdge};
 use crate::error::{CausalEngineError, Result};
 use crate::snapshot::SnapshotStore;
 
 /// Upper bound on rows pulled per entity in a single current-state snapshot.
 const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
+
+/// SRQL `graph_cypher` query projecting the topology edges the causaloids reason
+/// over (C1/C2/C4/C5/C5b/C7/C9/C10). Read-only `MATCH`/`RETURN`; the AGE `Device`
+/// vertex keys on the canonical `id` property (`ocsf_devices.uid`), so `a.id`/
+/// `b.id` are canonical `sr:` ids. The returned `{start_id,end_id,label}` object
+/// is wrapped by `graph_cypher` into `{nodes,edges}` (see `parse_topology_edges`).
+const TOPOLOGY_EDGES_QUERY: &str = "in:graph_cypher cypher:\"MATCH (a)-[r]->(b) WHERE type(r) IN ['CONNECTS_TO','MANAGED_BY','CONTAINS','BACKED_BY','DEPENDS_ON'] RETURN {start_id: a.id, end_id: b.id, label: type(r)} AS result\"";
 
 /// Interface the reasoner uses to read the latest hydrated `Context`.
 #[async_trait]
@@ -90,13 +98,25 @@ impl ContextHydrator {
     pub async fn refresh(&self) -> Result<()> {
         let devices = self.query("in:devices").await?;
         let services = self.query("in:services").await?;
+        // Topology edges are best-effort: an AGE projection hiccup must not abort
+        // the whole refresh — the engine still reasons from the snapshot + the
+        // live state-change deltas, just without the structural causaloids this
+        // tick.
+        let edges = match self.query(TOPOLOGY_EDGES_QUERY).await {
+            Ok(rows) => parse_topology_edges(&rows),
+            Err(err) => {
+                warn!(error = %err, "topology edge projection failed; reasoning without edges this tick");
+                Vec::new()
+            }
+        };
         let context = Context {
             devices: devices.iter().filter_map(map_device).collect(),
             services: services.iter().filter_map(map_service).collect(),
-            // TODO(graph layer): populate topology edges (CONNECTS_TO / MANAGED_BY /
-            // CONTAINS / BACKED_BY / DEPENDS_ON), links, flows, bgp_routes, and
-            // operator_rules via the SRQL `graph_cypher` entity + on-demand queries
-            // so the graph/saturation/blast-radius causaloids see them (task 1.2b).
+            edges,
+            // TODO(1.2b): populate links (interface flow/capacity), flows
+            // (attributed_flow), bgp_routes, and operator_rules (stateful_alert_
+            // rules) via on-demand SRQL queries as those feeds come online; the
+            // saturation/BGP/operator-rule causaloids no-op on empty collections.
             ..Default::default()
         };
         *self.ctx.write().await = context.clone();
@@ -191,9 +211,56 @@ fn map_service(row: &serde_json::Value) -> Option<Service> {
     })
 }
 
+/// Map an AGE relationship label to the engine's [`EdgeKind`]. Unknown labels
+/// are dropped (coverage broadens as new edge kinds are projected).
+fn edge_kind_from_label(label: &str) -> Option<EdgeKind> {
+    match label {
+        "CONNECTS_TO" => Some(EdgeKind::ConnectsTo),
+        "MANAGED_BY" => Some(EdgeKind::ManagedBy),
+        "CONTAINS" => Some(EdgeKind::Contains),
+        "BACKED_BY" => Some(EdgeKind::BackedBy),
+        "DEPENDS_ON" => Some(EdgeKind::DependsOn),
+        _ => None,
+    }
+}
+
+/// Project the `graph_cypher` result rows (each `{nodes,edges}`, with every
+/// `edge` carrying `start_id`/`end_id`/`label`) into deduplicated topology
+/// edges, enforcing canonical-id discipline (both endpoints must be `sr:`-keyed).
+fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
+    let mut seen: HashSet<(String, String, String)> = HashSet::new();
+    let mut edges = Vec::new();
+    for result in results {
+        let Some(edge_rows) = result.get("edges").and_then(|e| e.as_array()) else {
+            continue;
+        };
+        for edge in edge_rows {
+            let (Some(src), Some(dst), Some(label)) = (
+                edge.get("start_id").and_then(|v| v.as_str()),
+                edge.get("end_id").and_then(|v| v.as_str()),
+                edge.get("label").and_then(|v| v.as_str()),
+            ) else {
+                continue;
+            };
+            let Some(kind) = edge_kind_from_label(label) else {
+                continue;
+            };
+            if !src.starts_with("sr:") || !dst.starts_with("sr:") {
+                // The engine consumes one canonical ID space; never fork it.
+                continue;
+            }
+            if seen.insert((src.to_string(), dst.to_string(), label.to_string())) {
+                edges.push(TopologyEdge::new(src, dst, kind));
+            }
+        }
+    }
+    edges
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{map_device, map_service};
+    use super::{edge_kind_from_label, map_device, map_service, parse_topology_edges};
+    use crate::domain_model::EdgeKind;
     use serde_json::json;
 
     #[test]
@@ -230,5 +297,58 @@ mod tests {
 
         assert_eq!(service.id, "agent-1:grpc:datasvc");
         assert_eq!(service.available, Some(false));
+    }
+
+    #[test]
+    fn maps_edge_labels_to_kinds() {
+        assert_eq!(
+            edge_kind_from_label("CONNECTS_TO"),
+            Some(EdgeKind::ConnectsTo)
+        );
+        assert_eq!(
+            edge_kind_from_label("MANAGED_BY"),
+            Some(EdgeKind::ManagedBy)
+        );
+        assert_eq!(edge_kind_from_label("CONTAINS"), Some(EdgeKind::Contains));
+        assert_eq!(edge_kind_from_label("BACKED_BY"), Some(EdgeKind::BackedBy));
+        assert_eq!(
+            edge_kind_from_label("DEPENDS_ON"),
+            Some(EdgeKind::DependsOn)
+        );
+        assert_eq!(edge_kind_from_label("HAS_INTERFACE"), None);
+    }
+
+    /// Mirror the `graph_cypher` wrapper shape: each row is `{nodes, edges}` and
+    /// every edge carries `start_id`/`end_id`/`label`.
+    fn cypher_edge(start: &str, end: &str, label: &str) -> serde_json::Value {
+        json!({
+            "nodes": [{ "id": start, "label": start }, { "id": end, "label": end }],
+            "edges": [{ "start_id": start, "end_id": end, "label": label }]
+        })
+    }
+
+    #[test]
+    fn parses_canonical_topology_edges_and_dedupes() {
+        let results = vec![
+            cypher_edge("sr:device:a", "sr:device:b", "CONNECTS_TO"),
+            // duplicate row -> deduped
+            cypher_edge("sr:device:a", "sr:device:b", "CONNECTS_TO"),
+            cypher_edge("sr:device:child", "sr:device:mgr", "MANAGED_BY"),
+        ];
+        let edges = parse_topology_edges(&results);
+        assert_eq!(edges.len(), 2);
+        assert!(edges.iter().any(|e| e.src == "sr:device:a"
+            && e.dst == "sr:device:b"
+            && e.kind == EdgeKind::ConnectsTo));
+        assert!(edges.iter().any(|e| e.kind == EdgeKind::ManagedBy));
+    }
+
+    #[test]
+    fn parse_topology_edges_skips_non_canonical_and_unknown_labels() {
+        let results = vec![
+            cypher_edge("device-1", "sr:device:b", "CONNECTS_TO"), // non-canonical src
+            cypher_edge("sr:device:a", "sr:device:b", "HAS_INTERFACE"), // unmodeled label
+        ];
+        assert!(parse_topology_edges(&results).is_empty());
     }
 }
