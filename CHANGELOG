@@ -1,3 +1,15 @@
+# ServiceRadar v1.2.88
+
+Makes edge-agent onboarding work end to end (enrollment was unusable), fixes assigning native add-ons from the UI, and adds onboarding audit visibility.
+
+## Whats New
+
+**1.2.88**
+- Fixed edge-agent enrollment failing with `401 "onboarding token invalid"`: `serviceradar-cli enroll` sent only the bare inner download token in the `X-ServiceRadar-Download-Token` header, but the `/api/edge-packages/:id/bundle` endpoint verifies the full `edgepkg-v3` envelope (signature + package/partition binding) and rejected the bare token as `:unsupported_token_format`. The CLI now sends the full envelope token, matching the bootstrapper download path; server validation stays strict.
+- Fixed the agent-gateway `CertIssuer` crashing edge-package creation with "could not get a writable temporary directory": the read-only gateway pod now mounts a writable `/tmp` emptyDir and sets `TMPDIR=/tmp`, so `generate_bundle`'s `System.tmp_dir!()` succeeds.
+- Fixed assigning native add-ons (e.g. netprobe) from the UI: form params are now coerced against the add-on config schema before validation (no more "Expected Array got String" for `capture_interfaces`/`dpi`/`enabled`), and re-pushing an add-on upserts the existing assignment by `(agent, add-on)` instead of failing with "add-on is already enabled".
+- Added audit + logging for edge onboarding: every bundle/download attempt records a `SecurityEvent` (`edge_onboarding_succeeded` / `edge_onboarding_failed`, with the failure reason in details), visible at /settings/audit/events, plus a per-attempt `Logger.info`/`warning` line.
+
 # ServiceRadar v1.2.87
 
 Unblocks the v1.2.86 ArgoCD roll (carries forward all the v1.2.86 flow-attribution + netprobe fixes, which never deployed because a migration crashed core boot) and cleans up the CI publish path.
