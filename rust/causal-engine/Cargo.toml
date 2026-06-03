@@ -6,7 +6,6 @@ description = "ServiceRadar DeepCausality causal engine (OpenSpec: add-causal-en
 
 # NOTE (add-causal-engine): heavier integration deps are added in the increment
 # that first uses them, to keep each crate_universe change scoped:
-#   - ultragraph 0.9 .................... task 1.3 (reasoner: CsmGraph + Gap G algos)
 #   - deep_causality{,_sparse,_tensor,_topology} 0.13/... task 1.3 (CausaloidGraph)
 [dependencies]
 anyhow = "1"
@@ -19,6 +18,10 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 srql = { path = "../srql" }
 thiserror = "1"
+# task 1.3/1.4.2 (Gap G already upstream in ultragraph 0.9): the graph
+# causaloids C5/C5b/C9/C10 over a frozen CsmGraph — articulation_points/bridges
+# (C5/C5b), betweenness_centrality (C9), is_reachable (C10).
+ultragraph = "0.9"
 tokio = { version = "1", features = ["full"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }

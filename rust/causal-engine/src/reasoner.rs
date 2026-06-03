@@ -22,6 +22,7 @@ use std::collections::HashMap;
 
 use crate::domain_model::{Context, Device, EdgeKind, GatewayClass};
 use crate::error::Result;
+use crate::graph::TopologyGraph;
 
 /// A gateway is flagged as a shared-fate root cause when at least this many of
 /// the devices that observe through it are simultaneously unavailable (C3).
@@ -34,6 +35,10 @@ const SATURATION_UTILIZATION_PCT: i64 = 80;
 /// A node with at least this many recent state transitions is flagged by C11 as
 /// an instability precursor.
 const FLAP_PRECURSOR_THRESHOLD: i64 = 3;
+
+/// A node whose normalized betweenness centrality is at or above this value is
+/// flagged by C9 as a shared-hop bottleneck.
+const SHARED_HOP_BETWEENNESS_THRESHOLD: f64 = 0.3;
 
 /// Verdict classification — maps cleanly onto the God-View 4-bucket render
 /// (`root_cause` / `affected` / `healthy` / `unknown`, `GodViewSnapshot`
@@ -143,6 +148,15 @@ impl Reasoner {
         verdicts.extend(c11_flap_precursor(ctx));
         verdicts.extend(c12_operator_rule_promotion(ctx));
         verdicts.extend(c13_discovery_gap(ctx));
+        verdicts.extend(c8_bgp_withdrawal(ctx));
+
+        // Graph causaloids over the frozen CONNECTS_TO topology (C5/C5b/C9/C10).
+        if let Some(graph) = TopologyGraph::from_connects_to(ctx) {
+            verdicts.extend(c5_single_point_of_failure(&graph));
+            verdicts.extend(c5b_bridge_redundancy_gap(&graph));
+            verdicts.extend(c9_shared_hop_bottleneck(&graph));
+            verdicts.extend(c10_blast_radius(ctx, &graph));
+        }
         Ok(verdicts)
     }
 }
@@ -412,11 +426,135 @@ fn c13_discovery_gap(ctx: &Context) -> Vec<Verdict> {
         .collect()
 }
 
+/// C5 — standing single-point-of-failure warning.
+///
+/// An articulation point in the physical topology is a node whose loss would
+/// partition reachability, so it is flagged as a standing SPOF even with no
+/// active fault. (`StructuralGraphAlgorithms::articulation_points`.)
+fn c5_single_point_of_failure(graph: &TopologyGraph) -> Vec<Verdict> {
+    graph
+        .articulation_points()
+        .into_iter()
+        .map(|id| {
+            Verdict::new(
+                id.clone(),
+                Classification::Affected,
+                format!(
+                    "articulation point: loss of {id} would partition reachability (standing SPOF)"
+                ),
+            )
+        })
+        .collect()
+}
+
+/// C5b — standing redundancy-gap warning on bridge edges.
+///
+/// A bridge edge has no redundant path; losing it partitions reachability. Both
+/// endpoints are flagged so the missing redundancy is visible on either side.
+/// (`StructuralGraphAlgorithms::bridges`.)
+fn c5b_bridge_redundancy_gap(graph: &TopologyGraph) -> Vec<Verdict> {
+    let mut verdicts = Vec::new();
+    for (a, b) in graph.bridges() {
+        verdicts.push(Verdict::new(
+            a.clone(),
+            Classification::Affected,
+            format!("bridge link to {b}: no redundant path; its loss partitions reachability"),
+        ));
+        verdicts.push(Verdict::new(
+            b.clone(),
+            Classification::Affected,
+            format!("bridge link to {a}: no redundant path; its loss partitions reachability"),
+        ));
+    }
+    verdicts
+}
+
+/// C8 — BGP withdrawal reachability degradation.
+///
+/// A withdrawn route degrades reachability for the downstream destinations it
+/// served; emit an affected verdict for each.
+fn c8_bgp_withdrawal(ctx: &Context) -> Vec<Verdict> {
+    let mut verdicts = Vec::new();
+    for route in &ctx.bgp_routes {
+        if !route.withdrawn {
+            continue;
+        }
+        for downstream in &route.downstream_uids {
+            verdicts.push(Verdict::new(
+                downstream.clone(),
+                Classification::Affected,
+                format!(
+                    "BGP prefix {} withdrawn by {}; downstream reachability degraded",
+                    route.prefix, route.origin_uid
+                ),
+            ));
+        }
+    }
+    verdicts
+}
+
+/// C9 — shared-hop bottleneck detection.
+///
+/// A node with high betweenness centrality is a shared hop many paths traverse;
+/// a fault there concentrates blast radius. Flag nodes at or above the
+/// betweenness threshold. (`CentralityGraphAlgorithms::betweenness_centrality`.)
+fn c9_shared_hop_bottleneck(graph: &TopologyGraph) -> Vec<Verdict> {
+    graph
+        .betweenness()
+        .into_iter()
+        .filter(|(_, score)| *score >= SHARED_HOP_BETWEENNESS_THRESHOLD)
+        .map(|(id, score)| {
+            let severity = (50.0 + score * 50.0).clamp(0.0, 100.0) as u8;
+            Verdict::new(
+                id.clone(),
+                Classification::Affected,
+                format!(
+                    "shared-hop bottleneck (betweenness {score:.2}); concentrates blast radius"
+                ),
+            )
+            .raise_severity_to(severity)
+        })
+        .collect()
+}
+
+/// C10 — traffic-source blast radius.
+///
+/// For each attributed-flow source, the blast radius is everything reachable
+/// from it in the physical topology; the predicted severity is weighted by the
+/// source's per-device risk (`PathfindingGraphAlgorithms::is_reachable`).
+fn c10_blast_radius(ctx: &Context, graph: &TopologyGraph) -> Vec<Verdict> {
+    let mut verdicts = Vec::new();
+    for flow in &ctx.flows {
+        let reachable = graph.reachable_from(&flow.src_uid);
+        if reachable.is_empty() {
+            continue;
+        }
+        let risk = flow.src_risk_score.unwrap_or(0).clamp(0, 100);
+        // Risk dominates: a low-risk source yields a lower-severity blast radius
+        // than an identical high-risk one (spec C10 scenario).
+        let severity = (40 + risk / 2).clamp(0, 100) as u8;
+        verdicts.push(
+            Verdict::new(
+                flow.src_uid.clone(),
+                Classification::Affected,
+                format!(
+                    "attributed-flow source reaches {} destination(s); risk-weighted blast radius (source risk {})",
+                    reachable.len(),
+                    risk
+                ),
+            )
+            .raise_severity_to(severity),
+        );
+    }
+    verdicts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain_model::{
-        Context, Device, EdgeKind, GatewayClass, InterfaceLink, OperatorRule, Service, TopologyEdge,
+        AttributedFlow, BgpRoute, Context, Device, EdgeKind, GatewayClass, InterfaceLink,
+        OperatorRule, Service, TopologyEdge,
     };
 
     fn device(uid: &str, available: Option<bool>, gateway: Option<&str>) -> Device {
@@ -791,5 +929,122 @@ mod tests {
         );
         // a node we never expected to observe is not a discovery gap
         assert_eq!(classification_of(&verdicts, "sr:device:silent"), None);
+    }
+
+    fn connects(a: &str, b: &str) -> TopologyEdge {
+        TopologyEdge::new(a, b, EdgeKind::ConnectsTo)
+    }
+
+    /// a - b - c line: b is the articulation point / both edges bridges / b is
+    /// the highest-betweenness shared hop.
+    fn line_topology() -> Context {
+        Context {
+            edges: vec![connects("sr:d:a", "sr:d:b"), connects("sr:d:b", "sr:d:c")],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn c5_flags_articulation_point() {
+        let graph = TopologyGraph::from_connects_to(&line_topology()).expect("graph");
+        let verdicts = c5_single_point_of_failure(&graph);
+        assert_eq!(
+            classification_of(&verdicts, "sr:d:b"),
+            Some(&Classification::Affected)
+        );
+        assert_eq!(classification_of(&verdicts, "sr:d:a"), None);
+    }
+
+    #[test]
+    fn c5b_flags_both_endpoints_of_a_bridge() {
+        let graph = TopologyGraph::from_connects_to(&line_topology()).expect("graph");
+        let verdicts = c5b_bridge_redundancy_gap(&graph);
+        // every node sits on a bridge in a line, so all are flagged
+        for node in ["sr:d:a", "sr:d:b", "sr:d:c"] {
+            assert_eq!(
+                classification_of(&verdicts, node),
+                Some(&Classification::Affected),
+                "{node} should be flagged"
+            );
+        }
+    }
+
+    #[test]
+    fn c9_flags_high_betweenness_hop() {
+        let graph = TopologyGraph::from_connects_to(&line_topology()).expect("graph");
+        let verdicts = c9_shared_hop_bottleneck(&graph);
+        // b carries all paths between a and c => high betweenness
+        assert_eq!(
+            classification_of(&verdicts, "sr:d:b"),
+            Some(&Classification::Affected)
+        );
+        // leaves carry no through-paths
+        assert_eq!(classification_of(&verdicts, "sr:d:a"), None);
+    }
+
+    #[test]
+    fn c10_blast_radius_severity_tracks_source_risk() {
+        let mut ctx = line_topology();
+        ctx.flows = vec![AttributedFlow {
+            src_uid: "sr:d:a".to_string(),
+            dst_uid: "sr:d:c".to_string(),
+            src_risk_score: Some(90),
+        }];
+        let graph = TopologyGraph::from_connects_to(&ctx).expect("graph");
+        let high = c10_blast_radius(&ctx, &graph);
+        let high_sev = high
+            .iter()
+            .find(|v| v.entity_id == "sr:d:a")
+            .map(|v| v.severity)
+            .expect("blast verdict");
+
+        ctx.flows[0].src_risk_score = Some(0);
+        let low = c10_blast_radius(&ctx, &graph);
+        let low_sev = low
+            .iter()
+            .find(|v| v.entity_id == "sr:d:a")
+            .unwrap()
+            .severity;
+
+        assert!(
+            high_sev > low_sev,
+            "high risk {high_sev} > low risk {low_sev}"
+        );
+    }
+
+    #[test]
+    fn c8_degrades_downstream_on_withdrawal() {
+        let ctx = Context {
+            bgp_routes: vec![BgpRoute {
+                prefix: "10.0.0.0/24".to_string(),
+                withdrawn: true,
+                origin_uid: "sr:d:edge".to_string(),
+                downstream_uids: vec!["sr:d:x".to_string(), "sr:d:y".to_string()],
+            }],
+            ..Default::default()
+        };
+        let verdicts = c8_bgp_withdrawal(&ctx);
+        assert_eq!(
+            classification_of(&verdicts, "sr:d:x"),
+            Some(&Classification::Affected)
+        );
+        assert_eq!(
+            classification_of(&verdicts, "sr:d:y"),
+            Some(&Classification::Affected)
+        );
+    }
+
+    #[test]
+    fn c8_silent_when_route_present() {
+        let ctx = Context {
+            bgp_routes: vec![BgpRoute {
+                prefix: "10.0.0.0/24".to_string(),
+                withdrawn: false,
+                origin_uid: "sr:d:edge".to_string(),
+                downstream_uids: vec!["sr:d:x".to_string()],
+            }],
+            ..Default::default()
+        };
+        assert!(c8_bgp_withdrawal(&ctx).is_empty());
     }
 }

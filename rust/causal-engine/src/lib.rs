@@ -18,6 +18,7 @@ pub mod delta;
 pub mod domain_model;
 pub mod emitter;
 pub mod error;
+pub mod graph;
 pub mod nats;
 pub mod reasoner;
 pub mod snapshot;
