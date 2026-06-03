@@ -6,11 +6,9 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ## 0. Phase 0 — Pre-V1 (days)
 
-### 0.1 Gap G — ultragraph upstream dependency (capability: causal-reasoning)
-- [x] 0.1.0 Handoff spec authored (`runbooks/gap-g-ultragraph-handoff.md`) and routed to the DeepCausality author (upstream `ultragraph` is not forked by ServiceRadar).
-- [ ] 0.1.1 File the committed Phase-0 upstream PR against the `ultragraph` crate adding `articulation_points`, `bridges`, `is_reachable`, `pathway_betweenness_centrality`, and `unfreeze` (~200 LOC Tarjan/biconnected-components) on a new `StructuralGraphAlgorithms` trait (today 0.8 ships only `betweenness_centrality` + `freeze` under `CentralityGraphAlgorithms`).
-- [ ] 0.1.2 Add CSR-aware tests on the frozen `CsmGraph` for each new algorithm (articulation points, bridges, reachability, pathway centrality) covering disconnected and single-node graphs.
-- [ ] 0.1.3 Track the upstream release version and pin it; record that causaloids C4, C5, C5b, C7, C8, C9 gate on this release and the full causaloid set ships at launch.
+### 0.1 Gap G — RESOLVED upstream by ultragraph 0.9.0 (capability: causal-reasoning)
+- [x] 0.1.1 Verified upstream: `ultragraph 0.9.0` (tagged `ultragraph-v0.9.0`, published to crates.io, released 2025-08-27) ALREADY implements the full Gap G surface with real (non-stub) code — `StructuralGraphAlgorithms` (strongly_connected_components / articulation_points / bridges / biconnected_components), `pathway_betweenness_centrality(pathways, directed, normalized)`, `is_reachable`, and `unfreeze`. The "upstream PR" framing was an artifact of the docs being written against the `0.8` the NIF pins. No DeepCausality PR is needed; see `runbooks/gap-g-resolution.md`.
+- [ ] 0.1.2 ServiceRadar action: depend on `ultragraph = "0.9"` in `rust/causal-engine` (task 1.1.3) and implement causaloids C4/C5/C5b/C7/C8/C9 against the existing trait methods (task 1.4.2). API notes: `articulation_points()`/`bridges()` use the undirected view (matches `CONNECTS_TO`); `is_reachable(start_index, stop_index)` and `pathway_betweenness_centrality(pathways, directed, normalized)` take node-index args.
 
 ### 0.2 Gap B — capacity coverage audit + eligibility contract (capability: age-graph) — IMPLEMENTED
 - [x] 0.2.1 Audit SQL authored: `runbooks/gap-b-capacity-audit.sql` (sizes `platform.discovered_interfaces` speed_bps/if_speed coverage + canonical-edge capacity-eligibility violations). NOTE: run read-only against CNPG before/after deploy; the audit RUN itself is pending DB access.
@@ -34,7 +32,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.1 Scaffold rust/causal-engine in the workspace (capability: causal-engine)
 - [ ] 1.1.1 Create new top-level Rust crate `rust/causal-engine`, peer to `rust/srql`, as a single binary / single FUSED pod (hydrator + reasoner in-process; DeepCausality requires in-process `Context` access).
 - [ ] 1.1.2 Add modules: `context_hydrator`, `domain_model`, `reasoner`, `emitter`, `snapshot`; define a `ContextStore` trait between hydrator and reasoner to preserve a future split.
-- [ ] 1.1.3 Add dependencies `deep_causality 0.13`, `deep_causality_sparse 0.1`, `deep_causality_tensor 0.4`, `deep_causality_topology 0.5`, and `ultragraph` pinned to the Gap-G release (0.1.3).
+- [ ] 1.1.3 Add dependencies `deep_causality 0.13`, `deep_causality_sparse 0.1`, `deep_causality_tensor 0.4`, `deep_causality_topology 0.5`, and `ultragraph = "0.9"` (0.9.0 already ships the Gap G structural + pathway-betweenness algorithms; see 0.1).
 - [ ] 1.1.4 Wire startup/shutdown, config, and logging consistent with `rust/srql`; single-pod restart in seconds via snapshot (HA/leader-election/sharding are non-goals for V1).
 
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine)
@@ -51,8 +49,8 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 
 ### 1.4 Implement causaloids C1–C13 (capability: causal-reasoning)
 - [ ] 1.4.1 Implement the 7 non-graph causaloids (not gated on Gap G) operating on Context state/metrics/risk: C1 (virt host→guest cascade), C2 (datastore→guest disk), C3 (gateway/agent root-cause, incl. Gap E out-of-band distinction), C6 (interface saturation, capacity-eligible edges only), C11 (flap-rate precursor), C12 (operator-rule promotion from `stateful_alert_rules`), C13 (discovery-gap disambiguation).
-- [ ] 1.4.2 Implement the 6 ultragraph-gated causaloids using the Gap-G algorithms: C4, C5, C5b, C7, C8, C9 (e.g. `articulation_points` / `bridges` for single-point-of-failure and redundancy reasoning, `is_reachable` for blast-radius, `pathway_betweenness_centrality` for criticality). Note in code which causaloid calls which algorithm.
-- [ ] 1.4.3 Gate-check: the 6 ultragraph causaloids compile and run only against the pinned Gap-G `ultragraph` release; the full C1–C13 set ships at launch.
+- [ ] 1.4.2 Implement the 6 graph causaloids using ultragraph 0.9 methods: C4, C5, C5b, C7, C8, C9 (`articulation_points` / `bridges` for single-point-of-failure and redundancy reasoning, `is_reachable` for blast-radius / management reachability, `pathway_betweenness_centrality` for criticality). Note in code which causaloid calls which algorithm.
+- [ ] 1.4.3 Verify the 6 graph causaloids compile and run against the pinned `ultragraph 0.9`; the full C1–C13 set ships together (no upstream gate remains).
 
 ### 1.5 Risk composition into C5/C7/C10 (capability: causal-reasoning, inventory-risk-feed)
 - [ ] 1.5.1 Feed per-device risk (`ocsf_devices.risk_score` / `risk_level_id` / `risk_level`) into causaloids C5, C7, and C10 as an evidence input.

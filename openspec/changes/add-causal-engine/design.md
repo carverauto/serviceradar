@@ -74,7 +74,8 @@ Goals:
   DeepCausality has in-process `Context` access, and a `ContextStore` trait
   preserving a future split.
 - Implement causaloids **C1 through C13**, six of which (C4, C5, C5b, C7, C8,
-  C9) reduce to `ultragraph` library calls once Gap G lands upstream.
+  C9) reduce to `ultragraph 0.9` library calls (the Gap G algorithms already
+  ship upstream — see Decision 2).
 - **Close the automation loop:** publish `signals.causal.predictions.*` with
   deterministic IDs; rely on the existing `CausalSignals` -> `ocsf_events` ->
   `StatefulAlertEngine.evaluate_events/1` path to turn verdicts into alerts and
@@ -132,15 +133,20 @@ Alternatives considered:
   short-lived transitions between polls. SRQL is retained for cold-start
   bootstrap and on-demand aggregates, not for liveness.
 
-### Decision 2 — Gap G is a committed Phase-0 upstream `ultragraph` dependency, not a 0.8 subset
+### Decision 2 — Gap G is already resolved upstream: depend on `ultragraph 0.9`
 
-`articulation_points`, `bridges`, `is_reachable`,
-`pathway_betweenness_centrality`, and `unfreeze` are added upstream to
-`ultragraph` (~200 LOC Tarjan / biconnected) as a committed Phase-0
-dependency, exposed via `StructuralGraphAlgorithms`. ultragraph 0.8 today ships
-only `betweenness_centrality` + `freeze` on `CentralityGraphAlgorithms`. The
-six graph causaloids (C4, C5, C5b, C7, C8, C9) gate on that release; the full
-causaloid set ships at launch.
+UPDATED 2026-06-02 after inspecting the upstream repo. `ultragraph 0.9.0`
+(tagged `ultragraph-v0.9.0`, published to crates.io, released 2025-08-27)
+ALREADY ships the full Gap G surface with real implementations:
+`StructuralGraphAlgorithms` (`strongly_connected_components` /
+`articulation_points` / `bridges` / `biconnected_components`),
+`pathway_betweenness_centrality(pathways, directed, normalized)`,
+`is_reachable`, and `unfreeze`. The "committed upstream PR" framing was an
+artifact of the design docs being written against the `0.8` the NIF pins. The
+ServiceRadar action is therefore a one-line dependency bump (`ultragraph =
+"0.9"` in `rust/causal-engine`); the six graph causaloids (C4, C5, C5b, C7, C8,
+C9) are unblocked immediately, with no upstream PR and no wait. Alternative now
+moot: filing the upstream PR / shipping a 0.8 subset.
 
 Rationale: these primitives unlock an entire class of standing
 single-point-of-failure predictions (articulation points, bridges) and the
@@ -233,11 +239,10 @@ Alternatives considered:
 
 ## Risks / Trade-offs
 
-- **Gap G upstream sequencing.** Six causaloids gate on the upstream ultragraph
-  release. If it slips, launch slips or ships degraded. Mitigation: Gap G is a
-  committed Phase-0 item with a bounded ~200 LOC surface; the non-graph
-  causaloids (C1, C2, C3, C6, C11, C12, C13) are independent and can land first
-  behind the graph set.
+- **Gap G (resolved).** Originally a sequencing risk (six causaloids gating on
+  an upstream ultragraph release). RESOLVED: `ultragraph 0.9.0` already ships the
+  structural + pathway-betweenness algorithms (Decision 2), so the only remaining
+  action is a dependency bump — no upstream wait, no degraded launch.
 - **Carrier-scale render-contract conflict.** The engine must align with the
   bounded, backbone-centric snapshot of
   `refactor-topology-read-model-for-carrier-scale` and must NOT reintroduce
