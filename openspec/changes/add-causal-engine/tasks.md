@@ -38,7 +38,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feed 1 done
 - [x] 1.2.1 Feed 1 (current-state snapshot): `ContextHydrator::connect()` builds `EmbeddedSrql` from srql `AppConfig::from_env`, and `current_context()` runs SRQL queries (`in:devices`, `in:services`) via `QueryEngine::execute_query`, mapping result rows into the `Context` (Device/Service). On-demand continuous-aggregate + AGE `graph_cypher` queries land as coverage broadens (1.2b). Unit-tested row mappers.
 - [ ] 1.2.2 Feed 2: JetStream subscriber for live deltas on EXISTING causal subjects (`signals.causal.>`, `arancini.updates.>`, `siem.events.>`, zen OCSF). (1.2b)
-- [ ] 1.2.3 Feed 3: JetStream subscriber for the app-level `cdc.platform.<table>` state-change-events (from 0.3) + provision that stream; merge into Context. (1.2b)
+- [ ] 1.2.3 Feed 3: app-level `cdc.platform.<table>` state-change-events. Delta parse/apply CORE landed (`delta.rs`: `parse_state_change` of the StateChangePublisher envelope + `apply_delta` mutating the in-memory Context for ocsf_devices is_available/is_managed and service_state available; unit-tested). REMAINING: the async JetStream subscriber maintaining a shared Context (Arc<RwLock>) that applies deltas between snapshots, + provision the `cdc.platform.>` stream. (1.2b)
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
 - [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 
