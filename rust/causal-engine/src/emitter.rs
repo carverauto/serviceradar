@@ -61,7 +61,9 @@ pub fn build_envelope(verdict: &Verdict) -> Value {
         // event_type maps cleanly onto the God-View 4 buckets
         // (root_cause / affected / healthy / unknown).
         "event_type": classification,
-        "severity_id": 1,
+        // OCSF severity_id derived from the verdict's 0..=100 predicted severity
+        // (raised by per-device risk composition for C5/C7/C10, task 1.5).
+        "severity_id": severity_id(verdict.severity),
         "source": {
             "subject": format!("{PREDICTION_SUBJECT_ROOT}.{}", subject_token(&verdict.entity_id)),
             "collector": "causal-engine",
@@ -79,10 +81,24 @@ pub fn build_envelope(verdict: &Verdict) -> Value {
         "primary_domain": "causal",
         "explainability": {
             "classification": classification,
-            "reason": verdict.reason
+            "reason": verdict.reason,
+            "severity_score": verdict.severity
         },
         "guardrails": {}
     })
+}
+
+/// Map a 0..=100 predicted severity onto an OCSF `severity_id`
+/// (1 Informational … 6 Fatal).
+fn severity_id(severity: u8) -> u8 {
+    match severity {
+        0..=19 => 1,  // Informational
+        20..=39 => 2, // Low
+        40..=59 => 3, // Medium
+        60..=79 => 4, // High
+        80..=99 => 5, // Critical
+        _ => 6,       // Fatal
+    }
 }
 
 /// Stable, restart-independent id for a verdict so re-emission is idempotent.
@@ -116,11 +132,11 @@ mod tests {
     use crate::reasoner::{Classification, Verdict};
 
     fn verdict() -> Verdict {
-        Verdict {
-            entity_id: "sr:device:abc".to_string(),
-            classification: Classification::RootCause,
-            reason: "gateway G unavailable; shared by N devices".to_string(),
-        }
+        Verdict::new(
+            "sr:device:abc",
+            Classification::RootCause,
+            "gateway G unavailable; shared by N devices",
+        )
     }
 
     #[test]
@@ -136,7 +152,18 @@ mod tests {
         assert_eq!(a["primary_domain"], "causal");
         assert_eq!(a["source_identity"]["entity_uid"], "sr:device:abc");
         assert_eq!(a["explainability"]["reason"], v.reason);
+        // RootCause base severity (80) => OCSF severity_id 5 (Critical).
+        assert_eq!(a["explainability"]["severity_score"], 80);
+        assert_eq!(a["severity_id"], 5);
         assert!(serde_json::to_string(&a).is_ok());
+    }
+
+    #[test]
+    fn severity_id_buckets_track_predicted_severity() {
+        assert_eq!(severity_id(0), 1);
+        assert_eq!(severity_id(50), 3);
+        assert_eq!(severity_id(80), 5);
+        assert_eq!(severity_id(100), 6);
     }
 
     #[test]

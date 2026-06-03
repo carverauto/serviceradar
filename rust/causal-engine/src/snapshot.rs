@@ -79,9 +79,9 @@ mod tests {
                 is_available: Some(true),
                 is_managed: Some(false),
                 risk_score: Some(72),
-                gateway_id: None,
+                ..Default::default()
             }],
-            services: vec![],
+            ..Default::default()
         };
         store.save(&ctx).expect("save");
 

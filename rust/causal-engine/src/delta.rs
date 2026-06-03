@@ -135,11 +135,9 @@ mod tests {
                 uid: "sr:device:abc".to_string(),
                 is_available: Some(true),
                 is_managed: Some(true),
-                risk_score: None,
-                gateway_id: None,
+                ..Default::default()
             }],
-            services: vec![],
-            edges: vec![],
+            ..Default::default()
         };
 
         let delta = parse_state_change(&state_change_envelope(
@@ -157,12 +155,11 @@ mod tests {
     #[test]
     fn applies_service_availability_transition() {
         let mut ctx = Context {
-            devices: vec![],
             services: vec![Service {
                 id: "agent-1:grpc:datasvc".to_string(),
                 available: Some(true),
             }],
-            edges: vec![],
+            ..Default::default()
         };
 
         let delta = parse_state_change(&state_change_envelope(

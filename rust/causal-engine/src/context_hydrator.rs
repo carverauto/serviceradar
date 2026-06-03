@@ -93,6 +93,11 @@ impl ContextHydrator {
         let context = Context {
             devices: devices.iter().filter_map(map_device).collect(),
             services: services.iter().filter_map(map_service).collect(),
+            // TODO(graph layer): populate topology edges (CONNECTS_TO / MANAGED_BY /
+            // CONTAINS / BACKED_BY / DEPENDS_ON), links, flows, bgp_routes, and
+            // operator_rules via the SRQL `graph_cypher` entity + on-demand queries
+            // so the graph/saturation/blast-radius causaloids see them (task 1.2b).
+            ..Default::default()
         };
         *self.ctx.write().await = context.clone();
         if let Err(err) = self.snapshot.save(&context) {
@@ -160,6 +165,10 @@ fn map_device(row: &serde_json::Value) -> Option<Device> {
             .get("gateway_id")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string()),
+        pkg_severity: row.get("pkg_worst_severity").and_then(|v| v.as_i64()),
+        // gateway_class / flap_count / observation_expected populated as their
+        // feeds land (task 1.2b / graph_cypher projection).
+        ..Default::default()
     })
 }
 

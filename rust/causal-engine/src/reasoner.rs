@@ -43,6 +43,44 @@ pub struct Verdict {
     pub classification: Classification,
     /// Human-readable explanation (drives the God-View explainability surface).
     pub reason: String,
+    /// Predicted severity on a 0..=100 scale. Seeded from the classification and
+    /// raised by per-device risk composition for C5/C7/C10 (task 1.5).
+    pub severity: u8,
+}
+
+impl Verdict {
+    /// Construct a verdict, seeding `severity` from the classification.
+    pub fn new(
+        entity_id: impl Into<String>,
+        classification: Classification,
+        reason: impl Into<String>,
+    ) -> Self {
+        Self {
+            entity_id: entity_id.into(),
+            classification,
+            reason: reason.into(),
+            severity: base_severity(classification),
+        }
+    }
+
+    /// Raise the predicted severity to at least `severity` (clamped to 100),
+    /// never lowering it. Used by risk composition (task 1.5) to amplify — not
+    /// override — the structural conclusion.
+    pub fn raise_severity_to(mut self, severity: u8) -> Self {
+        self.severity = self.severity.max(severity.min(100));
+        self
+    }
+}
+
+/// Baseline predicted severity for a classification (0..=100), before any
+/// risk composition.
+fn base_severity(classification: Classification) -> u8 {
+    match classification {
+        Classification::RootCause => 80,
+        Classification::Affected => 50,
+        Classification::Unknown => 30,
+        Classification::Healthy => 0,
+    }
 }
 
 /// The DeepCausality reasoner.
@@ -95,21 +133,21 @@ fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
         if devices.len() < GATEWAY_SHARED_FATE_THRESHOLD {
             continue;
         }
-        verdicts.push(Verdict {
-            entity_id: gateway.to_string(),
-            classification: Classification::RootCause,
-            reason: format!(
+        verdicts.push(Verdict::new(
+            gateway.to_string(),
+            Classification::RootCause,
+            format!(
                 "{} devices observing through gateway {} are simultaneously unavailable",
                 devices.len(),
                 gateway
             ),
-        });
+        ));
         for device in devices {
-            verdicts.push(Verdict {
-                entity_id: device.uid.clone(),
-                classification: Classification::Affected,
-                reason: format!("unavailable; shares root-cause gateway {gateway}"),
-            });
+            verdicts.push(Verdict::new(
+                device.uid.clone(),
+                Classification::Affected,
+                format!("unavailable; shares root-cause gateway {gateway}"),
+            ));
         }
     }
     verdicts
@@ -134,14 +172,14 @@ fn c4_management_unobservable(ctx: &Context) -> Vec<Verdict> {
         if edge.kind == EdgeKind::ManagedBy
             && availability.get(edge.dst.as_str()) == Some(&Some(false))
         {
-            verdicts.push(Verdict {
-                entity_id: edge.src.clone(),
-                classification: Classification::Unknown,
-                reason: format!(
+            verdicts.push(Verdict::new(
+                edge.src.clone(),
+                Classification::Unknown,
+                format!(
                     "manager {} is unavailable; availability is unobservable, not failed",
                     edge.dst
                 ),
-            });
+            ));
         }
     }
     verdicts
@@ -157,8 +195,8 @@ mod tests {
             uid: uid.to_string(),
             is_available: available,
             is_managed: Some(true),
-            risk_score: None,
             gateway_id: gateway.map(|g| g.to_string()),
+            ..Default::default()
         }
     }
 
@@ -177,8 +215,7 @@ mod tests {
                 device("sr:device:b", Some(false), Some("sr:gw:1")),
                 device("sr:device:c", Some(true), Some("sr:gw:1")),
             ],
-            services: vec![],
-            edges: vec![],
+            ..Default::default()
         };
 
         let verdicts = c3_gateway_shared_fate(&ctx);
@@ -205,8 +242,7 @@ mod tests {
                 device("sr:device:a", Some(false), Some("sr:gw:1")),
                 device("sr:device:x", Some(false), None),
             ],
-            services: vec![],
-            edges: vec![],
+            ..Default::default()
         };
         assert!(c3_gateway_shared_fate(&ctx).is_empty());
     }
@@ -219,8 +255,7 @@ mod tests {
                 device("sr:device:a", Some(false), Some("sr:gw:1")),
                 device("sr:device:b", Some(false), Some("sr:gw:1")),
             ],
-            services: vec![],
-            edges: vec![],
+            ..Default::default()
         };
         let verdicts = reasoner.evaluate(&ctx).expect("evaluate");
         assert!(verdicts
@@ -229,11 +264,7 @@ mod tests {
     }
 
     fn managed_by(child: &str, manager: &str) -> TopologyEdge {
-        TopologyEdge {
-            src: child.to_string(),
-            dst: manager.to_string(),
-            kind: EdgeKind::ManagedBy,
-        }
+        TopologyEdge::new(child, manager, EdgeKind::ManagedBy)
     }
 
     #[test]
@@ -243,8 +274,8 @@ mod tests {
                 device("sr:device:mgr", Some(false), None),
                 device("sr:device:child", Some(false), None),
             ],
-            services: vec![],
             edges: vec![managed_by("sr:device:child", "sr:device:mgr")],
+            ..Default::default()
         };
         let verdicts = c4_management_unobservable(&ctx);
         assert_eq!(
@@ -260,8 +291,8 @@ mod tests {
                 device("sr:device:mgr", Some(true), None),
                 device("sr:device:child", Some(false), None),
             ],
-            services: vec![],
             edges: vec![managed_by("sr:device:child", "sr:device:mgr")],
+            ..Default::default()
         };
         assert!(c4_management_unobservable(&ctx).is_empty());
     }
