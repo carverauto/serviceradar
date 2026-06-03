@@ -13,6 +13,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     notifiers: [ServiceRadar.AgentConfig.DependencyNotifier],
     authorizers: [Ash.Policy.Authorizer]
 
+  alias ServiceRadar.Plugins.Changes.ApplyAddonConfigDefaults
   alias ServiceRadar.Plugins.Changes.SetAssignmentAddonId
   alias ServiceRadar.Plugins.Validations.AddonAssignmentParams
   alias ServiceRadar.Plugins.Validations.AddonPackageApproved
@@ -56,6 +57,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       accept @create_fields
 
       change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
       validate AddonAssignmentParams
@@ -65,6 +67,7 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       accept @mutable_fields
 
       change SetAssignmentAddonId
+      change ApplyAddonConfigDefaults
       validate AddonPackageApproved
       validate NoDuplicateEnabledAddonAssignment
       validate AddonAssignmentParams

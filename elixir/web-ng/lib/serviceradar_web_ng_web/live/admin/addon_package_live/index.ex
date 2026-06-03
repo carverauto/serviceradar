@@ -789,7 +789,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         args: args
       }
 
-      case AddonAssignments.create(attrs, scope: scope) do
+      # Upsert by (agent_uid, addon_id): re-pushing the same add-on (or upgrading
+      # to a newer package of it) must update the existing assignment rather than
+      # collide with the one-enabled-per-(agent, add-on) invariant.
+      case AddonAssignments.upsert(package.addon_id, attrs, scope: scope) do
         {:ok, _assignment} -> {:cont, {:ok, count + 1}}
         {:error, error} -> {:halt, {:error, error, count}}
       end
