@@ -22,6 +22,13 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   @hosted_protocols MapSet.new(["proxmox", "proxmox-api", "vmware", "esxi", "hyperv", "kvm"])
   @strict_ifindex_protocols MapSet.new(["lldp", "cdp"])
   @segment_evidence_classes MapSet.new(["inferred-segment"])
+  @endpoint_inventory_risk_summary_fields [
+    :pkg_worst_severity,
+    :pkg_critical_count,
+    :pkg_kev_count,
+    :pkg_has_unpatched_rce,
+    :pkg_risk_summary_at
+  ]
   @auxiliary_relations MapSet.new([
                          "LOGICAL_PEER",
                          "HOSTED_ON",
@@ -225,6 +232,65 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       end
     end
   end
+
+  @doc """
+  Projects endpoint-inventory vulnerability risk onto the canonical Device vertex.
+
+  The `pkg_*` properties are topology-structure-invariant: they are bounded scalar
+  annotations used by causal readers and must not create package vertices, package
+  edges, or topology adjacency.
+  """
+  @spec project_endpoint_inventory_risk_summary(String.t(), map(), keyword()) :: :ok
+  def project_endpoint_inventory_risk_summary(device_uid, summary, opts \\ [])
+
+  def project_endpoint_inventory_risk_summary(device_uid, summary, opts)
+      when is_binary(device_uid) and is_map(summary) do
+    case endpoint_inventory_risk_summary_query(device_uid, summary) do
+      nil ->
+        :ok
+
+      cypher ->
+        case Graph.execute(cypher, opts) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.warning(
+              "Endpoint inventory risk summary graph projection failed: #{inspect(reason)}"
+            )
+        end
+    end
+  end
+
+  def project_endpoint_inventory_risk_summary(_device_uid, _summary, _opts), do: :ok
+
+  @doc false
+  @spec endpoint_inventory_risk_summary_query(String.t(), map()) :: String.t() | nil
+  def endpoint_inventory_risk_summary_query(device_uid, summary)
+      when is_binary(device_uid) and is_map(summary) do
+    case non_blank(device_uid) do
+      nil ->
+        nil
+
+      uid ->
+        summary = normalize_endpoint_inventory_risk_summary(summary)
+
+        """
+        MERGE (d:Device {id: '#{Graph.escape(uid)}'})
+        SET d.pkg_worst_severity = #{cypher_value(summary.pkg_worst_severity)}
+        SET d.pkg_critical_count = #{cypher_value(summary.pkg_critical_count)}
+        SET d.pkg_kev_count = #{cypher_value(summary.pkg_kev_count)}
+        SET d.pkg_has_unpatched_rce = #{cypher_value(summary.pkg_has_unpatched_rce)}
+        SET d.pkg_risk_summary_at = #{cypher_value(summary.pkg_risk_summary_at)}
+        """
+    end
+  end
+
+  def endpoint_inventory_risk_summary_query(_device_uid, _summary), do: nil
+
+  @doc false
+  @spec endpoint_inventory_risk_summary_fields() :: [atom()]
+  def endpoint_inventory_risk_summary_fields, do: @endpoint_inventory_risk_summary_fields
 
   defp upsert_interface(interface) when is_map(interface) do
     case build_interface_payload(interface) do
@@ -2078,6 +2144,88 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   defp map_value(_map, _key), do: nil
+
+  defp normalize_endpoint_inventory_risk_summary(summary) do
+    %{
+      pkg_worst_severity:
+        summary
+        |> map_value(:pkg_worst_severity)
+        |> normalize_risk_summary_severity(),
+      pkg_critical_count:
+        summary
+        |> map_value(:pkg_critical_count)
+        |> non_negative_integer(0),
+      pkg_kev_count:
+        summary
+        |> map_value(:pkg_kev_count)
+        |> non_negative_integer(0),
+      pkg_has_unpatched_rce:
+        summary
+        |> map_value(:pkg_has_unpatched_rce)
+        |> truthy?(),
+      pkg_risk_summary_at:
+        summary
+        |> map_value(:pkg_risk_summary_at)
+        |> normalize_risk_summary_timestamp()
+    }
+  end
+
+  defp normalize_risk_summary_severity(value) do
+    case value |> non_blank() |> normalize_confidence_tier() do
+      "critical" -> "critical"
+      "high" -> "high"
+      "medium" -> "medium"
+      "low" -> "low"
+      "none" -> "none"
+      _ -> "unknown"
+    end
+  end
+
+  defp normalize_risk_summary_timestamp(%DateTime{} = dt) do
+    dt
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
+
+  defp normalize_risk_summary_timestamp(value) when is_binary(value) do
+    case non_blank(value) do
+      nil -> current_iso8601_second()
+      timestamp -> timestamp
+    end
+  end
+
+  defp normalize_risk_summary_timestamp(_value), do: current_iso8601_second()
+
+  defp current_iso8601_second do
+    DateTime.utc_now()
+    |> DateTime.truncate(:second)
+    |> DateTime.to_iso8601()
+  end
+
+  defp non_negative_integer(value, _default) when is_integer(value), do: max(value, 0)
+  defp non_negative_integer(value, _default) when is_float(value), do: value |> round() |> max(0)
+
+  defp non_negative_integer(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, _rest} -> max(int, 0)
+      :error -> default
+    end
+  end
+
+  defp non_negative_integer(_value, default), do: default
+
+  defp truthy?(true), do: true
+  defp truthy?(value) when value in [false, nil, 0], do: false
+  defp truthy?(value) when is_integer(value), do: value != 0
+
+  defp truthy?(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> Kernel.in(["true", "1", "yes", "y"])
+  end
+
+  defp truthy?(_value), do: false
 
   defp default_evidence_class_for_protocol(protocol) do
     normalized = normalize_protocol(protocol)

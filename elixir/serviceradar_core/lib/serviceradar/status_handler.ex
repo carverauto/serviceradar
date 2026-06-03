@@ -51,17 +51,11 @@ defmodule ServiceRadar.StatusHandler do
 
   @impl true
   def handle_cast({:status_update, status}, state) do
-    service_type = status[:service_type] || "unknown"
-    source = status[:source] || "unknown"
-    service_name = status[:service_name] || "unknown"
-
-    Logger.info(
-      "StatusHandler received: service_type=#{service_type} source=#{source} " <>
-        "service=#{service_name}"
-    )
-
-    case process(status) do
+    case process_status_update(status, sync_results?: false) do
       :ok ->
+        :ok
+
+      {:ok, _result} ->
         :ok
 
       {:error, reason} ->
@@ -71,7 +65,25 @@ defmodule ServiceRadar.StatusHandler do
     {:noreply, state}
   end
 
-  defp process(%{source: source} = status)
+  @impl true
+  def handle_call({:status_update, status}, _from, state) do
+    {:reply, process_status_update(status, sync_results?: true), state}
+  end
+
+  defp process_status_update(status, opts) do
+    service_type = status[:service_type] || "unknown"
+    source = status[:source] || "unknown"
+    service_name = status[:service_name] || "unknown"
+
+    Logger.info(
+      "StatusHandler received: service_type=#{service_type} source=#{source} " <>
+        "service=#{service_name}"
+    )
+
+    process(status, opts)
+  end
+
+  defp process(%{source: source} = status, opts)
        when source in [
               "results",
               :results,
@@ -84,27 +96,32 @@ defmodule ServiceRadar.StatusHandler do
             ] do
     case Process.whereis(ResultsRouter) do
       pid when is_pid(pid) ->
-        GenServer.cast(pid, {:results_update, status})
-        :ok
+        if Keyword.get(opts, :sync_results?, false) do
+          GenServer.call(pid, {:results_update, status}, 30_000)
+        else
+          GenServer.cast(pid, {:results_update, status})
+          :ok
+        end
 
       _ ->
         process_legacy_results(status)
     end
   end
 
-  defp process(%{source: source} = status)
+  defp process(%{source: source} = status, _opts)
        when source in [@flow_attribution_source, :flow_attribution] do
     handle_flow_attribution(status)
   end
 
-  defp process(%{service_name: service_name} = status) when service_name in ["agent", :agent] do
+  defp process(%{service_name: service_name} = status, _opts)
+       when service_name in ["agent", :agent] do
     # The agent capability status carries per-add-on state in its payload; record it
     # in the add-on status read model (issue 3425, task 7.2). No-op when there are no
     # add-ons in the payload.
     ServiceRadar.Plugins.AddonStatusIngestor.ingest(status)
   end
 
-  defp process(_status), do: :ok
+  defp process(_status, _opts), do: :ok
 
   defp handle_flow_attribution(status) do
     partition_id = status[:partition] || "default"

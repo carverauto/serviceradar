@@ -1619,7 +1619,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       max_output_bytes: map_int(config, "max_output_bytes"),
       cadence: map_string(config, "cadence"),
       collect_paths: map_bool(config, "collect_paths", false),
-      collect_file_hashes: map_bool(config, "collect_file_hashes", false)
+      collect_file_hashes: map_bool(config, "collect_file_hashes", false),
+      force_fresh_enabled: map_bool(config, "force_fresh_enabled", false),
+      force_full_scan_interval: map_int(config, "force_full_scan_interval"),
+      cache_stale_threshold: map_string(config, "cache_stale_threshold"),
+      upload_jitter: map_string(config, "upload_jitter"),
+      upload_retry_initial: map_string(config, "upload_retry_initial"),
+      upload_retry_max: map_string(config, "upload_retry_max"),
+      upload_retry_max_attempts: map_int(config, "upload_retry_max_attempts")
     }
   end
 

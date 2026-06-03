@@ -21,6 +21,8 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -28,18 +30,27 @@ import (
 )
 
 const maxEndpointInventorySpoolBytes = 32 * 1024 * 1024
+const endpointInventoryUploadDeferredState = "upload_deferred"
 
 var errEndpointInventorySpoolTooLarge = errors.New("endpoint inventory spool payload exceeds size budget")
 
 type EndpointInventorySpoolService struct {
 	agentID   string
 	spoolPath string
+	cfg       endpointinventory.Config
 }
 
 func NewEndpointInventorySpoolService(agentID string, cfg *EndpointInventoryStatusConfig) *EndpointInventorySpoolService {
+	inventoryCfg := endpointinventory.DefaultConfig()
+	inventoryCfg.AgentID = agentID
+	inventoryCfg.SpoolDir = filepath.Dir(cfg.effectiveSpoolPath())
+	inventoryCfg.CacheDir = cfg.effectiveCacheDir()
+	inventoryCfg.TmpDir = cfg.effectiveTmpDir()
+
 	return &EndpointInventorySpoolService{
 		agentID:   agentID,
 		spoolPath: cfg.effectiveSpoolPath(),
+		cfg:       inventoryCfg,
 	}
 }
 
@@ -55,7 +66,7 @@ func (s *EndpointInventorySpoolService) UpdateConfig(*models.Config) error {
 }
 
 func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.StatusResponse, error) {
-	data, err := os.ReadFile(s.spoolPath)
+	data, err := s.statusPayload()
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return s.notScannedStatus(), nil
@@ -74,6 +85,37 @@ func (s *EndpointInventorySpoolService) GetStatus(context.Context) (*proto.Statu
 		ServiceName: endpointinventory.ServiceName,
 		ServiceType: endpointinventory.ServiceType,
 	}, nil
+}
+
+func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
+	manifest, err := endpointinventory.ReadCacheManifest(s.cfg)
+	if err != nil {
+		return nil, err
+	}
+	if manifest != nil && manifest.PendingUpload != nil {
+		if endpointinventory.PendingUploadDue(s.cfg, manifest, time.Now().UTC()) {
+			data, err := os.ReadFile(endpointinventory.PendingUploadPath(s.cfg.SpoolDir))
+			if err != nil {
+				return nil, err
+			}
+
+			return attachEndpointInventoryStandingQuestionCounts(data, manifest), nil
+		}
+
+		data, err := os.ReadFile(s.spoolPath)
+		if err != nil {
+			return nil, err
+		}
+
+		return attachEndpointInventoryStandingQuestionCounts(deferEndpointInventoryUpload(s.cfg, data, manifest), manifest), nil
+	}
+
+	data, err := os.ReadFile(s.spoolPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return attachEndpointInventoryStandingQuestionCounts(suppressEndpointInventoryUploadedSBOM(data), manifest), nil
 }
 
 func (s *EndpointInventorySpoolService) notScannedStatus() *proto.StatusResponse {
@@ -112,6 +154,89 @@ func ensureEndpointInventoryAgentID(data []byte, agentID string) []byte {
 	}
 
 	payload["agent_id"] = agentID
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}
+
+func deferEndpointInventoryUpload(
+	cfg endpointinventory.Config,
+	data []byte,
+	manifest *endpointinventory.InventoryCacheManifest,
+) []byte {
+	var payload map[string]any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+
+	delete(payload, "sbom")
+	payload["state"] = endpointInventoryUploadDeferredState
+	payload["coverage_state"] = endpointInventoryUploadDeferredState
+	payload["upload_reason"] = endpointinventory.UploadReasonChanged
+	if payload["metadata"] == nil {
+		payload["metadata"] = map[string]any{}
+	}
+	if metadata, ok := payload["metadata"].(map[string]any); ok {
+		metadata["reason"] = "upload_not_due"
+		metadata["pending_upload"] = manifest.PendingUpload
+		metadata["retry_exhausted"] = endpointinventory.PendingUploadExhausted(cfg, manifest)
+	}
+
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}
+
+func suppressEndpointInventoryUploadedSBOM(data []byte) []byte {
+	var payload endpointinventory.ScanPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+	if !endpointinventory.PayloadRequiresFullUpload(&payload) {
+		return data
+	}
+
+	payload.SBOM = nil
+	payload.UploadReason = endpointinventory.UploadReasonUnchanged
+	if payload.Metadata == nil {
+		payload.Metadata = map[string]any{}
+	}
+	payload.Metadata["reason"] = "upload_already_acknowledged"
+
+	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}
+
+func attachEndpointInventoryStandingQuestionCounts(
+	data []byte,
+	manifest *endpointinventory.InventoryCacheManifest,
+) []byte {
+	if manifest == nil || len(manifest.StandingQuestionResultCounts) == 0 {
+		return data
+	}
+
+	var payload endpointinventory.ScanPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+	if len(payload.StandingQuestionResultCounts) > 0 {
+		return data
+	}
+
+	payload.StandingQuestionResultCounts = append(
+		[]endpointinventory.StandingQuestionResultCount(nil),
+		manifest.StandingQuestionResultCounts...,
+	)
 	updated, err := json.Marshal(payload)
 	if err != nil {
 		return data

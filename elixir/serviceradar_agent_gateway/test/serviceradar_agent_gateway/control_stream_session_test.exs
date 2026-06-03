@@ -1,6 +1,7 @@
 defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
   use ExUnit.Case, async: false
 
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.Edge.ProxmoxConsolePubSub
   alias ServiceRadar.Edge.RemoteAccessPubSub
   alias ServiceRadarAgentGateway.ControlStreamSession
@@ -149,6 +150,95 @@ defmodule ServiceRadarAgentGateway.ControlStreamSessionTest do
 
     refute_receive {:proxmox_console_frame, _frame}, 50
     refute_receive {:remote_access_frame, _frame}, 50
+  end
+
+  test "command results broadcast on the command-scoped topic" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe(command_id)
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          commands: %{
+            command_id => %{
+              command_type: "endpoint_inventory.cache_query",
+              response_subject: AgentCommandPubSub.topic(command_id)
+            }
+          }
+      }
+    end)
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "endpoint_inventory.cache_query",
+           success: true,
+           message: "done",
+           payload_json: Jason.encode!(%{count: 1}),
+           timestamp: 123
+         }}
+    })
+
+    assert_receive {:command_result,
+                    %{
+                      command_id: ^command_id,
+                      command_type: "endpoint_inventory.cache_query",
+                      success: true,
+                      payload: %{"count" => 1},
+                      response_subject: _
+                    }},
+                   1_000
+  end
+
+  test "command result payloads over the byte cap are failed before broadcast" do
+    ensure_pubsub!()
+
+    command_id = Ecto.UUID.generate()
+    :ok = AgentCommandPubSub.subscribe(command_id)
+
+    pid = start_supervised!({ControlStreamSession, stream: nil})
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | agent_id: "agent-owned",
+          partition_id: "partition-a",
+          commands: %{command_id => %{command_type: "endpoint_inventory.cache_query"}}
+      }
+    end)
+
+    oversized_payload = Jason.encode!(%{"data" => String.duplicate("x", 70_000)})
+
+    ControlStreamSession.handle_message(pid, %Monitoring.ControlStreamRequest{
+      payload:
+        {:command_result,
+         %Monitoring.CommandResult{
+           command_id: command_id,
+           command_type: "endpoint_inventory.cache_query",
+           success: true,
+           message: "too large",
+           payload_json: oversized_payload,
+           timestamp: 123
+         }}
+    })
+
+    assert_receive {:command_result,
+                    %{
+                      command_id: ^command_id,
+                      command_type: "endpoint_inventory.cache_query",
+                      success: false,
+                      message: "command result payload exceeded byte cap",
+                      payload: %{"error" => "payload_too_large"}
+                    }},
+                   1_000
   end
 
   test "registered control streams reject messages with mismatched authenticated identity" do

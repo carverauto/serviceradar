@@ -14,14 +14,21 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
+  alias ServiceRadar.Observability.StatefulAlertEvaluationQueue
 
   require Logger
 
   @schema_version "1.0"
   @max_grouped_contexts 32
   @routing_table "bmp_routing_events"
+  @ocsf_vulnerability_finding_class_uid 2004
+  @ocsf_findings_category_uid 2
+  @ocsf_vulnerability_finding_type_uid 200_401
+  @ocsf_create_activity_id 1
 
   @impl true
   def table_name, do: "ocsf_events"
@@ -42,7 +49,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         |> Enum.map(&build_routing_event_row/1)
         |> Enum.reject(&is_nil/1)
 
-      ocsf_rows =
+      all_ocsf_rows =
         parsed_rows
         |> Enum.filter(&persist_to_ocsf?/1)
         |> Enum.map(fn %{
@@ -53,10 +60,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
                        } ->
           build_ocsf_event_row(normalized, payload, raw_data, metadata)
         end)
+        |> Enum.reject(&is_nil/1)
+
+      {ash_ocsf_rows, bulk_ocsf_rows} =
+        Enum.split_with(all_ocsf_rows, &inventory_vulnerability_finding_row?/1)
 
       _ = insert_rows(@routing_table, routing_rows)
-      ocsf_count = insert_rows(table_name(), ocsf_rows)
+      bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
+      recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
 
+      enqueue_inventory_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
+      enqueue_inventory_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
+
+      ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
       {:ok, length(parsed_rows)}
     end
@@ -131,6 +147,131 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     count
   end
 
+  defp record_ocsf_events([]), do: []
+
+  defp record_ocsf_events(rows) when is_list(rows) do
+    actor = SystemActor.system(:causal_signals)
+
+    rows
+    |> Enum.reduce([], fn row, recorded ->
+      case record_ocsf_event(row, actor) do
+        {:ok, event} ->
+          [event | recorded]
+
+        :duplicate ->
+          recorded
+
+        {:error, reason} ->
+          Logger.warning("Failed to record CausalSignals OCSF event through Ash",
+            reason: inspect(reason),
+            event_id: inspect(row[:id])
+          )
+
+          recorded
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp record_ocsf_event(row, actor) do
+    attrs = ash_ocsf_event_attrs(row)
+
+    cond do
+      is_nil(attrs[:id]) or is_nil(attrs[:time]) ->
+        {:error, :missing_event_identity}
+
+      ocsf_event_exists?(attrs[:id], attrs[:time]) ->
+        :duplicate
+
+      true ->
+        OcsfEvent
+        |> Ash.Changeset.for_create(:record, attrs, actor: actor)
+        |> Ash.create()
+    end
+  end
+
+  defp ash_ocsf_event_attrs(row) do
+    row
+    |> Map.delete(:created_at)
+    |> Map.update(:id, nil, &uuid_string/1)
+  end
+
+  defp uuid_string(<<_::128>> = id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid_string(id) when is_binary(id), do: id
+  defp uuid_string(_id), do: nil
+
+  defp ocsf_event_exists?(id, %DateTime{} = time) when is_binary(id) do
+    case Ecto.UUID.dump(id) do
+      {:ok, dumped_id} ->
+        case ServiceRadar.Repo.query(
+               "SELECT 1 FROM platform.ocsf_events WHERE time = $1 AND id = $2 LIMIT 1",
+               [time, dumped_id]
+             ) do
+          {:ok, %{num_rows: count}} -> count > 0
+          {:error, _reason} -> false
+        end
+
+      :error ->
+        false
+    end
+  end
+
+  defp ocsf_event_exists?(_id, _time), do: false
+
+  defp enqueue_inventory_alert_evaluation(_ocsf_rows, inserted_count)
+       when not is_integer(inserted_count) or inserted_count <= 0, do: :ok
+
+  defp enqueue_inventory_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
+    ocsf_rows
+    |> Enum.filter(&inventory_event_row?/1)
+    |> Enum.map(&alert_evaluation_row/1)
+    |> alert_evaluation_queue().enqueue_events()
+    |> case do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("Endpoint inventory alert evaluation enqueue failed",
+          reason: inspect(reason)
+        )
+    end
+  end
+
+  defp inventory_event_row?(%{metadata: %{"signal_type" => "inventory"}}), do: true
+  defp inventory_event_row?(%{unmapped: %{"signal_type" => "inventory"}}), do: true
+  defp inventory_event_row?(_row), do: false
+
+  defp inventory_vulnerability_finding_row?(
+         %{class_uid: @ocsf_vulnerability_finding_class_uid} = row
+       ) do
+    inventory_event_row?(row)
+  end
+
+  defp inventory_vulnerability_finding_row?(_row), do: false
+
+  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> %{row | id: uuid}
+      :error -> row
+    end
+  end
+
+  defp alert_evaluation_row(row), do: row
+
+  defp alert_evaluation_queue do
+    Application.get_env(
+      :serviceradar_core,
+      :stateful_alert_evaluation_queue,
+      StatefulAlertEvaluationQueue
+    )
+  end
+
   defp persist_to_ocsf?(%{normalized: normalized}) when is_map(normalized) do
     signal_type = normalized["signal_type"]
     event_type = normalized["event_type"]
@@ -198,10 +339,26 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     else
       signal_type = infer_signal_type(subject, payload)
       event_type = infer_event_type(subject, payload)
-      severity_id = normalize_severity(payload)
-      grouped_contexts = grouped_contexts(payload)
+
+      severity_id =
+        if inventory_vulnerability_signal?(signal_type, event_type, payload) do
+          cvss_severity_id(payload) || normalize_severity(payload)
+        else
+          normalize_severity(payload)
+        end
+
+      grouped_contexts =
+        payload
+        |> grouped_contexts()
+        |> maybe_add_inventory_vulnerability_contexts(signal_type, event_type, payload)
+
       routing_correlation = routing_correlation(payload)
-      domains = signal_domains(payload, signal_type)
+
+      domains =
+        payload
+        |> signal_domains(signal_type)
+        |> maybe_inventory_vulnerability_domains(signal_type, event_type, payload)
+
       {primary_domain, precedence_rank} = primary_domain(domains)
       truncated_contexts = Enum.take(grouped_contexts, @max_grouped_contexts)
       contexts_truncated = length(grouped_contexts) > length(truncated_contexts)
@@ -319,6 +476,56 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp normalize_event_type(_), do: "unknown"
 
   defp build_ocsf_event_row(normalized, payload, raw_data, metadata) do
+    if inventory_vulnerability_signal?(normalized, payload) do
+      build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata)
+    else
+      build_causal_signal_event_row(normalized, payload, raw_data, metadata)
+    end
+  end
+
+  defp build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata) do
+    case payload_device_uid(payload) do
+      nil ->
+        nil
+
+      device_uid ->
+        severity_id = normalized["severity_id"] || 0
+
+        %{
+          id: Ecto.UUID.dump!(normalized["event_identity"]),
+          time: normalized["event_time"],
+          class_uid: @ocsf_vulnerability_finding_class_uid,
+          category_uid: @ocsf_findings_category_uid,
+          type_uid: @ocsf_vulnerability_finding_type_uid,
+          activity_id: @ocsf_create_activity_id,
+          activity_name: "Create",
+          severity_id: severity_id,
+          severity: severity_name(severity_id),
+          message: inventory_vulnerability_message(payload),
+          status_id: nil,
+          status: payload["status"] || payload["finding_status"] || "open",
+          status_code: nil,
+          status_detail: payload["status_detail"],
+          metadata: inventory_vulnerability_metadata(normalized, payload),
+          observables: [],
+          trace_id: nil,
+          span_id: nil,
+          actor: %{},
+          device: %{"uid" => device_uid},
+          src_endpoint: %{},
+          dst_endpoint: %{},
+          log_name: metadata[:subject],
+          log_provider: payload["provider"] || payload["source"] || "endpoint_inventory",
+          log_level: payload["level"],
+          log_version: payload["version"] || @schema_version,
+          unmapped: payload,
+          raw_data: normalize_raw_data(raw_data),
+          created_at: DateTime.utc_now()
+        }
+    end
+  end
+
+  defp build_causal_signal_event_row(normalized, payload, raw_data, metadata) do
     severity_id = normalized["severity_id"]
     signal_type = normalized["signal_type"]
     event_identity = normalized["event_identity"]
@@ -522,6 +729,16 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     if normalized == [], do: ["unknown"], else: normalized
   end
 
+  defp maybe_inventory_vulnerability_domains(domains, signal_type, event_type, payload) do
+    if inventory_vulnerability_signal?(signal_type, event_type, payload) do
+      (["security", "inventory"] ++ domains)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+    else
+      domains
+    end
+  end
+
   defp normalize_domain(value) when is_binary(value) do
     value
     |> String.trim()
@@ -530,6 +747,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "security" -> "security"
       "routing" -> "routing"
       "health" -> "health"
+      "inventory" -> "inventory"
       "bmp" -> "routing"
       "siem" -> "security"
       "unknown" -> "unknown"
@@ -548,6 +766,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp domain_rank("security"), do: 3
   defp domain_rank("routing"), do: 2
+  defp domain_rank("inventory"), do: 2
   defp domain_rank("health"), do: 1
   defp domain_rank(_), do: 0
 
@@ -565,6 +784,16 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> Enum.map(&String.trim/1)
     |> Enum.reject(&(&1 == ""))
     |> Enum.uniq()
+  end
+
+  defp maybe_add_inventory_vulnerability_contexts(contexts, signal_type, event_type, payload) do
+    if inventory_vulnerability_signal?(signal_type, event_type, payload) do
+      (contexts ++ inventory_vulnerability_contexts(payload))
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq_by(&{&1["type"], &1["id"]})
+    else
+      contexts
+    end
   end
 
   defp normalize_time(%DateTime{} = dt), do: dt
@@ -615,8 +844,38 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp severity_name(6), do: "Fatal"
   defp severity_name(_), do: "Unknown"
 
+  defp cvss_severity_id(payload) when is_map(payload) do
+    payload
+    |> cvss_score()
+    |> case do
+      score when is_number(score) and score >= 9.0 -> 5
+      score when is_number(score) and score >= 7.0 -> 4
+      score when is_number(score) and score >= 4.0 -> 3
+      score when is_number(score) and score > 0.0 -> 2
+      score when is_number(score) -> 0
+      _ -> nil
+    end
+  end
+
+  defp cvss_score(payload) when is_map(payload) do
+    [
+      payload["cvss_score"],
+      payload["cvssScore"],
+      payload["cvss"],
+      payload["cvss_base_score"],
+      payload["cvssBaseScore"],
+      get_in(payload, ["vulnerability", "cvss_score"]),
+      get_in(payload, ["vulnerability", "cvssScore"]),
+      get_in(payload, ["advisory", "cvss_score"]),
+      get_in(payload, ["advisory", "cvssScore"])
+    ]
+    |> first_present()
+    |> normalize_float()
+  end
+
   defp type_uid_for("bmp"), do: 100_811
   defp type_uid_for("siem"), do: 100_812
+  defp type_uid_for("inventory"), do: 100_813
   defp type_uid_for(_), do: 100_810
 
   defp normalize_device(payload) do
@@ -628,6 +887,129 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       %{"uid" => device_id}
     else
       %{}
+    end
+  end
+
+  defp inventory_vulnerability_signal?(normalized, payload) when is_map(normalized) do
+    inventory_vulnerability_signal?(
+      normalized["signal_type"],
+      normalized["event_type"],
+      payload
+    )
+  end
+
+  defp inventory_vulnerability_signal?(signal_type, event_type, payload) when is_map(payload) do
+    normalized_event_type = normalize_event_type(event_type)
+    finding_type = normalize_event_type(payload["finding_type"] || payload["findingType"])
+
+    signal_type == "inventory" and
+      (payload["class_uid"] == @ocsf_vulnerability_finding_class_uid or
+         normalized_event_type in [
+           "vulnerability",
+           "vulnerability_match",
+           "vulnerability_found",
+           "vulnerability_finding",
+           "vuln_match"
+         ] or
+         finding_type in ["vulnerability", "vulnerability_match", "vuln_match"])
+  end
+
+  defp inventory_vulnerability_signal?(_, _, _), do: false
+
+  defp payload_device_uid(payload) do
+    first_non_blank([
+      payload["device_uid"],
+      payload["deviceUid"],
+      get_in(payload, ["device", "uid"])
+    ])
+  end
+
+  defp inventory_vulnerability_message(payload) do
+    payload["message"] || payload["description"] ||
+      [
+        "endpoint vulnerability finding",
+        vulnerability_id(payload),
+        package_context_label(payload)
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(": ")
+  end
+
+  defp inventory_vulnerability_metadata(normalized, payload) do
+    normalized
+    |> Map.put("primary_domain", "security")
+    |> Map.put("vulnerability_finding", %{
+      "cve" => vulnerability_id(payload),
+      "cvss_score" => cvss_score(payload),
+      "package" => package_context(payload)
+    })
+  end
+
+  defp inventory_vulnerability_contexts(payload) do
+    [
+      build_context("cve", vulnerability_id(payload)),
+      build_context("package", package_context_id(payload))
+    ]
+  end
+
+  defp vulnerability_id(payload) do
+    first_non_blank([
+      payload["cve"],
+      payload["cve_id"],
+      payload["cveId"],
+      payload["vulnerability_id"],
+      payload["vulnerabilityId"],
+      payload["finding_id"],
+      payload["findingId"],
+      get_in(payload, ["vulnerability", "id"]),
+      get_in(payload, ["vulnerability", "cve"]),
+      get_in(payload, ["advisory", "id"]),
+      get_in(payload, ["advisory", "cve"])
+    ])
+  end
+
+  defp package_context(payload) do
+    case payload["package"] || payload["affected_package"] || payload["affectedPackage"] do
+      package when is_map(package) -> package
+      _ -> %{}
+    end
+  end
+
+  defp package_context_id(payload) do
+    package = package_context(payload)
+
+    first_non_blank([
+      package["purl_canonical"],
+      package["purlCanonical"],
+      package["purl"],
+      package_context_label(payload)
+    ])
+  end
+
+  defp package_context_label(payload) do
+    package = package_context(payload)
+    name = first_non_blank([package["name"], package["package_name"], payload["package_name"]])
+    version = first_non_blank([package["version"], payload["package_version"]])
+
+    manager =
+      first_non_blank([
+        package["package_manager"],
+        package["manager"],
+        payload["package_manager"]
+      ])
+
+    cond do
+      is_binary(name) and is_binary(version) and is_binary(manager) ->
+        "#{manager}:#{name}@#{version}"
+
+      is_binary(name) and is_binary(version) ->
+        "#{name}@#{version}"
+
+      is_binary(name) ->
+        name
+
+      true ->
+        nil
     end
   end
 
@@ -678,6 +1060,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     |> Enum.find(&is_binary/1)
   end
 
+  defp first_present(values) when is_list(values) do
+    Enum.find(values, fn
+      nil -> false
+      value when is_binary(value) -> String.trim(value) != ""
+      _ -> true
+    end)
+  end
+
   defp normalize_optional_string(value) when is_binary(value) do
     trimmed = String.trim(value)
     if trimmed == "", do: nil, else: trimmed
@@ -697,6 +1087,18 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp normalize_int(_), do: nil
+
+  defp normalize_float(value) when is_float(value), do: value
+  defp normalize_float(value) when is_integer(value), do: value / 1
+
+  defp normalize_float(value) when is_binary(value) do
+    case Float.parse(String.trim(value)) do
+      {float, ""} -> float
+      _ -> nil
+    end
+  end
+
+  defp normalize_float(_), do: nil
 
   defp arancini_prefix(payload) when is_map(payload) do
     with prefix_addr when is_binary(prefix_addr) <-

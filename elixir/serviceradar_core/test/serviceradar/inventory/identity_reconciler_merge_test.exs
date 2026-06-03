@@ -7,8 +7,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -105,6 +107,65 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     assert telemetry_metadata.manual_override == true
   end
 
+  test "merge reassigns endpoint inventory rows and tombstones dead ordinal", %{actor: actor} do
+    from_uid = "sr:" <> Ecto.UUID.generate()
+    to_uid = "sr:" <> Ecto.UUID.generate()
+    agent_id = "agent-merge-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _from_device} = create_device(actor, from_uid, "merge-from-inventory")
+    assert {:ok, _to_device} = create_device(actor, to_uid, "merge-to-inventory")
+
+    assert {:ok, from_ordinal} = EndpointInventoryFleetOrdinal.ensure_allocated(from_uid)
+    assert {:ok, to_ordinal} = EndpointInventoryFleetOrdinal.ensure_allocated(to_uid)
+
+    assert %{scan_ref: _scan_ref} =
+             insert_endpoint_inventory_rows!(from_uid, agent_id, "nginx-merge")
+
+    assert :ok = IdentityReconciler.merge_devices(from_uid, to_uid, actor: actor)
+
+    assert table_device_count("endpoint_inventory_scans", from_uid) == 0
+    assert table_device_count("endpoint_inventory_artifacts", from_uid) == 0
+    assert table_device_count("endpoint_inventory_packages", from_uid) == 0
+
+    assert table_device_count("endpoint_inventory_scans", to_uid) == 1
+    assert table_device_count("endpoint_inventory_artifacts", to_uid) == 1
+    assert table_device_count("endpoint_inventory_packages", to_uid) == 1
+
+    assert EndpointInventoryFleetOrdinal.ordinal_for(to_uid) == to_ordinal
+    assert %{ordinal: ^from_ordinal, tombstoned: true} = fleet_ordinal_row(from_uid)
+  end
+
+  test "backfills null endpoint inventory rows when an agent gets a canonical device uid", %{
+    actor: actor
+  } do
+    device_uid = "sr:" <> Ecto.UUID.generate()
+    agent_id = "agent-backfill-#{System.unique_integer([:positive])}"
+
+    assert {:ok, _device} = create_device(actor, device_uid, "backfill-inventory")
+
+    assert %{scan_ref: _scan_ref} =
+             insert_endpoint_inventory_rows!(nil, agent_id, "curl-backfill")
+
+    assert table_null_device_count("endpoint_inventory_scans", agent_id) == 1
+    assert table_null_device_count("endpoint_inventory_artifacts", agent_id) == 1
+    assert table_null_device_count("endpoint_inventory_packages", agent_id) == 1
+
+    assert :ok =
+             IdentityReconciler.backfill_endpoint_inventory_device_uid_for_agent(
+               agent_id,
+               device_uid
+             )
+
+    assert table_null_device_count("endpoint_inventory_scans", agent_id) == 0
+    assert table_null_device_count("endpoint_inventory_artifacts", agent_id) == 0
+    assert table_null_device_count("endpoint_inventory_packages", agent_id) == 0
+
+    assert table_device_count("endpoint_inventory_scans", device_uid) == 1
+    assert table_device_count("endpoint_inventory_artifacts", device_uid) == 1
+    assert table_device_count("endpoint_inventory_packages", device_uid) == 1
+    assert is_integer(EndpointInventoryFleetOrdinal.ordinal_for(device_uid))
+  end
+
   defp create_device(actor, uid, hostname) do
     attrs = %{
       uid: uid,
@@ -141,5 +202,136 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeTest do
     |> Ash.Query.filter(device_id == ^device_id)
     |> Ash.Query.for_read(:read, %{}, actor: actor)
     |> Ash.read(actor: actor)
+  end
+
+  defp insert_endpoint_inventory_rows!(device_uid, agent_id, package_name) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    scan_id = "scan-#{System.unique_integer([:positive])}"
+    package_ref = insert_endpoint_package!(package_name, now)
+
+    {1, [%{id: scan_ref}]} =
+      Repo.insert_all(
+        "endpoint_inventory_scans",
+        [
+          %{
+            device_uid: device_uid,
+            agent_id: agent_id,
+            scan_id: scan_id,
+            state: "scanned",
+            coverage_state: "complete",
+            package_count: 1,
+            artifact_count: 1,
+            current: true,
+            last_scan_at: now,
+            ingested_at: now,
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        prefix: "platform",
+        returning: [:id]
+      )
+
+    Repo.insert_all(
+      "endpoint_inventory_artifacts",
+      [
+        %{
+          scan_ref: scan_ref,
+          agent_id: agent_id,
+          device_uid: device_uid,
+          object_key: "endpoint-inventory/#{agent_id}/#{scan_id}.json",
+          sha256: String.duplicate("a", 64),
+          size_bytes: 128,
+          artifact_hash: "sha256:" <> String.duplicate("b", 64),
+          uploaded_at: now,
+          inserted_at: now
+        }
+      ],
+      prefix: "platform"
+    )
+
+    Repo.insert_all(
+      "endpoint_inventory_packages",
+      [
+        %{
+          scan_ref: scan_ref,
+          device_uid: device_uid,
+          agent_id: agent_id,
+          name: package_name,
+          version: "1.0.0",
+          architecture: "amd64",
+          package_manager: "dpkg",
+          ecosystem: "deb",
+          purl: "pkg:deb/#{package_name}@1.0.0?arch=amd64",
+          purl_canonical: "pkg:deb/#{package_name}@1.0.0?arch=amd64",
+          endpoint_package_ref: package_ref,
+          current: true,
+          inserted_at: now,
+          updated_at: now
+        }
+      ],
+      prefix: "platform"
+    )
+
+    %{scan_ref: scan_ref, package_ref: package_ref}
+  end
+
+  defp insert_endpoint_package!(package_name, now) do
+    {_count, [%{id: package_ref}]} =
+      Repo.insert_all(
+        "endpoint_packages",
+        [
+          %{
+            coordinate_key: "purl:pkg:deb/#{package_name}@1.0.0?arch=amd64",
+            purl_canonical: "pkg:deb/#{package_name}@1.0.0?arch=amd64",
+            cpes: [],
+            package_manager: "dpkg",
+            name: package_name,
+            version: "1.0.0",
+            architecture: "amd64",
+            ecosystem: "deb",
+            source_scope: "host",
+            inserted_at: now,
+            updated_at: now
+          }
+        ],
+        prefix: "platform",
+        on_conflict: {:replace, [:updated_at]},
+        conflict_target: [:coordinate_key],
+        returning: [:id]
+      )
+
+    package_ref
+  end
+
+  defp table_device_count(table, device_uid) do
+    %{rows: [[count]]} =
+      Repo.query!("SELECT COUNT(*) FROM platform.#{table} WHERE device_uid = $1", [device_uid])
+
+    count
+  end
+
+  defp table_null_device_count(table, agent_id) do
+    %{rows: [[count]]} =
+      Repo.query!(
+        "SELECT COUNT(*) FROM platform.#{table} WHERE agent_id = $1 AND device_uid IS NULL",
+        [agent_id]
+      )
+
+    count
+  end
+
+  defp fleet_ordinal_row(device_uid) do
+    %{rows: [[ordinal, tombstoned]]} =
+      Repo.query!(
+        """
+        SELECT ordinal, tombstoned
+        FROM platform.device_fleet_ordinals
+        WHERE uid = $1
+        """,
+        [device_uid]
+      )
+
+    %{ordinal: ordinal, tombstoned: tombstoned}
   end
 end

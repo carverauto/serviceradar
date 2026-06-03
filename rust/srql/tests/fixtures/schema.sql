@@ -2,6 +2,13 @@
 -- The harness drops tables before creation so each test starts cleanly.
 
 DROP TABLE IF EXISTS device_agent_availability;
+DROP TABLE IF EXISTS endpoint_inventory_packages;
+DROP TABLE IF EXISTS endpoint_packages;
+DROP TABLE IF EXISTS endpoint_inventory_scans;
+DROP TABLE IF EXISTS endpoint_inventory_current_package_counts;
+DROP TABLE IF EXISTS endpoint_inventory_current_cpe_counts;
+DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
+DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
 DROP TABLE IF EXISTS ocsf_devices;
 
 CREATE TABLE ocsf_devices (
@@ -71,6 +78,126 @@ CREATE TABLE device_agent_availability (
     inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (device_uid, agent_id)
+);
+
+CREATE TABLE endpoint_inventory_scans (
+    id                          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    device_uid                  TEXT,
+    agent_id                    TEXT        NOT NULL,
+    scan_id                     TEXT        NOT NULL,
+    collector_name              TEXT,
+    collector_version           TEXT,
+    state                       TEXT        NOT NULL DEFAULT 'not_scanned',
+    coverage_state              TEXT        NOT NULL DEFAULT 'not_scanned',
+    package_count               INT         NOT NULL DEFAULT 0,
+    enabled_sources             TEXT[]      NOT NULL DEFAULT '{}',
+    manager_counts              JSONB       NOT NULL DEFAULT '{}',
+    source_summaries            JSONB       NOT NULL DEFAULT '[]',
+    artifact_count              INT         NOT NULL DEFAULT 0,
+    current                     BOOLEAN     NOT NULL DEFAULT FALSE,
+    last_successful_scan_at     TIMESTAMPTZ,
+    last_scan_at                TIMESTAMPTZ,
+    last_changed_scan_at        TIMESTAMPTZ,
+    ingested_at                 TIMESTAMPTZ,
+    package_set_hash            TEXT,
+    artifact_hash               TEXT,
+    hash_algorithm              TEXT,
+    upload_reason               TEXT,
+    server_package_set_hash     TEXT,
+    package_set_hash_mismatch   BOOLEAN     NOT NULL DEFAULT FALSE,
+    unchanged_scan_count        INT         NOT NULL DEFAULT 0,
+    reconcile_floor_due         BOOLEAN     NOT NULL DEFAULT FALSE,
+    metadata                    JSONB       NOT NULL DEFAULT '{}',
+    inserted_at                 TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at                  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_packages (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    coordinate_key      TEXT        NOT NULL UNIQUE,
+    purl_canonical      TEXT,
+    primary_cpe         TEXT,
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    package_manager     TEXT        NOT NULL,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    ecosystem           TEXT,
+    source_scope        TEXT        NOT NULL DEFAULT 'host',
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_packages (
+    id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+    scan_ref            UUID        NOT NULL DEFAULT gen_random_uuid(),
+    device_uid          TEXT,
+    agent_id            TEXT        NOT NULL,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT,
+    purl                TEXT,
+    purl_canonical      TEXT        NOT NULL,
+    endpoint_package_ref UUID       NOT NULL REFERENCES endpoint_packages(id),
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    supplier            TEXT,
+    license             TEXT,
+    source              TEXT,
+    evidence            JSONB       NOT NULL DEFAULT '{}',
+    current             BOOLEAN     NOT NULL DEFAULT FALSE,
+    metadata            JSONB       NOT NULL DEFAULT '{}',
+    inserted_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_current_package_counts (
+    coordinate_hash     TEXT        PRIMARY KEY,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT,
+    name                TEXT        NOT NULL,
+    version             TEXT,
+    architecture        TEXT,
+    purl_canonical      TEXT,
+    cpes                TEXT[]      NOT NULL DEFAULT '{}',
+    host_count          INT         NOT NULL DEFAULT 0,
+    first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_current_cpe_counts (
+    cpe                 TEXT        PRIMARY KEY,
+    host_count          INT         NOT NULL DEFAULT 0,
+    first_seen_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE endpoint_inventory_package_counts_hourly (
+    bucket              TIMESTAMPTZ NOT NULL,
+    coordinate_hash     TEXT        NOT NULL,
+    package_manager     TEXT        NOT NULL,
+    ecosystem           TEXT        NOT NULL DEFAULT '',
+    name                TEXT        NOT NULL,
+    version             TEXT        NOT NULL DEFAULT '',
+    architecture        TEXT        NOT NULL DEFAULT '',
+    purl_canonical      TEXT        NOT NULL DEFAULT '',
+    max_host_count      INT         NOT NULL DEFAULT 0,
+    min_host_count      INT         NOT NULL DEFAULT 0,
+    net_count_delta     INT         NOT NULL DEFAULT 0,
+    sample_count        BIGINT      NOT NULL DEFAULT 0
+);
+
+CREATE TABLE endpoint_inventory_cpe_counts_hourly (
+    bucket              TIMESTAMPTZ NOT NULL,
+    cpe                 TEXT        NOT NULL,
+    max_host_count      INT         NOT NULL DEFAULT 0,
+    min_host_count      INT         NOT NULL DEFAULT 0,
+    net_count_delta     INT         NOT NULL DEFAULT 0,
+    sample_count        BIGINT      NOT NULL DEFAULT 0
 );
 
 DROP TABLE IF EXISTS gateways;

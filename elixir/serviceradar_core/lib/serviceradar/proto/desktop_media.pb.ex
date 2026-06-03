@@ -1,7 +1,10 @@
 defmodule Desktopmedia.OpenDesktopMediaSessionRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.OpenDesktopMediaSessionRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -22,7 +25,10 @@ end
 defmodule Desktopmedia.OpenDesktopMediaSessionResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.OpenDesktopMediaSessionResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :accepted, 1, type: :bool
   field :message, 2, type: :string
@@ -37,7 +43,10 @@ end
 defmodule Desktopmedia.DesktopMediaClientMessage do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaClientMessage",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   oneof(:message, 0)
 
@@ -49,7 +58,10 @@ end
 defmodule Desktopmedia.DesktopMediaServerMessage do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaServerMessage",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   oneof(:message, 0)
 
@@ -61,7 +73,10 @@ end
 defmodule Desktopmedia.DesktopMediaFrameChunk do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaFrameChunk",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -81,7 +96,10 @@ end
 defmodule Desktopmedia.DesktopMediaAck do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -98,7 +116,10 @@ end
 defmodule Desktopmedia.DesktopMediaHeartbeat do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaHeartbeat",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -114,7 +135,10 @@ end
 defmodule Desktopmedia.DesktopMediaHeartbeatAck do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaHeartbeatAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :accepted, 1, type: :bool
   field :lease_expires_at_unix, 2, type: :int64, json_name: "leaseExpiresAtUnix"
@@ -124,7 +148,10 @@ end
 defmodule Desktopmedia.DesktopMediaStreamClose do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.DesktopMediaStreamClose",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -138,7 +165,10 @@ end
 defmodule Desktopmedia.CloseDesktopMediaSessionRequest do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.CloseDesktopMediaSessionRequest",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :desktop_session_id, 1, type: :string, json_name: "desktopSessionId"
   field :media_session_id, 2, type: :string, json_name: "mediaSessionId"
@@ -151,7 +181,10 @@ end
 defmodule Desktopmedia.CloseDesktopMediaSessionResponse do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.16.0"
+  use Protobuf,
+    full_name: "desktopmedia.CloseDesktopMediaSessionResponse",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :closed, 1, type: :bool
   field :message, 2, type: :string
@@ -174,11 +207,7 @@ defmodule Desktopmedia.DesktopMediaService.Service do
     stream(Desktopmedia.DesktopMediaServerMessage)
   )
 
-  rpc(
-    :Heartbeat,
-    Desktopmedia.DesktopMediaHeartbeat,
-    Desktopmedia.DesktopMediaHeartbeatAck
-  )
+  rpc(:Heartbeat, Desktopmedia.DesktopMediaHeartbeat, Desktopmedia.DesktopMediaHeartbeatAck)
 
   rpc(
     :CloseDesktopMediaSession,

@@ -30,44 +30,72 @@ const (
 	PackageSourceRPM  = "rpm"
 	PackageSourceAPK  = "apk"
 
-	defaultProfilePath      = "/var/lib/serviceradar/endpoint-inventory/profile/runtime.json"
-	defaultSpoolDir         = "/var/lib/serviceradar/endpoint-inventory/spool"
-	defaultTmpDir           = "/var/lib/serviceradar/endpoint-inventory/tmp"
-	defaultScanTimeout      = "5m"
-	defaultOSReleasePath    = "/etc/os-release"
-	defaultDpkgStatusPath   = "/var/lib/dpkg/status"
-	defaultAPKInstalledPath = "/lib/apk/db/installed"
-	defaultRPMPath          = PackageSourceRPM
-	defaultMaxPackages      = 100000
-	defaultMaxOutputBytes   = 32 * 1024 * 1024
+	defaultProfilePath         = "/var/lib/serviceradar/endpoint-inventory/profile/runtime.json"
+	defaultSpoolDir            = "/var/lib/serviceradar/endpoint-inventory/spool"
+	defaultCacheDir            = "/var/lib/serviceradar/endpoint-inventory/cache"
+	defaultTmpDir              = "/var/lib/serviceradar/endpoint-inventory/tmp"
+	defaultScanTimeout         = "5m"
+	defaultOSReleasePath       = "/etc/os-release"
+	defaultDpkgStatusPath      = "/var/lib/dpkg/status"
+	defaultAPKInstalledPath    = "/lib/apk/db/installed"
+	defaultRPMPath             = PackageSourceRPM
+	defaultCadence             = "12h"
+	defaultMaxPackages         = 100000
+	defaultMaxOutputBytes      = 32 * 1024 * 1024
+	defaultFullScanInterval    = 24
+	defaultUploadJitter        = "0s"
+	defaultUploadRetryInitial  = "5m"
+	defaultUploadRetryMax      = "1h"
+	defaultUploadRetryAttempts = 5
+	defaultCacheStale          = "24h"
 )
 
 var (
 	ErrAgentIDRequired      = errors.New("agent_id is required")
 	ErrInvalidMaxPackages   = errors.New("invalid max_packages")
 	ErrInvalidMaxOutputSize = errors.New("invalid max_output_bytes")
+	ErrInvalidDuration      = errors.New("invalid duration")
+	ErrInvalidRetryAttempts = errors.New("invalid upload_retry_max_attempts")
 	ErrUnsupportedSource    = errors.New("unsupported source")
 )
 
 func DefaultConfig() Config {
 	return Config{
-		Enabled:          false,
-		ProfilePath:      defaultProfilePath,
-		SpoolDir:         defaultSpoolDir,
-		TmpDir:           defaultTmpDir,
-		ScanTimeout:      defaultScanTimeout,
-		OSReleasePath:    defaultOSReleasePath,
-		DpkgStatusPath:   defaultDpkgStatusPath,
-		APKInstalledPath: defaultAPKInstalledPath,
-		RPMPath:          defaultRPMPath,
-		Sources:          defaultPackageSources(),
-		MaxPackages:      defaultMaxPackages,
-		MaxOutputBytes:   defaultMaxOutputBytes,
+		Enabled:                false,
+		ProfilePath:            defaultProfilePath,
+		SpoolDir:               defaultSpoolDir,
+		CacheDir:               defaultCacheDir,
+		TmpDir:                 defaultTmpDir,
+		ScanTimeout:            defaultScanTimeout,
+		OSReleasePath:          defaultOSReleasePath,
+		DpkgStatusPath:         defaultDpkgStatusPath,
+		APKInstalledPath:       defaultAPKInstalledPath,
+		RPMPath:                defaultRPMPath,
+		RPMDatabasePaths:       defaultRPMDatabasePaths(),
+		Sources:                defaultPackageSources(),
+		Cadence:                defaultCadence,
+		ForceFullScanInterval:  defaultFullScanInterval,
+		UploadJitter:           defaultUploadJitter,
+		UploadRetryInitial:     defaultUploadRetryInitial,
+		UploadRetryMax:         defaultUploadRetryMax,
+		UploadRetryMaxAttempts: defaultUploadRetryAttempts,
+		CacheStaleThreshold:    defaultCacheStale,
+		MaxPackages:            defaultMaxPackages,
+		MaxOutputBytes:         defaultMaxOutputBytes,
 	}
 }
 
 func defaultPackageSources() []string {
 	return []string{PackageSourceDpkg, PackageSourceRPM, PackageSourceAPK}
+}
+
+func defaultRPMDatabasePaths() []string {
+	return []string{
+		"/usr/lib/sysimage/rpm/rpmdb.sqlite",
+		"/var/lib/rpm/rpmdb.sqlite",
+		"/var/lib/rpm/Packages",
+		"/var/lib/rpm",
+	}
 }
 
 func LoadConfig(path string) (Config, error) {
@@ -100,6 +128,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.SpoolDir == "" {
 		cfg.SpoolDir = defaultSpoolDir
 	}
+	if cfg.CacheDir == "" {
+		cfg.CacheDir = defaultCacheDir
+	}
 	if cfg.TmpDir == "" {
 		cfg.TmpDir = defaultTmpDir
 	}
@@ -118,8 +149,32 @@ func applyDefaults(cfg *Config) {
 	if cfg.RPMPath == "" {
 		cfg.RPMPath = defaultRPMPath
 	}
+	if len(cfg.RPMDatabasePaths) == 0 {
+		cfg.RPMDatabasePaths = defaultRPMDatabasePaths()
+	}
 	if len(cfg.Sources) == 0 {
 		cfg.Sources = defaultPackageSources()
+	}
+	if cfg.Cadence == "" {
+		cfg.Cadence = defaultCadence
+	}
+	if cfg.ForceFullScanInterval <= 0 {
+		cfg.ForceFullScanInterval = defaultFullScanInterval
+	}
+	if cfg.UploadJitter == "" {
+		cfg.UploadJitter = defaultUploadJitter
+	}
+	if cfg.UploadRetryInitial == "" {
+		cfg.UploadRetryInitial = defaultUploadRetryInitial
+	}
+	if cfg.UploadRetryMax == "" {
+		cfg.UploadRetryMax = defaultUploadRetryMax
+	}
+	if cfg.UploadRetryMaxAttempts <= 0 {
+		cfg.UploadRetryMaxAttempts = defaultUploadRetryAttempts
+	}
+	if cfg.CacheStaleThreshold == "" {
+		cfg.CacheStaleThreshold = defaultCacheStale
 	}
 	if cfg.MaxPackages <= 0 {
 		cfg.MaxPackages = defaultMaxPackages
@@ -134,23 +189,36 @@ func applyRuntimeProfileFile(cfg *Config) error {
 		return nil
 	}
 
-	data, err := os.ReadFile(cfg.ProfilePath)
+	profile, err := LoadRuntimeProfile(cfg.ProfilePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
-		return fmt.Errorf("read runtime profile: %w", err)
-	}
-
-	var profile RuntimeProfile
-	decoder := json.NewDecoder(strings.NewReader(string(data)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&profile); err != nil {
-		return fmt.Errorf("decode runtime profile: %w", err)
+		return err
 	}
 
 	ApplyRuntimeProfile(cfg, profile)
 	return nil
+}
+
+func ApplyRuntimeProfileFile(cfg *Config) error {
+	return applyRuntimeProfileFile(cfg)
+}
+
+func LoadRuntimeProfile(path string) (RuntimeProfile, error) {
+	var profile RuntimeProfile
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return profile, err
+	}
+
+	decoder := json.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&profile); err != nil {
+		return profile, fmt.Errorf("decode runtime profile: %w", err)
+	}
+
+	return profile, nil
 }
 
 func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
@@ -169,6 +237,36 @@ func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
 	}
 	if profile.Sources != nil {
 		cfg.Sources = append([]string(nil), profile.Sources...)
+	}
+	if strings.TrimSpace(profile.Cadence) != "" {
+		cfg.Cadence = strings.TrimSpace(profile.Cadence)
+	}
+	if profile.CollectPaths != nil {
+		cfg.CollectPaths = *profile.CollectPaths
+	}
+	if profile.CollectFileHashes != nil {
+		cfg.CollectFileHashes = *profile.CollectFileHashes
+	}
+	if profile.ForceFreshEnabled != nil {
+		cfg.ForceFreshEnabled = *profile.ForceFreshEnabled
+	}
+	if profile.ForceFullScanInterval != nil {
+		cfg.ForceFullScanInterval = *profile.ForceFullScanInterval
+	}
+	if strings.TrimSpace(profile.UploadJitter) != "" {
+		cfg.UploadJitter = strings.TrimSpace(profile.UploadJitter)
+	}
+	if strings.TrimSpace(profile.UploadRetryInitial) != "" {
+		cfg.UploadRetryInitial = strings.TrimSpace(profile.UploadRetryInitial)
+	}
+	if strings.TrimSpace(profile.UploadRetryMax) != "" {
+		cfg.UploadRetryMax = strings.TrimSpace(profile.UploadRetryMax)
+	}
+	if profile.UploadRetryMaxAttempts != nil {
+		cfg.UploadRetryMaxAttempts = *profile.UploadRetryMaxAttempts
+	}
+	if strings.TrimSpace(profile.CacheStaleThreshold) != "" {
+		cfg.CacheStaleThreshold = strings.TrimSpace(profile.CacheStaleThreshold)
 	}
 	if profile.MaxPackages != nil {
 		cfg.MaxPackages = *profile.MaxPackages
@@ -189,11 +287,37 @@ func validateConfig(cfg Config) error {
 	if _, err := time.ParseDuration(cfg.ScanTimeout); err != nil {
 		return fmt.Errorf("invalid scan_timeout: %w", err)
 	}
+	if cadence, err := time.ParseDuration(cfg.Cadence); err != nil {
+		return fmt.Errorf("invalid cadence: %w", err)
+	} else if cadence <= 0 {
+		return fmt.Errorf("invalid cadence: %w", ErrInvalidDuration)
+	}
+	if jitter, err := time.ParseDuration(cfg.UploadJitter); err != nil {
+		return fmt.Errorf("invalid upload_jitter: %w", err)
+	} else if jitter < 0 {
+		return fmt.Errorf("invalid upload_jitter: %w", ErrInvalidDuration)
+	}
+	if retryInitial, err := time.ParseDuration(cfg.UploadRetryInitial); err != nil {
+		return fmt.Errorf("invalid upload_retry_initial: %w", err)
+	} else if retryInitial <= 0 {
+		return fmt.Errorf("invalid upload_retry_initial: %w", ErrInvalidDuration)
+	}
+	if retryMax, err := time.ParseDuration(cfg.UploadRetryMax); err != nil {
+		return fmt.Errorf("invalid upload_retry_max: %w", err)
+	} else if retryMax <= 0 {
+		return fmt.Errorf("invalid upload_retry_max: %w", ErrInvalidDuration)
+	}
+	if cfg.UploadRetryMaxAttempts <= 0 {
+		return fmt.Errorf("%w: %d", ErrInvalidRetryAttempts, cfg.UploadRetryMaxAttempts)
+	}
 	if cfg.MaxPackages <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidMaxPackages, cfg.MaxPackages)
 	}
 	if cfg.MaxOutputBytes <= 0 {
 		return fmt.Errorf("%w: %d", ErrInvalidMaxOutputSize, cfg.MaxOutputBytes)
+	}
+	if _, err := time.ParseDuration(cfg.CacheStaleThreshold); err != nil {
+		return fmt.Errorf("invalid cache_stale_threshold: %w", err)
 	}
 	for _, source := range cfg.Sources {
 		switch source {

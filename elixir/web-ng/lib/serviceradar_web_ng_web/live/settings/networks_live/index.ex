@@ -1629,7 +1629,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
       <!-- Statistics Cards -->
       <.scan_statistics running={@running} recent={@recent} />
 
-    <!-- Running Scans -->
       <.ui_panel>
         <:header>
           <div class="flex items-center gap-2">
@@ -1662,7 +1661,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
         </div>
       </.ui_panel>
 
-    <!-- Recent Completions -->
       <.ui_panel>
         <:header>
           <div class="flex items-center gap-2">

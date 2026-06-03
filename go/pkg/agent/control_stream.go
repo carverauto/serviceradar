@@ -44,16 +44,18 @@ const (
 )
 
 const (
-	commandTypeMapperRun       = "mapper.run_job"
-	commandTypeSweepRun        = "sweep.run_group"
-	commandTypeMtrRun          = "mtr.run"
-	commandTypeMtrBulkRun      = "mtr.bulk_run"
-	commandTypeCameraRelayOpen = "camera.open_relay"
-	commandTypeCameraRelayStop = "camera.close_relay"
-	commandTypeAgentUpdate     = "agent.update_release"
-	commandTypeProxmoxTest     = "proxmox.credential_test"
-	commandTypePluginSnapshot  = "plugin.debug_snapshot"
-	commandTypePluginRunAction = "plugin.run_action"
+	commandTypeMapperRun                   = "mapper.run_job"
+	commandTypeSweepRun                    = "sweep.run_group"
+	commandTypeMtrRun                      = "mtr.run"
+	commandTypeMtrBulkRun                  = "mtr.bulk_run"
+	commandTypeCameraRelayOpen             = "camera.open_relay"
+	commandTypeCameraRelayStop             = "camera.close_relay"
+	commandTypeAgentUpdate                 = "agent.update_release"
+	commandTypeProxmoxTest                 = "proxmox.credential_test"
+	commandTypePluginSnapshot              = "plugin.debug_snapshot"
+	commandTypePluginRunAction             = "plugin.run_action"
+	commandTypeEndpointInventoryCacheQuery = "endpoint_inventory.cache_query"
+	commandTypeEndpointInventoryForceFresh = "endpoint_inventory.force_fresh_scan"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
@@ -515,6 +517,10 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handlePluginDebugSnapshot(cmd, sender)
 		case commandTypePluginRunAction:
 			p.handlePluginRunAction(ctx, cmd, sender)
+		case commandTypeEndpointInventoryCacheQuery:
+			p.handleEndpointInventoryCacheQuery(cmd, sender)
+		case commandTypeEndpointInventoryForceFresh:
+			p.handleEndpointInventoryForceFreshScan(ctx, cmd, sender)
 		default:
 			_ = sender.Send(commandResult(cmd, false, "unsupported command", nil))
 		}

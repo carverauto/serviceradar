@@ -248,6 +248,13 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
           label: "Delete remote file-transfer records",
           description: "Delete remote-access file-transfer metadata records",
           default_roles: @admin_roles
+        },
+        %{
+          key: "endpoint_inventory.force_fresh_scan",
+          label: "Force fresh endpoint inventory scans",
+          description:
+            "Trigger device-scoped fresh endpoint software inventory scans through the agent command bus",
+          default_roles: @admin_roles
         }
       ]
     },
@@ -474,7 +481,7 @@ defmodule ServiceRadar.Identity.RBAC.Catalog do
         %{
           key: "settings.edge.manage",
           label: "Manage edge packages",
-          description: "Manage edge onboarding packages",
+          description: "Manage edge onboarding packages and endpoint inventory settings",
           default_roles: @admin_roles
         },
         %{

@@ -37,6 +37,13 @@ type endpointInventoryConfigPayload struct {
 	Cadence        string   `json:"cadence,omitempty"`
 	CollectPaths   bool     `json:"collect_paths,omitempty"`
 	CollectHashes  bool     `json:"collect_file_hashes,omitempty"`
+	ForceFresh     bool     `json:"force_fresh_enabled,omitempty"`
+	ForceFullScan  int32    `json:"force_full_scan_interval,omitempty"`
+	CacheStale     string   `json:"cache_stale_threshold,omitempty"`
+	UploadJitter   string   `json:"upload_jitter,omitempty"`
+	RetryInitial   string   `json:"upload_retry_initial,omitempty"`
+	RetryMax       string   `json:"upload_retry_max,omitempty"`
+	RetryAttempts  int32    `json:"upload_retry_max_attempts,omitempty"`
 }
 
 func parseGatewayEndpointInventoryConfig(configJSON []byte) (*endpointInventoryConfigPayload, error) {
@@ -70,6 +77,13 @@ func endpointInventoryConfigFromProto(cfg *monitoringpb.EndpointInventoryConfig)
 		Cadence:        cfg.GetCadence(),
 		CollectPaths:   cfg.GetCollectPaths(),
 		CollectHashes:  cfg.GetCollectFileHashes(),
+		ForceFresh:     cfg.GetForceFreshEnabled(),
+		ForceFullScan:  cfg.GetForceFullScanInterval(),
+		CacheStale:     cfg.GetCacheStaleThreshold(),
+		UploadJitter:   cfg.GetUploadJitter(),
+		RetryInitial:   cfg.GetUploadRetryInitial(),
+		RetryMax:       cfg.GetUploadRetryMax(),
+		RetryAttempts:  cfg.GetUploadRetryMaxAttempts(),
 	}
 }
 
@@ -80,10 +94,31 @@ func (p *endpointInventoryConfigPayload) runtimeProfile(agentID string) endpoint
 
 	enabled := p.Enabled
 	profile := endpointinventory.RuntimeProfile{
-		Enabled:     &enabled,
-		AgentID:     agentID,
-		ScanTimeout: p.ScanTimeout,
-		Sources:     append([]string(nil), p.Sources...),
+		Enabled:             &enabled,
+		AgentID:             agentID,
+		ScanTimeout:         p.ScanTimeout,
+		Sources:             append([]string(nil), p.Sources...),
+		Cadence:             p.Cadence,
+		CacheStaleThreshold: p.CacheStale,
+		UploadJitter:        p.UploadJitter,
+		UploadRetryInitial:  p.RetryInitial,
+		UploadRetryMax:      p.RetryMax,
+	}
+	collectPaths := p.CollectPaths
+	profile.CollectPaths = &collectPaths
+	collectHashes := p.CollectHashes
+	profile.CollectFileHashes = &collectHashes
+	if p.ForceFresh {
+		forceFresh := true
+		profile.ForceFreshEnabled = &forceFresh
+	}
+	if p.ForceFullScan > 0 {
+		forceFullScan := int(p.ForceFullScan)
+		profile.ForceFullScanInterval = &forceFullScan
+	}
+	if p.RetryAttempts > 0 {
+		retryAttempts := int(p.RetryAttempts)
+		profile.UploadRetryMaxAttempts = &retryAttempts
 	}
 	if p.MaxPackages > 0 {
 		maxPackages := int(p.MaxPackages)

@@ -1,4 +1,11 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
+TRUNCATE endpoint_inventory_packages;
+TRUNCATE endpoint_packages;
+TRUNCATE endpoint_inventory_scans;
+TRUNCATE endpoint_inventory_current_package_counts;
+TRUNCATE endpoint_inventory_current_cpe_counts;
+TRUNCATE endpoint_inventory_package_counts_hourly;
+TRUNCATE endpoint_inventory_cpe_counts_hourly;
 TRUNCATE ocsf_devices;
 WITH base AS (
     SELECT NOW() AS now_ts
@@ -126,6 +133,381 @@ SELECT 'device-delta',
     TRUE,
     TRUE,
     '{"site":"phx-edge","packet_loss_bucket":"low"}'::jsonb
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_scans (
+    id,
+    device_uid,
+    agent_id,
+    scan_id,
+    collector_name,
+    collector_version,
+    state,
+    coverage_state,
+    package_count,
+    enabled_sources,
+    manager_counts,
+    source_summaries,
+    artifact_count,
+    current,
+    last_successful_scan_at,
+    last_scan_at,
+    last_changed_scan_at,
+    ingested_at,
+    package_set_hash,
+    artifact_hash,
+    hash_algorithm,
+    upload_reason,
+    server_package_set_hash,
+    package_set_hash_mismatch,
+    unchanged_scan_count,
+    reconcile_floor_due,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'scan-current',
+    'serviceradar-endpoint-inventory',
+    '1.0.0',
+    'scanned',
+    'complete',
+    2,
+    ARRAY ['dpkg'],
+    '{"dpkg":2}'::jsonb,
+    ARRAY ['{"source":"dpkg","state":"scanned","package_count":2}'::jsonb],
+    1,
+    TRUE,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '19 minutes',
+    'sha256:current-package-set',
+    'sha256:current-artifact',
+    'sha256-v1',
+    'changed',
+    'sha256:current-package-set',
+    FALSE,
+    0,
+    FALSE,
+    '{"fixture":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+    'device-alpha',
+    'agent-1',
+    'scan-historical',
+    'serviceradar-endpoint-inventory',
+    '1.0.0',
+    'scanned',
+    'complete',
+    1,
+    ARRAY ['dpkg'],
+    '{"dpkg":1}'::jsonb,
+    ARRAY ['{"source":"dpkg","state":"scanned","package_count":1}'::jsonb],
+    1,
+    FALSE,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days',
+    'sha256:historical-package-set',
+    'sha256:historical-artifact',
+    'sha256-v1',
+    'changed',
+    'sha256:historical-package-set',
+    FALSE,
+    0,
+    FALSE,
+    '{"fixture":"historical"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_packages (
+    id,
+    coordinate_key,
+    purl_canonical,
+    primary_cpe,
+    cpes,
+    package_manager,
+    name,
+    version,
+    architecture,
+    ecosystem,
+    source_scope,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT 'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
+    'purl:pkg:deb/nginx@1.24.0-2ubuntu7',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
+    'dpkg',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'aaaaaaaa-2222-4222-8222-222222222222'::uuid,
+    'purl:pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
+    'dpkg',
+    'openssl',
+    '3.0.13-0ubuntu3.5',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT 'aaaaaaaa-3333-4333-8333-333333333333'::uuid,
+    'purl:pkg:deb/nginx@1.22.1-9',
+    'pkg:deb/nginx@1.22.1-9',
+    'cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*'],
+    'dpkg',
+    'nginx',
+    '1.22.1-9',
+    'amd64',
+    'deb',
+    'host',
+    '{"fixture":"catalog"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_packages (
+    id,
+    scan_ref,
+    device_uid,
+    agent_id,
+    name,
+    version,
+    architecture,
+    package_manager,
+    ecosystem,
+    purl,
+    purl_canonical,
+    endpoint_package_ref,
+    cpes,
+    supplier,
+    license,
+    source,
+    evidence,
+    current,
+    metadata,
+    inserted_at,
+    updated_at
+)
+SELECT '11111111-1111-4111-8111-111111111111'::uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    'aaaaaaaa-1111-4111-8111-111111111111'::uuid,
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
+    'nginx',
+    'BSD-2-Clause',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    TRUE,
+    '{"scan":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT '22222222-2222-4222-8222-222222222222'::uuid,
+    'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'::uuid,
+    'device-alpha',
+    'agent-1',
+    'openssl',
+    '3.0.13-0ubuntu3.5',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    'aaaaaaaa-2222-4222-8222-222222222222'::uuid,
+    ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
+    'OpenSSL Project',
+    'Apache-2.0',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    TRUE,
+    '{"scan":"current"}'::jsonb,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT '33333333-3333-4333-8333-333333333333'::uuid,
+    'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'::uuid,
+    'device-alpha',
+    'agent-1',
+    'nginx',
+    '1.22.1-9',
+    'amd64',
+    'dpkg',
+    'deb',
+    'pkg:deb/nginx@1.22.1-9',
+    'pkg:deb/nginx@1.22.1-9',
+    'aaaaaaaa-3333-4333-8333-333333333333'::uuid,
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.22.1:*:*:*:*:*:*:*'],
+    'nginx',
+    'BSD-2-Clause',
+    '/var/lib/dpkg/status',
+    '{"method":"dpkg-query"}'::jsonb,
+    FALSE,
+    '{"scan":"historical"}'::jsonb,
+    base.now_ts - INTERVAL '2 days',
+    base.now_ts - INTERVAL '2 days'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_current_package_counts (
+    coordinate_hash,
+    package_manager,
+    ecosystem,
+    name,
+    version,
+    architecture,
+    purl_canonical,
+    cpes,
+    host_count,
+    first_seen_at,
+    last_seen_at,
+    updated_at
+)
+SELECT
+    'coord:dpkg:nginx:1.24.0-2ubuntu7:amd64',
+    'dpkg',
+    'deb',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    ARRAY ['cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*'],
+    1,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base
+UNION ALL
+SELECT
+    'coord:dpkg:openssl:3.0.13-0ubuntu3.5:amd64',
+    'dpkg',
+    'deb',
+    'openssl',
+    '3.0.13-0ubuntu3.5',
+    'amd64',
+    'pkg:deb/openssl@3.0.13-0ubuntu3.5',
+    ARRAY ['cpe:2.3:a:openssl:openssl:3.0.13:*:*:*:*:*:*:*'],
+    1,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_current_cpe_counts (
+    cpe,
+    host_count,
+    first_seen_at,
+    last_seen_at,
+    updated_at
+)
+SELECT
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    1,
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes',
+    base.now_ts - INTERVAL '20 minutes'
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_package_counts_hourly (
+    bucket,
+    coordinate_hash,
+    package_manager,
+    ecosystem,
+    name,
+    version,
+    architecture,
+    purl_canonical,
+    max_host_count,
+    min_host_count,
+    net_count_delta,
+    sample_count
+)
+SELECT
+    date_trunc('hour', base.now_ts - INTERVAL '1 hour'),
+    'coord:dpkg:nginx:1.24.0-2ubuntu7:amd64',
+    'dpkg',
+    'deb',
+    'nginx',
+    '1.24.0-2ubuntu7',
+    'amd64',
+    'pkg:deb/nginx@1.24.0-2ubuntu7',
+    1,
+    1,
+    1,
+    1
+FROM base;
+
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO endpoint_inventory_cpe_counts_hourly (
+    bucket,
+    cpe,
+    max_host_count,
+    min_host_count,
+    net_count_delta,
+    sample_count
+)
+SELECT
+    date_trunc('hour', base.now_ts - INTERVAL '1 hour'),
+    'cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*',
+    1,
+    1,
+    1,
+    1
 FROM base;
 
 WITH base AS (
@@ -853,6 +1235,70 @@ SELECT base.now_ts - INTERVAL '3 minutes',
     'info',
     NULL,
     '{}'::jsonb,
+    NULL,
+    base.now_ts
+FROM base;
+WITH base AS (
+    SELECT NOW() AS now_ts
+)
+INSERT INTO ocsf_events (
+        time,
+        id,
+        class_uid,
+        category_uid,
+        type_uid,
+        activity_id,
+        activity_name,
+        severity_id,
+        severity,
+        message,
+        status_id,
+        status,
+        status_code,
+        status_detail,
+        metadata,
+        observables,
+        trace_id,
+        span_id,
+        actor,
+        device,
+        src_endpoint,
+        dst_endpoint,
+        log_name,
+        log_provider,
+        log_level,
+        log_version,
+        unmapped,
+        raw_data,
+        created_at
+    )
+SELECT base.now_ts - INTERVAL '2 minutes',
+    '44444444-4444-4444-8444-444444444444'::uuid,
+    2004,
+    2,
+    200401,
+    1,
+    'Create',
+    5,
+    'Critical',
+    'endpoint vulnerability finding: CVE-2026-0001: nginx 1.24.0-2ubuntu7',
+    NULL,
+    'open',
+    NULL,
+    NULL,
+    '{"signal_type":"inventory","primary_domain":"security","vulnerability_finding":{"cve":"CVE-2026-0001","cvss_score":9.8,"package":{"purl_canonical":"pkg:deb/nginx@1.24.0-2ubuntu7","purl":"pkg:deb/nginx@1.24.0-2ubuntu7","cpes":["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"],"package_manager":"dpkg","name":"nginx","version":"1.24.0-2ubuntu7","architecture":"amd64"}}}'::jsonb,
+    '[]'::jsonb,
+    NULL,
+    NULL,
+    '{}'::jsonb,
+    '{"uid":"device-alpha"}'::jsonb,
+    '{}'::jsonb,
+    '{}'::jsonb,
+    'signals.causal.inventory.vulnerability',
+    'endpoint_inventory',
+    'critical',
+    'endpoint-inventory-v1',
+    '{"signal_type":"inventory","event_type":"vulnerability_match","device_uid":"device-alpha","cve":"CVE-2026-0001","package":{"purl_canonical":"pkg:deb/nginx@1.24.0-2ubuntu7","cpes":["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"]}}'::jsonb,
     NULL,
     base.now_ts
 FROM base;

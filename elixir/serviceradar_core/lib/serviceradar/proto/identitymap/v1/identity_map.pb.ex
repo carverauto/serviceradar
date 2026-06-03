@@ -1,7 +1,11 @@
 defmodule Identitymap.V1.IdentityKind do
   @moduledoc false
 
-  use Protobuf, enum: true, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    enum: true,
+    full_name: "identitymap.v1.IdentityKind",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :IDENTITY_KIND_UNSPECIFIED, 0
   field :IDENTITY_KIND_DEVICE_ID, 1
@@ -15,7 +19,10 @@ end
 defmodule Identitymap.V1.IdentityKey do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "identitymap.v1.IdentityKey",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :kind, 1, type: Identitymap.V1.IdentityKind, enum: true
   field :value, 2, type: :string
@@ -24,7 +31,10 @@ end
 defmodule Identitymap.V1.Attribute do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "identitymap.v1.Attribute",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :key, 1, type: :string
   field :value, 2, type: :string
@@ -33,7 +43,10 @@ end
 defmodule Identitymap.V1.CanonicalRecord do
   @moduledoc false
 
-  use Protobuf, syntax: :proto3, protoc_gen_elixir_version: "0.13.0"
+  use Protobuf,
+    full_name: "identitymap.v1.CanonicalRecord",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
 
   field :canonical_device_id, 1, type: :string, json_name: "canonicalDeviceId"
   field :partition, 2, type: :string

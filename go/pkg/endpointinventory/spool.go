@@ -25,11 +25,16 @@ import (
 )
 
 const LatestFileName = "latest.json"
+const PendingUploadFileName = "pending-upload.json"
 
 var ErrSpoolPayloadTooLarge = errors.New("endpoint inventory spool payload exceeds size budget")
 
 func LatestPath(spoolDir string) string {
 	return filepath.Join(spoolDir, LatestFileName)
+}
+
+func PendingUploadPath(spoolDir string) string {
+	return filepath.Join(spoolDir, PendingUploadFileName)
 }
 
 func WriteSpool(cfg Config, payload *ScanPayload) error {
@@ -50,6 +55,11 @@ func WriteSpool(cfg Config, payload *ScanPayload) error {
 	if err := writeJSONAtomic(LatestPath(cfg.SpoolDir), cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
 		return err
 	}
+	if PayloadRequiresFullUpload(payload) {
+		if err := writeJSONAtomic(PendingUploadPath(cfg.SpoolDir), cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
+			return err
+		}
+	}
 	if payload.ScanID != "" {
 		runPath := filepath.Join(cfg.SpoolDir, "runs", payload.ScanID+".json")
 		if err := writeJSONAtomic(runPath, cfg.TmpDir, cfg.MaxOutputBytes, payload); err != nil {
@@ -60,7 +70,7 @@ func WriteSpool(cfg Config, payload *ScanPayload) error {
 	return nil
 }
 
-func writeJSONAtomic(path string, tmpDir string, maxBytes int64, payload *ScanPayload) error {
+func writeJSONAtomic(path string, tmpDir string, maxBytes int64, payload any) error {
 	data, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal spool payload: %w", err)
