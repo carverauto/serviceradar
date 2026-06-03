@@ -42,7 +42,8 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
 - [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 
-### 1.3 Reasoner — CausaloidGraph over ultragraph CSR (capability: causal-reasoning)
+### 1.3 Reasoner — CausaloidGraph over ultragraph CSR (capability: causal-reasoning) — → DeepCausality author (Marvin)
+> HAND-OFF: 1.3 / 1.4 (C1–C13) / 1.5 (risk composition) + the 1.10 `causality.rs` extraction are the DeepCausality author's. The ServiceRadar seams are ready and green — `ContextStore`/`Context` (input), the `Reasoner::evaluate` stub, `Verdict` + emitter (output → `signals.causal.predictions`), and `ultragraph 0.9` (Gap G already upstream). Risk inputs: `ocsf_devices.risk_score` + AGE `pkg_*` scalars. See `runbooks/reasoner-handoff.md`. The 1.10 NIF cutover + 1.2 feed-2 follow once the reasoner produces verdicts.
 - [ ] 1.3.1 Build the `CausaloidGraph` on an ultragraph `CsmGraph` (CSR); `freeze()` before each reasoning tick.
 - [ ] 1.3.2 `unfreeze()` ONLY when topology actually changes (a state-change-event that mutates vertices/edges), not on every metric delta.
 - [ ] 1.3.3 Implement the reasoning tick loop: hydrate Context, freeze, evaluate causaloids, collect verdicts, hand off to emitter.
