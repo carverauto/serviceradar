@@ -12,7 +12,7 @@
 
 use std::collections::HashMap;
 
-use crate::domain_model::{Context, Device, EdgeKind};
+use crate::domain_model::{Context, Device, EdgeKind, GatewayClass};
 use crate::error::Result;
 
 /// A gateway is flagged as a shared-fate root cause when at least this many of
@@ -95,6 +95,16 @@ fn availability_map(ctx: &Context) -> HashMap<&str, Option<bool>> {
         .collect()
 }
 
+/// Combined availability across devices (by uid) and services (by composite id)
+/// — a `DEPENDS_ON` target may be either (C7).
+fn entity_availability_map(ctx: &Context) -> HashMap<&str, Option<bool>> {
+    let mut map = availability_map(ctx);
+    for service in &ctx.services {
+        map.insert(service.id.as_str(), service.available);
+    }
+    map
+}
+
 /// The DeepCausality reasoner.
 #[derive(Default)]
 pub struct Reasoner {
@@ -120,6 +130,7 @@ impl Reasoner {
         verdicts.extend(c3_gateway_shared_fate(ctx));
         verdicts.extend(c4_management_unobservable(ctx));
         verdicts.extend(c6_interface_saturation(ctx));
+        verdicts.extend(c7_service_stack_collapse(ctx));
         Ok(verdicts)
     }
 }
@@ -179,7 +190,17 @@ fn c2_datastore_cascade(ctx: &Context) -> Vec<Verdict> {
 /// gateway flip unavailable together, the shared gateway is the likelier root
 /// cause than each device independently: emit `RootCause` for the gateway and
 /// `Affected` for each device that shares its fate.
+///
+/// Gap E: a gateway whose `gateway_class` is out-of-band or management is NOT a
+/// data-plane reachability path, so its failure is not blamed as the data-plane
+/// root cause — the shared-fate inference is suppressed for that gateway.
 fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
+    let class_by_uid: HashMap<&str, GatewayClass> = ctx
+        .devices
+        .iter()
+        .filter_map(|d| d.gateway_class.map(|class| (d.uid.as_str(), class)))
+        .collect();
+
     let mut unavailable_by_gateway: HashMap<&str, Vec<&Device>> = HashMap::new();
     for device in &ctx.devices {
         if device.is_available == Some(false) {
@@ -195,6 +216,13 @@ fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for (gateway, devices) in unavailable_by_gateway {
         if devices.len() < GATEWAY_SHARED_FATE_THRESHOLD {
+            continue;
+        }
+        // Gap E: out-of-band / management gateways are not in-band reachability.
+        if matches!(
+            class_by_uid.get(gateway),
+            Some(GatewayClass::OutOfBand | GatewayClass::Management)
+        ) {
             continue;
         }
         verdicts.push(Verdict::new(
@@ -281,10 +309,37 @@ fn c6_interface_saturation(ctx: &Context) -> Vec<Verdict> {
     verdicts
 }
 
+/// C7 — service-stack collapse prediction.
+///
+/// When an underlying dependency (the `dst` of a `DEPENDS_ON` edge — a service,
+/// host, or resource) is unavailable, the dependent stack (`src`) is predicted
+/// to collapse/degrade.
+fn c7_service_stack_collapse(ctx: &Context) -> Vec<Verdict> {
+    let availability = entity_availability_map(ctx);
+    let mut verdicts = Vec::new();
+    for edge in &ctx.edges {
+        if edge.kind == EdgeKind::DependsOn
+            && availability.get(edge.dst.as_str()) == Some(&Some(false))
+        {
+            verdicts.push(Verdict::new(
+                edge.src.clone(),
+                Classification::Affected,
+                format!(
+                    "dependency {} is unavailable; dependent stack predicted to collapse",
+                    edge.dst
+                ),
+            ));
+        }
+    }
+    verdicts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_model::{Context, Device, EdgeKind, InterfaceLink, TopologyEdge};
+    use crate::domain_model::{
+        Context, Device, EdgeKind, GatewayClass, InterfaceLink, Service, TopologyEdge,
+    };
 
     fn device(uid: &str, available: Option<bool>, gateway: Option<&str>) -> Device {
         Device {
@@ -509,5 +564,79 @@ mod tests {
             ..Default::default()
         };
         assert!(c6_interface_saturation(&ctx).is_empty());
+    }
+
+    fn depends_on(dependent: &str, dependency: &str) -> TopologyEdge {
+        TopologyEdge::new(dependent, dependency, EdgeKind::DependsOn)
+    }
+
+    fn service(id: &str, available: Option<bool>) -> Service {
+        Service {
+            id: id.to_string(),
+            available,
+        }
+    }
+
+    #[test]
+    fn c7_predicts_collapse_when_dependency_fails() {
+        let ctx = Context {
+            services: vec![
+                service("agent-1:grpc:api", Some(true)),
+                service("agent-1:grpc:db", Some(false)),
+            ],
+            edges: vec![depends_on("agent-1:grpc:api", "agent-1:grpc:db")],
+            ..Default::default()
+        };
+        assert_eq!(
+            classification_of(&c7_service_stack_collapse(&ctx), "agent-1:grpc:api"),
+            Some(&Classification::Affected)
+        );
+    }
+
+    #[test]
+    fn c7_no_collapse_when_dependency_healthy() {
+        let ctx = Context {
+            services: vec![
+                service("agent-1:grpc:api", Some(true)),
+                service("agent-1:grpc:db", Some(true)),
+            ],
+            edges: vec![depends_on("agent-1:grpc:api", "agent-1:grpc:db")],
+            ..Default::default()
+        };
+        assert!(c7_service_stack_collapse(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c3_suppresses_out_of_band_gateway_root_cause() {
+        let mut oob_gateway = device("sr:gw:oob", Some(false), None);
+        oob_gateway.gateway_class = Some(GatewayClass::OutOfBand);
+        let ctx = Context {
+            devices: vec![
+                oob_gateway,
+                device("sr:device:a", Some(false), Some("sr:gw:oob")),
+                device("sr:device:b", Some(false), Some("sr:gw:oob")),
+            ],
+            ..Default::default()
+        };
+        // Gap E: the OOB gateway is not blamed as a data-plane root cause.
+        assert!(c3_gateway_shared_fate(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c3_still_blames_in_band_gateway() {
+        let mut inband_gateway = device("sr:gw:inband", Some(false), None);
+        inband_gateway.gateway_class = Some(GatewayClass::InBand);
+        let ctx = Context {
+            devices: vec![
+                inband_gateway,
+                device("sr:device:a", Some(false), Some("sr:gw:inband")),
+                device("sr:device:b", Some(false), Some("sr:gw:inband")),
+            ],
+            ..Default::default()
+        };
+        assert_eq!(
+            classification_of(&c3_gateway_shared_fate(&ctx), "sr:gw:inband"),
+            Some(&Classification::RootCause)
+        );
     }
 }
