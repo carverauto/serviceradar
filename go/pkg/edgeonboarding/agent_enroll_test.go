@@ -102,7 +102,10 @@ func TestEnrollAgentPreservesLiveNATSConfigWhenBundleOmitsCreds(t *testing.T) {
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/api/edge-packages/pkg-1/bundle", r.URL.Path)
-		assert.Equal(t, "download-token", r.Header.Get(downloadTokenHeader))
+		// The bundle endpoint verifies the full edgepkg envelope, so the CLI must send the
+		// raw token (signature + bindings), not the bare inner download token.
+		assert.True(t, strings.HasPrefix(r.Header.Get(downloadTokenHeader), tokenV3Prefix),
+			"bundle request must carry the full edgepkg envelope, got %q", r.Header.Get(downloadTokenHeader))
 		_, err := testAgentBundle(t, "").WriteTo(w)
 		if !assert.NoError(t, err) {
 			return
