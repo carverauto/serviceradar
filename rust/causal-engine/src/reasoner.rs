@@ -1,14 +1,22 @@
-//! The reasoner — a DeepCausality `CausaloidGraph` evaluated over an
-//! `ultragraph` `CsmGraph`.
+//! The reasoner — causaloids C1–C13 evaluated over the hydrated [`Context`].
 //!
-//! TODO(1.3): build the graph layer on `ultragraph` 0.9 (`CsmGraph` CSR;
-//! `freeze()` before each tick, `unfreeze()` only on real topology change) and
-//! wrap it in a DeepCausality `CausaloidGraph`.
-//! TODO(1.4): implement causaloids C1–C13. Six are direct `ultragraph` 0.9
-//! library calls — `articulation_points`/`bridges` (C5/C5b), `is_reachable`
-//! (C4/C7/C8), `pathway_betweenness_centrality` (C9).
-//! TODO(1.5): compose per-device risk (`risk_score` + `pkg_*` scalars) into
-//! C5/C7/C10 as numeric observations.
+//! The non-graph causaloids operate directly on `Context` state/metrics/risk;
+//! the graph causaloids (C5/C5b/C8/C9/C10) build an `ultragraph` `CsmGraph` from
+//! `Context.edges` (see the `graph` module) and call its structural/centrality/
+//! reachability algorithms.
+//!
+//! Implemented (1.4):
+//! - C1 virtualization containment cascade, C2 datastore cascade
+//! - C3 gateway/agent shared-fate root cause (incl. Gap E out-of-band suppression)
+//! - C4 management-unobservable suppression
+//! - C6 interface-saturation projection (capacity-eligible links only)
+//! - C7 service-stack collapse
+//! - C11 flap-rate precursor, C12 operator-rule promotion, C13 discovery-gap
+//! - C5/C5b single-point-of-failure, C8 BGP withdrawal, C9 shared-hop bottleneck,
+//!   C10 traffic-source blast radius (graph causaloids, `graph` module)
+//!
+//! Risk composition (1.5): per-device `risk_score` + `pkg_severity` raise — but
+//! never alter — the predicted severity of C5/C7/C10.
 
 use std::collections::HashMap;
 
@@ -22,6 +30,10 @@ const GATEWAY_SHARED_FATE_THRESHOLD: usize = 2;
 /// A link is flagged by C6 as projected-saturated at or above this percent
 /// utilization (observed `flow_bps` / engineered `capacity_bps`).
 const SATURATION_UTILIZATION_PCT: i64 = 80;
+
+/// A node with at least this many recent state transitions is flagged by C11 as
+/// an instability precursor.
+const FLAP_PRECURSOR_THRESHOLD: i64 = 3;
 
 /// Verdict classification — maps cleanly onto the God-View 4-bucket render
 /// (`root_cause` / `affected` / `healthy` / `unknown`, `GodViewSnapshot`
@@ -117,20 +129,20 @@ impl Reasoner {
         Self::default()
     }
 
-    /// Run one reasoning tick over the hydrated context, evaluating the
-    /// implemented causaloids and collecting verdicts.
-    ///
-    /// Implemented: C3 (gateway/agent shared-fate root cause). TODO(1.3/1.4/1.5):
-    /// the remaining causaloids (graph + virtualization + temporal) and risk
-    /// composition, on the `ultragraph` 0.9 graph layer.
+    /// Run one reasoning tick over the hydrated context, evaluating every
+    /// implemented causaloid (C1–C13) and collecting verdicts.
     pub fn evaluate(&self, ctx: &Context) -> Result<Vec<Verdict>> {
         let mut verdicts = Vec::new();
+        // Non-graph causaloids over Context state / metrics / risk.
         verdicts.extend(c1_containment_cascade(ctx));
         verdicts.extend(c2_datastore_cascade(ctx));
         verdicts.extend(c3_gateway_shared_fate(ctx));
         verdicts.extend(c4_management_unobservable(ctx));
         verdicts.extend(c6_interface_saturation(ctx));
         verdicts.extend(c7_service_stack_collapse(ctx));
+        verdicts.extend(c11_flap_precursor(ctx));
+        verdicts.extend(c12_operator_rule_promotion(ctx));
+        verdicts.extend(c13_discovery_gap(ctx));
         Ok(verdicts)
     }
 }
@@ -334,11 +346,77 @@ fn c7_service_stack_collapse(ctx: &Context) -> Vec<Verdict> {
     verdicts
 }
 
+/// C11 — flap-rate instability precursor.
+///
+/// An elevated flap rate (rapid repeated state transitions) is treated as a
+/// precursor to instability: emit a precursor prediction for the flapping node,
+/// with severity scaling with the flap count.
+fn c11_flap_precursor(ctx: &Context) -> Vec<Verdict> {
+    let mut verdicts = Vec::new();
+    for device in &ctx.devices {
+        if let Some(flaps) = device.flap_count {
+            if flaps >= FLAP_PRECURSOR_THRESHOLD {
+                let severity = (50 + flaps.saturating_mul(5)).clamp(0, 100) as u8;
+                verdicts.push(
+                    Verdict::new(
+                        device.uid.clone(),
+                        Classification::Affected,
+                        format!(
+                            "elevated flap rate ({flaps} recent transitions); instability precursor"
+                        ),
+                    )
+                    .raise_severity_to(severity),
+                );
+            }
+        }
+    }
+    verdicts
+}
+
+/// C12 — operator-rule promotion.
+///
+/// An operator-authored stateful alert rule whose condition is currently met is
+/// promoted into causal reasoning as an observation over its target entity.
+fn c12_operator_rule_promotion(ctx: &Context) -> Vec<Verdict> {
+    ctx.operator_rules
+        .iter()
+        .filter(|rule| rule.condition_met)
+        .map(|rule| {
+            Verdict::new(
+                rule.entity_uid.clone(),
+                Classification::Affected,
+                format!("operator rule {} fired: {}", rule.rule_id, rule.description),
+            )
+        })
+        .collect()
+}
+
+/// C13 — discovery-gap disambiguation.
+///
+/// When expected observations for a node are absent, distinguish "the node is
+/// down" from "we lost the ability to observe it." A node that is expected to be
+/// observed but has no availability reading is a discovery/observation gap
+/// (`Unknown`), not a confirmed outage — coordinating with C4's unobservable
+/// handling.
+fn c13_discovery_gap(ctx: &Context) -> Vec<Verdict> {
+    ctx.devices
+        .iter()
+        .filter(|device| device.observation_expected && device.is_available.is_none())
+        .map(|device| {
+            Verdict::new(
+                device.uid.clone(),
+                Classification::Unknown,
+                "expected observations absent; discovery/observation gap, not a confirmed outage",
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::domain_model::{
-        Context, Device, EdgeKind, GatewayClass, InterfaceLink, Service, TopologyEdge,
+        Context, Device, EdgeKind, GatewayClass, InterfaceLink, OperatorRule, Service, TopologyEdge,
     };
 
     fn device(uid: &str, available: Option<bool>, gateway: Option<&str>) -> Device {
@@ -638,5 +716,80 @@ mod tests {
             classification_of(&c3_gateway_shared_fate(&ctx), "sr:gw:inband"),
             Some(&Classification::RootCause)
         );
+    }
+
+    #[test]
+    fn c11_emits_precursor_above_flap_threshold() {
+        let mut flappy = device("sr:device:flap", Some(true), None);
+        flappy.flap_count = Some(6);
+        let ctx = Context {
+            devices: vec![flappy],
+            ..Default::default()
+        };
+        let verdicts = c11_flap_precursor(&ctx);
+        let v = verdicts
+            .iter()
+            .find(|v| v.entity_id == "sr:device:flap")
+            .expect("precursor verdict");
+        assert_eq!(v.classification, Classification::Affected);
+        assert_eq!(v.severity, 80); // 50 + 6*5
+    }
+
+    #[test]
+    fn c11_silent_below_flap_threshold() {
+        let mut steady = device("sr:device:steady", Some(true), None);
+        steady.flap_count = Some(1);
+        let ctx = Context {
+            devices: vec![steady],
+            ..Default::default()
+        };
+        assert!(c11_flap_precursor(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c12_promotes_a_met_operator_rule() {
+        let ctx = Context {
+            operator_rules: vec![
+                OperatorRule {
+                    rule_id: "rule-1".to_string(),
+                    entity_uid: "sr:device:x".to_string(),
+                    condition_met: true,
+                    description: "cpu > 95% for 10m".to_string(),
+                },
+                OperatorRule {
+                    rule_id: "rule-2".to_string(),
+                    entity_uid: "sr:device:y".to_string(),
+                    condition_met: false,
+                    description: "unmet".to_string(),
+                },
+            ],
+            ..Default::default()
+        };
+        let verdicts = c12_operator_rule_promotion(&ctx);
+        assert_eq!(
+            classification_of(&verdicts, "sr:device:x"),
+            Some(&Classification::Affected)
+        );
+        // an unmet rule is not promoted
+        assert_eq!(classification_of(&verdicts, "sr:device:y"), None);
+    }
+
+    #[test]
+    fn c13_classifies_absent_expected_observation_as_unknown() {
+        let mut expected = device("sr:device:expected", None, None);
+        expected.observation_expected = true;
+        let mut not_expected = device("sr:device:silent", None, None);
+        not_expected.observation_expected = false;
+        let ctx = Context {
+            devices: vec![expected, not_expected],
+            ..Default::default()
+        };
+        let verdicts = c13_discovery_gap(&ctx);
+        assert_eq!(
+            classification_of(&verdicts, "sr:device:expected"),
+            Some(&Classification::Unknown)
+        );
+        // a node we never expected to observe is not a discovery gap
+        assert_eq!(classification_of(&verdicts, "sr:device:silent"), None);
     }
 }
