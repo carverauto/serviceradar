@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.87
+
+Unblocks the v1.2.86 ArgoCD roll (carries forward all the v1.2.86 flow-attribution + netprobe fixes, which never deployed because a migration crashed core boot) and cleans up the CI publish path.
+
+## Whats New
+
+**1.2.87**
+- Fixed an Ecto migration version collision that blocked the entire v1.2.86 deploy: the endpoint-SBOM `add_endpoint_inventory_canonical_purl_indexes` migration shared version `20260602120000` with the already-applied `create_flow_process_attributions` (#3516), so Ecto silently skipped it, `purl_canonical` was never added to `endpoint_inventory_packages`, and the `add_endpoint_package_entity` backfill crashed core boot with "column purl_canonical does not exist" (an ArgoCD pre-sync hook, so it stalled the whole namespace roll). Renamed to a unique version (`20260602120500`) so it runs before the backfill.
+- Stopped `docker-build.yml` (renamed `publish-oci.yml`) auto-firing on every staging push: it redundantly rebuilt the images release.yml already builds + signs for the semver tags every environment deploys, and its cosign step was broken (RBE `--remote_download_minimal` leaves no local image-index metadata to sign). Now `workflow_dispatch`-only; it is bazel + rules_oci, not docker.
+
 # ServiceRadar v1.2.86
 
 Flow attribution end-to-end fixes: netprobe attribution probes, non-disruptive capture, and the agent-gateway flow-attribution size cap.
