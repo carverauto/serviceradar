@@ -72,6 +72,8 @@ spec:
           containerPort: 9100
           protocol: TCP
         env:
+        - name: TMPDIR
+          value: /tmp
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         - name: ERL_FLAGS
@@ -166,6 +168,8 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -191,6 +195,8 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
