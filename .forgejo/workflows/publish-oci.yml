@@ -1,9 +1,13 @@
 name: Publish OCI Images
 
 on:
-  push:
-    branches:
-      - staging
+  # Auto-trigger on staging pushes removed (2026-06): release.yml builds + signs
+  # the semver images every environment deploys (global.imageTag is a semver tag),
+  # so this per-commit latest/sha publish was redundant. It also always failed at
+  # signing — the RBE build uses --remote_download_minimal, so the local image-index
+  # metadata cosign needs is never materialized. Runs on demand only now. Re-add the
+  # `push:` trigger (and fix signing first) if a dev/staging env ever needs
+  # per-commit images.
   workflow_dispatch:
     inputs:
       release_tag:
