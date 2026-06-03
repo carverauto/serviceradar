@@ -221,6 +221,12 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
            )
            |> Ash.update() do
         {:ok, updated_package} ->
+          # nats_creds_ciphertext is an AshCloak calculation (decrypt_by_default([])): it is
+          # NOT loaded after the :deliver update, and once loaded it already returns the
+          # DECRYPTED creds (the ciphertext lives in encrypted_nats_creds_ciphertext). Load it
+          # best-effort here so a load hiccup never fails an otherwise-successful delivery.
+          updated_package = load_nats_creds(updated_package, actor, authorize?)
+
           # Decrypt package secrets only after the single-use consume transition succeeds.
           join_token = Crypto.decrypt(updated_package.join_token_ciphertext)
 
@@ -230,9 +236,9 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
             end
 
           # Per-agent flow-collector NATS creds are AshCloak-encrypted via
-          # the :attach_nats_creds action (B-5 sub-issue 1). Decrypt only
-          # if the agent package has been provisioned.
-          nats_creds = decrypt_nats_creds(updated_package)
+          # the :attach_nats_creds action (B-5 sub-issue 1). Present only
+          # if the agent package has been provisioned with creds.
+          nats_creds = nats_creds_from(updated_package)
 
           # Record delivery event
           OnboardingEvents.record(package_id, :delivered,
@@ -254,14 +260,19 @@ defmodule ServiceRadar.Edge.OnboardingPackages do
     end
   end
 
-  defp decrypt_nats_creds(%OnboardingPackage{nats_creds_ciphertext: nil}), do: nil
-
-  defp decrypt_nats_creds(%OnboardingPackage{nats_creds_ciphertext: ciphertext}) do
-    case ServiceRadar.Vault.decrypt(ciphertext) do
-      {:ok, plain} -> plain
-      _ -> nil
+  defp load_nats_creds(package, actor, authorize?) do
+    case Ash.load(package, [:nats_creds_ciphertext], actor: actor, authorize?: authorize?) do
+      {:ok, loaded} -> loaded
+      {:error, _reason} -> package
     end
   end
+
+  # AshCloak's :nats_creds_ciphertext calculation already returns the decrypted creds once
+  # loaded, so hand it through directly (no manual Vault.decrypt — that double-decrypted and
+  # silently dropped the creds). Guard the unloaded value so a package with no attached NATS
+  # creds (or a load that did not run) still delivers instead of crashing the bundle build.
+  defp nats_creds_from(%OnboardingPackage{nats_creds_ciphertext: %Ash.NotLoaded{}}), do: nil
+  defp nats_creds_from(%OnboardingPackage{nats_creds_ciphertext: creds}), do: creds
 
   @doc """
   Revokes a package, preventing further delivery or activation.

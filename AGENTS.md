@@ -17,6 +17,24 @@ Keep this managed block so 'openspec update' can refresh the instructions.
 
 <!-- OPENSPEC:END -->
 
+# Hard Rules (never violate)
+
+- **Never push directly to `staging` (or any shared/protected branch).** No
+  `git push origin <ref>:refs/heads/staging`, no fast-forward push, no
+  exceptions — not even when asked to "get this into staging." Land changes on a
+  feature branch and open a pull request, or hand the `git push` to the user.
+  Direct pushes to staging are unacceptable.
+- **Always push with an explicit refspec: `git push origin <local>:refs/heads/<branch>`.**
+  NEVER `git push origin <branch>` or `git push` — `push.default=upstream` plus a
+  branch that tracks `origin/staging` (which `git worktree add -b <name> origin/staging`
+  sets up) silently redirects the push to **staging**. Create feature worktrees with
+  `git worktree add --no-track -b <name> origin/staging`, and verify the push line says
+  `-> <name>`, never `-> staging`.
+- **Cut releases with `scripts/cut-release.sh`.** Update `CHANGELOG` and `VERSION`
+  first (the script validates a CHANGELOG entry for the version, and updates
+  `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The
+  user runs the release/push.
+
 # Codex Agent Guide for ServiceRadar
 
 This repository hosts the ServiceRadar monitoring platform. Use this file as the canonical guide when operating as a Codex agent.
