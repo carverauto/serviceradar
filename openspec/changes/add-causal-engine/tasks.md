@@ -17,7 +17,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 0.2.4 Post-deploy: run a full canonical-topology refresh so stored `telemetry_eligible` reconciles (the edit changes computed eligibility, not existing rows retroactively).
 
 ### 0.3 App-level state-change-events publisher in core-elx (Decision 1) (capability: observability-signals) — PARTIAL
-- [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `signals.state.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget. NOT pgoutput CDC / NOT logical replication.
+- [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `signals.state.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget app-level NATS publish.
 - [x] 0.3.1b Hook `health_events` (tap `HealthTracker.record_state_change/3` — old/new already in hand).
 - [x] 0.3.1c Hook `service_state` (NOT the `service_status` hypertable): pre-fetch prior availability in `ServiceStateRegistry.upsert_from_status/1` (gated behind `enabled?/0`) and publish only on a real transition; keyed by composite service identity (Decision 2).
 - [x] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex`: gated pre-fetch of prior is_available/is_managed by uid before `upsert_devices`, diff after `{:ok, remap}` (publishes against the remapped final uid). COALESCE-aware — only a non-nil incoming value that differs counts as a transition; risk_score deferred (separate DeviceRiskReducer rollup hook).
