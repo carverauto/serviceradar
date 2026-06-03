@@ -7,6 +7,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.StateChangePublisher
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Observability.ServiceState
   alias ServiceRadar.Observability.ServiceStatePubSub
@@ -25,6 +26,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     actor = SystemActor.system(:service_state_registry)
 
     attrs = build_attrs_from_status(status, actor)
+    previous = previous_service_availability(attrs, actor)
 
     ServiceState
     |> Ash.Changeset.for_create(:upsert, attrs, actor: actor)
@@ -33,6 +35,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       {:ok, state} ->
         deactivate_shadowed_plugin_states(state, actor)
         ServiceStatePubSub.broadcast_update(state)
+        maybe_publish_service_transition(previous, state)
         :ok
 
       {:error, error} ->
@@ -50,6 +53,75 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   def upsert_from_status(_), do: :ok
+
+  # add-causal-engine (Decision 1): capture prior availability BEFORE the upsert
+  # so a transition can be published to cdc.platform.service_state afterward.
+  # Gated behind the feed flag (StateChangePublisher.enabled?/0) so disabled
+  # deployments incur no extra read; best-effort (never affects the upsert).
+  defp previous_service_availability(attrs, actor) do
+    if StateChangePublisher.enabled?() do
+      case existing_service_state(attrs, actor) do
+        %ServiceState{} = state -> %{available: state.available, state: state.state}
+        _ -> nil
+      end
+    else
+      nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp existing_service_state(attrs, actor) do
+    ServiceState
+    |> filter(
+      agent_id == ^Map.fetch!(attrs, :agent_id) and
+        partition == ^Map.fetch!(attrs, :partition) and
+        service_type == ^Map.fetch!(attrs, :service_type) and
+        service_name == ^Map.fetch!(attrs, :service_name)
+    )
+    |> Ash.read(actor: actor, domain: ServiceRadar.Observability)
+    |> case do
+      {:ok, states} when is_list(states) ->
+        states |> Enum.sort_by(&logical_state_rank/1, :desc) |> List.first()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp maybe_publish_service_transition(previous, %ServiceState{} = state) do
+    old_available = previous && Map.get(previous, :available)
+    new_available = state.available
+
+    if not is_nil(previous) and old_available != new_available do
+      StateChangePublisher.publish_transition(
+        "service_state",
+        service_state_entity_uid(state),
+        field: "available",
+        old: old_available,
+        new: new_available,
+        partition_id: state.partition,
+        entity_type: "service",
+        extra: %{
+          "agent_id" => state.agent_id,
+          "gateway_id" => state.gateway_id,
+          "service_type" => state.service_type,
+          "service_name" => state.service_name
+        }
+      )
+    else
+      :ok
+    end
+  end
+
+  defp maybe_publish_service_transition(_previous, _state), do: :ok
+
+  # Composite service identity (Decision 2): service_state has no device uid, so
+  # the engine keys service transitions by this composite and resolves the owning
+  # device from agent_id when needed.
+  defp service_state_entity_uid(%ServiceState{} = state) do
+    "#{state.agent_id}:#{state.service_type}:#{state.service_name}"
+  end
 
   @spec repair_plugin_states_from_history(keyword()) ::
           {:ok, non_neg_integer()} | {:error, term()}

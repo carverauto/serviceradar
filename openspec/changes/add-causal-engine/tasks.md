@@ -11,16 +11,22 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 0.1.2 Add CSR-aware tests on the frozen `CsmGraph` for each new algorithm (articulation points, bridges, reachability, pathway centrality) covering disconnected and single-node graphs.
 - [ ] 0.1.3 Track the upstream release version and pin it; record that causaloids C4, C5, C5b, C7, C8, C9 gate on this release and the full causaloid set ships at launch.
 
-### 0.2 Gap B — capacity coverage audit + eligibility contract (capability: topology-causal-overlays)
-- [ ] 0.2.1 Audit `speed_bps` / `if_speed` population coverage across `mapper_results_ingestor.ex:2444` ingest and `network_discovery/topology_graph.ex` (per-interface coalesce `:1660`, edge `capacity_bps = min_non_zero(src,dst)` `:1565` written to AGE `CANONICAL_TOPOLOGY` `:901`); there is NO `if_high_speed` column and NO Rust-side enrichment.
-- [ ] 0.2.2 Define the edge eligibility contract: which edges carry trustworthy `capacity_bps` and which are unknown, so saturation/redundancy causaloids do not reason over absent data.
-- [ ] 0.2.3 Document coverage gaps and the eligibility predicate the engine will use to mark capacity evidence as `known` vs `unknown`.
+### 0.2 Gap B — capacity coverage audit + eligibility contract (capability: age-graph) — IMPLEMENTED
+- [x] 0.2.1 Audit SQL authored: `runbooks/gap-b-capacity-audit.sql` (sizes `platform.discovered_interfaces` speed_bps/if_speed coverage + canonical-edge capacity-eligibility violations). NOTE: run read-only against CNPG before/after deploy; the audit RUN itself is pending DB access.
+- [x] 0.2.2 Eligibility contract implemented in `network_discovery/topology_graph.ex`: `telemetry_status_fields/4` now requires `capacity_bps > 0` (min-of-both-ends from speed_bps/if_speed) AND observed flow for `telemetry_eligible`; capacity-less edges are skipped by the saturation causaloid (C6). Refines the existing field; no new schema column.
+- [x] 0.2.3 Coverage-gap + eligibility predicate documented in the runbook header and the `age-graph` "Capacity Eligibility Contract" requirement.
+- [ ] 0.2.4 Post-deploy: run a full canonical-topology refresh so stored `telemetry_eligible` reconciles (the edit changes computed eligibility, not existing rows retroactively).
 
-### 0.3 App-level state-change-events publisher in core-elx (Decision 1) (capability: observability-signals)
-- [ ] 0.3.1 Add a core-elx publisher that emits app-level state TRANSITIONS for `ocsf_devices`, `service_status`, and `health_events` (plus virtualization + AGE-projection transitions) to NATS subject `cdc.platform.<table>`. This is NOT pgoutput CDC and NOT logical replication.
-- [ ] 0.3.2 NEVER stream TimescaleDB hypertables on this feed; hypertables remain on-demand via SRQL. Add a guard/test asserting hypertable tables are excluded.
-- [ ] 0.3.3 Stamp every transition with the canonical `sr:`-prefixed entity ID (`RuntimeGraph.canonical_runtime_id/1`, `:640-650`) so the engine consumes one ID space (`ocsf_devices.uid == AGE Device.id == ocsf_events.device.uid`).
-- [ ] 0.3.4 Include before/after state, partition_id, and a monotonic sequence/timestamp so the engine can order and dedupe deltas at ingestion.
+### 0.3 App-level state-change-events publisher in core-elx (Decision 1) (capability: observability-signals) — PARTIAL
+- [x] 0.3.1a NEW module `event_writer/state_change_publisher.ex`: `publish_transition/3` → `cdc.platform.<table>` via `NATS.Connection.publish/3`; default-disabled (`STATE_CHANGE_EVENTS_ENABLED` env / `:state_change_events_enabled` app env); fire-and-forget. NOT pgoutput CDC / NOT logical replication.
+- [x] 0.3.1b Hook `health_events` (tap `HealthTracker.record_state_change/3` — old/new already in hand).
+- [x] 0.3.1c Hook `service_state` (NOT the `service_status` hypertable): pre-fetch prior availability in `ServiceStateRegistry.upsert_from_status/1` (gated behind `enabled?/0`) and publish only on a real transition; keyed by composite service identity (Decision 2).
+- [ ] 0.3.1d Hook `ocsf_devices` is_available/is_managed transitions in `inventory/sync_ingestor.ex` (raw `Repo.insert_all` bulk path: pre-fetch is_available/is_managed for the uids being written, diff after the upsert, publish per changed device; scope to is_available+is_managed, defer risk_score). DEFERRED — highest-risk edit; do with focused attention.
+- [ ] 0.3.1e Hook virtualization + AGE-projection transition write-sites (not yet grounded). DEFERRED.
+- [x] 0.3.2 `service_state` (not the `service_status` hypertable) is the transition surface; the publisher targets only current-state tables. Add an explicit hypertable-exclusion guard/test when the ocsf_devices/virt hooks land.
+- [x] 0.3.3 Identity per table: `ocsf_devices` → `sr:` `uid`; `service_state` → composite `agent_id:service_type:service_name` (Decision 2); `health_events` → writer `entity_id`. The engine maps `(table, entity_uid)` into one canonical space.
+- [x] 0.3.4 Envelope carries before/after (`explainability.old/new`), `partition_id`, per-node monotonic `seq`, `event_time`, and `event_identity` (engine dedupes on `event_identity`). Unit test: `test/serviceradar/event_writer/state_change_publisher_test.exs`.
+- [ ] 0.3.5 Provision the `cdc.platform.>` JetStream STREAM + consumer/processor with the Phase-1 engine consumer (see 1.2.3) — deferred so app startup is not coupled to a not-yet-existing processor module.
 
 ## 1. Phase 1 — V1 Engine (weeks)
 
