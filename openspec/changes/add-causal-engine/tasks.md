@@ -61,9 +61,9 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.6.2 OCSF-compatible envelope (signal_type `causal`; event_type ∈ root_cause/affected/healthy/unknown; `source_identity.entity_uid`; `routing_correlation.topology_keys`) mirrors what `CausalSignals` (`event_writer/processors/causal_signals.ex`) normalizes into `ocsf_events` — the `signals.causal.*` prefix already routes (`pipeline.ex:261-262`), so no new INBOUND plumbing.
 - [ ] 1.6.3 Verify (Elixir-side, once verdicts flow end-to-end) the in-process `:causal_signal_ingested` broadcast (Phoenix `CausalPubSub`) still fires so the God-View 4-bucket render path is driven.
 
-### 1.7 Snapshot persistence (capability: causal-engine)
-- [ ] 1.7.1 Implement `snapshot` module: serialize Context + CausaloidGraph frozen state to disk on a cadence and on graceful shutdown.
-- [ ] 1.7.2 Implement restore-on-start: load snapshot, then catch up from JetStream sequence/timestamp so single-pod restart is seconds, not a full cold rehydrate.
+### 1.7 Snapshot persistence (capability: causal-engine) — DONE (Context)
+- [x] 1.7.1 `snapshot.rs` SnapshotStore: atomic JSON persistence of the `Context` (write-temp + rename); the hydrator saves after each `refresh()`. (CausaloidGraph frozen-state persistence lands with the reasoner — Marvin.)
+- [x] 1.7.2 Restore-on-start: `ContextHydrator::connect(snapshot_path)` loads the snapshot to seed the shared Context instantly, then a best-effort initial refresh overwrites with fresh CNPG state; if CNPG is momentarily down at boot the engine serves the restored snapshot and the refresh tick retries. Live `signals.state.>` deltas keep it current. Unit-tested round-trip.
 
 ### 1.8 Inventory-risk-feed seam (capability: inventory-risk-feed) — DELIVERED by the merged endpoint-SBOM feature
 - [x] 1.8.1 `endpoint_inventory` DeviceRiskReducer contribution: `ServiceRadar.Inventory.EndpointInventoryVulnerabilityRisk` (inventory/endpoint_inventory_vulnerability_risk.ex) computes a CVSS-derived score from vulnerability-match payloads and calls `DeviceRiskReducer.upsert_contribution(%{source: "endpoint_inventory", source_ref: device_uid, score, active, occurred_at, resolved_at, metadata})` (MAX-wins → `ocsf_devices.risk_score`). Merged from feat/endpoint-sbom-ingestion.

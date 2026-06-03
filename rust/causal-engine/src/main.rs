@@ -12,7 +12,6 @@ use causal_engine::config::Config;
 use causal_engine::context_hydrator::{ContextHydrator, ContextStore};
 use causal_engine::emitter::Emitter;
 use causal_engine::reasoner::Reasoner;
-use causal_engine::snapshot::SnapshotStore;
 use causal_engine::{nats, subscriber};
 
 #[tokio::main]
@@ -23,13 +22,9 @@ async fn main() -> anyhow::Result<()> {
     info!(?config, "starting causal-engine");
 
     let (nats_client, jetstream) = nats::connect(&config).await?;
-    let hydrator = ContextHydrator::connect().await?;
+    let hydrator = ContextHydrator::connect(&config.snapshot_path).await?;
     let reasoner = Reasoner::new();
     let emitter = Emitter::new(jetstream);
-    let snapshot = SnapshotStore::new();
-
-    // TODO(1.7): restore-on-start, then catch up from the JetStream sequence.
-    snapshot.restore()?;
 
     // Live push input: apply `signals.state.>` deltas to the shared Context
     // between SRQL refreshes (best-effort; refresh reconciles any gaps).

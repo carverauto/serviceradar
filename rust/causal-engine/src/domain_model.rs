@@ -5,6 +5,8 @@
 //! invents a parallel ID space (`ocsf_devices.uid == AGE Device.id ==
 //! ocsf_events.device.uid`).
 
+use serde::{Deserialize, Serialize};
+
 /// Canonical, `sr:`-prefixed entity identifier.
 pub type EntityId = String;
 
@@ -14,7 +16,7 @@ pub type EntityId = String;
 /// continuous-aggregate queries + AGE topology) merged with JetStream and
 /// `signals.state.<table>` deltas. Extend with interfaces, agents, gateways,
 /// flows, virtualization, BGP, MTR, and health-transition state.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Context {
     /// Devices keyed by canonical `uid`.
     pub devices: Vec<Device>,
@@ -23,7 +25,7 @@ pub struct Context {
 }
 
 /// A device (from `ocsf_devices` + AGE `Device` vertex).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Device {
     /// Canonical `sr:`-prefixed uid.
     pub uid: EntityId,
@@ -39,7 +41,7 @@ pub struct Device {
 }
 
 /// A service (from `service_status` / `service_state`).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Service {
     /// Composite service identity (`agent_id:service_type:service_name`).
     pub id: EntityId,

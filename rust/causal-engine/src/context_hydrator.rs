@@ -15,6 +15,7 @@ use tracing::warn;
 
 use crate::domain_model::{Context, Device, Service};
 use crate::error::{CausalEngineError, Result};
+use crate::snapshot::SnapshotStore;
 
 /// Upper bound on rows pulled per entity in a single current-state snapshot.
 const DEFAULT_MAX_HYDRATION_ROWS: i64 = 50_000;
@@ -42,38 +43,61 @@ pub trait ContextStore: Send + Sync {
 pub struct ContextHydrator {
     srql: EmbeddedSrql,
     ctx: Arc<RwLock<Context>>,
+    snapshot: SnapshotStore,
     max_rows: i64,
 }
 
 impl ContextHydrator {
     /// Open a CNPG pool via `EmbeddedSrql` (srql `AppConfig` from `SRQL_*` /
-    /// `DATABASE_URL` env) and seed the shared `Context` with an initial snapshot.
-    pub async fn connect() -> Result<Self> {
+    /// `DATABASE_URL` env), restore the on-disk snapshot, then seed the shared
+    /// `Context` with an initial refresh. The initial refresh is best-effort: if
+    /// CNPG is momentarily unavailable at boot, the engine serves the restored
+    /// snapshot and the periodic refresh tick retries.
+    pub async fn connect(snapshot_path: &str) -> Result<Self> {
         let config = AppConfig::from_env()
             .map_err(|e| CausalEngineError::Hydration(format!("srql config: {e}")))?;
         let srql = EmbeddedSrql::new(config)
             .await
             .map_err(|e| CausalEngineError::Hydration(format!("embedded srql: {e}")))?;
+
+        let snapshot = SnapshotStore::new(snapshot_path);
+        let restored = match snapshot.load() {
+            Ok(Some(context)) => context,
+            Ok(None) => Context::default(),
+            Err(err) => {
+                warn!(error = %err, "context snapshot load failed; starting empty");
+                Context::default()
+            }
+        };
+
         let hydrator = Self {
             srql,
-            ctx: Arc::new(RwLock::new(Context::default())),
+            ctx: Arc::new(RwLock::new(restored)),
+            snapshot,
             max_rows: DEFAULT_MAX_HYDRATION_ROWS,
         };
-        hydrator.refresh().await?;
+
+        if let Err(err) = hydrator.refresh().await {
+            warn!(error = %err, "initial context refresh failed; serving restored snapshot");
+        }
+
         Ok(hydrator)
     }
 
-    /// Re-snapshot current state from CNPG and replace the shared `Context`.
-    /// Called periodically to reconcile and pick up new entities; live
-    /// `signals.state.>` deltas keep the `Context` current between refreshes.
+    /// Re-snapshot current state from CNPG, replace the shared `Context`, and
+    /// persist it to disk. Called periodically to reconcile and pick up new
+    /// entities; live `signals.state.>` deltas keep the `Context` current between.
     pub async fn refresh(&self) -> Result<()> {
         let devices = self.query("in:devices").await?;
         let services = self.query("in:services").await?;
-        let snapshot = Context {
+        let context = Context {
             devices: devices.iter().filter_map(map_device).collect(),
             services: services.iter().filter_map(map_service).collect(),
         };
-        *self.ctx.write().await = snapshot;
+        *self.ctx.write().await = context.clone();
+        if let Err(err) = self.snapshot.save(&context) {
+            warn!(error = %err, "context snapshot save failed");
+        }
         Ok(())
     }
 
