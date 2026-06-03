@@ -122,6 +122,23 @@ fn entity_availability_map(ctx: &Context) -> HashMap<&str, Option<bool>> {
     map
 }
 
+/// Per-device composed risk on a 0..=100 scale (task 1.5): the larger of the
+/// MAX-wins `risk_score` and the bounded `pkg_severity` (CVSS 0..=10, scaled
+/// ×10). Used to raise — never alter — the predicted severity of C5/C7/C10 for
+/// the affected node. Devices with no risk are omitted.
+fn device_risk(ctx: &Context) -> HashMap<&str, u8> {
+    let mut map = HashMap::new();
+    for device in &ctx.devices {
+        let score = device.risk_score.unwrap_or(0).clamp(0, 100);
+        let pkg = device.pkg_severity.unwrap_or(0).clamp(0, 10) * 10;
+        let risk = score.max(pkg);
+        if risk > 0 {
+            map.insert(device.uid.as_str(), risk as u8);
+        }
+    }
+    map
+}
+
 /// The DeepCausality reasoner.
 #[derive(Default)]
 pub struct Reasoner {
@@ -138,13 +155,16 @@ impl Reasoner {
     /// implemented causaloid (C1–C13) and collecting verdicts.
     pub fn evaluate(&self, ctx: &Context) -> Result<Vec<Verdict>> {
         let mut verdicts = Vec::new();
+        // Per-device risk composed into C5/C7/C10 severity (task 1.5).
+        let risk = device_risk(ctx);
+
         // Non-graph causaloids over Context state / metrics / risk.
         verdicts.extend(c1_containment_cascade(ctx));
         verdicts.extend(c2_datastore_cascade(ctx));
         verdicts.extend(c3_gateway_shared_fate(ctx));
         verdicts.extend(c4_management_unobservable(ctx));
         verdicts.extend(c6_interface_saturation(ctx));
-        verdicts.extend(c7_service_stack_collapse(ctx));
+        verdicts.extend(c7_service_stack_collapse(ctx, &risk));
         verdicts.extend(c11_flap_precursor(ctx));
         verdicts.extend(c12_operator_rule_promotion(ctx));
         verdicts.extend(c13_discovery_gap(ctx));
@@ -152,10 +172,10 @@ impl Reasoner {
 
         // Graph causaloids over the frozen CONNECTS_TO topology (C5/C5b/C9/C10).
         if let Some(graph) = TopologyGraph::from_connects_to(ctx) {
-            verdicts.extend(c5_single_point_of_failure(&graph));
+            verdicts.extend(c5_single_point_of_failure(&graph, &risk));
             verdicts.extend(c5b_bridge_redundancy_gap(&graph));
             verdicts.extend(c9_shared_hop_bottleneck(&graph));
-            verdicts.extend(c10_blast_radius(ctx, &graph));
+            verdicts.extend(c10_blast_radius(ctx, &graph, &risk));
         }
         Ok(verdicts)
     }
@@ -340,21 +360,26 @@ fn c6_interface_saturation(ctx: &Context) -> Vec<Verdict> {
 /// When an underlying dependency (the `dst` of a `DEPENDS_ON` edge — a service,
 /// host, or resource) is unavailable, the dependent stack (`src`) is predicted
 /// to collapse/degrade.
-fn c7_service_stack_collapse(ctx: &Context) -> Vec<Verdict> {
+fn c7_service_stack_collapse(ctx: &Context, risk: &HashMap<&str, u8>) -> Vec<Verdict> {
     let availability = entity_availability_map(ctx);
     let mut verdicts = Vec::new();
     for edge in &ctx.edges {
         if edge.kind == EdgeKind::DependsOn
             && availability.get(edge.dst.as_str()) == Some(&Some(false))
         {
-            verdicts.push(Verdict::new(
+            let mut verdict = Verdict::new(
                 edge.src.clone(),
                 Classification::Affected,
                 format!(
                     "dependency {} is unavailable; dependent stack predicted to collapse",
                     edge.dst
                 ),
-            ));
+            );
+            // Risk composition (1.5): a higher-risk dependent stack is more severe.
+            if let Some(&r) = risk.get(edge.src.as_str()) {
+                verdict = verdict.raise_severity_to(r);
+            }
+            verdicts.push(verdict);
         }
     }
     verdicts
@@ -431,18 +456,24 @@ fn c13_discovery_gap(ctx: &Context) -> Vec<Verdict> {
 /// An articulation point in the physical topology is a node whose loss would
 /// partition reachability, so it is flagged as a standing SPOF even with no
 /// active fault. (`StructuralGraphAlgorithms::articulation_points`.)
-fn c5_single_point_of_failure(graph: &TopologyGraph) -> Vec<Verdict> {
+fn c5_single_point_of_failure(graph: &TopologyGraph, risk: &HashMap<&str, u8>) -> Vec<Verdict> {
     graph
         .articulation_points()
         .into_iter()
         .map(|id| {
-            Verdict::new(
+            let verdict = Verdict::new(
                 id.clone(),
                 Classification::Affected,
                 format!(
                     "articulation point: loss of {id} would partition reachability (standing SPOF)"
                 ),
-            )
+            );
+            // Risk composition (1.5): a high-risk SPOF node is more severe; the
+            // structural articulation-point conclusion itself is unchanged.
+            match risk.get(id.as_str()) {
+                Some(&r) => verdict.raise_severity_to(r),
+                None => verdict,
+            }
         })
         .collect()
 }
@@ -522,29 +553,37 @@ fn c9_shared_hop_bottleneck(graph: &TopologyGraph) -> Vec<Verdict> {
 /// For each attributed-flow source, the blast radius is everything reachable
 /// from it in the physical topology; the predicted severity is weighted by the
 /// source's per-device risk (`PathfindingGraphAlgorithms::is_reachable`).
-fn c10_blast_radius(ctx: &Context, graph: &TopologyGraph) -> Vec<Verdict> {
+fn c10_blast_radius(
+    ctx: &Context,
+    graph: &TopologyGraph,
+    risk: &HashMap<&str, u8>,
+) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for flow in &ctx.flows {
         let reachable = graph.reachable_from(&flow.src_uid);
         if reachable.is_empty() {
             continue;
         }
-        let risk = flow.src_risk_score.unwrap_or(0).clamp(0, 100);
+        let flow_risk = flow.src_risk_score.unwrap_or(0).clamp(0, 100);
         // Risk dominates: a low-risk source yields a lower-severity blast radius
         // than an identical high-risk one (spec C10 scenario).
-        let severity = (40 + risk / 2).clamp(0, 100) as u8;
-        verdicts.push(
-            Verdict::new(
-                flow.src_uid.clone(),
-                Classification::Affected,
-                format!(
-                    "attributed-flow source reaches {} destination(s); risk-weighted blast radius (source risk {})",
-                    reachable.len(),
-                    risk
-                ),
-            )
-            .raise_severity_to(severity),
-        );
+        let severity = (40 + flow_risk / 2).clamp(0, 100) as u8;
+        let mut verdict = Verdict::new(
+            flow.src_uid.clone(),
+            Classification::Affected,
+            format!(
+                "attributed-flow source reaches {} destination(s); risk-weighted blast radius (source risk {})",
+                reachable.len(),
+                flow_risk
+            ),
+        )
+        .raise_severity_to(severity);
+        // Risk composition (1.5): fold in the source device's per-device risk
+        // (MAX-wins, so it never double-counts the flow weighting).
+        if let Some(&r) = risk.get(flow.src_uid.as_str()) {
+            verdict = verdict.raise_severity_to(r);
+        }
+        verdicts.push(verdict);
     }
     verdicts
 }
@@ -572,6 +611,10 @@ mod tests {
             .iter()
             .find(|v| v.entity_id == entity)
             .map(|v| &v.classification)
+    }
+
+    fn no_risk() -> HashMap<&'static str, u8> {
+        HashMap::new()
     }
 
     #[test]
@@ -804,7 +847,10 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(
-            classification_of(&c7_service_stack_collapse(&ctx), "agent-1:grpc:api"),
+            classification_of(
+                &c7_service_stack_collapse(&ctx, &no_risk()),
+                "agent-1:grpc:api"
+            ),
             Some(&Classification::Affected)
         );
     }
@@ -819,7 +865,7 @@ mod tests {
             edges: vec![depends_on("agent-1:grpc:api", "agent-1:grpc:db")],
             ..Default::default()
         };
-        assert!(c7_service_stack_collapse(&ctx).is_empty());
+        assert!(c7_service_stack_collapse(&ctx, &no_risk()).is_empty());
     }
 
     #[test]
@@ -947,7 +993,7 @@ mod tests {
     #[test]
     fn c5_flags_articulation_point() {
         let graph = TopologyGraph::from_connects_to(&line_topology()).expect("graph");
-        let verdicts = c5_single_point_of_failure(&graph);
+        let verdicts = c5_single_point_of_failure(&graph, &no_risk());
         assert_eq!(
             classification_of(&verdicts, "sr:d:b"),
             Some(&Classification::Affected)
@@ -991,7 +1037,7 @@ mod tests {
             src_risk_score: Some(90),
         }];
         let graph = TopologyGraph::from_connects_to(&ctx).expect("graph");
-        let high = c10_blast_radius(&ctx, &graph);
+        let high = c10_blast_radius(&ctx, &graph, &no_risk());
         let high_sev = high
             .iter()
             .find(|v| v.entity_id == "sr:d:a")
@@ -999,7 +1045,7 @@ mod tests {
             .expect("blast verdict");
 
         ctx.flows[0].src_risk_score = Some(0);
-        let low = c10_blast_radius(&ctx, &graph);
+        let low = c10_blast_radius(&ctx, &graph, &no_risk());
         let low_sev = low
             .iter()
             .find(|v| v.entity_id == "sr:d:a")
@@ -1046,5 +1092,38 @@ mod tests {
             ..Default::default()
         };
         assert!(c8_bgp_withdrawal(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c5_severity_raised_by_device_risk_without_changing_classification() {
+        let mut ctx = line_topology();
+        // make the articulation point (sr:d:b) a high-risk device
+        let mut hub = device("sr:d:b", Some(true), None);
+        hub.risk_score = Some(95);
+        ctx.devices = vec![hub];
+
+        let risk = device_risk(&ctx);
+        let graph = TopologyGraph::from_connects_to(&ctx).expect("graph");
+        let verdicts = c5_single_point_of_failure(&graph, &risk);
+        let v = verdicts
+            .iter()
+            .find(|v| v.entity_id == "sr:d:b")
+            .expect("spof verdict");
+        // structural conclusion unchanged ...
+        assert_eq!(v.classification, Classification::Affected);
+        // ... but severity raised from the Affected base (50) to the risk (95).
+        assert_eq!(v.severity, 95);
+    }
+
+    #[test]
+    fn device_risk_takes_max_of_risk_score_and_scaled_pkg_severity() {
+        let mut d = device("sr:d:b", Some(true), None);
+        d.risk_score = Some(20);
+        d.pkg_severity = Some(9); // 9 * 10 = 90 dominates risk_score 20
+        let ctx = Context {
+            devices: vec![d],
+            ..Default::default()
+        };
+        assert_eq!(device_risk(&ctx).get("sr:d:b"), Some(&90));
     }
 }
