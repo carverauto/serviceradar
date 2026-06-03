@@ -5,13 +5,15 @@ edition = "2021"
 description = "ServiceRadar DeepCausality causal engine (OpenSpec: add-causal-engine)"
 
 # NOTE (add-causal-engine): heavier integration deps are added in the increment
-# that first uses them, to keep the crate_universe repin scoped:
-#   - srql (path) + async-nats .......... task 1.2 (hydrator: EmbeddedSrql + JetStream)
+# that first uses them, to keep each crate_universe change scoped:
+#   - srql (path) ...................... task 1.2 (hydrator: EmbeddedSrql over CNPG)
 #   - ultragraph 0.9 .................... task 1.3 (reasoner: CsmGraph + Gap G algos)
 #   - deep_causality{,_sparse,_tensor,_topology} 0.13/... task 1.3 (CausaloidGraph)
 [dependencies]
 anyhow = "1"
+async-nats = "0.48"
 async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
 envy = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

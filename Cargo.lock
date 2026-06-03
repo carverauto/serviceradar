@@ -1121,7 +1121,9 @@ name = "causal-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-nats",
  "async-trait",
+ "chrono",
  "envy",
  "pretty_assertions",
  "serde 1.0.228",

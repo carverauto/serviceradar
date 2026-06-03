@@ -23,7 +23,7 @@ async fn main() -> anyhow::Result<()> {
 
     let hydrator = ContextHydrator::new();
     let reasoner = Reasoner::new();
-    let emitter = Emitter::new();
+    let emitter = Emitter::connect(&config.nats_url).await?;
     let snapshot = SnapshotStore::new();
 
     // TODO(1.7): restore-on-start, then catch up from the JetStream sequence.

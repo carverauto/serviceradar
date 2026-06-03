@@ -56,10 +56,10 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.5.1 Feed per-device risk (`ocsf_devices.risk_score` / `risk_level_id` / `risk_level`) into causaloids C5, C7, and C10 as an evidence input.
 - [ ] 1.5.2 Consume risk via `DeviceRiskReducer` MAX-wins semantics only; do NOT author any purl/cpe coordinate-matching here (DELEGATED to `add-cti-signal-coverage`).
 
-### 1.6 Emitter — signals.causal.predictions producer (capability: causal-prediction-signals)
-- [ ] 1.6.1 Implement a NEW NATS JetStream producer publishing `signals.causal.predictions.{device_uid|incident_id}` with DETERMINISTIC prediction IDs (stable across restarts for the same verdict).
-- [ ] 1.6.2 Shape the payload so the existing `CausalSignals` processor (`event_writer/processors/causal_signals.ex`, table `:27`) normalizes it into `ocsf_events` with no new INBOUND plumbing (the `signals.causal.*` prefix already routes to the `bmp_causal` batcher at `pipeline.ex:261-262`).
-- [ ] 1.6.3 Verify the in-process `:causal_signal_ingested` broadcast (Phoenix `CausalPubSub`, NOT NATS) still fires so the God-View 4-bucket render path is driven.
+### 1.6 Emitter — signals.causal.predictions producer (capability: causal-prediction-signals) — DONE (engine side)
+- [x] 1.6.1 `rust/causal-engine/src/emitter.rs`: `Emitter` connects NATS JetStream (`async_nats` 0.48) and publishes one message per verdict on `signals.causal.predictions.<entity>` with a DETERMINISTIC `event_identity` (`pred:<entity>:<classification>`, stable across restarts), awaiting each ack. Unit-tested envelope builder + determinism + subject sanitization.
+- [x] 1.6.2 OCSF-compatible envelope (signal_type `causal`; event_type ∈ root_cause/affected/healthy/unknown; `source_identity.entity_uid`; `routing_correlation.topology_keys`) mirrors what `CausalSignals` (`event_writer/processors/causal_signals.ex`) normalizes into `ocsf_events` — the `signals.causal.*` prefix already routes (`pipeline.ex:261-262`), so no new INBOUND plumbing.
+- [ ] 1.6.3 Verify (Elixir-side, once verdicts flow end-to-end) the in-process `:causal_signal_ingested` broadcast (Phoenix `CausalPubSub`) still fires so the God-View 4-bucket render path is driven.
 
 ### 1.7 Snapshot persistence (capability: causal-engine)
 - [ ] 1.7.1 Implement `snapshot` module: serialize Context + CausaloidGraph frozen state to disk on a cadence and on graceful shutdown.
