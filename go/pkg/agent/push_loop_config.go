@@ -542,11 +542,13 @@ func netprobeSystemdAssignmentPresent(addons []*proto.AddonAssignmentConfig) boo
 	return false
 }
 
+// netprobeConfigHasWork reports whether netprobe should be running. Enabling netprobe is
+// enough on its own: the eBPF kprobe process-attribution path (the flow->PID source that
+// feeds attributed flows) runs with no capture interfaces at all. Packet capture / DPI is
+// purely additive — it only engages when capture_interfaces or device_bindings are set — so
+// requiring them to launch netprobe broke attribution-only ("one-touch") enablement.
 func netprobeConfigHasWork(cfg *netprobepb.VisibilityAgentConfig) bool {
-	return cfg != nil &&
-		cfg.GetEnabled() &&
-		len(cfg.GetCaptureInterfaces()) > 0 &&
-		len(cfg.GetDeviceBindings()) > 0
+	return cfg != nil && cfg.GetEnabled()
 }
 
 func netprobeConfigPath(provider sidecarStatusProvider) string {

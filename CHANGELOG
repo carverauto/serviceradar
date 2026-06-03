@@ -1,3 +1,13 @@
+# ServiceRadar v1.2.90
+
+One-touch netprobe attribution, and the netprobe add-on finally republishes on release.
+
+## Whats New
+
+**1.2.90**
+- Republish the netprobe (and other native) add-ons on every release tag: `native-addons.yml` previously only ran on manual `workflow_dispatch`, so the add-on shown in the UI was frozen at `0.1.0` no matter how much netprobe code changed. It now also triggers on `v*` tags alongside `release.yml`. Bumped the netprobe add-on to `0.2.0`.
+- Made netprobe one-touch for attribution: enabling the add-on now runs the eBPF process-attribution path on its own (`netprobeConfigHasWork` no longer requires capture interfaces / device bindings). The flow-to-process source behind attributed flows needs no packet-capture config; capture/DPI stay optional. Updated the config schema text + defaults so "Enabled" is the only required field.
+
 # ServiceRadar v1.2.89
 
 Fixes the edge-agent bundle download crashing with a 500 (the last blocker to actually enrolling an agent).
