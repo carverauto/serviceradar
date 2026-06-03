@@ -83,6 +83,14 @@ fn base_severity(classification: Classification) -> u8 {
     }
 }
 
+/// Index device availability by canonical uid for O(1) lookups across causaloids.
+fn availability_map(ctx: &Context) -> HashMap<&str, Option<bool>> {
+    ctx.devices
+        .iter()
+        .map(|d| (d.uid.as_str(), d.is_available))
+        .collect()
+}
+
 /// The DeepCausality reasoner.
 #[derive(Default)]
 pub struct Reasoner {
@@ -103,10 +111,61 @@ impl Reasoner {
     /// composition, on the `ultragraph` 0.9 graph layer.
     pub fn evaluate(&self, ctx: &Context) -> Result<Vec<Verdict>> {
         let mut verdicts = Vec::new();
+        verdicts.extend(c1_containment_cascade(ctx));
+        verdicts.extend(c2_datastore_cascade(ctx));
         verdicts.extend(c3_gateway_shared_fate(ctx));
         verdicts.extend(c4_management_unobservable(ctx));
         Ok(verdicts)
     }
+}
+
+/// C1 — virtualization containment cascade.
+///
+/// When a virtualization host (the `src` of a `CONTAINS` edge) is unavailable,
+/// the guests it contains (`dst`) are predicted to be affected by the host
+/// failure rather than treated as independently down.
+fn c1_containment_cascade(ctx: &Context) -> Vec<Verdict> {
+    let availability = availability_map(ctx);
+    let mut verdicts = Vec::new();
+    for edge in &ctx.edges {
+        if edge.kind == EdgeKind::Contains
+            && availability.get(edge.src.as_str()) == Some(&Some(false))
+        {
+            verdicts.push(Verdict::new(
+                edge.dst.clone(),
+                Classification::Affected,
+                format!(
+                    "virtualization host {} is unavailable; contained guest is affected",
+                    edge.src
+                ),
+            ));
+        }
+    }
+    verdicts
+}
+
+/// C2 — datastore degradation cascade.
+///
+/// When a datastore (the `dst` of a `BACKED_BY` edge) is unavailable/degraded,
+/// the guests whose virtual disks it backs (`src`) are predicted to be affected.
+fn c2_datastore_cascade(ctx: &Context) -> Vec<Verdict> {
+    let availability = availability_map(ctx);
+    let mut verdicts = Vec::new();
+    for edge in &ctx.edges {
+        if edge.kind == EdgeKind::BackedBy
+            && availability.get(edge.dst.as_str()) == Some(&Some(false))
+        {
+            verdicts.push(Verdict::new(
+                edge.src.clone(),
+                Classification::Affected,
+                format!(
+                    "datastore {} is degraded; guest disk backed by it is affected",
+                    edge.dst
+                ),
+            ));
+        }
+    }
+    verdicts
 }
 
 /// C3 — gateway/agent shared-fate root-cause classification.
@@ -159,12 +218,7 @@ fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
 /// through that manager, so its availability is `Unknown` rather than failed —
 /// suppressing false "down" classifications for devices behind a dead manager.
 fn c4_management_unobservable(ctx: &Context) -> Vec<Verdict> {
-    let availability: HashMap<&str, Option<bool>> = ctx
-        .devices
-        .iter()
-        .map(|d| (d.uid.as_str(), d.is_available))
-        .collect();
-
+    let availability = availability_map(ctx);
     let mut verdicts = Vec::new();
     for edge in &ctx.edges {
         // `src` is managed by `dst`; if the manager `dst` is unavailable, the
@@ -295,5 +349,80 @@ mod tests {
             ..Default::default()
         };
         assert!(c4_management_unobservable(&ctx).is_empty());
+    }
+
+    fn contains(host: &str, guest: &str) -> TopologyEdge {
+        TopologyEdge::new(host, guest, EdgeKind::Contains)
+    }
+
+    fn backed_by(guest: &str, datastore: &str) -> TopologyEdge {
+        TopologyEdge::new(guest, datastore, EdgeKind::BackedBy)
+    }
+
+    #[test]
+    fn c1_cascades_host_failure_to_contained_guests() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:host", Some(false), None),
+                device("sr:device:guest-a", Some(true), None),
+                device("sr:device:guest-b", Some(true), None),
+            ],
+            edges: vec![
+                contains("sr:device:host", "sr:device:guest-a"),
+                contains("sr:device:host", "sr:device:guest-b"),
+            ],
+            ..Default::default()
+        };
+        let verdicts = c1_containment_cascade(&ctx);
+        assert_eq!(
+            classification_of(&verdicts, "sr:device:guest-a"),
+            Some(&Classification::Affected)
+        );
+        assert_eq!(
+            classification_of(&verdicts, "sr:device:guest-b"),
+            Some(&Classification::Affected)
+        );
+    }
+
+    #[test]
+    fn c1_no_cascade_when_host_available() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:host", Some(true), None),
+                device("sr:device:guest-a", Some(true), None),
+            ],
+            edges: vec![contains("sr:device:host", "sr:device:guest-a")],
+            ..Default::default()
+        };
+        assert!(c1_containment_cascade(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c2_cascades_datastore_degradation_to_guest_disks() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:ds1", Some(false), None),
+                device("sr:device:guest-a", Some(true), None),
+            ],
+            edges: vec![backed_by("sr:device:guest-a", "sr:device:ds1")],
+            ..Default::default()
+        };
+        assert_eq!(
+            classification_of(&c2_datastore_cascade(&ctx), "sr:device:guest-a"),
+            Some(&Classification::Affected)
+        );
+    }
+
+    #[test]
+    fn c2_no_cascade_when_datastore_healthy() {
+        let ctx = Context {
+            devices: vec![
+                device("sr:device:ds1", Some(true), None),
+                device("sr:device:guest-a", Some(true), None),
+            ],
+            edges: vec![backed_by("sr:device:guest-a", "sr:device:ds1")],
+            ..Default::default()
+        };
+        assert!(c2_datastore_cascade(&ctx).is_empty());
     }
 }
