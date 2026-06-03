@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.86
+
+Flow attribution end-to-end fixes: netprobe attribution probes, non-disruptive capture, and the agent-gateway flow-attribution size cap.
+
+## Whats New
+
+**1.2.86**
+- Fixed netprobe never attaching its socket-lifecycle attribution probes (tcp_connect/inet_csk_accept/tcp_close/udp_sendmsg/udp_recvmsg kprobes + inet_sock_set_state tracepoint), so flow_to_pid stayed empty and no FlowAttributionEvent was ever emitted; they are now loaded and attached as global hooks.
+- Added a non-disruptive attribution-only netprobe mode: with no capture interface configured it runs only the kprobe attribution path (no TC/XDP/AF_XDP), so it never touches the host data path and stays bounded (~1-2% CPU) whether or not the agent is connected.
+- Made the FlowAttributionRuntime drain durable: it re-broadcasts the live flow_to_pid snapshot periodically so attributions survive an absent, reconnecting, or lagging agent instead of being dropped on a one-shot broadcast.
+- Hardened the netprobe AF_XDP/XDP capture path: refuse to attach the consuming XDP redirect to the host's primary/default-route NIC (prevents black-holing host connectivity), and bound the AF_XDP poll cadence to cap CPU.
+- Fixed the agent-gateway truncating flow-attribution status messages at 4 KB (FlowAttributionEventBatch protobuf > 4 KB was silently cut, breaking decode in core); flow-attribution now uses a 15 MB cap like results/sysmon and is rejected, never truncated, if it exceeds it.
+
 # ServiceRadar v1.2.85
 
 NetFlow process attribution, netprobe eBPF capture, and endpoint inventory ingestion.

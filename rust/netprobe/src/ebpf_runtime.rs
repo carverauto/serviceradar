@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use aya::{
     maps::{HashMap as AyaHashMap, ProgramArray},
-    programs::{tc, SchedClassifier, TcAttachType, Xdp, XdpFlags},
+    programs::{tc, KProbe, SchedClassifier, TcAttachType, TracePoint, Xdp, XdpFlags},
     Ebpf,
 };
 use nix::libc;
@@ -53,10 +53,18 @@ const SAMPLING_WINDOW: Duration = Duration::from_secs(30);
 const SAMPLING_INTERVAL: Duration = Duration::from_secs(5);
 
 pub struct NetprobeEbpfRuntime {
-    _classifier_runtime: AfXdpClassifierRuntime,
-    _p0f_runtime: P0fSignatureRuntime,
+    // The packet-capture / DPI / fingerprint / AF_XDP-sampling runtimes only run
+    // when at least one capture interface is configured. In attribution-only mode
+    // they are absent, so netprobe stays bounded and never touches the data path.
+    _classifier_runtime: Option<AfXdpClassifierRuntime>,
+    _p0f_runtime: Option<P0fSignatureRuntime>,
     _attribution_runtime: FlowAttributionRuntime,
-    _sampling_runtime: AdaptiveSamplingRuntime,
+    _sampling_runtime: Option<AdaptiveSamplingRuntime>,
+    // In attribution-only mode we don't run the fingerprint/DPI producers, but the
+    // IPC server streams those event types to the agent; dropping the senders would
+    // close those channels and disconnect the agent. Hold them open (no producer).
+    _fingerprint_keepalive: Option<EventSender<FingerprintEvent>>,
+    _dpi_keepalive: Option<EventSender<DpiEvent>>,
     _ebpf: Ebpf,
 }
 
@@ -77,9 +85,51 @@ impl NetprobeEbpfRuntime {
             "netprobe eBPF capture kernel check passed: {}",
             kernel.release
         );
+        let mut ebpf = load_netprobe_ebpf(object_path, config)?;
+        // Attach the global socket-lifecycle attribution probes. These populate
+        // the flow_to_pid / process_info maps the FlowAttributionRuntime polls.
+        // They are GLOBAL kernel hooks (not per-interface), so flow attribution
+        // works regardless of capture_interfaces and independently of the
+        // AF_XDP/XDP/TC packet-capture path. Previously these programs were
+        // compiled into the object but never loaded/attached, so flow_to_pid
+        // stayed empty and no FlowAttributionEvent was ever emitted.
+        attach_attribution_probes(&mut ebpf)?;
+        // Flow attribution (kprobe-driven) runs in EVERY mode, before and
+        // independently of the packet-capture data path.
+        let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
+        let attribution_runtime = FlowAttributionRuntime::start(
+            attribution_reader,
+            flow_attribution_events,
+            process_snapshots,
+            metrics.clone(),
+            process_snapshot_interval(config),
+        )?;
+
+        if config.capture_interfaces.is_empty() {
+            // Attribution-only mode: no capture interface configured. Run ONLY the
+            // global kprobe attribution path — no TC/XDP/AF_XDP (so no host-NIC
+            // black-hole) and no fingerprint/DPI/sampling runtimes (so no busy-poll
+            // CPU or spurious events). netprobe stays a bounded, well-behaved daemon
+            // whether or not the agent is connected. The fingerprint/DPI IPC senders
+            // are held open (no producer) so those agent streams don't close.
+            log::info!(
+                "netprobe attribution-only mode (0 capture interfaces): kprobe flow attribution active; packet capture, DPI, fingerprinting, and AF_XDP are disabled"
+            );
+            return Ok(Self {
+                _classifier_runtime: None,
+                _p0f_runtime: None,
+                _attribution_runtime: attribution_runtime,
+                _sampling_runtime: None,
+                _fingerprint_keepalive: Some(fingerprint_events),
+                _dpi_keepalive: Some(dpi_events),
+                _ebpf: ebpf,
+            });
+        }
+
+        // Capture mode: at least one interface is configured. Bring up the
+        // fingerprint/DPI/sampling runtimes and the TC/AF_XDP capture data path.
         let interfaces = af_xdp::resolve_interfaces(&config.capture_interfaces)
             .context("failed to resolve AF_XDP capture interfaces")?;
-        let mut ebpf = load_netprobe_ebpf(object_path, config)?;
         let fingerprint_accumulator = FingerprintAccumulator::default();
         let p0f_runtime = P0fSignatureRuntime::start_from_ebpf(
             fingerprint_interface_name(config),
@@ -88,14 +138,6 @@ impl NetprobeEbpfRuntime {
             fingerprint_gate,
             fingerprint_accumulator.clone(),
             metrics.clone(),
-        )?;
-        let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
-        let attribution_runtime = FlowAttributionRuntime::start(
-            attribution_reader,
-            flow_attribution_events,
-            process_snapshots,
-            metrics.clone(),
-            process_snapshot_interval(config),
         )?;
         let interface_allowlist = populate_interface_allowlist(&mut ebpf, &interfaces)?;
         let sampling_runtime = AdaptiveSamplingRuntime::start(
@@ -117,15 +159,17 @@ impl NetprobeEbpfRuntime {
         setup_tc_tail_calls(&mut ebpf)?;
         attach_tc_programs(&mut ebpf, &config.capture_interfaces)?;
         // The XDP program owns the AF_XDP/XSKMAP redirect (TC cannot redirect into
-        // an XSKMAP). Attach after the classifier runtime has registered one XSK
-        // per rx queue, so the redirect has live socket targets.
+        // an XSKMAP). attach_xdp_program refuses the host's primary/default-route
+        // NIC (#3 guard) so capture can never black-hole host connectivity.
         attach_xdp_program(&mut ebpf, &config.capture_interfaces)?;
 
         Ok(Self {
-            _classifier_runtime: classifier_runtime,
-            _p0f_runtime: p0f_runtime,
+            _classifier_runtime: Some(classifier_runtime),
+            _p0f_runtime: Some(p0f_runtime),
             _attribution_runtime: attribution_runtime,
-            _sampling_runtime: sampling_runtime,
+            _sampling_runtime: Some(sampling_runtime),
+            _fingerprint_keepalive: None,
+            _dpi_keepalive: None,
             _ebpf: ebpf,
         })
     }
@@ -402,7 +446,50 @@ fn attach_tc_programs(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
     attach_tc_program(ebpf, "netprobe_tc_egress", interfaces, TcAttachType::Egress)
 }
 
+// Returns true if `interface` carries the host's IPv4 or IPv6 default route.
+// Used to refuse attaching the consuming AF_XDP/XDP redirect to the host's
+// primary/management NIC (which would black-hole connectivity).
+fn is_default_route_interface(interface: &str) -> bool {
+    // IPv4: /proc/net/route rows with Destination 00000000 are the default route.
+    if let Ok(contents) = std::fs::read_to_string("/proc/net/route") {
+        for line in contents.lines().skip(1) {
+            let mut fields = line.split_whitespace();
+            if let (Some(iface), Some(dest)) = (fields.next(), fields.next()) {
+                if dest == "00000000" && iface == interface {
+                    return true;
+                }
+            }
+        }
+    }
+    // IPv6: /proc/net/ipv6_route rows with a /0 prefix (dest len 00) are default.
+    if let Ok(contents) = std::fs::read_to_string("/proc/net/ipv6_route") {
+        for line in contents.lines() {
+            let fields: Vec<&str> = line.split_whitespace().collect();
+            if fields.len() >= 10 {
+                let dest_prefix_len = fields[1];
+                let iface = fields[9];
+                if dest_prefix_len == "00" && iface == interface {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn attach_xdp_program(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
+    // SAFETY GUARD (#3): the XDP program XDP_REDIRECTs ingress into the AF_XDP
+    // XSKMAP, which CONSUMES the frame — the kernel network stack never sees it.
+    // Attaching it to the host's primary/default-route NIC therefore black-holes
+    // host connectivity (SSH, the agent's own gateway traffic, etc.). Refuse it;
+    // packet capture must run on a dedicated or mirror/SPAN interface.
+    for interface in interfaces {
+        if is_default_route_interface(interface) {
+            anyhow::bail!(
+                "refusing to attach the netprobe AF_XDP/XDP redirect to '{interface}': it carries the host default route and the redirect would black-hole host connectivity. Configure a dedicated or mirror capture interface instead."
+            );
+        }
+    }
     let program: &mut Xdp = ebpf
         .program_mut("netprobe_xdp_ingress")
         .ok_or_else(|| {
@@ -431,6 +518,50 @@ fn attach_xdp_program(ebpf: &mut Ebpf, interfaces: &[String]) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+// Load + attach the socket-lifecycle kprobes/kretprobe/tracepoint that emit
+// FlowAttributionRecord -> flow_to_pid / process_info (rust/netprobe/ebpf/src/lib.rs).
+// These are global kernel hooks, so they require no capture interface and never
+// touch the host data path (unlike the AF_XDP/XDP redirect). aya keeps each link
+// alive inside the owned `Ebpf`, so attribution persists for the runtime's life.
+fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
+    // tcp_connect/tcp_close/udp_sendmsg/udp_recvmsg are kprobes; inet_csk_accept
+    // is a kretprobe. aya represents both as KProbe and attaches by the program's
+    // section kind, so the same load/attach call works for all of them.
+    for name in [
+        "tcp_connect",
+        "inet_csk_accept",
+        "tcp_close",
+        "udp_sendmsg",
+        "udp_recvmsg",
+    ] {
+        let program: &mut KProbe = ebpf
+            .program_mut(name)
+            .ok_or_else(|| anyhow::anyhow!("{name} probe is missing from netprobe eBPF object"))?
+            .try_into()?;
+        program
+            .load()
+            .with_context(|| format!("failed to load attribution probe {name}"))?;
+        program
+            .attach(name, 0)
+            .with_context(|| format!("failed to attach attribution probe {name}"))?;
+    }
+
+    let tracepoint: &mut TracePoint = ebpf
+        .program_mut("inet_sock_set_state")
+        .ok_or_else(|| {
+            anyhow::anyhow!("inet_sock_set_state tracepoint is missing from netprobe eBPF object")
+        })?
+        .try_into()?;
+    tracepoint
+        .load()
+        .context("failed to load attribution tracepoint inet_sock_set_state")?;
+    tracepoint
+        .attach("sock", "inet_sock_set_state")
+        .context("failed to attach attribution tracepoint inet_sock_set_state")?;
 
     Ok(())
 }

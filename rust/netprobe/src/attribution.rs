@@ -36,6 +36,12 @@ const FLOW_ENDPOINT_B: u8 = 2;
 const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 #[cfg(target_os = "linux")]
 const FLOW_ATTRIBUTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+// Periodically clear the per-flow dedup so the CURRENT flow_to_pid snapshot is
+// re-broadcast. Makes the attribution drain durable: a (re)connecting, briefly
+// lagging, or previously-absent agent reliably receives live attributions
+// instead of permanently losing the one-time broadcast (the broadcast channel
+// drops sends when no receiver is attached). Bounded; also caps `seen` growth.
+const FLOW_ATTRIBUTION_RESEND_INTERVAL: Duration = Duration::from_secs(15);
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -283,7 +289,15 @@ impl FlowAttributionRuntime {
                 let mut seen = HashSet::new();
                 let mut last_process_snapshot =
                     process_snapshot_interval.map(|interval| Instant::now() - interval);
+                let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
+                    if last_resend.elapsed() >= FLOW_ATTRIBUTION_RESEND_INTERVAL {
+                        // Re-broadcast the live snapshot so attributions survive an
+                        // absent/reconnecting/lagging agent (broadcast sends drop when
+                        // no receiver is attached and are otherwise never re-sent).
+                        seen.clear();
+                        last_resend = Instant::now();
+                    }
                     emit_snapshot(&reader, &tx, &metrics, &mut seen);
                     if let Some(interval) = process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
