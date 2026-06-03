@@ -19,6 +19,10 @@ use crate::error::Result;
 /// the devices that observe through it are simultaneously unavailable (C3).
 const GATEWAY_SHARED_FATE_THRESHOLD: usize = 2;
 
+/// A link is flagged by C6 as projected-saturated at or above this percent
+/// utilization (observed `flow_bps` / engineered `capacity_bps`).
+const SATURATION_UTILIZATION_PCT: i64 = 80;
+
 /// Verdict classification — maps cleanly onto the God-View 4-bucket render
 /// (`root_cause` / `affected` / `healthy` / `unknown`, `GodViewSnapshot`
 /// schema_version 2).
@@ -115,6 +119,7 @@ impl Reasoner {
         verdicts.extend(c2_datastore_cascade(ctx));
         verdicts.extend(c3_gateway_shared_fate(ctx));
         verdicts.extend(c4_management_unobservable(ctx));
+        verdicts.extend(c6_interface_saturation(ctx));
         Ok(verdicts)
     }
 }
@@ -239,10 +244,47 @@ fn c4_management_unobservable(ctx: &Context) -> Vec<Verdict> {
     verdicts
 }
 
+/// C6 — interface/link saturation projection.
+///
+/// Projects saturation on capacity-eligible links by comparing observed
+/// `flow_bps` against the engineered `capacity_bps`. A link without a capacity
+/// denominator is capacity-ineligible (Gap B contract) and is skipped — no
+/// projection is emitted without a denominator.
+fn c6_interface_saturation(ctx: &Context) -> Vec<Verdict> {
+    let mut verdicts = Vec::new();
+    for link in &ctx.links {
+        // No capacity denominator => capacity-ineligible => no projection.
+        let (Some(flow), Some(capacity)) = (link.flow_bps, link.capacity_bps) else {
+            continue;
+        };
+        if capacity <= 0 {
+            continue;
+        }
+        let utilization_pct = flow.saturating_mul(100) / capacity;
+        if utilization_pct < SATURATION_UTILIZATION_PCT {
+            continue;
+        }
+        let headroom_bps = (capacity - flow).max(0);
+        let severity = utilization_pct.clamp(0, 100) as u8;
+        verdicts.push(
+            Verdict::new(
+                link.src.clone(),
+                Classification::Affected,
+                format!(
+                    "link {} -> {} projected saturation: {}% utilized ({} bps headroom of {} bps)",
+                    link.src, link.dst, utilization_pct, headroom_bps, capacity
+                ),
+            )
+            .raise_severity_to(severity),
+        );
+    }
+    verdicts
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain_model::{Context, Device, EdgeKind, TopologyEdge};
+    use crate::domain_model::{Context, Device, EdgeKind, InterfaceLink, TopologyEdge};
 
     fn device(uid: &str, available: Option<bool>, gateway: Option<&str>) -> Device {
         Device {
@@ -424,5 +466,48 @@ mod tests {
             ..Default::default()
         };
         assert!(c2_datastore_cascade(&ctx).is_empty());
+    }
+
+    fn link(src: &str, dst: &str, flow: Option<i64>, capacity: Option<i64>) -> InterfaceLink {
+        InterfaceLink {
+            src: src.to_string(),
+            dst: dst.to_string(),
+            flow_bps: flow,
+            capacity_bps: capacity,
+        }
+    }
+
+    #[test]
+    fn c6_projects_saturation_on_capacity_eligible_link() {
+        let ctx = Context {
+            links: vec![link("sr:device:a", "sr:device:b", Some(900), Some(1_000))],
+            ..Default::default()
+        };
+        let verdicts = c6_interface_saturation(&ctx);
+        let v = verdicts
+            .iter()
+            .find(|v| v.entity_id == "sr:device:a")
+            .expect("saturation verdict");
+        assert_eq!(v.classification, Classification::Affected);
+        assert_eq!(v.severity, 90);
+        assert!(v.reason.contains("100 bps headroom"));
+    }
+
+    #[test]
+    fn c6_no_projection_without_capacity_denominator() {
+        let ctx = Context {
+            links: vec![link("sr:device:a", "sr:device:b", Some(900), None)],
+            ..Default::default()
+        };
+        assert!(c6_interface_saturation(&ctx).is_empty());
+    }
+
+    #[test]
+    fn c6_no_projection_below_threshold() {
+        let ctx = Context {
+            links: vec![link("sr:device:a", "sr:device:b", Some(100), Some(1_000))],
+            ..Default::default()
+        };
+        assert!(c6_interface_saturation(&ctx).is_empty());
     }
 }
