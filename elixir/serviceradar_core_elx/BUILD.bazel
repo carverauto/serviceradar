@@ -32,6 +32,7 @@ mix_release(
     run_assets = False,
     extra_dirs = [
         "addons/bumblebee-scan",
+        "addons/endpoint-inventory",
         "addons/netprobe",
         "elixir/connection",
         "elixir/elixir_uuid",
@@ -44,6 +45,7 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/endpoint-inventory:endpoint_inventory_manifest",
         "//addons/netprobe:netprobe_manifest",
         "//elixir/connection:srcs",
         "//elixir/elixir_uuid:srcs",
