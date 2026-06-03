@@ -1,18 +1,18 @@
 defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   @moduledoc false
 
-  require Logger
-
   alias ServiceRadar.Inventory.EndpointInventoryArtifact
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
+
+  require Logger
 
   @scan_limit 8
   @package_limit 200
 
   def load(scope, device_uid) when is_binary(device_uid) and device_uid != "" do
     with {:ok, scans} <- read_current_scans(scope, device_uid),
-         latest_scan <- List.first(scans),
+         latest_scan = List.first(scans),
          {:ok, packages} <- read_current_packages(scope, device_uid),
          {:ok, artifacts} <- read_artifacts(scope, latest_scan) do
       %{

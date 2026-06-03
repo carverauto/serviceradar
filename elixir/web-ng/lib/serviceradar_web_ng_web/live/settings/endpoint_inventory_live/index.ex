@@ -147,8 +147,7 @@ defmodule ServiceRadarWebNGWeb.Settings.EndpointInventoryLive.Index do
     Map.merge(form, params)
   end
 
-  defp merge_settings_form(_form, params) when is_map(params),
-    do: Map.merge(default_settings_form(), params)
+  defp merge_settings_form(_form, params) when is_map(params), do: Map.merge(default_settings_form(), params)
 
   defp build_settings_update_params(params) when is_map(params) do
     %{retention_days: int_param(params["retention_days"], 30)}

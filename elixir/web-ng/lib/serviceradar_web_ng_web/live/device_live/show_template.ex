@@ -131,7 +131,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             No device row returned for this query.
           </div>
 
-          <!-- View Mode -->
           <.device_summary_section
             :if={is_map(@device_row) and not @editing}
             device_row={@device_row}
@@ -139,7 +138,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             editing={@editing}
           />
 
-          <!-- Edit Mode -->
           <.device_edit_section
             :if={is_map(@device_row) and @editing}
             device_row={@device_row}
@@ -148,7 +146,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             snmp_credential_form={@snmp_credential_form}
           />
 
-          <!-- Tabs Navigation -->
           <.device_tabs
             :if={is_map(@device_row)}
             device_row={@device_row}
@@ -163,7 +160,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             has_mtr={@has_mtr}
           />
 
-          <!-- Details Tab Content -->
           <div :if={@active_tab == "details"}>
             <div class="grid grid-cols-1 gap-4">
               <.ocsf_info_section :if={is_map(@device_row)} device_row={@device_row} />
@@ -276,12 +272,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             </div>
           </div>
 
-          <!-- Guests Tab Content -->
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
             <.virtualization_guests_tab summary={@virtualization_summary} />
           </div>
 
-          <!-- Interfaces Tab Content -->
           <div :if={@active_tab == "interfaces" and @has_ifaces}>
             <.interfaces_tab_content
               interfaces={@network_interfaces}
@@ -298,7 +292,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             />
           </div>
 
-          <!-- Flows Tab Content -->
           <div :if={@active_tab == "flows" and @has_flows}>
             <.flows_tab_content
               flows={@device_flows}
@@ -338,7 +331,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             />
           </div>
 
-          <!-- Profiles Tab Content (only when sysmon is active) -->
           <div :if={@active_tab == "profiles" and @sysmon_presence}>
             <div class="grid grid-cols-1 gap-4">
               <.sysmon_profile_card
@@ -350,19 +342,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             </div>
           </div>
 
-          <!-- Active Fingerprint Tab Content -->
           <div :if={
             @active_tab == "active-fingerprint" and can_view_active_fingerprint?(@current_scope)
           }>
             <.active_fingerprint_tab_content device_row={@device_row} />
           </div>
 
-          <!-- Process Listeners Tab Content -->
           <div :if={@active_tab == "process-listeners"}>
             <.process_listeners_tab_content device_row={@device_row} />
           </div>
 
-          <!-- MTR Diagnostics Tab Content -->
           <.mtr_tab_content
             :if={@active_tab == "mtr"}
             device_uid={@device_uid}
