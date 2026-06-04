@@ -16,13 +16,20 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
       |> Map.get("properties", %{})
       |> Enum.reject(fn {name, prop} -> internal_property?(name, prop) end)
 
+    # Split into the primary fields (shown inline) and advanced fields (collapsed by
+    # default). Advanced fields are opt-in extras; a schema with no advanced hints renders
+    # exactly as before (everything inline, no collapse).
+    {advanced_properties, basic_properties} =
+      Enum.split_with(properties, fn {_name, prop} -> advanced?(prop) end)
+
     required = Map.get(schema, "required", [])
 
     assigns =
       assigns
       |> assign(:schema, schema)
       |> assign(:params, params)
-      |> assign(:properties, properties)
+      |> assign(:basic_properties, basic_properties)
+      |> assign(:advanced_properties, advanced_properties)
       |> assign(:required, required)
       |> assign(:docs_url, docs_url(schema))
 
@@ -38,88 +45,124 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
         </a>
       </div>
 
-      <%= for {name, prop} <- @properties do %>
-        <div class="space-y-2">
-          <label class="label">
-            <span class="label-text">
-              {Map.get(prop, "title") || name}
-              <%= if name in @required do %>
-                <span class="text-error">*</span>
-              <% end %>
-            </span>
-          </label>
+      <.config_field
+        :for={{name, prop} <- @basic_properties}
+        name={name}
+        prop={prop}
+        required={@required}
+        params={@params}
+        base_name={@base_name}
+      />
 
-          <%= case input_type(prop) do %>
-            <% :secret -> %>
-              <input
-                type="password"
-                name={input_name(@base_name, name)}
-                value=""
-                class="input input-bordered w-full"
-                placeholder={secret_placeholder(@params, name)}
-              />
-              <%= if current_secret_ref(@params, name) do %>
-                <p class="text-xs text-base-content/60">
-                  Stored secret ref: {current_secret_ref(@params, name)}
-                </p>
-              <% end %>
-            <% :select -> %>
-              <select
-                name={input_name(@base_name, name)}
-                class="select select-bordered w-full"
-              >
-                <%= for option <- Map.get(prop, "enum", []) do %>
-                  <option
-                    value={option}
-                    selected={option == value_for(@params, name)}
-                  >
-                    {option}
-                  </option>
-                <% end %>
-              </select>
-            <% :checkbox -> %>
-              <div class="flex items-center gap-2">
-                <input type="hidden" name={input_name(@base_name, name)} value="false" />
-                <input
-                  type="checkbox"
-                  name={input_name(@base_name, name)}
-                  value="true"
-                  class="checkbox checkbox-sm"
-                  checked={truthy?(value_for(@params, name))}
-                />
-                <span class="text-xs text-base-content/60">Enable</span>
-              </div>
-            <% :textarea -> %>
-              <textarea
-                name={input_name(@base_name, name)}
-                class="textarea textarea-bordered w-full font-mono text-xs min-h-[100px]"
-                placeholder={array_placeholder(prop)}
-              ><%= value_for(@params, name) %></textarea>
-            <% :number -> %>
-              <input
-                type="number"
-                name={input_name(@base_name, name)}
-                value={value_for(@params, name)}
-                min={Map.get(prop, "minimum")}
-                max={Map.get(prop, "maximum")}
-                class="input input-bordered w-full"
-              />
-            <% :text -> %>
-              <input
-                type={text_input_type(prop)}
-                name={input_name(@base_name, name)}
-                value={value_for(@params, name)}
-                minlength={Map.get(prop, "minLength")}
-                maxlength={Map.get(prop, "maxLength")}
-                pattern={Map.get(prop, "pattern")}
-                class="input input-bordered w-full"
-              />
-          <% end %>
-
-          <%= if is_binary(Map.get(prop, "description")) and Map.get(prop, "description") != "" do %>
-            <p class="text-xs text-base-content/60">{Map.get(prop, "description")}</p>
-          <% end %>
+      <details
+        :if={@advanced_properties != []}
+        class="rounded-lg border border-base-300 bg-base-200/40"
+      >
+        <summary class="cursor-pointer select-none px-3 py-2 text-sm font-medium text-base-content/80">
+          Advanced settings (optional)
+        </summary>
+        <div class="space-y-4 p-3 pt-1">
+          <.config_field
+            :for={{name, prop} <- @advanced_properties}
+            name={name}
+            prop={prop}
+            required={@required}
+            params={@params}
+            base_name={@base_name}
+          />
         </div>
+      </details>
+    </div>
+    """
+  end
+
+  attr :name, :string, required: true
+  attr :prop, :map, required: true
+  attr :required, :list, default: []
+  attr :params, :map, default: %{}
+  attr :base_name, :string, default: "params"
+
+  def config_field(assigns) do
+    ~H"""
+    <div class="space-y-2">
+      <label class="label">
+        <span class="label-text">
+          {Map.get(@prop, "title") || @name}
+          <%= if @name in @required do %>
+            <span class="text-error">*</span>
+          <% end %>
+        </span>
+      </label>
+
+      <%= case input_type(@prop) do %>
+        <% :secret -> %>
+          <input
+            type="password"
+            name={input_name(@base_name, @name)}
+            value=""
+            class="input input-bordered w-full"
+            placeholder={secret_placeholder(@params, @name)}
+          />
+          <%= if current_secret_ref(@params, @name) do %>
+            <p class="text-xs text-base-content/60">
+              Stored secret ref: {current_secret_ref(@params, @name)}
+            </p>
+          <% end %>
+        <% :select -> %>
+          <select
+            name={input_name(@base_name, @name)}
+            class="select select-bordered w-full"
+          >
+            <%= for option <- Map.get(@prop, "enum", []) do %>
+              <option
+                value={option}
+                selected={option == value_for(@params, @name)}
+              >
+                {option}
+              </option>
+            <% end %>
+          </select>
+        <% :checkbox -> %>
+          <div class="flex items-center gap-2">
+            <input type="hidden" name={input_name(@base_name, @name)} value="false" />
+            <input
+              type="checkbox"
+              name={input_name(@base_name, @name)}
+              value="true"
+              class="checkbox checkbox-sm"
+              checked={truthy?(value_for(@params, @name))}
+            />
+            <span class="text-xs text-base-content/60">Enable</span>
+          </div>
+        <% :textarea -> %>
+          <textarea
+            name={input_name(@base_name, @name)}
+            class="textarea textarea-bordered w-full font-mono text-xs min-h-[100px]"
+            placeholder={array_placeholder(@prop)}
+          ><%= value_for(@params, @name) %></textarea>
+        <% :number -> %>
+          <input
+            type="number"
+            name={input_name(@base_name, @name)}
+            value={value_for(@params, @name)}
+            min={Map.get(@prop, "minimum")}
+            max={Map.get(@prop, "maximum")}
+            class="input input-bordered w-full"
+          />
+        <% :text -> %>
+          <input
+            type={text_input_type(@prop)}
+            name={input_name(@base_name, @name)}
+            value={value_for(@params, @name)}
+            minlength={Map.get(@prop, "minLength")}
+            maxlength={Map.get(@prop, "maxLength")}
+            pattern={Map.get(@prop, "pattern")}
+            class="input input-bordered w-full"
+          />
+      <% end %>
+
+      <%= if is_binary(Map.get(@prop, "description")) and Map.get(@prop, "description") != "" do %>
+        <p class="text-xs text-base-content/60">{Map.get(@prop, "description")}</p>
       <% end %>
     </div>
     """
@@ -166,6 +209,9 @@ defmodule ServiceRadarWebNGWeb.PluginConfigForm do
   end
 
   defp internal_property?(_name, _), do: false
+
+  defp advanced?(%{} = prop), do: Map.get(prop, "x-serviceradar-ui-advanced") == true
+  defp advanced?(_), do: false
 
   defp docs_url(schema) do
     schema

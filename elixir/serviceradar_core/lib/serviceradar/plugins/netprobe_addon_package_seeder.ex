@@ -17,14 +17,22 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
   require Logger
 
   @addon_id "netprobe"
-  @version "0.1.0"
-  @capabilities ["host-network-visibility"]
   @config_schema_path Path.expand(
                         "../../../../../addons/netprobe/config.schema.json",
                         __DIR__
                       )
   @external_resource @config_schema_path
   @config_schema @config_schema_path |> File.read!() |> Jason.decode!()
+
+  # Version + capabilities track the in-image manifest, not a hardcoded constant, so a
+  # manifest bump (e.g. 0.1.0 -> 0.2.0) surfaces to operators on the next boot instead of
+  # freezing at a fixed version. Signed artifact refs still come from runtime config; an
+  # operator-facing config :version override still wins (see package_attrs/2).
+  @manifest_path Path.expand("../../../../../addons/netprobe/addon.yaml", __DIR__)
+  @external_resource @manifest_path
+  @manifest @manifest_path |> File.read!() |> YamlElixir.read_from_string!()
+  @version Map.get(@manifest, "version", "0.1.0")
+  @capabilities Map.get(@manifest, "capabilities", ["host-network-visibility"])
 
   @spec seed_defaults(keyword()) :: :ok | {:error, term()}
   def seed_defaults(opts \\ []) do
@@ -33,30 +41,39 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
       |> Application.get_env(:netprobe_native_addon_package, [])
       |> Keyword.merge(opts)
 
+    actor = SystemActor.system(:netprobe_addon_package_seeder)
+
     case normalize_artifacts(Keyword.get(config, :artifacts, %{})) do
       {:ok, artifacts} when map_size(artifacts) > 0 ->
-        actor = SystemActor.system(:netprobe_addon_package_seeder)
-        ensure_package(config, artifacts, actor)
+        # Verified signed artifacts present: seed + approve so the package is assignable.
+        ensure_package(config, artifacts, actor, approve?: true)
 
       {:ok, _empty} ->
-        Logger.debug("Skipping netprobe native add-on package seed: no artifacts configured")
-        :ok
+        # No signed artifacts yet: still surface the manifest version + config schema as a
+        # STAGED (visible, not assignable) package, so operators see the current add-on and
+        # its one-touch config instead of a silently frozen prior version.
+        Logger.info(
+          "Seeding netprobe native add-on package as staged (no signed artifacts configured yet)"
+        )
+
+        ensure_package(config, %{}, actor, approve?: false)
 
       {:error, _reason} = error ->
         error
     end
   end
 
-  defp ensure_package(config, artifacts, actor) do
+  defp ensure_package(config, artifacts, actor, seed_opts) do
+    approve? = Keyword.get(seed_opts, :approve?, true)
     attrs = package_attrs(config, artifacts)
     opts = [actor: actor]
 
     case find_package(attrs.addon_id, attrs.version, opts) do
       {:ok, nil} ->
-        create_and_approve(attrs, opts)
+        create_package(attrs, approve?, opts)
 
       {:ok, %AddonPackage{} = package} ->
-        update_and_approve(package, attrs, opts)
+        update_package(package, attrs, approve?, opts)
 
       {:error, reason} ->
         Logger.warning("Failed to check netprobe add-on package seed: #{inspect(reason)}")
@@ -71,13 +88,17 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
     |> Ash.read_one(opts)
   end
 
-  defp create_and_approve(attrs, opts) do
+  defp create_package(attrs, approve?, opts) do
     with {:ok, package} <-
            AddonPackage
            |> Ash.Changeset.for_create(:create, attrs, opts)
            |> Ash.create(opts),
-         {:ok, _approved} <- approve(package, opts) do
-      Logger.info("Seeded approved netprobe native add-on package", version: attrs.version)
+         {:ok, _package} <- maybe_approve(package, approve?, opts) do
+      Logger.info("Seeded netprobe native add-on package",
+        version: attrs.version,
+        approved: approve?
+      )
+
       :ok
     else
       {:error, reason} ->
@@ -86,14 +107,18 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
     end
   end
 
-  defp update_and_approve(%AddonPackage{} = package, attrs, opts) do
+  defp update_package(%AddonPackage{} = package, attrs, approve?, opts) do
     with {:ok, package} <- restage_if_needed(package, opts),
          {:ok, package} <-
            package
            |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]), opts)
            |> Ash.update(opts),
-         {:ok, _approved} <- approve_if_needed(package, opts) do
-      Logger.debug("netprobe native add-on package seed is current", version: attrs.version)
+         {:ok, _package} <- maybe_approve(package, approve?, opts) do
+      Logger.debug("netprobe native add-on package seed is current",
+        version: attrs.version,
+        approved: approve?
+      )
+
       :ok
     else
       {:error, reason} ->
@@ -101,6 +126,9 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
         {:error, reason}
     end
   end
+
+  defp maybe_approve(package, true, opts), do: approve_if_needed(package, opts)
+  defp maybe_approve(package, false, _opts), do: {:ok, package}
 
   defp restage_if_needed(%AddonPackage{status: status} = package, _opts)
        when status in [:staged, :approved],
