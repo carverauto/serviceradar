@@ -16,11 +16,12 @@
 - [x] 4.1 `NetprobeAddonPackageSeeder` derives `version` + `capabilities` from the in-image manifest (`addon.yaml`) instead of hardcoded `@version "0.1.0"`
 - [x] 4.2 Seeder always writes the in-image `config_schema` (create or update), so a schema change reaches the seeded package
 - [x] 4.3 When no matching signed artifacts are configured, stage (do not approve) the manifest version instead of no-op'ing, so the version + schema become visible; approve only verified versions
-- [ ] 4.4 Generalize the same manifest-driven seeding for other native add-ons (bumblebee, endpoint-inventory) or factor a shared helper
+- [ ] 4.4 (deferred follow-up) Factor a shared manifest-driven seeding helper; bumblebee + endpoint-inventory seeders still hardcode version/capabilities (~230 lines duplicated each)
 
 ## 5. Publish pipeline (shipped in v1.2.90)
 - [x] 5.1 `native-addons.yml` triggers on `v*` tags (republish on release)
-- [ ] 5.2 Wire the published import index into the seeder's signed-artifact config so artifact refs track the release (removes the manual runtime-config step)
+- [x] 5.2a `runtime.exs` reads `SERVICERADAR_NETPROBE_ADDON_{ARTIFACTS,VERSION,OCI_REF,OCI_DIGEST}` into `:netprobe_native_addon_package`, so the seeder activates + approves once the published signed artifacts are supplied
+- [ ] 5.2b (deploy/follow-up) Populate those env vars in the demo helm from the published `serviceradar-native-addon-index.json`, or wire an auto-importer (the importer exists but is never invoked) so artifact refs track each release with no manual step
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema

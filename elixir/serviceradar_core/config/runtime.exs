@@ -10,6 +10,46 @@ alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 
+# Netprobe native add-on package — signed artifact refs for the package seeder.
+# native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
+# deployments pass them here (as JSON) + the published version so
+# NetprobeAddonPackageSeeder can approve an assignable package. Without artifacts the
+# seeder stages the manifest version (visible, not assignable); version/oci refs are only
+# set when their env vars are present (version otherwise defaults to the in-image manifest).
+netprobe_addon_artifacts =
+  case System.get_env("SERVICERADAR_NETPROBE_ADDON_ARTIFACTS") do
+    json when is_binary(json) and json != "" ->
+      case Jason.decode(json) do
+        {:ok, %{} = map} -> map
+        _ -> %{}
+      end
+
+    _ ->
+      %{}
+  end
+
+netprobe_addon_config = [artifacts: netprobe_addon_artifacts]
+
+netprobe_addon_config =
+  case System.get_env("SERVICERADAR_NETPROBE_ADDON_VERSION") do
+    v when is_binary(v) and v != "" -> Keyword.put(netprobe_addon_config, :version, v)
+    _ -> netprobe_addon_config
+  end
+
+netprobe_addon_config =
+  case System.get_env("SERVICERADAR_NETPROBE_ADDON_OCI_REF") do
+    v when is_binary(v) and v != "" -> Keyword.put(netprobe_addon_config, :source_oci_ref, v)
+    _ -> netprobe_addon_config
+  end
+
+netprobe_addon_config =
+  case System.get_env("SERVICERADAR_NETPROBE_ADDON_OCI_DIGEST") do
+    v when is_binary(v) and v != "" -> Keyword.put(netprobe_addon_config, :source_oci_digest, v)
+    _ -> netprobe_addon_config
+  end
+
+config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
+
 # GeoLite2 MMDB configuration (all environments)
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
 
