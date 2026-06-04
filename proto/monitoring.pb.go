@@ -2532,8 +2532,16 @@ type AddonAssignmentConfig struct {
 	// to the staged binary via the root-owned agent-updater before launch, e.g.
 	// ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
 	OsCapabilities []string `protobuf:"bytes,15,rep,name=os_capabilities,json=osCapabilities,proto3" json:"os_capabilities,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
+	// NOT access object storage / the KV directly; when these are set the agent fetches
+	// the artifact from the agent-gateway over HTTPS (the same path WASM plugins use).
+	// download_url points at the gateway addon-blob endpoint; download_token is the
+	// signed (HMAC) grant authorizing the specific artifact_object_key. The agent
+	// still verifies artifact_sha256 + artifact_signature after download.
+	DownloadUrl   string `protobuf:"bytes,16,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`
+	DownloadToken string `protobuf:"bytes,17,opt,name=download_token,json=downloadToken,proto3" json:"download_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AddonAssignmentConfig) Reset() {
@@ -2669,6 +2677,20 @@ func (x *AddonAssignmentConfig) GetOsCapabilities() []string {
 		return x.OsCapabilities
 	}
 	return nil
+}
+
+func (x *AddonAssignmentConfig) GetDownloadUrl() string {
+	if x != nil {
+		return x.DownloadUrl
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetDownloadToken() string {
+	if x != nil {
+		return x.DownloadToken
+	}
+	return ""
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
@@ -7686,7 +7708,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\x12F\n" +
 	"\x10bumblebee_config\x18\f \x01(\v2\x1b.monitoring.BumblebeeConfigR\x0fbumblebeeConfig\x129\n" +
 	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\x12_\n" +
-	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\"\x8d\x04\n" +
+	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\"\xd7\x04\n" +
 	"\x15AddonAssignmentConfig\x12\x19\n" +
 	"\baddon_id\x18\x01 \x01(\tR\aaddonId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
@@ -7706,7 +7728,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\ttarget_os\x18\r \x01(\tR\btargetOs\x12\x1f\n" +
 	"\vtarget_arch\x18\x0e \x01(\tR\n" +
 	"targetArch\x12'\n" +
-	"\x0fos_capabilities\x18\x0f \x03(\tR\x0eosCapabilities\"\xc2\x02\n" +
+	"\x0fos_capabilities\x18\x0f \x03(\tR\x0eosCapabilities\x12!\n" +
+	"\fdownload_url\x18\x10 \x01(\tR\vdownloadUrl\x12%\n" +
+	"\x0edownload_token\x18\x11 \x01(\tR\rdownloadToken\"\xc2\x02\n" +
 	"\x10AgentConfigChunk\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +

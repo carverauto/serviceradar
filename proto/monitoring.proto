@@ -375,6 +375,15 @@ message AddonAssignmentConfig {
   // to the staged binary via the root-owned agent-updater before launch, e.g.
   // ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
   repeated string os_capabilities = 15;
+
+  // Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
+  // NOT access object storage / the KV directly; when these are set the agent fetches
+  // the artifact from the agent-gateway over HTTPS (the same path WASM plugins use).
+  // download_url points at the gateway addon-blob endpoint; download_token is the
+  // signed (HMAC) grant authorizing the specific artifact_object_key. The agent
+  // still verifies artifact_sha256 + artifact_signature after download.
+  string download_url = 16;
+  string download_token = 17;
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

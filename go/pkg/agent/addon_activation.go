@@ -35,6 +35,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -69,6 +70,9 @@ var (
 	// ErrAddonArtifactIncomplete is returned when the assignment is missing the
 	// object key or expected sha256 required to fetch and verify the artifact.
 	ErrAddonArtifactIncomplete = errors.New("addon artifact reference incomplete")
+	// ErrAddonArtifactDownloadFailed is returned when the gateway-proxied HTTPS
+	// download of an add-on artifact returns a non-200 status.
+	ErrAddonArtifactDownloadFailed = errors.New("addon artifact gateway download failed")
 	// ErrAddonArtifactHashMismatch is returned when the fetched artifact does not
 	// match the expected sha256.
 	ErrAddonArtifactHashMismatch = errors.New("addon artifact sha256 mismatch")
@@ -123,10 +127,23 @@ func stageAddonArtifact(
 	root string,
 	a *proto.AddonAssignmentConfig,
 ) (string, error) {
-	if downloader == nil {
-		return "", ErrAddonObjectStoreUnavailable
-	}
+	return stageAddonArtifactWithClient(ctx, downloader, nil, root, a)
+}
 
+// stageAddonArtifactWithClient is stageAddonArtifact with an optional gateway HTTP
+// client. When the assignment carries a gateway download_url and httpClient is
+// non-nil, the artifact is fetched over HTTPS through the gateway/web-ng addon-blob
+// endpoint (mirroring the WASM plugin download path) instead of the direct object
+// store; the same sha256 + ed25519-signature verification is applied either way.
+// When download_url is empty it falls back to the direct object store (internal
+// agents with a kv_address).
+func stageAddonArtifactWithClient(
+	ctx context.Context,
+	downloader ObjectStore,
+	httpClient *http.Client,
+	root string,
+	a *proto.AddonAssignmentConfig,
+) (string, error) {
 	objectKey := strings.TrimSpace(a.GetArtifactObjectKey())
 	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
 	if objectKey == "" || wantSHA == "" {
@@ -146,9 +163,9 @@ func stageAddonArtifact(
 		return "", fmt.Errorf("%w: version %q", ErrAddonUnsafePath, version)
 	}
 
-	data, err := downloader.DownloadObject(ctx, objectKey)
+	data, err := fetchAddonArtifactBytes(ctx, downloader, httpClient, a, objectKey)
 	if err != nil {
-		return "", fmt.Errorf("download addon artifact %q: %w", objectKey, err)
+		return "", err
 	}
 
 	// Verify the digest with the shared constant-time helper before touching disk.
@@ -194,6 +211,89 @@ func stageAddonArtifact(
 	}
 
 	return filepath.Join(addonDir, addonCurrentLink, binName), nil
+}
+
+// fetchAddonArtifactBytes returns the raw artifact bytes, preferring the gateway-proxied
+// HTTPS download (download_url + download_token) when the assignment carries one and an
+// HTTP client is available, mirroring the WASM plugin download path. It falls back to the
+// direct object store otherwise. The bytes are returned UNVERIFIED; the caller applies the
+// sha256 + ed25519-signature checks regardless of which path produced them.
+func fetchAddonArtifactBytes(
+	ctx context.Context,
+	downloader ObjectStore,
+	httpClient *http.Client,
+	a *proto.AddonAssignmentConfig,
+	objectKey string,
+) ([]byte, error) {
+	if downloadURL := strings.TrimSpace(a.GetDownloadUrl()); downloadURL != "" {
+		if httpClient == nil {
+			return nil, ErrAddonObjectStoreUnavailable
+		}
+
+		data, err := downloadAddonArtifactHTTP(ctx, httpClient, downloadURL, a.GetDownloadToken())
+		if err != nil {
+			return nil, fmt.Errorf("download addon artifact via gateway: %w", err)
+		}
+
+		return data, nil
+	}
+
+	// No gateway download URL: fall back to the direct object store (internal agents
+	// configured with a kv_address).
+	if downloader == nil {
+		return nil, ErrAddonObjectStoreUnavailable
+	}
+
+	data, err := downloader.DownloadObject(ctx, objectKey)
+	if err != nil {
+		return nil, fmt.Errorf("download addon artifact %q: %w", objectKey, err)
+	}
+
+	return data, nil
+}
+
+// downloadAddonArtifactHTTP fetches an add-on artifact from the gateway/web-ng addon-blob
+// endpoint over HTTPS, presenting the per-poll signed download token in the
+// X-ServiceRadar-Plugin-Token header (the same header the WASM plugin download uses). The
+// response body is bounded to the maximum add-on tarball size to guard against a hostile
+// or misbehaving endpoint. The returned bytes are unverified; the caller still checks the
+// sha256 and ed25519 signature.
+func downloadAddonArtifactHTTP(ctx context.Context, client *http.Client, downloadURL, token string) ([]byte, error) {
+	method := http.MethodGet
+	if strings.TrimSpace(token) != "" {
+		method = http.MethodPost
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, downloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("X-ServiceRadar-Plugin-Token", token)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%w: status %d", ErrAddonArtifactDownloadFailed, resp.StatusCode)
+	}
+
+	// Cap at one byte over the total-extracted bound so an oversized response is rejected
+	// rather than buffered whole.
+	limited := io.LimitReader(resp.Body, maxAddonTarballBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxAddonTarballBytes {
+		return nil, fmt.Errorf("%w: addon artifact exceeds %d bytes", ErrAddonTarballTooLarge, maxAddonTarballBytes)
+	}
+
+	return data, nil
 }
 
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes

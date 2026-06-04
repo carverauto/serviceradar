@@ -433,6 +433,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     package = assignment.addon_package
     artifact = select_addon_artifact(package.artifacts, agent_os, agent_arch)
 
+    # Mint a gateway-proxied download request for the selected per-arch artifact so
+    # agents fetch it over HTTPS through the gateway/web-ng addon-blob endpoint
+    # (mirroring the WASM plugin path) instead of touching the object store directly.
+    # nil when no artifact is selected or the storage URL/secret is unconfigured; the
+    # agent then falls back to its existing direct-store path.
+    download_request = StorageToken.download_addon_request(package.id, artifact[:object_key])
+
     %{
       addon_id: logical_addon_id(assignment),
       version: package.version,
@@ -448,7 +455,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       artifact_sha256: artifact[:sha256],
       artifact_signature: artifact[:signature],
       target_os: artifact[:os],
-      target_arch: artifact[:arch]
+      target_arch: artifact[:arch],
+      download_url: download_request && download_request.url,
+      download_token: download_request && download_request.token
     }
   end
 
@@ -1146,11 +1155,22 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     "v" <> Compiler.content_hash(version_payload)
   end
 
-  # The add-on assignment map carries no volatile/derived fields (unlike plugin
-  # assignments, which strip per-poll download tokens), so the whole map joins the
-  # config version hash. binary_path is included intentionally: a binary/install_path
+  # Strip the per-poll gateway download fields before hashing: download_token is a
+  # freshly-minted (rotating) signed token each generation and download_url, while
+  # stable, is derived from it — including them would change the config version hash
+  # every poll and cause a polling agent to perpetually relaunch. The artifact
+  # object_key/sha256/signature (which DO drive re-versioning on a real change) stay
+  # in the hashed map. binary_path is included intentionally: a binary/install_path
   # (or per-arch artifact) change must re-version so a polling agent stops getting
   # `not_modified` and relaunches the new executable.
+  defp stable_addon_assignment(assignment) when is_map(assignment) do
+    assignment
+    |> Map.delete(:download_url)
+    |> Map.delete("download_url")
+    |> Map.delete(:download_token)
+    |> Map.delete("download_token")
+  end
+
   defp stable_addon_assignment(assignment), do: assignment
 
   defp stable_config_fragment(%{} = map) do
@@ -1203,7 +1223,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         artifact_sha256: assignment_string(addon[:artifact_sha256]),
         artifact_signature: assignment_string(addon[:artifact_signature]),
         target_os: assignment_string(addon[:target_os]),
-        target_arch: assignment_string(addon[:target_arch])
+        target_arch: assignment_string(addon[:target_arch]),
+        download_url: assignment_string(addon[:download_url]),
+        download_token: assignment_string(addon[:download_token])
       }
     end)
   end

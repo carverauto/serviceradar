@@ -524,6 +524,8 @@ defmodule Monitoring.AddonAssignmentConfig do
   field :target_os, 13, type: :string, json_name: "targetOs"
   field :target_arch, 14, type: :string, json_name: "targetArch"
   field :os_capabilities, 15, repeated: true, type: :string, json_name: "osCapabilities"
+  field :download_url, 16, type: :string, json_name: "downloadUrl"
+  field :download_token, 17, type: :string, json_name: "downloadToken"
 end
 
 defmodule Monitoring.AgentConfigChunk do

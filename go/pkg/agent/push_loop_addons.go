@@ -18,9 +18,13 @@ package agent
 
 import (
 	"context"
+	"fmt"
+	"net/http"
 	"path/filepath"
+	"strings"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
+	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 )
 
@@ -139,13 +143,24 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	store := p.server.objectStore
 	p.server.mu.RUnlock()
 
+	// When the control plane supplied a gateway download_url, fetch the artifact over
+	// HTTPS through the gateway/web-ng addon-blob endpoint (mirroring WASM plugins)
+	// instead of touching the object store directly. External agents (no kv_address,
+	// hence no objectStore) rely on this path. The mTLS client is built from the
+	// agent's gateway security config; verification (sha256 + ed25519 signature) is
+	// applied to the fetched bytes regardless of which path produced them.
+	httpClient, err := p.gatewayAddonHTTPClient(a)
+	if err != nil {
+		return "", err
+	}
+
 	root := resolveAddonArtifactRoot("")
 	addonDir := filepath.Join(root, a.GetAddonId())
 	// Capture the currently-active version before staging so a failed capability
 	// application can roll `current` back to it.
 	priorTarget, _ := readAddonCurrentTarget(addonDir)
 
-	resolved, err := stageAddonArtifact(ctx, store, root, a)
+	resolved, err := stageAddonArtifactWithClient(ctx, store, httpClient, root, a)
 	if err != nil {
 		return "", err
 	}
@@ -172,6 +187,29 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	}
 
 	return resolved, nil
+}
+
+// gatewayAddonHTTPClient returns the mTLS HTTP client used to fetch a pushed-artifact
+// add-on over HTTPS through the gateway/web-ng addon-blob endpoint, or nil when the
+// assignment has no gateway download_url (the direct object-store path is used instead).
+// It reuses the agent's gateway artifact client builder (the same one the release-update
+// path uses), so the agent's existing gateway mTLS identity authenticates the fetch.
+func (p *PushLoop) gatewayAddonHTTPClient(a *proto.AddonAssignmentConfig) (*http.Client, error) {
+	if strings.TrimSpace(a.GetDownloadUrl()) == "" {
+		return nil, nil
+	}
+
+	var security *models.SecurityConfig
+	if p.server != nil && p.server.config != nil {
+		security = p.server.config.GatewaySecurity
+	}
+
+	client, err := gatewayArtifactHTTPClient(security)
+	if err != nil {
+		return nil, fmt.Errorf("build gateway addon download client: %w", err)
+	}
+
+	return client, nil
 }
 
 // applyAddonAssignments reconciles the agent's native add-ons to the assignments
