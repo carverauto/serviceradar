@@ -94,7 +94,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
     case existing_assignment(agent_uid, addon_id, scope) do
       %AddonAssignment{id: id} ->
-        update(id, Map.put(attrs, :enabled, true), opts)
+        # agent_uid is the assignment identity, not a mutable field, so the :update action
+        # rejects it. Drop it (the existing row already carries it) and pass only the
+        # mutable attrs when upgrading/re-enabling the existing assignment in place.
+        update(id, attrs |> Map.drop([:agent_uid, "agent_uid"]) |> Map.put(:enabled, true), opts)
 
       nil ->
         create(attrs, opts)
