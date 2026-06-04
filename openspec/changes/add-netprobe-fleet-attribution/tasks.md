@@ -21,7 +21,9 @@
 ## 5. Publish pipeline (shipped in v1.2.90)
 - [x] 5.1 `native-addons.yml` triggers on `v*` tags (republish on release)
 - [x] 5.2a `runtime.exs` reads `SERVICERADAR_NETPROBE_ADDON_{ARTIFACTS,VERSION,OCI_REF,OCI_DIGEST}` into `:netprobe_native_addon_package`, so the seeder activates + approves once the published signed artifacts are supplied
-- [ ] 5.2b (deploy/follow-up) Populate those env vars in the demo helm from the published `serviceradar-native-addon-index.json`, or wire an auto-importer (the importer exists but is never invoked) so artifact refs track each release with no manual step
+- [x] 5.2b core helm template (`core.yaml`) passes those env vars from `core.netprobeAddon.{artifacts,version,ociRef,ociDigest}` (guarded — inert unless set; verified rendering)
+- [ ] 5.2c (BLOCKED) Populate `core.netprobeAddon` in `values-demo.yaml` from the published `serviceradar-native-addon-index.json`. BLOCKER: the `native-addons.yml` publish FAILED on v1.2.91 (40m59s publish failure on run #16189; no `serviceradar-native-addon-index.json` asset on the release) — so `0.2.0` artifacts were never published. Re-run/dispatch the publish first.
+- [ ] 5.2d (follow-up) Wire an auto-importer (the importer exists but is never invoked) so artifact refs track each release with no manual values step
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
