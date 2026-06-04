@@ -143,6 +143,10 @@ func (p *PushLoop) enrollOnce(ctx context.Context) error {
 		Arch:          runtime.GOARCH,
 		ConfigVersion: p.getConfigVersion(),
 		Labels:        deploymentHelloLabels(),
+		// Report the agent's own host IP so the gateway links it to the
+		// correct device even when the TCP peer IP is NAT'd (external agents).
+		// Mirrors getSourceIP() used for PushStatus so the two agree.
+		HostIp: p.getSourceIP(),
 	}
 
 	// Send Hello

@@ -285,6 +285,7 @@ message AgentHelloRequest {
   string config_version = 8;        // Current config version hash (for config sync)
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -375,6 +376,15 @@ message AddonAssignmentConfig {
   // to the staged binary via the root-owned agent-updater before launch, e.g.
   // ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
   repeated string os_capabilities = 15;
+
+  // Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
+  // NOT access object storage / the KV directly; when these are set the agent fetches
+  // the artifact from the agent-gateway over HTTPS (the same path WASM plugins use).
+  // download_url points at the gateway addon-blob endpoint; download_token is the
+  // signed (HMAC) grant authorizing the specific artifact_object_key. The agent
+  // still verifies artifact_sha256 + artifact_signature after download.
+  string download_url = 16;
+  string download_token = 17;
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
@@ -406,6 +416,7 @@ message ControlStreamHello {
   string arch = 8;                  // Architecture (e.g., "amd64", "arm64")
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
 }
 
 // CommandRequest represents a command sent to the agent.

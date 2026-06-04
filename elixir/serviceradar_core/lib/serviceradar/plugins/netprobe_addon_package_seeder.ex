@@ -108,15 +108,25 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
   end
 
   defp update_package(%AddonPackage{} = package, attrs, approve?, opts) do
-    with {:ok, package} <- restage_if_needed(package, opts),
+    # An existing package that already carries non-empty artifacts was imported/mirrored
+    # (and likely verified/approved) out-of-band by the importer. The manifest-driven
+    # seeder must NOT clobber those mirrored artifacts with its own (often empty) runtime
+    # config, nor downgrade the package status by re-staging it. In that case we keep the
+    # imported artifacts + status untouched and, at most, refresh the config_schema so the
+    # operator-facing one-touch config tracks the in-image manifest.
+    imported? = imported_with_artifacts?(package)
+    update_attrs = update_attrs(attrs, imported?)
+
+    with {:ok, package} <- maybe_restage(package, imported?, opts),
          {:ok, package} <-
            package
-           |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]), opts)
+           |> Ash.Changeset.for_update(:update, update_attrs, opts)
            |> Ash.update(opts),
-         {:ok, _package} <- maybe_approve(package, approve?, opts) do
+         {:ok, _package} <- maybe_approve(package, approve? and not imported?, opts) do
       Logger.debug("netprobe native add-on package seed is current",
         version: attrs.version,
-        approved: approve?
+        approved: approve? and not imported?,
+        imported: imported?
       )
 
       :ok
@@ -126,6 +136,24 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeeder do
         {:error, reason}
     end
   end
+
+  # True when the existing package already carries mirrored artifacts (imported/verified
+  # out-of-band). map_size guards against the seeder's default empty %{} artifacts.
+  defp imported_with_artifacts?(%AddonPackage{artifacts: artifacts})
+       when is_map(artifacts) and map_size(artifacts) > 0,
+       do: true
+
+  defp imported_with_artifacts?(_package), do: false
+
+  # For an imported package, only the config_schema may be refreshed; artifacts and every
+  # other attribute (status-affecting or otherwise) are left as the importer set them. For
+  # a seeder-owned package, update the full attribute set as before.
+  defp update_attrs(attrs, true), do: Map.take(attrs, [:config_schema])
+  defp update_attrs(attrs, false), do: Map.drop(attrs, [:addon_id, :version])
+
+  # Never re-stage (which would downgrade status) a package the importer already populated.
+  defp maybe_restage(package, true, _opts), do: {:ok, package}
+  defp maybe_restage(package, false, opts), do: restage_if_needed(package, opts)
 
   defp maybe_approve(package, true, opts), do: approve_if_needed(package, opts)
   defp maybe_approve(package, false, _opts), do: {:ok, package}

@@ -26,6 +26,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -695,5 +697,122 @@ func TestStageAddonArtifactTarballRejectsTooManyEntries(t *testing.T) {
 
 	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballTooLarge) {
 		t.Fatalf("want ErrAddonTarballTooLarge, got %v", err)
+	}
+}
+
+// TestStageAddonArtifactViaGatewayHTTP verifies that, with a gateway download_url, the
+// artifact is fetched over HTTP (presenting the download token) and still passes sha256
+// + ed25519 verification before staging - all WITHOUT an object store (the external-agent
+// path). It also confirms the gateway path does not call DownloadObject.
+func TestStageAddonArtifactViaGatewayHTTP(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	t.Setenv(releasePublicKeyEnv, hex.EncodeToString(pub))
+
+	payload := []byte("gateway-delivered-addon-binary")
+	const wantToken = "signed-download-token"
+
+	var gotToken, gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken = r.Header.Get("X-ServiceRadar-Plugin-Token")
+		gotMethod = r.Method
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex(payload),
+		ArtifactSignature: hex.EncodeToString(ed25519.Sign(priv, payload)),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     wantToken,
+	}
+
+	// No object store: external agents have none; the gateway URL must drive the fetch.
+	got, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), root, a)
+	if err != nil {
+		t.Fatalf("stage via gateway: %v", err)
+	}
+	if gotToken != wantToken {
+		t.Fatalf("download token header = %q, want %q", gotToken, wantToken)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("download method = %q, want POST (token present)", gotMethod)
+	}
+
+	staged, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read staged binary: %v", err)
+	}
+	if !bytes.Equal(staged, payload) {
+		t.Fatalf("staged content mismatch")
+	}
+}
+
+// TestStageAddonArtifactGatewayHashMismatch confirms a gateway-delivered artifact is still
+// rejected when its bytes do not match the assigned sha256 (verification is not skipped on
+// the HTTP path).
+func TestStageAddonArtifactGatewayHashMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("tampered-bytes"))
+	}))
+	defer srv.Close()
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("expected-bytes")),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+		t.Fatalf("want ErrAddonArtifactHashMismatch, got %v", err)
+	}
+}
+
+// TestStageAddonArtifactGatewayMissingClient confirms that a gateway download_url with no
+// HTTP client (gateway security unconfigured) surfaces as object-store-unavailable rather
+// than silently falling back to a nil store.
+func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("x")),
+		DownloadUrl:       "https://gateway.example/api/addon-packages/p/blob/download",
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, nil, t.TempDir(), a); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
+		t.Fatalf("want ErrAddonObjectStoreUnavailable, got %v", err)
+	}
+}
+
+// TestStageAddonArtifactGatewayNon200 confirms a non-200 gateway response is surfaced as a
+// download failure rather than staged as artifact bytes.
+func TestStageAddonArtifactGatewayNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("x")),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactDownloadFailed) {
+		t.Fatalf("want ErrAddonArtifactDownloadFailed, got %v", err)
 	}
 }

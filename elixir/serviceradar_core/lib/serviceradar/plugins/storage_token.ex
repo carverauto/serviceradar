@@ -9,8 +9,28 @@ defmodule ServiceRadar.Plugins.StorageToken do
 
   @spec download_request(String.t(), String.t() | nil) ::
           %{url: String.t(), token: String.t()} | nil
-  def download_request(package_id, object_key)
-      when is_binary(package_id) and is_binary(object_key) do
+  def download_request(package_id, object_key) do
+    download_request(package_id, object_key, "/api/plugin-packages/#{package_id}/blob/download")
+  end
+
+  @doc """
+  Mints a signed download request for a native add-on package artifact. Mirrors
+  `download_request/2` exactly (same HMAC-signed token mechanism, same secret,
+  same TTL) but points the URL at the gateway-proxied addon-blob endpoint so
+  agents fetch add-on artifacts over HTTPS like WASM plugins.
+  """
+  @spec download_addon_request(String.t(), String.t() | nil) ::
+          %{url: String.t(), token: String.t()} | nil
+  def download_addon_request(package_id, object_key) do
+    download_request(package_id, object_key, "/api/addon-packages/#{package_id}/blob/download")
+  end
+
+  # Shared implementation: only the URL path differs between plugin and addon blobs;
+  # the signed-token payload (id/key/exp/act=download) and secret are identical.
+  @spec download_request(String.t(), String.t() | nil, String.t()) ::
+          %{url: String.t(), token: String.t()} | nil
+  def download_request(package_id, object_key, url_path)
+      when is_binary(package_id) and is_binary(object_key) and is_binary(url_path) do
     base_url = public_url()
     secret = signing_secret()
 
@@ -48,15 +68,13 @@ defmodule ServiceRadar.Plugins.StorageToken do
             Base.url_encode64(signature, padding: false)
 
         %{
-          url:
-            String.trim_trailing(base_url, "/") <>
-              "/api/plugin-packages/#{package_id}/blob/download",
+          url: String.trim_trailing(base_url, "/") <> url_path,
           token: token
         }
     end
   end
 
-  def download_request(_package_id, _object_key), do: nil
+  def download_request(_package_id, _object_key, _url_path), do: nil
 
   defp download_ttl_seconds do
     config()

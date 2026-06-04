@@ -443,6 +443,7 @@ defmodule Monitoring.AgentHelloRequest do
   field :config_version, 8, type: :string, json_name: "configVersion"
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
+  field :host_ip, 11, type: :string, json_name: "hostIp"
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -524,6 +525,8 @@ defmodule Monitoring.AddonAssignmentConfig do
   field :target_os, 13, type: :string, json_name: "targetOs"
   field :target_arch, 14, type: :string, json_name: "targetArch"
   field :os_capabilities, 15, repeated: true, type: :string, json_name: "osCapabilities"
+  field :download_url, 16, type: :string, json_name: "downloadUrl"
+  field :download_token, 17, type: :string, json_name: "downloadToken"
 end
 
 defmodule Monitoring.AgentConfigChunk do
@@ -576,6 +579,7 @@ defmodule Monitoring.ControlStreamHello do
   field :arch, 8, type: :string
   field :labels, 9, repeated: true, type: Monitoring.ControlStreamHello.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
+  field :host_ip, 11, type: :string, json_name: "hostIp"
 end
 
 defmodule Monitoring.CommandRequest do
