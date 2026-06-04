@@ -112,18 +112,30 @@ impl NetprobeEbpfRuntime {
             // CPU or spurious events). netprobe stays a bounded, well-behaved daemon
             // whether or not the agent is connected. The fingerprint/DPI IPC senders
             // are held open (no producer) so those agent streams don't close.
-            log::info!(
-                "netprobe attribution-only mode (0 capture interfaces): kprobe flow attribution active; packet capture, DPI, fingerprinting, and AF_XDP are disabled"
+            return Ok(Self::attribution_only(
+                ebpf,
+                attribution_runtime,
+                fingerprint_events,
+                dpi_events,
+                "0 capture interfaces",
+            ));
+        }
+
+        if let Some(interface) = config
+            .capture_interfaces
+            .iter()
+            .find(|interface| is_default_route_interface(interface))
+        {
+            log::warn!(
+                "netprobe packet capture disabled on {interface}: the interface carries the host default route and AF_XDP/XDP redirect would black-hole host connectivity; kprobe flow attribution remains active"
             );
-            return Ok(Self {
-                _classifier_runtime: None,
-                _p0f_runtime: None,
-                _attribution_runtime: attribution_runtime,
-                _sampling_runtime: None,
-                _fingerprint_keepalive: Some(fingerprint_events),
-                _dpi_keepalive: Some(dpi_events),
-                _ebpf: ebpf,
-            });
+            return Ok(Self::attribution_only(
+                ebpf,
+                attribution_runtime,
+                fingerprint_events,
+                dpi_events,
+                "unsafe capture interface",
+            ));
         }
 
         // Capture mode: at least one interface is configured. Bring up the
@@ -172,6 +184,27 @@ impl NetprobeEbpfRuntime {
             _dpi_keepalive: None,
             _ebpf: ebpf,
         })
+    }
+
+    fn attribution_only(
+        ebpf: Ebpf,
+        attribution_runtime: FlowAttributionRuntime,
+        fingerprint_events: EventSender<FingerprintEvent>,
+        dpi_events: EventSender<DpiEvent>,
+        reason: &str,
+    ) -> Self {
+        log::info!(
+            "netprobe attribution-only mode ({reason}): kprobe flow attribution active; packet capture, DPI, fingerprinting, and AF_XDP are disabled"
+        );
+        Self {
+            _classifier_runtime: None,
+            _p0f_runtime: None,
+            _attribution_runtime: attribution_runtime,
+            _sampling_runtime: None,
+            _fingerprint_keepalive: Some(fingerprint_events),
+            _dpi_keepalive: Some(dpi_events),
+            _ebpf: ebpf,
+        }
     }
 }
 

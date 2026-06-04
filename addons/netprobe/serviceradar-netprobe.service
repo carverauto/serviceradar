@@ -7,8 +7,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-# requires.run_as in addons/netprobe/addon.yaml; matches the base serviceradar-agent user.
-User=serviceradar
+# Start as root for the short privileged eBPF setup phase, then netprobe drops to this
+# group/user via --drop-user before serving IPC. Starting directly as User=serviceradar
+# lacks enough privilege on common kernels to create all eBPF maps.
 Group=serviceradar
 UMask=0027
 
@@ -28,24 +29,31 @@ UMask=0027
 ExecStart=/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe \
     --socket /run/serviceradar/netprobe/ipc.sock \
     --config /etc/serviceradar/sidecars/netprobe.json \
-    --ebpf-object /var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o
+    --ebpf-object /var/lib/serviceradar/agent/addons/netprobe/current/netprobe_ebpf.o \
+    --drop-user serviceradar
 
 # /run/serviceradar/netprobe holds the IPC socket; /var/lib/serviceradar/netprobe is the
-# manifest state_dir. systemd creates both owned by serviceradar:serviceradar.
+# manifest state_dir. The privileged ExecStartPre lines intentionally use "+" because
+# the main service's bounded capability set is too narrow to create/chown service dirs.
 RuntimeDirectory=serviceradar/netprobe
 RuntimeDirectoryMode=0750
 StateDirectory=serviceradar/netprobe
 StateDirectoryMode=0750
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe
+ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe
+ExecStartPre=+/usr/bin/rm -f /sys/fs/bpf/flow_events /sys/fs/bpf/flow_table /sys/fs/bpf/flow_to_pid /sys/fs/bpf/interface_allowlist /sys/fs/bpf/process_info /sys/fs/bpf/tc_tail_calls /sys/fs/bpf/tcp_syn_signatures /sys/fs/bpf/xsk_sockets
+ExecStartPre=+/usr/bin/rm -f /sys/fs/bpf/serviceradar/netprobe/flow_events /sys/fs/bpf/serviceradar/netprobe/flow_table /sys/fs/bpf/serviceradar/netprobe/flow_to_pid /sys/fs/bpf/serviceradar/netprobe/interface_allowlist /sys/fs/bpf/serviceradar/netprobe/process_info /sys/fs/bpf/serviceradar/netprobe/tc_tail_calls /sys/fs/bpf/serviceradar/netprobe/tcp_syn_signatures /sys/fs/bpf/serviceradar/netprobe/xsk_sockets
 
 Restart=on-failure
 RestartSec=5
 
 # Host-network visibility needs raw packet capture (CAP_NET_RAW) plus eBPF/perf for the
-# flow table, DPI, and process attribution (CAP_BPF, CAP_PERFMON). Granted in-unit
-# (ambient, deterministic) and bounded to exactly these; the root-owned agent-updater
-# additionally applies them to the staged binary via setcap per requires.os_capabilities.
-AmbientCapabilities=CAP_NET_RAW CAP_BPF CAP_PERFMON
-CapabilityBoundingSet=CAP_NET_RAW CAP_BPF CAP_PERFMON
+# flow table, DPI, and process attribution (CAP_BPF, CAP_PERFMON). XSKMAP creation
+# needs CAP_NET_ADMIN on common kernels even in attribution-only mode. CAP_SETUID and
+# CAP_SETGID stay in the bounding set so the root-started process can drop to the
+# unprivileged serviceradar account after loading eBPF programs.
+AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON
+CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID
 # File capabilities on the staged binary are only honored on exec when no_new_privs is
 # off; leaving it off also lets the updater's setcap grant take effect.
 NoNewPrivileges=false
@@ -58,6 +66,7 @@ NoNewPrivileges=false
 # The final hardening set is locked in by the migrate-netprobe §4.3 scratch-agent e2e.
 PrivateTmp=true
 ProtectSystem=strict
+ReadWritePaths=/run/serviceradar /var/lib/serviceradar /sys/fs/bpf
 ProtectHome=true
 ProtectControlGroups=true
 RestrictRealtime=true
