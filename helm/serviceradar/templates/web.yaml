@@ -650,10 +650,15 @@ metadata:
   name: serviceradar-web-ng-headless
 spec:
   clusterIP: None
-  publishNotReadyAddresses: true
   selector:
     app: serviceradar-web-ng
   ports:
   - name: http
     port: 4000
     targetPort: http
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist
