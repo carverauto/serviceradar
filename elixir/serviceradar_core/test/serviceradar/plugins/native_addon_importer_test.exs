@@ -125,7 +125,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
         "requires" => %{
           "base_agent" => ">=1.2.0",
           "platforms" => ["linux"],
-          "os_capabilities" => ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
+          "os_capabilities" => ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_BPF", "CAP_PERFMON"]
         },
         "exec" => %{
           "binary" => "serviceradar-netprobe",
@@ -157,7 +157,12 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert attrs.install_path == "/usr/local/lib/serviceradar/bin"
       assert attrs.capabilities == ["host-network-visibility"]
       assert attrs.artifacts == artifacts
-      assert attrs.requires["os_capabilities"] == ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
+      assert attrs.requires["os_capabilities"] == [
+               "CAP_NET_RAW",
+               "CAP_NET_ADMIN",
+               "CAP_BPF",
+               "CAP_PERFMON"
+             ]
       assert attrs.source_oci_ref =~ "serviceradar-addon-netprobe"
       assert attrs.source_oci_digest == "sha256:deadbeef"
       assert attrs.source_release_tag == "sha-abc"

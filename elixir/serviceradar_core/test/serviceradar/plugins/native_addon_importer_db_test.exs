@@ -37,7 +37,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterDBTest do
       "requires" => %{
         "base_agent" => ">=1.2.0",
         "platforms" => ["linux"],
-        "os_capabilities" => ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
+        "os_capabilities" => ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_BPF", "CAP_PERFMON"]
       },
       "exec" => %{
         "binary" => "serviceradar-netprobe",

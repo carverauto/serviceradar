@@ -191,12 +191,12 @@ async fn main() -> Result<()> {
         startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
         VisibilityRuntime::Disabled
     };
-    let metrics_task = tokio::spawn(serve_metrics(
+    let mut metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),
         shutdown_rx.clone(),
     ));
-    let ipc_task = tokio::spawn(
+    let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
             fingerprint_event_rx,
@@ -209,7 +209,18 @@ async fn main() -> Result<()> {
         .run(shutdown_rx),
     );
 
-    wait_for_shutdown().await;
+    tokio::select! {
+        _ = wait_for_shutdown() => {}
+        result = &mut metrics_task => {
+            result.context("metrics task join failed")?.context("metrics task failed")?;
+            anyhow::bail!("metrics task exited unexpectedly");
+        }
+        result = &mut ipc_task => {
+            result.context("IPC task join failed")?.context("IPC task failed")?;
+            anyhow::bail!("IPC task exited unexpectedly");
+        }
+    }
+
     let _ = shutdown_tx.send(true);
 
     let shutdown_deadline = tokio::time::timeout(Duration::from_secs(5), async {

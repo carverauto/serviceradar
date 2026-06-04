@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -42,5 +44,34 @@ func TestNetprobeSystemdUnitStagedPathContract(t *testing.T) {
 				"update the unit, the bundle, and this test together.",
 			got, wantStagedEbpf,
 		)
+	}
+}
+
+func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
+	unitBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "addons", "netprobe", "serviceradar-netprobe.service"))
+	if err != nil {
+		t.Fatalf("read netprobe unit: %v", err)
+	}
+	unit := string(unitBytes)
+
+	mustContain := []string{
+		"Group=serviceradar",
+		"--drop-user serviceradar",
+		"ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe",
+		"ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe",
+		"/sys/fs/bpf/flow_events",
+		"/sys/fs/bpf/serviceradar/netprobe/flow_events",
+		"AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON",
+		"CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID",
+		"ReadWritePaths=/run/serviceradar /var/lib/serviceradar /sys/fs/bpf",
+	}
+	for _, want := range mustContain {
+		if !strings.Contains(unit, want) {
+			t.Fatalf("netprobe unit missing %q", want)
+		}
+	}
+
+	if strings.Contains(unit, "\nUser=serviceradar\n") {
+		t.Fatal("netprobe unit must not start directly as User=serviceradar; it must load eBPF as root and then --drop-user")
 	}
 }
