@@ -26,7 +26,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              )
 
     assert bundle.cn == "agent-1.default.serviceradar"
-    assert bundle.validity_days == 1
+    assert bundle.validity_days == CertIssuer.default_validity_days()
     assert String.length(bundle.certificate_fingerprint) == 64
     assert bundle.private_key_pem =~ "PRIVATE KEY"
     assert bundle.certificate_pem =~ "CERTIFICATE"
@@ -179,7 +179,7 @@ defmodule ServiceRadarAgentGateway.CertIssuerTest do
              predecessor_certificate_serial_number: nil,
              requested_partition_id: "partition-a",
              spiffe_id: "spiffe://serviceradar.local/agent/partition-a/agent-audit",
-             validity_days: 1
+             validity_days: CertIssuer.default_validity_days()
            }
 
     refute Map.has_key?(event.details, :private_key_pem)

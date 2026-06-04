@@ -9,8 +9,8 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   require Logger
 
   @default_cert_dir "/etc/serviceradar/certs"
-  @default_validity_days 1
-  @max_validity_days 30
+  @default_validity_days 365
+  @max_validity_days 825
   @identity_token_regex ~r/\A[A-Za-z0-9_-]+\z/
 
   @spec issue_agent_bundle(String.t(), String.t(), atom() | String.t(), keyword()) ::
@@ -131,7 +131,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
         {:error, :long_ttl_approval_required}
 
       true ->
-        if validity_days > 7 do
+        if validity_days > @default_validity_days do
           Logger.warning("[CertIssuer] Issuing long-lived agent certificate: validity_days=#{validity_days}")
         end
 
@@ -421,7 +421,7 @@ defmodule ServiceRadarAgentGateway.CertIssuer do
   defp actor_identifier(actor) when is_binary(actor), do: actor
   defp actor_identifier(_actor), do: nil
 
-  defp audit_severity(validity_days) when validity_days > 7, do: :medium
+  defp audit_severity(validity_days) when validity_days > @default_validity_days, do: :medium
   defp audit_severity(_validity_days), do: :informational
 
   defp write_extfile(path, component_type, partition_id, component_id, cn) do
