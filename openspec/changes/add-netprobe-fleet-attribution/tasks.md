@@ -5,7 +5,7 @@
 ## 2. Config schema — attribution-first defaults
 - [x] 2.1 Add sensible defaults + clarify `enabled` runs attribution (`addons/netprobe/config.schema.json`)
 - [ ] 2.2 Mark `capture_interfaces`, `dpi`, `default_sample_interval_ms`, `external_flow_match_window_ms`, `device_bindings` as advanced via an `x-serviceradar-ui-*` hint
-- [ ] 2.3 Confirm no capture field is in the schema `required` set
+- [x] 2.3 Confirm no capture field is in the schema `required` set (top-level schema has no `required`)
 
 ## 3. Operator form — one-touch
 - [ ] 3.1 Render `x-serviceradar-ui-advanced` properties in a collapsed "Advanced" section in the web-ng add-on assignment form
@@ -13,9 +13,9 @@
 - [ ] 3.3 Update copy so capture interfaces read as optional/advanced, not required
 
 ## 4. Seeding — manifest-driven
-- [ ] 4.1 `NetprobeAddonPackageSeeder` derives `version` from the in-image manifest (`addon.yaml`) instead of hardcoded `@version "0.1.0"`
-- [ ] 4.2 Re-seed/update the stored `config_schema` from the in-image schema on boot when it differs
-- [ ] 4.3 When the manifest version has no matching signed artifacts, stage (do not approve) the package; keep approving only verified versions
+- [x] 4.1 `NetprobeAddonPackageSeeder` derives `version` + `capabilities` from the in-image manifest (`addon.yaml`) instead of hardcoded `@version "0.1.0"`
+- [x] 4.2 Seeder always writes the in-image `config_schema` (create or update), so a schema change reaches the seeded package
+- [x] 4.3 When no matching signed artifacts are configured, stage (do not approve) the manifest version instead of no-op'ing, so the version + schema become visible; approve only verified versions
 - [ ] 4.4 Generalize the same manifest-driven seeding for other native add-ons (bumblebee, endpoint-inventory) or factor a shared helper
 
 ## 5. Publish pipeline (shipped in v1.2.90)
