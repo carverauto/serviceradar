@@ -817,12 +817,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp device_attrs_from_request(partition_id, request, source_ip) do
     capabilities = if request, do: request.capabilities || [], else: []
 
+    # Prefer the agent's self-reported host IP when present so DIRE links to the
+    # real device. The TCP peer IP (source_ip) is wrong for NAT'd/external agents.
+    device_ip = request_value(request, :host_ip) || source_ip
+
     %{
       hostname: if(request, do: request.hostname),
       os: if(request, do: request.os),
       arch: if(request, do: request.arch),
       partition: partition_id,
-      source_ip: source_ip,
+      source_ip: device_ip,
       capabilities: capabilities
     }
   end

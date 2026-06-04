@@ -443,6 +443,7 @@ defmodule Monitoring.AgentHelloRequest do
   field :config_version, 8, type: :string, json_name: "configVersion"
   field :labels, 9, repeated: true, type: Monitoring.AgentHelloRequest.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
+  field :host_ip, 11, type: :string, json_name: "hostIp"
 end
 
 defmodule Monitoring.AgentHelloResponse do
@@ -578,6 +579,7 @@ defmodule Monitoring.ControlStreamHello do
   field :arch, 8, type: :string
   field :labels, 9, repeated: true, type: Monitoring.ControlStreamHello.LabelsEntry, map: true
   field :config_source, 10, type: :string, json_name: "configSource"
+  field :host_ip, 11, type: :string, json_name: "hostIp"
 end
 
 defmodule Monitoring.CommandRequest do

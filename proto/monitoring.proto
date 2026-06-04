@@ -285,6 +285,7 @@ message AgentHelloRequest {
   string config_version = 8;        // Current config version hash (for config sync)
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
 }
 
 // AgentHelloResponse is returned by the gateway after validating the agent.
@@ -415,6 +416,7 @@ message ControlStreamHello {
   string arch = 8;                  // Architecture (e.g., "amd64", "arm64")
   map<string, string> labels = 9;   // Optional labels/tags for grouping
   string config_source = 10;        // Source of sysmon config: "remote", "local", "cached", "default"
+  string host_ip = 11;              // Agent's own host IP (for device correlation behind NAT)
 }
 
 // CommandRequest represents a command sent to the agent.

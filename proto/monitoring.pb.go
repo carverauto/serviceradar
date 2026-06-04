@@ -2096,6 +2096,7 @@ type AgentHelloRequest struct {
 	ConfigVersion string                 `protobuf:"bytes,8,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`                                        // Current config version hash (for config sync)
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
 	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
+	HostIp        string                 `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2196,6 +2197,13 @@ func (x *AgentHelloRequest) GetLabels() map[string]string {
 func (x *AgentHelloRequest) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetHostIp() string {
+	if x != nil {
+		return x.HostIp
 	}
 	return ""
 }
@@ -2815,6 +2823,7 @@ type ControlStreamHello struct {
 	Arch          string                 `protobuf:"bytes,8,opt,name=arch,proto3" json:"arch,omitempty"`                                                                               // Architecture (e.g., "amd64", "arm64")
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
 	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
+	HostIp        string                 `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2915,6 +2924,13 @@ func (x *ControlStreamHello) GetLabels() map[string]string {
 func (x *ControlStreamHello) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetHostIp() string {
+	if x != nil {
+		return x.HostIp
 	}
 	return ""
 }
@@ -7661,7 +7677,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
 	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\x94\x03\n" +
+	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xad\x03\n" +
 	"\x11AgentHelloRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -7673,7 +7689,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0econfig_version\x18\b \x01(\tR\rconfigVersion\x12A\n" +
 	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSource\x1a9\n" +
+	" \x01(\tR\fconfigSource\x12\x17\n" +
+	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x02\n" +
@@ -7741,7 +7758,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vchunk_index\x18\a \x01(\x05R\n" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\b \x01(\x05R\vtotalChunks\x12%\n" +
-	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\x96\x03\n" +
+	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\xaf\x03\n" +
 	"\x12ControlStreamHello\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\"\n" +
@@ -7753,7 +7770,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x04arch\x18\b \x01(\tR\x04arch\x12B\n" +
 	"\x06labels\x18\t \x03(\v2*.monitoring.ControlStreamHello.LabelsEntryR\x06labels\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSource\x1a9\n" +
+	" \x01(\tR\fconfigSource\x12\x17\n" +
+	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x01\n" +
