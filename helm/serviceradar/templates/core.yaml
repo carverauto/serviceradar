@@ -544,10 +544,12 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
 spec:
   clusterIP: None
-  publishNotReadyAddresses: true
   selector:
     app: serviceradar-core
   ports:
   - name: epmd
     port: 4369
     targetPort: 4369
+  - name: dist
+    port: 9100
+    targetPort: dist

@@ -245,7 +245,6 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
 spec:
   clusterIP: None
-  publishNotReadyAddresses: true
   selector:
     app: serviceradar-agent-gateway
   ports:
@@ -255,6 +254,12 @@ spec:
   - name: artifacts
     port: {{ default 50053 $gateway.service.artifactPort }}
     targetPort: artifacts
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist
 ---
 apiVersion: v1
 kind: Service
