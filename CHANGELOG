@@ -1,3 +1,16 @@
+# ServiceRadar v1.2.93
+
+Full IPv6 flow attribution, gateway-delivered netprobe add-ons, and agent host-IP self-registration.
+
+## Whats New
+
+**1.2.93**
+- Extended netprobe flow attribution to cover UDP-over-IPv6 (`udpv6_sendmsg`/`udpv6_recvmsg`) and ICMPv6 (`ping_v6_sendmsg`/`rawv6_sendmsg`, protocol 58 derived from the socket address family), on top of the base UDP/ICMP IPv4 5-tuple fix. The v6 probes attach best-effort so a kernel without IPv6 never loses core TCP/UDP attribution. Both core `transport_to_proto` mappings (`flow_attribution` + `attributed_flow_joiner`) now accept `icmp6`/`icmpv6`/`ipv6-icmp` → 58, so ICMPv6 events reach `flow_process_attributions`.
+- Delivered native add-on artifacts to agents through the agent-gateway (HMAC-scoped `download_url`/`download_token`, mTLS blob endpoint) instead of direct KV access, mirroring the WASM plugin path; agents verify sha256 + ed25519 before staging to disk.
+- Agents now self-register their host IP in the Hello/control-stream handshake so external or NAT'd agents link to their device record via DIRE.
+- Granted platform-services publish/subscribe on the `serviceradar_plugins` NATS object store so scoped flow-attribution and add-on delivery subjects work end to end.
+- Avoided routing to not-ready BEAM cluster endpoints in the demo chart.
+
 # ServiceRadar v1.2.92
 
 Fixes assigning the netprobe (and any) add-on when optional fields are left blank.
