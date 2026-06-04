@@ -4,13 +4,13 @@
 
 ## 2. Config schema — attribution-first defaults
 - [x] 2.1 Add sensible defaults + clarify `enabled` runs attribution (`addons/netprobe/config.schema.json`)
-- [ ] 2.2 Mark `capture_interfaces`, `dpi`, `default_sample_interval_ms`, `external_flow_match_window_ms`, `device_bindings` as advanced via an `x-serviceradar-ui-*` hint
+- [x] 2.2 Mark `capture_interfaces`, `dpi`, `default_sample_interval_ms`, `external_flow_match_window_ms`, `device_bindings` as advanced via `x-serviceradar-ui-advanced` (all non-`enabled` fields)
 - [x] 2.3 Confirm no capture field is in the schema `required` set (top-level schema has no `required`)
 
 ## 3. Operator form — one-touch
-- [ ] 3.1 Render `x-serviceradar-ui-advanced` properties in a collapsed "Advanced" section in the web-ng add-on assignment form
-- [ ] 3.2 Make Enable the only required input for an attribution assignment (single-agent + cohort)
-- [ ] 3.3 Update copy so capture interfaces read as optional/advanced, not required
+- [x] 3.1 Render `x-serviceradar-ui-advanced` properties in a collapsed `<details>` Advanced section in `plugin_config_form.ex` (extracted `config_field` component; backward-compatible)
+- [x] 3.2 Enable is the only inline field; advanced fields collapsed + none required (no `*`, not in `required`)
+- [x] 3.3 Copy updated so capture fields read as "Optional" / advanced
 
 ## 4. Seeding — manifest-driven
 - [x] 4.1 `NetprobeAddonPackageSeeder` derives `version` + `capabilities` from the in-image manifest (`addon.yaml`) instead of hardcoded `@version "0.1.0"`
