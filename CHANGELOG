@@ -6,6 +6,7 @@ Fixes assigning the netprobe (and any) add-on when optional fields are left blan
 
 **1.2.92**
 - Fixed add-on assignment failing with type-mismatch errors ("Expected Integer but got String", "Expected Object but got String" for `default_sample_interval_ms` / `dpi` / `flow_table_max_entries` / etc.) when optional fields were left blank. `ConfigSchema.normalize_params` now treats a blank form value as "not provided" — applying the schema default if any, otherwise dropping the key — instead of forwarding an empty string that fails type validation. This is what makes the one-touch netprobe assignment (toggle Enabled, leave everything else blank) actually submit.
+- Added a core helm passthrough (`core.netprobeAddon.{artifacts,version,ociRef,ociDigest}` → `SERVICERADAR_NETPROBE_ADDON_*`) so a deployment can supply the published netprobe signed-artifact refs to the seeder, flipping the `0.2.0` ringbuf package from staged to approved/assignable.
 
 # ServiceRadar v1.2.91
 
