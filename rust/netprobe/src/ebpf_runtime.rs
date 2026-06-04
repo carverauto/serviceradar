@@ -563,6 +563,34 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
         .attach("sock", "inet_sock_set_state")
         .context("failed to attach attribution tracepoint inet_sock_set_state")?;
 
+    // ICMP echo (ping) attribution. ping_sendmsg covers unprivileged dgram ICMP
+    // sockets; raw_sendmsg covers privileged raw ICMP sockets. These kernel
+    // symbols are not guaranteed to exist/be probeable on every kernel
+    // (CONFIG_*, renamed/inlined symbols), so attach them best-effort: a missing
+    // ICMP hook must NOT take down the TCP/UDP attribution that just loaded.
+    for name in ["ping_v4_sendmsg", "raw_sendmsg"] {
+        if let Err(err) = attach_icmp_probe(ebpf, name) {
+            log::warn!("netprobe ICMP attribution probe {name} not attached: {err:#}");
+        }
+    }
+
+    Ok(())
+}
+
+// Load + attach one best-effort ICMP kprobe. Returns Err (logged, non-fatal by
+// the caller) if the program is missing, fails to load, or fails to attach —
+// e.g. the kernel symbol does not exist on this build.
+fn attach_icmp_probe(ebpf: &mut Ebpf, name: &str) -> Result<()> {
+    let program: &mut KProbe = ebpf
+        .program_mut(name)
+        .ok_or_else(|| anyhow::anyhow!("{name} probe is missing from netprobe eBPF object"))?
+        .try_into()?;
+    program
+        .load()
+        .with_context(|| format!("failed to load ICMP attribution probe {name}"))?;
+    program
+        .attach(name, 0)
+        .with_context(|| format!("failed to attach ICMP attribution probe {name}"))?;
     Ok(())
 }
 

@@ -3,17 +3,18 @@
 
 use aya_ebpf::{
     bindings::{xdp_action, BPF_ANY, TC_ACT_OK},
-    helpers::bpf_ktime_get_ns,
+    helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel},
     macros::{classifier, kprobe, kretprobe, map, tracepoint, xdp},
     maps::{HashMap as BpfHashMap, LruHashMap, ProgramArray, RingBuf, XskMap},
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext, XdpContext},
     EbpfContext,
 };
-use core::{ffi::c_void, panic::PanicInfo, ptr::addr_of_mut};
+use core::{ffi::c_void, mem::offset_of, panic::PanicInfo, ptr::addr_of_mut};
 
 const EVENT_VERSION: u16 = 1;
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
+const IPPROTO_ICMP: u16 = 1;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
 const ETH_P_IP: u16 = 0x0800;
@@ -56,6 +57,7 @@ const EVENT_TCP_CLOSE: u16 = 3;
 const EVENT_UDP_SEND: u16 = 4;
 const EVENT_UDP_RECV: u16 = 5;
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
+const EVENT_ICMP_SEND: u16 = 7;
 
 const TRACE_SKADDR_OFFSET: usize = 8;
 const TRACE_OLDSTATE_OFFSET: usize = 16;
@@ -68,6 +70,48 @@ const TRACE_SADDR_V4_OFFSET: usize = 32;
 const TRACE_DADDR_V4_OFFSET: usize = 36;
 const TRACE_SADDR_V6_OFFSET: usize = 40;
 const TRACE_DADDR_V6_OFFSET: usize = 56;
+
+// `struct sock` field reads for the kprobe attribution path.
+//
+// aya-ebpf 0.1.1 ships no CO-RE / vmlinux `struct sock` bindings (only BPF
+// helper signatures + BPF-internal structs), and this crate has no CO-RE field
+// relocation — the existing kernel-struct reads (inet_sock_set_state's
+// TRACE_*_OFFSET tracepoint constants above, and the TC `__sk_buff` metadata
+// reads) all use fixed offsets. We mirror that established pattern here: a
+// `#[repr(C)]` SockCommon faithfully reproducing the head of `struct sock`
+// (which begins with `struct sock_common __sk_common` at offset 0) so the
+// compiler computes each field offset via `offset_of!` — self-documenting and
+// checkable against rust/netprobe/ebpf/include/vmlinux.h rather than scattered
+// magic integers. Layout is the canonical x86_64 LP64 sock_common with
+// CONFIG_NET_NS=y (matches the committed vmlinux.h dump): skc_daddr@0,
+// skc_rcv_saddr@4, skc_dport@12, skc_num@14, skc_family@16, skc_v6_daddr@56,
+// skc_v6_rcv_saddr@72. NOTE (kernel fragility): these offsets are NOT
+// CO-RE-relocated, so a kernel whose sock_common layout differs from the target
+// 6.8 dump would mis-read; the addrs/ports are validated in userspace
+// (flow_key_from_record) so a bad read drops the record rather than corrupting
+// attribution.
+#[repr(C)]
+struct In6Addr {
+    addr: [u8; 16],
+}
+
+#[repr(C)]
+struct SockCommon {
+    skc_daddr: u32,      // @0  __be32 peer v4 addr (network order)
+    skc_rcv_saddr: u32,  // @4  __be32 local v4 addr (network order)
+    skc_hash: u32,       // @8  (union)
+    skc_dport: u16,      // @12 __be16 peer port (network order)
+    skc_num: u16,        // @14 local port (HOST order)
+    skc_family: u16,     // @16 address family
+    skc_state: u8,       // @18
+    skc_flags: u8,       // @19 reuse/reuseport/ipv6only/net_refcnt bitfield byte
+    skc_bound_dev_if: i32, // @20
+    skc_bind_node: [u64; 2], // @24 hlist_node (two pointers)
+    skc_prot: u64,       // @40 struct proto *
+    skc_net: u64,        // @48 possible_net_t { struct net * } (CONFIG_NET_NS=y)
+    skc_v6_daddr: In6Addr,     // @56 peer v6 addr
+    skc_v6_rcv_saddr: In6Addr, // @72 local v6 addr
+}
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -361,14 +405,15 @@ pub fn udp_sendmsg(ctx: ProbeContext) -> u32 {
         return 0;
     };
 
-    emit_event(
-        &ctx,
-        EVENT_UDP_SEND,
-        sock,
-        FlowTuple::empty(IPPROTO_UDP),
-        0,
-        0,
-    );
+    // Read the real 5-tuple off the struct sock (arg0) instead of an empty tuple
+    // (the bug that made fpa 100% TCP). Drop the event if the socket fields can't
+    // be read or the family is unusable — an empty tuple is dropped in userspace
+    // anyway (flow_key_from_record).
+    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
+        return 0;
+    };
+
+    emit_event(&ctx, EVENT_UDP_SEND, sock, tuple, 0, 0);
     0
 }
 
@@ -378,15 +423,48 @@ pub fn udp_recvmsg(ctx: ProbeContext) -> u32 {
         return 0;
     };
 
-    emit_event(
-        &ctx,
-        EVENT_UDP_RECV,
-        sock,
-        FlowTuple::empty(IPPROTO_UDP),
-        0,
-        0,
-    );
+    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
+        return 0;
+    };
+
+    emit_event(&ctx, EVENT_UDP_RECV, sock, tuple, 0, 0);
     0
+}
+
+// ICMP echo (ping) attribution. The unprivileged ping path uses a dgram ICMP
+// socket whose sendmsg is ping_sendmsg (ping_v4_sendmsg in older kernels);
+// raw_sendmsg covers privileged raw ICMP sockets (e.g. classic setuid ping,
+// `ping -s`, hping). Both take `struct sock *` as arg0, so socket_tuple reads
+// the same sock_common head. ICMP has no ports, so we pass has_ports=false and
+// emit ports=0 — userspace accepts proto 1 with zero ports.
+// On modern kernels (incl. 6.8) the unprivileged dgram ICMP socket sendmsg is
+// `ping_v4_sendmsg`; older kernels exposed `ping_sendmsg`. Attach is best-effort
+// (see ebpf_runtime), so an absent symbol just warns. raw_sendmsg covers the
+// privileged raw-ICMP path (e.g. setuid `ping`).
+#[kprobe(function = "ping_v4_sendmsg")]
+pub fn ping_v4_sendmsg(ctx: ProbeContext) -> u32 {
+    emit_icmp_send(&ctx);
+    0
+}
+
+#[kprobe(function = "raw_sendmsg")]
+pub fn raw_sendmsg(ctx: ProbeContext) -> u32 {
+    // raw_sendmsg also carries non-ICMP raw sockets (e.g. OSPF proto 89). Only
+    // attribute IPv4/IPv6 ICMP raw sockets; socket_tuple still records the local
+    // endpoint, and the protocol is forced to IPPROTO_ICMP for the flow key.
+    emit_icmp_send(&ctx);
+    0
+}
+
+#[inline(always)]
+fn emit_icmp_send(ctx: &ProbeContext) {
+    let Some(sock) = ctx.arg::<*const c_void>(0) else {
+        return;
+    };
+    let Some(tuple) = socket_tuple(sock, IPPROTO_ICMP, false) else {
+        return;
+    };
+    emit_event(ctx, EVENT_ICMP_SEND, sock, tuple, 0, 0);
 }
 
 #[tracepoint(name = "inet_sock_set_state", category = "sock")]
@@ -453,6 +531,71 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
         new_state,
     );
     0
+}
+
+// Read a single field of `struct sock` at its (compile-time) offset via the
+// kernel probe-read helper. The kprobe arg0 is a `struct sock *`; bpf_probe_read_kernel
+// returns Err if the read faults, which the callers propagate so a bad pointer
+// drops the record instead of emitting garbage.
+#[inline(always)]
+unsafe fn sock_field<T>(sock: *const c_void, offset: usize) -> Option<T> {
+    bpf_probe_read_kernel((sock as *const u8).add(offset) as *const T).ok()
+}
+
+// Build a populated FlowTuple from a `struct sock *` (kprobe arg0) for the
+// connection-less protocols (UDP, ICMP) whose per-call kprobes have no
+// tracepoint to read a ready-made 5-tuple from. The tuple is directional with
+// the LOCAL socket as the source (skc_rcv_saddr/skc_num) and the peer as the
+// destination (skc_daddr/skc_dport) — matching attributed_flow_from_record in
+// userspace, which treats the record's source as endpoint A (local).
+//
+// Ports: skc_num is the local port in HOST byte order; skc_dport is the peer
+// port in NETWORK byte order. The userspace consumer stores these directly into
+// a FlowKey (no further byte-swap), so we normalize skc_dport to host order here
+// to match the host-order skc_num and the host-order ports the inet_sock_set_state
+// tracepoint path already emits. For ICMP (no ports) the caller passes 0/0.
+#[inline(always)]
+fn socket_tuple(sock: *const c_void, protocol: u16, has_ports: bool) -> Option<FlowTuple> {
+    if sock.is_null() {
+        return None;
+    }
+    // SAFETY: `sock` is the kprobe's `struct sock *` arg; each read goes through
+    // bpf_probe_read_kernel (returns Err, mapped to None, on fault). Offsets are
+    // derived from the SockCommon mirror via offset_of! (see SockCommon docs).
+    let family: u16 = unsafe { sock_field(sock, offset_of!(SockCommon, skc_family))? };
+    if family != AF_INET && family != AF_INET6 {
+        return None;
+    }
+
+    let mut tuple = FlowTuple::empty(protocol);
+    tuple.family = family;
+
+    if has_ports {
+        // skc_num: local port, host order. skc_dport: peer port, network order.
+        let source_port: u16 = unsafe { sock_field(sock, offset_of!(SockCommon, skc_num))? };
+        let destination_port_be: u16 =
+            unsafe { sock_field(sock, offset_of!(SockCommon, skc_dport))? };
+        tuple.source_port = source_port;
+        tuple.destination_port = u16::from_be(destination_port_be);
+    }
+
+    if family == AF_INET {
+        // skc_rcv_saddr = local v4, skc_daddr = peer v4 (both network order, which
+        // is the wire/byte order the userspace Ipv4Addr::new consumer expects).
+        let source: [u8; 4] = unsafe { sock_field(sock, offset_of!(SockCommon, skc_rcv_saddr))? };
+        let destination: [u8; 4] = unsafe { sock_field(sock, offset_of!(SockCommon, skc_daddr))? };
+        tuple.source_addr[..4].copy_from_slice(&source);
+        tuple.destination_addr[..4].copy_from_slice(&destination);
+    } else {
+        let source: [u8; 16] =
+            unsafe { sock_field(sock, offset_of!(SockCommon, skc_v6_rcv_saddr))? };
+        let destination: [u8; 16] =
+            unsafe { sock_field(sock, offset_of!(SockCommon, skc_v6_daddr))? };
+        tuple.source_addr = source;
+        tuple.destination_addr = destination;
+    }
+
+    Some(tuple)
 }
 
 fn emit_event(
@@ -554,7 +697,10 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     if tuple.family != AF_INET && tuple.family != AF_INET6 {
         return None;
     }
-    if tuple.protocol != IPPROTO_TCP && tuple.protocol != IPPROTO_UDP {
+    if tuple.protocol != IPPROTO_TCP
+        && tuple.protocol != IPPROTO_UDP
+        && tuple.protocol != IPPROTO_ICMP
+    {
         return None;
     }
 

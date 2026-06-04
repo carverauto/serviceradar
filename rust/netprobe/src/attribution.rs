@@ -25,6 +25,7 @@ use crate::metrics::Metrics;
 
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
+const IPPROTO_ICMP: u16 = 1;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
 const FLOW_ENDPOINT_A: u8 = 1;
@@ -100,10 +101,11 @@ unsafe impl aya::Pod for ProcessInfoRecord {}
 // Userspace mirror of the eBPF `FlowAttributionRecord` submitted to the
 // `flow_events` BPF ring buffer (rust/netprobe/ebpf/src/lib.rs). #[repr(C)] and
 // laid out byte-for-byte with the eBPF struct so a ring slot can be read
-// directly with `ptr::read_unaligned`. Only `inet_sock_set_state` records carry
-// a populated `tuple`; the per-packet tcp_connect/accept/close and udp send/recv
-// probes submit an empty tuple, so those records have no usable 5-tuple and are
-// skipped by the consumer.
+// directly with `ptr::read_unaligned`. The `inet_sock_set_state` (TCP),
+// udp_sendmsg/udp_recvmsg (UDP), and ping_sendmsg/raw_sendmsg (ICMP) records
+// carry a populated `tuple` read off the struct sock; the bare
+// tcp_connect/accept/close lifecycle probes submit an empty tuple, so those
+// records have no usable 5-tuple and are skipped by the consumer.
 #[cfg(target_os = "linux")]
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -495,14 +497,18 @@ fn resend_cache(
 }
 
 // Directional FlowKey from a ring record's tuple: endpoint A is the local socket
-// (source), endpoint B the peer. Returns None for empty / non-IP / non-TCP-UDP
-// tuples (the per-packet probes that submit FlowTuple::empty).
+// (source), endpoint B the peer. Returns None for empty / non-IP /
+// non-TCP-UDP-ICMP tuples. ICMP carries no ports, so a zero source/destination
+// port is expected and accepted (do NOT drop it for missing ports).
 #[cfg(target_os = "linux")]
 fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
     if record.tuple.family != AF_INET && record.tuple.family != AF_INET6 {
         return None;
     }
-    if record.tuple.protocol != IPPROTO_TCP && record.tuple.protocol != IPPROTO_UDP {
+    if record.tuple.protocol != IPPROTO_TCP
+        && record.tuple.protocol != IPPROTO_UDP
+        && record.tuple.protocol != IPPROTO_ICMP
+    {
         return None;
     }
     Some(FlowKey {
@@ -695,6 +701,7 @@ fn ip_addr(address_family: u16, bytes: [u8; 16]) -> Option<IpAddr> {
 
 fn transport_protocol(value: u16) -> String {
     match value {
+        IPPROTO_ICMP => "icmp".to_owned(),
         IPPROTO_TCP => "tcp".to_owned(),
         IPPROTO_UDP => "udp".to_owned(),
         _ => value.to_string(),
