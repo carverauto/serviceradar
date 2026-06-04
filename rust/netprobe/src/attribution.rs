@@ -28,6 +28,7 @@ const AF_INET6: u16 = 10;
 const IPPROTO_ICMP: u16 = 1;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
+const IPPROTO_ICMPV6: u16 = 58;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
 /// Maximum byte length for the joined `redacted_cmdline` payload on a
@@ -508,6 +509,7 @@ fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
     if record.tuple.protocol != IPPROTO_TCP
         && record.tuple.protocol != IPPROTO_UDP
         && record.tuple.protocol != IPPROTO_ICMP
+        && record.tuple.protocol != IPPROTO_ICMPV6
     {
         return None;
     }
@@ -702,6 +704,7 @@ fn ip_addr(address_family: u16, bytes: [u8; 16]) -> Option<IpAddr> {
 fn transport_protocol(value: u16) -> String {
     match value {
         IPPROTO_ICMP => "icmp".to_owned(),
+        IPPROTO_ICMPV6 => "icmpv6".to_owned(),
         IPPROTO_TCP => "tcp".to_owned(),
         IPPROTO_UDP => "udp".to_owned(),
         _ => value.to_string(),

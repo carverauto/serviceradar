@@ -144,6 +144,7 @@ defmodule ServiceRadar.FlowAttribution do
       "udp" -> 17
       "icmp" -> 1
       "icmp6" -> 58
+      "icmpv6" -> 58
       "ipv6-icmp" -> 58
       _ -> nil
     end

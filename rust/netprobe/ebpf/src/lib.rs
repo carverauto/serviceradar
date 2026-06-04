@@ -17,6 +17,7 @@ const AF_INET6: u16 = 10;
 const IPPROTO_ICMP: u16 = 1;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
+const IPPROTO_ICMPV6: u16 = 58;
 const ETH_P_IP: u16 = 0x0800;
 const ETH_P_IPV6: u16 = 0x86dd;
 const ETH_P_8021Q: u16 = 0x8100;
@@ -401,34 +402,44 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
 
 #[kprobe(function = "udp_sendmsg")]
 pub fn udp_sendmsg(ctx: ProbeContext) -> u32 {
-    let Some(sock) = ctx.arg::<*const c_void>(0) else {
-        return 0;
-    };
-
-    // Read the real 5-tuple off the struct sock (arg0) instead of an empty tuple
-    // (the bug that made fpa 100% TCP). Drop the event if the socket fields can't
-    // be read or the family is unusable — an empty tuple is dropped in userspace
-    // anyway (flow_key_from_record).
-    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
-        return 0;
-    };
-
-    emit_event(&ctx, EVENT_UDP_SEND, sock, tuple, 0, 0);
+    emit_udp(&ctx, EVENT_UDP_SEND);
     0
 }
 
 #[kprobe(function = "udp_recvmsg")]
 pub fn udp_recvmsg(ctx: ProbeContext) -> u32 {
-    let Some(sock) = ctx.arg::<*const c_void>(0) else {
-        return 0;
-    };
-
-    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
-        return 0;
-    };
-
-    emit_event(&ctx, EVENT_UDP_RECV, sock, tuple, 0, 0);
+    emit_udp(&ctx, EVENT_UDP_RECV);
     0
+}
+
+// IPv6 UDP traverses udpv6_sendmsg/udpv6_recvmsg, NOT the v4 udp_* path — so v4-only
+// hooks miss UDP-over-IPv6 entirely. socket_tuple reads the address family off the
+// socket, so the same helper yields an AF_INET6 v6 tuple here.
+#[kprobe(function = "udpv6_sendmsg")]
+pub fn udpv6_sendmsg(ctx: ProbeContext) -> u32 {
+    emit_udp(&ctx, EVENT_UDP_SEND);
+    0
+}
+
+#[kprobe(function = "udpv6_recvmsg")]
+pub fn udpv6_recvmsg(ctx: ProbeContext) -> u32 {
+    emit_udp(&ctx, EVENT_UDP_RECV);
+    0
+}
+
+#[inline(always)]
+fn emit_udp(ctx: &ProbeContext, event_kind: u16) {
+    let Some(sock) = ctx.arg::<*const c_void>(0) else {
+        return;
+    };
+    // Read the real 5-tuple off the struct sock (arg0) instead of an empty tuple
+    // (the bug that made fpa 100% TCP). socket_tuple reads the family, so this
+    // serves both v4 (udp_*) and v6 (udpv6_*). Unreadable/empty tuples are dropped
+    // in userspace anyway (flow_key_from_record).
+    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
+        return;
+    };
+    emit_event(ctx, event_kind, sock, tuple, 0, 0);
 }
 
 // ICMP echo (ping) attribution. The unprivileged ping path uses a dgram ICMP
@@ -456,14 +467,35 @@ pub fn raw_sendmsg(ctx: ProbeContext) -> u32 {
     0
 }
 
+// ICMPv6: the dgram ICMPv6 socket sendmsg is `ping_v6_sendmsg`; `rawv6_sendmsg`
+// covers raw IPv6 (incl raw ICMPv6). Both take `struct sock *` as arg0. Attach is
+// best-effort (see ebpf_runtime).
+#[kprobe(function = "ping_v6_sendmsg")]
+pub fn ping_v6_sendmsg(ctx: ProbeContext) -> u32 {
+    emit_icmp_send(&ctx);
+    0
+}
+
+#[kprobe(function = "rawv6_sendmsg")]
+pub fn rawv6_sendmsg(ctx: ProbeContext) -> u32 {
+    emit_icmp_send(&ctx);
+    0
+}
+
 #[inline(always)]
 fn emit_icmp_send(ctx: &ProbeContext) {
     let Some(sock) = ctx.arg::<*const c_void>(0) else {
         return;
     };
-    let Some(tuple) = socket_tuple(sock, IPPROTO_ICMP, false) else {
+    // socket_tuple reads the address family; derive ICMP (v4) vs ICMPv6 (v6) from
+    // it so the protocol stays consistent with the addresses (ping_v4/raw_sendmsg
+    // -> AF_INET, ping_v6/rawv6_sendmsg -> AF_INET6). ICMP has no ports.
+    let Some(mut tuple) = socket_tuple(sock, IPPROTO_ICMP, false) else {
         return;
     };
+    if tuple.family == AF_INET6 {
+        tuple.protocol = IPPROTO_ICMPV6;
+    }
     emit_event(ctx, EVENT_ICMP_SEND, sock, tuple, 0, 0);
 }
 
@@ -700,6 +732,7 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
     if tuple.protocol != IPPROTO_TCP
         && tuple.protocol != IPPROTO_UDP
         && tuple.protocol != IPPROTO_ICMP
+        && tuple.protocol != IPPROTO_ICMPV6
     {
         return None;
     }
