@@ -1,0 +1,54 @@
+# Change: Scalable one-touch netprobe attribution + manifest-driven add-on seeding
+
+## Why
+
+Flow→process attribution is the goal of the netprobe add-on, but the current
+operator experience does not scale to 10–10,000 agents, and shipped code changes
+never reach operators:
+
+- **Capture-centric config doesn't scale.** The assignment form is built around
+  `capture_interfaces` / DPI / per-device bindings — per-agent settings that an
+  operator cannot reasonably enumerate across a large fleet (every host may have a
+  different NIC). Yet **attribution needs none of them**: the eBPF kprobes are
+  kernel-wide, so the flow→process source works with zero interface config. The UI
+  conflates the optional passive-capture feature with attribution and makes the
+  capture fields look required.
+- **The agent gated attribution on capture.** `netprobeConfigHasWork` required
+  `capture_interfaces > 0 && device_bindings > 0`, so enabling netprobe for
+  attribution-only (empty capture) did nothing.
+- **The add-on package is frozen, decoupled from the manifest.**
+  `NetprobeAddonPackageSeeder` takes its version + signed artifact refs from
+  external runtime config and a hardcoded `@version "0.1.0"`, and is a no-op when
+  artifacts are not configured. So the package operators see in the UI stayed at
+  `0.1.0` with a stale `config_schema` no matter how much netprobe code, the
+  manifest version, or the schema changed. `native-addons.yml` also only ran on
+  manual dispatch, so the artifacts were never refreshed on release.
+
+## What Changes
+
+- **One-touch attribution:** enabling the netprobe add-on runs the eBPF
+  process-attribution path on its own, with no capture interfaces or device
+  bindings required. A single fleet-wide assignment (Enable) is valid for any
+  number of agents.
+- **Capture/DPI demoted to advanced opt-in:** `capture_interfaces`, `dpi`,
+  `default_sample_interval_ms`, `external_flow_match_window_ms`, and
+  `device_bindings` become optional advanced fields, collapsed in the operator
+  form, never required for an attribution rollout.
+- **Manifest-driven add-on package seeding:** the seeded `AddonPackage` version,
+  `config_schema`, and capability/requirement metadata track the in-image
+  `addons/netprobe/addon.yaml` + `config.schema.json`, instead of a hardcoded
+  version. Signed artifact refs continue to come from the published bundle, but a
+  manifest version bump (or schema change) is reflected on the next core boot.
+- **Republish on release:** `native-addons.yml` triggers on `v*` tags so the
+  published add-on artifacts (and the UI version) track each release.
+
+## Impact
+
+- Affected specs: `host-network-visibility` (attribution-only config, advanced
+  capture), `agent-feature-sets` (manifest-driven add-on package seeding).
+- Affected code:
+  - `go/pkg/agent/push_loop_config.go` — `netprobeConfigHasWork` (done in v1.2.90).
+  - `addons/netprobe/config.schema.json` — defaults + advanced grouping.
+  - `elixir/serviceradar_core/lib/serviceradar/plugins/netprobe_addon_package_seeder.ex` — manifest-driven version/schema.
+  - `elixir/web-ng/...` add-on assignment config form — collapse advanced fields, attribution-only default.
+  - `.forgejo/workflows/native-addons.yml` — `v*` tag trigger (done in v1.2.90).
