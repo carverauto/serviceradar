@@ -1,3 +1,14 @@
+# ServiceRadar v1.2.91
+
+Makes the netprobe add-on actually update + become assignable, and the operator config one-touch for fleet rollouts.
+
+## Whats New
+
+**1.2.91**
+- The netprobe add-on package is now seeded from the in-image manifest: `NetprobeAddonPackageSeeder` derives version + capabilities from `addon.yaml` (was a hardcoded `0.1.0`) and always writes the current config schema, so manifest/schema changes reach operators instead of freezing. When no signed artifacts are configured it stages the version (visible, not assignable) instead of silently doing nothing.
+- One-touch add-on config form: the assignment form shows only the required fields inline and collapses optional/advanced fields into an "Advanced settings" section. For netprobe a fleet rollout is now a single Enable toggle — no per-agent capture interfaces — since attribution runs on kernel-wide eBPF kprobes; capture/DPI stay available under Advanced. Backward-compatible for other add-ons (schemas without advanced hints render unchanged).
+- Wired netprobe add-on signed-artifact refs through env (`SERVICERADAR_NETPROBE_ADDON_ARTIFACTS` / `_VERSION` / `_OCI_REF` / `_OCI_DIGEST`), so a deployment that supplies the published artifacts gets an approved, assignable package.
+
 # ServiceRadar v1.2.90
 
 One-touch netprobe attribution, and the netprobe add-on finally republishes on release.
