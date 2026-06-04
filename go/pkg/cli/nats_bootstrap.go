@@ -619,6 +619,16 @@ func generatePlatformAccount(
 			"config.>",
 			"$JS.API.>",
 			"$JS.ACK.>",
+			// Object-store writes for the serviceradar_plugins bucket
+			// (native add-on bundles, plugin WASM blobs, dashboard
+			// artifacts). web-ng's Plugins.Storage publishes chunks to
+			// $O.<bucket>.C.<nuid> and metadata to $O.<bucket>.M.<key>;
+			// large-object PUTs also require replying to JetStream
+			// flow-control on $JS.FC.OBJ_<bucket>.>. Without these the
+			// platform-services credential hits "Permissions Violation for
+			// Publish to $O.serviceradar_plugins.C.<id>".
+			"$O.serviceradar_plugins.>",
+			"$JS.FC.OBJ_serviceradar_plugins.>",
 			"_INBOX.>",
 		},
 		PublishDeny: []string{"$SYS.>"},
@@ -631,6 +641,8 @@ func generatePlatformAccount(
 			"config.>",
 			"$JS.API.>",
 			"$JS.ACK.>",
+			// Object-store reads (GET) for the serviceradar_plugins bucket.
+			"$O.serviceradar_plugins.>",
 			"_INBOX.>",
 		},
 		SubscribeDeny:  []string{"$SYS.>"},
