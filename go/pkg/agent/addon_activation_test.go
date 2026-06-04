@@ -795,6 +795,26 @@ func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
 	}
 }
 
+func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
+	pl := &PushLoop{}
+	client, err := pl.gatewayAddonHTTPClient(&proto.AddonAssignmentConfig{
+		AddonId:     "gw",
+		DownloadUrl: "https://demo.serviceradar.cloud/api/addon-packages/pkg/blob/download",
+	})
+	if err != nil {
+		t.Fatalf("gatewayAddonHTTPClient() error = %v", err)
+	}
+	if client == nil {
+		t.Fatal("gatewayAddonHTTPClient() returned nil client")
+	}
+	if client.Transport != nil {
+		t.Fatalf("expected default transport/system roots for public web URL, got %#v", client.Transport)
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("expected redirect validator to be installed")
+	}
+}
+
 // TestStageAddonArtifactGatewayNon200 confirms a non-200 gateway response is surfaced as a
 // download failure rather than staged as artifact bytes.
 func TestStageAddonArtifactGatewayNon200(t *testing.T) {

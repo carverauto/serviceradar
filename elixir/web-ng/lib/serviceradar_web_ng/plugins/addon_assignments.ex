@@ -65,7 +65,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
   def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
-    attrs = drop_nil_values(attrs)
+    attrs = attrs |> drop_nil_values() |> drop_update_only_values()
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
@@ -214,6 +214,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     attrs
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp drop_update_only_values(attrs) do
+    Map.drop(attrs, [:agent_uid, "agent_uid", :addon_id, "addon_id"])
   end
 
   defp normalize_limit(nil), do: @default_limit
