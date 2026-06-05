@@ -63,7 +63,7 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		"/sys/fs/bpf/serviceradar/netprobe/flow_events",
 		"AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON",
 		"CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID",
-		"ReadWritePaths=/run/serviceradar /var/lib/serviceradar /sys/fs/bpf",
+		"ReadWritePaths=/run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar /var/lib/serviceradar/netprobe /sys/fs/bpf",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(unit, want) {
@@ -73,5 +73,8 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 
 	if strings.Contains(unit, "\nUser=serviceradar\n") {
 		t.Fatal("netprobe unit must not start directly as User=serviceradar; it must load eBPF as root and then --drop-user")
+	}
+	if strings.Contains(unit, "\nRuntimeDirectory=") || strings.Contains(unit, "\nStateDirectory=") {
+		t.Fatal("netprobe unit must use explicit root ExecStartPre directory setup; systemd RuntimeDirectory/StateDirectory blocked IPC bind after --drop-user")
 	}
 }
