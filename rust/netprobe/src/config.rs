@@ -2,7 +2,7 @@ use std::collections::HashSet;
 
 use crate::external_flow::default_external_flow_match_window_ms;
 
-use serde::Deserialize;
+use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
@@ -14,7 +14,7 @@ pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = false;
 pub struct Config {
     #[serde(default = "default_enabled")]
     pub enabled: bool,
-    #[serde(default)]
+    #[serde(default, deserialize_with = "deserialize_capture_interfaces")]
     pub capture_interfaces: Vec<String>,
     #[serde(default)]
     pub flow_table_max_entries: u32,
@@ -138,6 +138,13 @@ fn default_emit_raw_flow_attribution_events() -> bool {
     DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS
 }
 
+fn deserialize_capture_interfaces<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
+where
+    D: Deserializer<'de>,
+{
+    Ok(Option::<Vec<String>>::deserialize(deserializer)?.unwrap_or_default())
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -249,6 +256,14 @@ mod tests {
             config.flow_attribution_resend_interval_s,
             DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
         );
+    }
+
+    #[test]
+    fn treats_null_capture_interfaces_as_default_empty() {
+        let config: Config =
+            serde_json::from_str(r#"{"enabled":true,"capture_interfaces":null}"#).unwrap();
+
+        assert!(config.capture_interfaces.is_empty());
     }
 
     #[test]

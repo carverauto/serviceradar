@@ -57,3 +57,9 @@
 - [x] 7.22 Remove synchronous procfs metadata reads from flow attribution: emitted rows use eBPF PID/TGID/UID/GID/comm immediately, while rate-limited cold-path cmdline/container enrichment re-emits cached events when metadata becomes available.
 - [x] 7.23 Emit dirty listener snapshots immediately after eBPF ring drains, keeping the 30s snapshot timer as a prune/reconciliation heartbeat instead of delaying real inventory changes behind a longer interval.
 - [ ] 7.24 Preserve cmdline and container ID as required forensic enrichment fields while replacing procfs cmdline/container reads with eBPF process exec argument capture plus cgroup/container metadata keyed by process generation, keeping procfs out of normal attribution/enrichment on busy workers.
+
+## 8. Demo/CNPG scale guardrails
+- [ ] 8.1 Investigate demo namespace Postgrex/CNPG timeouts observed during netprobe fleet rollout, including `TopologyStateCleanupWorker` queue/check-out timeouts and canonical edge telemetry refresh failures.
+- [ ] 8.2 Audit high-volume netprobe, flow, topology, and OCSF write paths for retention policies, Timescale hypertable settings, compression, continuous aggregates, and indexes; add migrations for missing platform-schema policies only.
+- [ ] 8.3 Add operational scale targets and load-test evidence for thousands of agents and a 50,000-agent design point, including CNPG pool sizing, writer backpressure, cleanup job cadence, and dashboard query latency.
+- [ ] 8.4 Add monitoring/runbook coverage for DB pool saturation, long-running topology cleanup, CAGG refresh lag, retention lag, and netprobe-induced write amplification.

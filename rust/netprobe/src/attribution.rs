@@ -218,9 +218,11 @@ impl SocketInventory {
             comm: process
                 .map(|details| details.comm.clone())
                 .unwrap_or_default(),
-            redacted_cmdline: process
-                .map(|details| details.cmdline.clone())
-                .unwrap_or_default(),
+            redacted_cmdline: cap_redacted_cmdline(
+                process
+                    .map(|details| details.cmdline.clone())
+                    .unwrap_or_default(),
+            ),
             container_id: process
                 .and_then(|details| details.container_id.clone())
                 .unwrap_or_default(),
@@ -692,7 +694,41 @@ impl AyaAttributionReader {
     /// tuples). The record's `tuple` is directional with the local socket as the
     /// source, so endpoint A is always the local side — matching the local/remote
     /// semantics the map-snapshot path produced via the canonical key.
-    fn attributed_flow_from_record(
+    fn attributed_flow_from_record_basic(record: &FlowAttributionRecord) -> Option<AttributedFlow> {
+        let flow = flow_key_from_record(record)?;
+        let process = Some(process_details_from_record(&ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            comm: record.comm,
+        }));
+        Some(AttributedFlow {
+            flow,
+            pid: FlowPidRecord {
+                version: record.version,
+                event_kind: record.event_kind,
+                pid: record.pid,
+                tgid: record.tgid,
+                uid: record.uid,
+                gid: record.gid,
+                socket_address: record.socket_address,
+                last_seen_ns: 0,
+                process_generation_ns: record.process_generation_ns,
+                old_state: record.old_state,
+                new_state: record.new_state,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process,
+        })
+    }
+
+    fn attributed_flow_from_record_enriched(
         &mut self,
         record: &FlowAttributionRecord,
         metrics: &Metrics,
@@ -1002,13 +1038,22 @@ fn drain_ring(
                 continue;
             }
         }
-        let Some(flow) = reader.attributed_flow_from_record(record, metrics) else {
+        let should_record_inventory = should_record_inventory(record);
+        let needs_enrichment = tx.is_some() || should_record_inventory;
+        let flow = if needs_enrichment {
+            reader.attributed_flow_from_record_enriched(record, metrics)
+        } else {
+            AyaAttributionReader::attributed_flow_from_record_basic(record)
+        };
+        let Some(flow) = flow else {
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
         };
         metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
-        reader.record_inventory(record, &flow);
-        metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
+        if should_record_inventory {
+            reader.record_inventory(record, &flow);
+            metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
+        }
         let Some(event) = flow.event() else {
             continue;
         };
@@ -1831,6 +1876,58 @@ mod tests {
     }
 
     #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_caps_snapshot_cmdline_payload() {
+        let mut inventory = SocketInventory::default();
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 8080,
+                endpoint_b_port: 0,
+                endpoint_a_addr: ipv4([127, 0, 0, 1]),
+                endpoint_b_addr: ipv4([0, 0, 0, 0]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: 123_456,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                comm: "app".to_string(),
+                cmdline: vec![
+                    "a".repeat(REDACTED_CMDLINE_MAX_BYTES + 1024),
+                    "[redacted 3 arg(s)]".to_string(),
+                ],
+                container_id: None,
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+            }),
+        };
+
+        inventory.update(&flow);
+        let snapshot = inventory.snapshot_if_dirty(123).unwrap();
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 1);
+        assert!(snapshot.entries[0].redacted_cmdline[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+    }
+
+    #[test]
     fn parses_proc_net_tcp_listener() {
         let socket = super::parse_proc_net_socket(
             "0: 0100007F:1F90 00000000:0000 0A 00000000:00000000 00:00000000 00000000 0 0 4242 1 0000000000000000 100 0 0 10 0",
@@ -2025,11 +2122,8 @@ mod tests {
 
     #[test]
     fn redacted_cmdline_producer_reads_unbounded_proc_payload() {
-        // Confirms the cap lives at the FlowAttributionEvent construction
-        // site rather than the /proc read — the producer returns the raw
-        // argv0 + placeholder as before so ProcessSnapshotEntry can stay
-        // unchanged and the cap is only applied on the wire shape that
-        // §20.15 governs.
+        // Confirms /proc reads keep returning raw argv material and capping
+        // happens at the outbound payload construction sites.
         let big_argv0 = "b".repeat(1024);
         let mut bytes = big_argv0.clone().into_bytes();
         bytes.push(0);
