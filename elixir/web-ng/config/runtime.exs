@@ -185,6 +185,7 @@ plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_stor
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
+plugin_storage_public_url = System.get_env("PLUGIN_STORAGE_PUBLIC_URL")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 
 first_party_plugin_import_defaults =
@@ -303,7 +304,8 @@ nats_tls_config =
       cacertfile: Path.join(cert_dir, "root.pem"),
       certfile: Path.join(cert_dir, "core.pem"),
       keyfile: Path.join(cert_dir, "core-key.pem"),
-      server_name_indication: "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
+      server_name_indication:
+        "NATS_SERVER_NAME" |> System.get_env("serviceradar-nats") |> String.to_charlist()
     ]
   else
     false
@@ -442,6 +444,7 @@ plugin_storage_overrides =
     System.get_env("PLUGIN_STORAGE_JS_TTL_SECONDS"),
     to_int
   )
+  |> maybe_put_env_simple.(:public_url, plugin_storage_public_url)
   |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
 god_view_runtime_graph_refresh_ms =
@@ -471,7 +474,9 @@ camera_relay_browser_stream_timeout_ms =
   end
 
 remote_access_browser_key_remember_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_BROWSER_KEY_REMEMBER_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -501,19 +506,25 @@ remote_access_tcp_enabled =
   end
 
 remote_access_ssh_host_key_skip_verify_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_SSH_HOST_KEY_SKIP_VERIFY_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_host_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_HOST_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
 
 remote_access_target_port_override_enabled =
-  case to_bool.(System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")) do
+  case to_bool.(
+         System.get_env("SERVICERADAR_REMOTE_ACCESS_TARGET_PORT_OVERRIDE_ENABLED", "false")
+       ) do
     nil -> false
     value -> value
   end
@@ -630,13 +641,15 @@ if remote_access_ssh_ca_signer_enabled do
     args: remote_access_ssh_ca_signer_args,
     ca_key_id: signer_ca_key_id
 
-  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates, signer: RemoteAccessSSHCACommandSigner
+  config :serviceradar_core, ServiceRadar.Edge.RemoteAccessSSHCertificates,
+    signer: RemoteAccessSSHCACommandSigner
 end
 
 if plugin_storage_overrides != [] do
-  config :serviceradar_web_ng,
-         :plugin_storage,
-         Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  plugin_storage_config = Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+
+  config :serviceradar_web_ng, :plugin_storage, plugin_storage_config
+  config :serviceradar_core, :plugin_storage, plugin_storage_config
 end
 
 object_store_retention_defaults =
@@ -1019,8 +1032,8 @@ if config_env() != :test do
     if object_store_retention_enabled do
       web_crontab ++
         [
-          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker, args: %{"enabled" => true},
-           queue: :web_maintenance}
+          {object_store_retention_cron, ServiceRadarWebNG.Plugins.BlobRetentionWorker,
+           args: %{"enabled" => true}, queue: :web_maintenance}
         ]
     else
       web_crontab
@@ -1031,7 +1044,8 @@ if config_env() != :test do
       web_crontab ++
         [
           {dashboard_report_scanner_cron, ServiceRadarWebNG.Dashboards.ReportScannerWorker,
-           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit}, queue: :web_maintenance}
+           args: %{"enabled" => true, "limit" => dashboard_report_scanner_limit},
+           queue: :web_maintenance}
         ]
     else
       web_crontab
@@ -1238,7 +1252,8 @@ if config_env() == :prod do
         adbc_params =
           %{
             "sslmode" => adbc_ssl_mode,
-            "options" => "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
+            "options" =>
+              "-csearch_path=#{System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")}"
           }
           |> then(fn params ->
             if cnpg_ca_file == "", do: params, else: Map.put(params, "sslrootcert", cnpg_ca_file)
@@ -1530,7 +1545,8 @@ if config_env() == :prod do
     mode: spiffe_mode,
     trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
     cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-    workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
+    workload_api_socket:
+      System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock"),
     trust_bundle_path: spiffe_bundle_path
 
   if datasvc_address do

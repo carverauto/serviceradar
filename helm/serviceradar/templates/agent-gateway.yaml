@@ -5,6 +5,7 @@
 {{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
 {{- $datasvc := default (dict) $gateway.datasvc -}}
@@ -125,6 +126,15 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
               key: web-ng-secret-key-base
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME

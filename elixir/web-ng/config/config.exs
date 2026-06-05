@@ -217,6 +217,15 @@ config :serviceradar_web_ng, :plugin_storage,
   jetstream_replicas: 1,
   jetstream_storage: :file
 
+config :serviceradar_core, :plugin_storage,
+  backend: :jetstream,
+  upload_ttl_seconds: 900,
+  download_ttl_seconds: 900,
+  max_upload_bytes: 52_428_800,
+  jetstream_bucket: "serviceradar_plugins",
+  jetstream_replicas: 1,
+  jetstream_storage: :file
+
 config :serviceradar_web_ng, :plugin_verification,
   require_gpg_for_github: false,
   allow_unsigned_uploads: true,

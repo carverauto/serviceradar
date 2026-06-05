@@ -34,6 +34,7 @@
 {{- $webNgObanQueueWebMaintenance := 2 -}}
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
+{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
@@ -416,6 +417,10 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         {{- end }}
         - name: OBJECT_STORE_RETENTION_ENABLED
           value: {{ default false $objectStoreRetention.enabled | quote }}
