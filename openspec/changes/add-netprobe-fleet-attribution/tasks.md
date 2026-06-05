@@ -24,6 +24,7 @@
 - [x] 5.2b core helm template (`core.yaml`) passes those env vars from `core.netprobeAddon.{artifacts,version,ociRef,ociDigest}` (guarded — inert unless set; verified rendering)
 - [ ] 5.2c (BLOCKED) Populate `core.netprobeAddon` in `values-demo.yaml` from the published `serviceradar-native-addon-index.json`. BLOCKER: the `native-addons.yml` publish FAILED on v1.2.91 (40m59s publish failure on run #16189; no `serviceradar-native-addon-index.json` asset on the release) — so `0.2.0` artifacts were never published. Re-run/dispatch the publish first.
 - [ ] 5.2d (follow-up) Wire an auto-importer (the importer exists but is never invoked) so artifact refs track each release with no manual values step
+- [ ] 5.2e Fix add-on artifact download drift observed on demo workers: some assigned agents report gateway download `404` or certificate verification failures while leaving the current systemd netprobe unchanged. Validate that a new release exposes a current approved package, agents download it without `403`/`404`/TLS errors, and the UI assignment path succeeds end to end.
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
@@ -47,3 +48,4 @@
 - [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend`, disabled `ProcfsFallbackBackend`, cached `MetadataEnricher`) so eBPF is the primary PID/tuple source and procfs is explicit fallback/enrichment
 - [x] 7.15 Surface backend hit/miss, cold procfs metadata reads, and cache-size stats through netprobe Prometheus metrics
 - [ ] 7.16 Strengthen UDP/ICMP eBPF tuple extraction with `msghdr->msg_name` destination handling for unconnected sockets, matching the RustNet approach
+- [ ] 7.17 Bound and chunk/coalesce netprobe status snapshots so `Streamed netprobe results` never exceeds the agent-gateway stream chunk limit; preserve flow attribution batches and expose truncation/coalescing counters when snapshot detail is reduced.

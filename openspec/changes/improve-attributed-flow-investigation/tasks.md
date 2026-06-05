@@ -1,0 +1,30 @@
+## 1. Data Contract
+
+- [ ] 1.1 Identify the existing attributed-flow query/API and flow-details route or component contract.
+- [ ] 1.2 Extend the attributed-flow result shape with stable flow identity, collecting agent, attribution status, CTI/OTX summary, reverse-DNS names, and human-readable byte formatting inputs.
+- [ ] 1.3 Ensure queries support deterministic pagination and filters for `attributed`, `unmatched`, and `all`.
+- [ ] 1.4 Reuse existing reverse-DNS and CTI lookup code where available; add shared helpers only if current code is duplicated or route-specific.
+
+## 2. Attributed Flows Page
+
+- [ ] 2.1 Change the topbar title from generic ServiceRadar branding to "Attributed Flows" for this route.
+- [ ] 2.2 Default the table to attributed rows and expose unmatched/all through explicit stat-card or control filters.
+- [ ] 2.3 Add logs-style live mode with an on/off toggle; when off, preserve the current page and filters without auto-prepending rows.
+- [ ] 2.4 Add pagination controls with stable ordering and no horizontal overflow at common desktop widths.
+- [ ] 2.5 Make stat cards clickable filters and visually indicate the active filter.
+- [ ] 2.6 Make each row open NetFlow flow details via navigation or a modal without losing filter/page context.
+- [ ] 2.7 Compact the table: show endpoints with optional rDNS, process/agent summary, human-readable bytes/packets, protocol, attribution status, CTI indicator, and timestamp.
+
+## 3. NetFlow Map Integration
+
+- [ ] 3.1 Add attribution state to NetFlow map path data.
+- [ ] 3.2 Render an operator-visible attribution cue on paths or tooltips when a flow maps to a known process.
+- [ ] 3.3 Allow map drill-down to open the same flow details used by the attributed flows table.
+- [ ] 3.4 Surface CTI/OTX hits alongside attribution state without obscuring normal traffic.
+
+## 4. Verification
+
+- [ ] 4.1 Add focused tests for pagination/filter query behavior.
+- [ ] 4.2 Add LiveView/browser coverage for live toggle, stat-card filters, row details, and no horizontal overflow.
+- [ ] 4.3 Verify with demo data that attributed, unmatched, TCP, UDP, and CTI-marked rows render correctly.
+- [ ] 4.4 Run `openspec validate improve-attributed-flow-investigation --strict`.
