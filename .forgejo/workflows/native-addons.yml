@@ -126,7 +126,7 @@ jobs:
           fi
 
       - name: Run hermetic native add-on gate fixtures
-        run: bazel test //build/native_addons:build_gates_test
+        run: bazel test --config=remote //build/native_addons:build_gates_test
 
       - name: Run native add-on build gates
         env:
