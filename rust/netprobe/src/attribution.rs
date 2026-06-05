@@ -257,6 +257,27 @@ impl SocketInventory {
         }
     }
 
+    fn touch_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        let Some(flow) = flow_key_from_record(record) else {
+            return false;
+        };
+        let key = SocketInventoryKey {
+            address_family: flow.address_family,
+            transport_protocol: flow.transport_protocol,
+            local_addr: flow.endpoint_a_addr,
+            local_port: flow.endpoint_a_port,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        };
+        let Some(cached) = self.entries.get_mut(&key) else {
+            return false;
+        };
+
+        cached.last_seen = Instant::now();
+        true
+    }
+
     fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
         self.prune(Instant::now());
         if !self.dirty {
@@ -668,6 +689,10 @@ impl AyaAttributionReader {
         self.socket_inventory.remove_record(record);
     }
 
+    fn touch_inventory_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        self.socket_inventory.touch_record(record)
+    }
+
     fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
         let observed_at_unix_nano = now_unix_nano();
         if let Some(snapshot) = self
@@ -868,6 +893,18 @@ fn drain_ring(
             }
             continue;
         }
+        let Some(key) = join_key_from_record(record) else {
+            metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
+            continue;
+        };
+        if let Some(existing) = cache.get_mut(&key) {
+            metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
+            if reader.touch_inventory_record(record) {
+                existing.event.observed_at_unix_nano = now_unix_nano();
+                existing.last_seen = Instant::now();
+                continue;
+            }
+        }
         let Some(flow) = reader.attributed_flow_from_record(record, metrics) else {
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
@@ -875,7 +912,6 @@ fn drain_ring(
         metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
         reader.record_inventory(&flow);
         metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
-        let key = FlowAttributionJoinKey::from(&flow);
         let Some(event) = flow.event() else {
             continue;
         };
@@ -949,6 +985,7 @@ fn join_key_from_record(record: &FlowAttributionRecord) -> Option<FlowAttributio
         flow: flow_key_from_record(record)?,
         pid: record.pid,
         tgid: record.tgid,
+        process_generation_ns: record.process_generation_ns,
     })
 }
 
@@ -976,6 +1013,7 @@ struct FlowAttributionJoinKey {
     flow: FlowKey,
     pid: u32,
     tgid: u32,
+    process_generation_ns: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -985,6 +1023,7 @@ impl From<&AttributedFlow> for FlowAttributionJoinKey {
             flow: value.flow,
             pid: value.pid.pid,
             tgid: value.pid.tgid,
+            process_generation_ns: value.pid.process_generation_ns,
         }
     }
 }
