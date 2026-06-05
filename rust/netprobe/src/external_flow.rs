@@ -144,8 +144,10 @@ fn flow_key_from_external_record(record: &ExternalFlowRecord) -> Option<FlowKey>
 
 fn external_transport_protocol(record: &ExternalFlowRecord) -> Option<u16> {
     match record.ip_protocol {
+        1 => Some(1),
         6 => Some(6),
         17 => Some(17),
+        58 => Some(58),
         0 => transport_protocol(record.transport_protocol.to_ascii_lowercase().as_str()),
         _ => None,
     }
@@ -257,6 +259,27 @@ mod tests {
         };
 
         assert_eq!(event.redacted_cmdline, vec![capped_payload]);
+    }
+
+    #[test]
+    fn matches_external_icmp_flow_by_ip_tuple() {
+        let mut matcher = ExternalFlowMatcher::new(0);
+        let mut attribution = attribution_event();
+        attribution.local_port = 0;
+        attribution.remote_port = 0;
+        attribution.transport_protocol = "icmp".to_string();
+        matcher.observe_attribution(&attribution);
+
+        let mut record = external_flow_record();
+        record.source_port = 0;
+        record.destination_port = 0;
+        record.transport_protocol = "icmp".to_string();
+        record.ip_protocol = 1;
+
+        assert!(matches!(
+            matcher.ingest(&record, 123_456),
+            ExternalFlowIngest::Matched(_)
+        ));
     }
 
     fn attribution_event() -> FlowAttributionEvent {

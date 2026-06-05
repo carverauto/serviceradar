@@ -23,6 +23,8 @@ use crate::{
 
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
+const IPPROTO_ICMP: u16 = 1;
+const IPPROTO_ICMPV6: u16 = 58;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
 const FLOW_TABLE_ENTRY_CLASSIFYING: u32 = 0;
@@ -391,6 +393,8 @@ fn parse_ip(value: &str) -> Option<IpAddr> {
 
 pub(crate) fn transport_protocol(value: &str) -> Option<u16> {
     match value {
+        "icmp" => Some(IPPROTO_ICMP),
+        "icmpv6" => Some(IPPROTO_ICMPV6),
         "tcp" => Some(IPPROTO_TCP),
         "udp" => Some(IPPROTO_UDP),
         _ => None,
