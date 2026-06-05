@@ -442,7 +442,6 @@ core:
     EVENT_WRITER_NATS_CREDS_FILE: "/etc/serviceradar/creds/platform.creds"
     EVENT_WRITER_NATS_URL: "tls://serviceradar-nats:4222"
     EVENT_WRITER_NATS_TLS: "true"
-    EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED: "true"
     SERVICERADAR_REMOTE_ACCESS_DESKTOP_RDP_ENABLED: "true"
     # Keep last-known topology visible in demo when external mapper agents are
     # briefly offline or being re-enrolled.
@@ -588,53 +587,6 @@ flowCollector:
   config:
     stream_max_bytes: 1073741824
     stream_replicas: 3
-    # Demo-only static host slices for netflow-to-process attribution.
-    # Production-scale routing should be generated from the control plane
-    # rather than maintained as a static Helm list.
-    host_slice_allowlist:
-      - agent-k8s-cp2-worker1
-      - agent-k8s-cp2-worker2
-      - agent-k8s-cp2-worker3
-      - agent-k8s-cp3-worker1
-      - agent-k8s-cp3-worker2
-      - agent-k8s-cp3-worker3
-      - agent-sr-test-pve04
-    host_slices:
-      - agent_id: agent-k8s-cp2-worker1
-        partition: default
-        host_ips:
-          - 10.0.2.8
-        host_network_visibility: enabled
-      - agent_id: agent-k8s-cp2-worker2
-        partition: default
-        host_ips:
-          - 10.0.2.9
-        host_network_visibility: enabled
-      - agent_id: agent-k8s-cp2-worker3
-        partition: default
-        host_ips:
-          - 10.0.2.10
-        host_network_visibility: enabled
-      - agent_id: agent-k8s-cp3-worker1
-        partition: default
-        host_ips:
-          - 10.0.2.11
-        host_network_visibility: enabled
-      - agent_id: agent-k8s-cp3-worker2
-        partition: default
-        host_ips:
-          - 10.0.2.12
-        host_network_visibility: enabled
-      - agent_id: agent-k8s-cp3-worker3
-        partition: default
-        host_ips:
-          - 10.0.2.13
-        host_network_visibility: enabled
-      - agent_id: agent-sr-test-pve04
-        partition: default
-        host_ips:
-          - 192.168.1.62
-        host_network_visibility: enabled
   data:
     # flow collector is stateless in demo; raw flow durability is in JetStream.
     enabled: false
