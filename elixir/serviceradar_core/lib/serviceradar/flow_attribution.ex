@@ -104,6 +104,16 @@ defmodule ServiceRadar.FlowAttribution do
           )
         ) AS exact_match,
         (
+          a.proto = 17
+          AND a.remote_port > 0
+          AND (
+               (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
+                AND f.dst_endpoint_port = a.remote_port)
+            OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
+                AND f.src_endpoint_port = a.remote_port)
+          )
+        ) AS udp_service_match,
+        (
           ag.ip IS NOT NULL
           AND a.local_ip <> ag.ip
           AND (
@@ -147,11 +157,15 @@ defmodule ServiceRadar.FlowAttribution do
         cmdline,
         uid,
         container_id,
-        CASE WHEN exact_match THEN 0 ELSE 1 END AS match_rank,
+        CASE
+          WHEN exact_match THEN 0
+          WHEN udp_service_match THEN 1
+          ELSE 2
+        END AS match_rank,
         time_delta_seconds,
         observed_at
       FROM eligible
-      WHERE exact_match OR node_fallback_match
+      WHERE exact_match OR udp_service_match OR node_fallback_match
       ORDER BY ctid, match_rank, time_delta_seconds, observed_at DESC
     )
     UPDATE #{@schema}.ocsf_network_activity AS f

@@ -146,6 +146,94 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert payload["attribution"]["comm"] == "redis-server"
   end
 
+  test "correlates UDP attribution when exporter local ephemeral port differs", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 17,
+      protocol_name: "udp",
+      src_ip: "10.0.2.12",
+      src_port: 38_573,
+      dst_ip: "152.117.116.178",
+      dst_port: 161
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      proto: 17,
+      local_ip: "10.0.2.12",
+      local_port: 20_509,
+      remote_ip: "152.117.116.178",
+      remote_port: 161,
+      pid: 72_101,
+      comm: "serviceradar-agent"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["attribution"]["pid"] == 72_101
+    assert payload["attribution"]["comm"] == "serviceradar-agent"
+  end
+
+  test "keeps exact UDP attribution ahead of relaxed service-port candidates", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 17,
+      protocol_name: "udp",
+      src_ip: "10.0.2.12",
+      src_port: 38_573,
+      dst_ip: "152.117.116.178",
+      dst_port: 161
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      proto: 17,
+      local_ip: "10.0.2.12",
+      local_port: 20_509,
+      remote_ip: "152.117.116.178",
+      remote_port: 161,
+      pid: 72_101,
+      comm: "relaxed"
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -5, :second),
+      proto: 17,
+      local_ip: "10.0.2.12",
+      local_port: 38_573,
+      remote_ip: "152.117.116.178",
+      remote_port: 161,
+      pid: 72_102,
+      comm: "exact"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["attribution"]["pid"] == 72_102
+    assert payload["attribution"]["comm"] == "exact"
+  end
+
   test "correlates ICMP pseudo-port exporter data through node fallback", %{
     partition: partition,
     agent_id: agent_id
