@@ -210,9 +210,7 @@ pub fn build_handler(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{
-        Config, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig,
-    };
+    use crate::config::{Config, HostNetworkVisibilityStatus, HostSliceConfig, ListenerConfig};
     use std::net::{IpAddr, Ipv4Addr};
     use tokio::time::{Duration, sleep, timeout};
 
@@ -322,8 +320,7 @@ mod tests {
         handle.abort();
 
         let snapshot = subject_drops.snapshot();
-        let by_subject: std::collections::HashMap<String, u64> =
-            snapshot.into_iter().collect();
+        let by_subject: std::collections::HashMap<String, u64> = snapshot.into_iter().collect();
 
         // The raw subject *might* also drop (after the first success the
         // channel is full), but we definitely expect the host-slice fan-out
