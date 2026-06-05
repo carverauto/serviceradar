@@ -207,8 +207,18 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
-	// Apply native add-on (feature set) assignments if present.
-	p.applyAddonAssignments(ctx, configResp.GetAddons())
+	// Apply native add-on (feature set) assignments if present. A failed
+	// pushed-artifact delivery must defer the config version update; otherwise the
+	// next poll reports the new version and the gateway can legitimately respond
+	// NotModified, leaving a transient failed add-on delivery stuck until some
+	// unrelated config change occurs.
+	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because add-on assignments did not apply")
+		return false
+	}
 
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
