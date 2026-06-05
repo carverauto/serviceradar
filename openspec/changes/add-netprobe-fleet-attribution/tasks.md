@@ -25,6 +25,7 @@
 - [ ] 5.2c (BLOCKED) Populate `core.netprobeAddon` in `values-demo.yaml` from the published `serviceradar-native-addon-index.json`. BLOCKER: the `native-addons.yml` publish FAILED on v1.2.91 (40m59s publish failure on run #16189; no `serviceradar-native-addon-index.json` asset on the release) — so `0.2.0` artifacts were never published. Re-run/dispatch the publish first.
 - [ ] 5.2d (follow-up) Wire an auto-importer (the importer exists but is never invoked) so artifact refs track each release with no manual values step
 - [ ] 5.2e Fix add-on artifact download drift observed on demo workers: some assigned agents report gateway download `404` or certificate verification failures while leaving the current systemd netprobe unchanged. Validate that a new release exposes a current approved package, agents download it without `403`/`404`/TLS errors, and the UI assignment path succeeds end to end.
+- [x] 5.2f Bump netprobe to `0.2.4` after post-`0.2.3` performance changes so the native add-on publish/import path produces a distinct package instead of reusing the older approved `0.2.3` artifact.
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
