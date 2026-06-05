@@ -89,29 +89,6 @@ defmodule ServiceRadar.FlowAttribution do
       WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
         AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
     ),
-    recent_attributions AS (
-      SELECT
-        a.agent_id,
-        a.partition,
-        a.proto,
-        a.local_ip,
-        a.local_port,
-        a.remote_ip,
-        a.remote_port,
-        a.pid,
-        a.comm,
-        a.cmdline,
-        a.uid,
-        a.container_id,
-        a.observed_at,
-        ag.ip AS agent_ip
-      FROM #{@schema}.#{@table} AS a
-      LEFT JOIN #{@schema}.ocsf_agents AS ag
-        ON ag.uid = a.agent_id
-       AND ag.ip IS NOT NULL
-       AND ag.ip <> ''
-      WHERE a.observed_at > now() - interval '#{@correlation_window_minutes} minutes'
-    ),
     candidates AS (
       SELECT
         f.tableoid AS flow_tableoid,
@@ -145,7 +122,7 @@ defmodule ServiceRadar.FlowAttribution do
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto NOT IN (1, 58)
@@ -168,7 +145,7 @@ defmodule ServiceRadar.FlowAttribution do
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto NOT IN (1, 58)
@@ -191,7 +168,7 @@ defmodule ServiceRadar.FlowAttribution do
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto IN (1, 58)
@@ -212,7 +189,7 @@ defmodule ServiceRadar.FlowAttribution do
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto IN (1, 58)
@@ -233,7 +210,7 @@ defmodule ServiceRadar.FlowAttribution do
             1 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE f.protocol_num = 17
             AND a.partition = f.partition
             AND a.proto = 17
@@ -256,7 +233,7 @@ defmodule ServiceRadar.FlowAttribution do
             1 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
           WHERE f.protocol_num = 17
             AND a.partition = f.partition
             AND a.proto = 17
@@ -279,15 +256,18 @@ defmodule ServiceRadar.FlowAttribution do
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
+          JOIN #{@schema}.ocsf_agents AS ag
+            ON ag.uid = a.agent_id
+           AND ag.ip IS NOT NULL
+           AND ag.ip <> ''
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto NOT IN (1, 58)
-            AND a.agent_ip IS NOT NULL
-            AND a.local_ip <> a.agent_ip
+            AND a.local_ip <> ag.ip
             AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
                                   AND f.time + interval '#{@correlation_skew_seconds} seconds'
-            AND a.agent_ip = f.src_endpoint_ip
+            AND ag.ip = f.src_endpoint_ip
             AND a.remote_ip = f.dst_endpoint_ip
             AND a.remote_port = f.dst_endpoint_port
 
@@ -303,15 +283,18 @@ defmodule ServiceRadar.FlowAttribution do
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
+          JOIN #{@schema}.ocsf_agents AS ag
+            ON ag.uid = a.agent_id
+           AND ag.ip IS NOT NULL
+           AND ag.ip <> ''
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto NOT IN (1, 58)
-            AND a.agent_ip IS NOT NULL
-            AND a.local_ip <> a.agent_ip
+            AND a.local_ip <> ag.ip
             AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
                                   AND f.time + interval '#{@correlation_skew_seconds} seconds'
-            AND a.agent_ip = f.dst_endpoint_ip
+            AND ag.ip = f.dst_endpoint_ip
             AND a.remote_ip = f.src_endpoint_ip
             AND a.remote_port = f.src_endpoint_port
 
@@ -327,15 +310,18 @@ defmodule ServiceRadar.FlowAttribution do
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
+          JOIN #{@schema}.ocsf_agents AS ag
+            ON ag.uid = a.agent_id
+           AND ag.ip IS NOT NULL
+           AND ag.ip <> ''
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto IN (1, 58)
-            AND a.agent_ip IS NOT NULL
-            AND a.local_ip <> a.agent_ip
+            AND a.local_ip <> ag.ip
             AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
                                   AND f.time + interval '#{@correlation_skew_seconds} seconds'
-            AND a.agent_ip = f.src_endpoint_ip
+            AND ag.ip = f.src_endpoint_ip
             AND a.remote_ip = f.dst_endpoint_ip
 
           UNION ALL
@@ -350,15 +336,18 @@ defmodule ServiceRadar.FlowAttribution do
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
-          FROM recent_attributions AS a
+          FROM #{@schema}.#{@table} AS a
+          JOIN #{@schema}.ocsf_agents AS ag
+            ON ag.uid = a.agent_id
+           AND ag.ip IS NOT NULL
+           AND ag.ip <> ''
           WHERE a.partition = f.partition
             AND a.proto = f.protocol_num
             AND a.proto IN (1, 58)
-            AND a.agent_ip IS NOT NULL
-            AND a.local_ip <> a.agent_ip
+            AND a.local_ip <> ag.ip
             AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
                                   AND f.time + interval '#{@correlation_skew_seconds} seconds'
-            AND a.agent_ip = f.dst_endpoint_ip
+            AND ag.ip = f.dst_endpoint_ip
             AND a.remote_ip = f.src_endpoint_ip
         ) AS ranked
         ORDER BY match_rank, time_delta_seconds, observed_at DESC
