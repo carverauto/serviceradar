@@ -17,6 +17,7 @@ defmodule ServiceRadar.FlowAttribution do
   @schema "platform"
   @table "flow_process_attributions"
   @correlation_window_minutes 15
+  @correlation_skew_seconds 300
   @retention_minutes 60
 
   @doc "Persist a batch of pushed attribution events."
@@ -73,31 +74,73 @@ defmodule ServiceRadar.FlowAttribution do
   @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
   def correlate do
     sql = """
+    WITH candidates AS (
+      SELECT DISTINCT ON (f.ctid)
+        f.ctid AS flow_ctid,
+        a.agent_id,
+        a.pid,
+        a.comm,
+        a.cmdline,
+        a.uid,
+        a.container_id,
+        CASE
+          WHEN (
+                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
+                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
+             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
+                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
+              )
+          THEN 0
+          ELSE 1
+        END AS match_rank,
+        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds
+      FROM #{@schema}.ocsf_network_activity AS f
+      JOIN #{@schema}.#{@table} AS a
+        ON f.partition = a.partition
+       AND f.protocol_num = a.proto
+       AND a.observed_at > now() - interval '#{@correlation_window_minutes} minutes'
+       AND abs(extract(epoch from (f.time - a.observed_at))) <= #{@correlation_skew_seconds}
+      LEFT JOIN #{@schema}.ocsf_agents AS ag
+        ON ag.uid = a.agent_id
+       AND ag.ip IS NOT NULL
+       AND ag.ip <> ''
+      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
+        AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
+        AND (
+              (
+                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
+                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
+             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
+                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
+              )
+           OR (
+                ag.ip IS NOT NULL
+            AND a.local_ip <> ag.ip
+            AND (
+                  (f.src_endpoint_ip = ag.ip AND f.dst_endpoint_ip = a.remote_ip
+                   AND f.dst_endpoint_port = a.remote_port)
+               OR (f.dst_endpoint_ip = ag.ip AND f.src_endpoint_ip = a.remote_ip
+                   AND f.src_endpoint_port = a.remote_port)
+                )
+              )
+            )
+      ORDER BY f.ctid, match_rank, time_delta_seconds, a.observed_at DESC
+    )
     UPDATE #{@schema}.ocsf_network_activity AS f
     SET ocsf_payload = f.ocsf_payload
       || jsonb_build_object(
            'event_type', 'attributed_flow',
-           'agent_id', a.agent_id,
+           'agent_id', candidates.agent_id,
            'attribution', jsonb_strip_nulls(jsonb_build_object(
-             'pid', a.pid,
-             'comm', a.comm,
-             'redacted_cmdline', a.cmdline,
-             'uid', a.uid,
-             'container_id', a.container_id
+             'pid', candidates.pid,
+             'comm', candidates.comm,
+             'redacted_cmdline', candidates.cmdline,
+             'uid', candidates.uid,
+             'container_id', candidates.container_id
            ))
          )
-    FROM #{@schema}.#{@table} AS a
-    WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
-      AND a.observed_at > now() - interval '#{@correlation_window_minutes} minutes'
-      AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-      AND f.partition = a.partition
-      AND f.protocol_num = a.proto
-      AND (
-            (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-             AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-         OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-             AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
-          )
+    FROM candidates
+    WHERE f.ctid = candidates.flow_ctid
     """
 
     case ServiceRadar.Repo.query(sql, []) do
