@@ -17,7 +17,7 @@ defmodule ServiceRadar.FlowAttribution do
   @schema "platform"
   @table "flow_process_attributions"
   @correlation_window_minutes 15
-  @correlation_skew_seconds 300
+  @correlation_skew_seconds 900
   @retention_minutes 60
 
   @doc "Persist a batch of pushed attribution events."
