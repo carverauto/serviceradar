@@ -3,7 +3,7 @@
 
 use aya_ebpf::{
     bindings::{xdp_action, BPF_ANY, TC_ACT_OK},
-    helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel},
+    helpers::{bpf_ktime_get_ns, bpf_probe_read_kernel, bpf_probe_read_kernel_buf},
     macros::{classifier, kprobe, kretprobe, map, tracepoint, xdp},
     maps::{HashMap as BpfHashMap, LruHashMap, ProgramArray, RingBuf, XskMap},
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext, XdpContext},
@@ -642,6 +642,16 @@ unsafe fn kernel_field<T>(ptr: *const c_void, offset: usize) -> Option<T> {
     bpf_probe_read_kernel((ptr as *const u8).add(offset) as *const T).ok()
 }
 
+// Read bytes from a kernel pointer into caller-provided storage. This avoids
+// materializing temporary address arrays on the eBPF stack for sockaddr reads.
+#[inline(always)]
+unsafe fn kernel_bytes(ptr: *const c_void, offset: usize, dst: &mut [u8]) -> Option<()> {
+    if ptr.is_null() {
+        return None;
+    }
+    bpf_probe_read_kernel_buf((ptr as *const u8).add(offset), dst).ok()
+}
+
 // Build a populated FlowTuple from a `struct sock *` (kprobe arg0) for the
 // connection-less protocols (UDP, ICMP) whose per-call kprobes have no
 // tracepoint to read a ready-made 5-tuple from. The tuple is directional with
@@ -682,17 +692,37 @@ fn socket_tuple(sock: *const c_void, protocol: u16, has_ports: bool) -> Option<F
     if family == AF_INET {
         // skc_rcv_saddr = local v4, skc_daddr = peer v4 (both network order, which
         // is the wire/byte order the userspace Ipv4Addr::new consumer expects).
-        let source: [u8; 4] = unsafe { sock_field(sock, offset_of!(SockCommon, skc_rcv_saddr))? };
-        let destination: [u8; 4] = unsafe { sock_field(sock, offset_of!(SockCommon, skc_daddr))? };
-        tuple.source_addr[..4].copy_from_slice(&source);
-        tuple.destination_addr[..4].copy_from_slice(&destination);
+        // SAFETY: sock is the kprobe's kernel struct sock pointer; offsets are
+        // derived from the SockCommon mirror, and reads fail closed on fault.
+        unsafe {
+            kernel_bytes(
+                sock,
+                offset_of!(SockCommon, skc_rcv_saddr),
+                &mut tuple.source_addr[..4],
+            )?;
+            kernel_bytes(
+                sock,
+                offset_of!(SockCommon, skc_daddr),
+                &mut tuple.destination_addr[..4],
+            )?;
+        }
+        clear_ipv4_tail(&mut tuple.source_addr);
+        clear_ipv4_tail(&mut tuple.destination_addr);
     } else {
-        let source: [u8; 16] =
-            unsafe { sock_field(sock, offset_of!(SockCommon, skc_v6_rcv_saddr))? };
-        let destination: [u8; 16] =
-            unsafe { sock_field(sock, offset_of!(SockCommon, skc_v6_daddr))? };
-        tuple.source_addr = source;
-        tuple.destination_addr = destination;
+        // SAFETY: sock is the kprobe's kernel struct sock pointer; offsets are
+        // derived from the SockCommon mirror, and reads fail closed on fault.
+        unsafe {
+            kernel_bytes(
+                sock,
+                offset_of!(SockCommon, skc_v6_rcv_saddr),
+                &mut tuple.source_addr,
+            )?;
+            kernel_bytes(
+                sock,
+                offset_of!(SockCommon, skc_v6_daddr),
+                &mut tuple.destination_addr,
+            )?;
+        }
     }
 
     Some(tuple)
@@ -728,9 +758,16 @@ fn apply_msg_name_destination(
         if name_len < size_of::<SockAddrIn>() as i32 {
             return None;
         }
-        let destination: [u8; 4] = unsafe { kernel_field(name, offset_of!(SockAddrIn, sin_addr))? };
-        tuple.destination_addr = [0; 16];
-        tuple.destination_addr[..4].copy_from_slice(&destination);
+        // SAFETY: name points at a kernel sockaddr_in with msg_namelen already
+        // checked; read only the in-struct IPv4 address bytes into the tuple.
+        unsafe {
+            kernel_bytes(
+                name,
+                offset_of!(SockAddrIn, sin_addr),
+                &mut tuple.destination_addr[..4],
+            )?
+        };
+        clear_ipv4_tail(&mut tuple.destination_addr);
         if has_ports {
             let port_be: u16 = unsafe { kernel_field(name, offset_of!(SockAddrIn, sin_port))? };
             tuple.destination_port = u16::from_be(port_be);
@@ -740,9 +777,15 @@ fn apply_msg_name_destination(
         if name_len < size_of::<SockAddrIn6>() as i32 {
             return None;
         }
-        let destination: [u8; 16] =
-            unsafe { kernel_field(name, offset_of!(SockAddrIn6, sin6_addr))? };
-        tuple.destination_addr = destination;
+        // SAFETY: name points at a kernel sockaddr_in6 with msg_namelen already
+        // checked; read only the in-struct IPv6 address bytes into the tuple.
+        unsafe {
+            kernel_bytes(
+                name,
+                offset_of!(SockAddrIn6, sin6_addr),
+                &mut tuple.destination_addr,
+            )?
+        };
         if has_ports {
             let port_be: u16 = unsafe { kernel_field(name, offset_of!(SockAddrIn6, sin6_port))? };
             tuple.destination_port = u16::from_be(port_be);
@@ -754,6 +797,22 @@ fn apply_msg_name_destination(
 }
 
 #[inline(always)]
+fn clear_ipv4_tail(addr: &mut [u8; 16]) {
+    addr[4] = 0;
+    addr[5] = 0;
+    addr[6] = 0;
+    addr[7] = 0;
+    addr[8] = 0;
+    addr[9] = 0;
+    addr[10] = 0;
+    addr[11] = 0;
+    addr[12] = 0;
+    addr[13] = 0;
+    addr[14] = 0;
+    addr[15] = 0;
+}
+
+#[inline(always)]
 fn tuple_destination_is_zero(tuple: &FlowTuple) -> bool {
     if tuple.family == AF_INET {
         tuple.destination_addr[0] == 0
@@ -761,7 +820,22 @@ fn tuple_destination_is_zero(tuple: &FlowTuple) -> bool {
             && tuple.destination_addr[2] == 0
             && tuple.destination_addr[3] == 0
     } else if tuple.family == AF_INET6 {
-        tuple.destination_addr.iter().all(|byte| *byte == 0)
+        tuple.destination_addr[0] == 0
+            && tuple.destination_addr[1] == 0
+            && tuple.destination_addr[2] == 0
+            && tuple.destination_addr[3] == 0
+            && tuple.destination_addr[4] == 0
+            && tuple.destination_addr[5] == 0
+            && tuple.destination_addr[6] == 0
+            && tuple.destination_addr[7] == 0
+            && tuple.destination_addr[8] == 0
+            && tuple.destination_addr[9] == 0
+            && tuple.destination_addr[10] == 0
+            && tuple.destination_addr[11] == 0
+            && tuple.destination_addr[12] == 0
+            && tuple.destination_addr[13] == 0
+            && tuple.destination_addr[14] == 0
+            && tuple.destination_addr[15] == 0
     } else {
         true
     }
