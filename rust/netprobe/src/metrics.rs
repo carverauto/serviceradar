@@ -5,7 +5,9 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use prometheus::{Encoder, IntCounter, IntCounterVec, IntGauge, Opts, Registry, TextEncoder};
+use prometheus::{
+    Encoder, IntCounter, IntCounterVec, IntGauge, IntGaugeVec, Opts, Registry, TextEncoder,
+};
 use tokio::{io::AsyncWriteExt, net::TcpListener, sync::watch};
 
 #[derive(Clone)]
@@ -21,6 +23,8 @@ pub struct Metrics {
     external_flow_unmatched_total: IntCounter,
     external_flow_invalid_total: IntCounter,
     external_flow_matched_total: IntCounter,
+    attribution_backend_events_total: IntCounterVec,
+    attribution_cache_entries: IntGaugeVec,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
     uptime_seconds: IntGauge,
@@ -70,6 +74,20 @@ impl Metrics {
             "serviceradar_netprobe_external_flow_matched_total",
             "External flow records that produced a FlowAttributionEvent",
         ))?;
+        let attribution_backend_events_total = IntCounterVec::new(
+            Opts::new(
+                "serviceradar_netprobe_attribution_backend_events_total",
+                "Attribution backend outcomes by backend and outcome",
+            ),
+            &["backend", "outcome"],
+        )?;
+        let attribution_cache_entries = IntGaugeVec::new(
+            Opts::new(
+                "serviceradar_netprobe_attribution_cache_entries",
+                "Attribution cache entry counts by cache name",
+            ),
+            &["cache"],
+        )?;
         let sampling_budget = IntGauge::with_opts(Opts::new(
             "serviceradar_netprobe_sampling_budget",
             "Current AF_XDP per-flow packet redirect budget",
@@ -89,6 +107,8 @@ impl Metrics {
         registry.register(Box::new(external_flow_unmatched_total.clone()))?;
         registry.register(Box::new(external_flow_invalid_total.clone()))?;
         registry.register(Box::new(external_flow_matched_total.clone()))?;
+        registry.register(Box::new(attribution_backend_events_total.clone()))?;
+        registry.register(Box::new(attribution_cache_entries.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
 
@@ -104,6 +124,8 @@ impl Metrics {
             external_flow_unmatched_total,
             external_flow_invalid_total,
             external_flow_matched_total,
+            attribution_backend_events_total,
+            attribution_cache_entries,
             sampling_budget,
             uptime_seconds,
             started_at: Arc::new(Instant::now()),
@@ -206,6 +228,20 @@ impl Metrics {
 
     pub fn inc_external_flow_matched(&self) {
         self.external_flow_matched_total.inc();
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_attribution_backend_events(&self, backend: &str, outcome: &str, count: u64) {
+        self.attribution_backend_events_total
+            .with_label_values(&[backend, outcome])
+            .inc_by(count);
+    }
+
+    #[allow(dead_code)]
+    pub fn set_attribution_cache_entries(&self, cache: &str, entries: usize) {
+        self.attribution_cache_entries
+            .with_label_values(&[cache])
+            .set(entries as i64);
     }
 
     #[allow(dead_code)]

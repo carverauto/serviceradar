@@ -37,10 +37,13 @@
 - [x] 7.4 Add eBPF `sched_process_exec`/`sched_process_exit` lifecycle hooks and carry a process-generation marker into PID reuse-safe enrichment cache keys
 - [ ] 7.5 Evaluate whether `sched_process_free` is needed in addition to exit for delayed cleanup on supported kernels
 - [ ] 7.6 Add eBPF listener/socket lifecycle events for TCP listen/state/close and UDP bind/unbind coverage
-- [ ] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path enrichment and optional startup reconciliation
-- [ ] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
+- [x] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path enrichment and optional startup reconciliation
+- [x] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
 - [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, agent sidecar buffers, and gateway push batches
 - [ ] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
 - [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
 - [ ] 7.12 Add a Linux worker performance smoke script or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
 - [ ] 7.13 Verify attribution-only netprobe stays below 1% sustained process CPU on representative busy Kubernetes workers with no persistent ring drops, IPC lag, queue drops, or attribution hit-rate regressions
+- [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend`, disabled `ProcfsFallbackBackend`, cached `MetadataEnricher`) so eBPF is the primary PID/tuple source and procfs is explicit fallback/enrichment
+- [x] 7.15 Surface backend hit/miss, cold procfs metadata reads, and cache-size stats through netprobe Prometheus metrics
+- [ ] 7.16 Strengthen UDP/ICMP eBPF tuple extraction with `msghdr->msg_name` destination handling for unconnected sockets, matching the RustNet approach

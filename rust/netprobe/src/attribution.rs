@@ -64,6 +64,10 @@ const PROCESS_DETAILS_CACHE_MAX_ENTRIES: usize = 4096;
 #[cfg(target_os = "linux")]
 // Mirrors EVENT_TCP_CLOSE in the eBPF: a close record evicts the flow.
 const EVENT_TCP_CLOSE: u16 = 3;
+#[cfg(target_os = "linux")]
+const EVENT_INET_SOCK_SET_STATE: u16 = 6;
+#[cfg(target_os = "linux")]
+const TCP_CLOSE_STATE: i32 = 7;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -171,6 +175,210 @@ impl AttributedFlow {
     }
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct SocketInventory {
+    entries: HashMap<SocketInventoryKey, CachedProcessSocket>,
+}
+
+#[cfg(target_os = "linux")]
+impl SocketInventory {
+    fn update(&mut self, flow: &AttributedFlow) {
+        let Some((local_ip, local_port, _, _)) = endpoints(&flow.flow, flow.pid.local_endpoint)
+        else {
+            return;
+        };
+        let process = flow.process.as_ref();
+        let key = SocketInventoryKey {
+            address_family: flow.flow.address_family,
+            transport_protocol: flow.flow.transport_protocol,
+            local_addr: match flow.pid.local_endpoint {
+                FLOW_ENDPOINT_A => flow.flow.endpoint_a_addr,
+                FLOW_ENDPOINT_B => flow.flow.endpoint_b_addr,
+                _ => return,
+            },
+            local_port,
+            pid: flow.pid.pid,
+            tgid: flow.pid.tgid,
+            process_generation_ns: flow.pid.process_generation_ns,
+        };
+
+        self.entries.insert(
+            key,
+            CachedProcessSocket {
+                entry: ProcessSnapshotEntry {
+                    local_ip: local_ip.to_string(),
+                    local_port: u32::from(local_port),
+                    transport_protocol: transport_protocol(flow.flow.transport_protocol),
+                    pid: flow.pid.pid,
+                    tgid: flow.pid.tgid,
+                    uid: process.map_or(flow.pid.uid, |details| details.uid),
+                    gid: process.map_or(flow.pid.gid, |details| details.gid),
+                    comm: process
+                        .map(|details| details.comm.clone())
+                        .unwrap_or_default(),
+                    redacted_cmdline: process
+                        .map(|details| details.cmdline.clone())
+                        .unwrap_or_default(),
+                    container_id: process
+                        .and_then(|details| details.container_id.clone())
+                        .unwrap_or_default(),
+                },
+                last_seen: Instant::now(),
+            },
+        );
+    }
+
+    fn remove_record(&mut self, record: &FlowAttributionRecord) {
+        let Some(flow) = flow_key_from_record(record) else {
+            return;
+        };
+        let key = SocketInventoryKey {
+            address_family: flow.address_family,
+            transport_protocol: flow.transport_protocol,
+            local_addr: flow.endpoint_a_addr,
+            local_port: flow.endpoint_a_port,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        };
+        self.entries.remove(&key);
+    }
+
+    fn snapshot(&mut self, observed_at_unix_nano: i64) -> ProcessSnapshot {
+        self.prune(Instant::now());
+        let mut entries = self
+            .entries
+            .values()
+            .map(|cached| cached.entry.clone())
+            .collect::<Vec<_>>();
+        sort_snapshot_entries(&mut entries);
+
+        ProcessSnapshot {
+            fingerprint: snapshot_fingerprint(&entries),
+            observed_at_unix_nano,
+            entries,
+        }
+    }
+
+    fn prune(&mut self, now: Instant) {
+        self.entries
+            .retain(|_, entry| now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct SocketInventoryKey {
+    address_family: u16,
+    transport_protocol: u16,
+    local_addr: [u8; 16],
+    local_port: u16,
+    pid: u32,
+    tgid: u32,
+    process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+struct CachedProcessSocket {
+    entry: ProcessSnapshotEntry,
+    last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+trait AttributionBackend {
+    fn drain_records(&mut self) -> Vec<FlowAttributionRecord>;
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool>;
+    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord>;
+    fn method(&self) -> &'static str;
+}
+
+#[cfg(target_os = "linux")]
+struct EbpfAttributionBackend {
+    ring: aya::maps::RingBuf<aya::maps::MapData>,
+    process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
+}
+
+#[cfg(target_os = "linux")]
+impl EbpfAttributionBackend {
+    fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
+        let flow_events = ebpf.take_map("flow_events").ok_or_else(|| {
+            anyhow::anyhow!("flow_events map is missing from netprobe eBPF object")
+        })?;
+        let process_info = ebpf.take_map("process_info").ok_or_else(|| {
+            anyhow::anyhow!("process_info map is missing from netprobe eBPF object")
+        })?;
+
+        Ok(Self {
+            ring: aya::maps::RingBuf::try_from(flow_events)?,
+            process_info: aya::maps::HashMap::try_from(process_info)?,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AttributionBackend for EbpfAttributionBackend {
+    /// Drain every record currently queued in the FLOW_EVENTS ring buffer,
+    /// copying each into an owned `FlowAttributionRecord`. Reading the ring is a
+    /// cheap mmap operation (no `bpf_map_get_next_key` scan), so this is
+    /// O(new records) rather than O(map capacity) like the old map snapshot —
+    /// which is what keeps idle CPU near zero.
+    fn drain_records(&mut self) -> Vec<FlowAttributionRecord> {
+        let mut records = Vec::new();
+        while let Some(item) = self.ring.next() {
+            let bytes = item.as_ref();
+            if bytes.len() >= mem::size_of::<FlowAttributionRecord>() {
+                // SAFETY: FlowAttributionRecord is #[repr(C)] and mirrors the eBPF
+                // layout byte-for-byte; the slot is at least that many bytes. Read
+                // unaligned because the ring slot carries no alignment guarantee.
+                records.push(unsafe {
+                    ptr::read_unaligned(bytes.as_ptr() as *const FlowAttributionRecord)
+                });
+            }
+        }
+        records
+    }
+
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
+        if timeout.is_zero() {
+            return Ok(false);
+        }
+
+        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd {
+            fd: self.ring.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        loop {
+            let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+            if result >= 0 {
+                if poll_fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                    return Err(io::Error::other(format!(
+                        "unexpected ring fd poll event: {}",
+                        poll_fd.revents
+                    )));
+                }
+                return Ok(result > 0 && poll_fd.revents & libc::POLLIN != 0);
+            }
+
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                return Err(err);
+            }
+        }
+    }
+
+    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord> {
+        self.process_info.iter().filter_map(Result::ok).collect()
+    }
+
+    fn method(&self) -> &'static str {
+        "ebpf"
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct ProcfsEnricher {
     root: PathBuf,
@@ -257,20 +465,7 @@ impl ProcfsEnricher {
             }
         }
 
-        entries.sort_by(|left, right| {
-            (
-                &left.transport_protocol,
-                &left.local_ip,
-                left.local_port,
-                left.pid,
-            )
-                .cmp(&(
-                    &right.transport_protocol,
-                    &right.local_ip,
-                    right.local_port,
-                    right.pid,
-                ))
-        });
+        sort_snapshot_entries(&mut entries);
 
         ProcessSnapshot {
             fingerprint: snapshot_fingerprint(&entries),
@@ -281,81 +476,121 @@ impl ProcfsEnricher {
 }
 
 #[cfg(target_os = "linux")]
-pub struct AyaAttributionReader {
-    ring: aya::maps::RingBuf<aya::maps::MapData>,
-    process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
+struct MetadataEnricher {
     procfs: ProcfsEnricher,
-    process_details_cache: HashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
+    cache: HashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
+}
+
+#[cfg(target_os = "linux")]
+impl MetadataEnricher {
+    fn host() -> Self {
+        Self {
+            procfs: ProcfsEnricher::host(),
+            cache: HashMap::new(),
+        }
+    }
+
+    fn process_details(&mut self, record: &ProcessInfoRecord) -> (ProcessDetails, MetadataSource) {
+        let key = ProcessDetailsCacheKey::from(record);
+        let now = Instant::now();
+
+        if let Some(cached) = self.cache.get_mut(&key) {
+            if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
+                cached.last_used = now;
+                return (cached.details.clone(), MetadataSource::Cache);
+            }
+        }
+
+        let details = self.procfs.process_details(record);
+        self.prune(now);
+        self.cache.insert(
+            key,
+            CachedProcessDetails {
+                details: details.clone(),
+                updated_at: now,
+                last_used: now,
+            },
+        );
+        (details, MetadataSource::Procfs)
+    }
+
+    fn cache_len(&self) -> usize {
+        self.cache.len()
+    }
+
+    fn prune(&mut self, now: Instant) {
+        if self.cache.len() < PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            return;
+        }
+
+        self.cache
+            .retain(|_, cached| now.duration_since(cached.last_used) < PROCESS_DETAILS_CACHE_TTL);
+
+        if self.cache.len() >= PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            self.cache.clear();
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum MetadataSource {
+    Cache,
+    Procfs,
+}
+
+#[cfg(target_os = "linux")]
+struct ProcfsFallbackBackend {
+    procfs: ProcfsEnricher,
+    enabled: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl ProcfsFallbackBackend {
+    fn disabled() -> Self {
+        Self {
+            procfs: ProcfsEnricher::host(),
+            enabled: false,
+        }
+    }
+
+    fn process_snapshot(
+        &self,
+        process_info: &HashMap<u32, ProcessInfoRecord>,
+        observed_at_unix_nano: i64,
+    ) -> Option<ProcessSnapshot> {
+        self.enabled.then(|| {
+            self.procfs
+                .process_snapshot(process_info, observed_at_unix_nano)
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub struct AyaAttributionReader {
+    backend: EbpfAttributionBackend,
+    metadata: MetadataEnricher,
+    procfs_fallback: ProcfsFallbackBackend,
+    socket_inventory: SocketInventory,
 }
 
 #[cfg(target_os = "linux")]
 impl AyaAttributionReader {
     pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
-        let flow_events = ebpf.take_map("flow_events").ok_or_else(|| {
-            anyhow::anyhow!("flow_events map is missing from netprobe eBPF object")
-        })?;
-        let process_info = ebpf.take_map("process_info").ok_or_else(|| {
-            anyhow::anyhow!("process_info map is missing from netprobe eBPF object")
-        })?;
-
         Ok(Self {
-            ring: aya::maps::RingBuf::try_from(flow_events)?,
-            process_info: aya::maps::HashMap::try_from(process_info)?,
-            procfs: ProcfsEnricher::host(),
-            process_details_cache: HashMap::new(),
+            backend: EbpfAttributionBackend::from_ebpf(ebpf)?,
+            metadata: MetadataEnricher::host(),
+            procfs_fallback: ProcfsFallbackBackend::disabled(),
+            socket_inventory: SocketInventory::default(),
         })
     }
 
-    /// Drain every record currently queued in the FLOW_EVENTS ring buffer,
-    /// copying each into an owned `FlowAttributionRecord`. Reading the ring is a
-    /// cheap mmap operation (no `bpf_map_get_next_key` scan), so this is
-    /// O(new records) rather than O(map capacity) like the old map snapshot —
-    /// which is what keeps idle CPU near zero.
     fn drain_records(&mut self) -> Vec<FlowAttributionRecord> {
-        let mut records = Vec::new();
-        while let Some(item) = self.ring.next() {
-            let bytes = item.as_ref();
-            if bytes.len() >= mem::size_of::<FlowAttributionRecord>() {
-                // SAFETY: FlowAttributionRecord is #[repr(C)] and mirrors the eBPF
-                // layout byte-for-byte; the slot is at least that many bytes. Read
-                // unaligned because the ring slot carries no alignment guarantee.
-                records.push(unsafe {
-                    ptr::read_unaligned(bytes.as_ptr() as *const FlowAttributionRecord)
-                });
-            }
-        }
-        records
+        self.backend.drain_records()
     }
 
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
-        if timeout.is_zero() {
-            return Ok(false);
-        }
-
-        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
-        let mut poll_fd = libc::pollfd {
-            fd: self.ring.as_raw_fd(),
-            events: libc::POLLIN,
-            revents: 0,
-        };
-
-        loop {
-            let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
-            if result >= 0 {
-                if poll_fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
-                    return Err(io::Error::other(format!(
-                        "unexpected ring fd poll event: {}",
-                        poll_fd.revents
-                    )));
-                }
-                return Ok(result > 0 && poll_fd.revents & libc::POLLIN != 0);
-            }
-
-            let err = io::Error::last_os_error();
-            if err.kind() != io::ErrorKind::Interrupted {
-                return Err(err);
-            }
-        }
+        self.backend.wait_for_records(timeout)
     }
 
     /// Build an `AttributedFlow` from a ring record. Returns `None` for records
@@ -366,6 +601,7 @@ impl AyaAttributionReader {
     fn attributed_flow_from_record(
         &mut self,
         record: &FlowAttributionRecord,
+        metrics: &Metrics,
     ) -> Option<AttributedFlow> {
         let flow = flow_key_from_record(record)?;
         let pid = FlowPidRecord {
@@ -394,54 +630,41 @@ impl AyaAttributionReader {
             process_generation_ns: record.process_generation_ns,
             comm: record.comm,
         };
-        let process = Some(self.process_details(&info));
+        let (details, source) = self.metadata.process_details(&info);
+        if source == MetadataSource::Procfs {
+            metrics.inc_attribution_backend_events("procfs", "metadata_read", 1);
+        }
+        metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+        let process = Some(details);
         Some(AttributedFlow { flow, pid, process })
     }
 
-    fn process_details(&mut self, record: &ProcessInfoRecord) -> ProcessDetails {
-        let key = ProcessDetailsCacheKey::from(record);
-        let now = Instant::now();
-
-        if let Some(cached) = self.process_details_cache.get_mut(&key) {
-            if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
-                cached.last_used = now;
-                return cached.details.clone();
-            }
-        }
-
-        let details = self.procfs.process_details(record);
-        self.prune_process_details_cache(now);
-        self.process_details_cache.insert(
-            key,
-            CachedProcessDetails {
-                details: details.clone(),
-                updated_at: now,
-                last_used: now,
-            },
-        );
-        details
+    fn record_inventory(&mut self, flow: &AttributedFlow) {
+        self.socket_inventory.update(flow);
     }
 
-    fn prune_process_details_cache(&mut self, now: Instant) {
-        if self.process_details_cache.len() < PROCESS_DETAILS_CACHE_MAX_ENTRIES {
-            return;
-        }
-
-        self.process_details_cache
-            .retain(|_, cached| now.duration_since(cached.last_used) < PROCESS_DETAILS_CACHE_TTL);
-
-        if self.process_details_cache.len() >= PROCESS_DETAILS_CACHE_MAX_ENTRIES {
-            self.process_details_cache.clear();
-        }
+    fn remove_inventory_record(&mut self, record: &FlowAttributionRecord) {
+        self.socket_inventory.remove_record(record);
     }
 
-    fn process_snapshot(&self) -> ProcessSnapshot {
-        self.procfs
-            .process_snapshot(&self.process_info_records(), now_unix_nano())
+    fn process_snapshot(&mut self) -> ProcessSnapshot {
+        let observed_at_unix_nano = now_unix_nano();
+        let snapshot = self.socket_inventory.snapshot(observed_at_unix_nano);
+        if !snapshot.entries.is_empty() {
+            return snapshot;
+        }
+
+        self.procfs_fallback
+            .process_snapshot(&self.backend.process_info_records(), observed_at_unix_nano)
+            .unwrap_or(snapshot)
     }
 
-    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord> {
-        self.process_info.iter().filter_map(Result::ok).collect()
+    fn backend_method(&self) -> &'static str {
+        self.backend.method()
+    }
+
+    fn inventory_len(&self) -> usize {
+        self.socket_inventory.entries.len()
     }
 }
 
@@ -483,7 +706,7 @@ impl FlowAttributionRuntime {
                     if let Some(interval) = process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
                         if last.elapsed() >= interval {
-                            emit_process_snapshot(&reader, &process_snapshot_tx, &metrics);
+                            emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
                             *last = Instant::now();
                         }
                     }
@@ -591,14 +814,26 @@ fn drain_ring(
     let drained = records.len();
     for record in &records {
         if record.event_kind == EVENT_TCP_CLOSE {
+            reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
                 cache.remove(&key);
             }
             continue;
         }
-        let Some(flow) = reader.attributed_flow_from_record(record) else {
+        if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
+            reader.remove_inventory_record(record);
+            if let Some(key) = join_key_from_record(record) {
+                cache.remove(&key);
+            }
+            continue;
+        }
+        let Some(flow) = reader.attributed_flow_from_record(record, metrics) else {
+            metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
         };
+        metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
+        reader.record_inventory(&flow);
+        metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
         let key = FlowAttributionJoinKey::from(&flow);
         let Some(event) = flow.event() else {
             continue;
@@ -678,11 +913,12 @@ fn join_key_from_record(record: &FlowAttributionRecord) -> Option<FlowAttributio
 
 #[cfg(target_os = "linux")]
 fn emit_process_snapshot(
-    reader: &AyaAttributionReader,
+    reader: &mut AyaAttributionReader,
     tx: &tokio::sync::broadcast::Sender<ProcessSnapshot>,
     metrics: &Metrics,
 ) {
     let snapshot = reader.process_snapshot();
+    metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
     metrics.inc_process_snapshot_events();
     if tx.send(snapshot).is_err() {
         metrics.inc_process_snapshot_events_dropped("no_receiver", 1);
@@ -1018,6 +1254,23 @@ fn read_comm(proc_root: &Path, pid: u32) -> Option<String> {
         .map(|value| value.trim_end_matches('\n').to_string())
 }
 
+fn sort_snapshot_entries(entries: &mut [ProcessSnapshotEntry]) {
+    entries.sort_by(|left, right| {
+        (
+            &left.transport_protocol,
+            &left.local_ip,
+            left.local_port,
+            left.pid,
+        )
+            .cmp(&(
+                &right.transport_protocol,
+                &right.local_ip,
+                right.local_port,
+                right.pid,
+            ))
+    });
+}
+
 fn snapshot_fingerprint(entries: &[ProcessSnapshotEntry]) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for entry in entries {
@@ -1051,6 +1304,8 @@ mod tests {
         ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP,
         REDACTED_CMDLINE_MAX_BYTES,
     };
+    #[cfg(target_os = "linux")]
+    use super::{SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A, TCP_CLOSE_STATE};
     use crate::af_xdp_classifier::FlowKey;
 
     #[test]
@@ -1189,6 +1444,93 @@ mod tests {
             "/usr/bin/curl [redacted 1 arg(s)]"
         );
         assert_eq!(event.observed_at_unix_nano, 123_456);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_snapshot_serializes_event_inventory_without_procfs_walk() {
+        let mut inventory = SocketInventory::default();
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 8080,
+                endpoint_b_port: 51_000,
+                endpoint_a_addr: ipv4([127, 0, 0, 1]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+                old_state: 2,
+                new_state: 1,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                comm: "app".to_string(),
+                cmdline: vec![
+                    "/usr/bin/app".to_string(),
+                    "[redacted 1 arg(s)]".to_string(),
+                ],
+                container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+            }),
+        };
+
+        inventory.update(&flow);
+        let snapshot = inventory.snapshot(123);
+        let snapshot_again = inventory.snapshot(456);
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
+        assert_eq!(snapshot.entries[0].local_port, 8080);
+        assert_eq!(snapshot.entries[0].transport_protocol, "tcp");
+        assert_eq!(snapshot.entries[0].pid, 123);
+        assert_eq!(snapshot.entries[0].uid, 1000);
+        assert_eq!(snapshot.entries[0].gid, 1001);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
+        assert_eq!(snapshot.fingerprint, snapshot_again.fingerprint);
+        assert_ne!(
+            snapshot.observed_at_unix_nano,
+            snapshot_again.observed_at_unix_nano
+        );
+
+        inventory.remove_record(&super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 123_456,
+            old_state: 1,
+            new_state: TCP_CLOSE_STATE,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol: IPPROTO_TCP,
+                source_port: 8080,
+                destination_port: 51_000,
+                source_addr: ipv4([127, 0, 0, 1]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        });
+
+        assert!(inventory.snapshot(789).entries.is_empty());
     }
 
     #[test]
