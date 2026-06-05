@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadarWebNG.Plugins.Storage
 
   require Ash.Query
@@ -31,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
          true <- known_artifact_object_key?(package, object_key),
-         {:ok, blob} <- Storage.fetch_blob(object_key) do
+         {:ok, blob} <- fetch_addon_blob(conn, object_key) do
       case blob do
         {:file, path} ->
           conn
@@ -74,6 +75,17 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
       {:ok, nil} -> {:error, :not_found}
       {:ok, package} -> {:ok, package}
       {:error, error} -> {:error, error}
+    end
+  end
+
+  defp fetch_addon_blob(conn, object_key) do
+    opts =
+      conn.private
+      |> Map.get(:addon_package_controller_opts, [])
+      |> Keyword.take([:download_object, :timeout])
+
+    with {:ok, data} <- NativeAddonArtifactMirror.fetch_blob(object_key, opts) do
+      {:ok, {:binary, data}}
     end
   end
 
