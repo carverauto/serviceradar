@@ -28,7 +28,7 @@
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
-- [ ] 6.2 Assign netprobe (Enable only) to a worker cohort; confirm attribution streams and attributed-flow rows appear with no interface config
+- [x] 6.2 Assign netprobe (Enable only) to a worker cohort; confirm attribution streams and attributed-flow rows appear with no interface config
 - [ ] 6.3 Confirm capture/DPI still works when opted in via advanced settings
 
 ## 7. Netprobe performance architecture
