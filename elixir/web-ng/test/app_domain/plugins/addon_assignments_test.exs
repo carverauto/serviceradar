@@ -45,6 +45,38 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
     assert updated.enabled == true
   end
 
+  test "upsert threads actor options when no UI scope is present" do
+    addon_id = unique_addon_id("system-upsert")
+    agent_uid = "agent-addon-system-upsert-#{System.unique_integer([:positive])}"
+    old_package = addon_id |> create_addon_package!("1.0.0") |> approve_package!()
+
+    assignment =
+      create_assignment!(agent_uid, old_package.id,
+        args: ["--old"],
+        params: %{"enabled" => false},
+        enabled: true
+      )
+
+    new_package = addon_id |> create_addon_package!("1.0.1") |> approve_package!()
+
+    assert {:ok, updated} =
+             AddonAssignments.upsert(
+               addon_id,
+               %{
+                 agent_uid: agent_uid,
+                 addon_package_id: new_package.id,
+                 args: ["--new"],
+                 params: %{"enabled" => true}
+               },
+               actor: system_actor()
+             )
+
+    assert updated.id == assignment.id
+    assert updated.addon_package_id == new_package.id
+    assert updated.args == ["--new"]
+    assert updated.params == %{"enabled" => true}
+  end
+
   defp unique_addon_id(prefix), do: "addon-assignment-#{prefix}-#{System.unique_integer([:positive])}"
 
   defp create_addon_package!(addon_id, version) do

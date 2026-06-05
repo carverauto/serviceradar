@@ -51,11 +51,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
     attrs = drop_nil_values(attrs)
 
     AddonAssignment
     |> Ash.Changeset.for_create(:create, attrs)
-    |> create_with_scope(scope)
+    |> create_with_scope(scope, actor)
   end
 
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
@@ -65,12 +66,13 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
   def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
     attrs = attrs |> drop_nil_values() |> drop_update_only_values()
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
       |> Ash.Changeset.for_update(:update, attrs)
-      |> update_with_scope(scope)
+      |> update_with_scope(scope, actor)
     end
   end
 
@@ -119,11 +121,12 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
   def delete(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
       |> Ash.Changeset.for_destroy(:destroy)
-      |> destroy_with_scope(scope)
+      |> destroy_with_scope(scope, actor)
       |> case do
         :ok -> {:ok, assignment}
         other -> other
@@ -147,14 +150,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.read_one(ash_opts(scope, nil))
   end
 
-  defp create_with_scope(changeset, nil), do: Ash.create(changeset)
-  defp create_with_scope(changeset, scope), do: Ash.create(changeset, ash_opts(scope, nil))
+  defp create_with_scope(changeset, scope, actor), do: Ash.create(changeset, ash_opts(scope, actor))
 
-  defp update_with_scope(changeset, nil), do: Ash.update(changeset)
-  defp update_with_scope(changeset, scope), do: Ash.update(changeset, ash_opts(scope, nil))
+  defp update_with_scope(changeset, scope, actor), do: Ash.update(changeset, ash_opts(scope, actor))
 
-  defp destroy_with_scope(changeset, nil), do: Ash.destroy(changeset)
-  defp destroy_with_scope(changeset, scope), do: Ash.destroy(changeset, ash_opts(scope, nil))
+  defp destroy_with_scope(changeset, scope, actor), do: Ash.destroy(changeset, ash_opts(scope, actor))
 
   defp ash_opts(scope, actor) when not is_nil(scope) do
     maybe_put_actor([scope: scope], actor || scope_actor(scope))
