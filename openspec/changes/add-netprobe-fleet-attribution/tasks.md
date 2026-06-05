@@ -50,3 +50,4 @@
 - [x] 7.16 Strengthen UDP/ICMP eBPF tuple extraction with `msghdr->msg_name` destination handling for unconnected sockets, matching the RustNet approach
 - [x] 7.17 Bound and chunk/coalesce netprobe status snapshots so `Streamed netprobe results` never exceeds the agent-gateway stream chunk limit; preserve flow attribution batches and expose truncation/coalescing counters when snapshot detail is reduced.
 - [x] 7.18 Coalesce unchanged hot-flow attribution in eBPF before ring submission, remove tracepoint-close entries from the kernel map, and disable default full-cache attribution replays so busy workers do not process/send per-message UDP records plus periodic 30k-row replay bursts.
+- [x] 7.19 Make process snapshot emission dirty/event-driven: repeated unchanged socket records refresh liveness without rebuilding/sorting/serializing the full inventory, while add/remove/prune/material changes still emit snapshots on the 30s heartbeat.

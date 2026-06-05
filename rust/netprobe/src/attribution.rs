@@ -51,7 +51,7 @@ const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
 // Process cmdline/container metadata is stable for a process lifetime but
 // expensive to reread from procfs for every ring record.
-const PROCESS_DETAILS_CACHE_TTL: Duration = Duration::from_secs(60);
+const PROCESS_DETAILS_CACHE_TTL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_CACHE_MAX_ENTRIES: usize = 4096;
 #[cfg(target_os = "linux")]
@@ -172,6 +172,7 @@ impl AttributedFlow {
 #[derive(Default)]
 struct SocketInventory {
     entries: HashMap<SocketInventoryKey, CachedProcessSocket>,
+    dirty: bool,
 }
 
 #[cfg(target_os = "linux")]
@@ -196,30 +197,46 @@ impl SocketInventory {
             process_generation_ns: flow.pid.process_generation_ns,
         };
 
-        self.entries.insert(
-            key,
-            CachedProcessSocket {
-                entry: ProcessSnapshotEntry {
-                    local_ip: local_ip.to_string(),
-                    local_port: u32::from(local_port),
-                    transport_protocol: transport_protocol(flow.flow.transport_protocol),
-                    pid: flow.pid.pid,
-                    tgid: flow.pid.tgid,
-                    uid: process.map_or(flow.pid.uid, |details| details.uid),
-                    gid: process.map_or(flow.pid.gid, |details| details.gid),
-                    comm: process
-                        .map(|details| details.comm.clone())
-                        .unwrap_or_default(),
-                    redacted_cmdline: process
-                        .map(|details| details.cmdline.clone())
-                        .unwrap_or_default(),
-                    container_id: process
-                        .and_then(|details| details.container_id.clone())
-                        .unwrap_or_default(),
-                },
-                last_seen: Instant::now(),
-            },
-        );
+        let entry = ProcessSnapshotEntry {
+            local_ip: local_ip.to_string(),
+            local_port: u32::from(local_port),
+            transport_protocol: transport_protocol(flow.flow.transport_protocol),
+            pid: flow.pid.pid,
+            tgid: flow.pid.tgid,
+            uid: process.map_or(flow.pid.uid, |details| details.uid),
+            gid: process.map_or(flow.pid.gid, |details| details.gid),
+            comm: process
+                .map(|details| details.comm.clone())
+                .unwrap_or_default(),
+            redacted_cmdline: process
+                .map(|details| details.cmdline.clone())
+                .unwrap_or_default(),
+            container_id: process
+                .and_then(|details| details.container_id.clone())
+                .unwrap_or_default(),
+        };
+        let now = Instant::now();
+
+        match self.entries.get_mut(&key) {
+            Some(cached) if cached.entry == entry => {
+                cached.last_seen = now;
+            }
+            Some(cached) => {
+                cached.entry = entry;
+                cached.last_seen = now;
+                self.dirty = true;
+            }
+            None => {
+                self.entries.insert(
+                    key,
+                    CachedProcessSocket {
+                        entry,
+                        last_seen: now,
+                    },
+                );
+                self.dirty = true;
+            }
+        }
     }
 
     fn remove_record(&mut self, record: &FlowAttributionRecord) {
@@ -235,11 +252,17 @@ impl SocketInventory {
             tgid: record.tgid,
             process_generation_ns: record.process_generation_ns,
         };
-        self.entries.remove(&key);
+        if self.entries.remove(&key).is_some() {
+            self.dirty = true;
+        }
     }
 
-    fn snapshot(&mut self, observed_at_unix_nano: i64) -> ProcessSnapshot {
+    fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
         self.prune(Instant::now());
+        if !self.dirty {
+            return None;
+        }
+
         let mut entries = self
             .entries
             .values()
@@ -247,16 +270,21 @@ impl SocketInventory {
             .collect::<Vec<_>>();
         sort_snapshot_entries(&mut entries);
 
-        ProcessSnapshot {
+        self.dirty = false;
+        Some(ProcessSnapshot {
             fingerprint: snapshot_fingerprint(&entries),
             observed_at_unix_nano,
             entries,
-        }
+        })
     }
 
     fn prune(&mut self, now: Instant) {
+        let len_before = self.entries.len();
         self.entries
             .retain(|_, entry| now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
+        if self.entries.len() != len_before {
+            self.dirty = true;
+        }
     }
 }
 
@@ -640,16 +668,24 @@ impl AyaAttributionReader {
         self.socket_inventory.remove_record(record);
     }
 
-    fn process_snapshot(&mut self) -> ProcessSnapshot {
+    fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
         let observed_at_unix_nano = now_unix_nano();
-        let snapshot = self.socket_inventory.snapshot(observed_at_unix_nano);
-        if !snapshot.entries.is_empty() {
-            return snapshot;
+        if let Some(snapshot) = self
+            .socket_inventory
+            .snapshot_if_dirty(observed_at_unix_nano)
+        {
+            return Some(snapshot);
         }
 
-        self.procfs_fallback
+        if !self.socket_inventory.entries.is_empty() {
+            return None;
+        }
+
+        let snapshot = self
+            .procfs_fallback
             .process_snapshot(&self.backend.process_info_records(), observed_at_unix_nano)
-            .unwrap_or(snapshot)
+            .filter(|snapshot| !snapshot.entries.is_empty())?;
+        Some(snapshot)
     }
 
     fn backend_method(&self) -> &'static str {
@@ -776,7 +812,6 @@ struct CachedAttribution {
 #[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ProcessDetailsCacheKey {
-    pid: u32,
     tgid: u32,
     uid: u32,
     gid: u32,
@@ -788,7 +823,6 @@ struct ProcessDetailsCacheKey {
 impl From<&ProcessInfoRecord> for ProcessDetailsCacheKey {
     fn from(value: &ProcessInfoRecord) -> Self {
         Self {
-            pid: value.pid,
             tgid: value.tgid,
             uid: value.uid,
             gid: value.gid,
@@ -924,8 +958,12 @@ fn emit_process_snapshot(
     tx: &tokio::sync::broadcast::Sender<ProcessSnapshot>,
     metrics: &Metrics,
 ) {
-    let snapshot = reader.process_snapshot();
+    let snapshot = reader.process_snapshot_if_dirty();
     metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+
     metrics.inc_process_snapshot_events();
     if tx.send(snapshot).is_err() {
         metrics.inc_process_snapshot_events_dropped("no_receiver", 1);
@@ -1498,8 +1536,9 @@ mod tests {
         };
 
         inventory.update(&flow);
-        let snapshot = inventory.snapshot(123);
-        let snapshot_again = inventory.snapshot(456);
+        let snapshot = inventory.snapshot_if_dirty(123).unwrap();
+        inventory.update(&flow);
+        let snapshot_again = inventory.snapshot_if_dirty(456);
 
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
@@ -1509,11 +1548,7 @@ mod tests {
         assert_eq!(snapshot.entries[0].uid, 1000);
         assert_eq!(snapshot.entries[0].gid, 1001);
         assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
-        assert_eq!(snapshot.fingerprint, snapshot_again.fingerprint);
-        assert_ne!(
-            snapshot.observed_at_unix_nano,
-            snapshot_again.observed_at_unix_nano
-        );
+        assert!(snapshot_again.is_none());
 
         inventory.remove_record(&super::FlowAttributionRecord {
             version: 1,
@@ -1537,7 +1572,7 @@ mod tests {
             comm: [0; 16],
         });
 
-        assert!(inventory.snapshot(789).entries.is_empty());
+        assert!(inventory.snapshot_if_dirty(789).unwrap().entries.is_empty());
     }
 
     #[test]
