@@ -142,7 +142,7 @@ func TestBuildFlowAttributionGatewayStatus_EmptyEventsPreservesField(t *testing.
 func TestFlowAttributionMaxDrainPerPushIsBounded(t *testing.T) {
 	// Pin the constant so future edits don't accidentally unbound the
 	// per-tick drain.
-	if got, want := flowAttributionMaxDrainPerPush, 256; got != want {
+	if got, want := flowAttributionMaxDrainPerPush, 4096; got != want {
 		t.Errorf("flowAttributionMaxDrainPerPush = %d, want %d", got, want)
 	}
 }

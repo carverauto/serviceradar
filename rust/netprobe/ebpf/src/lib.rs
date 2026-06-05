@@ -98,18 +98,18 @@ struct In6Addr {
 
 #[repr(C)]
 struct SockCommon {
-    skc_daddr: u32,      // @0  __be32 peer v4 addr (network order)
-    skc_rcv_saddr: u32,  // @4  __be32 local v4 addr (network order)
-    skc_hash: u32,       // @8  (union)
-    skc_dport: u16,      // @12 __be16 peer port (network order)
-    skc_num: u16,        // @14 local port (HOST order)
-    skc_family: u16,     // @16 address family
-    skc_state: u8,       // @18
-    skc_flags: u8,       // @19 reuse/reuseport/ipv6only/net_refcnt bitfield byte
-    skc_bound_dev_if: i32, // @20
-    skc_bind_node: [u64; 2], // @24 hlist_node (two pointers)
-    skc_prot: u64,       // @40 struct proto *
-    skc_net: u64,        // @48 possible_net_t { struct net * } (CONFIG_NET_NS=y)
+    skc_daddr: u32,            // @0  __be32 peer v4 addr (network order)
+    skc_rcv_saddr: u32,        // @4  __be32 local v4 addr (network order)
+    skc_hash: u32,             // @8  (union)
+    skc_dport: u16,            // @12 __be16 peer port (network order)
+    skc_num: u16,              // @14 local port (HOST order)
+    skc_family: u16,           // @16 address family
+    skc_state: u8,             // @18
+    skc_flags: u8,             // @19 reuse/reuseport/ipv6only/net_refcnt bitfield byte
+    skc_bound_dev_if: i32,     // @20
+    skc_bind_node: [u64; 2],   // @24 hlist_node (two pointers)
+    skc_prot: u64,             // @40 struct proto *
+    skc_net: u64,              // @48 possible_net_t { struct net * } (CONFIG_NET_NS=y)
     skc_v6_daddr: In6Addr,     // @56 peer v6 addr
     skc_v6_rcv_saddr: In6Addr, // @72 local v6 addr
 }
@@ -148,6 +148,7 @@ pub struct FlowAttributionRecord {
     pub uid: u32,
     pub gid: u32,
     pub socket_address: u64,
+    pub process_generation_ns: u64,
     pub old_state: i32,
     pub new_state: i32,
     pub tuple: FlowTuple,
@@ -199,6 +200,7 @@ pub struct FlowPidRecord {
     pub gid: u32,
     pub socket_address: u64,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub old_state: i32,
     pub new_state: i32,
     pub local_endpoint: u8,
@@ -215,6 +217,7 @@ pub struct ProcessInfoRecord {
     pub uid: u32,
     pub gid: u32,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub comm: [u8; 16],
 }
 
@@ -565,6 +568,18 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
     0
 }
 
+#[tracepoint(name = "sched_process_exec", category = "sched")]
+pub fn sched_process_exec(ctx: TracePointContext) -> u32 {
+    record_current_process_generation(&ctx, now_ns());
+    0
+}
+
+#[tracepoint(name = "sched_process_exit", category = "sched")]
+pub fn sched_process_exit(ctx: TracePointContext) -> u32 {
+    let _ = PROCESS_INFO.remove(&ctx.tgid());
+    0
+}
+
 // Read a single field of `struct sock` at its (compile-time) offset via the
 // kernel probe-read helper. The kprobe arg0 is a `struct sock *`; bpf_probe_read_kernel
 // returns Err if the read faults, which the callers propagate so a bad pointer
@@ -644,6 +659,7 @@ fn emit_event(
     let gid = ctx.gid();
     let socket_address = sock as u64;
     let comm = ctx.command().unwrap_or([0; 16]);
+    let process_generation_ns = process_generation_ns(tgid).unwrap_or_else(now_ns);
     let Some(mut entry) = FLOW_EVENTS.reserve::<FlowAttributionRecord>(0) else {
         return;
     };
@@ -659,6 +675,7 @@ fn emit_event(
         addr_of_mut!((*record).uid).write(uid);
         addr_of_mut!((*record).gid).write(gid);
         addr_of_mut!((*record).socket_address).write(socket_address);
+        addr_of_mut!((*record).process_generation_ns).write(process_generation_ns);
         addr_of_mut!((*record).old_state).write(old_state);
         addr_of_mut!((*record).new_state).write(new_state);
         addr_of_mut!((*record).tuple).write(tuple);
@@ -687,10 +704,35 @@ fn record_process_info(record: &FlowAttributionRecord) {
         uid: record.uid,
         gid: record.gid,
         last_seen_ns: now_ns(),
+        process_generation_ns: record.process_generation_ns,
         comm: record.comm,
     };
 
     let _ = PROCESS_INFO.insert(&record.tgid, &process, BPF_ANY as u64);
+}
+
+fn record_current_process_generation(ctx: &impl EbpfContext, process_generation_ns: u64) {
+    let process = ProcessInfoRecord {
+        version: EVENT_VERSION,
+        reserved: 0,
+        pid: ctx.pid(),
+        tgid: ctx.tgid(),
+        uid: ctx.uid(),
+        gid: ctx.gid(),
+        last_seen_ns: now_ns(),
+        process_generation_ns,
+        comm: ctx.command().unwrap_or([0; 16]),
+    };
+
+    let _ = PROCESS_INFO.insert(&process.tgid, &process, BPF_ANY as u64);
+}
+
+fn process_generation_ns(tgid: u32) -> Option<u64> {
+    // SAFETY: The pointer returned by the BPF map lookup is valid for this BPF
+    // invocation only. Copy the scalar generation value immediately.
+    unsafe { PROCESS_INFO.get(&tgid) }
+        .map(|record| record.process_generation_ns)
+        .filter(|generation| *generation != 0)
 }
 
 fn record_flow_pid(record: &FlowAttributionRecord) {
@@ -707,6 +749,7 @@ fn record_flow_pid(record: &FlowAttributionRecord) {
         gid: record.gid,
         socket_address: record.socket_address,
         last_seen_ns: now_ns(),
+        process_generation_ns: record.process_generation_ns,
         old_state: record.old_state,
         new_state: record.new_state,
         local_endpoint: canonical_flow.source_endpoint,

@@ -29,3 +29,18 @@
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
 - [ ] 6.2 Assign netprobe (Enable only) to a worker cohort; confirm attribution streams and attributed-flow rows appear with no interface config
 - [ ] 6.3 Confirm capture/DPI still works when opted in via advanced settings
+
+## 7. Netprobe performance architecture
+- [x] 7.1 Make the attribution ring reader event-driven instead of sleeping/polling between drains
+- [x] 7.2 Replace the cross-thread attribution event bridge polling loop with a wake-driven Tokio channel
+- [x] 7.3 Cache per-process cmdline/container enrichment so flow events do not repeatedly read `/proc/<pid>/cmdline` and `/proc/<pid>/cgroup`
+- [x] 7.4 Add eBPF `sched_process_exec`/`sched_process_exit` lifecycle hooks and carry a process-generation marker into PID reuse-safe enrichment cache keys
+- [ ] 7.5 Evaluate whether `sched_process_free` is needed in addition to exit for delayed cleanup on supported kernels
+- [ ] 7.6 Add eBPF listener/socket lifecycle events for TCP listen/state/close and UDP bind/unbind coverage
+- [ ] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path enrichment and optional startup reconciliation
+- [ ] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
+- [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, agent sidecar buffers, and gateway push batches
+- [ ] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
+- [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
+- [ ] 7.12 Add a Linux worker performance smoke script or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
+- [ ] 7.13 Verify attribution-only netprobe stays below 1% sustained process CPU on representative busy Kubernetes workers with no persistent ring drops, IPC lag, queue drops, or attribution hit-rate regressions

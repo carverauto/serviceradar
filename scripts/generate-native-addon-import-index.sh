@@ -26,7 +26,8 @@ _ARTIFACT_SIGNATURE_MEDIA_TYPE="application/vnd.serviceradar.native-addon.artifa
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
-BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info bazel-bin 2>/dev/null)}"
+read -r -a BAZEL_BUILD_FLAGS <<<"${BAZEL_BUILD_FLAGS:--c opt}"
+BAZEL_BIN_DIR="${BAZEL_BIN_DIR:-$("${BAZEL_BIN}" info "${BAZEL_BUILD_FLAGS[@]}" bazel-bin 2>/dev/null)}"
 METADATA_DIR="${METADATA_DIR:-${BAZEL_BIN_DIR}/build/native_addons}"
 REGISTRY_HOST="${OCI_REGISTRY:-registry.carverauto.dev}"
 OCI_PROJECT="${OCI_PROJECT:-serviceradar}"
@@ -39,7 +40,7 @@ else
   TAG="$1"
 fi
 
-"${BAZEL_BIN}" build //build/native_addons:all_metadata >/dev/null
+"${BAZEL_BIN}" build "${BAZEL_BUILD_FLAGS[@]}" //build/native_addons:all_metadata >/dev/null
 
 shopt -s nullglob
 metadata_files=("${METADATA_DIR}"/*.metadata.json)

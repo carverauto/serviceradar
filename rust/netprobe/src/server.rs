@@ -939,12 +939,8 @@ mod tests {
         matcher.observe_attribution(&flow_attribution_event());
         let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
 
-        let ack = ingest_external_flow_record(
-            external_flow_record(),
-            &matcher,
-            &metrics,
-            &broadcast_tx,
-        );
+        let ack =
+            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &broadcast_tx);
 
         assert_eq!(ack.accepted, 1);
         assert_eq!(ack.matched, 1);
@@ -956,15 +952,24 @@ mod tests {
         assert_eq!(event.external_flow_id, 42);
 
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_matched_total"
+            ),
             1
         );
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_unmatched_total"
+            ),
             0
         );
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_invalid_total"
+            ),
             0
         );
     }
@@ -977,23 +982,25 @@ mod tests {
         let matcher = ExternalFlowMatcher::new(0);
         let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
 
-        let ack = ingest_external_flow_record(
-            external_flow_record(),
-            &matcher,
-            &metrics,
-            &broadcast_tx,
-        );
+        let ack =
+            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &broadcast_tx);
 
         assert_eq!(ack.accepted, 1);
         assert_eq!(ack.unmatched, 1);
         assert_eq!(ack.matched, 0);
         assert!(broadcast_rx.try_recv().is_err());
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_unmatched_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_unmatched_total"
+            ),
             1
         );
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_matched_total"
+            ),
             0
         );
     }
@@ -1017,11 +1024,17 @@ mod tests {
         assert_eq!(ack.accepted, 0);
         assert!(broadcast_rx.try_recv().is_err());
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_invalid_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_invalid_total"
+            ),
             1
         );
         assert_eq!(
-            counter_value(&metrics, "serviceradar_netprobe_external_flow_matched_total"),
+            counter_value(
+                &metrics,
+                "serviceradar_netprobe_external_flow_matched_total"
+            ),
             0
         );
     }

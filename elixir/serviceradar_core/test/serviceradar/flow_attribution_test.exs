@@ -111,6 +111,81 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert payload["attribution"]["comm"] == "host-curl"
   end
 
+  test "correlates exact UDP attribution", %{partition: partition, agent_id: agent_id} do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 17,
+      protocol_name: "udp",
+      src_ip: "10.42.68.167",
+      src_port: 57_279,
+      dst_ip: "10.43.0.10",
+      dst_port: 53
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      proto: 17,
+      local_ip: "10.42.68.167",
+      local_port: 57_279,
+      remote_ip: "10.43.0.10",
+      remote_port: 53,
+      pid: 44_024,
+      comm: "redis-server"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["attribution"]["pid"] == 44_024
+    assert payload["attribution"]["comm"] == "redis-server"
+  end
+
+  test "correlates ICMP pseudo-port exporter data through node fallback", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_agent(agent_id, "10.0.2.11")
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 1,
+      protocol_name: "icmp",
+      src_ip: "1.1.1.1",
+      src_port: 8,
+      dst_ip: "10.0.2.11",
+      dst_port: 0
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      proto: 1,
+      local_ip: "10.42.68.112",
+      local_port: 0,
+      remote_ip: "1.1.1.1",
+      remote_port: 0,
+      pid: 55_555,
+      comm: "ping"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["attribution"]["pid"] == 55_555
+    assert payload["attribution"]["comm"] == "ping"
+  end
+
   defp seed_agent(agent_id, ip) do
     query!(
       """
@@ -138,7 +213,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         ocsf_payload,
         partition
       )
-      VALUES ($1, $2, $3, $4, $5, 6, 'tcp', 2048, 8, '{}'::jsonb, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 2048, 8, '{}'::jsonb, $8)
       """,
       [
         params.time,
@@ -146,6 +221,8 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.src_port,
         params.dst_ip,
         params.dst_port,
+        Map.get(params, :proto, 6),
+        Map.get(params, :protocol_name, "tcp"),
         params.partition
       ]
     )
@@ -169,12 +246,13 @@ defmodule ServiceRadar.FlowAttributionTest do
         uid,
         container_id
       )
-      VALUES ($1, $2, $3, 6, $4, $5, $6, $7, $8, $9, 'curl https://example.com', 1000, NULL)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL)
       """,
       [
         params.observed_at,
         params.partition,
         params.agent_id,
+        Map.get(params, :proto, 6),
         params.local_ip,
         params.local_port,
         params.remote_ip,

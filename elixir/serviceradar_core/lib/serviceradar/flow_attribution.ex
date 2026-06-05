@@ -74,26 +74,57 @@ defmodule ServiceRadar.FlowAttribution do
   @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
   def correlate do
     sql = """
-    WITH candidates AS (
-      SELECT DISTINCT ON (f.ctid)
-        f.ctid AS flow_ctid,
+    WITH eligible AS (
+      SELECT
+        f.ctid,
         a.agent_id,
         a.pid,
         a.comm,
         a.cmdline,
         a.uid,
         a.container_id,
-        CASE
-          WHEN (
-                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
+        a.observed_at,
+        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+        (
+          (
+            a.proto IN (1, 58)
+            AND (
+                 (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip)
+              OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip)
+            )
+          )
+          OR (
+            a.proto NOT IN (1, 58)
+            AND (
+                 (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
+                  AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
+              OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
+                  AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
+            )
+          )
+        ) AS exact_match,
+        (
+          ag.ip IS NOT NULL
+          AND a.local_ip <> ag.ip
+          AND (
+            (
+              a.proto IN (1, 58)
+              AND (
+                   (f.src_endpoint_ip = ag.ip AND f.dst_endpoint_ip = a.remote_ip)
+                OR (f.dst_endpoint_ip = ag.ip AND f.src_endpoint_ip = a.remote_ip)
               )
-          THEN 0
-          ELSE 1
-        END AS match_rank,
-        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds
+            )
+            OR (
+              a.proto NOT IN (1, 58)
+              AND (
+                   (f.src_endpoint_ip = ag.ip AND f.dst_endpoint_ip = a.remote_ip
+                    AND f.dst_endpoint_port = a.remote_port)
+                OR (f.dst_endpoint_ip = ag.ip AND f.src_endpoint_ip = a.remote_ip
+                    AND f.src_endpoint_port = a.remote_port)
+              )
+            )
+          )
+        ) AS node_fallback_match
       FROM #{@schema}.ocsf_network_activity AS f
       JOIN #{@schema}.#{@table} AS a
         ON f.partition = a.partition
@@ -106,25 +137,22 @@ defmodule ServiceRadar.FlowAttribution do
        AND ag.ip <> ''
       WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
         AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-        AND (
-              (
-                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
-              )
-           OR (
-                ag.ip IS NOT NULL
-            AND a.local_ip <> ag.ip
-            AND (
-                  (f.src_endpoint_ip = ag.ip AND f.dst_endpoint_ip = a.remote_ip
-                   AND f.dst_endpoint_port = a.remote_port)
-               OR (f.dst_endpoint_ip = ag.ip AND f.src_endpoint_ip = a.remote_ip
-                   AND f.src_endpoint_port = a.remote_port)
-                )
-              )
-            )
-      ORDER BY f.ctid, match_rank, time_delta_seconds, a.observed_at DESC
+    ),
+    candidates AS (
+      SELECT DISTINCT ON (ctid)
+        ctid AS flow_ctid,
+        agent_id,
+        pid,
+        comm,
+        cmdline,
+        uid,
+        container_id,
+        CASE WHEN exact_match THEN 0 ELSE 1 END AS match_rank,
+        time_delta_seconds,
+        observed_at
+      FROM eligible
+      WHERE exact_match OR node_fallback_match
+      ORDER BY ctid, match_rank, time_delta_seconds, observed_at DESC
     )
     UPDATE #{@schema}.ocsf_network_activity AS f
     SET ocsf_payload = f.ocsf_payload

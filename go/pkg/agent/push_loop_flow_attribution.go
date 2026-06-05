@@ -57,9 +57,10 @@ const (
 	FlowAttributionSource = "flow-attribution"
 
 	// flowAttributionMaxDrainPerPush bounds the number of
-	// FlowAttributionEvents drained per push loop tick. Keeps the
-	// status push payload size predictable.
-	flowAttributionMaxDrainPerPush = 256
+	// FlowAttributionEvents drained per push loop tick. It is large enough
+	// to drain bursty worker-node attribution without backing up the local
+	// IPC queues, while still bounding each gateway status payload.
+	flowAttributionMaxDrainPerPush = 4096
 )
 
 // agentFlowAttributionEventsForwardedTotal counts the number of

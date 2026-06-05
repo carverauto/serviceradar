@@ -6,6 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BAZEL_BIN="${BAZEL_BIN:-bazel}"
 BAZEL_QUERY='attr(name, ".*_push$", //build/native_addons:*)'
+read -r -a BAZEL_BUILD_FLAGS <<<"${BAZEL_BUILD_FLAGS:--c opt}"
 
 extra_tag=""
 dry_run=false
@@ -39,7 +40,7 @@ if [[ ${#push_targets[@]} -eq 0 ]]; then
 fi
 
 for target in "${push_targets[@]}"; do
-  cmd=("${BAZEL_BIN}" run "${target}")
+  cmd=("${BAZEL_BIN}" run "${BAZEL_BUILD_FLAGS[@]}" "${target}")
   if [[ -n "${extra_tag}" ]]; then
     cmd+=(-- --tag "${extra_tag}")
   fi

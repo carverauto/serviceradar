@@ -8,7 +8,9 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
-    mem, ptr,
+    io, mem,
+    os::fd::AsRawFd,
+    ptr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -38,11 +40,9 @@ const FLOW_ENDPOINT_B: u8 = 2;
 /// have to truncate.
 const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 #[cfg(target_os = "linux")]
-// Idle backoff for the flow-attribution ring reader. The reader drains the
-// FLOW_EVENTS BPF ring buffer (a cheap mmap read — no map scan); when the ring
-// is empty it sleeps this long before checking again, keeping idle CPU near
-// zero while staying responsive to new flows.
-const FLOW_ATTRIBUTION_RING_IDLE_SLEEP: Duration = Duration::from_millis(250);
+// Maximum time the ring-reader thread waits in poll(2) before rechecking timers
+// and shutdown state. Data readiness wakes it sooner.
+const FLOW_ATTRIBUTION_RING_MAX_WAIT: Duration = Duration::from_secs(1);
 #[cfg(target_os = "linux")]
 // Re-broadcast the live attribution cache on this cadence. Makes the drain
 // durable: a (re)connecting, briefly lagging, or previously-absent agent
@@ -55,6 +55,12 @@ const FLOW_ATTRIBUTION_RESEND_INTERVAL: Duration = Duration::from_secs(15);
 // within this window. TCP flows are normally evicted on close; this bounds the
 // cache for flows that never emit a close (and caps memory regardless of churn).
 const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+// Process cmdline/container metadata is stable for a process lifetime but
+// expensive to reread from procfs for every ring record.
+const PROCESS_DETAILS_CACHE_TTL: Duration = Duration::from_secs(60);
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_CACHE_MAX_ENTRIES: usize = 4096;
 #[cfg(target_os = "linux")]
 // Mirrors EVENT_TCP_CLOSE in the eBPF: a close record evicts the flow.
 const EVENT_TCP_CLOSE: u16 = 3;
@@ -70,6 +76,7 @@ pub struct FlowPidRecord {
     pub gid: u32,
     pub socket_address: u64,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub old_state: i32,
     pub new_state: i32,
     pub local_endpoint: u8,
@@ -91,6 +98,7 @@ pub struct ProcessInfoRecord {
     pub uid: u32,
     pub gid: u32,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub comm: [u8; 16],
 }
 
@@ -130,6 +138,7 @@ struct FlowAttributionRecord {
     uid: u32,
     gid: u32,
     socket_address: u64,
+    process_generation_ns: u64,
     old_state: i32,
     new_state: i32,
     tuple: FlowTupleRecord,
@@ -146,6 +155,7 @@ pub struct ProcessDetails {
     pub cmdline: Vec<String>,
     pub container_id: Option<String>,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -187,6 +197,7 @@ impl ProcfsEnricher {
             cmdline: redacted_cmdline(&self.root, record.tgid),
             container_id: container_id(&self.root, record.tgid),
             last_seen_ns: record.last_seen_ns,
+            process_generation_ns: record.process_generation_ns,
         }
     }
 
@@ -209,6 +220,7 @@ impl ProcfsEnricher {
             cmdline: redacted_cmdline(&self.root, pid),
             container_id: container_id(&self.root, pid),
             last_seen_ns: 0,
+            process_generation_ns: 0,
         })
     }
 
@@ -273,6 +285,7 @@ pub struct AyaAttributionReader {
     ring: aya::maps::RingBuf<aya::maps::MapData>,
     process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
     procfs: ProcfsEnricher,
+    process_details_cache: HashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
 }
 
 #[cfg(target_os = "linux")]
@@ -289,6 +302,7 @@ impl AyaAttributionReader {
             ring: aya::maps::RingBuf::try_from(flow_events)?,
             process_info: aya::maps::HashMap::try_from(process_info)?,
             procfs: ProcfsEnricher::host(),
+            process_details_cache: HashMap::new(),
         })
     }
 
@@ -313,12 +327,46 @@ impl AyaAttributionReader {
         records
     }
 
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
+        if timeout.is_zero() {
+            return Ok(false);
+        }
+
+        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd {
+            fd: self.ring.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        loop {
+            let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+            if result >= 0 {
+                if poll_fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                    return Err(io::Error::other(format!(
+                        "unexpected ring fd poll event: {}",
+                        poll_fd.revents
+                    )));
+                }
+                return Ok(result > 0 && poll_fd.revents & libc::POLLIN != 0);
+            }
+
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                return Err(err);
+            }
+        }
+    }
+
     /// Build an `AttributedFlow` from a ring record. Returns `None` for records
     /// without a usable 5-tuple (the per-packet tcp/udp probes emit empty
     /// tuples). The record's `tuple` is directional with the local socket as the
     /// source, so endpoint A is always the local side — matching the local/remote
     /// semantics the map-snapshot path produced via the canonical key.
-    fn attributed_flow_from_record(&self, record: &FlowAttributionRecord) -> Option<AttributedFlow> {
+    fn attributed_flow_from_record(
+        &mut self,
+        record: &FlowAttributionRecord,
+    ) -> Option<AttributedFlow> {
         let flow = flow_key_from_record(record)?;
         let pid = FlowPidRecord {
             version: record.version,
@@ -329,6 +377,7 @@ impl AyaAttributionReader {
             gid: record.gid,
             socket_address: record.socket_address,
             last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
             old_state: record.old_state,
             new_state: record.new_state,
             local_endpoint: FLOW_ENDPOINT_A,
@@ -342,10 +391,48 @@ impl AyaAttributionReader {
             uid: record.uid,
             gid: record.gid,
             last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
             comm: record.comm,
         };
-        let process = Some(self.procfs.process_details(&info));
+        let process = Some(self.process_details(&info));
         Some(AttributedFlow { flow, pid, process })
+    }
+
+    fn process_details(&mut self, record: &ProcessInfoRecord) -> ProcessDetails {
+        let key = ProcessDetailsCacheKey::from(record);
+        let now = Instant::now();
+
+        if let Some(cached) = self.process_details_cache.get_mut(&key) {
+            if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
+                cached.last_used = now;
+                return cached.details.clone();
+            }
+        }
+
+        let details = self.procfs.process_details(record);
+        self.prune_process_details_cache(now);
+        self.process_details_cache.insert(
+            key,
+            CachedProcessDetails {
+                details: details.clone(),
+                updated_at: now,
+                last_used: now,
+            },
+        );
+        details
+    }
+
+    fn prune_process_details_cache(&mut self, now: Instant) {
+        if self.process_details_cache.len() < PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            return;
+        }
+
+        self.process_details_cache
+            .retain(|_, cached| now.duration_since(cached.last_used) < PROCESS_DETAILS_CACHE_TTL);
+
+        if self.process_details_cache.len() >= PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            self.process_details_cache.clear();
+        }
     }
 
     fn process_snapshot(&self) -> ProcessSnapshot {
@@ -388,7 +475,7 @@ impl FlowAttributionRuntime {
                     process_snapshot_interval.map(|interval| Instant::now() - interval);
                 let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
-                    let drained = drain_ring(&mut reader, &tx, &metrics, &mut cache);
+                    drain_ring(&mut reader, &tx, &metrics, &mut cache);
                     if last_resend.elapsed() >= FLOW_ATTRIBUTION_RESEND_INTERVAL {
                         resend_cache(&tx, &metrics, &mut cache);
                         last_resend = Instant::now();
@@ -400,8 +487,15 @@ impl FlowAttributionRuntime {
                             *last = Instant::now();
                         }
                     }
-                    if drained == 0 {
-                        thread::sleep(FLOW_ATTRIBUTION_RING_IDLE_SLEEP);
+
+                    let wait = ring_wait_duration(
+                        last_resend,
+                        process_snapshot_interval,
+                        last_process_snapshot,
+                    );
+                    if let Err(err) = reader.wait_for_records(wait) {
+                        log::warn!("flow attribution ring poll failed: {err}");
+                        thread::sleep(wait);
                     }
                 }
             })?;
@@ -426,9 +520,59 @@ impl Drop for FlowAttributionRuntime {
 }
 
 #[cfg(target_os = "linux")]
+fn ring_wait_duration(
+    last_resend: Instant,
+    process_snapshot_interval: Option<Duration>,
+    last_process_snapshot: Option<Instant>,
+) -> Duration {
+    let resend_wait = FLOW_ATTRIBUTION_RESEND_INTERVAL.saturating_sub(last_resend.elapsed());
+    let process_wait = match (process_snapshot_interval, last_process_snapshot) {
+        (Some(interval), Some(last)) => interval.saturating_sub(last.elapsed()),
+        (Some(_), None) => Duration::ZERO,
+        (None, _) => FLOW_ATTRIBUTION_RING_MAX_WAIT,
+    };
+
+    resend_wait
+        .min(process_wait)
+        .min(FLOW_ATTRIBUTION_RING_MAX_WAIT)
+}
+
+#[cfg(target_os = "linux")]
 struct CachedAttribution {
     event: FlowAttributionEvent,
     last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ProcessDetailsCacheKey {
+    pid: u32,
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    process_generation_ns: u64,
+    comm: [u8; 16],
+}
+
+#[cfg(target_os = "linux")]
+impl From<&ProcessInfoRecord> for ProcessDetailsCacheKey {
+    fn from(value: &ProcessInfoRecord) -> Self {
+        Self {
+            pid: value.pid,
+            tgid: value.tgid,
+            uid: value.uid,
+            gid: value.gid,
+            process_generation_ns: value.process_generation_ns,
+            comm: value.comm,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct CachedProcessDetails {
+    details: ProcessDetails,
+    updated_at: Instant,
+    last_used: Instant,
 }
 
 // Drain the ring buffer and emit a flow-attribution event for every newly-seen
@@ -899,6 +1043,8 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 mod tests {
     use std::fs;
 
+    #[cfg(target_os = "linux")]
+    use super::ProcessDetailsCacheKey;
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
         redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
@@ -946,6 +1092,7 @@ mod tests {
             uid: 1000,
             gid: 1000,
             last_seen_ns: 42,
+            process_generation_ns: 123_456,
             comm,
         };
 
@@ -955,6 +1102,32 @@ mod tests {
         assert_eq!(details.cmdline, vec!["/bin/app", "[redacted 2 arg(s)]"]);
         assert_eq!(details.uid, 1000);
         assert_eq!(details.last_seen_ns, 42);
+        assert_eq!(details.process_generation_ns, 123_456);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_details_cache_key_includes_generation_marker() {
+        let mut comm = [0u8; 16];
+        comm[..3].copy_from_slice(b"app");
+        let first = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 42,
+            process_generation_ns: 111,
+            comm,
+        };
+        let mut second = first;
+        second.process_generation_ns = 222;
+
+        assert_ne!(
+            ProcessDetailsCacheKey::from(&first),
+            ProcessDetailsCacheKey::from(&second)
+        );
     }
 
     #[test]
@@ -977,6 +1150,7 @@ mod tests {
                 gid: 1000,
                 socket_address: 0xfeed,
                 last_seen_ns: 99,
+                process_generation_ns: 123_456,
                 old_state: 1,
                 new_state: 2,
                 local_endpoint: FLOW_ENDPOINT_B,
@@ -994,6 +1168,7 @@ mod tests {
                 ],
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
                 last_seen_ns: 99,
+                process_generation_ns: 123_456,
             }),
         };
 
@@ -1078,7 +1253,10 @@ mod tests {
 
     #[test]
     fn cap_redacted_cmdline_preserves_short_ascii_payload() {
-        let parts = vec!["/usr/bin/curl".to_string(), "[redacted 2 arg(s)]".to_string()];
+        let parts = vec![
+            "/usr/bin/curl".to_string(),
+            "[redacted 2 arg(s)]".to_string(),
+        ];
         let capped = cap_redacted_cmdline(parts);
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0], "/usr/bin/curl [redacted 2 arg(s)]");
@@ -1163,6 +1341,7 @@ mod tests {
                 gid: 0,
                 socket_address: 0,
                 last_seen_ns: 0,
+                process_generation_ns: 0,
                 old_state: 0,
                 new_state: 0,
                 local_endpoint: FLOW_ENDPOINT_B,
@@ -1177,6 +1356,7 @@ mod tests {
                 cmdline: vec![argv0, "[redacted 9 arg(s)]".to_string()],
                 container_id: None,
                 last_seen_ns: 0,
+                process_generation_ns: 0,
             }),
         };
 

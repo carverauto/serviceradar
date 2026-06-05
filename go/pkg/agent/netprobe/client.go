@@ -29,7 +29,10 @@ import (
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
 
-const defaultEventBuffer = 1024
+const (
+	defaultEventBuffer                = 1024
+	defaultFlowAttributionEventBuffer = 65_536
+)
 
 const (
 	MetricEventsDroppedTotal = "netprobe_events_dropped_total"
@@ -133,7 +136,7 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 		pending:          make(map[uint64]chan response),
 		events:           make(chan *netprobepb.FingerprintEvent, eventBuffer),
 		dpiEvents:        make(chan *netprobepb.DpiEvent, eventBuffer),
-		flowEvents:       make(chan *netprobepb.FlowAttributionEvent, eventBuffer),
+		flowEvents:       make(chan *netprobepb.FlowAttributionEvent, flowAttributionEventBuffer(eventBuffer)),
 		processSnapshots: make(chan *netprobepb.ProcessSnapshot, eventBuffer),
 		done:             make(chan struct{}),
 	}
@@ -152,6 +155,14 @@ func NewClient(conn net.Conn, eventBuffer int, opts ...ClientOption) *Client {
 	go c.readLoop()
 
 	return c
+}
+
+func flowAttributionEventBuffer(eventBuffer int) int {
+	if eventBuffer <= 0 || eventBuffer == defaultEventBuffer {
+		return defaultFlowAttributionEventBuffer
+	}
+
+	return eventBuffer
 }
 
 // Ping verifies the sidecar is responsive and records the engine version.

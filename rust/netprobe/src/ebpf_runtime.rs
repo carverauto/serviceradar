@@ -596,6 +596,21 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
         .attach("sock", "inet_sock_set_state")
         .context("failed to attach attribution tracepoint inet_sock_set_state")?;
 
+    for name in ["sched_process_exec", "sched_process_exit"] {
+        let tracepoint: &mut TracePoint = ebpf
+            .program_mut(name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("{name} tracepoint is missing from netprobe eBPF object")
+            })?
+            .try_into()?;
+        tracepoint
+            .load()
+            .with_context(|| format!("failed to load attribution tracepoint {name}"))?;
+        tracepoint
+            .attach("sched", name)
+            .with_context(|| format!("failed to attach attribution tracepoint {name}"))?;
+    }
+
     // Best-effort optional probes. ICMP echo: ping_v4_sendmsg / ping_v6_sendmsg
     // (dgram ICMP / ICMPv6) + raw_sendmsg / rawv6_sendmsg (raw). IPv6 UDP:
     // udpv6_sendmsg / udpv6_recvmsg — the v4 udp_* hooks attached mandatorily above
