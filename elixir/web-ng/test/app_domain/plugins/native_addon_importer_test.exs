@@ -12,8 +12,13 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
 
   use ServiceRadarWebNG.DataCase, async: false
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
+  alias ServiceRadarWebNG.Plugins.NativeAddonSyncWorker
+
+  require Ash.Query
 
   @repo_url "https://code.carverauto.dev/carverauto/serviceradar"
   @index_asset_name "serviceradar-native-addon-index.json"
@@ -53,6 +58,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases/tags/v1.0.0") ->
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_release)}}
 
+        String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
+          {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_recent_releases, [])}}
+
         String.ends_with?(url, "/serviceradar-native-addon-index.json") ->
           {:ok, %Req.Response{status: 200, body: Process.get(:native_addon_index_body)}}
 
@@ -85,6 +93,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     original_cosign = Application.get_env(:serviceradar_web_ng, :first_party_plugin_cosign_verifier)
     original_public_key = Application.get_env(:serviceradar_web_ng, :native_addon_release_public_key)
     original_upload = Application.get_env(:serviceradar_web_ng, :native_addon_artifact_upload)
+    original_native_addon_import = Application.get_env(:serviceradar_web_ng, :native_addon_import)
 
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
     test_pid = self()
@@ -103,6 +112,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
       restore_env(:first_party_plugin_cosign_verifier, original_cosign)
       restore_env(:native_addon_release_public_key, original_public_key)
       restore_env(:native_addon_artifact_upload, original_upload)
+      restore_env(:native_addon_import, original_native_addon_import)
     end)
 
     {:ok, public_key: public_key, private_key: private_key}
@@ -147,6 +157,50 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert Process.get(:native_addon_cosign_verified) == {@oci_ref, @oci_digest}
     assert_received {:uploaded, ^expected_key, size}
     assert size == byte_size(tarball())
+  end
+
+  test "lists native add-ons from recent release indexes", %{private_key: private_key} do
+    install_fixtures(private_key)
+
+    assert {:ok, [addon]} = NativeAddonImporter.list_recent_addons(%{"repo_url" => @repo_url}, 10)
+
+    assert addon.addon_id == "sample-addon"
+    assert addon.version == "1.0.0"
+    assert addon.release_tag == "v1.0.0"
+    assert addon.repo_url == @repo_url
+    assert addon.oci_ref == @oci_ref
+    assert addon.oci_digest == @oci_digest
+    assert addon.import_ready? == true
+  end
+
+  test "sync worker imports and approves configured native add-ons", %{private_key: private_key} do
+    install_fixtures(private_key)
+
+    Application.put_env(:serviceradar_web_ng, :native_addon_import,
+      repo_url: @repo_url,
+      index_asset_name: @index_asset_name,
+      auto_sync_enabled: false,
+      addon_ids: ["sample-addon"],
+      auto_approve_addon_ids: ["sample-addon"],
+      sync_release_limit: 10,
+      sync_interval_seconds: 3_600
+    )
+
+    assert :ok = NativeAddonSyncWorker.perform(%Oban.Job{args: %{"force" => true, "limit" => 10}})
+
+    actor = SystemActor.system(:native_addon_sync_test)
+
+    assert {:ok, %AddonPackage{} = package} =
+             AddonPackage
+             |> Ash.Query.for_read(:read, %{}, actor: actor)
+             |> Ash.Query.filter(addon_id == "sample-addon" and version == "1.0.0")
+             |> Ash.read_one(actor: actor)
+
+    assert package.status == :approved
+    assert package.approved_by == "system:native_addon_sync"
+    assert package.approved_capabilities == ["submit_result"]
+    assert package.source_release_tag == "v1.0.0"
+    assert is_map(package.artifacts["linux/amd64"])
   end
 
   test "rejects a tarball signed with a key other than the release key" do
@@ -208,6 +262,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
   defp install_fixtures(private_key) do
     Process.put(:native_addon_private_key, private_key)
     Process.put(:native_addon_release, release())
+    Process.put(:native_addon_recent_releases, [release()])
     Process.put(:native_addon_oci_digest, @oci_digest)
     Process.put(:native_addon_manifest, oci_manifest())
     Process.put(:native_addon_index_body, Jason.encode!(index_map([])))

@@ -704,6 +704,15 @@ webNg:
     registryDockerConfigSecretKey: ".dockerconfigjson"
     registryDockerConfigJson: ""
     registryDockerConfigFile: ""
+  nativeAddonImport:
+    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    indexAssetName: "serviceradar-native-addon-index.json"
+    autoSyncEnabled: false
+    syncReleaseLimit: 10
+    syncIntervalSeconds: 3600
+    addonIds:
+      - netprobe
+    autoApproveAddonIds: []
   host: ""
   publicUrl: ""
   godViewEnabled: "true"
