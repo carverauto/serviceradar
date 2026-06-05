@@ -49,3 +49,4 @@
 - [x] 7.15 Surface backend hit/miss, cold procfs metadata reads, and cache-size stats through netprobe Prometheus metrics
 - [x] 7.16 Strengthen UDP/ICMP eBPF tuple extraction with `msghdr->msg_name` destination handling for unconnected sockets, matching the RustNet approach
 - [x] 7.17 Bound and chunk/coalesce netprobe status snapshots so `Streamed netprobe results` never exceeds the agent-gateway stream chunk limit; preserve flow attribution batches and expose truncation/coalescing counters when snapshot detail is reduced.
+- [x] 7.18 Coalesce unchanged hot-flow attribution in eBPF before ring submission, remove tracepoint-close entries from the kernel map, and disable default full-cache attribution replays so busy workers do not process/send per-message UDP records plus periodic 30k-row replay bursts.

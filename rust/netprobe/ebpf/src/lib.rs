@@ -54,6 +54,7 @@ const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
+const FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS: u64 = 60_000_000_000;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
 
@@ -849,13 +850,37 @@ fn emit_event(
     old_state: i32,
     new_state: i32,
 ) {
+    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+        return;
+    };
+    let now = now_ns();
     let pid = ctx.pid();
     let tgid = ctx.tgid();
     let uid = ctx.uid();
     let gid = ctx.gid();
     let socket_address = sock as u64;
     let comm = ctx.command().unwrap_or([0; 16]);
-    let process_generation_ns = process_generation_ns(tgid).unwrap_or_else(now_ns);
+    let process_generation_ns = process_generation_ns(tgid).unwrap_or(now);
+    let pid_record = FlowPidRecord {
+        version: EVENT_VERSION,
+        event_kind,
+        pid,
+        tgid,
+        uid,
+        gid,
+        socket_address,
+        last_seen_ns: now,
+        process_generation_ns,
+        old_state,
+        new_state,
+        local_endpoint: canonical_flow.source_endpoint,
+        reserved: [0; 7],
+    };
+    let close_event = is_close_event(event_kind, new_state);
+    if !close_event && !should_emit_flow_event(&canonical_flow.key, &pid_record, now) {
+        return;
+    }
+
     let Some(mut entry) = FLOW_EVENTS.reserve::<FlowAttributionRecord>(0) else {
         return;
     };
@@ -881,17 +906,38 @@ fn emit_event(
     // SAFETY: All fields were initialized above and the ring-buffer slot is not
     // submitted until after the map updates finish.
     let record_ref = unsafe { &*record };
-    if event_kind == EVENT_TCP_CLOSE {
-        remove_flow_pid(record_ref);
+    if close_event {
+        remove_flow_pid_by_key(&canonical_flow.key);
     } else {
-        record_process_info(record_ref);
-        record_flow_pid(record_ref);
+        record_process_info(record_ref, now);
+        record_flow_pid_by_key(&canonical_flow.key, &pid_record);
     }
 
     entry.submit(0);
 }
 
-fn record_process_info(record: &FlowAttributionRecord) {
+fn should_emit_flow_event(flow: &FlowKey, next: &FlowPidRecord, now: u64) -> bool {
+    let Some(previous) = (unsafe { FLOW_TO_PID.get(flow) }) else {
+        return true;
+    };
+
+    previous.pid != next.pid
+        || previous.tgid != next.tgid
+        || previous.uid != next.uid
+        || previous.gid != next.gid
+        || previous.process_generation_ns != next.process_generation_ns
+        || previous.event_kind != next.event_kind
+        || previous.old_state != next.old_state
+        || previous.new_state != next.new_state
+        || now.saturating_sub(previous.last_seen_ns) >= FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS
+}
+
+#[inline(always)]
+fn is_close_event(event_kind: u16, new_state: i32) -> bool {
+    event_kind == EVENT_TCP_CLOSE || (event_kind == EVENT_INET_SOCK_SET_STATE && new_state == 7)
+}
+
+fn record_process_info(record: &FlowAttributionRecord, now: u64) {
     let process = ProcessInfoRecord {
         version: EVENT_VERSION,
         reserved: 0,
@@ -899,7 +945,7 @@ fn record_process_info(record: &FlowAttributionRecord) {
         tgid: record.tgid,
         uid: record.uid,
         gid: record.gid,
-        last_seen_ns: now_ns(),
+        last_seen_ns: now,
         process_generation_ns: record.process_generation_ns,
         comm: record.comm,
     };
@@ -931,36 +977,12 @@ fn process_generation_ns(tgid: u32) -> Option<u64> {
         .filter(|generation| *generation != 0)
 }
 
-fn record_flow_pid(record: &FlowAttributionRecord) {
-    let Some(canonical_flow) = flow_key_from_tuple(&record.tuple) else {
-        return;
-    };
-
-    let pid = FlowPidRecord {
-        version: EVENT_VERSION,
-        event_kind: record.event_kind,
-        pid: record.pid,
-        tgid: record.tgid,
-        uid: record.uid,
-        gid: record.gid,
-        socket_address: record.socket_address,
-        last_seen_ns: now_ns(),
-        process_generation_ns: record.process_generation_ns,
-        old_state: record.old_state,
-        new_state: record.new_state,
-        local_endpoint: canonical_flow.source_endpoint,
-        reserved: [0; 7],
-    };
-
-    let _ = FLOW_TO_PID.insert(&canonical_flow.key, &pid, BPF_ANY as u64);
+fn record_flow_pid_by_key(flow: &FlowKey, pid: &FlowPidRecord) {
+    let _ = FLOW_TO_PID.insert(flow, pid, BPF_ANY as u64);
 }
 
-fn remove_flow_pid(record: &FlowAttributionRecord) {
-    let Some(canonical_flow) = flow_key_from_tuple(&record.tuple) else {
-        return;
-    };
-
-    let _ = FLOW_TO_PID.remove(&canonical_flow.key);
+fn remove_flow_pid_by_key(flow: &FlowKey) {
+    let _ = FLOW_TO_PID.remove(flow);
 }
 
 #[inline(always)]

@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
 pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 30;
-pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 120;
+pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
