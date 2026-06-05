@@ -8,6 +8,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
+use prost::Message;
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::{broadcast, watch, Mutex},
@@ -22,12 +23,13 @@ use crate::{
         P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
         SERVICERADAR_ADDITIONS_REVISION, SERVICERADAR_RECOG_ADDITIONS_REVISION,
     },
-    framing::{read_frame, write_frame, write_frame_with_buffer},
+    framing::{read_frame, write_frame, write_frame_with_buffer, MAX_FRAME_SIZE},
     ipc::match_banner,
     metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
         FingerprintEvent, FlowAttributionEvent, NetprobeFrame, PingAck, ProcessSnapshot,
+        ProcessSnapshotEntry,
     },
     runtime_config::RuntimeConfig,
 };
@@ -228,11 +230,12 @@ async fn handle_client(
             snapshot = process_snapshots.recv() => {
                 match snapshot {
                     Ok(snapshot) => {
-                        let frame = NetprobeFrame {
-                            sequence: 0,
-                            payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
-                        };
-                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                        write_process_snapshot_frames(
+                            &mut writer,
+                            snapshot,
+                            &mut encode_buffer,
+                            &metrics,
+                        ).await?;
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_process_snapshot_events_dropped("lagged_receiver", skipped);
@@ -264,6 +267,145 @@ where
         metrics.inc_encode_buffer_reuses();
     }
     Ok(())
+}
+
+async fn write_process_snapshot_frames<W>(
+    writer: &mut W,
+    snapshot: ProcessSnapshot,
+    encode_buffer: &mut Vec<u8>,
+    metrics: &Metrics,
+) -> Result<(), crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    if process_snapshot_frame_len(&snapshot) <= MAX_FRAME_SIZE {
+        let frame = process_snapshot_frame(snapshot);
+        write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
+        return Ok(());
+    }
+
+    let ProcessSnapshot {
+        fingerprint,
+        observed_at_unix_nano,
+        entries,
+    } = snapshot;
+
+    let base_payload_len = process_snapshot_base_payload_len(&fingerprint, observed_at_unix_nano);
+    let mut current_payload_len = base_payload_len;
+    let mut current = ProcessSnapshot {
+        fingerprint: fingerprint.clone(),
+        observed_at_unix_nano,
+        entries: Vec::new(),
+    };
+    let mut chunks = 0u64;
+    let mut dropped_entries = 0u64;
+
+    for entry in entries {
+        let entry_wire_len = process_snapshot_entry_wire_len(&entry);
+
+        if process_snapshot_frame_len_from_payload_len(current_payload_len + entry_wire_len)
+            <= MAX_FRAME_SIZE
+        {
+            current.entries.push(entry);
+            current_payload_len += entry_wire_len;
+            continue;
+        }
+
+        if !current.entries.is_empty() {
+            let frame = process_snapshot_frame(current);
+            write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
+            chunks += 1;
+        }
+
+        current = ProcessSnapshot {
+            fingerprint: fingerprint.clone(),
+            observed_at_unix_nano,
+            entries: Vec::new(),
+        };
+        current_payload_len = base_payload_len;
+
+        if process_snapshot_frame_len_from_payload_len(base_payload_len + entry_wire_len)
+            > MAX_FRAME_SIZE
+        {
+            dropped_entries += 1;
+        } else {
+            current.entries.push(entry);
+            current_payload_len += entry_wire_len;
+        }
+    }
+
+    if !current.entries.is_empty() {
+        let frame = process_snapshot_frame(current);
+        write_reused_frame(writer, &frame, encode_buffer, metrics).await?;
+        chunks += 1;
+    }
+
+    if dropped_entries > 0 {
+        metrics.inc_process_snapshot_events_dropped("oversized_entry", dropped_entries);
+        log::warn!("dropped {dropped_entries} oversized process snapshot entrie(s)");
+    }
+
+    log::debug!("split oversized process snapshot into {chunks} IPC frame(s)");
+    Ok(())
+}
+
+fn process_snapshot_frame(snapshot: ProcessSnapshot) -> NetprobeFrame {
+    NetprobeFrame {
+        sequence: 0,
+        payload: Some(netprobe_frame::Payload::ProcessSnapshot(snapshot)),
+    }
+}
+
+fn process_snapshot_frame_len(snapshot: &ProcessSnapshot) -> usize {
+    process_snapshot_frame_len_from_payload_len(process_snapshot_payload_len(snapshot))
+}
+
+fn process_snapshot_frame_len_from_payload_len(payload_len: usize) -> usize {
+    length_delimited_field_len(22, payload_len)
+}
+
+fn process_snapshot_payload_len(snapshot: &ProcessSnapshot) -> usize {
+    let mut len =
+        process_snapshot_base_payload_len(&snapshot.fingerprint, snapshot.observed_at_unix_nano);
+    for entry in &snapshot.entries {
+        len += process_snapshot_entry_wire_len(entry);
+    }
+    len
+}
+
+fn process_snapshot_base_payload_len(fingerprint: &str, observed_at_unix_nano: i64) -> usize {
+    let fingerprint_len = if fingerprint.is_empty() {
+        0
+    } else {
+        length_delimited_field_len(1, fingerprint.len())
+    };
+    let observed_len = if observed_at_unix_nano == 0 {
+        0
+    } else {
+        key_len(2, 0) + varint_len(observed_at_unix_nano as u64)
+    };
+    fingerprint_len + observed_len
+}
+
+fn process_snapshot_entry_wire_len(entry: &ProcessSnapshotEntry) -> usize {
+    length_delimited_field_len(3, entry.encoded_len())
+}
+
+fn length_delimited_field_len(field_number: u32, payload_len: usize) -> usize {
+    key_len(field_number, 2) + prost::length_delimiter_len(payload_len) + payload_len
+}
+
+fn key_len(field_number: u32, wire_type: u32) -> usize {
+    varint_len(u64::from((field_number << 3) | wire_type))
+}
+
+fn varint_len(mut value: u64) -> usize {
+    let mut len = 1;
+    while value >= 0x80 {
+        value >>= 7;
+        len += 1;
+    }
+    len
 }
 
 async fn response_for_frame(
@@ -396,13 +538,18 @@ fn now_unix_nano() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use prost::Message;
     use tempfile::TempDir;
     use tokio::{
+        io::duplex,
         net::UnixStream,
         sync::{broadcast, watch},
     };
 
-    use super::{ingest_external_flow_record, IpcServer};
+    use super::{
+        ingest_external_flow_record, process_snapshot_frame_len, write_process_snapshot_frames,
+        IpcServer,
+    };
     use crate::external_flow::ExternalFlowMatcher;
     use crate::{
         config::Config,
@@ -411,12 +558,12 @@ mod tests {
             RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION, SERVICERADAR_ADDITIONS_REVISION,
             SERVICERADAR_RECOG_ADDITIONS_REVISION,
         },
-        framing::{read_frame, write_frame},
+        framing::{read_frame, write_frame, MAX_FRAME_SIZE},
         metrics::Metrics,
         proto::netprobe::{
             fingerprint_event, netprobe_frame, ApplyConfig, DpiEvent, ExternalFlowRecord,
             FingerprintEvent, FlowAttributionEvent, NetprobeFrame, Ping, ProcessSnapshot,
-            TcpFingerprint, VisibilityAgentConfig,
+            ProcessSnapshotEntry, TcpFingerprint, VisibilityAgentConfig,
         },
         runtime_config::RuntimeConfig,
     };
@@ -767,6 +914,57 @@ mod tests {
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn splits_oversized_process_snapshots_to_fit_ipc_frames() {
+        let metrics = Metrics::new().unwrap();
+        let large_cmdline = "x".repeat(768 * 1024);
+        let entries = (0..10)
+            .map(|idx| ProcessSnapshotEntry {
+                local_ip: "10.42.221.137".to_string(),
+                local_port: 10_000 + (idx % 50) as u32,
+                transport_protocol: "tcp".to_string(),
+                pid: 100_000 + idx,
+                tgid: 100_000 + idx,
+                uid: 1000,
+                gid: 1000,
+                comm: "longhorn-instan".to_string(),
+                redacted_cmdline: vec![large_cmdline.clone()],
+                container_id: format!("{idx:064x}"),
+            })
+            .collect::<Vec<_>>();
+        let snapshot = ProcessSnapshot {
+            fingerprint: "large-snapshot".to_string(),
+            observed_at_unix_nano: 42,
+            entries,
+        };
+        assert!(process_snapshot_frame_len(&snapshot) > MAX_FRAME_SIZE);
+
+        let (mut writer, mut reader) = duplex(64 * 1024);
+        let writer_task = tokio::spawn(async move {
+            let mut buffer = Vec::new();
+            write_process_snapshot_frames(&mut writer, snapshot, &mut buffer, &metrics)
+                .await
+                .unwrap();
+        });
+
+        let mut chunks = 0;
+        let mut total_entries = 0;
+        while let Some(frame) = read_frame(&mut reader).await.unwrap() {
+            assert!(frame.encoded_len() <= MAX_FRAME_SIZE);
+            let Some(netprobe_frame::Payload::ProcessSnapshot(chunk)) = frame.payload else {
+                panic!("expected process snapshot chunk");
+            };
+            assert_eq!(chunk.fingerprint, "large-snapshot");
+            assert_eq!(chunk.observed_at_unix_nano, 42);
+            chunks += 1;
+            total_entries += chunk.entries.len();
+        }
+
+        writer_task.await.unwrap();
+        assert!(chunks > 1, "expected oversized snapshot to split");
+        assert_eq!(total_entries, 10);
     }
 
     #[cfg(feature = "remote-capture")]
