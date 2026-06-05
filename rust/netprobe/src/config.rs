@@ -8,6 +8,7 @@ use thiserror::Error;
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
 pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 30;
 pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
+pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = false;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -23,6 +24,9 @@ pub struct Config {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     #[serde(default = "default_flow_attribution_resend_interval_s")]
     pub flow_attribution_resend_interval_s: u64,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[serde(default = "default_emit_raw_flow_attribution_events")]
+    pub emit_raw_flow_attribution_events: bool,
     #[serde(default = "default_external_flow_match_window_ms")]
     pub external_flow_match_window_ms: u32,
 }
@@ -48,6 +52,7 @@ impl Default for Config {
             flow_table_max_entries: 0,
             process_snapshot_interval_s: DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
             flow_attribution_resend_interval_s: DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
+            emit_raw_flow_attribution_events: DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
             external_flow_match_window_ms: default_external_flow_match_window_ms(),
         }
     }
@@ -129,12 +134,16 @@ fn default_flow_attribution_resend_interval_s() -> u64 {
     DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
 }
 
+fn default_emit_raw_flow_attribution_events() -> bool {
+    DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
-        AllowlistError, Config, DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
-        FLOW_TABLE_ENTRIES_PER_INTERFACE,
+        AllowlistError, Config, DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
+        DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S, FLOW_TABLE_ENTRIES_PER_INTERFACE,
     };
 
     #[test]
@@ -239,6 +248,16 @@ mod tests {
         assert_eq!(
             config.flow_attribution_resend_interval_s,
             DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
+        );
+    }
+
+    #[test]
+    fn disables_raw_flow_attribution_stream_by_default() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            config.emit_raw_flow_attribution_events,
+            DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS
         );
     }
 }

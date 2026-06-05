@@ -65,6 +65,9 @@ const EVENT_UDP_SEND: u16 = 4;
 const EVENT_UDP_RECV: u16 = 5;
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 const EVENT_ICMP_SEND: u16 = 7;
+const TCP_ESTABLISHED_STATE: i32 = 1;
+const TCP_CLOSE_STATE: i32 = 7;
+const TCP_LISTEN_STATE: i32 = 10;
 
 const TRACE_SKADDR_OFFSET: usize = 8;
 const TRACE_OLDSTATE_OFFSET: usize = 16;
@@ -572,6 +575,12 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
     if protocol != IPPROTO_TCP {
         return 0;
     }
+    if new_state != TCP_ESTABLISHED_STATE
+        && new_state != TCP_CLOSE_STATE
+        && new_state != TCP_LISTEN_STATE
+    {
+        return 0;
+    }
 
     let mut tuple = FlowTuple::empty(protocol);
     tuple.family = family;
@@ -934,7 +943,8 @@ fn should_emit_flow_event(flow: &FlowKey, next: &FlowPidRecord, now: u64) -> boo
 
 #[inline(always)]
 fn is_close_event(event_kind: u16, new_state: i32) -> bool {
-    event_kind == EVENT_TCP_CLOSE || (event_kind == EVENT_INET_SOCK_SET_STATE && new_state == 7)
+    event_kind == EVENT_TCP_CLOSE
+        || (event_kind == EVENT_INET_SOCK_SET_STATE && new_state == TCP_CLOSE_STATE)
 }
 
 fn record_process_info(record: &FlowAttributionRecord, now: u64) {

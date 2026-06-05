@@ -21,6 +21,8 @@ use std::{
 };
 
 use crate::af_xdp_classifier::FlowKey;
+#[cfg(target_os = "linux")]
+use crate::external_flow::SharedExternalFlowMatcher;
 use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
 
 #[cfg(target_os = "linux")]
@@ -445,12 +447,15 @@ impl ProcfsEnricher {
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
+        let comm =
+            read_comm(&self.root, record.tgid).unwrap_or_else(|| comm_from_bytes(&record.comm));
+
         ProcessDetails {
             pid: record.pid,
             tgid: record.tgid,
             uid: record.uid,
             gid: record.gid,
-            comm: comm_from_bytes(&record.comm),
+            comm,
             cmdline: redacted_cmdline(&self.root, record.tgid),
             container_id: container_id(&self.root, record.tgid),
             last_seen_ns: record.last_seen_ns,
@@ -464,7 +469,9 @@ impl ProcfsEnricher {
         process_info: &HashMap<u32, ProcessInfoRecord>,
     ) -> Option<ProcessDetails> {
         if let Some(record) = process_info.get(&pid) {
-            return Some(self.process_details(record));
+            let mut details = self.process_details(record);
+            details.pid = pid;
+            return Some(details);
         }
 
         let (uid, gid) = read_status_ids(&self.root, pid).unwrap_or_default();
@@ -793,8 +800,9 @@ pub struct FlowAttributionRuntimeConfig {
 impl FlowAttributionRuntime {
     pub fn start(
         mut reader: AyaAttributionReader,
-        tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+        tx: Option<tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
         process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
+        external_flow_matcher: SharedExternalFlowMatcher,
         metrics: Metrics,
         runtime_config: FlowAttributionRuntimeConfig,
     ) -> std::io::Result<Self> {
@@ -812,10 +820,22 @@ impl FlowAttributionRuntime {
                     .map(|interval| Instant::now() - interval);
                 let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
-                    drain_ring(&mut reader, &tx, &metrics, &mut cache);
+                    drain_ring(
+                        &mut reader,
+                        tx.as_ref(),
+                        &external_flow_matcher,
+                        &metrics,
+                        &mut cache,
+                    );
                     let enriched = reader.process_pending_metadata();
                     if !enriched.is_empty() {
-                        refresh_enriched_attributions(&tx, &metrics, &mut cache, enriched);
+                        refresh_enriched_attributions(
+                            tx.as_ref(),
+                            &external_flow_matcher,
+                            &metrics,
+                            &mut cache,
+                            enriched,
+                        );
                         metrics.set_attribution_cache_entries(
                             "process_metadata",
                             reader.metadata_cache_len(),
@@ -826,7 +846,7 @@ impl FlowAttributionRuntime {
                     }
                     if let Some(resend_interval) = runtime_config.resend_interval {
                         if last_resend.elapsed() >= resend_interval {
-                            resend_cache(&tx, &metrics, &mut cache);
+                            resend_cache(tx.as_ref(), &metrics, &mut cache);
                             last_resend = Instant::now();
                         }
                     }
@@ -905,7 +925,6 @@ struct ProcessDetailsCacheKey {
     uid: u32,
     gid: u32,
     process_generation_ns: u64,
-    comm: [u8; 16],
 }
 
 #[cfg(target_os = "linux")]
@@ -916,7 +935,6 @@ impl From<&ProcessInfoRecord> for ProcessDetailsCacheKey {
             uid: value.uid,
             gid: value.gid,
             process_generation_ns: value.process_generation_ns,
-            comm: value.comm,
         }
     }
 }
@@ -929,7 +947,6 @@ impl From<&FlowAttributionRecord> for ProcessDetailsCacheKey {
             uid: value.uid,
             gid: value.gid,
             process_generation_ns: value.process_generation_ns,
-            comm: value.comm,
         }
     }
 }
@@ -949,7 +966,8 @@ struct CachedProcessDetails {
 #[cfg(target_os = "linux")]
 fn drain_ring(
     reader: &mut AyaAttributionReader,
-    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
 ) -> usize {
@@ -960,6 +978,7 @@ fn drain_ring(
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
                 cache.remove(&key);
+                external_flow_matcher.remove_flow(&key.flow);
             }
             continue;
         }
@@ -967,6 +986,7 @@ fn drain_ring(
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
                 cache.remove(&key);
+                external_flow_matcher.remove_flow(&key.flow);
             }
             continue;
         }
@@ -998,10 +1018,8 @@ fn drain_ring(
             existing.process_key = process_key;
             existing.last_seen = Instant::now();
         } else {
-            metrics.inc_flow_attribution_events();
-            if tx.send(event.clone()).is_err() {
-                metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
-            }
+            external_flow_matcher.observe_attribution(&event);
+            emit_raw_flow_attribution_event(tx, metrics, &event);
             cache.insert(
                 key,
                 CachedAttribution {
@@ -1020,22 +1038,20 @@ fn drain_ring(
 // dropped when no receiver is attached and are otherwise never re-sent).
 #[cfg(target_os = "linux")]
 fn resend_cache(
-    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
 ) {
     cache.retain(|_, entry| entry.last_seen.elapsed() < FLOW_ATTRIBUTION_CACHE_TTL);
     for entry in cache.values() {
-        metrics.inc_flow_attribution_events();
-        if tx.send(entry.event.clone()).is_err() {
-            metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
-        }
+        emit_raw_flow_attribution_event(tx, metrics, &entry.event);
     }
 }
 
 #[cfg(target_os = "linux")]
 fn refresh_enriched_attributions(
-    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
     updated: Vec<(ProcessDetailsCacheKey, ProcessDetails)>,
@@ -1051,11 +1067,25 @@ fn refresh_enriched_attributions(
             }
             entry.event.observed_at_unix_nano = now_unix_nano();
             entry.last_seen = Instant::now();
-            metrics.inc_flow_attribution_events();
-            if tx.send(entry.event.clone()).is_err() {
-                metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
-            }
+            external_flow_matcher.observe_attribution(&entry.event);
+            emit_raw_flow_attribution_event(tx, metrics, &entry.event);
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn emit_raw_flow_attribution_event(
+    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    metrics: &Metrics,
+    event: &FlowAttributionEvent,
+) {
+    let Some(tx) = tx else {
+        return;
+    };
+
+    metrics.inc_flow_attribution_events();
+    if tx.send(event.clone()).is_err() {
+        metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
     }
 }
 
@@ -1837,15 +1867,34 @@ mod tests {
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", pid_dir.join("fd/3")).unwrap();
 
-        let snapshot = ProcfsEnricher::with_root(root.path())
-            .process_snapshot(&std::collections::HashMap::new(), 123);
-        let snapshot_again = ProcfsEnricher::with_root(root.path())
-            .process_snapshot(&std::collections::HashMap::new(), 456);
+        let mut scheduler_comm = [0u8; 16];
+        scheduler_comm[..12].copy_from_slice(b"erts_sched_3");
+        let mut process_info = std::collections::HashMap::new();
+        process_info.insert(
+            123,
+            ProcessInfoRecord {
+                version: 1,
+                reserved: 0,
+                pid: 456,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                last_seen_ns: 0,
+                process_generation_ns: 99,
+                comm: scheduler_comm,
+            },
+        );
+
+        let snapshot = ProcfsEnricher::with_root(root.path()).process_snapshot(&process_info, 123);
+        let snapshot_again =
+            ProcfsEnricher::with_root(root.path()).process_snapshot(&process_info, 456);
 
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
         assert_eq!(snapshot.entries[0].local_port, 8080);
         assert_eq!(snapshot.entries[0].pid, 123);
+        assert_eq!(snapshot.entries[0].tgid, 123);
+        assert_eq!(snapshot.entries[0].comm, "app");
         assert_eq!(snapshot.entries[0].uid, 1000);
         assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
         assert_eq!(snapshot.fingerprint, snapshot_again.fingerprint);

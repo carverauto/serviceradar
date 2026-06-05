@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::{
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     af_xdp_classifier::{canonical_flow_key, transport_protocol, FlowKey},
@@ -22,6 +25,48 @@ pub enum ExternalFlowIngest {
     Invalid,
 }
 
+#[derive(Debug, Clone)]
+pub struct SharedExternalFlowMatcher {
+    inner: Arc<RwLock<ExternalFlowMatcher>>,
+}
+
+impl SharedExternalFlowMatcher {
+    pub fn new(match_window_ms: u32) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(ExternalFlowMatcher::new(match_window_ms))),
+        }
+    }
+
+    pub fn set_match_window_ms(&self, match_window_ms: u32) {
+        self.inner
+            .write()
+            .expect("external flow matcher lock poisoned")
+            .set_match_window_ms(match_window_ms);
+    }
+
+    pub fn observe_attribution(&self, event: &FlowAttributionEvent) {
+        self.inner
+            .write()
+            .expect("external flow matcher lock poisoned")
+            .observe_attribution(event);
+    }
+
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn remove_flow(&self, flow: &FlowKey) {
+        self.inner
+            .write()
+            .expect("external flow matcher lock poisoned")
+            .remove_flow(flow);
+    }
+
+    pub fn ingest(&self, record: &ExternalFlowRecord, now_unix_nano: i64) -> ExternalFlowIngest {
+        self.inner
+            .read()
+            .expect("external flow matcher lock poisoned")
+            .ingest(record, now_unix_nano)
+    }
+}
+
 impl ExternalFlowMatcher {
     pub fn new(match_window_ms: u32) -> Self {
         Self {
@@ -40,6 +85,11 @@ impl ExternalFlowMatcher {
         };
 
         self.attribution.insert(key, event.clone());
+    }
+
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn remove_flow(&mut self, flow: &FlowKey) {
+        self.attribution.remove(flow);
     }
 
     pub fn ingest(&self, record: &ExternalFlowRecord, now_unix_nano: i64) -> ExternalFlowIngest {

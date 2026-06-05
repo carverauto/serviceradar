@@ -26,6 +26,7 @@ use crate::{
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     event_queue::EventSender,
+    external_flow::SharedExternalFlowMatcher,
     fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
     metrics::Metrics,
@@ -75,8 +76,9 @@ impl NetprobeEbpfRuntime {
         metrics: Metrics,
         fingerprint_events: EventSender<FingerprintEvent>,
         dpi_events: EventSender<DpiEvent>,
-        flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        flow_attribution_events: Option<broadcast::Sender<FlowAttributionEvent>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
+        external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
@@ -101,6 +103,7 @@ impl NetprobeEbpfRuntime {
             attribution_reader,
             flow_attribution_events,
             process_snapshots,
+            external_flow_matcher,
             metrics.clone(),
             flow_attribution_runtime_config(config),
         )?;

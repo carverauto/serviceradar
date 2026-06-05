@@ -35,7 +35,7 @@ type ParsedVisibilityConfig struct {
 
 type bootstrapConfig struct {
 	Enabled             bool     `json:"enabled"`
-	CaptureInterfaces   []string `json:"capture_interfaces"`
+	CaptureInterfaces   []string `json:"capture_interfaces,omitempty"`
 	FlowTableMaxEntries uint32   `json:"flow_table_max_entries,omitempty"`
 }
 

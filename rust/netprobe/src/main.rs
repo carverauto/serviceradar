@@ -62,6 +62,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::{
     config::Config,
+    external_flow::SharedExternalFlowMatcher,
     lifecycle::{StartupOps, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
     runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
@@ -129,7 +130,7 @@ enum VisibilityRuntime {
     Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
     let args = Args::parse();
     init_logging(args.log_format);
@@ -149,6 +150,8 @@ async fn main() -> Result<()> {
     let (flow_attribution_event_tx, _) = broadcast::channel(65_536);
     let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
+    let external_flow_matcher =
+        SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
     let _fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
     )));
@@ -174,8 +177,11 @@ async fn main() -> Result<()> {
                 metrics.clone(),
                 _fingerprint_event_tx.clone(),
                 _dpi_event_tx.clone(),
-                flow_attribution_event_tx.clone(),
+                config
+                    .emit_raw_flow_attribution_events
+                    .then(|| flow_attribution_event_tx.clone()),
                 process_snapshot_tx.clone(),
+                external_flow_matcher.clone(),
                 Arc::clone(&_fingerprint_gate),
                 Arc::clone(&_dpi_gate),
             )
@@ -207,6 +213,7 @@ async fn main() -> Result<()> {
             dpi_event_rx,
             flow_attribution_event_tx,
             process_snapshot_tx,
+            external_flow_matcher,
             runtime_config,
             metrics,
         )

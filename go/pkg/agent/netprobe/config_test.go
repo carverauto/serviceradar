@@ -17,9 +17,13 @@
 package netprobe
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	monitoringpb "github.com/carverauto/serviceradar/proto"
+	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 )
 
 func TestParseVisibilityConfig(t *testing.T) {
@@ -114,5 +118,26 @@ func TestParseVisibilityConfigNil(t *testing.T) {
 	}
 	if parsed.NetprobeConfig.GetEnabled() {
 		t.Fatal("Enabled = true, want false")
+	}
+}
+
+func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{Enabled: true}); err != nil {
+		t.Fatalf("WriteBootstrapConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+
+	payload := string(data)
+	if strings.Contains(payload, "capture_interfaces") {
+		t.Fatalf("bootstrap config contains capture_interfaces for empty list: %s", payload)
+	}
+	if !strings.Contains(payload, "\"enabled\": true") {
+		t.Fatalf("bootstrap config missing enabled=true: %s", payload)
 	}
 }

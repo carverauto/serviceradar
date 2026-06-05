@@ -17,7 +17,7 @@ use tokio::{
 use crate::{
     capabilities,
     event_queue::EventReceiver,
-    external_flow::{ExternalFlowIngest, ExternalFlowMatcher},
+    external_flow::{ExternalFlowIngest, SharedExternalFlowMatcher},
     fingerprint::{
         FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
         P0F_CORPUS_REVISION, RECOG_CORPUS_REVISION, SATORI_CORPUS_REVISION,
@@ -41,6 +41,7 @@ pub struct IpcServer {
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
     flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
     process_snapshots: broadcast::Sender<ProcessSnapshot>,
+    external_flow_matcher: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 }
@@ -52,6 +53,7 @@ impl IpcServer {
         dpi_event_rx: EventReceiver<DpiEvent>,
         flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
+        external_flow_matcher: SharedExternalFlowMatcher,
         runtime_config: RuntimeConfig,
         metrics: Metrics,
     ) -> Self {
@@ -62,6 +64,7 @@ impl IpcServer {
             dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
             flow_attribution_events,
             process_snapshots,
+            external_flow_matcher,
             runtime_config,
             metrics,
         }
@@ -94,6 +97,7 @@ impl IpcServer {
                     let flow_attribution_tx = self.flow_attribution_events.clone();
                     let flow_attribution_rx = self.flow_attribution_events.subscribe();
                     let process_snapshot_rx = self.process_snapshots.subscribe();
+                    let external_flow_matcher = self.external_flow_matcher.clone();
                     let runtime_config = self.runtime_config.clone();
                     let metrics = self.metrics.clone();
                     tokio::spawn(async move {
@@ -105,6 +109,7 @@ impl IpcServer {
                             flow_attribution_tx,
                             flow_attribution_rx,
                             process_snapshot_rx,
+                            external_flow_matcher,
                             runtime_config,
                             metrics,
                         )
@@ -160,13 +165,12 @@ async fn handle_client(
     flow_attribution_broadcast: broadcast::Sender<FlowAttributionEvent>,
     mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
     mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
+    external_flows: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
     metrics: Metrics,
 ) -> Result<()> {
     let (mut reader, mut writer) = stream.into_split();
     let mut encode_buffer = Vec::new();
-    let mut external_flows =
-        ExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
 
     loop {
         tokio::select! {
@@ -177,7 +181,7 @@ async fn handle_client(
                 if let Some(response) = response_for_frame(
                     frame,
                     &runtime_config,
-                    &mut external_flows,
+                    &external_flows,
                     &metrics,
                     &flow_attribution_broadcast,
                 ).await? {
@@ -411,7 +415,7 @@ fn varint_len(mut value: u64) -> usize {
 async fn response_for_frame(
     frame: NetprobeFrame,
     runtime_config: &RuntimeConfig,
-    external_flows: &mut ExternalFlowMatcher,
+    external_flows: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
 ) -> Result<Option<NetprobeFrame>, crate::framing::FramingError> {
@@ -490,7 +494,7 @@ async fn response_for_frame(
 
 fn ingest_external_flow_record(
     record: ExternalFlowRecord,
-    external_flows: &ExternalFlowMatcher,
+    external_flows: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
 ) -> ExternalFlowAck {
@@ -550,7 +554,7 @@ mod tests {
         ingest_external_flow_record, process_snapshot_frame_len, write_process_snapshot_frames,
         IpcServer,
     };
-    use crate::external_flow::ExternalFlowMatcher;
+    use crate::external_flow::SharedExternalFlowMatcher;
     use crate::{
         config::Config,
         fingerprint::{
@@ -583,6 +587,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -642,6 +647,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -676,6 +682,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -713,6 +720,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -750,6 +758,7 @@ mod tests {
             dpi_rx,
             flow_tx.clone(),
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -788,6 +797,7 @@ mod tests {
             dpi_rx,
             flow_tx.clone(),
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -845,6 +855,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -893,6 +904,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx.clone(),
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -983,6 +995,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -1022,6 +1035,7 @@ mod tests {
             dpi_rx,
             flow_tx,
             process_tx,
+            test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
             Metrics::new().unwrap(),
         );
@@ -1065,6 +1079,10 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         panic!("socket did not appear");
+    }
+
+    fn test_external_flow_matcher() -> SharedExternalFlowMatcher {
+        SharedExternalFlowMatcher::new(0)
     }
 
     async fn wait_for_event_receiver<T: Clone>(event_tx: &broadcast::Sender<T>) {
@@ -1133,7 +1151,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_external_flow_record_emits_matched_via_broadcast_and_bumps_counter() {
         let metrics = Metrics::new().unwrap();
-        let mut matcher = ExternalFlowMatcher::new(0);
+        let matcher = SharedExternalFlowMatcher::new(0);
         matcher.observe_attribution(&flow_attribution_event());
         let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
 
@@ -1177,7 +1195,7 @@ mod tests {
         let metrics = Metrics::new().unwrap();
         // Empty matcher — no attribution observed — every well-formed
         // external record reports Unmatched.
-        let matcher = ExternalFlowMatcher::new(0);
+        let matcher = SharedExternalFlowMatcher::new(0);
         let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
 
         let ack =
@@ -1206,7 +1224,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_external_flow_record_drops_invalid_and_bumps_counter() {
         let metrics = Metrics::new().unwrap();
-        let matcher = ExternalFlowMatcher::new(0);
+        let matcher = SharedExternalFlowMatcher::new(0);
         let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
 
         // Default record has empty IP buffers, so `flow_key_from_external_record`
