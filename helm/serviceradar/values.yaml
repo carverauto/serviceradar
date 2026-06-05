@@ -1336,6 +1336,11 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces: []
     allowedCIDRs: []
+    monitoring:
+      enabled: false
+      namespace: monitoring
+      cnpgMetricsPort: 9187
+      pgbouncerMetricsPort: 9127
     # Ordinary application ingress ports. ERTS distribution is intentionally
     # excluded and handled by ingress.erts below so the BEAM cookie cannot be
     # abused by arbitrary same-namespace pods.
@@ -1346,6 +1351,8 @@ networkPolicy:
         port: 4222
       - protocol: TCP
         port: 4317
+      - protocol: TCP
+        port: 9090
       - protocol: TCP
         port: 50040
       - protocol: TCP

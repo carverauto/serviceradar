@@ -182,8 +182,15 @@ networkPolicy:
       # Envoy Gateway runs shared Gateway data-plane pods in this namespace;
       # allow those proxies to reach ServiceRadar backends.
       - envoy-gateway-system
+      # Prometheus runs in this namespace and scrapes ServiceRadar and CNPG metrics.
+      - monitoring
     cnpgOperator:
       enabled: true
+    monitoring:
+      enabled: true
+      namespace: monitoring
+      cnpgMetricsPort: 9187
+      pgbouncerMetricsPort: 9127
   egress:
     allowDNS: true
     allowKubeAPIServer: true

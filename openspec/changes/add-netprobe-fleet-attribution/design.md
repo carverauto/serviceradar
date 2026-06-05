@@ -38,6 +38,16 @@ Today the two are entangled at three layers:
 - **Attribution is capture-independent.** netprobe's kprobes attach kernel-wide
   regardless of `capture_interfaces`; `enabled` alone is sufficient "work" to run
   and keep netprobe up. Capture/DPI engage only when interfaces/bindings are set.
+- **Host-network visibility is control-plane state, not Helm inventory.**
+  Operators enable host-network visibility from the settings UI or an equivalent
+  API. Core persists that assignment/profile state, derives affected agents from
+  registry/status metadata, compiles effective agent config, and uses
+  agent-gateway's existing command bus/control stream to push config changes to
+  connected agents. Flow collectors consume a generated routing snapshot or delta
+  feed keyed by agent identity, partition, current host IPs, and visibility
+  status. Static Helm `host_slices` may be used only as a demo canary while the
+  routing feed is being built; production scale cannot require one values entry
+  per agent.
 - **Manifest is the source of truth for version + schema.** The seeder reads
   `version` and `config_schema` from the in-image `addons/netprobe/addon.yaml` +
   `config.schema.json` (already compiled in via `@config_schema`). Signed artifact
