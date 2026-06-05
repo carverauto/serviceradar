@@ -13,6 +13,11 @@ on:
         description: "Optional extra tag to apply to published native add-on artifacts."
         required: false
         type: string
+      sign_branch_catalog:
+        description: "Sign workflow-dispatch branch catalogs for maintainer demo/import validation."
+        required: false
+        default: "false"
+        type: boolean
 
 permissions:
   contents: read
@@ -152,10 +157,10 @@ jobs:
       - name: Publish native add-on OCI artifacts
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
+          SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
           BAZEL_BUILD_FLAGS: --config=remote_push --stamp
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
-          OPENBAO_SIGNING_ALLOWED_REFS_REGEX: '^refs/(tags/v.*|heads/(staging|main|master))$'
           COSIGN_KEY_REF: hashivault://cosign-release
         run: |
           set -euo pipefail
@@ -176,13 +181,25 @@ jobs:
           fi
 
           ./scripts/push_all_native_addons.sh "${push_args[@]}"
-          if [[ "${GITHUB_REF:-}" =~ ${OPENBAO_SIGNING_ALLOWED_REFS_REGEX} ]]; then
+
+          release_signing_refs_regex='^refs/(tags/v.*|heads/(staging|main|master))$'
+          should_sign="false"
+          if [[ "${GITHUB_REF:-}" =~ ${release_signing_refs_regex} ]]; then
+            should_sign="true"
+            export OPENBAO_SIGNING_ALLOWED_REFS_REGEX="${release_signing_refs_regex}"
+          elif [[ "${GITHUB_EVENT_NAME:-}" == "workflow_dispatch" && "${SIGN_BRANCH_CATALOG:-false}" == "true" ]]; then
+            should_sign="true"
+            unset OPENBAO_SIGNING_ALLOWED_REFS_REGEX
+            echo "Signing workflow-dispatch branch catalog for maintainer demo/import validation: ${GITHUB_REF:-unknown-ref}."
+          fi
+
+          if [[ "${should_sign}" == "true" ]]; then
             source ./scripts/ci/prepare-openbao-cosign-env.sh
             ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
             ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
             unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
           else
-            echo "Skipping OpenBao cosign signing for non-release ref '${GITHUB_REF:-}'."
+            echo "Skipping OpenBao cosign signing for non-release ref '${GITHUB_REF:-}'. Set sign_branch_catalog=true on workflow_dispatch to sign a branch catalog for demo/import validation."
           fi
 
       - name: Generate import index
