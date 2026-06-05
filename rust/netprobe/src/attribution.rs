@@ -61,6 +61,8 @@ const EVENT_TCP_CLOSE: u16 = 3;
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 #[cfg(target_os = "linux")]
 const TCP_CLOSE_STATE: i32 = 7;
+#[cfg(target_os = "linux")]
+const TCP_LISTEN_STATE: i32 = 10;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -681,8 +683,10 @@ impl AyaAttributionReader {
         Some(AttributedFlow { flow, pid, process })
     }
 
-    fn record_inventory(&mut self, flow: &AttributedFlow) {
-        self.socket_inventory.update(flow);
+    fn record_inventory(&mut self, record: &FlowAttributionRecord, flow: &AttributedFlow) {
+        if should_record_inventory(record) {
+            self.socket_inventory.update(flow);
+        }
     }
 
     fn remove_inventory_record(&mut self, record: &FlowAttributionRecord) {
@@ -899,7 +903,7 @@ fn drain_ring(
         };
         if let Some(existing) = cache.get_mut(&key) {
             metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
-            if reader.touch_inventory_record(record) {
+            if !should_record_inventory(record) || reader.touch_inventory_record(record) {
                 existing.event.observed_at_unix_nano = now_unix_nano();
                 existing.last_seen = Instant::now();
                 continue;
@@ -910,7 +914,7 @@ fn drain_ring(
             continue;
         };
         metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
-        reader.record_inventory(&flow);
+        reader.record_inventory(record, &flow);
         metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
         let Some(event) = flow.event() else {
             continue;
@@ -977,6 +981,11 @@ fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
         endpoint_a_addr: record.tuple.source_addr,
         endpoint_b_addr: record.tuple.destination_addr,
     })
+}
+
+#[cfg(target_os = "linux")]
+fn should_record_inventory(record: &FlowAttributionRecord) -> bool {
+    record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_LISTEN_STATE
 }
 
 #[cfg(target_os = "linux")]
@@ -1389,7 +1398,10 @@ mod tests {
         REDACTED_CMDLINE_MAX_BYTES,
     };
     #[cfg(target_os = "linux")]
-    use super::{SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A, TCP_CLOSE_STATE};
+    use super::{
+        SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
+        TCP_LISTEN_STATE,
+    };
     use crate::af_xdp_classifier::FlowKey;
 
     #[test]
@@ -1612,6 +1624,38 @@ mod tests {
         });
 
         assert!(inventory.snapshot_if_dirty(789).unwrap().entries.is_empty());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_only_tracks_durable_lifecycle_records() {
+        let mut record = super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 123_456,
+            old_state: 1,
+            new_state: 1,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol: IPPROTO_TCP,
+                source_port: 8080,
+                destination_port: 51_000,
+                source_addr: ipv4([127, 0, 0, 1]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        };
+
+        assert!(!super::should_record_inventory(&record));
+
+        record.new_state = TCP_LISTEN_STATE;
+
+        assert!(super::should_record_inventory(&record));
     }
 
     #[test]
