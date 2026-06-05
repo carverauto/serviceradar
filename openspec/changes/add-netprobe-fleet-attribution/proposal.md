@@ -48,8 +48,10 @@ never reach operators:
   published add-on artifacts (and the UI version) track each release.
 - **Event-driven attribution inventory:** netprobe replaces periodic host-wide
   procfs listener/process discovery with eBPF socket/process lifecycle events and
-  bounded user-space caches. Procfs is retained only for cold-path enrichment
-  misses, not recurring global discovery.
+  bounded user-space caches. Process command line and container identity remain
+  required forensic enrichment fields; procfs is retained only as a temporary,
+  bounded cold-path enrichment implementation until eBPF exec/cgroup metadata
+  capture replaces it, not as recurring global discovery or PID attribution.
 - **Protocol-aware correlation:** attribution matching handles TCP, UDP, ICMP,
   ICMPv6, node-SNAT, and pod-local cases with protocol-specific tuple rules
   instead of treating every flow as a TCP-style 5-tuple.

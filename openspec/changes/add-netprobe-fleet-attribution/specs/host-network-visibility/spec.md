@@ -60,6 +60,12 @@ snapshot production SHALL serialize cache state and SHALL NOT walk
 - **THEN** the process cache key includes pid/tgid plus a stable process-generation marker
 - **AND** metadata from a previous process using the same PID is not reused after exit or exec
 
+#### Scenario: Forensic metadata stays enriched
+- **WHEN** netprobe emits a flow-to-process attribution
+- **THEN** the event includes eBPF-derived PID/TGID/UID/GID/comm/socket tuple data as soon as available
+- **AND** command-line and container identity are enriched by a bounded metadata stage keyed by process generation
+- **AND** missing metadata is reported through enrichment degradation counters instead of blocking attribution emission
+
 #### Scenario: Attribution-only CPU budget
 - **GIVEN** netprobe is running with attribution enabled and packet capture/DPI disabled on representative busy Kubernetes workers
 - **WHEN** CPU is sampled over a multi-minute measurement window

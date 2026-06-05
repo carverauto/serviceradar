@@ -53,14 +53,19 @@ Today the two are entangled at three layers:
   needs only `enabled`.
 - **Republish on release** keeps the published artifacts and the seeder's manifest
   version aligned per release tag.
-- **Procfs is a cold-path enrichment source only.** The always-on attribution path
+- **Process metadata is required, but not a hot-path attribution source.**
+  `cmdline` and container identity are required forensic fields on attributed
+  flows. PID/TGID/UID/GID/comm/socket tuple attribution comes from eBPF. Metadata
+  enrichment is a separate bounded stage keyed by process generation. The current
+  implementation may read procfs only after attribution on rate-limited cold work
+  such as cmdline or cgroup-to-container resolution; the long-term implementation
+  captures exec arguments and cgroup/container metadata through eBPF so normal
+  enrichment does not depend on procfs on busy workers.
+- **Procfs is not process/listener discovery.** The always-on attribution path
   must not periodically walk `/proc/net/*` or `/proc/*/fd` to discover listener
   ownership. Those files are generated snapshots and do not provide a reliable
   event API. Netprobe uses eBPF socket/process lifecycle events to maintain
-  user-space caches, and reads procfs only after attribution on rate-limited
-  enrichment work such as cmdline or cgroup-to-container resolution. The
-  long-term target is eBPF exec/cgroup metadata capture so normal enrichment does
-  not depend on procfs on busy workers.
+  user-space caches.
 - **Socket and process lifecycle events drive inventory.** Existing connection
   attribution probes continue to emit flow events. Listener inventory is maintained
   from kernel events such as TCP socket state/listen/close transitions, UDP
