@@ -38,9 +38,9 @@
     "process_snapshot_interval_s": {
       "type": "integer",
       "title": "Process snapshot interval (s)",
-      "description": "Optional. How often eBPF process-attribution snapshots are emitted.",
+      "description": "Optional. Periodic process-attribution snapshot reconciliation interval. 0 means event-driven snapshots only.",
       "minimum": 0,
-      "default": 30,
+      "default": 0,
       "x-serviceradar-ui-advanced": true
     },
     "external_flow_match_window_ms": {

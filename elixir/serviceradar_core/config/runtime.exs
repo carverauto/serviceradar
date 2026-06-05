@@ -9,6 +9,8 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Observability.DataRetentionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
 # native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
@@ -16,6 +18,7 @@ alias ServiceRadar.EventWriter.Processors.Flows
 # NetprobeAddonPackageSeeder can approve an assignable package. Without artifacts the
 # seeder stages the manifest version (visible, not assignable); version/oci refs are only
 # set when their env vars are present (version otherwise defaults to the in-image manifest).
+
 netprobe_addon_artifacts =
   case System.get_env("SERVICERADAR_NETPROBE_ADDON_ARTIFACTS") do
     json when is_binary(json) and json != "" ->
@@ -47,8 +50,6 @@ netprobe_addon_config =
     v when is_binary(v) and v != "" -> Keyword.put(netprobe_addon_config, :source_oci_digest, v)
     _ -> netprobe_addon_config
   end
-
-config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 
 # GeoLite2 MMDB configuration (all environments)
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
@@ -128,6 +129,8 @@ remote_access_ssh_ca_signer_args =
   end
 
 config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 
 config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
@@ -265,6 +268,29 @@ if config_env() == :prod do
 
   mtr_automation_enabled = parse_bool.("MTR_AUTOMATION_ENABLED", false)
   mtr_retention_days = "MTR_RETENTION_DAYS" |> parse_int_env.(30) |> max(1) |> min(395)
+
+  observability_retention_batch_size =
+    "SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE" |> parse_int_env.(50_000) |> max(1)
+
+  trace_summary_retention_days =
+    "SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
+
+  otel_traces_retention_days =
+    "SERVICERADAR_OTEL_TRACES_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
+
+  logs_retention_days = "SERVICERADAR_LOGS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  ocsf_network_activity_retention_days =
+    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  otel_traces_chunk_interval_hours =
+    "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
+
+  logs_chunk_interval_hours =
+    "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
+  ocsf_network_activity_chunk_interval_hours =
+    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
 
   netflow_security_refresh_reschedule_seconds =
     "NETFLOW_SECURITY_REFRESH_INTERVAL_SECONDS"
@@ -799,6 +825,30 @@ if config_env() == :prod do
       _ -> nil
     end
 
+  config :serviceradar_core, DataRetentionWorker,
+    batch_size: observability_retention_batch_size,
+    trace_summary_retention_days: trace_summary_retention_days,
+    otel_traces_retention_days: otel_traces_retention_days,
+    logs_retention_days: logs_retention_days,
+    ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
+    otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
+    logs_chunk_interval_hours: logs_chunk_interval_hours,
+    ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
+    sweep_host_result_retention_days:
+      "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    sweep_execution_retention_days:
+      "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    endpoint_inventory_retention_days:
+      "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    dataset_snapshot_retention_days:
+      "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
+    topology_link_retention_days:
+      "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  config :serviceradar_core, RefreshTraceSummariesWorker,
+    retention_days: trace_summary_retention_days
+
   config :serviceradar_core,
     ansible_retention_run_detail_days: ansible_retention_run_detail_days,
     ansible_retention_run_summary_days: ansible_retention_run_summary_days,
@@ -938,10 +988,10 @@ if config_env() == :prod do
        crontab:
          [
            {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
-            ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+            RefreshTraceSummariesWorker, queue: :maintenance},
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
-           {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+           {"17 3 * * *", DataRetentionWorker, queue: :maintenance},
            {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker,
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,

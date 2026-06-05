@@ -261,6 +261,25 @@ core:
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
   mtrRetentionDays: 30
+  observabilityRetention:
+    # High-volume raw tables. Retention is reconciled at runtime and by the
+    # migration job on upgrade; chunk intervals affect newly-created Timescale
+    # chunks and should stay smaller than the retention window.
+    traceSummaryDays: 3
+    otelTracesDays: 3
+    logsDays: 30
+    ocsfNetworkActivityDays: 90
+    otelTracesChunkIntervalHours: 6
+    logsChunkIntervalHours: 24
+    ocsfNetworkActivityChunkIntervalHours: 24
+    batchSize: 50000
+    cron: "17 3 * * *"
+    sweepHostResultDays: 7
+    sweepExecutionDays: 30
+    trivyDays: 30
+    endpointInventoryDays: 30
+    datasetSnapshotDays: 14
+    topologyLinkDays: 30
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored
   # on the Ash resources themselves (e.g. AnsibleController.run_pulse_interval_ms);

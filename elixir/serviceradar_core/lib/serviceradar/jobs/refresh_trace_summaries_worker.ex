@@ -22,7 +22,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   require Logger
 
   # Upsert traces whose spans fall within a time window [$1, $2).
-  # For each matching trace_id, aggregates ALL its spans within 7 days.
+  # For each matching trace_id, aggregates ALL its spans inside the configured
+  # retention window.
   @upsert_sql """
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
@@ -50,7 +51,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     SELECT DISTINCT trace_id FROM otel_traces
     WHERE timestamp >= $1 AND timestamp < $2 AND trace_id IS NOT NULL
   )
-  AND t.timestamp >= NOW() - INTERVAL '3 days'
+  AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
   AND t.trace_id IS NOT NULL
   GROUP BY t.trace_id
   ON CONFLICT (trace_id) DO UPDATE SET
@@ -88,7 +89,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   WITH doomed AS (
     SELECT trace_id
     FROM otel_trace_summaries
-    WHERE timestamp < NOW() - INTERVAL '3 days'
+    WHERE timestamp < NOW() - ($2::int * INTERVAL '1 day')
     ORDER BY timestamp ASC
     LIMIT $1
   )
@@ -113,6 +114,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Backfill in 1-hour chunks to keep each query fast
   @backfill_chunk_seconds 3600
   @default_cleanup_batch_size 5_000
+  @default_retention_days 3
 
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
@@ -150,11 +152,11 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     end
   end
 
-  # Backfill 3 days in 1-hour chunks, oldest-first.
+  # Backfill the configured retention window in 1-hour chunks, oldest-first.
   # Each chunk is a bounded query that completes well within the 60s timeout.
   defp run_chunked_backfill do
     now = DateTime.utc_now()
-    start = DateTime.add(now, -3, :day)
+    start = DateTime.add(now, -retention_days(), :day)
 
     start
     |> build_windows(now)
@@ -185,7 +187,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       case SQL.query(
              ServiceRadar.Repo,
              @upsert_sql,
-             [window_start, window_end],
+             [window_start, window_end, retention_days()],
              timeout: 60_000
            ) do
         {:ok, _result} ->
@@ -217,14 +219,18 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   defp cleanup_old_summaries do
     batch_size = cleanup_batch_size()
+    retention_days = retention_days()
 
-    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size], timeout: 30_000) do
+    case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size, retention_days],
+           timeout: 30_000
+         ) do
       {:ok, %{num_rows: deleted_rows}} ->
         if deleted_rows > 0 do
           Logger.info(
             "Pruned stale otel_trace_summaries rows",
             deleted_rows: deleted_rows,
-            batch_size: batch_size
+            batch_size: batch_size,
+            retention_days: retention_days
           )
         end
 
@@ -237,6 +243,13 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
         Logger.error("Failed to clean up old trace summaries: #{Exception.message(error)}")
         {:error, error}
     end
+  end
+
+  defp retention_days do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:retention_days, @default_retention_days)
+    |> positive_integer(@default_retention_days)
   end
 
   defp cleanup_batch_size do
@@ -253,4 +266,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
       _ -> default
     end
   end
+
+  defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+  defp positive_integer(_value, default), do: default
 end

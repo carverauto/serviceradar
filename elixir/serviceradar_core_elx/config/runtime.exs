@@ -5,6 +5,8 @@ alias Oban.Plugins.Cron
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
+alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Observability.DataRetentionWorker
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
@@ -607,6 +609,29 @@ if config_env() == :prod do
   alerts_retention_batch_size = parse_int_env.("ALERT_RETENTION_BATCH_SIZE", 10_000)
   alerts_retention_max_batches = parse_int_env.("ALERT_RETENTION_MAX_BATCHES", 100)
 
+  observability_retention_batch_size =
+    "SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE" |> parse_int_env.(50_000) |> max(1)
+
+  trace_summary_retention_days =
+    "SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
+
+  otel_traces_retention_days =
+    "SERVICERADAR_OTEL_TRACES_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
+
+  logs_retention_days = "SERVICERADAR_LOGS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  ocsf_network_activity_retention_days =
+    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
+
+  otel_traces_chunk_interval_hours =
+    "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
+
+  logs_chunk_interval_hours =
+    "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
+  ocsf_network_activity_chunk_interval_hours =
+    "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
   # Enable AshOban scheduler - core-elx is the only service that should run schedulers
   ash_oban_scheduler_enabled =
     System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
@@ -654,9 +679,10 @@ if config_env() == :prod do
 
   extra_cron_entries = [
     {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", ServiceRadar.Jobs.RefreshTraceSummariesWorker,
-     queue: :maintenance},
+    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
+    {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
+     queue: :maintenance},
     {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
   ]
 
@@ -691,7 +717,24 @@ if config_env() == :prod do
     batch_size: alerts_retention_batch_size,
     max_batches: alerts_retention_max_batches
 
+  config :serviceradar_core, DataRetentionWorker,
+    batch_size: observability_retention_batch_size,
+    trace_summary_retention_days: trace_summary_retention_days,
+    otel_traces_retention_days: otel_traces_retention_days,
+    logs_retention_days: logs_retention_days,
+    ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
+    otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
+    logs_chunk_interval_hours: logs_chunk_interval_hours,
+    ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
+    sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    endpoint_inventory_retention_days: "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    dataset_snapshot_retention_days: "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
+    topology_link_retention_days: "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
+  config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
@@ -760,6 +803,7 @@ if config_env() == :prod do
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+
   host_slice_subscriber_enabled =
     System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
 

@@ -6,7 +6,7 @@ use serde::{Deserialize, Deserializer};
 use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
-pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 30;
+pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 0;
 pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
 pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = false;
 
@@ -150,7 +150,8 @@ mod tests {
     use super::{
         effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
         AllowlistError, Config, DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
-        DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S, FLOW_TABLE_ENTRIES_PER_INTERFACE,
+        DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S, DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
+        FLOW_TABLE_ENTRIES_PER_INTERFACE,
     };
 
     #[test]
@@ -256,6 +257,17 @@ mod tests {
             config.flow_attribution_resend_interval_s,
             DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
         );
+    }
+
+    #[test]
+    fn disables_periodic_process_snapshot_by_default() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            config.process_snapshot_interval_s,
+            DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S
+        );
+        assert_eq!(config.process_snapshot_interval_s, 0);
     }
 
     #[test]

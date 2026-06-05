@@ -425,6 +425,12 @@ core:
     consensusEnabled: false
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
+  observabilityRetention:
+    traceSummaryDays: 1
+    otelTracesDays: 1
+    logsDays: 1
+    otelTracesChunkIntervalHours: 6
+    logsChunkIntervalHours: 6
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
     filesystemOverrides:

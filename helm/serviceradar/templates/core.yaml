@@ -21,6 +21,7 @@
 {{- $obanQueues := default (dict) $coreVals.obanQueues -}}
 {{- $syncIngestor := default (dict) $coreVals.syncIngestor -}}
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
+{{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
 {{- $ansibleVals := default (dict) $coreVals.ansible -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
@@ -359,6 +360,36 @@ spec:
           value: {{ default 300000 $mtrAutomation.consensusCohortRetentionMs | quote }}
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        - name: SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.traceSummaryDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.otelTracesDays | quote }}
+        - name: SERVICERADAR_LOGS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.logsDays | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelTracesChunkIntervalHours | quote }}
+        - name: SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE
+          value: {{ default 50000 $observabilityRetention.batchSize | quote }}
+        - name: SERVICERADAR_OBSERVABILITY_RETENTION_CRON
+          value: {{ default "17 3 * * *" $observabilityRetention.cron | quote }}
+        - name: SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS
+          value: {{ default 7 $observabilityRetention.sweepHostResultDays | quote }}
+        - name: SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.sweepExecutionDays | quote }}
+        - name: SERVICERADAR_TRIVY_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.trivyDays | quote }}
+        - name: SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.endpointInventoryDays | quote }}
+        - name: SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS
+          value: {{ default 14 $observabilityRetention.datasetSnapshotDays | quote }}
+        - name: SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.topologyLinkDays | quote }}
         - name: ANSIBLE_RETENTION_RUN_DETAIL_DAYS
           value: {{ default 90 $ansibleVals.runDetailDays | quote }}
         - name: ANSIBLE_RETENTION_RUN_SUMMARY_DAYS
