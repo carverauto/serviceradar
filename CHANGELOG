@@ -1,3 +1,26 @@
+# ServiceRadar v1.2.94
+
+Fixes the netprobe fleet rollout path and makes k8s NetFlow-to-process
+attribution work with node-SNATed flows.
+
+## Whats New
+
+**1.2.94**
+- Fixed assigning the netprobe add-on from the UI after `agent_uid` started
+  reaching the update action; existing assignments now update cleanly instead
+  of failing Ash input validation.
+- Fixed pushed add-on release downloads by preserving agent artifact download
+  credentials, trust roots, and long-lived gateway certificates across rollout
+  attempts.
+- Bumped and reseeded the netprobe add-on package to `0.2.1`, including the
+  systemd runtime-directory and eBPF pin-path fixes needed for attribution to
+  stay alive under the service manager.
+- Correlated k8s node-SNATed NetFlow with host process attribution by matching
+  flow tuples through the registered agent host IP, while preserving exact
+  5-tuple matches as the preferred path.
+- Increased the attribution time-skew tolerance to handle delayed NetFlow and
+  process-attribution arrival observed in demo.
+
 # ServiceRadar v1.2.93
 
 Full IPv6 flow attribution, gateway-delivered netprobe add-ons, and agent host-IP self-registration.

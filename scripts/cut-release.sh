@@ -239,17 +239,30 @@ else
 fi
 
 if [[ "$push" == "true" ]]; then
+    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+    if [[ -z "$current_branch" ]]; then
+        echo "Cannot push release refs from a detached HEAD. Check out a branch first." >&2
+        exit 1
+    fi
+
     if [[ "$dry_run" == "true" ]]; then
-        echo "[dry-run] Would push branch to origin"
-        echo "[dry-run] Would push tag $tag to origin"
+        echo "[dry-run] Would push branch to origin with:"
+        echo "[dry-run]   git push origin $current_branch:refs/heads/$current_branch"
+        echo "[dry-run] Would push tag $tag to origin with:"
+        echo "[dry-run]   git push origin refs/tags/$tag:refs/tags/$tag"
     else
-        git push origin HEAD
-        git push origin "$tag"
+        git push origin "$current_branch:refs/heads/$current_branch"
+        git push origin "refs/tags/$tag:refs/tags/$tag"
     fi
 else
     echo "Branch and tag are ready. Push manually with:"
-    echo "  git push origin HEAD"
-    echo "  git push origin $tag"
+    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+    if [[ -n "$current_branch" ]]; then
+        echo "  git push origin $current_branch:refs/heads/$current_branch"
+    else
+        echo "  # checkout a branch, then push it with an explicit refs/heads refspec"
+    fi
+    echo "  git push origin refs/tags/$tag:refs/tags/$tag"
 fi
 
 if [[ "$prerelease" == "true" ]]; then
