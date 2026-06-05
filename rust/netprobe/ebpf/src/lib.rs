@@ -9,7 +9,12 @@ use aya_ebpf::{
     programs::{ProbeContext, RetProbeContext, TcContext, TracePointContext, XdpContext},
     EbpfContext,
 };
-use core::{ffi::c_void, mem::offset_of, panic::PanicInfo, ptr::addr_of_mut};
+use core::{
+    ffi::c_void,
+    mem::{offset_of, size_of},
+    panic::PanicInfo,
+    ptr::addr_of_mut,
+};
 
 const EVENT_VERSION: u16 = 1;
 const AF_INET: u16 = 2;
@@ -112,6 +117,29 @@ struct SockCommon {
     skc_net: u64,              // @48 possible_net_t { struct net * } (CONFIG_NET_NS=y)
     skc_v6_daddr: In6Addr,     // @56 peer v6 addr
     skc_v6_rcv_saddr: In6Addr, // @72 local v6 addr
+}
+
+#[repr(C)]
+struct MsgHdr {
+    msg_name: *const c_void,
+    msg_namelen: i32,
+}
+
+#[repr(C)]
+struct SockAddrIn {
+    sin_family: u16,
+    sin_port: u16,
+    sin_addr: u32,
+    pad: [u8; 8],
+}
+
+#[repr(C)]
+struct SockAddrIn6 {
+    sin6_family: u16,
+    sin6_port: u16,
+    sin6_flowinfo: u32,
+    sin6_addr: In6Addr,
+    sin6_scope_id: u32,
 }
 
 #[repr(C)]
@@ -439,9 +467,17 @@ fn emit_udp(ctx: &ProbeContext, event_kind: u16) {
     // (the bug that made fpa 100% TCP). socket_tuple reads the family, so this
     // serves both v4 (udp_*) and v6 (udpv6_*). Unreadable/empty tuples are dropped
     // in userspace anyway (flow_key_from_record).
-    let Some(tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
+    let Some(mut tuple) = socket_tuple(sock, IPPROTO_UDP, true) else {
         return;
     };
+    if event_kind == EVENT_UDP_SEND {
+        if let Some(msg) = ctx.arg::<*const c_void>(1) {
+            let _ = apply_msg_name_destination(&mut tuple, msg, true);
+        }
+    }
+    if tuple_destination_is_zero(&tuple) {
+        return;
+    }
     emit_event(ctx, event_kind, sock, tuple, 0, 0);
 }
 
@@ -498,6 +534,12 @@ fn emit_icmp_send(ctx: &ProbeContext) {
     };
     if tuple.family == AF_INET6 {
         tuple.protocol = IPPROTO_ICMPV6;
+    }
+    if let Some(msg) = ctx.arg::<*const c_void>(1) {
+        let _ = apply_msg_name_destination(&mut tuple, msg, false);
+    }
+    if tuple_destination_is_zero(&tuple) {
+        return;
     }
     emit_event(ctx, EVENT_ICMP_SEND, sock, tuple, 0, 0);
 }
@@ -586,7 +628,18 @@ pub fn sched_process_exit(ctx: TracePointContext) -> u32 {
 // drops the record instead of emitting garbage.
 #[inline(always)]
 unsafe fn sock_field<T>(sock: *const c_void, offset: usize) -> Option<T> {
-    bpf_probe_read_kernel((sock as *const u8).add(offset) as *const T).ok()
+    kernel_field(sock, offset)
+}
+
+// Read a single field at a fixed offset from a kernel pointer. The caller must
+// pass a kernel pointer whose layout matches the mirrored #[repr(C)] type used
+// to compute `offset`.
+#[inline(always)]
+unsafe fn kernel_field<T>(ptr: *const c_void, offset: usize) -> Option<T> {
+    if ptr.is_null() {
+        return None;
+    }
+    bpf_probe_read_kernel((ptr as *const u8).add(offset) as *const T).ok()
 }
 
 // Build a populated FlowTuple from a `struct sock *` (kprobe arg0) for the
@@ -643,6 +696,75 @@ fn socket_tuple(sock: *const c_void, protocol: u16, has_ports: bool) -> Option<F
     }
 
     Some(tuple)
+}
+
+#[inline(always)]
+fn apply_msg_name_destination(
+    tuple: &mut FlowTuple,
+    msg: *const c_void,
+    has_ports: bool,
+) -> Option<()> {
+    if msg.is_null() {
+        return None;
+    }
+
+    // SAFETY: msg is kprobe arg1 for *_sendmsg, a kernel `struct msghdr *`.
+    // Reads are bounded to the mirrored field offsets and fail closed on fault.
+    let name: *const c_void = unsafe { kernel_field(msg, offset_of!(MsgHdr, msg_name))? };
+    let name_len: i32 = unsafe { kernel_field(msg, offset_of!(MsgHdr, msg_namelen))? };
+    if name.is_null() {
+        return None;
+    }
+
+    // SAFETY: name is msghdr->msg_name, a kernel sockaddr pointer when present.
+    // Reading the family first lets us select the sockaddr shape before copying
+    // address/port fields.
+    let family: u16 = unsafe { kernel_field(name, 0)? };
+    if family != tuple.family {
+        return None;
+    }
+
+    if family == AF_INET {
+        if name_len < size_of::<SockAddrIn>() as i32 {
+            return None;
+        }
+        let destination: [u8; 4] = unsafe { kernel_field(name, offset_of!(SockAddrIn, sin_addr))? };
+        tuple.destination_addr = [0; 16];
+        tuple.destination_addr[..4].copy_from_slice(&destination);
+        if has_ports {
+            let port_be: u16 = unsafe { kernel_field(name, offset_of!(SockAddrIn, sin_port))? };
+            tuple.destination_port = u16::from_be(port_be);
+        }
+        Some(())
+    } else if family == AF_INET6 {
+        if name_len < size_of::<SockAddrIn6>() as i32 {
+            return None;
+        }
+        let destination: [u8; 16] =
+            unsafe { kernel_field(name, offset_of!(SockAddrIn6, sin6_addr))? };
+        tuple.destination_addr = destination;
+        if has_ports {
+            let port_be: u16 = unsafe { kernel_field(name, offset_of!(SockAddrIn6, sin6_port))? };
+            tuple.destination_port = u16::from_be(port_be);
+        }
+        Some(())
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
+fn tuple_destination_is_zero(tuple: &FlowTuple) -> bool {
+    if tuple.family == AF_INET {
+        tuple.destination_addr[0] == 0
+            && tuple.destination_addr[1] == 0
+            && tuple.destination_addr[2] == 0
+            && tuple.destination_addr[3] == 0
+    } else if tuple.family == AF_INET6 {
+        tuple.destination_addr.iter().all(|byte| *byte == 0)
+    } else {
+        true
+    }
 }
 
 fn emit_event(
