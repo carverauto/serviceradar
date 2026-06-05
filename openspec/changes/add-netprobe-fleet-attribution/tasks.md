@@ -38,14 +38,14 @@
 - [x] 7.4 Add eBPF `sched_process_exec`/`sched_process_exit` lifecycle hooks and carry a process-generation marker into PID reuse-safe enrichment cache keys
 - [ ] 7.5 Evaluate whether `sched_process_free` is needed in addition to exit for delayed cleanup on supported kernels
 - [ ] 7.6 Add eBPF listener/socket lifecycle events for TCP listen/state/close and UDP bind/unbind coverage
-- [x] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path enrichment and optional startup reconciliation
+- [x] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path metadata enrichment
 - [x] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
 - [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, agent sidecar buffers, and gateway push batches
 - [ ] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
 - [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
 - [ ] 7.12 Add a Linux worker performance smoke script or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
 - [ ] 7.13 Verify attribution-only netprobe stays below 1% sustained process CPU on representative busy Kubernetes workers with no persistent ring drops, IPC lag, queue drops, or attribution hit-rate regressions
-- [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend`, disabled `ProcfsFallbackBackend`, cached `MetadataEnricher`) so eBPF is the primary PID/tuple source and procfs is explicit fallback/enrichment
+- [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend` plus bounded `MetadataEnricher`) so eBPF is the only PID/tuple attribution source and procfs is limited to post-attribution cmdline/container enrichment
 - [x] 7.15 Surface backend hit/miss, cold procfs metadata reads, and cache-size stats through netprobe Prometheus metrics
 - [x] 7.16 Strengthen UDP/ICMP eBPF tuple extraction with `msghdr->msg_name` destination handling for unconnected sockets, matching the RustNet approach
 - [x] 7.17 Bound and chunk/coalesce netprobe status snapshots so `Streamed netprobe results` never exceeds the agent-gateway stream chunk limit; preserve flow attribution batches and expose truncation/coalescing counters when snapshot detail is reduced.
@@ -53,3 +53,6 @@
 - [x] 7.19 Make process snapshot emission dirty/event-driven: repeated unchanged socket records refresh liveness without rebuilding/sorting/serializing the full inventory, while add/remove/prune/material changes still emit snapshots on the 30s heartbeat.
 - [x] 7.20 Add a cache-first userspace hot path so repeated flow/PID/process-generation records refresh cached attribution and socket liveness without procfs metadata enrichment or process snapshot entry reconstruction.
 - [x] 7.21 Keep process snapshots scoped to durable TCP listener lifecycle records instead of every outbound per-peer flow tuple, preventing high-cardinality UDP/TCP flow attribution from exploding the host process inventory.
+- [x] 7.22 Remove synchronous procfs metadata reads from flow attribution: emitted rows use eBPF PID/TGID/UID/GID/comm immediately, while rate-limited cold-path cmdline/container enrichment re-emits cached events when metadata becomes available.
+- [x] 7.23 Emit dirty listener snapshots immediately after eBPF ring drains, keeping the 30s snapshot timer as a prune/reconciliation heartbeat instead of delaying real inventory changes behind a longer interval.
+- [ ] 7.24 Replace procfs cmdline/container enrichment with eBPF process exec argument capture plus cgroup/container metadata keyed by process generation, keeping procfs out of normal attribution/enrichment on busy workers.

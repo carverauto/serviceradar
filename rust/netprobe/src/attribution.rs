@@ -8,6 +8,7 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
+    collections::VecDeque,
     io, mem,
     os::fd::AsRawFd,
     ptr,
@@ -49,11 +50,16 @@ const FLOW_ATTRIBUTION_RING_MAX_WAIT: Duration = Duration::from_secs(1);
 // cache for flows that never emit a close (and caps memory regardless of churn).
 const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
-// Process cmdline/container metadata is stable for a process lifetime but
-// expensive to reread from procfs for every ring record.
+// Process cmdline/container metadata is useful but not required to attribute a
+// flow. Keep procfs reads on a bounded cold path so eBPF PID/comm attribution
+// is emitted immediately.
 const PROCESS_DETAILS_CACHE_TTL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_CACHE_MAX_ENTRIES: usize = 4096;
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_COLD_READS_PER_SECOND: u32 = 1;
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 #[cfg(target_os = "linux")]
 // Mirrors EVENT_TCP_CLOSE in the eBPF: a close record evicts the flow.
 const EVENT_TCP_CLOSE: u16 = 3;
@@ -309,6 +315,10 @@ impl SocketInventory {
             self.dirty = true;
         }
     }
+
+    fn is_dirty(&self) -> bool {
+        self.dirty
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -333,7 +343,6 @@ struct CachedProcessSocket {
 trait AttributionBackend {
     fn drain_records(&mut self) -> Vec<FlowAttributionRecord>;
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool>;
-    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord>;
     fn method(&self) -> &'static str;
 }
 
@@ -412,10 +421,6 @@ impl AttributionBackend for EbpfAttributionBackend {
                 return Err(err);
             }
         }
-    }
-
-    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord> {
-        self.process_info.iter().filter_map(Result::ok).collect()
     }
 
     fn method(&self) -> &'static str {
@@ -523,6 +528,9 @@ impl ProcfsEnricher {
 struct MetadataEnricher {
     procfs: ProcfsEnricher,
     cache: HashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
+    pending: VecDeque<ProcessInfoRecord>,
+    pending_keys: HashSet<ProcessDetailsCacheKey>,
+    read_budget: MetadataReadBudget,
 }
 
 #[cfg(target_os = "linux")]
@@ -531,31 +539,59 @@ impl MetadataEnricher {
         Self {
             procfs: ProcfsEnricher::host(),
             cache: HashMap::new(),
+            pending: VecDeque::new(),
+            pending_keys: HashSet::new(),
+            read_budget: MetadataReadBudget::new(
+                PROCESS_DETAILS_COLD_READS_PER_SECOND,
+                PROCESS_DETAILS_COLD_READ_BURST,
+            ),
         }
     }
 
-    fn process_details(&mut self, record: &ProcessInfoRecord) -> (ProcessDetails, MetadataSource) {
+    fn process_details(
+        &mut self,
+        record: &ProcessInfoRecord,
+    ) -> (ProcessDetails, ProcessDetailsCacheKey) {
         let key = ProcessDetailsCacheKey::from(record);
         let now = Instant::now();
 
         if let Some(cached) = self.cache.get_mut(&key) {
             if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
                 cached.last_used = now;
-                return (cached.details.clone(), MetadataSource::Cache);
+                return (cached.details.clone(), key);
             }
         }
 
-        let details = self.procfs.process_details(record);
-        self.prune(now);
-        self.cache.insert(
-            key,
-            CachedProcessDetails {
-                details: details.clone(),
-                updated_at: now,
-                last_used: now,
-            },
-        );
-        (details, MetadataSource::Procfs)
+        if self.pending_keys.insert(key) {
+            self.pending.push_back(*record);
+        }
+
+        (process_details_from_record(record), key)
+    }
+
+    fn process_pending(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
+        let mut updated = Vec::new();
+        while self.read_budget.try_acquire(Instant::now()) {
+            let Some(record) = self.pending.pop_front() else {
+                break;
+            };
+            let key = ProcessDetailsCacheKey::from(&record);
+            self.pending_keys.remove(&key);
+
+            let details = self.procfs.process_details(&record);
+            let now = Instant::now();
+            self.prune(now);
+            self.cache.insert(
+                key,
+                CachedProcessDetails {
+                    details: details.clone(),
+                    updated_at: now,
+                    last_used: now,
+                },
+            );
+            updated.push((key, details));
+        }
+        updated
     }
 
     fn cache_len(&self) -> usize {
@@ -577,36 +613,45 @@ impl MetadataEnricher {
 }
 
 #[cfg(target_os = "linux")]
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum MetadataSource {
-    Cache,
-    Procfs,
+struct MetadataReadBudget {
+    available: u32,
+    max_burst: u32,
+    refill_per_second: u32,
+    last_refill: Instant,
 }
 
 #[cfg(target_os = "linux")]
-struct ProcfsFallbackBackend {
-    procfs: ProcfsEnricher,
-    enabled: bool,
-}
-
-#[cfg(target_os = "linux")]
-impl ProcfsFallbackBackend {
-    fn disabled() -> Self {
+impl MetadataReadBudget {
+    fn new(refill_per_second: u32, max_burst: u32) -> Self {
         Self {
-            procfs: ProcfsEnricher::host(),
-            enabled: false,
+            available: max_burst,
+            max_burst,
+            refill_per_second,
+            last_refill: Instant::now(),
         }
     }
 
-    fn process_snapshot(
-        &self,
-        process_info: &HashMap<u32, ProcessInfoRecord>,
-        observed_at_unix_nano: i64,
-    ) -> Option<ProcessSnapshot> {
-        self.enabled.then(|| {
-            self.procfs
-                .process_snapshot(process_info, observed_at_unix_nano)
-        })
+    fn try_acquire(&mut self, now: Instant) -> bool {
+        self.refill(now);
+        if self.available == 0 {
+            return false;
+        }
+
+        self.available -= 1;
+        true
+    }
+
+    fn refill(&mut self, now: Instant) {
+        let elapsed = now.duration_since(self.last_refill).as_secs();
+        if elapsed == 0 {
+            return;
+        }
+
+        let refill = elapsed
+            .saturating_mul(u64::from(self.refill_per_second))
+            .min(u64::from(u32::MAX)) as u32;
+        self.available = self.available.saturating_add(refill).min(self.max_burst);
+        self.last_refill = now;
     }
 }
 
@@ -614,7 +659,6 @@ impl ProcfsFallbackBackend {
 pub struct AyaAttributionReader {
     backend: EbpfAttributionBackend,
     metadata: MetadataEnricher,
-    procfs_fallback: ProcfsFallbackBackend,
     socket_inventory: SocketInventory,
 }
 
@@ -624,7 +668,6 @@ impl AyaAttributionReader {
         Ok(Self {
             backend: EbpfAttributionBackend::from_ebpf(ebpf)?,
             metadata: MetadataEnricher::host(),
-            procfs_fallback: ProcfsFallbackBackend::disabled(),
             socket_inventory: SocketInventory::default(),
         })
     }
@@ -674,10 +717,7 @@ impl AyaAttributionReader {
             process_generation_ns: record.process_generation_ns,
             comm: record.comm,
         };
-        let (details, source) = self.metadata.process_details(&info);
-        if source == MetadataSource::Procfs {
-            metrics.inc_attribution_backend_events("procfs", "metadata_read", 1);
-        }
+        let (details, _) = self.metadata.process_details(&info);
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
         let process = Some(details);
         Some(AttributedFlow { flow, pid, process })
@@ -709,12 +749,7 @@ impl AyaAttributionReader {
         if !self.socket_inventory.entries.is_empty() {
             return None;
         }
-
-        let snapshot = self
-            .procfs_fallback
-            .process_snapshot(&self.backend.process_info_records(), observed_at_unix_nano)
-            .filter(|snapshot| !snapshot.entries.is_empty())?;
-        Some(snapshot)
+        None
     }
 
     fn backend_method(&self) -> &'static str {
@@ -723,6 +758,19 @@ impl AyaAttributionReader {
 
     fn inventory_len(&self) -> usize {
         self.socket_inventory.entries.len()
+    }
+
+    fn inventory_dirty(&self) -> bool {
+        self.socket_inventory.is_dirty()
+    }
+
+    fn process_pending_metadata(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
+        let updated = self.metadata.process_pending();
+        updated
+    }
+
+    fn metadata_cache_len(&self) -> usize {
+        self.metadata.cache_len()
     }
 }
 
@@ -765,6 +813,17 @@ impl FlowAttributionRuntime {
                 let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
                     drain_ring(&mut reader, &tx, &metrics, &mut cache);
+                    let enriched = reader.process_pending_metadata();
+                    if !enriched.is_empty() {
+                        refresh_enriched_attributions(&tx, &metrics, &mut cache, enriched);
+                        metrics.set_attribution_cache_entries(
+                            "process_metadata",
+                            reader.metadata_cache_len(),
+                        );
+                    }
+                    if reader.inventory_dirty() {
+                        emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
+                    }
                     if let Some(resend_interval) = runtime_config.resend_interval {
                         if last_resend.elapsed() >= resend_interval {
                             resend_cache(&tx, &metrics, &mut cache);
@@ -835,6 +894,7 @@ fn ring_wait_duration(
 #[cfg(target_os = "linux")]
 struct CachedAttribution {
     event: FlowAttributionEvent,
+    process_key: ProcessDetailsCacheKey,
     last_seen: Instant,
 }
 
@@ -851,6 +911,19 @@ struct ProcessDetailsCacheKey {
 #[cfg(target_os = "linux")]
 impl From<&ProcessInfoRecord> for ProcessDetailsCacheKey {
     fn from(value: &ProcessInfoRecord) -> Self {
+        Self {
+            tgid: value.tgid,
+            uid: value.uid,
+            gid: value.gid,
+            process_generation_ns: value.process_generation_ns,
+            comm: value.comm,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl From<&FlowAttributionRecord> for ProcessDetailsCacheKey {
+    fn from(value: &FlowAttributionRecord) -> Self {
         Self {
             tgid: value.tgid,
             uid: value.uid,
@@ -919,8 +992,10 @@ fn drain_ring(
         let Some(event) = flow.event() else {
             continue;
         };
+        let process_key = ProcessDetailsCacheKey::from(record);
         if let Some(existing) = cache.get_mut(&key) {
             existing.event = event;
+            existing.process_key = process_key;
             existing.last_seen = Instant::now();
         } else {
             metrics.inc_flow_attribution_events();
@@ -931,6 +1006,7 @@ fn drain_ring(
                 key,
                 CachedAttribution {
                     event,
+                    process_key,
                     last_seen: Instant::now(),
                 },
             );
@@ -955,6 +1031,55 @@ fn resend_cache(
             metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn refresh_enriched_attributions(
+    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+    metrics: &Metrics,
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    updated: Vec<(ProcessDetailsCacheKey, ProcessDetails)>,
+) {
+    for (process_key, details) in updated {
+        metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        for entry in cache
+            .values_mut()
+            .filter(|entry| entry.process_key == process_key)
+        {
+            if !apply_process_details_to_event(&mut entry.event, &details) {
+                continue;
+            }
+            entry.event.observed_at_unix_nano = now_unix_nano();
+            entry.last_seen = Instant::now();
+            metrics.inc_flow_attribution_events();
+            if tx.send(entry.event.clone()).is_err() {
+                metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+            }
+        }
+    }
+}
+
+fn apply_process_details_to_event(
+    event: &mut FlowAttributionEvent,
+    details: &ProcessDetails,
+) -> bool {
+    let redacted_cmdline = cap_redacted_cmdline(details.cmdline.clone());
+    let container_id = details.container_id.clone().unwrap_or_default();
+    let changed = event.uid != details.uid
+        || event.gid != details.gid
+        || event.comm != details.comm
+        || event.redacted_cmdline != redacted_cmdline
+        || event.container_id != container_id;
+
+    if changed {
+        event.uid = details.uid;
+        event.gid = details.gid;
+        event.comm = details.comm.clone();
+        event.redacted_cmdline = redacted_cmdline;
+        event.container_id = container_id;
+    }
+
+    changed
 }
 
 // Directional FlowKey from a ring record's tuple: endpoint A is the local socket
@@ -1184,6 +1309,21 @@ fn transport_protocol(value: u16) -> String {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
+    ProcessDetails {
+        pid: record.pid,
+        tgid: record.tgid,
+        uid: record.uid,
+        gid: record.gid,
+        comm: comm_from_bytes(&record.comm),
+        cmdline: Vec::new(),
+        container_id: None,
+        last_seen_ns: record.last_seen_ns,
+        process_generation_ns: record.process_generation_ns,
+    }
+}
+
 fn now_unix_nano() -> i64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -1389,8 +1529,6 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 mod tests {
     use std::fs;
 
-    #[cfg(target_os = "linux")]
-    use super::ProcessDetailsCacheKey;
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
         redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
@@ -1399,8 +1537,8 @@ mod tests {
     };
     #[cfg(target_os = "linux")]
     use super::{
-        SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
-        TCP_LISTEN_STATE,
+        process_details_from_record, SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A,
+        TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };
     use crate::af_xdp_classifier::FlowKey;
 
@@ -1458,10 +1596,10 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn process_details_cache_key_includes_generation_marker() {
+    fn process_details_from_record_uses_ebpf_process_identity() {
         let mut comm = [0u8; 16];
         comm[..3].copy_from_slice(b"app");
-        let first = ProcessInfoRecord {
+        let record = ProcessInfoRecord {
             version: 1,
             reserved: 0,
             pid: 123,
@@ -1472,13 +1610,17 @@ mod tests {
             process_generation_ns: 111,
             comm,
         };
-        let mut second = first;
-        second.process_generation_ns = 222;
 
-        assert_ne!(
-            ProcessDetailsCacheKey::from(&first),
-            ProcessDetailsCacheKey::from(&second)
-        );
+        let details = process_details_from_record(&record);
+
+        assert_eq!(details.pid, 123);
+        assert_eq!(details.tgid, 123);
+        assert_eq!(details.uid, 1000);
+        assert_eq!(details.gid, 1000);
+        assert_eq!(details.comm, "app");
+        assert!(details.cmdline.is_empty());
+        assert_eq!(details.container_id, None);
+        assert_eq!(details.process_generation_ns, 111);
     }
 
     #[test]

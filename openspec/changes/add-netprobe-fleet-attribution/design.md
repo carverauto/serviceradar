@@ -57,8 +57,10 @@ Today the two are entangled at three layers:
   must not periodically walk `/proc/net/*` or `/proc/*/fd` to discover listener
   ownership. Those files are generated snapshots and do not provide a reliable
   event API. Netprobe uses eBPF socket/process lifecycle events to maintain
-  user-space caches, and reads procfs only on bounded first-seen enrichment misses
-  such as cmdline or cgroup-to-container resolution.
+  user-space caches, and reads procfs only after attribution on rate-limited
+  enrichment work such as cmdline or cgroup-to-container resolution. The
+  long-term target is eBPF exec/cgroup metadata capture so normal enrichment does
+  not depend on procfs on busy workers.
 - **Socket and process lifecycle events drive inventory.** Existing connection
   attribution probes continue to emit flow events. Listener inventory is maintained
   from kernel events such as TCP socket state/listen/close transitions, UDP
@@ -103,8 +105,7 @@ Today the two are entangled at three layers:
 - UI advanced-collapse must not hide required fields → attribution requires no
   capture fields, so none of the collapsed fields are required.
 - eBPF lifecycle coverage is more complex than procfs scanning → required for the
-  performance target. Keep a bounded one-shot startup reconciliation pass if needed,
-  but do not keep recurring procfs discovery in the steady state.
+  performance target. Do not keep recurring procfs discovery in the steady state.
 - Larger bounded burst buffers trade memory for fewer IPC drops → acceptable for
   attribution-only mode only when capacity and drop metrics are explicit and the
   release gate verifies memory/CPU remain inside budget.
