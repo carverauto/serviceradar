@@ -112,126 +112,258 @@ defmodule ServiceRadar.FlowAttribution do
        AND ag.ip <> ''
       WHERE a.observed_at > now() - interval '#{@correlation_window_minutes} minutes'
     ),
-    raw_candidates AS (
-      SELECT
-        f.tableoid AS flow_tableoid,
-        f.ctid AS flow_ctid,
-        a.agent_id,
-        a.pid,
-        a.comm,
-        a.cmdline,
-        a.uid,
-        a.container_id,
-        0 AS match_rank,
-        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
-        a.observed_at
-      FROM recent_flows AS f
-      JOIN recent_attributions AS a
-        ON f.partition = a.partition
-       AND f.protocol_num = a.proto
-       AND abs(extract(epoch from (f.time - a.observed_at))) <= #{@correlation_skew_seconds}
-       AND (
-            (
-              a.proto IN (1, 58)
-              AND (
-                   (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip)
-                OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip)
-              )
-            )
-         OR (
-              a.proto NOT IN (1, 58)
-              AND (
-                   (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-                    AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-                OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-                    AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
-              )
-            )
-       )
-
-      UNION ALL
-
-      SELECT
-        f.tableoid AS flow_tableoid,
-        f.ctid AS flow_ctid,
-        a.agent_id,
-        a.pid,
-        a.comm,
-        a.cmdline,
-        a.uid,
-        a.container_id,
-        1 AS match_rank,
-        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
-        a.observed_at
-      FROM recent_flows AS f
-      JOIN recent_attributions AS a
-        ON f.partition = a.partition
-       AND f.protocol_num = a.proto
-       AND abs(extract(epoch from (f.time - a.observed_at))) <= #{@correlation_skew_seconds}
-       AND a.proto = 17
-       AND a.remote_port > 0
-       AND (
-            (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-             AND f.dst_endpoint_port = a.remote_port)
-         OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-             AND f.src_endpoint_port = a.remote_port)
-       )
-
-      UNION ALL
-
-      SELECT
-        f.tableoid AS flow_tableoid,
-        f.ctid AS flow_ctid,
-        a.agent_id,
-        a.pid,
-        a.comm,
-        a.cmdline,
-        a.uid,
-        a.container_id,
-        2 AS match_rank,
-        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
-        a.observed_at
-      FROM recent_flows AS f
-      JOIN recent_attributions AS a
-        ON f.partition = a.partition
-       AND f.protocol_num = a.proto
-       AND abs(extract(epoch from (f.time - a.observed_at))) <= #{@correlation_skew_seconds}
-       AND a.agent_ip IS NOT NULL
-       AND a.local_ip <> a.agent_ip
-       AND (
-            (
-              a.proto IN (1, 58)
-              AND (
-                   (f.src_endpoint_ip = a.agent_ip AND f.dst_endpoint_ip = a.remote_ip)
-                OR (f.dst_endpoint_ip = a.agent_ip AND f.src_endpoint_ip = a.remote_ip)
-              )
-            )
-         OR (
-              a.proto NOT IN (1, 58)
-              AND (
-                   (f.src_endpoint_ip = a.agent_ip AND f.dst_endpoint_ip = a.remote_ip
-                    AND f.dst_endpoint_port = a.remote_port)
-                OR (f.dst_endpoint_ip = a.agent_ip AND f.src_endpoint_ip = a.remote_ip
-                    AND f.src_endpoint_port = a.remote_port)
-              )
-            )
-       )
-    ),
     candidates AS (
-      SELECT DISTINCT ON (flow_tableoid, flow_ctid)
-        flow_tableoid,
-        flow_ctid,
-        agent_id,
-        pid,
-        comm,
-        cmdline,
-        uid,
-        container_id,
-        match_rank,
-        time_delta_seconds,
-        observed_at
-      FROM raw_candidates
-      ORDER BY flow_tableoid, flow_ctid, match_rank, time_delta_seconds, observed_at DESC
+      SELECT
+        f.tableoid AS flow_tableoid,
+        f.ctid AS flow_ctid,
+        picked.agent_id,
+        picked.pid,
+        picked.comm,
+        picked.cmdline,
+        picked.uid,
+        picked.container_id
+      FROM recent_flows AS f
+      JOIN LATERAL (
+        SELECT
+          agent_id,
+          pid,
+          comm,
+          cmdline,
+          uid,
+          container_id,
+          match_rank,
+          time_delta_seconds,
+          observed_at
+        FROM (
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            0 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.src_endpoint_ip
+            AND a.remote_ip = f.dst_endpoint_ip
+            AND a.local_port = f.src_endpoint_port
+            AND a.remote_port = f.dst_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            0 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.dst_endpoint_ip
+            AND a.remote_ip = f.src_endpoint_ip
+            AND a.local_port = f.dst_endpoint_port
+            AND a.remote_port = f.src_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            0 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto IN (1, 58)
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.src_endpoint_ip
+            AND a.remote_ip = f.dst_endpoint_ip
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            0 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto IN (1, 58)
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.dst_endpoint_ip
+            AND a.remote_ip = f.src_endpoint_ip
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            1 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE f.protocol_num = 17
+            AND a.partition = f.partition
+            AND a.proto = 17
+            AND a.remote_port > 0
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.src_endpoint_ip
+            AND a.remote_ip = f.dst_endpoint_ip
+            AND a.remote_port = f.dst_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            1 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE f.protocol_num = 17
+            AND a.partition = f.partition
+            AND a.proto = 17
+            AND a.remote_port > 0
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.dst_endpoint_ip
+            AND a.remote_ip = f.src_endpoint_ip
+            AND a.remote_port = f.src_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            2 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.agent_ip IS NOT NULL
+            AND a.local_ip <> a.agent_ip
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.agent_ip = f.src_endpoint_ip
+            AND a.remote_ip = f.dst_endpoint_ip
+            AND a.remote_port = f.dst_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            2 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.agent_ip IS NOT NULL
+            AND a.local_ip <> a.agent_ip
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.agent_ip = f.dst_endpoint_ip
+            AND a.remote_ip = f.src_endpoint_ip
+            AND a.remote_port = f.src_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            2 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto IN (1, 58)
+            AND a.agent_ip IS NOT NULL
+            AND a.local_ip <> a.agent_ip
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.agent_ip = f.src_endpoint_ip
+            AND a.remote_ip = f.dst_endpoint_ip
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            2 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM recent_attributions AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto IN (1, 58)
+            AND a.agent_ip IS NOT NULL
+            AND a.local_ip <> a.agent_ip
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.agent_ip = f.dst_endpoint_ip
+            AND a.remote_ip = f.src_endpoint_ip
+        ) AS ranked
+        ORDER BY match_rank, time_delta_seconds, observed_at DESC
+        LIMIT 1
+      ) AS picked ON true
     )
     UPDATE #{@schema}.ocsf_network_activity AS f
     SET ocsf_payload = f.ocsf_payload
