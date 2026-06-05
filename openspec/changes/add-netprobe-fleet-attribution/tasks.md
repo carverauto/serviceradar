@@ -65,6 +65,7 @@
 - [ ] 7.24 Preserve cmdline and container ID as required forensic enrichment fields while replacing procfs cmdline/container reads with eBPF process exec argument capture plus cgroup/container metadata keyed by process generation, keeping procfs out of normal attribution/enrichment on busy workers.
 - [ ] 7.25 Replace raw `FlowAttributionEventBatch` as the steady-state telemetry feed with a bounded agent-up local network/process observation stream. Core must persist forensic observations even when no NetFlow exists, then correlate with NetFlow/IPFIX when available; netprobe CPU must be fixed by profiling/eBPF/coalescing hot paths, not by requiring a NetFlow down-to-agent replay loop.
 - [x] 7.25a Remove the experimental NATS self-subscribe/control-stream external-flow replay path from this branch so the architecture stays agent-up plus core-side correlation.
+- [x] 7.25b Fix the k8s-cp3-worker3 netprobe hot path where procfs metadata refresh scanned every cached flow for each process update. Maintain a process-key attribution index and prune/cache-cap live attribution entries independent of resend; live canary improved from 8.15% CPU / ~1.3 GiB RSS to 0.40% CPU / <50 MiB RSS in the first post-restart sample.
 - [ ] 7.26 Publish/import netprobe `0.2.4` and restart assigned agents so CPU validation runs against the build containing the event-driven snapshot/resend changes; current demo/test workers still show `0.2.3` executables, some marked `(deleted)`, so their `pidstat` samples do not prove the branch-level fix.
 
 ## 8. Demo/CNPG scale guardrails

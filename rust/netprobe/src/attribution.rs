@@ -52,6 +52,10 @@ const FLOW_ATTRIBUTION_RING_MAX_WAIT: Duration = Duration::from_secs(1);
 // cache for flows that never emit a close (and caps memory regardless of churn).
 const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES: usize = 65_536;
+#[cfg(target_os = "linux")]
 // Process cmdline/container metadata is useful but not required to attribute a
 // flow. Keep procfs reads on a bounded cold path so eBPF PID/comm attribution
 // is emitted immediately.
@@ -851,10 +855,12 @@ impl FlowAttributionRuntime {
                 // broadcast immediately. Optional cache re-broadcasts keep long-lived
                 // flows visible to reconnecting agents without flooding busy workers.
                 let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
+                let mut process_index: ProcessAttributionIndex = HashMap::new();
                 let mut last_process_snapshot = runtime_config
                     .process_snapshot_interval
                     .map(|interval| Instant::now() - interval);
                 let mut last_resend = Instant::now();
+                let mut last_cache_prune = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
                     drain_ring(
                         &mut reader,
@@ -862,6 +868,7 @@ impl FlowAttributionRuntime {
                         &external_flow_matcher,
                         &metrics,
                         &mut cache,
+                        &mut process_index,
                     );
                     let enriched = reader.process_pending_metadata();
                     if !enriched.is_empty() {
@@ -870,6 +877,7 @@ impl FlowAttributionRuntime {
                             &external_flow_matcher,
                             &metrics,
                             &mut cache,
+                            &process_index,
                             enriched,
                         );
                         metrics.set_attribution_cache_entries(
@@ -882,9 +890,26 @@ impl FlowAttributionRuntime {
                     }
                     if let Some(resend_interval) = runtime_config.resend_interval {
                         if last_resend.elapsed() >= resend_interval {
-                            resend_cache(tx.as_ref(), &metrics, &mut cache);
+                            resend_cache(
+                                tx.as_ref(),
+                                &external_flow_matcher,
+                                &metrics,
+                                &mut cache,
+                                &mut process_index,
+                            );
                             last_resend = Instant::now();
                         }
+                    }
+                    if last_cache_prune.elapsed() >= FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL
+                        || cache.len() > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES
+                    {
+                        prune_attribution_cache(
+                            &mut cache,
+                            &mut process_index,
+                            &external_flow_matcher,
+                        );
+                        metrics.set_attribution_cache_entries("flow_attribution", cache.len());
+                        last_cache_prune = Instant::now();
                     }
                     if let Some(interval) = runtime_config.process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
@@ -955,6 +980,9 @@ struct CachedAttribution {
 }
 
 #[cfg(target_os = "linux")]
+type ProcessAttributionIndex = HashMap<ProcessDetailsCacheKey, HashSet<FlowAttributionJoinKey>>;
+
+#[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ProcessDetailsCacheKey {
     tgid: u32,
@@ -1006,6 +1034,7 @@ fn drain_ring(
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &mut ProcessAttributionIndex,
 ) -> usize {
     let records = reader.drain_records();
     let drained = records.len();
@@ -1013,7 +1042,7 @@ fn drain_ring(
         if record.event_kind == EVENT_TCP_CLOSE {
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
-                cache.remove(&key);
+                remove_cached_attribution(cache, process_index, &key);
                 external_flow_matcher.remove_flow(&key.flow);
             }
             continue;
@@ -1021,7 +1050,7 @@ fn drain_ring(
         if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
-                cache.remove(&key);
+                remove_cached_attribution(cache, process_index, &key);
                 external_flow_matcher.remove_flow(&key.flow);
             }
             continue;
@@ -1060,12 +1089,17 @@ fn drain_ring(
         let process_key = ProcessDetailsCacheKey::from(record);
         if let Some(existing) = cache.get_mut(&key) {
             existing.event = event;
-            existing.process_key = process_key;
+            if existing.process_key != process_key {
+                move_process_index(process_index, key, existing.process_key, process_key);
+                existing.process_key = process_key;
+            }
             existing.last_seen = Instant::now();
         } else {
             external_flow_matcher.observe_attribution(&event);
             emit_raw_flow_attribution_event(tx, metrics, &event);
-            cache.insert(
+            insert_cached_attribution(
+                cache,
+                process_index,
                 key,
                 CachedAttribution {
                     event,
@@ -1084,12 +1118,108 @@ fn drain_ring(
 #[cfg(target_os = "linux")]
 fn resend_cache(
     tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &mut ProcessAttributionIndex,
 ) {
-    cache.retain(|_, entry| entry.last_seen.elapsed() < FLOW_ATTRIBUTION_CACHE_TTL);
+    prune_attribution_cache(cache, process_index, external_flow_matcher);
     for entry in cache.values() {
         emit_raw_flow_attribution_event(tx, metrics, &entry.event);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn insert_cached_attribution(
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &mut ProcessAttributionIndex,
+    key: FlowAttributionJoinKey,
+    entry: CachedAttribution,
+) {
+    if let Some(previous) = cache.insert(key, entry) {
+        remove_process_index_key(process_index, previous.process_key, &key);
+    }
+    if let Some(current) = cache.get(&key) {
+        process_index
+            .entry(current.process_key)
+            .or_default()
+            .insert(key);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn remove_cached_attribution(
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &mut ProcessAttributionIndex,
+    key: &FlowAttributionJoinKey,
+) -> Option<CachedAttribution> {
+    let removed = cache.remove(key)?;
+    remove_process_index_key(process_index, removed.process_key, key);
+    Some(removed)
+}
+
+#[cfg(target_os = "linux")]
+fn move_process_index(
+    process_index: &mut ProcessAttributionIndex,
+    key: FlowAttributionJoinKey,
+    old_process_key: ProcessDetailsCacheKey,
+    new_process_key: ProcessDetailsCacheKey,
+) {
+    remove_process_index_key(process_index, old_process_key, &key);
+    process_index
+        .entry(new_process_key)
+        .or_default()
+        .insert(key);
+}
+
+#[cfg(target_os = "linux")]
+fn remove_process_index_key(
+    process_index: &mut ProcessAttributionIndex,
+    process_key: ProcessDetailsCacheKey,
+    key: &FlowAttributionJoinKey,
+) {
+    let Some(keys) = process_index.get_mut(&process_key) else {
+        return;
+    };
+    keys.remove(key);
+    if keys.is_empty() {
+        process_index.remove(&process_key);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn prune_attribution_cache(
+    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &mut ProcessAttributionIndex,
+    external_flow_matcher: &SharedExternalFlowMatcher,
+) {
+    let mut remove_keys = cache
+        .iter()
+        .filter_map(|(key, entry)| {
+            (entry.last_seen.elapsed() >= FLOW_ATTRIBUTION_CACHE_TTL).then_some(*key)
+        })
+        .collect::<Vec<_>>();
+
+    if cache.len().saturating_sub(remove_keys.len()) > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES {
+        let remove_set = remove_keys.iter().copied().collect::<HashSet<_>>();
+        let mut by_age = cache
+            .iter()
+            .filter(|(key, _)| !remove_set.contains(key))
+            .map(|(key, entry)| (*key, entry.last_seen))
+            .collect::<Vec<_>>();
+        by_age.sort_by_key(|(_, last_seen)| *last_seen);
+
+        let overflow = cache
+            .len()
+            .saturating_sub(remove_keys.len())
+            .saturating_sub(FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES);
+        remove_keys.extend(by_age.into_iter().take(overflow).map(|(key, _)| key));
+    }
+
+    for key in remove_keys {
+        if remove_cached_attribution(cache, process_index, &key).is_some() {
+            external_flow_matcher.remove_flow(&key.flow);
+        }
     }
 }
 
@@ -1099,14 +1229,18 @@ fn refresh_enriched_attributions(
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    process_index: &ProcessAttributionIndex,
     updated: Vec<(ProcessDetailsCacheKey, ProcessDetails)>,
 ) {
     for (process_key, details) in updated {
         metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
-        for entry in cache
-            .values_mut()
-            .filter(|entry| entry.process_key == process_key)
-        {
+        let Some(flow_keys) = process_index.get(&process_key) else {
+            continue;
+        };
+        for key in flow_keys {
+            let Some(entry) = cache.get_mut(key) else {
+                continue;
+            };
             if !apply_process_details_to_event(&mut entry.event, &details) {
                 continue;
             }
@@ -1612,10 +1746,14 @@ mod tests {
     };
     #[cfg(target_os = "linux")]
     use super::{
-        process_details_from_record, SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ENDPOINT_A,
-        TCP_CLOSE_STATE, TCP_LISTEN_STATE,
+        insert_cached_attribution, process_details_from_record, prune_attribution_cache,
+        refresh_enriched_attributions, CachedAttribution, ProcessAttributionIndex,
+        ProcessDetailsCacheKey, SocketInventory, EVENT_INET_SOCK_SET_STATE,
+        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };
     use crate::af_xdp_classifier::FlowKey;
+    #[cfg(target_os = "linux")]
+    use crate::external_flow::SharedExternalFlowMatcher;
 
     #[test]
     fn comm_stops_at_nul() {
@@ -1815,7 +1953,11 @@ mod tests {
         assert_eq!(snapshot.entries[0].pid, 123);
         assert_eq!(snapshot.entries[0].uid, 1000);
         assert_eq!(snapshot.entries[0].gid, 1001);
-        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 1);
+        assert_eq!(
+            snapshot.entries[0].redacted_cmdline[0],
+            "/usr/bin/app [redacted 1 arg(s)]"
+        );
         assert!(snapshot_again.is_none());
 
         inventory.remove_record(&super::FlowAttributionRecord {
@@ -1925,6 +2067,107 @@ mod tests {
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 1);
         assert!(snapshot.entries[0].redacted_cmdline[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn refresh_enriched_attributions_uses_process_index() {
+        let mut cache = std::collections::HashMap::new();
+        let mut process_index = ProcessAttributionIndex::default();
+        let matcher = SharedExternalFlowMatcher::new(0);
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let matching_process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let other_process = ProcessDetailsCacheKey {
+            tgid: 456,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 84,
+        };
+        let matching_key = join_key(443, 51_000, 123, 42);
+        let other_key = join_key(8443, 52_000, 456, 84);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            matching_key,
+            cached_attribution(matching_process, "old"),
+        );
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            other_key,
+            cached_attribution(other_process, "other"),
+        );
+
+        refresh_enriched_attributions(
+            None,
+            &matcher,
+            &metrics,
+            &mut cache,
+            &process_index,
+            vec![(
+                matching_process,
+                ProcessDetails {
+                    pid: 123,
+                    tgid: 123,
+                    uid: 2000,
+                    gid: 2001,
+                    comm: "new".to_string(),
+                    cmdline: vec!["/bin/new".to_string()],
+                    container_id: Some("container".to_string()),
+                    last_seen_ns: 0,
+                    process_generation_ns: 42,
+                },
+            )],
+        );
+
+        assert_eq!(cache.get(&matching_key).unwrap().event.comm, "new");
+        assert_eq!(cache.get(&matching_key).unwrap().event.uid, 2000);
+        assert_eq!(cache.get(&other_key).unwrap().event.comm, "other");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn prune_attribution_cache_enforces_max_entries_and_index() {
+        let mut cache = std::collections::HashMap::new();
+        let mut process_index = ProcessAttributionIndex::default();
+        let matcher = SharedExternalFlowMatcher::new(0);
+
+        for i in 0..(FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES + 8) {
+            let tgid = 123 + i as u32;
+            let generation = 42 + i as u64;
+            let process = ProcessDetailsCacheKey {
+                tgid,
+                uid: 1000,
+                gid: 1001,
+                process_generation_ns: generation,
+            };
+            let key = join_key(
+                10_000u16.wrapping_add(i as u16),
+                50_000u16.wrapping_add(i as u16),
+                tgid,
+                generation,
+            );
+            insert_cached_attribution(
+                &mut cache,
+                &mut process_index,
+                key,
+                cached_attribution(process, "app"),
+            );
+        }
+
+        prune_attribution_cache(&mut cache, &mut process_index, &matcher);
+
+        assert_eq!(cache.len(), FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES);
+        assert_eq!(
+            process_index.values().map(|keys| keys.len()).sum::<usize>(),
+            cache.len()
+        );
     }
 
     #[test]
@@ -2133,6 +2376,57 @@ mod tests {
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0], big_argv0);
         assert_eq!(parts[1], "[redacted 2 arg(s)]");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn join_key(
+        local_port: u16,
+        remote_port: u16,
+        tgid: u32,
+        process_generation_ns: u64,
+    ) -> super::FlowAttributionJoinKey {
+        super::FlowAttributionJoinKey {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: remote_port,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: tgid,
+            tgid,
+            process_generation_ns,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cached_attribution(process_key: ProcessDetailsCacheKey, comm: &str) -> CachedAttribution {
+        CachedAttribution {
+            event: crate::proto::netprobe::FlowAttributionEvent {
+                local_ip: "192.0.2.10".to_string(),
+                local_port: 443,
+                remote_ip: "198.51.100.20".to_string(),
+                remote_port: 51_000,
+                transport_protocol: "tcp".to_string(),
+                pid: process_key.tgid,
+                tgid: process_key.tgid,
+                uid: process_key.uid,
+                gid: process_key.gid,
+                comm: comm.to_string(),
+                redacted_cmdline: Vec::new(),
+                container_id: String::new(),
+                observed_at_unix_nano: 1,
+                socket_address: 0,
+                event_kind: u32::from(EVENT_INET_SOCK_SET_STATE),
+                old_state: 1,
+                new_state: 1,
+                source: String::new(),
+                external_flow_id: 0,
+            },
+            process_key,
+            last_seen: std::time::Instant::now(),
+        }
     }
 
     fn temp_proc(pid: &str, cmdline: &[u8], cgroup: &str) -> tempfile::TempDir {
