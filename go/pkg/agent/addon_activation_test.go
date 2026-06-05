@@ -812,6 +812,39 @@ func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
 	}
 }
 
+func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
+	pl := &PushLoop{
+		server: &Server{
+			addonManager: agentaddon.NewManager(agentaddon.Config{
+				RuntimeDir: filepath.Join(t.TempDir(), "addons"),
+			}),
+		},
+		logger: logger.NewTestLogger(),
+	}
+	pl.setConfigVersion("old-version")
+
+	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
+		ConfigVersion: "new-version",
+		Addons: []*proto.AddonAssignmentConfig{
+			{
+				AddonId:           "netprobe",
+				Enabled:           true,
+				Delivery:          addonDeliveryPushedArtifact,
+				Supervision:       addonSupervisionAgentSidecar,
+				ArtifactObjectKey: "native-addons/netprobe/0.2.1/linux/amd64/netprobe.tar.gz",
+				ArtifactSha256:    sha256Hex([]byte("artifact")),
+			},
+		},
+	}, "poll")
+
+	if ok {
+		t.Fatal("applyConfigResponse() = true, want false when add-on delivery fails")
+	}
+	if got := pl.getConfigVersion(); got != "old-version" {
+		t.Fatalf("config version = %q, want old-version", got)
+	}
+}
+
 // TestStageAddonArtifactGatewayNon200 confirms a non-200 gateway response is surfaced as a
 // download failure rather than staged as artifact bytes.
 func TestStageAddonArtifactGatewayNon200(t *testing.T) {

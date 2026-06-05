@@ -210,9 +210,9 @@ func addonArtifactHTTPClient() *http.Client {
 // delivered in the gateway config. agent-sidecar add-ons are launched as supervised
 // go-plugin subprocesses; systemd-service/systemd-timer add-ons are installed + enabled
 // via the root-owned agent-updater; disabled or removed ones are stopped/uninstalled.
-func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) {
+func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*proto.AddonAssignmentConfig) bool {
 	if p.server == nil {
-		return
+		return true
 	}
 
 	p.server.mu.RLock()
@@ -220,7 +220,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	configDir := p.server.configDir
 	p.server.mu.RUnlock()
 	if manager == nil {
-		return
+		return true
 	}
 
 	// Serialize the whole reconcile: applyAddonAssignments is invoked from the
@@ -254,6 +254,7 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	specs := make([]agentaddon.Spec, 0, len(assignments))
 	desiredSystemd := make(map[string]bool)
 	desiredEphemeral := make(map[string]bool)
+	allApplied := true
 
 	for _, a := range assignments {
 		if a == nil || !a.GetEnabled() {
@@ -272,8 +273,11 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 		switch classifyAddonSupervision(supervision) {
 		case addonDispatchSidecar:
-			if spec, ok := p.buildSidecarAddonSpec(ctx, a, delivery); ok {
+			if spec, ok, applied := p.buildSidecarAddonSpec(ctx, a, delivery); ok {
 				specs = append(specs, spec)
+				allApplied = allApplied && applied
+			} else {
+				allApplied = false
 			}
 		case addonDispatchConfigToggle:
 			// Compiled-in capability selected by this assignment; it self-configures
@@ -285,18 +289,23 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not cause a running unit to be uninstalled by reconciliation.
 			desiredSystemd[a.GetAddonId()] = true
-			p.applySystemdAddon(ctx, a, delivery, supervision)
+			if !p.applySystemdAddon(ctx, a, delivery, supervision) {
+				allApplied = false
+			}
 		case addonDispatchEphemeral:
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not deregister a still-desired helper.
 			desiredEphemeral[a.GetAddonId()] = true
-			p.applyEphemeralAddon(ctx, a, delivery)
+			if !p.applyEphemeralAddon(ctx, a, delivery) {
+				allApplied = false
+			}
 		case addonDispatchUnsupported:
 			p.logger.Warn().
 				Str("addon", a.GetAddonId()).
 				Str("delivery", delivery).
 				Str("supervision", supervision).
 				Msg("Add-on supervision model not supported by this agent; assignment not applied")
+			allApplied = false
 		}
 	}
 
@@ -319,19 +328,24 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 	if err := manager.Apply(ctx, specs); err != nil {
 		p.logger.Error().Err(err).Int("addons", len(specs)).Msg("Failed to apply add-on assignments")
-		return
+		return false
 	}
 
 	if len(specs) > 0 {
 		p.logger.Info().Int("addons", len(specs)).Msg("Applied native add-on assignments")
 	}
+
+	return allApplied
 }
 
 // buildSidecarAddonSpec stages an agent-sidecar add-on and returns its supervised
 // go-plugin spec. On a delivery/capability failure it falls back to the last-known-good
 // spec (so a running add-on keeps running unchanged) or, with no cached spec, skips it.
-// The returned bool reports whether a spec should be supervised.
-func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) (agentaddon.Spec, bool) {
+// The second returned bool reports whether a spec should be supervised. The third
+// reports whether this round fully applied the desired assignment; fallback specs
+// keep existing processes alive but still defer config version acknowledgement so
+// pushed-artifact delivery is retried on the next config poll.
+func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) (agentaddon.Spec, bool, bool) {
 	freshlyStaged := delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != ""
 
 	binaryPath, err := p.stageAndCapability(ctx, a, delivery)
@@ -347,7 +361,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 				Str("addon", a.GetAddonId()).
 				Msg("Failed to deliver pushed-artifact add-on and no last-known-good assignment; not applied")
 
-			return agentaddon.Spec{}, false
+			return agentaddon.Spec{}, false, false
 		}
 
 		p.logger.Warn().
@@ -355,7 +369,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 			Str("addon", a.GetAddonId()).
 			Msg("Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
 
-		return cached, true
+		return cached, true, false
 	}
 
 	if binaryPath == "" {
@@ -364,7 +378,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 			Str("delivery", delivery).
 			Msg("Add-on sidecar assignment missing a binary path; not applied")
 
-		return agentaddon.Spec{}, false
+		return agentaddon.Spec{}, false, false
 	}
 
 	spec := agentaddon.Spec{
@@ -382,7 +396,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 		p.rememberAddonSpec(spec)
 	}
 
-	return spec, true
+	return spec, true, true
 }
 
 // applySystemdAddon stages a systemd-supervised add-on and then installs + enables its
@@ -392,7 +406,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 // delivery, discovery, or install failure it rolls `current` back to the prior version
 // and leaves any already-installed units untouched (reconciliation keeps them because the
 // add-on is still desired).
-func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery, supervision string) {
+func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery, supervision string) bool {
 	root := resolveAddonArtifactRoot("")
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
@@ -402,10 +416,10 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 			Str("addon", a.GetAddonId()).
 			Msg("Systemd add-on delivery failed; leaving current state unchanged")
 
-		return
+		return false
 	}
 
-	p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
+	return p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
@@ -424,7 +438,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	a *proto.AddonAssignmentConfig,
 	supervision, runtimeRoot, priorTarget string,
 	install installUnitsFn,
-) {
+) bool {
 	root := resolveAddonArtifactRoot(runtimeRoot)
 
 	rollback := func(reason string, err error) {
@@ -437,22 +451,22 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	units, err := discoverStagedAddonUnits(runtimeRoot, a.GetAddonId())
 	if err != nil {
 		rollback("could not enumerate staged systemd units; not applied", err)
-		return
+		return false
 	}
 	if len(units) == 0 {
 		rollback("no systemd units in staged bundle; not applied", ErrAddonSystemdNoUnitsDiscovered)
-		return
+		return false
 	}
 
 	enable, err := pickPrimarySystemdUnit(units, supervision)
 	if err != nil {
 		rollback("could not select systemd unit to enable; not applied", err)
-		return
+		return false
 	}
 
 	if err := install(ctx, a.GetAddonId(), units, enable); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
-		return
+		return false
 	}
 
 	// If an update renamed or dropped unit files, uninstall the previously-installed
@@ -473,6 +487,8 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		Str("enable", enable).
 		Int("units", len(units)).
 		Msg("Installed systemd add-on")
+
+	return true
 }
 
 // systemdAddonUnits returns the unit names currently tracked as installed for an add-on.
@@ -544,7 +560,7 @@ func (p *PushLoop) reconcileSystemdAddons(ctx context.Context, desired map[strin
 // remote-access spawning rdp-adapter per session) can look it up. On a delivery/capability
 // failure it leaves any previously-registered path in place (the add-on stays desired, so
 // reconciliation will not deregister it) and retries on the next round.
-func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) {
+func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) bool {
 	resolved, err := p.stageAndCapability(ctx, a, delivery)
 	if err != nil {
 		p.logger.Warn().
@@ -552,7 +568,7 @@ func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssign
 			Str("addon", a.GetAddonId()).
 			Msg("Ephemeral-helper add-on delivery failed; leaving current state unchanged")
 
-		return
+		return false
 	}
 
 	if resolved == "" {
@@ -561,7 +577,7 @@ func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssign
 			Str("delivery", delivery).
 			Msg("Ephemeral-helper add-on missing a binary path; not applied")
 
-		return
+		return false
 	}
 
 	p.rememberEphemeralHelper(a.GetAddonId(), resolved)
@@ -569,6 +585,8 @@ func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssign
 		Str("addon", a.GetAddonId()).
 		Str("path", resolved).
 		Msg("Staged ephemeral-helper add-on (available for on-demand invocation)")
+
+	return true
 }
 
 // rememberEphemeralHelper records the resolved binary path of a staged ephemeral-helper
