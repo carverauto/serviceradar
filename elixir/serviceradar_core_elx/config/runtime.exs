@@ -760,6 +760,8 @@ if config_env() == :prod do
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+  host_slice_subscriber_enabled =
+    System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
 
   if event_writer_enabled do
     event_writer_creds = System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
@@ -878,9 +880,17 @@ if config_env() == :prod do
           processor: Flows,
           batch_size: 50,
           batch_timeout: 500
+        },
+        %{
+          name: "ATTRIBUTED_FLOW",
+          subject: "flow.attributed.>",
+          processor: Flows,
+          batch_size: 50,
+          batch_timeout: 500
         }
       ]
 
     config :serviceradar_core, :event_writer_enabled, true
+    config :serviceradar_core, :host_slice_subscriber_enabled, host_slice_subscriber_enabled
   end
 end
