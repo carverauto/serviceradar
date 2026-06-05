@@ -65,6 +65,7 @@ These are the usual images carried on the immutable `demo` tag:
 - `serviceradar-rperf-client`
 - `serviceradar-tools`
 - `serviceradar-trapd`
+- `serviceradar-trivy-sidecar`
 - `serviceradar-web-ng`
 - `serviceradar-zen`
 
@@ -88,8 +89,8 @@ Then mint a service account token and exchange it for a Vault token:
 
 ```bash
 OPENBAO_ADDR=http://127.0.0.1:18200
-OPENBAO_K8S_ROLE=forgejo-runner
-sa_jwt="$(kubectl create token -n forgejo-actions forgejo-runner)"
+OPENBAO_K8S_ROLE=forgejo-signing-runner
+sa_jwt="$(kubectl create token -n forgejo-actions forgejo-signing-runner)"
 vault_token="$({
   curl -fsSL \
     -H 'Content-Type: application/json' \
