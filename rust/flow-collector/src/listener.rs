@@ -1,6 +1,6 @@
 use crate::config::ListenerConfig;
 use crate::error::GetCurrentTimeError;
-use crate::flowpb::FlowMessage;
+use crate::flowpb::{AttributedFlowMessage, FlowMessage};
 use crate::host_slice::HostSliceRouter;
 use crate::metrics::{ListenerMetrics, SubjectDropRegistry};
 use crate::netflow::NetflowHandler;
@@ -58,6 +58,18 @@ pub fn filter_and_track_flows(
 /// Serialize a FlowMessage to protobuf bytes for downstream consumers.
 pub fn flow_to_bytes(msg: &FlowMessage) -> Vec<u8> {
     msg.encode_to_vec()
+}
+
+/// Serialize a host-slice message for the attribution joiner path.
+pub fn host_slice_flow_to_bytes(msg: &FlowMessage, agent_id: &str, partition: &str) -> Vec<u8> {
+    AttributedFlowMessage {
+        event_type: "host_slice_flow".to_string(),
+        flow: Some(msg.clone()),
+        attribution: None,
+        agent_id: agent_id.to_string(),
+        partition: partition.to_string(),
+    }
+    .encode_to_vec()
 }
 
 pub trait FlowHandler: Send + Sync {
@@ -137,9 +149,18 @@ impl Listener {
                             continue;
                         }
 
-                        for subject in self.host_slice_router.subjects_for_flow(&flow_msg) {
+                        for target in self.host_slice_router.targets_for_flow(&flow_msg) {
+                            let host_slice_encoded = host_slice_flow_to_bytes(
+                                &flow_msg,
+                                target.agent_id.as_ref(),
+                                target.partition.as_ref(),
+                            );
                             if !self
-                                .publish_encoded(protocol, subject, encoded.clone())
+                                .publish_encoded(
+                                    protocol,
+                                    target.subject.to_string(),
+                                    host_slice_encoded,
+                                )
                                 .await?
                             {
                                 break;
@@ -269,7 +290,7 @@ mod tests {
             .unwrap();
         handle.abort();
 
-        let mut subjects = vec![first.0, second.0];
+        let mut subjects = vec![first.0.clone(), second.0.clone()];
         subjects.sort();
 
         assert_eq!(
@@ -279,6 +300,18 @@ mod tests {
                 "flows.raw.test".to_string()
             ]
         );
+
+        let host_slice_payload = if first.0 == "flow.host-slice.agent-1" {
+            first.1.as_slice()
+        } else {
+            second.1.as_slice()
+        };
+        let decoded = AttributedFlowMessage::decode(host_slice_payload).expect("host slice decode");
+
+        assert_eq!(decoded.event_type, "host_slice_flow");
+        assert_eq!(decoded.agent_id, "agent-1");
+        assert_eq!(decoded.partition, "default");
+        assert!(decoded.flow.is_some());
     }
 
     #[tokio::test]

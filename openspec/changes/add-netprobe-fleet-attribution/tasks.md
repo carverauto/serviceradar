@@ -45,6 +45,8 @@
 - [ ] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
 - [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
 - [x] 7.11a Wire `EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED` into core runtime config and enable it in demo so `flow.host-slice.>` records can reach the in-memory attribution joiner.
+- [x] 7.11b Fix `flow-collector` host-slice fanout to publish `Flowpb.AttributedFlowMessage` payloads instead of raw `FlowMessage` bytes, matching `HostSliceSubscriber` and `AttributedFlowJoiner` expectations.
+- [x] 7.11c Add demo host-slice routing for the known Kubernetes worker agents and the `sr-test-pve04` test host so NetFlow records involving those host IPs are published to `flow.host-slice.<agent_id>` for attribution validation.
 - [ ] 7.12 Add a Linux worker performance smoke script or documented gate that records CPU, ring drops, IPC/queue lag, event rates, cache sizes, attribution row freshness, and protocol hit rates over a multi-minute sample
 - [ ] 7.13 Verify attribution-only netprobe stays below 1% sustained process CPU on representative busy Kubernetes workers with no persistent ring drops, IPC lag, queue drops, or attribution hit-rate regressions
 - [x] 7.14 Formalize the ServiceRadar attribution backend boundary (`EbpfAttributionBackend` plus bounded `MetadataEnricher`) so eBPF is the only PID/tuple attribution source and procfs is limited to post-attribution cmdline/container enrichment
