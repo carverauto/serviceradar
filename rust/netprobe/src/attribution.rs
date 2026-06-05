@@ -44,13 +44,6 @@ const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 // and shutdown state. Data readiness wakes it sooner.
 const FLOW_ATTRIBUTION_RING_MAX_WAIT: Duration = Duration::from_secs(1);
 #[cfg(target_os = "linux")]
-// Re-broadcast the live attribution cache on this cadence. Makes the drain
-// durable: a (re)connecting, briefly lagging, or previously-absent agent
-// reliably receives live attributions instead of permanently losing the
-// one-time broadcast (the broadcast channel drops sends when no receiver is
-// attached). Also the point at which stale cache entries are pruned.
-const FLOW_ATTRIBUTION_RESEND_INTERVAL: Duration = Duration::from_secs(15);
-#[cfg(target_os = "linux")]
 // Drop a cached attribution that has not been refreshed by a new ring record
 // within this window. TCP flows are normally evicted on close; this bounds the
 // cache for flows that never emit a close (and caps memory regardless of churn).
@@ -676,6 +669,13 @@ pub struct FlowAttributionRuntime {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug)]
+pub struct FlowAttributionRuntimeConfig {
+    pub process_snapshot_interval: Option<Duration>,
+    pub resend_interval: Option<Duration>,
+}
+
+#[cfg(target_os = "linux")]
 #[allow(dead_code)]
 impl FlowAttributionRuntime {
     pub fn start(
@@ -683,7 +683,7 @@ impl FlowAttributionRuntime {
         tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
         process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
         metrics: Metrics,
-        process_snapshot_interval: Option<Duration>,
+        runtime_config: FlowAttributionRuntimeConfig,
     ) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
@@ -691,19 +691,22 @@ impl FlowAttributionRuntime {
             .name("netprobe-flow-attribution-ring-reader".to_owned())
             .spawn(move || {
                 // Live attribution cache, keyed by (flow, pid, tgid). New flows are
-                // broadcast immediately; the whole cache is re-broadcast every
-                // RESEND_INTERVAL so a late/reconnecting agent still receives them.
+                // broadcast immediately. Optional cache re-broadcasts keep long-lived
+                // flows visible to reconnecting agents without flooding busy workers.
                 let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
-                let mut last_process_snapshot =
-                    process_snapshot_interval.map(|interval| Instant::now() - interval);
+                let mut last_process_snapshot = runtime_config
+                    .process_snapshot_interval
+                    .map(|interval| Instant::now() - interval);
                 let mut last_resend = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
                     drain_ring(&mut reader, &tx, &metrics, &mut cache);
-                    if last_resend.elapsed() >= FLOW_ATTRIBUTION_RESEND_INTERVAL {
-                        resend_cache(&tx, &metrics, &mut cache);
-                        last_resend = Instant::now();
+                    if let Some(resend_interval) = runtime_config.resend_interval {
+                        if last_resend.elapsed() >= resend_interval {
+                            resend_cache(&tx, &metrics, &mut cache);
+                            last_resend = Instant::now();
+                        }
                     }
-                    if let Some(interval) = process_snapshot_interval {
+                    if let Some(interval) = runtime_config.process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
                         if last.elapsed() >= interval {
                             emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
@@ -713,7 +716,8 @@ impl FlowAttributionRuntime {
 
                     let wait = ring_wait_duration(
                         last_resend,
-                        process_snapshot_interval,
+                        runtime_config.resend_interval,
+                        runtime_config.process_snapshot_interval,
                         last_process_snapshot,
                     );
                     if let Err(err) = reader.wait_for_records(wait) {
@@ -745,10 +749,13 @@ impl Drop for FlowAttributionRuntime {
 #[cfg(target_os = "linux")]
 fn ring_wait_duration(
     last_resend: Instant,
+    resend_interval: Option<Duration>,
     process_snapshot_interval: Option<Duration>,
     last_process_snapshot: Option<Instant>,
 ) -> Duration {
-    let resend_wait = FLOW_ATTRIBUTION_RESEND_INTERVAL.saturating_sub(last_resend.elapsed());
+    let resend_wait = resend_interval
+        .map(|interval| interval.saturating_sub(last_resend.elapsed()))
+        .unwrap_or(FLOW_ATTRIBUTION_RING_MAX_WAIT);
     let process_wait = match (process_snapshot_interval, last_process_snapshot) {
         (Some(interval), Some(last)) => interval.saturating_sub(last.elapsed()),
         (Some(_), None) => Duration::ZERO,

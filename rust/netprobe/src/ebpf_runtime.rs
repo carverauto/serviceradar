@@ -22,7 +22,7 @@ use std::{
 use crate::{
     af_xdp::{self, DEFAULT_REDIRECT_BUDGET},
     af_xdp_classifier::AfXdpClassifierRuntime,
-    attribution::{AyaAttributionReader, FlowAttributionRuntime},
+    attribution::{AyaAttributionReader, FlowAttributionRuntime, FlowAttributionRuntimeConfig},
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     event_queue::EventSender,
@@ -102,7 +102,7 @@ impl NetprobeEbpfRuntime {
             flow_attribution_events,
             process_snapshots,
             metrics.clone(),
-            process_snapshot_interval(config),
+            flow_attribution_runtime_config(config),
         )?;
 
         if config.capture_interfaces.is_empty() {
@@ -208,9 +208,13 @@ impl NetprobeEbpfRuntime {
     }
 }
 
-fn process_snapshot_interval(config: &Config) -> Option<Duration> {
-    (config.process_snapshot_interval_s > 0)
-        .then(|| Duration::from_secs(config.process_snapshot_interval_s))
+fn flow_attribution_runtime_config(config: &Config) -> FlowAttributionRuntimeConfig {
+    FlowAttributionRuntimeConfig {
+        process_snapshot_interval: (config.process_snapshot_interval_s > 0)
+            .then(|| Duration::from_secs(config.process_snapshot_interval_s)),
+        resend_interval: (config.flow_attribution_resend_interval_s > 0)
+            .then(|| Duration::from_secs(config.flow_attribution_resend_interval_s)),
+    }
 }
 
 fn fingerprint_interface_name(config: &Config) -> String {

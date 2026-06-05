@@ -7,6 +7,7 @@ use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
 pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 30;
+pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 120;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -19,6 +20,9 @@ pub struct Config {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     #[serde(default = "default_process_snapshot_interval_s")]
     pub process_snapshot_interval_s: u64,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[serde(default = "default_flow_attribution_resend_interval_s")]
+    pub flow_attribution_resend_interval_s: u64,
     #[serde(default = "default_external_flow_match_window_ms")]
     pub external_flow_match_window_ms: u32,
 }
@@ -43,6 +47,7 @@ impl Default for Config {
             capture_interfaces: Vec::new(),
             flow_table_max_entries: 0,
             process_snapshot_interval_s: DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
+            flow_attribution_resend_interval_s: DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
             external_flow_match_window_ms: default_external_flow_match_window_ms(),
         }
     }
@@ -120,11 +125,16 @@ fn default_process_snapshot_interval_s() -> u64 {
     DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S
 }
 
+fn default_flow_attribution_resend_interval_s() -> u64 {
+    DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
         effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
-        AllowlistError, Config, FLOW_TABLE_ENTRIES_PER_INTERFACE,
+        AllowlistError, Config, DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
+        FLOW_TABLE_ENTRIES_PER_INTERFACE,
     };
 
     #[test]
@@ -220,5 +230,15 @@ mod tests {
         };
 
         assert_eq!(config.effective_flow_table_max_entries(), 250_000);
+    }
+
+    #[test]
+    fn defaults_flow_attribution_resend_interval() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            config.flow_attribution_resend_interval_s,
+            DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
+        );
     }
 }
