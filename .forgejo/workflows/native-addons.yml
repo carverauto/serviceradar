@@ -176,10 +176,14 @@ jobs:
           fi
 
           ./scripts/push_all_native_addons.sh "${push_args[@]}"
-          source ./scripts/ci/prepare-openbao-cosign-env.sh
-          ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
-          ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
-          unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+          if [[ "${GITHUB_REF:-}" =~ ${OPENBAO_SIGNING_ALLOWED_REFS_REGEX} ]]; then
+            source ./scripts/ci/prepare-openbao-cosign-env.sh
+            ./scripts/sign-native-addon-publish.sh "${verify_tags[@]}"
+            ./scripts/verify-native-addon-publish.sh "${verify_tags[@]}"
+            unset VAULT_TOKEN VAULT_ADDR COSIGN_KEY_REF
+          else
+            echo "Skipping OpenBao cosign signing for non-release ref '${GITHUB_REF:-}'."
+          fi
 
       - name: Generate import index
         env:
