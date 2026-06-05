@@ -797,13 +797,10 @@ func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
 
 func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
 	pl := &PushLoop{}
-	client, err := pl.gatewayAddonHTTPClient(&proto.AddonAssignmentConfig{
+	client := pl.gatewayAddonHTTPClient(&proto.AddonAssignmentConfig{
 		AddonId:     "gw",
 		DownloadUrl: "https://demo.serviceradar.cloud/api/addon-packages/pkg/blob/download",
 	})
-	if err != nil {
-		t.Fatalf("gatewayAddonHTTPClient() error = %v", err)
-	}
 	if client == nil {
 		t.Fatal("gatewayAddonHTTPClient() returned nil client")
 	}

@@ -145,13 +145,9 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	// When the control plane supplied a gateway download_url, fetch the artifact over
 	// HTTPS through the gateway/web-ng addon-blob endpoint (mirroring WASM plugins)
 	// instead of touching the object store directly. External agents (no kv_address,
-	// hence no objectStore) rely on this path. The mTLS client is built from the
-	// agent's gateway security config; verification (sha256 + ed25519 signature) is
-	// applied to the fetched bytes regardless of which path produced them.
-	httpClient, err := p.gatewayAddonHTTPClient(a)
-	if err != nil {
-		return "", err
-	}
+	// hence no objectStore) rely on this path. Verification (sha256 + ed25519
+	// signature) is applied to the fetched bytes regardless of which path produced them.
+	httpClient := p.gatewayAddonHTTPClient(a)
 
 	root := resolveAddonArtifactRoot("")
 	addonDir := filepath.Join(root, a.GetAddonId())
@@ -195,12 +191,12 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 // Add-on blob URLs are public web/API URLs protected by short-lived download tokens.
 // They are not the mTLS agent-gateway artifact transport used for self-updates, so
 // use the platform trust store and let TLS verify the URL hostname normally.
-func (p *PushLoop) gatewayAddonHTTPClient(a *proto.AddonAssignmentConfig) (*http.Client, error) {
+func (p *PushLoop) gatewayAddonHTTPClient(a *proto.AddonAssignmentConfig) *http.Client {
 	if strings.TrimSpace(a.GetDownloadUrl()) == "" {
-		return nil, nil
+		return nil
 	}
 
-	return addonArtifactHTTPClient(), nil
+	return addonArtifactHTTPClient()
 }
 
 func addonArtifactHTTPClient() *http.Client {
