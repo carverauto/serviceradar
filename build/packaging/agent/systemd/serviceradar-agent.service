@@ -18,7 +18,10 @@ Environment="KV_KEY_FILE=/etc/serviceradar/certs/component-key.pem"
 Environment="KV_CA_FILE=/etc/serviceradar/certs/ca-chain.pem"
 EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 AmbientCapabilities=CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_RAW
+# The agent process only receives CAP_NET_RAW above. The broader bounding set is
+# for the constrained setuid-root agent-updater child process, which applies
+# add-on file capabilities and installs systemd units for pushed native add-ons.
+CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN
 Restart=always
 RestartSec=10
 LimitNPROC=512

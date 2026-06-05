@@ -219,6 +219,11 @@ func InstallAddonSystemdUnits(ctx context.Context, req AddonSystemdInstallReques
 			cleanup()
 			return err
 		}
+		if err := runSystemctl(ctx, "restart", enable); err != nil {
+			_ = runSystemctl(ctx, "disable", "--now", enable)
+			cleanup()
+			return err
+		}
 	}
 
 	return nil
