@@ -58,6 +58,7 @@
 - [x] 7.22 Remove synchronous procfs metadata reads from flow attribution: emitted rows use eBPF PID/TGID/UID/GID/comm immediately, while rate-limited cold-path cmdline/container enrichment re-emits cached events when metadata becomes available.
 - [x] 7.23 Emit dirty listener snapshots immediately after eBPF ring drains, keeping the 30s snapshot timer as a prune/reconciliation heartbeat instead of delaying real inventory changes behind a longer interval.
 - [ ] 7.24 Preserve cmdline and container ID as required forensic enrichment fields while replacing procfs cmdline/container reads with eBPF process exec argument capture plus cgroup/container metadata keyed by process generation, keeping procfs out of normal attribution/enrichment on busy workers.
+- [ ] 7.25 Replace raw `FlowAttributionEventBatch` as the steady-state correlation feed with external NetFlow host-slice routing into the owning netprobe IPC matcher; raw-on canary on `k8s-cp3-worker3` measured ~4.2% process CPU and is not acceptable as the default bridge.
 
 ## 8. Demo/CNPG scale guardrails
 - [ ] 8.1 Investigate demo namespace Postgrex/CNPG timeouts observed during netprobe fleet rollout, including `TopologyStateCleanupWorker` queue/check-out timeouts and canonical edge telemetry refresh failures.
