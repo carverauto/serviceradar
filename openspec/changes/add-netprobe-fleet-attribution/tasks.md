@@ -61,7 +61,8 @@
 - [ ] 7.25 Replace raw `FlowAttributionEventBatch` as the steady-state correlation feed with external NetFlow host-slice routing into the owning netprobe IPC matcher; raw-on canary on `k8s-cp3-worker3` measured ~4.2% process CPU and is not acceptable as the default bridge.
 
 ## 8. Demo/CNPG scale guardrails
-- [ ] 8.1 Investigate demo namespace Postgrex/CNPG timeouts observed during netprobe fleet rollout, including `TopologyStateCleanupWorker` queue/check-out timeouts and canonical edge telemetry refresh failures.
+- [ ] 8.1 Investigate demo namespace Postgrex/CNPG timeouts observed during netprobe fleet rollout, including `TopologyStateCleanupWorker` 60s queue/check-out timeouts, `ssl recv: closed`, canonical edge telemetry refresh failures, and whether the triggering load is pool starvation, slow topology cleanup, flow/OCSF write amplification, retention debt, or continuous aggregate refresh lag.
 - [ ] 8.2 Audit high-volume netprobe, flow, topology, and OCSF write paths for retention policies, Timescale hypertable settings, compression, continuous aggregates, and indexes; add migrations for missing platform-schema policies only.
-- [ ] 8.3 Add operational scale targets and load-test evidence for thousands of agents and a 50,000-agent design point, including CNPG pool sizing, writer backpressure, cleanup job cadence, and dashboard query latency.
-- [ ] 8.4 Add monitoring/runbook coverage for DB pool saturation, long-running topology cleanup, CAGG refresh lag, retention lag, and netprobe-induced write amplification.
+- [ ] 8.3 Add operational scale targets and load-test evidence for thousands of agents and a 50,000-agent design point, including CNPG pool sizing, writer backpressure, cleanup job cadence, CAGG refresh cadence, retention/compression policy lag, and dashboard query latency.
+- [ ] 8.4 Add monitoring/runbook coverage for DB pool saturation, long-running topology cleanup, CAGG refresh lag, retention lag, connection checkout latency, and netprobe-induced write amplification.
+- [ ] 8.5 Add a regression/perf gate that fails when demo-scale attribution rollout causes Postgrex checkout latency or CNPG query latency to exceed agreed thresholds, so netprobe CPU improvements do not mask database-side saturation.
