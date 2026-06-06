@@ -1950,7 +1950,7 @@ mod tests {
     use super::{
         insert_cached_attribution, process_details_from_record, prune_attribution_cache,
         refresh_enriched_attributions, AttributionExpiryQueue, CachedAttribution,
-        ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
+        FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
         EVENT_INET_SOCK_SET_STATE, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
         FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };

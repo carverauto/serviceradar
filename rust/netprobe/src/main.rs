@@ -49,6 +49,8 @@ mod server;
 #[cfg(feature = "remote-capture")]
 #[allow(dead_code)]
 mod tls_server;
+#[allow(dead_code)]
+mod workload_identity;
 
 use std::{
     path::PathBuf,
