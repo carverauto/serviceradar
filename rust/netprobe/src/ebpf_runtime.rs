@@ -32,8 +32,8 @@ use crate::{
     metrics::Metrics,
     proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
     runtime_config::{DpiEventGate, FingerprintEventGate},
-    workload_identity::WorkloadIdentityRuntime,
 };
+use serviceradar_workload_identity::WorkloadIdentityRuntime;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -14,10 +14,8 @@ NETPROBE_DEPS = crate_deps([
     "anyhow",
     "clap",
     "crossbeam-channel",
-    "cri-api",
     "env_logger",
     "etherparse",
-    "hyper-util",
     "libc",
     "log",
     "nix",
@@ -31,8 +29,6 @@ NETPROBE_DEPS = crate_deps([
     "sha2",
     "thiserror",
     "tokio",
-    "tonic",
-    "tower",
 ]) + select({
     "//build/platforms:target_linux_aarch64_musl": crate_deps([
         "aya",
@@ -57,6 +53,7 @@ NETPROBE_DEPS = crate_deps([
     "//conditions:default": [],
 }) + [
     ":build_script",
+    "//rust/workload-identity:workload_identity",
 ]
 
 NETPROBE_RUSTC_FLAGS = select({
@@ -111,22 +108,6 @@ rust_binary(
     ] + glob(["recog-corpus/xml/*.xml"]),
     crate_features = NETPROBE_FEATURES,
     crate_root = "src/main.rs",
-    edition = "2021",
-    rustc_flags = NETPROBE_RUSTC_FLAGS,
-    version = NETPROBE_VERSION,
-    deps = NETPROBE_DEPS,
-)
-
-rust_binary(
-    name = "netprobe_workload_identity_check",
-    srcs = glob(["src/**/*.rs"]),
-    compile_data = [
-        "p0f-corpus/p0f.fp",
-        "p0f-corpus/serviceradar-additions.fp",
-        "recog-corpus/serviceradar-recog-additions.xml",
-    ] + glob(["recog-corpus/xml/*.xml"]),
-    crate_features = NETPROBE_FEATURES,
-    crate_root = "src/bin/netprobe-workload-identity-check.rs",
     edition = "2021",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
     version = NETPROBE_VERSION,

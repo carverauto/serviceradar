@@ -10,7 +10,7 @@ use std::{
 use std::{
     cmp::{Ordering as CmpOrdering, Reverse},
     collections::{BinaryHeap, VecDeque},
-    hash::{BuildHasherDefault, Hasher},
+    hash::{BuildHasherDefault, Hash, Hasher},
     io, mem,
     os::fd::AsRawFd,
     ptr,
@@ -27,15 +27,12 @@ use crate::af_xdp_classifier::FlowKey;
 use crate::event_queue::EventSender;
 #[cfg(target_os = "linux")]
 use crate::external_flow::SharedExternalFlowMatcher;
-use crate::{
-    proto::netprobe::{
-        FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry,
-        WorkloadIdentity as WorkloadIdentityPayload,
-    },
-    workload_identity::{
-        MetadataConfidence, SharedWorkloadIdentityCache,
-        WorkloadIdentity as RuntimeWorkloadIdentity,
-    },
+use crate::proto::netprobe::{
+    FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry,
+    WorkloadIdentity as WorkloadIdentityPayload,
+};
+use serviceradar_workload_identity::{
+    MetadataConfidence, SharedWorkloadIdentityCache, WorkloadIdentity as RuntimeWorkloadIdentity,
 };
 
 #[cfg(target_os = "linux")]
@@ -82,7 +79,7 @@ const PROCESS_DETAILS_COLD_READS_PER_SECOND: u32 = 1;
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 #[cfg(target_os = "linux")]
-// Mirrors EVENT_TCP_CLOSE in the eBPF: a close record evicts the flow.
+// Mirrors EVENT_TCP_CLOSE in the eBPF.
 const EVENT_TCP_CLOSE: u16 = 3;
 #[cfg(target_os = "linux")]
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
@@ -90,6 +87,11 @@ const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 const TCP_CLOSE_STATE: i32 = 7;
 #[cfg(target_os = "linux")]
 const TCP_LISTEN_STATE: i32 = 10;
+#[cfg(target_os = "linux")]
+// Keep long-lived tuples fresh enough for delayed central NetFlow joins without
+// replaying every kernel refresh. This is deliberately shorter than the core
+// correlation skew (15 minutes today) and longer than the eBPF 60s refresh.
+const FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
 
 #[cfg(target_os = "linux")]
 type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
@@ -1121,6 +1123,8 @@ struct CachedAttribution {
     event: Arc<FlowAttributionEvent>,
     process_key: ProcessDetailsCacheKey,
     last_seen: Instant,
+    last_emitted: Instant,
+    last_emitted_fingerprint: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -1230,16 +1234,14 @@ fn drain_ring(
         if record.event_kind == EVENT_TCP_CLOSE {
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
-                remove_cached_attribution(cache, process_index, &key);
-                external_flow_matcher.remove_flow(&key.flow);
+                touch_closed_cached_attribution(cache, &key);
             }
             continue;
         }
         if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
-                remove_cached_attribution(cache, process_index, &key);
-                external_flow_matcher.remove_flow(&key.flow);
+                touch_closed_cached_attribution(cache, &key);
             }
             continue;
         }
@@ -1250,8 +1252,10 @@ fn drain_ring(
         if let Some(existing) = cache.get_mut(&key) {
             metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
+                let now = Instant::now();
                 Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
-                existing.last_seen = Instant::now();
+                existing.last_seen = now;
+                maybe_emit_cached_attribution(tx, metrics, existing, now);
                 continue;
             }
         }
@@ -1276,13 +1280,15 @@ fn drain_ring(
         };
         let process_key = ProcessDetailsCacheKey::from(record);
         let event = Arc::new(event);
+        let now = Instant::now();
         if let Some(existing) = cache.get_mut(&key) {
             existing.event = event;
             if existing.process_key != process_key {
                 move_process_index(process_index, key, existing.process_key, process_key);
                 existing.process_key = process_key;
             }
-            existing.last_seen = Instant::now();
+            existing.last_seen = now;
+            maybe_emit_cached_attribution(tx, metrics, existing, now);
         } else {
             external_flow_matcher.observe_attribution_key(key.flow, &event);
             emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&event));
@@ -1293,9 +1299,11 @@ fn drain_ring(
                 next_expiry_sequence,
                 key,
                 CachedAttribution {
+                    last_emitted: now,
+                    last_emitted_fingerprint: attribution_event_fingerprint(&event),
                     event,
                     process_key,
-                    last_seen: Instant::now(),
+                    last_seen: now,
                 },
             );
         }
@@ -1325,8 +1333,9 @@ fn resend_cache(
         next_expiry_sequence,
         Instant::now(),
     );
-    for entry in cache.values() {
-        emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&entry.event));
+    let now = Instant::now();
+    for entry in cache.values_mut() {
+        emit_cached_attribution(tx, metrics, entry, now);
     }
 }
 
@@ -1357,6 +1366,13 @@ fn remove_cached_attribution(
     let removed = cache.remove(key)?;
     remove_process_index_key(process_index, removed.process_key, key);
     Some(removed)
+}
+
+#[cfg(target_os = "linux")]
+fn touch_closed_cached_attribution(cache: &mut FlowAttributionCache, key: &FlowAttributionJoinKey) {
+    if let Some(entry) = cache.get_mut(key) {
+        entry.last_seen = Instant::now();
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -1482,11 +1498,42 @@ fn refresh_enriched_attributions(
                 continue;
             }
             Arc::make_mut(&mut entry.event).observed_at_unix_nano = now_unix_nano();
-            entry.last_seen = Instant::now();
+            let now = Instant::now();
+            entry.last_seen = now;
             external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
-            emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&entry.event));
+            emit_cached_attribution(tx, metrics, entry, now);
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn maybe_emit_cached_attribution(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    metrics: &Metrics,
+    entry: &mut CachedAttribution,
+    now: Instant,
+) {
+    let fingerprint = attribution_event_fingerprint(&entry.event);
+    if fingerprint != entry.last_emitted_fingerprint
+        || now.duration_since(entry.last_emitted) >= FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL
+    {
+        emit_cached_attribution(tx, metrics, entry, now);
+    } else {
+        metrics.inc_flow_attribution_events_dropped("duplicate_coalesced", 1);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn emit_cached_attribution(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    metrics: &Metrics,
+    entry: &mut CachedAttribution,
+    now: Instant,
+) {
+    let event = Arc::clone(&entry.event);
+    entry.last_emitted = now;
+    entry.last_emitted_fingerprint = attribution_event_fingerprint(&event);
+    emit_raw_flow_attribution_event(tx, metrics, event);
 }
 
 #[cfg(target_os = "linux")]
@@ -1694,6 +1741,70 @@ fn trim_to_utf8_boundary(value: &str, max_bytes: usize) -> String {
         cut -= 1;
     }
     value[..cut].to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_event_fingerprint(event: &FlowAttributionEvent) -> u64 {
+    let mut hasher = FastHasher::default();
+    event.local_ip.hash(&mut hasher);
+    event.local_port.hash(&mut hasher);
+    event.remote_ip.hash(&mut hasher);
+    event.remote_port.hash(&mut hasher);
+    event.transport_protocol.hash(&mut hasher);
+    event.pid.hash(&mut hasher);
+    event.tgid.hash(&mut hasher);
+    event.uid.hash(&mut hasher);
+    event.gid.hash(&mut hasher);
+    event.comm.hash(&mut hasher);
+    event.redacted_cmdline.hash(&mut hasher);
+    event.container_id.hash(&mut hasher);
+    event.socket_address.hash(&mut hasher);
+    event.event_kind.hash(&mut hasher);
+    event.old_state.hash(&mut hasher);
+    event.new_state.hash(&mut hasher);
+    event.source.hash(&mut hasher);
+    event.external_flow_id.hash(&mut hasher);
+    workload_identity_fingerprint(event.workload_identity.as_ref(), &mut hasher);
+    hasher.finish()
+}
+
+#[cfg(target_os = "linux")]
+fn workload_identity_fingerprint(
+    identity: Option<&WorkloadIdentityPayload>,
+    hasher: &mut FastHasher,
+) {
+    let Some(identity) = identity else {
+        0_u8.hash(hasher);
+        return;
+    };
+
+    1_u8.hash(hasher);
+    identity.pod_sandbox_id.hash(hasher);
+    identity.pod_name.hash(hasher);
+    identity.pod_namespace.hash(hasher);
+    identity.pod_uid.hash(hasher);
+    identity.container_id.hash(hasher);
+    identity.container_name.hash(hasher);
+    identity.image.hash(hasher);
+    identity.image_ref.hash(hasher);
+    identity.runtime_pid.hash(hasher);
+    identity.cgroup_path.hash(hasher);
+    identity.runtime_source.hash(hasher);
+    identity.confidence.hash(hasher);
+    identity.degradation_reason.hash(hasher);
+    hash_string_map(&identity.labels, hasher);
+    hash_string_map(&identity.annotations, hasher);
+}
+
+#[cfg(target_os = "linux")]
+fn hash_string_map(map: &HashMap<String, String>, hasher: &mut FastHasher) {
+    let mut entries = map.iter().collect::<Vec<_>>();
+    entries.sort_unstable_by(|(left, _), (right, _)| left.cmp(right));
+    entries.len().hash(hasher);
+    for (key, value) in entries {
+        key.hash(hasher);
+        value.hash(hasher);
+    }
 }
 
 fn flow_attribution_event(
@@ -2433,6 +2544,66 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
+    fn close_keeps_cached_attribution_for_delayed_central_join() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let key = join_key(443, 51_000, 123, 42);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            key,
+            cached_attribution(process, "app"),
+        );
+
+        touch_closed_cached_attribution(&mut cache, &key);
+
+        assert!(cache.contains_key(&key));
+        assert!(process_index
+            .get(&process)
+            .is_some_and(|keys| keys.contains(&key)));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn duplicate_cached_attribution_is_coalesced_until_heartbeat() {
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let (tx, mut rx) = crate::event_queue::bounded(4);
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let mut entry = cached_attribution(process, "app");
+        let now = std::time::Instant::now();
+        entry.last_emitted = now;
+        entry.last_emitted_fingerprint = attribution_event_fingerprint(&entry.event);
+
+        maybe_emit_cached_attribution(Some(&tx), &metrics, &mut entry, now);
+        assert!(rx.try_recv().is_err());
+
+        maybe_emit_cached_attribution(
+            Some(&tx),
+            &metrics,
+            &mut entry,
+            now + FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
+        );
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
     fn prune_attribution_cache_enforces_max_entries_and_index() {
         let mut cache = FlowAttributionCache::default();
         let mut process_index = ProcessAttributionIndex::default();
@@ -2735,9 +2906,12 @@ mod tests {
                 new_state: 1,
                 source: String::new(),
                 external_flow_id: 0,
+                workload_identity: None,
             }),
             process_key,
             last_seen: std::time::Instant::now(),
+            last_emitted: std::time::Instant::now(),
+            last_emitted_fingerprint: 0,
         }
     }
 

@@ -8,6 +8,8 @@
 ## 1a. Minimal Viable Milestone
 - [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
 - [x] 1a.1a Wire the initial opt-in Kubernetes CRI cache into netprobe startup and attach CRI workload identity to attributed flow/process payloads by container ID.
+- [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe consumes workload identity as an optional dependency instead of owning the collector.
+- [ ] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
@@ -16,6 +18,7 @@
 ## 2. Collector Contract
 - [ ] 2.1 Define `WorkloadIdentityBackend` traits/interfaces for eBPF/cgroup identity, CRI/containerd, Docker/Compose, and optional Kubernetes inventory overlay.
 - [x] 2.1a Introduce the initial Rust workload identity backend boundary for cgroup parsing and CRI runtime lookups so the Kubernetes MVP can use the same interface before Docker/Compose and overlay backends are added.
+- [x] 2.1b Move the initial backend boundary out of `rust/netprobe` into `rust/workload-identity` so future inventory, Docker/Compose, and Kubernetes overlay consumers do not depend on netprobe.
 - [ ] 2.2 Define stable workload identity event schema with process generation, cgroup ID/path, netns, container ID, pod UID, namespace, pod/container names, image, labels/annotations, compose service/project, runtime source, and confidence/degradation fields.
 - [x] 2.2a Add MVP confidence and degradation fields to the Rust workload identity payload so CRI hits and degraded lookups can be surfaced without changing the payload shape later.
 - [x] 2.2b Add workload identity fields to netprobe protobuf messages and flow attribution storage so attributed flows can carry CRI metadata end to end.

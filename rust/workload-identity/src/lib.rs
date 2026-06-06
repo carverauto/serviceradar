@@ -1,3 +1,5 @@
+//! Node-local workload identity collection and runtime metadata enrichment.
+
 use std::{
     collections::{BTreeMap, HashMap},
     fs,

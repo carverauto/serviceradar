@@ -576,6 +576,14 @@ crates = use_extension(
     "crate",
 )
 crates.annotation(
+    build_script_data = ["@bazel_tools//tools/proto:protoc"],
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    crate = "cri-api",
+    repositories = ["rust_crates"],
+)
+crates.annotation(
     crate = "reqsign",
     repositories = ["rust_crates"],
     deps = [

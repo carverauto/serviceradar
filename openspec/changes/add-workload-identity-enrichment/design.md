@@ -30,9 +30,11 @@ This milestone should be implementation-gated separately from the broader worklo
 The MVP acceptance test should be narrow: on a demo Kubernetes worker, a containerized attributed flow must show pod namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and explicit degradation fields without granting Kubernetes API credentials to the host agent.
 
 ## MVP Packaging Decision
-Ship the Kubernetes MVP as a native host add-on first, using the ServiceRadar agents already installed on worker nodes. This matches the current netprobe rollout and commandbus/config-update path, and it avoids broad Kubernetes API/RBAC for the baseline CRI path.
+Ship the Kubernetes MVP as a standalone workload-identity capability first, using the ServiceRadar agents already installed on worker nodes. Netprobe is an optional consumer of this capability, not the owner of CRI, Docker, Compose, or Kubernetes metadata. This avoids broad Kubernetes API/RBAC for the baseline CRI path while keeping workload identity useful for customers that want container/pod inventory even when flow attribution is disabled.
 
-The collector implementation should still keep deployment packaging separate from runtime metadata logic so the same binary can later be delivered as a Kubernetes DaemonSet, Docker Compose service, or least-privileged local metadata helper/proxy.
+The collector implementation should keep deployment packaging separate from runtime metadata logic so the same library and binary can later be delivered as a native add-on, Kubernetes DaemonSet, Docker Compose service, or least-privileged local metadata helper/proxy.
+
+The Rust boundary should live outside netprobe. Netprobe may link the shared workload identity crate and attach best-known metadata to flow/process payloads when configured, but the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
 
 ## Key Point: CRI Is Enough For Baseline Pod Identity
 On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:

@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use clap::Parser;
 use serde::Serialize;
-use serviceradar_netprobe::workload_identity::{
+use serviceradar_workload_identity::{
     discover_cri_endpoint, CriContainerLookup, CriEndpoint, CriRuntimeClient,
 };
 

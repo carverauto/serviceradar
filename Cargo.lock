@@ -6942,11 +6942,9 @@ dependencies = [
  "aya-ebpf",
  "aya-log",
  "clap 4.6.1",
- "cri-api",
  "crossbeam-channel",
  "env_logger 0.11.10",
  "etherparse",
- "hyper-util",
  "libc",
  "log 0.4.30",
  "nix 0.31.3",
@@ -6961,12 +6959,11 @@ dependencies = [
  "regex-automata",
  "serde 1.0.228",
  "serde_json 1.0.150",
+ "serviceradar-workload-identity",
  "sha2 0.10.9",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "tonic 0.12.3",
- "tower 0.4.13",
 ]
 
 [[package]]
@@ -7044,6 +7041,23 @@ dependencies = [
  "tonic-build",
  "tonic-health",
  "tonic-reflection",
+]
+
+[[package]]
+name = "serviceradar-workload-identity"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap 4.6.1",
+ "cri-api",
+ "hyper-util",
+ "log 0.4.30",
+ "serde 1.0.228",
+ "serde_json 1.0.150",
+ "tempfile",
+ "tokio",
+ "tonic 0.12.3",
+ "tower 0.4.13",
 ]
 
 [[package]]
