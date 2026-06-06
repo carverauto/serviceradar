@@ -851,9 +851,7 @@ mod tests {
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 0);
-        let Some(netprobe_frame::Payload::FlowAttributionEvent(event)) = response.payload else {
-            panic!("expected flow attribution event");
-        };
+        let event = first_flow_attribution_event(response);
         assert_eq!(event.local_ip, "192.0.2.10");
         assert_eq!(event.pid, 123);
 
@@ -965,10 +963,7 @@ mod tests {
         flow_tx.send(flow_attribution_event()).unwrap();
 
         let local = read_frame(&mut client).await.unwrap().unwrap();
-        assert!(matches!(
-            local.payload,
-            Some(netprobe_frame::Payload::FlowAttributionEvent(_))
-        ));
+        assert_eq!(first_flow_attribution_event(local).pid, 123);
 
         write_frame(
             &mut client,
@@ -1419,6 +1414,18 @@ mod tests {
             .find(|family| family.name() == name)
             .and_then(|family| family.get_metric().first().map(|m| m.get_counter().value()))
             .unwrap_or(0.0) as u64
+    }
+
+    fn first_flow_attribution_event(frame: NetprobeFrame) -> FlowAttributionEvent {
+        match frame.payload {
+            Some(netprobe_frame::Payload::FlowAttributionEvent(event)) => event,
+            Some(netprobe_frame::Payload::FlowAttributionBatch(batch)) => batch
+                .events
+                .into_iter()
+                .next()
+                .expect("expected non-empty flow attribution batch"),
+            other => panic!("expected flow attribution event or batch, got {other:?}"),
+        }
     }
 
     fn flow_attribution_event() -> FlowAttributionEvent {
