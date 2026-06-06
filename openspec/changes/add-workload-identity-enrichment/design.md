@@ -14,6 +14,15 @@ Build a shared workload identity collector contract with deployment-specific pac
 - Docker/Compose: run as the host agent add-on or sidecar service. It reads eBPF/kernel context plus Docker/containerd metadata when explicitly enabled.
 - Optional Kubernetes inventory overlay: add a separate cluster component with narrow RBAC to watch pods, replica sets, deployments, stateful sets, daemon sets, jobs, namespaces, and selected labels/annotations. This component publishes signed inventory snapshots that node-local collectors or core can join by pod UID.
 
+## Minimal Viable Milestone
+The first implementation should stop at node-local cgroup plus CRI enrichment on Kubernetes workers:
+- Join eBPF process/socket/cgroup identity to local CRI/containerd metadata.
+- Emit namespace, pod name, pod UID, container name, image, node, runtime source, and degradation fields.
+- Surface that context on attributed flow rows/details.
+- Prove CPU, queue lag, and CNPG write volume stay within the netprobe performance budget.
+
+Docker/Compose metadata and the optional Kubernetes inventory overlay are follow-on milestones that reuse the same schema and backend boundary.
+
 ## Key Point: CRI Is Enough For Baseline Pod Identity
 On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:
 - pod name
@@ -30,6 +39,8 @@ Runtime sockets are powerful. A read-only hostPath mount does not make a Unix so
 
 Controls:
 - Socket access is opt-in per deployment.
+- Use read-only hostPath mounts for socket paths where the platform supports them, but do not rely on mount mode as the security boundary.
+- Provide AppArmor/SELinux profile guidance for the collector and any metadata helper so runtime metadata access is intentionally scoped.
 - The collector records which metadata source was used: eBPF-only, CRI, Docker API, containerd, Kubernetes inventory overlay, or fallback.
 - Where possible, use a small local metadata proxy/helper that exposes only read methods needed by ServiceRadar instead of giving the main agent full runtime API access.
 - Publish degradation counters when metadata sources are unavailable or disabled.
@@ -53,3 +64,4 @@ Controls:
 - Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
+- How long should raw flow and workload identity observations remain available for late enrichment before retention pruning, and how do we bound that window so CNPG storage does not grow with high-volume agents?

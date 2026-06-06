@@ -1,8 +1,13 @@
 ## 1. Discovery and Architecture
 - [ ] 1.1 Inventory existing netprobe process/container fields, attributed flow query shape, device detail process-listener payloads, and any current container ID parsing helpers.
-- [ ] 1.2 Validate worker-local CRI metadata on demo Kubernetes nodes: containerd socket path, available pod/container labels, annotations, image IDs, sandbox IDs, and namespace/name/UID fields.
-- [ ] 1.3 Validate Docker/Compose metadata on a non-Kubernetes host: Docker socket availability, Compose labels, container names, image IDs/digests, networks, published ports, and bind mounts.
+- [ ] 1.2 Validate worker-local CRI metadata on demo Kubernetes nodes: containerd socket path, available pod/container labels, annotations, image IDs, sandbox IDs, and namespace/name/UID fields. Capture quick validation commands such as `crictl pods`, `crictl ps`, `crictl inspect`, and `crictl inspectp` for the runbook.
+- [ ] 1.3 Validate Docker/Compose metadata on a non-Kubernetes host: Docker socket availability, Compose labels, container names, image IDs/digests, networks, published ports, and bind mounts. Capture quick validation commands such as `docker ps`, `docker inspect`, `docker compose ps`, and `docker events`.
 - [ ] 1.4 Decide first packaging target: native host add-on, Kubernetes DaemonSet, Docker Compose service, or one binary with all three manifests.
+
+## 1a. Minimal Viable Milestone
+- [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
+- [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
+- [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
 
 ## 2. Collector Contract
 - [ ] 2.1 Define `WorkloadIdentityBackend` traits/interfaces for eBPF/cgroup identity, CRI/containerd, Docker/Compose, and optional Kubernetes inventory overlay.
@@ -36,7 +41,7 @@
 ## 7. Security and Operations
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
-- [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, hostPath mounts, and Kubernetes RBAC.
+- [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles, and Kubernetes RBAC.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.
 
 ## 8. Verification

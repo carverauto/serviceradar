@@ -25,6 +25,16 @@ The system SHALL resolve Kubernetes container and pod identity from node-local C
 - **AND** it records an explicit workload identity degradation reason
 - **AND** it increments source-specific miss/error metrics
 
+### Requirement: Minimal viable Kubernetes workload identity
+The first workload identity implementation SHALL provide Kubernetes worker-local cgroup plus CRI enrichment before Docker/Compose enrichment or Kubernetes owner-overlay enrichment are required.
+
+#### Scenario: MVP enriches a Kubernetes flow
+- **GIVEN** netprobe attributes a flow to a containerized process on a Kubernetes worker
+- **AND** local CRI/containerd metadata is available
+- **WHEN** the MVP workload identity collector processes the attribution
+- **THEN** the resulting flow context includes namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation fields
+- **AND** it does not require Kubernetes API credentials on the host agent
+
 ### Requirement: Optional Kubernetes inventory overlay
 The system SHALL support an optional Kubernetes inventory overlay for owner chains and mutable metadata that CRI does not reliably provide.
 
@@ -97,3 +107,9 @@ The system SHALL store workload identity observations with bounded retention and
 - **WHEN** retention cleanup runs
 - **THEN** expired raw observations are pruned or compacted
 - **AND** current workload identity state needed for active flows remains queryable
+
+#### Scenario: Correlation window is bounded
+- **GIVEN** workload identity enrichment is enabled for high-volume agents
+- **WHEN** raw flow or workload identity observations are held for late enrichment
+- **THEN** the retention window is explicitly configurable
+- **AND** storage metrics expose raw observation volume and oldest retained observation age
