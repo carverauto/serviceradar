@@ -1,0 +1,55 @@
+## Context
+ServiceRadar now has host process attribution for flows, but the forensic surface is still too low-level. A row with `redis-server`, a PID, and a container ID does not tell an operator which pod, namespace, deployment, Docker Compose service, image, or mounted data path they need to inspect.
+
+Modern eBPF agents solve this by joining kernel-visible identity with runtime/orchestrator metadata:
+- eBPF provides PID/TGID, UID/GID, comm, cgroup ID/path, netns, socket tuples, and process lifecycle.
+- CRI/container runtimes resolve container IDs and sandbox IDs into pod/container names, image references, labels, annotations, and namespace/name/UID fields.
+- Kubernetes API or kube-state inventory resolves owner chains and mutable workload metadata that are not fully available from CRI.
+- Docker and Compose metadata resolves container names, image digests, labels, networks, ports, mounts, and service/project labels for non-Kubernetes installs.
+
+## Decision
+Build a shared workload identity collector contract with deployment-specific packaging:
+
+- Kubernetes: run node-local as a privileged DaemonSet or native host add-on on each worker. It reads eBPF/kernel context and local CRI/runtime metadata from the node. It does not need broad Kubernetes API access for the baseline pod/container identity path.
+- Docker/Compose: run as the host agent add-on or sidecar service. It reads eBPF/kernel context plus Docker/containerd metadata when explicitly enabled.
+- Optional Kubernetes inventory overlay: add a separate cluster component with narrow RBAC to watch pods, replica sets, deployments, stateful sets, daemon sets, jobs, namespaces, and selected labels/annotations. This component publishes signed inventory snapshots that node-local collectors or core can join by pod UID.
+
+## Key Point: CRI Is Enough For Baseline Pod Identity
+On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:
+- pod name
+- pod namespace
+- pod UID
+- container name
+- image reference/image ID
+- selected labels/annotations exposed by the runtime
+
+That means the first implementation can avoid broad Kubernetes API credentials on the host agent. The tradeoff is that CRI is not the best source for higher-level owner chains such as Deployment -> ReplicaSet -> Pod, and it may not reflect all mutable label/annotation changes with the same fidelity as a Kubernetes watch.
+
+## Security Model
+Runtime sockets are powerful. A read-only hostPath mount does not make a Unix socket API read-only. The design must treat CRI/Docker socket access as privileged and auditable.
+
+Controls:
+- Socket access is opt-in per deployment.
+- The collector records which metadata source was used: eBPF-only, CRI, Docker API, containerd, Kubernetes inventory overlay, or fallback.
+- Where possible, use a small local metadata proxy/helper that exposes only read methods needed by ServiceRadar instead of giving the main agent full runtime API access.
+- Publish degradation counters when metadata sources are unavailable or disabled.
+- Never block flow attribution on workload metadata. Missing enrichment must produce explicit unknown/degraded fields.
+
+## Data Flow
+1. netprobe attributes flow/socket/process context through eBPF.
+2. The workload identity collector keeps node-local caches keyed by process generation, cgroup ID/path, container ID, pod UID, and network namespace.
+3. Runtime/orchestrator lookups enrich those keys with workload context.
+4. The collector emits bounded workload identity observations to agent-gateway/core.
+5. Core stores current identity state and attaches the best known identity to attributed flow records and detail views.
+
+## Non-Goals
+- Do not require a pod sidecar in every workload namespace for the baseline implementation.
+- Do not grant broad Kubernetes API access to every host agent as the default.
+- Do not make procfs scans the source of workload identity.
+- Do not retain unbounded raw workload events in CNPG.
+
+## Open Questions
+- Should the first Kubernetes packaging be a native agent add-on installed on the host, a Kubernetes DaemonSet, or both from the same binary?
+- Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
+- Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
+- Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
