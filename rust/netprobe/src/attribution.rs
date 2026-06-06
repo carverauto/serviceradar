@@ -1419,6 +1419,133 @@ struct AttributionExpiry {
 }
 
 #[cfg(target_os = "linux")]
+const ATTRIBUTION_EVENT_KIND_LABELS: [&str; 8] = [
+    "tcp_connect",
+    "tcp_accept",
+    "tcp_close",
+    "udp_send",
+    "udp_recv",
+    "inet_sock_set_state",
+    "icmp_send",
+    "other",
+];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_PROTOCOL_LABELS: [&str; 5] = ["icmp", "tcp", "udp", "icmpv6", "other"];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_CLOSE: usize = 0;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_MISS: usize = 1;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_CACHED: usize = 2;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_UPDATED: usize = 3;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_NEW: usize = 4;
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_LABELS: [&str; 5] = ["close", "miss", "cached", "updated", "new"];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_RECORD_METRIC_SLOTS: usize = ATTRIBUTION_EVENT_KIND_LABELS.len()
+    * ATTRIBUTION_PROTOCOL_LABELS.len()
+    * ATTRIBUTION_OUTCOME_LABELS.len()
+    * 2;
+
+#[cfg(target_os = "linux")]
+struct DrainMetricAccumulator {
+    backend_method: &'static str,
+    backend_hits: u64,
+    backend_misses: u64,
+    attribution_records: [u64; ATTRIBUTION_RECORD_METRIC_SLOTS],
+}
+
+#[cfg(target_os = "linux")]
+impl DrainMetricAccumulator {
+    fn new(backend_method: &'static str) -> Self {
+        Self {
+            backend_method,
+            backend_hits: 0,
+            backend_misses: 0,
+            attribution_records: [0; ATTRIBUTION_RECORD_METRIC_SLOTS],
+        }
+    }
+
+    fn inc_backend_hit(&mut self) {
+        self.backend_hits = self.backend_hits.saturating_add(1);
+    }
+
+    fn inc_backend_miss(&mut self) {
+        self.backend_misses = self.backend_misses.saturating_add(1);
+    }
+
+    fn inc_record(
+        &mut self,
+        event_kind: u16,
+        protocol: u16,
+        outcome_index: usize,
+        service_coalesced: bool,
+    ) {
+        let slot = attribution_record_metric_slot(
+            attribution_event_kind_index(event_kind),
+            attribution_protocol_index(protocol),
+            outcome_index,
+            service_coalesced,
+        );
+        self.attribution_records[slot] = self.attribution_records[slot].saturating_add(1);
+    }
+
+    fn flush(&self, metrics: &Metrics) {
+        if self.backend_hits > 0 {
+            metrics.inc_attribution_backend_events(self.backend_method, "hit", self.backend_hits);
+        }
+        if self.backend_misses > 0 {
+            metrics.inc_attribution_backend_events(
+                self.backend_method,
+                "miss",
+                self.backend_misses,
+            );
+        }
+
+        for (slot, count) in self.attribution_records.iter().enumerate() {
+            if *count == 0 {
+                continue;
+            }
+
+            let service_index = slot % 2;
+            let outcome_index = (slot / 2) % ATTRIBUTION_OUTCOME_LABELS.len();
+            let protocol_index =
+                (slot / (2 * ATTRIBUTION_OUTCOME_LABELS.len())) % ATTRIBUTION_PROTOCOL_LABELS.len();
+            let event_kind_index =
+                slot / (2 * ATTRIBUTION_OUTCOME_LABELS.len() * ATTRIBUTION_PROTOCOL_LABELS.len());
+
+            metrics.inc_attribution_records(
+                ATTRIBUTION_EVENT_KIND_LABELS[event_kind_index],
+                ATTRIBUTION_PROTOCOL_LABELS[protocol_index],
+                ATTRIBUTION_OUTCOME_LABELS[outcome_index],
+                service_index == 1,
+                *count,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_record_metric_slot(
+    event_kind_index: usize,
+    protocol_index: usize,
+    outcome_index: usize,
+    service_coalesced: bool,
+) -> usize {
+    (((event_kind_index * ATTRIBUTION_PROTOCOL_LABELS.len() + protocol_index)
+        * ATTRIBUTION_OUTCOME_LABELS.len()
+        + outcome_index)
+        * 2)
+        + usize::from(service_coalesced)
+}
+
+#[cfg(target_os = "linux")]
 impl PartialEq for AttributionExpiry {
     fn eq(&self, other: &Self) -> bool {
         self.expires_at == other.expires_at && self.sequence == other.sequence
@@ -1463,16 +1590,16 @@ fn drain_ring(
 ) -> usize {
     reader.drain_records(records);
     let drained = records.len();
+    let mut drain_metrics = DrainMetricAccumulator::new(reader.backend_method());
     for record in records.iter() {
         let coalesce_service = reader.should_coalesce_record(record);
 
         if record.event_kind == EVENT_TCP_CLOSE {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "close",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_CLOSE,
                 coalesce_service,
-                1,
             );
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record, coalesce_service) {
@@ -1481,12 +1608,11 @@ fn drain_ring(
             continue;
         }
         if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "close",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_CLOSE,
                 coalesce_service,
-                1,
             );
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record, coalesce_service) {
@@ -1495,25 +1621,23 @@ fn drain_ring(
             continue;
         }
         let Some(key) = join_key_from_record(record, coalesce_service) else {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "miss",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_MISS,
                 coalesce_service,
-                1,
             );
-            metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
+            drain_metrics.inc_backend_miss();
             continue;
         };
         if let Some(existing) = cache.get_mut(&key) {
-            metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
+            drain_metrics.inc_backend_hit();
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
-                metrics.inc_attribution_records(
-                    attribution_event_kind_label(record.event_kind),
-                    attribution_protocol_label(record.tuple.protocol),
-                    "cached",
+                drain_metrics.inc_record(
+                    record.event_kind,
+                    record.tuple.protocol,
+                    ATTRIBUTION_OUTCOME_CACHED,
                     coalesce_service,
-                    1,
                 );
                 let now = Instant::now();
                 Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
@@ -1530,17 +1654,16 @@ fn drain_ring(
             AyaAttributionReader::attributed_flow_from_record_basic(record, coalesce_service)
         };
         let Some(flow) = flow else {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "miss",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_MISS,
                 coalesce_service,
-                1,
             );
-            metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
+            drain_metrics.inc_backend_miss();
             continue;
         };
-        metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
+        drain_metrics.inc_backend_hit();
         if should_record_inventory {
             reader.record_inventory(record, &flow);
             metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
@@ -1552,12 +1675,11 @@ fn drain_ring(
         let event = Arc::new(event);
         let now = Instant::now();
         if let Some(existing) = cache.get_mut(&key) {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "updated",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_UPDATED,
                 coalesce_service,
-                1,
             );
             existing.event = event;
             if existing.process_key != process_key {
@@ -1567,12 +1689,11 @@ fn drain_ring(
             existing.last_seen = now;
             maybe_emit_cached_attribution(tx, metrics, existing, now);
         } else {
-            metrics.inc_attribution_records(
-                attribution_event_kind_label(record.event_kind),
-                attribution_protocol_label(record.tuple.protocol),
-                "new",
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_NEW,
                 coalesce_service,
-                1,
             );
             external_flow_matcher.observe_attribution_key(key.flow, &event);
             emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&event));
@@ -1592,6 +1713,7 @@ fn drain_ring(
             );
         }
     }
+    drain_metrics.flush(metrics);
     drained
 }
 
@@ -1944,27 +2066,27 @@ fn should_remove_inventory(record: &FlowAttributionRecord) -> bool {
 }
 
 #[cfg(target_os = "linux")]
-fn attribution_event_kind_label(event_kind: u16) -> &'static str {
+fn attribution_event_kind_index(event_kind: u16) -> usize {
     match event_kind {
-        EVENT_TCP_CONNECT => "tcp_connect",
-        EVENT_TCP_ACCEPT => "tcp_accept",
-        EVENT_TCP_CLOSE => "tcp_close",
-        EVENT_UDP_SEND => "udp_send",
-        EVENT_UDP_RECV => "udp_recv",
-        EVENT_INET_SOCK_SET_STATE => "inet_sock_set_state",
-        EVENT_ICMP_SEND => "icmp_send",
-        _ => "other",
+        EVENT_TCP_CONNECT => 0,
+        EVENT_TCP_ACCEPT => 1,
+        EVENT_TCP_CLOSE => 2,
+        EVENT_UDP_SEND => 3,
+        EVENT_UDP_RECV => 4,
+        EVENT_INET_SOCK_SET_STATE => 5,
+        EVENT_ICMP_SEND => 6,
+        _ => 7,
     }
 }
 
 #[cfg(target_os = "linux")]
-fn attribution_protocol_label(protocol: u16) -> &'static str {
+fn attribution_protocol_index(protocol: u16) -> usize {
     match protocol {
-        IPPROTO_ICMP => "icmp",
-        IPPROTO_TCP => "tcp",
-        IPPROTO_UDP => "udp",
-        IPPROTO_ICMPV6 => "icmpv6",
-        _ => "other",
+        IPPROTO_ICMP => 0,
+        IPPROTO_TCP => 1,
+        IPPROTO_UDP => 2,
+        IPPROTO_ICMPV6 => 3,
+        _ => 4,
     }
 }
 
