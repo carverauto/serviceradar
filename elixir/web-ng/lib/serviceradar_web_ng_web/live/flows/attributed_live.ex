@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   alias ServiceRadarWebNG.Repo
 
+  require Logger
+
   @refresh_interval_ms 5_000
   @time_window_hours 24
   @default_filter "attributed"
@@ -93,6 +95,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
      socket
      |> assign(:page_title, "Attributed Flows")
      |> assign(:current_path, "/observability/flows/attributed")
+     |> assign(:time_window_hours, @time_window_hours)
      |> assign(:filter, @default_filter)
      |> assign(:page, 1)
      |> assign(:page_size, @default_page_size)
@@ -181,22 +184,31 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       {:ok, %{rows: [[total, attributed, unmatched, bytes]]}} ->
         %{total: total || 0, attributed: attributed || 0, unmatched: unmatched || 0, bytes: bytes || 0}
 
-      _ ->
+      {:error, reason} ->
+        Logger.warning("Attributed flow summary query failed: #{inspect(reason)}")
         empty_summary()
     end
   rescue
-    _ -> empty_summary()
+    error ->
+      Logger.warning("Attributed flow summary query raised: #{Exception.message(error)}")
+      empty_summary()
   end
 
   defp fetch_flows(filter, page, page_size) do
     offset = (page - 1) * page_size
 
     case Repo.query(@flows_sql, [@time_window_hours, filter, page_size, offset]) do
-      {:ok, %{rows: rows}} -> Enum.map(rows, &row_from_db/1)
-      _ -> []
+      {:ok, %{rows: rows}} ->
+        Enum.map(rows, &row_from_db/1)
+
+      {:error, reason} ->
+        Logger.warning("Attributed flow rows query failed: #{inspect(reason)}")
+        []
     end
   rescue
-    _ -> []
+    error ->
+      Logger.warning("Attributed flow rows query raised: #{Exception.message(error)}")
+      []
   end
 
   defp row_from_db([

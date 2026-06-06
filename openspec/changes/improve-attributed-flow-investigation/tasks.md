@@ -26,5 +26,10 @@
 
 - [x] 4.1 Add focused tests for pagination/filter query behavior.
 - [ ] 4.2 Add LiveView/browser coverage for live toggle, stat-card filters, row details, and no horizontal overflow.
+  - [x] LiveView coverage for live toggle, stat-card filters, row details, pagination, protocol/rDNS/IOC rendering, and compact non-table rows.
+  - [ ] Browser/screenshot coverage for horizontal overflow at common desktop widths.
 - [ ] 4.3 Verify with demo data that attributed, unmatched, TCP, UDP, and CTI-marked rows render correctly.
+  - [x] Demo DB has attributed and unmatched rows in the attributed-flow dataset.
+  - [x] Demo DB has TCP, UDP, and ICMP attributed-flow rows.
+  - [ ] Demo DB has CTI-marked rows that overlap current attributed-flow source/destination IPs.
 - [x] 4.4 Run `openspec validate improve-attributed-flow-investigation --strict`.
