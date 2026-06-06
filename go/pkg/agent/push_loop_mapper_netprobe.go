@@ -279,9 +279,9 @@ func buildNetprobeResultsPayloads(
 		streamFull  bool
 	)
 
-	flush := func() error {
+	flush := func() {
 		if batchCount == 0 {
-			return nil
+			return
 		}
 
 		payload := append(append([]byte(nil), batch...), ']')
@@ -291,15 +291,13 @@ func buildNetprobeResultsPayloads(
 			batch = nil
 			batchCount = 0
 
-			return nil
+			return
 		}
 
 		payloads = append(payloads, payload)
 		streamBytes += len(payload)
 		batch = nil
 		batchCount = 0
-
-		return nil
 	}
 
 	for _, update := range updates {
@@ -325,9 +323,7 @@ func buildNetprobeResultsPayloads(
 			extraBytes++
 		}
 		if batchCount > 0 && len(batch)+extraBytes > maxPayloadBytes {
-			if err := flush(); err != nil {
-				return nil, skipped, err
-			}
+			flush()
 			if streamFull {
 				skipped++
 				continue
@@ -343,9 +339,7 @@ func buildNetprobeResultsPayloads(
 		batchCount++
 	}
 
-	if err := flush(); err != nil {
-		return nil, skipped, err
-	}
+	flush()
 
 	return payloads, skipped, nil
 }
