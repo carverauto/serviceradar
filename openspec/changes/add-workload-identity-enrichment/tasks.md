@@ -10,6 +10,8 @@
 - [x] 1a.1a Wire the initial opt-in Kubernetes CRI cache into netprobe startup and attach CRI workload identity to attributed flow/process payloads by container ID.
 - [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe consumes workload identity as an optional dependency instead of owning the collector.
 - [ ] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
+- [ ] 1a.1d Add package-managed systemd ownership for ServiceRadar host add-ons: netprobe and workload-identity remain separate units, but share a ServiceRadar slice/target for lifecycle grouping, resource accounting, and status attribution instead of pretending they are child processes of `serviceradar-agent`.
+- [x] 1a.1e Put existing native host units (`serviceradar-agent`, netprobe, endpoint-inventory, and bumblebee-scan) in `serviceradar.slice` without adding `PartOf=`, `BindsTo=`, or `Requires=` coupling to `serviceradar-agent.service`.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
@@ -59,6 +61,7 @@
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
 - [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.
+- [x] 7.5 Add tests for the systemd unit contract: privileged collectors use their own units, share the ServiceRadar slice/target, keep explicit hardening/capabilities, and are surfaced as agent-owned add-ons through status rather than process parentage.
 
 ## 8. Verification
 - [ ] 8.1 Add unit tests for cgroup/container ID parsing across cgroup v1/v2, containerd, CRI-O, Docker, Kubernetes, and Compose patterns.

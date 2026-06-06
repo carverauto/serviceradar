@@ -8,6 +8,9 @@ Type=oneshot
 User=root
 Group=serviceradar
 UMask=0027
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, restart policy, privileges, and hardening.
+Slice=serviceradar.slice
 WorkingDirectory=/var/lib/serviceradar/endpoint-inventory
 Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
 ExecStart=/var/lib/serviceradar/agent/addons/endpoint-inventory/current/serviceradar-endpoint-inventory -config /var/lib/serviceradar/agent/addons/endpoint-inventory/current/endpoint-inventory.json

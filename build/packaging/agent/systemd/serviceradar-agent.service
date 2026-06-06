@@ -7,6 +7,10 @@ Type=simple
 User=serviceradar
 WorkingDirectory=/var/lib/serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
+# Keep ServiceRadar host components in one accounting slice. Native add-ons
+# stay separate systemd units; the agent reports and attaches to them over IPC
+# instead of becoming their privileged process supervisor.
+Slice=serviceradar.slice
 # Keep /run/serviceradar under explicit setup rather than RuntimeDirectory=.
 # Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
 # shared parent as the agent RuntimeDirectory, an agent restart can remove or

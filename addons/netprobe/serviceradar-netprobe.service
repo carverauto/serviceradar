@@ -12,6 +12,9 @@ Type=simple
 # lacks enough privilege on common kernels to create all eBPF maps.
 Group=serviceradar
 UMask=0027
+# Share cgroup accounting with the host agent while remaining independently
+# supervised. The agent attaches over IPC and reports add-on ownership/status.
+Slice=serviceradar.slice
 
 # Installed verbatim by the root-owned agent-updater (ExecStart is NOT templated), so all
 # paths are the FIXED add-on staging layout produced by the agent's activation runtime

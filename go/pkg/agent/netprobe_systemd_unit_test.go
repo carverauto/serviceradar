@@ -66,6 +66,7 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		"AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON",
 		"CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID",
 		"ReadWritePaths=/run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar /var/lib/serviceradar/netprobe /sys/fs/bpf",
+		"Slice=serviceradar.slice",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(unit, want) {
@@ -98,5 +99,61 @@ func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
 	want := "ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar"
 	if !strings.Contains(unit, want) {
 		t.Fatalf("agent unit missing explicit shared runtime directory setup %q", want)
+	}
+
+	if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
+		t.Fatal("agent unit must join serviceradar.slice for ServiceRadar host-component cgroup accounting")
+	}
+}
+
+func TestHostComponentSystemdUnitsShareSliceWithoutAgentParentage(t *testing.T) {
+	units := map[string]string{
+		"agent": filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"),
+		"netprobe": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"netprobe",
+			"serviceradar-netprobe.service",
+		),
+		"bumblebee": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"bumblebee-scan",
+			"serviceradar-bumblebee-scan.service",
+		),
+		"endpoint-inventory": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"endpoint-inventory",
+			"serviceradar-endpoint-inventory.service",
+		),
+	}
+
+	for name, unitPath := range units {
+		unitBytes, err := os.ReadFile(unitPath)
+		if err != nil {
+			t.Fatalf("read %s unit: %v", name, err)
+		}
+		unit := string(unitBytes)
+
+		if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
+			t.Fatalf("%s unit must join serviceradar.slice", name)
+		}
+
+		for _, forbidden := range []string{
+			"\nPartOf=serviceradar-agent.service\n",
+			"\nBindsTo=serviceradar-agent.service\n",
+			"\nRequires=serviceradar-agent.service\n",
+		} {
+			if strings.Contains(unit, forbidden) {
+				t.Fatalf("%s unit must not make privileged add-ons process children/dependents of serviceradar-agent.service via %q", name, strings.TrimSpace(forbidden))
+			}
+		}
 	}
 }

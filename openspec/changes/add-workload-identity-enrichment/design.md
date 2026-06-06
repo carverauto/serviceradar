@@ -36,6 +36,8 @@ The collector implementation should keep deployment packaging separate from runt
 
 The Rust boundary should live outside netprobe. Netprobe may link the shared workload identity crate and attach best-known metadata to flow/process payloads when configured, but the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
 
+Native host packaging should model workload identity and netprobe as ServiceRadar-owned peers, not as process children of the agent. Long-running privileged collectors should remain separate systemd units so restart policy, Linux capabilities, hardening, and cgroup accounting are explicit. To make ownership visible, package-managed units should share a ServiceRadar systemd slice or target (for example `serviceradar.slice` / `serviceradar-agent.target`) and report add-on ownership through agent status, while the agent attaches to collector IPC instead of supervising privileged processes directly.
+
 ## Key Point: CRI Is Enough For Baseline Pod Identity
 On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:
 - pod name
