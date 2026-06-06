@@ -20,12 +20,14 @@ All demo Kubernetes workers expose k3s containerd through `/run/k3s/containerd/c
 Validation commands:
 
 ```sh
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock pods
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock ps
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id>
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id>
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id> | jq '.status.metadata, .status.labels, .status.linux.namespaces'
-sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id> | jq '.status.metadata, .status.image, .info.pid, .info.runtimeSpec.linux.cgroupsPath'
+CRI_ENDPOINT=unix:///run/k3s/containerd/containerd.sock
+
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" pods
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" ps
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" inspectp <pod-sandbox-id>
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" inspect <container-id>
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" inspectp <pod-sandbox-id> | jq '.status.metadata, .status.labels, .status.linux.namespaces'
+sudo crictl --runtime-endpoint "$CRI_ENDPOINT" inspect <container-id> | jq '.status.metadata, .status.image, .info.pid, .info.runtimeSpec.linux.cgroupsPath'
 ```
 
 Observed node-local metadata:

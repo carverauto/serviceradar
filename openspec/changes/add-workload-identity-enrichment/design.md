@@ -23,6 +23,8 @@ The first implementation should stop at node-local cgroup plus CRI enrichment on
 
 Docker/Compose metadata and the optional Kubernetes inventory overlay are follow-on milestones that reuse the same schema and backend boundary.
 
+This milestone should be implementation-gated separately from the broader workload identity plan. Do not block the Kubernetes CRI/cgroup MVP on Docker, Compose, owner-chain overlay, cold storage, or cluster-wide inventory work.
+
 ## MVP Packaging Decision
 Ship the Kubernetes MVP as a native host add-on first, using the ServiceRadar agents already installed on worker nodes. This matches the current netprobe rollout and commandbus/config-update path, and it avoids broad Kubernetes API/RBAC for the baseline CRI path.
 
@@ -83,5 +85,6 @@ Controls:
 - Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
-- What default correlation window should hold raw flow and workload identity observations for late enrichment, and should high-volume deployments be able to discard unmatched observations immediately after the window closes?
+- What default correlation window should hold raw flow and workload identity observations for late enrichment, such as 1 minute, 5 minutes, or 15 minutes, without bloating CNPG storage?
+- Should high-volume deployments be able to discard unmatched observations immediately after the correlation window closes, while keeping only matched/enriched investigation records?
 - How do we bound retention so CNPG storage does not grow with high-volume agents, while still preserving enough recent data for incident investigation?

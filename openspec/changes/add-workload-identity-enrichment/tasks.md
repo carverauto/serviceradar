@@ -1,6 +1,7 @@
 ## 1. Discovery and Architecture
 - [x] 1.1 Inventory existing netprobe process/container fields, attributed flow query shape, device detail process-listener payloads, and any current container ID parsing helpers.
 - [x] 1.2 Validate worker-local CRI metadata on demo Kubernetes nodes: containerd socket path, available pod/container labels, annotations, image IDs, sandbox IDs, runtime PIDs, cgroup paths, and namespace/name/UID fields. Capture quick validation commands such as `crictl pods`, `crictl ps`, `crictl inspect`, and `crictl inspectp` for the runbook, including k3s socket discovery for `/run/k3s/containerd/containerd.sock`.
+- [x] 1.2a Add node validation examples for `crictl pods`, `crictl ps`, `crictl inspectp <pod-sandbox-id>`, and `crictl inspect <container-id>` with explicit runtime endpoints for k3s/containerd workers.
 - [ ] 1.3 Validate Docker/Compose metadata on a non-Kubernetes host: Docker socket availability, Compose labels, container names, image IDs/digests, networks, published ports, and bind mounts. Capture quick validation commands such as `docker ps`, `docker inspect`, `docker compose ps`, and `docker events`. Socket/tooling path was validated on `sr-test-pve04`, but there were no containers to inspect; complete this with a live Compose fixture.
 - [x] 1.4 Decide first packaging target: native host add-on, Kubernetes DaemonSet, Docker Compose service, or one binary with all three manifests.
 
@@ -43,7 +44,7 @@
 ## 7. Security and Operations
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
-- [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles, and Kubernetes RBAC.
+- [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.
 
 ## 8. Verification
