@@ -1,6 +1,5 @@
 use tokio::sync::mpsc::{self as channel, error::TrySendError};
 
-#[cfg(test)]
 use tokio::sync::mpsc::error::TryRecvError;
 
 #[derive(Clone, Debug)]
@@ -29,7 +28,6 @@ impl<T> EventReceiver<T> {
         self.inner.recv().await
     }
 
-    #[cfg(test)]
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         self.inner.try_recv()
     }

@@ -24,6 +24,8 @@ use std::{
 
 use crate::af_xdp_classifier::FlowKey;
 #[cfg(target_os = "linux")]
+use crate::event_queue::EventSender;
+#[cfg(target_os = "linux")]
 use crate::external_flow::SharedExternalFlowMatcher;
 use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
 
@@ -929,7 +931,7 @@ pub struct FlowAttributionRuntimeConfig {
 impl FlowAttributionRuntime {
     pub fn start(
         mut reader: AyaAttributionReader,
-        tx: Option<tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+        tx: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         metrics: Metrics,
@@ -1075,7 +1077,7 @@ fn ring_wait_duration(
 
 #[cfg(target_os = "linux")]
 struct CachedAttribution {
-    event: FlowAttributionEvent,
+    event: Arc<FlowAttributionEvent>,
     process_key: ProcessDetailsCacheKey,
     last_seen: Instant,
 }
@@ -1172,7 +1174,7 @@ impl Ord for AttributionExpiry {
 #[cfg(target_os = "linux")]
 fn drain_ring(
     reader: &mut AyaAttributionReader,
-    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut FlowAttributionCache,
@@ -1207,7 +1209,7 @@ fn drain_ring(
         if let Some(existing) = cache.get_mut(&key) {
             metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
-                existing.event.observed_at_unix_nano = now_unix_nano();
+                Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
                 existing.last_seen = Instant::now();
                 continue;
             }
@@ -1232,6 +1234,7 @@ fn drain_ring(
             continue;
         };
         let process_key = ProcessDetailsCacheKey::from(record);
+        let event = Arc::new(event);
         if let Some(existing) = cache.get_mut(&key) {
             existing.event = event;
             if existing.process_key != process_key {
@@ -1241,7 +1244,7 @@ fn drain_ring(
             existing.last_seen = Instant::now();
         } else {
             external_flow_matcher.observe_attribution_key(key.flow, &event);
-            emit_raw_flow_attribution_event(tx, metrics, &event);
+            emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&event));
             insert_cached_attribution(
                 cache,
                 process_index,
@@ -1265,7 +1268,7 @@ fn drain_ring(
 // delayed NetFlow correlation.
 #[cfg(target_os = "linux")]
 fn resend_cache(
-    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut FlowAttributionCache,
@@ -1282,7 +1285,7 @@ fn resend_cache(
         Instant::now(),
     );
     for entry in cache.values() {
-        emit_raw_flow_attribution_event(tx, metrics, &entry.event);
+        emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&entry.event));
     }
 }
 
@@ -1418,7 +1421,7 @@ fn prune_attribution_cache(
 
 #[cfg(target_os = "linux")]
 fn refresh_enriched_attributions(
-    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut FlowAttributionCache,
@@ -1434,30 +1437,36 @@ fn refresh_enriched_attributions(
             let Some(entry) = cache.get_mut(key) else {
                 continue;
             };
-            if !apply_process_details_to_event(&mut entry.event, &details) {
+            if !apply_process_details_to_event(Arc::make_mut(&mut entry.event), &details) {
                 continue;
             }
-            entry.event.observed_at_unix_nano = now_unix_nano();
+            Arc::make_mut(&mut entry.event).observed_at_unix_nano = now_unix_nano();
             entry.last_seen = Instant::now();
             external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
-            emit_raw_flow_attribution_event(tx, metrics, &entry.event);
+            emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&entry.event));
         }
     }
 }
 
 #[cfg(target_os = "linux")]
 fn emit_raw_flow_attribution_event(
-    tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     metrics: &Metrics,
-    event: &FlowAttributionEvent,
+    event: Arc<FlowAttributionEvent>,
 ) {
     let Some(tx) = tx else {
         return;
     };
 
     metrics.inc_flow_attribution_events();
-    if tx.send(event.clone()).is_err() {
-        metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+    match tx.try_send(event) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            metrics.inc_flow_attribution_events_dropped("queue_full", 1);
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+        }
     }
 }
 
@@ -1939,6 +1948,8 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(target_os = "linux")]
+    use std::sync::Arc;
 
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
@@ -2623,7 +2634,7 @@ mod tests {
     #[cfg(target_os = "linux")]
     fn cached_attribution(process_key: ProcessDetailsCacheKey, comm: &str) -> CachedAttribution {
         CachedAttribution {
-            event: crate::proto::netprobe::FlowAttributionEvent {
+            event: Arc::new(crate::proto::netprobe::FlowAttributionEvent {
                 local_ip: "192.0.2.10".to_string(),
                 local_port: 443,
                 remote_ip: "198.51.100.20".to_string(),
@@ -2643,7 +2654,7 @@ mod tests {
                 new_state: 1,
                 source: String::new(),
                 external_flow_id: 0,
-            },
+            }),
             process_key,
             last_seen: std::time::Instant::now(),
         }

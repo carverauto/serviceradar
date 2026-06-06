@@ -146,10 +146,10 @@ async fn main() -> Result<()> {
     let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
     let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
     // Flow attribution events can arrive in short bursts on busy worker nodes.
-    // Keep the local IPC fan-out bounded, but large enough that the single
-    // agent client can absorb bursty ring-buffer drains before its upstream
-    // push loop batches them to the gateway.
-    let (flow_attribution_event_tx, _) = broadcast::channel(65_536);
+    // Keep the local IPC queue bounded, but large enough that the single agent
+    // client can absorb bursty ring-buffer drains before its upstream push loop
+    // batches them to the gateway.
+    let (flow_attribution_event_tx, flow_attribution_event_rx) = event_queue::bounded(65_536);
     let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
     let external_flow_matcher =
@@ -214,6 +214,7 @@ async fn main() -> Result<()> {
             fingerprint_event_rx,
             dpi_event_rx,
             flow_attribution_event_tx,
+            flow_attribution_event_rx,
             process_snapshot_tx,
             external_flow_matcher,
             runtime_config,

@@ -11,13 +11,14 @@ use anyhow::{Context, Result};
 use prost::Message;
 use tokio::{
     net::{UnixListener, UnixStream},
+    sync::mpsc::error::{TryRecvError, TrySendError},
     sync::{broadcast, watch, Mutex},
     time::{timeout, Instant},
 };
 
 use crate::{
     capabilities,
-    event_queue::EventReceiver,
+    event_queue::{EventReceiver, EventSender},
     external_flow::{ExternalFlowIngest, SharedExternalFlowMatcher},
     fingerprint::{
         FINGERPRINT_ENGINE_VERSION, JA4_BASE_SPEC_REVISION, MUONFP_CORPUS_REVISION,
@@ -43,7 +44,8 @@ pub struct IpcServer {
     active_client: Arc<AtomicBool>,
     fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
-    flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+    flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
+    flow_attribution_rx: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     process_snapshots: broadcast::Sender<ProcessSnapshot>,
     external_flow_matcher: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
@@ -55,7 +57,8 @@ impl IpcServer {
         socket_path: impl Into<PathBuf>,
         fingerprint_event_rx: EventReceiver<FingerprintEvent>,
         dpi_event_rx: EventReceiver<DpiEvent>,
-        flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        flow_attribution_events: EventSender<Arc<FlowAttributionEvent>>,
+        flow_attribution_rx: EventReceiver<Arc<FlowAttributionEvent>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         runtime_config: RuntimeConfig,
@@ -67,6 +70,7 @@ impl IpcServer {
             fingerprint_events: Arc::new(Mutex::new(fingerprint_event_rx)),
             dpi_events: Arc::new(Mutex::new(dpi_event_rx)),
             flow_attribution_events,
+            flow_attribution_rx: Arc::new(Mutex::new(flow_attribution_rx)),
             process_snapshots,
             external_flow_matcher,
             runtime_config,
@@ -99,7 +103,7 @@ impl IpcServer {
                     let fingerprint_rx = Arc::clone(&self.fingerprint_events);
                     let dpi_rx = Arc::clone(&self.dpi_events);
                     let flow_attribution_tx = self.flow_attribution_events.clone();
-                    let flow_attribution_rx = self.flow_attribution_events.subscribe();
+                    let flow_attribution_rx = Arc::clone(&self.flow_attribution_rx);
                     let process_snapshot_rx = self.process_snapshots.subscribe();
                     let external_flow_matcher = self.external_flow_matcher.clone();
                     let runtime_config = self.runtime_config.clone();
@@ -166,8 +170,8 @@ async fn handle_client(
     stream: UnixStream,
     fingerprint_events: Arc<Mutex<EventReceiver<FingerprintEvent>>>,
     dpi_events: Arc<Mutex<EventReceiver<DpiEvent>>>,
-    flow_attribution_broadcast: broadcast::Sender<FlowAttributionEvent>,
-    mut flow_attribution_events: broadcast::Receiver<FlowAttributionEvent>,
+    flow_attribution_tx: EventSender<Arc<FlowAttributionEvent>>,
+    flow_attribution_events: Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     mut process_snapshots: broadcast::Receiver<ProcessSnapshot>,
     external_flows: SharedExternalFlowMatcher,
     runtime_config: RuntimeConfig,
@@ -187,7 +191,7 @@ async fn handle_client(
                     &runtime_config,
                     &external_flows,
                     &metrics,
-                    &flow_attribution_broadcast,
+                    &flow_attribution_tx,
                 ).await? {
                     write_reused_frame(&mut writer, &response, &mut encode_buffer, &metrics).await?;
                 }
@@ -216,32 +220,26 @@ async fn handle_client(
                     None => return Ok(()),
                 }
             }
-            event = flow_attribution_events.recv() => {
+            event = recv_event(&flow_attribution_events) => {
                 match event {
-                    Ok(event) => {
+                    Some(event) => {
                         if runtime_config.flow_attribution_ipc_batch_enabled() {
                             write_flow_attribution_batch_frame(
                                 &mut writer,
                                 event,
-                                &mut flow_attribution_events,
+                                &flow_attribution_events,
                                 &mut encode_buffer,
                                 &metrics,
                             ).await?;
                         } else {
                             let frame = NetprobeFrame {
                                 sequence: 0,
-                                payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
+                                payload: Some(netprobe_frame::Payload::FlowAttributionEvent((*event).clone())),
                             };
                             write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
                         }
                     }
-                    Err(broadcast::error::RecvError::Lagged(skipped)) => {
-                        metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} flow attribution event(s)");
-                    }
-                    Err(broadcast::error::RecvError::Closed) => {
-                        return Ok(());
-                    }
+                    None => return Ok(()),
                 }
             }
             snapshot = process_snapshots.recv() => {
@@ -273,8 +271,8 @@ async fn recv_event<T>(receiver: &Arc<Mutex<EventReceiver<T>>>) -> Option<T> {
 
 async fn write_flow_attribution_batch_frame<W>(
     writer: &mut W,
-    first: FlowAttributionEvent,
-    flow_attribution_events: &mut broadcast::Receiver<FlowAttributionEvent>,
+    first: Arc<FlowAttributionEvent>,
+    flow_attribution_events: &Arc<Mutex<EventReceiver<Arc<FlowAttributionEvent>>>>,
     encode_buffer: &mut Vec<u8>,
     metrics: &Metrics,
 ) -> Result<(), crate::framing::FramingError>
@@ -284,41 +282,36 @@ where
     let batch_start_unix_nano = now_unix_nano();
     let deadline = Instant::now() + FLOW_ATTRIBUTION_IPC_BATCH_WAIT;
     let mut events = Vec::with_capacity(FLOW_ATTRIBUTION_IPC_BATCH_MAX.min(64));
-    let mut dropped_since_last = 0_u32;
 
-    events.push(first);
+    events.push((*first).clone());
 
     while events.len() < FLOW_ATTRIBUTION_IPC_BATCH_MAX {
-        match flow_attribution_events.try_recv() {
-            Ok(event) => {
-                events.push(event);
-            }
-            Err(broadcast::error::TryRecvError::Empty) => {
-                let remaining = deadline.saturating_duration_since(Instant::now());
-                if remaining.is_zero() {
+        {
+            let mut receiver = flow_attribution_events.lock().await;
+            loop {
+                if events.len() >= FLOW_ATTRIBUTION_IPC_BATCH_MAX {
                     break;
                 }
-
-                match timeout(remaining, flow_attribution_events.recv()).await {
-                    Ok(Ok(event)) => events.push(event),
-                    Ok(Err(broadcast::error::RecvError::Lagged(skipped))) => {
-                        metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
-                        dropped_since_last = dropped_since_last
-                            .saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
-                        log::warn!("netprobe IPC client lagged; skipped {skipped} flow attribution event(s)");
-                    }
-                    Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
+                match receiver.try_recv() {
+                    Ok(event) => events.push((*event).clone()),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => break,
                 }
             }
-            Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
-                metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
-                dropped_since_last =
-                    dropped_since_last.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
-                log::warn!(
-                    "netprobe IPC client lagged; skipped {skipped} flow attribution event(s)"
-                );
-            }
-            Err(broadcast::error::TryRecvError::Closed) => break,
+        }
+
+        if events.len() >= FLOW_ATTRIBUTION_IPC_BATCH_MAX {
+            break;
+        }
+
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+
+        match timeout(remaining, recv_event(flow_attribution_events)).await {
+            Ok(Some(event)) => events.push((*event).clone()),
+            Ok(None) | Err(_) => break,
         }
     }
 
@@ -329,7 +322,7 @@ where
                 events,
                 batch_start_unix_nano,
                 batch_end_unix_nano: now_unix_nano(),
-                dropped_since_last,
+                dropped_since_last: 0,
             },
         )),
     };
@@ -495,7 +488,7 @@ async fn response_for_frame(
     runtime_config: &RuntimeConfig,
     external_flows: &SharedExternalFlowMatcher,
     metrics: &Metrics,
-    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+    flow_attribution_events: &EventSender<Arc<FlowAttributionEvent>>,
 ) -> Result<Option<NetprobeFrame>, crate::framing::FramingError> {
     let sequence = frame.sequence;
     match frame.payload {
@@ -549,7 +542,7 @@ async fn response_for_frame(
                 record,
                 external_flows,
                 metrics,
-                flow_attribution_broadcast,
+                flow_attribution_events,
             );
             if sequence == 0 {
                 Ok(None)
@@ -574,18 +567,21 @@ fn ingest_external_flow_record(
     record: ExternalFlowRecord,
     external_flows: &SharedExternalFlowMatcher,
     metrics: &Metrics,
-    flow_attribution_broadcast: &broadcast::Sender<FlowAttributionEvent>,
+    flow_attribution_events: &EventSender<Arc<FlowAttributionEvent>>,
 ) -> ExternalFlowAck {
     match external_flows.ingest(&record, now_unix_nano()) {
         ExternalFlowIngest::Matched(event) => {
             metrics.inc_flow_attribution_events();
             metrics.inc_external_flow_matched();
-            // Route the matched FlowAttributionEvent through the broadcast
-            // channel so the existing `handle_client` consumer mirrors it to
-            // the IPC writer. Errors only occur when no receivers are attached
-            // — silently drop in that case, matching the broadcast semantics
-            // used elsewhere in this module.
-            let _ = flow_attribution_broadcast.send(event);
+            match flow_attribution_events.try_send(Arc::new(event)) {
+                Ok(()) => {}
+                Err(TrySendError::Full(_)) => {
+                    metrics.inc_flow_attribution_events_dropped("queue_full", 1);
+                }
+                Err(TrySendError::Closed(_)) => {
+                    metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+                }
+            }
             ExternalFlowAck {
                 accepted: 1,
                 matched: 1,
@@ -619,6 +615,8 @@ fn now_unix_nano() -> i64 {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use prost::Message;
     use tempfile::TempDir;
     use tokio::{
@@ -656,13 +654,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -716,13 +715,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -751,13 +751,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -789,13 +790,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -827,7 +829,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
         matcher.observe_attribution(&flow_attribution_event());
@@ -836,6 +838,7 @@ mod tests {
             event_rx,
             dpi_rx,
             flow_tx.clone(),
+            flow_rx,
             process_tx,
             matcher,
             RuntimeConfig::new(&Config::default()),
@@ -846,8 +849,9 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&flow_tx).await;
-        flow_tx.send(flow_attribution_event()).unwrap();
+        flow_tx
+            .try_send(Arc::new(flow_attribution_event()))
+            .unwrap();
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(response.sequence, 0);
@@ -866,7 +870,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let matcher = SharedExternalFlowMatcher::new(0);
         let server = IpcServer::new(
@@ -874,6 +878,7 @@ mod tests {
             event_rx,
             dpi_rx,
             flow_tx.clone(),
+            flow_rx,
             process_tx,
             matcher.clone(),
             RuntimeConfig::new(&Config::default()),
@@ -905,11 +910,10 @@ mod tests {
             Some(netprobe_frame::Payload::ConfigAck(_))
         ));
 
-        wait_for_event_receiver(&flow_tx).await;
         for pid in [123, 124, 125] {
             let mut event = flow_attribution_event();
             event.pid = pid;
-            flow_tx.send(event).unwrap();
+            flow_tx.try_send(Arc::new(event)).unwrap();
         }
 
         let response = read_frame(&mut client).await.unwrap().unwrap();
@@ -940,7 +944,7 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let matcher = test_external_flow_matcher();
         matcher.observe_attribution(&flow_attribution_event());
@@ -949,6 +953,7 @@ mod tests {
             event_rx,
             dpi_rx,
             flow_tx.clone(),
+            flow_rx,
             process_tx,
             matcher,
             RuntimeConfig::new(&Config::default()),
@@ -959,8 +964,9 @@ mod tests {
         wait_for_socket(&socket).await;
 
         let mut client = UnixStream::connect(&socket).await.unwrap();
-        wait_for_event_receiver(&flow_tx).await;
-        flow_tx.send(flow_attribution_event()).unwrap();
+        flow_tx
+            .try_send(Arc::new(flow_attribution_event()))
+            .unwrap();
 
         let local = read_frame(&mut client).await.unwrap().unwrap();
         assert_eq!(first_flow_attribution_event(local).pid, 123);
@@ -998,13 +1004,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -1047,13 +1054,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx.clone(),
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -1138,13 +1146,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -1178,13 +1187,14 @@ mod tests {
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
         let (_event_tx, event_rx) = crate::event_queue::bounded(16);
         let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
-        let (flow_tx, _) = broadcast::channel(16);
+        let (flow_tx, flow_rx) = crate::event_queue::bounded(16);
         let (process_tx, _) = broadcast::channel(16);
         let server = IpcServer::new(
             &socket,
             event_rx,
             dpi_rx,
             flow_tx,
+            flow_rx,
             process_tx,
             test_external_flow_matcher(),
             RuntimeConfig::new(&Config::default()),
@@ -1300,21 +1310,21 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ingest_external_flow_record_emits_matched_via_broadcast_and_bumps_counter() {
+    async fn ingest_external_flow_record_emits_matched_via_queue_and_bumps_counter() {
         let metrics = Metrics::new().unwrap();
         let matcher = SharedExternalFlowMatcher::new(0);
         matcher.observe_attribution(&flow_attribution_event());
-        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+        let (event_tx, mut event_rx) = crate::event_queue::bounded(8);
 
         let ack =
-            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &broadcast_tx);
+            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &event_tx);
 
         assert_eq!(ack.accepted, 1);
         assert_eq!(ack.matched, 1);
         assert_eq!(ack.unmatched, 0);
         assert_eq!(ack.invalid, 0);
 
-        let event = broadcast_rx.try_recv().expect("broadcast event present");
+        let event = event_rx.try_recv().expect("queued event present");
         assert_eq!(event.source, "external_netflow");
         assert_eq!(event.external_flow_id, 42);
 
@@ -1347,15 +1357,15 @@ mod tests {
         // Empty matcher — no attribution observed — every well-formed
         // external record reports Unmatched.
         let matcher = SharedExternalFlowMatcher::new(0);
-        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+        let (event_tx, mut event_rx) = crate::event_queue::bounded(8);
 
         let ack =
-            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &broadcast_tx);
+            ingest_external_flow_record(external_flow_record(), &matcher, &metrics, &event_tx);
 
         assert_eq!(ack.accepted, 1);
         assert_eq!(ack.unmatched, 1);
         assert_eq!(ack.matched, 0);
-        assert!(broadcast_rx.try_recv().is_err());
+        assert!(event_rx.try_recv().is_err());
         assert_eq!(
             counter_value(
                 &metrics,
@@ -1376,7 +1386,7 @@ mod tests {
     async fn ingest_external_flow_record_drops_invalid_and_bumps_counter() {
         let metrics = Metrics::new().unwrap();
         let matcher = SharedExternalFlowMatcher::new(0);
-        let (broadcast_tx, mut broadcast_rx) = broadcast::channel(8);
+        let (event_tx, mut event_rx) = crate::event_queue::bounded(8);
 
         // Default record has empty IP buffers, so `flow_key_from_external_record`
         // returns None and the matcher reports Invalid.
@@ -1384,12 +1394,12 @@ mod tests {
             ExternalFlowRecord::default(),
             &matcher,
             &metrics,
-            &broadcast_tx,
+            &event_tx,
         );
 
         assert_eq!(ack.invalid, 1);
         assert_eq!(ack.accepted, 0);
-        assert!(broadcast_rx.try_recv().is_err());
+        assert!(event_rx.try_recv().is_err());
         assert_eq!(
             counter_value(
                 &metrics,

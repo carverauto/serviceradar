@@ -76,7 +76,7 @@ impl NetprobeEbpfRuntime {
         metrics: Metrics,
         fingerprint_events: EventSender<FingerprintEvent>,
         dpi_events: EventSender<DpiEvent>,
-        flow_attribution_events: Option<broadcast::Sender<FlowAttributionEvent>>,
+        flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
         external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
