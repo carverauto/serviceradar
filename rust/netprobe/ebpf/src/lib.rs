@@ -55,7 +55,11 @@ const SOCKET_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
-const FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS: u64 = 60_000_000_000;
+// Unchanged long-lived flow ownership is refreshed from the kernel less often
+// than first/lifecycle/owner-change events. Userspace keeps these entries for
+// 300s, so a 240s heartbeat preserves delayed central joins while avoiding the
+// 60s ring-buffer churn that busy workers mostly coalesce downstream.
+const FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS: u64 = 240_000_000_000;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
 

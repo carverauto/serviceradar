@@ -99,7 +99,7 @@ const TCP_LISTEN_STATE: i32 = 10;
 #[cfg(target_os = "linux")]
 // Keep long-lived tuples fresh enough for delayed central NetFlow joins without
 // replaying every kernel refresh. This is deliberately shorter than the core
-// correlation skew (15 minutes today) and longer than the eBPF 60s refresh.
+// correlation skew (15 minutes today) and longer than the eBPF 240s refresh.
 const FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
 #[cfg(target_os = "linux")]
 const UDP_SERVER_REMOTE_THRESHOLD: usize = 2;
