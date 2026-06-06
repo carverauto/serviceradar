@@ -1277,19 +1277,42 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
 #[inline(always)]
 fn attribution_gate_flow_key(flow: &CanonicalFlowKey) -> FlowKey {
     let mut key = flow.key;
-    if !should_coalesce_service_gate(flow) {
+
+    if should_coalesce_udp_client_gate(flow) {
+        if flow.source_endpoint == FLOW_ENDPOINT_A {
+            key.endpoint_a_port = 0;
+        } else {
+            key.endpoint_b_port = 0;
+        }
         return key;
     }
 
-    if flow.source_endpoint == FLOW_ENDPOINT_A {
-        key.endpoint_b_port = 0;
-        key.endpoint_b_addr = [0; 16];
-    } else {
-        key.endpoint_a_port = 0;
-        key.endpoint_a_addr = [0; 16];
+    if should_coalesce_service_gate(flow) {
+        if flow.source_endpoint == FLOW_ENDPOINT_A {
+            key.endpoint_b_port = 0;
+            key.endpoint_b_addr = [0; 16];
+        } else {
+            key.endpoint_a_port = 0;
+            key.endpoint_a_addr = [0; 16];
+        }
     }
 
     key
+}
+
+#[inline(always)]
+fn should_coalesce_udp_client_gate(flow: &CanonicalFlowKey) -> bool {
+    if flow.key.transport_protocol != IPPROTO_UDP {
+        return false;
+    }
+
+    let (local_port, peer_port) = if flow.source_endpoint == FLOW_ENDPOINT_A {
+        (flow.key.endpoint_a_port, flow.key.endpoint_b_port)
+    } else {
+        (flow.key.endpoint_b_port, flow.key.endpoint_a_port)
+    };
+
+    local_port >= EPHEMERAL_PORT_FLOOR && peer_port > 0 && peer_port < EPHEMERAL_PORT_FLOOR
 }
 
 #[inline(always)]

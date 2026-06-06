@@ -2022,6 +2022,10 @@ fn attribution_flow_key_from_record(
     coalesce_service: bool,
 ) -> Option<FlowKey> {
     let mut flow = flow_key_from_record(record)?;
+    if should_coalesce_udp_client_attribution(&flow) {
+        flow.endpoint_a_port = 0;
+        return Some(flow);
+    }
     if should_coalesce_service_attribution(&flow, coalesce_service) {
         flow.endpoint_b_addr = [0; 16];
         flow.endpoint_b_port = 0;
@@ -2035,6 +2039,14 @@ fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -
         && matches!(flow.transport_protocol, IPPROTO_TCP | IPPROTO_UDP)
         && flow.endpoint_a_port > 0
         && flow.endpoint_b_port > 0
+}
+
+#[cfg(target_os = "linux")]
+fn should_coalesce_udp_client_attribution(flow: &FlowKey) -> bool {
+    flow.transport_protocol == IPPROTO_UDP
+        && flow.endpoint_a_port >= EPHEMERAL_PORT_FLOOR
+        && flow.endpoint_b_port > 0
+        && flow.endpoint_b_port < EPHEMERAL_PORT_FLOOR
 }
 
 #[cfg(target_os = "linux")]
@@ -2622,20 +2634,19 @@ mod tests {
     #[cfg(target_os = "linux")]
     use super::{
         attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
-        maybe_emit_cached_attribution, process_details_from_record, prune_attribution_cache,
-        refresh_enriched_attributions, touch_closed_cached_attribution, AttributionExpiryQueue,
-        CachedAttribution, FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey,
-        SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
-        EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
-        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
-        TCP_LISTEN_STATE,
+        likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
+        prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
+        AttributionExpiryQueue, CachedAttribution, FlowAttributionCache, ProcessAttributionIndex,
+        ProcessDetailsCacheKey, SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE,
+        EVENT_UDP_RECV, EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
+        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
+        FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_record, likely_service_side_tuple, redacted_cmdline,
-        trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails, ProcessInfoRecord,
-        ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP, IPPROTO_UDP,
-        REDACTED_CMDLINE_MAX_BYTES,
+        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary, AttributedFlow,
+        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
+        IPPROTO_TCP, IPPROTO_UDP, REDACTED_CMDLINE_MAX_BYTES,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -2694,6 +2705,29 @@ mod tests {
 
         assert_eq!(key.endpoint_a_port, 51_000);
         assert_eq!(key.endpoint_b_port, 443);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_client_service_attribution_coalesces_local_ephemeral_port() {
+        let record = udp_record(EVENT_UDP_SEND, 51_000, 53);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 0);
+        assert_eq!(key.endpoint_a_addr, ipv4([192, 0, 2, 10]));
+        assert_eq!(key.endpoint_b_port, 53);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_client_high_remote_port_keeps_exact_local_port() {
+        let record = udp_record(EVENT_UDP_SEND, 51_000, 51_001);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 51_001);
         assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
     }
 
