@@ -18,6 +18,7 @@
 
 ## 3. Kubernetes Node-Local Metadata
 - [ ] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata, with endpoint discovery from explicit config, runtime config files, and common socket paths. Initial CRI endpoint discovery is implemented; runtime RPC lookup is still pending.
+- [ ] 3.1a Evaluate Rust CRI client options against the required CRI v1 calls (`ListPodSandbox`, `PodSandboxStatus`, `ListContainers`, `ContainerStatus`) and prefer CRI-level bindings over containerd-internal APIs so containerd and CRI-O can share the backend.
 - [ ] 3.2 Add cgroup v1/v2 parsing and eBPF cgroup/process event joins that do not depend on procfs scans. Initial cgroup pod/container identity parsing is implemented; eBPF join wiring is still pending.
 - [ ] 3.3 Package the node-local collector as a Kubernetes DaemonSet or native add-on with explicit host mounts/capabilities and security documentation.
 - [ ] 3.4 Add degradation behavior for missing runtime sockets, unsupported runtimes, permission failures, and stale cgroup/container mappings.

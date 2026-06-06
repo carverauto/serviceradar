@@ -49,6 +49,11 @@ Live validation on `k8s-cp3-worker3` showed that node-local `crictl` can resolve
 
 That is enough for the minimal viable enrichment path without Kubernetes RBAC on the host agent.
 
+## Runtime Client Implementation Notes
+The Kubernetes MVP should query the node-local CRI API, not the Kubernetes API, for baseline pod/container identity. In Rust, evaluate existing containerd/CRI client crates against the current CRI v1 methods we need, especially list/status calls equivalent to `crictl pods`, `crictl ps`, `crictl inspectp`, and `crictl inspect`. If an existing crate does not expose the required CRI surface cleanly, generate the minimal protobuf bindings needed for the runtime service instead of binding the collector to containerd internals.
+
+The resolver should prefer CRI-level pod sandbox and container status data over containerd-only metadata so the same backend can support containerd and CRI-O. Docker and Docker Compose support should be a later backend, likely using the Docker Engine API or a Rust Docker client, and should not block the Kubernetes cgroup plus CRI MVP.
+
 ## Security Model
 Runtime sockets are powerful. A read-only hostPath mount does not make a Unix socket API read-only. The design must treat CRI/Docker socket access as privileged and auditable.
 
