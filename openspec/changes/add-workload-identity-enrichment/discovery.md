@@ -68,7 +68,20 @@ docker compose ps
 docker events
 ```
 
-There were no running or stopped Docker containers on the host at validation time, so Docker/Compose label, network, port, mount, and service/project extraction remains unproven against a live workload. The socket/tooling path is present and should be validated with a small Compose fixture before closing the Docker/Compose discovery task.
+A temporary Compose fixture was validated with a cached `alpine:3.20` image and then removed. The fixture used project `srwi`, service `wi-probe`, a custom ServiceRadar label, a localhost-published port, and a read-only bind mount.
+
+Observed Docker/Compose metadata from `docker inspect` and `docker compose ps --format json`:
+
+- container name: `srwi-wi-probe-1`
+- image reference and image digest
+- runtime PID from `.State.Pid`
+- Compose labels: project, service, container number, config file path, working directory, Compose version, one-off flag, and image digest
+- custom labels from the workload
+- network name, endpoint ID, container IP, MAC address, aliases, and DNS names
+- published port mapping: host IP, host port, target port, protocol
+- bind mount source, destination, read-only flag, mode, and propagation
+
+Conclusion: Docker/Compose enrichment can derive useful host/container forensic context from the Docker Engine API without Kubernetes. The production implementation still needs explicit opt-in socket access, sensitive label/mount filtering, and fixture-backed parser tests.
 
 ## MVP Packaging Decision
 
