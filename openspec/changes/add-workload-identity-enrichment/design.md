@@ -56,6 +56,13 @@ The Kubernetes MVP should query the node-local CRI API, not the Kubernetes API, 
 
 The resolver should prefer CRI-level pod sandbox and container status data over containerd-only metadata so the same backend can support containerd and CRI-O. Docker and Docker Compose support should be a later backend, likely using the Docker Engine API or a Rust Docker client, and should not block the Kubernetes cgroup plus CRI MVP.
 
+Implementation candidates:
+- Generated CRI v1 `tonic`/`prost` bindings for `ListPodSandbox`, `PodSandboxStatus`, `ListContainers`, and `ContainerStatus` are the preferred portable path if no crate exposes the needed API cleanly.
+- `containerd-client` can be evaluated for containerd environments, but the ServiceRadar backend should not depend on containerd-only APIs for Kubernetes baseline enrichment.
+- `bollard` is the likely Docker Engine API candidate for Docker and Compose enrichment after the CRI/cgroup MVP.
+
+The first client spike should reproduce the validated `crictl` calls over the worker's Unix socket and return a small in-memory map of container ID and pod sandbox ID to namespace, pod name, pod UID, container name, image, runtime PID, and cgroup path. Schema, storage, and UI work should wait until that node-local resolver behavior is proven against the demo k3s/containerd socket.
+
 ## Security Model
 Runtime sockets are powerful. A read-only hostPath mount does not make a Unix socket API read-only. The design must treat CRI/Docker socket access as privileged and auditable.
 

@@ -20,6 +20,7 @@
 ## 3. Kubernetes Node-Local Metadata
 - [ ] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata, with endpoint discovery from explicit config, runtime config files, and common socket paths. Initial CRI endpoint discovery is implemented; runtime RPC lookup is still pending.
 - [ ] 3.1a Evaluate Rust CRI client options against the required CRI v1 calls (`ListPodSandbox`, `PodSandboxStatus`, `ListContainers`, `ContainerStatus`) and prefer CRI-level bindings over containerd-internal APIs so containerd and CRI-O can share the backend.
+- [ ] 3.1b Prototype a node-local CRI resolver that reproduces the validated `crictl pods`, `crictl ps`, `crictl inspectp`, and `crictl inspect` metadata over the demo worker Unix socket before starting storage or UI work.
 - [ ] 3.2 Add cgroup v1/v2 parsing and eBPF cgroup/process event joins that do not depend on procfs scans. Initial cgroup pod/container identity parsing is implemented; eBPF join wiring is still pending.
 - [ ] 3.3 Package the node-local collector as a Kubernetes DaemonSet or native add-on with explicit host mounts/capabilities and security documentation.
 - [ ] 3.4 Add degradation behavior for missing runtime sockets, unsupported runtimes, permission failures, and stale cgroup/container mappings.
@@ -31,6 +32,7 @@
 
 ## 5. Docker and Docker Compose Metadata
 - [ ] 5.1 Implement Docker/containerd resolver for non-Kubernetes hosts with explicit opt-in socket access.
+- [ ] 5.1a Evaluate `bollard` or direct Docker Engine API bindings for container name, image, labels, networks, published ports, bind mounts, and Compose labels.
 - [ ] 5.2 Enrich container context with Docker name, image/digest, labels, networks, exposed/published ports, bind mounts, restart policy, runtime source, and host path hints.
 - [ ] 5.3 Extract Compose context from labels such as project, service, config files, working directory, and container number when present.
 - [ ] 5.4 Provide a least-privileged local metadata helper/proxy option for deployments that do not want the main agent to access the Docker socket directly.
