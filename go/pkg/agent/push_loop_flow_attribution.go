@@ -33,6 +33,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -56,11 +57,23 @@ const (
 	// FlowAttributionRouter / FlowJoinCache.
 	FlowAttributionSource = "flow-attribution"
 
-	// flowAttributionMaxDrainPerPush bounds the number of
-	// FlowAttributionEvents drained per push loop tick. It is large enough
-	// to drain bursty worker-node attribution without backing up the local
-	// IPC queues, while still bounding each gateway status payload.
-	flowAttributionMaxDrainPerPush = 4096
+	// flowAttributionMaxEventsPerChunk bounds each protobuf payload. This
+	// preserves the existing per-message behavior while allowing a single
+	// push tick to forward multiple chunks when a busy host accumulated more
+	// than one chunk during the 30s agent push interval.
+	flowAttributionMaxEventsPerChunk = 4096
+
+	// flowAttributionMaxDrainPerPush bounds the total number of
+	// FlowAttributionEvents drained per push loop tick. This keeps the agent
+	// from spending an unbounded amount of time in one status pass, but no
+	// longer caps a busy worker to a single 4096-event chunk every 30s.
+	flowAttributionMaxDrainPerPush = 32 * 1024
+
+	// flowAttributionMaxBatchMessageBytes is the target maximum size for a
+	// single marshaled FlowAttributionEventBatch. It sits below the
+	// GatewayClient's 16MiB StreamStatus chunk limit to leave room for the
+	// surrounding GatewayStatusChunk envelope.
+	flowAttributionMaxBatchMessageBytes = 6 * 1024 * 1024
 )
 
 // agentFlowAttributionEventsForwardedTotal counts the number of
@@ -108,8 +121,8 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 	}
 
 	batchStart := time.Now().UTC()
-	events := netprobeSidecar.DrainFlowAttributionEvents(flowAttributionMaxDrainPerPush)
-	if len(events) == 0 {
+	eventBatches, totalEvents, hitDrainLimit := drainFlowAttributionBatches(netprobeSidecar)
+	if totalEvents == 0 {
 		return false
 	}
 	batchEnd := time.Now().UTC()
@@ -121,8 +134,9 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 
 	gatewayID := p.gateway.GetGatewayID()
 
-	status, messageBytes, err := buildFlowAttributionGatewayStatus(
-		events,
+	runtimeMetadata := currentRuntimeMetadata()
+	chunks, totalMessageBytes, err := buildFlowAttributionGatewayStatusChunks(
+		eventBatches,
 		batchStart,
 		batchEnd,
 		dropped,
@@ -130,59 +144,51 @@ func (p *PushLoop) pushFlowAttribution(ctx context.Context) bool {
 		gatewayID,
 		partition,
 		kvStoreID,
+		p.getSourceIP(),
+		runtimeMetadata,
 	)
 	if err != nil {
 		p.logger.Error().Err(err).
-			Int("event_count", len(events)).
+			Int("event_count", totalEvents).
 			Msg("Failed to marshal flow attribution batch")
 		return false
-	}
-
-	runtimeMetadata := currentRuntimeMetadata()
-	chunk := &proto.GatewayStatusChunk{
-		Services:    []*proto.GatewayServiceStatus{status},
-		GatewayId:   gatewayID,
-		AgentId:     agentID,
-		Timestamp:   time.Now().UnixNano(),
-		Partition:   partition,
-		SourceIp:    p.getSourceIP(),
-		Version:     runtimeMetadata.Version,
-		Hostname:    runtimeMetadata.Hostname,
-		Os:          runtimeMetadata.Os,
-		Arch:        runtimeMetadata.Arch,
-		ChunkIndex:  0,
-		TotalChunks: 1,
-		IsFinal:     true,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	resp, err := p.gateway.StreamStatus(pushCtx, chunks)
 	if err != nil {
 		p.logger.Error().Err(err).
-			Int("event_count", len(events)).
+			Int("event_count", totalEvents).
+			Int("chunk_count", len(chunks)).
 			Msg("Failed to stream flow attribution batch to gateway")
 		return false
 	}
 
 	if !resp.Received {
 		p.logger.Warn().
-			Int("event_count", len(events)).
+			Int("event_count", totalEvents).
+			Int("chunk_count", len(chunks)).
 			Msg("Gateway did not acknowledge flow attribution batch")
 		return false
 	}
 
-	agentFlowAttributionEventsForwardedTotal.Add(uint64(len(events)))
+	agentFlowAttributionEventsForwardedTotal.Add(uint64(totalEvents))
 
 	// Gateway acked — safe to advance the dropped-counter baseline now.
 	// On any earlier `return false`, the baseline stays unmoved so the
 	// next push replays the unreported delta.
 	commitFlowAttributionDropped(cumulativeDropped)
 
-	p.logger.Info().
-		Int("event_count", len(events)).
-		Int("message_bytes", len(messageBytes)).
+	logEvent := p.logger.Info()
+	if hitDrainLimit {
+		logEvent = p.logger.Warn()
+	}
+	logEvent.
+		Int("event_count", totalEvents).
+		Int("chunk_count", len(chunks)).
+		Int("message_bytes", totalMessageBytes).
 		Uint32("dropped_since_last", dropped).
 		Msg("Streamed flow attribution batch to gateway")
 
@@ -230,6 +236,187 @@ func buildFlowAttributionGatewayStatus(
 		KvStoreId:    kvStoreID,
 	}
 	return status, messageBytes, nil
+}
+
+func drainFlowAttributionBatches(s *agentnetprobe.Sidecar) ([][]*netprobepb.FlowAttributionEvent, int, bool) {
+	if s == nil {
+		return nil, 0, false
+	}
+
+	batches := make([][]*netprobepb.FlowAttributionEvent, 0, flowAttributionMaxDrainPerPush/flowAttributionMaxEventsPerChunk)
+	totalEvents := 0
+
+	for totalEvents < flowAttributionMaxDrainPerPush {
+		remaining := flowAttributionMaxDrainPerPush - totalEvents
+		drainLimit := flowAttributionMaxEventsPerChunk
+		if remaining < drainLimit {
+			drainLimit = remaining
+		}
+
+		events := s.DrainFlowAttributionEvents(drainLimit)
+		if len(events) == 0 {
+			break
+		}
+
+		batches = append(batches, events)
+		totalEvents += len(events)
+
+		if len(events) < drainLimit {
+			break
+		}
+	}
+
+	return batches, totalEvents, totalEvents >= flowAttributionMaxDrainPerPush
+}
+
+func buildFlowAttributionGatewayStatusChunks(
+	eventBatches [][]*netprobepb.FlowAttributionEvent,
+	batchStart, batchEnd time.Time,
+	droppedSinceLast uint32,
+	agentID, gatewayID, partition, kvStoreID, sourceIP string,
+	runtimeMetadata statusRuntimeMetadata,
+) ([]*proto.GatewayStatusChunk, int, error) {
+	statusChunks := make([]*proto.GatewayStatusChunk, 0, len(eventBatches))
+	totalMessageBytes := 0
+	droppedForNextChunk := droppedSinceLast
+
+	for _, events := range eventBatches {
+		if len(events) == 0 {
+			continue
+		}
+
+		chunks, messageBytes, err := appendFlowAttributionGatewayStatusChunks(
+			nil,
+			events,
+			batchStart,
+			batchEnd,
+			droppedForNextChunk,
+			agentID,
+			gatewayID,
+			partition,
+			kvStoreID,
+			sourceIP,
+			runtimeMetadata,
+		)
+		if err != nil {
+			return nil, 0, err
+		}
+
+		statusChunks = append(statusChunks, chunks...)
+		totalMessageBytes += messageBytes
+		droppedForNextChunk = 0
+	}
+
+	if len(statusChunks) == 0 {
+		return nil, 0, nil
+	}
+
+	totalChunks := int32(len(statusChunks))
+	for i, chunk := range statusChunks {
+		chunk.ChunkIndex = int32(i)
+		chunk.TotalChunks = totalChunks
+		chunk.IsFinal = int32(i) == totalChunks-1
+	}
+
+	return statusChunks, totalMessageBytes, nil
+}
+
+func appendFlowAttributionGatewayStatusChunks(
+	chunks []*proto.GatewayStatusChunk,
+	events []*netprobepb.FlowAttributionEvent,
+	batchStart, batchEnd time.Time,
+	droppedSinceLast uint32,
+	agentID, gatewayID, partition, kvStoreID, sourceIP string,
+	runtimeMetadata statusRuntimeMetadata,
+) ([]*proto.GatewayStatusChunk, int, error) {
+	status, messageBytes, err := buildFlowAttributionGatewayStatus(
+		events,
+		batchStart,
+		batchEnd,
+		droppedSinceLast,
+		agentID,
+		gatewayID,
+		partition,
+		kvStoreID,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	if len(messageBytes) <= flowAttributionMaxBatchMessageBytes {
+		return append(chunks, newFlowAttributionGatewayStatusChunk(
+			status,
+			agentID,
+			gatewayID,
+			partition,
+			sourceIP,
+			runtimeMetadata,
+		)), len(messageBytes), nil
+	}
+
+	if len(events) <= 1 {
+		return nil, 0, fmt.Errorf(
+			"flow attribution event exceeds batch message byte budget: bytes=%d max=%d",
+			len(messageBytes),
+			flowAttributionMaxBatchMessageBytes,
+		)
+	}
+
+	mid := len(events) / 2
+	leftChunks, leftBytes, err := appendFlowAttributionGatewayStatusChunks(
+		chunks,
+		events[:mid],
+		batchStart,
+		batchEnd,
+		droppedSinceLast,
+		agentID,
+		gatewayID,
+		partition,
+		kvStoreID,
+		sourceIP,
+		runtimeMetadata,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	rightChunks, rightBytes, err := appendFlowAttributionGatewayStatusChunks(
+		leftChunks,
+		events[mid:],
+		batchStart,
+		batchEnd,
+		0,
+		agentID,
+		gatewayID,
+		partition,
+		kvStoreID,
+		sourceIP,
+		runtimeMetadata,
+	)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return rightChunks, leftBytes + rightBytes, nil
+}
+
+func newFlowAttributionGatewayStatusChunk(
+	status *proto.GatewayServiceStatus,
+	agentID, gatewayID, partition, sourceIP string,
+	runtimeMetadata statusRuntimeMetadata,
+) *proto.GatewayStatusChunk {
+	return &proto.GatewayStatusChunk{
+		Services:  []*proto.GatewayServiceStatus{status},
+		GatewayId: gatewayID,
+		AgentId:   agentID,
+		Timestamp: time.Now().UnixNano(),
+		Partition: partition,
+		SourceIp:  sourceIP,
+		Version:   runtimeMetadata.Version,
+		Hostname:  runtimeMetadata.Hostname,
+		Os:        runtimeMetadata.Os,
+		Arch:      runtimeMetadata.Arch,
+	}
 }
 
 // observeFlowAttributionDropped reads the cumulative drop counter from

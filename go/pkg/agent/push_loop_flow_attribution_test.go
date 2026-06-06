@@ -17,9 +17,11 @@
 package agent
 
 import (
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
@@ -140,10 +142,106 @@ func TestBuildFlowAttributionGatewayStatus_EmptyEventsPreservesField(t *testing.
 }
 
 func TestFlowAttributionMaxDrainPerPushIsBounded(t *testing.T) {
-	// Pin the constant so future edits don't accidentally unbound the
-	// per-tick drain.
-	if got, want := flowAttributionMaxDrainPerPush, 4096; got != want {
+	// Pin the constants so future edits don't accidentally unbound the
+	// per-message chunk or per-tick drain budgets.
+	if got, want := flowAttributionMaxEventsPerChunk, 4096; got != want {
+		t.Errorf("flowAttributionMaxEventsPerChunk = %d, want %d", got, want)
+	}
+	if got, want := flowAttributionMaxDrainPerPush, 32*1024; got != want {
 		t.Errorf("flowAttributionMaxDrainPerPush = %d, want %d", got, want)
+	}
+}
+
+func TestBuildFlowAttributionGatewayStatusChunks_StreamsMultipleBatches(t *testing.T) {
+	batches := [][]*netprobepb.FlowAttributionEvent{
+		sampleFlowAttributionEvents(3),
+		sampleFlowAttributionEvents(2),
+	}
+	start := time.Unix(0, 1_700_000_000_000_000_000).UTC()
+	end := start.Add(250 * time.Millisecond)
+
+	chunks, messageBytes, err := buildFlowAttributionGatewayStatusChunks(
+		batches,
+		start,
+		end,
+		9,
+		"agent-A",
+		"gateway-1",
+		"prod-east",
+		"kv-1",
+		"10.0.0.10",
+		statusRuntimeMetadata{Version: "test-version", Hostname: "host-a", Os: "linux", Arch: "amd64"},
+	)
+	if err != nil {
+		t.Fatalf("build chunks: %v", err)
+	}
+	if got, want := len(chunks), 2; got != want {
+		t.Fatalf("chunks len = %d, want %d", got, want)
+	}
+	if messageBytes == 0 {
+		t.Fatal("messageBytes = 0, want non-zero")
+	}
+
+	assertFlowAttributionChunkMetadata(t, chunks[0], 0, 2, false)
+	assertFlowAttributionChunkMetadata(t, chunks[1], 1, 2, true)
+	assertFlowAttributionChunkEnvelope(t, chunks[0], "agent-A", "gateway-1", "prod-east", "10.0.0.10")
+	assertFlowAttributionChunkEnvelope(t, chunks[1], "agent-A", "gateway-1", "prod-east", "10.0.0.10")
+
+	first := decodeFlowAttributionBatchFromChunk(t, chunks[0])
+	second := decodeFlowAttributionBatchFromChunk(t, chunks[1])
+	if got, want := len(first.GetEvents()), 3; got != want {
+		t.Errorf("first events len = %d, want %d", got, want)
+	}
+	if got, want := len(second.GetEvents()), 2; got != want {
+		t.Errorf("second events len = %d, want %d", got, want)
+	}
+	if got, want := first.GetDroppedSinceLast(), uint32(9); got != want {
+		t.Errorf("first DroppedSinceLast = %d, want %d", got, want)
+	}
+	if got := second.GetDroppedSinceLast(); got != 0 {
+		t.Errorf("second DroppedSinceLast = %d, want 0", got)
+	}
+}
+
+func TestBuildFlowAttributionGatewayStatusChunks_SplitsOversizedBatch(t *testing.T) {
+	largeArg := strings.Repeat("x", 4*1024*1024)
+	events := []*netprobepb.FlowAttributionEvent{
+		{Pid: 1001, Comm: "large-a", RedactedCmdline: []string{largeArg}},
+		{Pid: 1002, Comm: "large-b", RedactedCmdline: []string{largeArg}},
+	}
+
+	chunks, _, err := buildFlowAttributionGatewayStatusChunks(
+		[][]*netprobepb.FlowAttributionEvent{events},
+		time.Unix(0, 1).UTC(),
+		time.Unix(0, 2).UTC(),
+		11,
+		"agent-A",
+		"gateway-1",
+		"prod-east",
+		"kv-1",
+		"10.0.0.10",
+		statusRuntimeMetadata{},
+	)
+	if err != nil {
+		t.Fatalf("build chunks: %v", err)
+	}
+	if got, want := len(chunks), 2; got != want {
+		t.Fatalf("chunks len = %d, want %d", got, want)
+	}
+
+	first := decodeFlowAttributionBatchFromChunk(t, chunks[0])
+	second := decodeFlowAttributionBatchFromChunk(t, chunks[1])
+	if got, want := len(first.GetEvents()), 1; got != want {
+		t.Errorf("first split events len = %d, want %d", got, want)
+	}
+	if got, want := len(second.GetEvents()), 1; got != want {
+		t.Errorf("second split events len = %d, want %d", got, want)
+	}
+	if got := first.GetDroppedSinceLast(); got != 11 {
+		t.Errorf("first DroppedSinceLast = %d, want 11", got)
+	}
+	if got := second.GetDroppedSinceLast(); got != 0 {
+		t.Errorf("second DroppedSinceLast = %d, want 0", got)
 	}
 }
 
@@ -195,4 +293,60 @@ func computeFlowAttributionDroppedDelta(cumulative uint64) uint32 {
 		return clampToUint32(cumulative)
 	}
 	return clampToUint32(cumulative - prev)
+}
+
+func assertFlowAttributionChunkMetadata(t *testing.T, chunk *proto.GatewayStatusChunk, index, total int32, final bool) {
+	t.Helper()
+
+	if got := chunk.GetChunkIndex(); got != index {
+		t.Errorf("ChunkIndex = %d, want %d", got, index)
+	}
+	if got := chunk.GetTotalChunks(); got != total {
+		t.Errorf("TotalChunks = %d, want %d", got, total)
+	}
+	if got := chunk.GetIsFinal(); got != final {
+		t.Errorf("IsFinal = %t, want %t", got, final)
+	}
+}
+
+func assertFlowAttributionChunkEnvelope(
+	t *testing.T,
+	chunk *proto.GatewayStatusChunk,
+	agentID, gatewayID, partition, sourceIP string,
+) {
+	t.Helper()
+
+	if got := chunk.GetAgentId(); got != agentID {
+		t.Errorf("AgentId = %q, want %q", got, agentID)
+	}
+	if got := chunk.GetGatewayId(); got != gatewayID {
+		t.Errorf("GatewayId = %q, want %q", got, gatewayID)
+	}
+	if got := chunk.GetPartition(); got != partition {
+		t.Errorf("Partition = %q, want %q", got, partition)
+	}
+	if got := chunk.GetSourceIp(); got != sourceIP {
+		t.Errorf("SourceIp = %q, want %q", got, sourceIP)
+	}
+	if got, want := len(chunk.GetServices()), 1; got != want {
+		t.Fatalf("Services len = %d, want %d", got, want)
+	}
+	if got := chunk.GetServices()[0].GetSource(); got != FlowAttributionSource {
+		t.Errorf("service Source = %q, want %q", got, FlowAttributionSource)
+	}
+}
+
+func decodeFlowAttributionBatchFromChunk(t *testing.T, chunk *proto.GatewayStatusChunk) netprobepb.FlowAttributionEventBatch {
+	t.Helper()
+
+	if got, want := len(chunk.GetServices()), 1; got != want {
+		t.Fatalf("Services len = %d, want %d", got, want)
+	}
+
+	var decoded netprobepb.FlowAttributionEventBatch
+	if err := gproto.Unmarshal(chunk.GetServices()[0].GetMessage(), &decoded); err != nil {
+		t.Fatalf("unmarshal batch: %v", err)
+	}
+
+	return decoded
 }
