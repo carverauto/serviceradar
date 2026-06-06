@@ -291,38 +291,24 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert device.ip == "10.42.#{rem(unique_id, 255)}.20"
     end
 
-    test "adopts existing active-IP device when reenrollment IP is already owned", %{
-      unique_id: unique_id
+    test "adopts existing active-IP device when it has no agent owner", %{
+      unique_id: unique_id,
+      actor: actor
     } do
-      agent_id = "agent-active-ip-conflict-#{unique_id}"
-      conflict_owner_agent_id = "agent-active-ip-owner-#{unique_id}"
-      original_ip = "10.88.#{rem(unique_id, 200)}.10"
+      agent_id = "agent-active-ip-discovered-#{unique_id}"
       conflict_ip = "10.88.#{rem(unique_id, 200)}.20"
+      discovered_uid = "sr:" <> Ecto.UUID.generate()
 
-      :ok =
-        AgentGatewaySync.upsert_agent(conflict_owner_agent_id, %{
-          host: conflict_ip,
-          capabilities: ["sysmon"]
-        })
-
-      {:ok, conflict_device_uid} =
-        AgentGatewaySync.ensure_device_for_agent(conflict_owner_agent_id, %{
-          hostname: "existing-active-ip-owner-#{unique_id}",
-          source_ip: conflict_ip,
-          partition: "default",
-          capabilities: ["sysmon"]
-        })
-
-      :ok =
-        AgentGatewaySync.upsert_agent(agent_id, %{host: original_ip, capabilities: ["sysmon"]})
-
-      {:ok, original_device_uid} =
-        AgentGatewaySync.ensure_device_for_agent(agent_id, %{
-          hostname: "agent-active-ip-original-#{unique_id}",
-          source_ip: original_ip,
-          partition: "default",
-          capabilities: ["sysmon"]
-        })
+      assert {:ok, _device} =
+               Device
+               |> Ash.Changeset.for_create(:create, %{
+                 uid: discovered_uid,
+                 hostname: "discovered-active-ip-#{unique_id}",
+                 ip: conflict_ip,
+                 discovery_sources: ["mapper"],
+                 is_available: true
+               })
+               |> Ash.create(actor: actor)
 
       assert {:ok, adopted_device_uid} =
                AgentGatewaySync.ensure_device_for_agent(agent_id, %{
@@ -332,8 +318,124 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
                  capabilities: ["sysmon"]
                })
 
-      assert adopted_device_uid == conflict_device_uid
-      refute adopted_device_uid == original_device_uid
+      assert adopted_device_uid == discovered_uid
+
+      {:ok, device} = Device.get_by_uid(discovered_uid, false, actor: actor)
+      assert device.agent_id == agent_id
+      assert "mapper" in device.discovery_sources
+      assert "agent" in device.discovery_sources
+    end
+
+    test "does not merge a current agent device into a stale agent_id identifier owner",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      stale_owner_agent_id = "agent-stale-owner-#{unique_id}"
+      current_agent_id = "agent-current-owner-#{unique_id}"
+      stale_ip = "10.89.#{rem(unique_id, 200)}.10"
+      current_ip = "10.89.#{rem(unique_id, 200)}.20"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(current_agent_id, %{
+          host: current_ip,
+          capabilities: ["sysmon"]
+        })
+
+      {:ok, stale_owner_uid} =
+        AgentGatewaySync.ensure_device_for_agent(stale_owner_agent_id, %{
+          hostname: "stale-owner-#{unique_id}",
+          source_ip: stale_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      assert :ok =
+               DeviceIdentifier
+               |> Ash.Changeset.for_create(:upsert, %{
+                 device_id: stale_owner_uid,
+                 identifier_type: :agent_id,
+                 identifier_value: current_agent_id,
+                 partition: "default",
+                 confidence: :strong,
+                 source: "test-stale-identifier"
+               })
+               |> Ash.create(actor: actor)
+               |> then(fn {:ok, _identifier} -> :ok end)
+
+      assert {:ok, current_uid} =
+               AgentGatewaySync.ensure_device_for_agent(current_agent_id, %{
+                 hostname: "current-owner-#{unique_id}",
+                 source_ip: current_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      refute current_uid == stale_owner_uid
+
+      {:ok, current_device} = Device.get_by_uid(current_uid, false, actor: actor)
+      {:ok, stale_owner_device} = Device.get_by_uid(stale_owner_uid, false, actor: actor)
+      {:ok, current_agent} = Agent.get_by_uid(current_agent_id, actor: actor)
+
+      assert current_device.agent_id == current_agent_id
+      assert current_device.ip == current_ip
+      assert current_agent.device_uid == current_uid
+      refute stale_owner_device.deleted_at
+
+      query =
+        Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+          identifier_type: :agent_id,
+          identifier_value: current_agent_id,
+          partition: "default"
+        })
+
+      assert {:ok, [identifier]} = Ash.read(query, actor: actor)
+      assert identifier.device_id == current_uid
+    end
+
+    test "releases conflicting active IP from a different agent-owned device instead of adopting it",
+         %{
+           unique_id: unique_id,
+           actor: actor
+         } do
+      stale_owner_agent_id = "agent-ip-owner-#{unique_id}"
+      current_agent_id = "agent-ip-claimant-#{unique_id}"
+      conflict_ip = "10.90.#{rem(unique_id, 200)}.30"
+
+      :ok =
+        AgentGatewaySync.upsert_agent(current_agent_id, %{
+          host: conflict_ip,
+          capabilities: ["sysmon"]
+        })
+
+      {:ok, stale_owner_uid} =
+        AgentGatewaySync.ensure_device_for_agent(stale_owner_agent_id, %{
+          hostname: "ip-owner-#{unique_id}",
+          source_ip: conflict_ip,
+          partition: "default",
+          capabilities: ["sysmon"]
+        })
+
+      assert {:ok, current_uid} =
+               AgentGatewaySync.ensure_device_for_agent(current_agent_id, %{
+                 hostname: "ip-claimant-#{unique_id}",
+                 source_ip: conflict_ip,
+                 partition: "default",
+                 capabilities: ["sysmon"]
+               })
+
+      refute current_uid == stale_owner_uid
+
+      {:ok, stale_owner_device} = Device.get_by_uid(stale_owner_uid, false, actor: actor)
+      {:ok, current_device} = Device.get_by_uid(current_uid, false, actor: actor)
+      {:ok, current_agent} = Agent.get_by_uid(current_agent_id, actor: actor)
+
+      assert is_nil(stale_owner_device.ip)
+      assert stale_owner_device.agent_id == stale_owner_agent_id
+      assert stale_owner_device.metadata["released_conflicting_active_ip"] == conflict_ip
+      assert current_device.ip == conflict_ip
+      assert current_device.agent_id == current_agent_id
+      assert current_agent.device_uid == current_uid
     end
 
     test "marks older duplicate-prefix agent unavailable when reenrollment resolves to same device",
