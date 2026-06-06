@@ -141,3 +141,30 @@ func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
 		t.Fatalf("bootstrap config missing enabled=true: %s", payload)
 	}
 }
+
+func TestWriteBootstrapConfigReplacesReadOnlyExistingFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+	if err := os.WriteFile(path, []byte(`{"enabled":false}`), 0o400); err != nil {
+		t.Fatalf("seed read-only bootstrap config: %v", err)
+	}
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{Enabled: true}); err != nil {
+		t.Fatalf("WriteBootstrapConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if !strings.Contains(string(data), "\"enabled\": true") {
+		t.Fatalf("bootstrap config was not replaced: %s", string(data))
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat() error = %v", err)
+	}
+	if got := info.Mode().Perm(); got != 0o640 {
+		t.Fatalf("bootstrap config mode = %o, want 640", got)
+	}
+}

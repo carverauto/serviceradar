@@ -7,7 +7,7 @@ use thiserror::Error;
 
 pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
 pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 0;
-pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 30;
+pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
 pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = true;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -257,7 +257,7 @@ mod tests {
             config.flow_attribution_resend_interval_s,
             DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S
         );
-        assert_eq!(config.flow_attribution_resend_interval_s, 30);
+        assert_eq!(config.flow_attribution_resend_interval_s, 0);
     }
 
     #[test]

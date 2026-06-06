@@ -852,8 +852,9 @@ impl FlowAttributionRuntime {
             .name("netprobe-flow-attribution-ring-reader".to_owned())
             .spawn(move || {
                 // Live attribution cache, keyed by (flow, pid, tgid). New flows are
-                // broadcast immediately. Optional cache re-broadcasts keep long-lived
-                // flows visible to reconnecting agents without flooding busy workers.
+                // broadcast immediately and core persists them for delayed NetFlow
+                // correlation. Whole-cache re-broadcast is opt-in only because it is
+                // O(cache) work on the ring-reader thread.
                 let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
                 let mut process_index: ProcessAttributionIndex = HashMap::new();
                 let mut last_process_snapshot = runtime_config
@@ -1112,9 +1113,10 @@ fn drain_ring(
     drained
 }
 
-// Prune stale entries, then re-broadcast every live attribution so an
-// absent/reconnecting/lagging agent reliably receives them (broadcast sends are
-// dropped when no receiver is attached and are otherwise never re-sent).
+// Prune stale entries, then re-broadcast every live attribution. This is an
+// explicit compatibility knob for deployments that need periodic replays; the
+// default data path emits on eBPF events and relies on core-side persistence for
+// delayed NetFlow correlation.
 #[cfg(target_os = "linux")]
 fn resend_cache(
     tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
