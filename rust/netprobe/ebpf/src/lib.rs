@@ -51,6 +51,7 @@ const FLOW_TABLE_DEFAULT_INTERFACE_SLOTS: u32 = 16;
 const FLOW_TABLE_MAX_ENTRIES: u32 =
     FLOW_TABLE_ENTRIES_PER_INTERFACE * FLOW_TABLE_DEFAULT_INTERFACE_SLOTS;
 const FLOW_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
+const SOCKET_TO_PID_MAX_ENTRIES: u32 = 1_048_576;
 const PROCESS_INFO_MAX_ENTRIES: u32 = 8_192;
 const INTERFACE_ALLOWLIST_MAX_ENTRIES: u32 = 1_024;
 const XSK_MAX_QUEUES: u32 = 1024;
@@ -302,6 +303,10 @@ static FLOW_TABLE: LruHashMap<FlowTableKey, FlowTableEntry> =
 static FLOW_TO_PID: LruHashMap<FlowKey, FlowPidRecord> =
     LruHashMap::pinned(FLOW_TO_PID_MAX_ENTRIES, 0);
 
+#[map(name = "socket_to_pid")]
+static SOCKET_TO_PID: LruHashMap<u64, FlowPidRecord> =
+    LruHashMap::pinned(SOCKET_TO_PID_MAX_ENTRIES, 0);
+
 #[map(name = "process_info")]
 static PROCESS_INFO: BpfHashMap<u32, ProcessInfoRecord> =
     BpfHashMap::pinned(PROCESS_INFO_MAX_ENTRIES, 0);
@@ -386,14 +391,8 @@ pub fn tcp_connect(ctx: ProbeContext) -> u32 {
         return 0;
     };
 
-    emit_event(
-        &ctx,
-        EVENT_TCP_CONNECT,
-        sock,
-        FlowTuple::empty(IPPROTO_TCP),
-        0,
-        0,
-    );
+    remember_current_socket_owner(&ctx, EVENT_TCP_CONNECT, sock, 0, 0);
+
     0
 }
 
@@ -407,14 +406,14 @@ pub fn inet_csk_accept(ctx: RetProbeContext) -> u32 {
         return 0;
     }
 
-    emit_event(
-        &ctx,
-        EVENT_TCP_ACCEPT,
-        sock,
-        FlowTuple::empty(IPPROTO_TCP),
-        0,
-        0,
-    );
+    remember_current_socket_owner(&ctx, EVENT_TCP_ACCEPT, sock, 0, 0);
+
+    if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
+        if !tuple_destination_is_zero(&tuple) {
+            emit_event(&ctx, EVENT_TCP_ACCEPT, sock, tuple, 0, 0);
+        }
+    }
+
     0
 }
 
@@ -424,14 +423,13 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
         return 0;
     };
 
-    emit_event(
-        &ctx,
-        EVENT_TCP_CLOSE,
-        sock,
-        FlowTuple::empty(IPPROTO_TCP),
-        0,
-        0,
-    );
+    if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
+        if !tuple_destination_is_zero(&tuple) {
+            emit_event_with_cached_owner(&ctx, EVENT_TCP_CLOSE, sock, tuple, 0, 0);
+        }
+    }
+    remove_socket_pid_by_address(sock as u64);
+
     0
 }
 
@@ -609,7 +607,7 @@ pub fn inet_sock_set_state(ctx: TracePointContext) -> u32 {
         return 0;
     }
 
-    emit_event(
+    emit_event_with_cached_owner(
         &ctx,
         EVENT_INET_SOCK_SET_STATE,
         sock,
@@ -863,30 +861,18 @@ fn emit_event(
         return;
     };
     let now = now_ns();
-    let pid = ctx.pid();
-    let tgid = ctx.tgid();
-    let uid = ctx.uid();
-    let gid = ctx.gid();
     let socket_address = sock as u64;
-    let comm = ctx.command().unwrap_or([0; 16]);
-    let process_generation_ns = process_generation_ns(tgid).unwrap_or(now);
-    let pid_record = FlowPidRecord {
-        version: EVENT_VERSION,
+    let close_event = is_close_event(event_kind, new_state);
+    let owner_record = current_pid_record(
+        ctx,
         event_kind,
-        pid,
-        tgid,
-        uid,
-        gid,
         socket_address,
-        last_seen_ns: now,
-        process_generation_ns,
+        now,
         old_state,
         new_state,
-        local_endpoint: canonical_flow.source_endpoint,
-        reserved: [0; 7],
-    };
-    let close_event = is_close_event(event_kind, new_state);
-    if !close_event && !should_emit_flow_event(&canonical_flow.key, &pid_record, now) {
+        canonical_flow.source_endpoint,
+    );
+    if !close_event && !should_emit_flow_event(&canonical_flow.key, &owner_record, now) {
         return;
     }
 
@@ -894,18 +880,19 @@ fn emit_event(
         return;
     };
     let record = entry.as_mut_ptr();
+    let comm = ctx.command().unwrap_or([0; 16]);
 
     // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
     // FlowAttributionRecord. Every field is written before the slot is submitted.
     unsafe {
         addr_of_mut!((*record).version).write(EVENT_VERSION);
         addr_of_mut!((*record).event_kind).write(event_kind);
-        addr_of_mut!((*record).pid).write(pid);
-        addr_of_mut!((*record).tgid).write(tgid);
-        addr_of_mut!((*record).uid).write(uid);
-        addr_of_mut!((*record).gid).write(gid);
+        addr_of_mut!((*record).pid).write(owner_record.pid);
+        addr_of_mut!((*record).tgid).write(owner_record.tgid);
+        addr_of_mut!((*record).uid).write(owner_record.uid);
+        addr_of_mut!((*record).gid).write(owner_record.gid);
         addr_of_mut!((*record).socket_address).write(socket_address);
-        addr_of_mut!((*record).process_generation_ns).write(process_generation_ns);
+        addr_of_mut!((*record).process_generation_ns).write(owner_record.process_generation_ns);
         addr_of_mut!((*record).old_state).write(old_state);
         addr_of_mut!((*record).new_state).write(new_state);
         addr_of_mut!((*record).tuple).write(tuple);
@@ -917,12 +904,204 @@ fn emit_event(
     let record_ref = unsafe { &*record };
     if close_event {
         remove_flow_pid_by_key(&canonical_flow.key);
+        remove_socket_pid_by_address(socket_address);
     } else {
         record_process_info(record_ref, now);
-        record_flow_pid_by_key(&canonical_flow.key, &pid_record);
+        record_flow_pid_by_key(&canonical_flow.key, &owner_record);
+        record_socket_pid_by_address(socket_address, &owner_record);
     }
 
     entry.submit(0);
+}
+
+fn emit_event_with_cached_owner(
+    ctx: &impl EbpfContext,
+    event_kind: u16,
+    sock: *const c_void,
+    tuple: FlowTuple,
+    old_state: i32,
+    new_state: i32,
+) {
+    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+        return;
+    };
+    let now = now_ns();
+    let socket_address = sock as u64;
+    let close_event = is_close_event(event_kind, new_state);
+    let cached_owner = cached_owner_for_event(&canonical_flow.key, socket_address);
+    let owner_from_cache = cached_owner.is_some();
+    let owner_record = if let Some(owner) = cached_owner {
+        owner_pid_record(
+            owner,
+            event_kind,
+            socket_address,
+            now,
+            old_state,
+            new_state,
+            canonical_flow.source_endpoint,
+        )
+    } else if close_event {
+        return;
+    } else {
+        current_pid_record(
+            ctx,
+            event_kind,
+            socket_address,
+            now,
+            old_state,
+            new_state,
+            canonical_flow.source_endpoint,
+        )
+    };
+
+    if !close_event && !should_emit_flow_event(&canonical_flow.key, &owner_record, now) {
+        return;
+    }
+
+    let Some(mut entry) = FLOW_EVENTS.reserve::<FlowAttributionRecord>(0) else {
+        return;
+    };
+    let record = entry.as_mut_ptr();
+    let comm = if owner_from_cache {
+        process_comm(owner_record.tgid).unwrap_or([0; 16])
+    } else {
+        ctx.command().unwrap_or([0; 16])
+    };
+
+    // SAFETY: `record` points to a freshly reserved ring-buffer slot for a
+    // FlowAttributionRecord. Every field is written before the slot is submitted.
+    unsafe {
+        addr_of_mut!((*record).version).write(EVENT_VERSION);
+        addr_of_mut!((*record).event_kind).write(event_kind);
+        addr_of_mut!((*record).pid).write(owner_record.pid);
+        addr_of_mut!((*record).tgid).write(owner_record.tgid);
+        addr_of_mut!((*record).uid).write(owner_record.uid);
+        addr_of_mut!((*record).gid).write(owner_record.gid);
+        addr_of_mut!((*record).socket_address).write(socket_address);
+        addr_of_mut!((*record).process_generation_ns).write(owner_record.process_generation_ns);
+        addr_of_mut!((*record).old_state).write(old_state);
+        addr_of_mut!((*record).new_state).write(new_state);
+        addr_of_mut!((*record).tuple).write(tuple);
+        addr_of_mut!((*record).comm).write(comm);
+    }
+
+    // SAFETY: All fields were initialized above and the ring-buffer slot is not
+    // submitted until after the map updates finish.
+    let record_ref = unsafe { &*record };
+    if close_event {
+        remove_flow_pid_by_key(&canonical_flow.key);
+        remove_socket_pid_by_address(socket_address);
+    } else {
+        record_process_info(record_ref, now);
+        record_flow_pid_by_key(&canonical_flow.key, &owner_record);
+    }
+
+    entry.submit(0);
+}
+
+fn remember_current_socket_owner(
+    ctx: &impl EbpfContext,
+    event_kind: u16,
+    sock: *const c_void,
+    old_state: i32,
+    new_state: i32,
+) {
+    let now = now_ns();
+    let socket_address = sock as u64;
+    let owner = current_pid_record(
+        ctx,
+        event_kind,
+        socket_address,
+        now,
+        old_state,
+        new_state,
+        0,
+    );
+    record_pid_process_info(&owner, ctx.command().unwrap_or([0; 16]), now);
+    record_socket_pid_by_address(socket_address, &owner);
+}
+
+#[inline(always)]
+fn current_pid_record(
+    ctx: &impl EbpfContext,
+    event_kind: u16,
+    socket_address: u64,
+    now: u64,
+    old_state: i32,
+    new_state: i32,
+    local_endpoint: u8,
+) -> FlowPidRecord {
+    let tgid = ctx.tgid();
+    FlowPidRecord {
+        version: EVENT_VERSION,
+        event_kind,
+        pid: ctx.pid(),
+        tgid,
+        uid: ctx.uid(),
+        gid: ctx.gid(),
+        socket_address,
+        last_seen_ns: now,
+        process_generation_ns: process_generation_ns(tgid).unwrap_or(now),
+        old_state,
+        new_state,
+        local_endpoint,
+        reserved: [0; 7],
+    }
+}
+
+#[inline(always)]
+fn owner_pid_record(
+    owner: FlowPidRecord,
+    event_kind: u16,
+    socket_address: u64,
+    now: u64,
+    old_state: i32,
+    new_state: i32,
+    local_endpoint: u8,
+) -> FlowPidRecord {
+    FlowPidRecord {
+        version: EVENT_VERSION,
+        event_kind,
+        pid: owner.pid,
+        tgid: owner.tgid,
+        uid: owner.uid,
+        gid: owner.gid,
+        socket_address,
+        last_seen_ns: now,
+        process_generation_ns: owner.process_generation_ns,
+        old_state,
+        new_state,
+        local_endpoint,
+        reserved: [0; 7],
+    }
+}
+
+#[inline(always)]
+fn cached_owner_for_event(flow: &FlowKey, socket_address: u64) -> Option<FlowPidRecord> {
+    if let Some(owner) = cached_flow_pid_by_key(flow, socket_address) {
+        return Some(owner);
+    }
+
+    cached_socket_pid_by_address(socket_address)
+}
+
+#[inline(always)]
+fn cached_flow_pid_by_key(flow: &FlowKey, socket_address: u64) -> Option<FlowPidRecord> {
+    let owner = unsafe { FLOW_TO_PID.get(flow) }.copied()?;
+    if owner.socket_address == socket_address || owner.socket_address == 0 || socket_address == 0 {
+        Some(owner)
+    } else {
+        None
+    }
+}
+
+#[inline(always)]
+fn cached_socket_pid_by_address(socket_address: u64) -> Option<FlowPidRecord> {
+    if socket_address == 0 {
+        return None;
+    }
+
+    unsafe { SOCKET_TO_PID.get(&socket_address) }.copied()
 }
 
 fn should_emit_flow_event(flow: &FlowKey, next: &FlowPidRecord, now: u64) -> bool {
@@ -948,19 +1127,39 @@ fn is_close_event(event_kind: u16, new_state: i32) -> bool {
 }
 
 fn record_process_info(record: &FlowAttributionRecord, now: u64) {
-    let process = ProcessInfoRecord {
+    let owner = FlowPidRecord {
         version: EVENT_VERSION,
-        reserved: 0,
+        event_kind: record.event_kind,
         pid: record.pid,
         tgid: record.tgid,
         uid: record.uid,
         gid: record.gid,
+        socket_address: record.socket_address,
         last_seen_ns: now,
         process_generation_ns: record.process_generation_ns,
-        comm: record.comm,
+        old_state: record.old_state,
+        new_state: record.new_state,
+        local_endpoint: 0,
+        reserved: [0; 7],
     };
 
-    let _ = PROCESS_INFO.insert(&record.tgid, &process, BPF_ANY as u64);
+    record_pid_process_info(&owner, record.comm, now);
+}
+
+fn record_pid_process_info(owner: &FlowPidRecord, comm: [u8; 16], now: u64) {
+    let process = ProcessInfoRecord {
+        version: EVENT_VERSION,
+        reserved: 0,
+        pid: owner.pid,
+        tgid: owner.tgid,
+        uid: owner.uid,
+        gid: owner.gid,
+        last_seen_ns: now,
+        process_generation_ns: owner.process_generation_ns,
+        comm,
+    };
+
+    let _ = PROCESS_INFO.insert(&owner.tgid, &process, BPF_ANY as u64);
 }
 
 fn record_current_process_generation(ctx: &impl EbpfContext, process_generation_ns: u64) {
@@ -987,12 +1186,32 @@ fn process_generation_ns(tgid: u32) -> Option<u64> {
         .filter(|generation| *generation != 0)
 }
 
+fn process_comm(tgid: u32) -> Option<[u8; 16]> {
+    unsafe { PROCESS_INFO.get(&tgid) }.map(|record| record.comm)
+}
+
 fn record_flow_pid_by_key(flow: &FlowKey, pid: &FlowPidRecord) {
     let _ = FLOW_TO_PID.insert(flow, pid, BPF_ANY as u64);
 }
 
 fn remove_flow_pid_by_key(flow: &FlowKey) {
     let _ = FLOW_TO_PID.remove(flow);
+}
+
+fn record_socket_pid_by_address(socket_address: u64, pid: &FlowPidRecord) {
+    if socket_address == 0 {
+        return;
+    }
+
+    let _ = SOCKET_TO_PID.insert(&socket_address, pid, BPF_ANY as u64);
+}
+
+fn remove_socket_pid_by_address(socket_address: u64) {
+    if socket_address == 0 {
+        return;
+    }
+
+    let _ = SOCKET_TO_PID.remove(&socket_address);
 }
 
 #[inline(always)]
