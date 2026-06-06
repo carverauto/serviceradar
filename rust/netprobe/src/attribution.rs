@@ -9,8 +9,8 @@ use std::{
 #[cfg(target_os = "linux")]
 use std::{
     cmp::{Ordering as CmpOrdering, Reverse},
-    collections::BinaryHeap,
-    collections::VecDeque,
+    collections::{BinaryHeap, VecDeque},
+    hash::{BuildHasherDefault, Hasher},
     io, mem,
     os::fd::AsRawFd,
     ptr,
@@ -79,6 +79,89 @@ const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 const TCP_CLOSE_STATE: i32 = 7;
 #[cfg(target_os = "linux")]
 const TCP_LISTEN_STATE: i32 = 10;
+
+#[cfg(target_os = "linux")]
+type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
+#[cfg(target_os = "linux")]
+type FastHashSet<K> = HashSet<K, BuildHasherDefault<FastHasher>>;
+
+#[cfg(target_os = "linux")]
+struct FastHasher {
+    state: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl Default for FastHasher {
+    fn default() -> Self {
+        Self {
+            state: 0xcbf29ce484222325,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl FastHasher {
+    #[inline]
+    fn mix(&mut self, value: u64) {
+        self.state ^= value;
+        self.state = self.state.wrapping_mul(0x100000001b3);
+        self.state ^= self.state >> 32;
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        self.state
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.mix(u64::from_le_bytes(chunk.try_into().expect("chunk size")));
+        }
+        for byte in chunks.remainder() {
+            self.mix(u64::from(*byte));
+        }
+    }
+
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.mix(i);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.mix(i as u64);
+    }
+
+    #[inline]
+    fn write_i32(&mut self, i: i32) {
+        self.mix(i as u64);
+    }
+
+    #[inline]
+    fn write_i64(&mut self, i: i64) {
+        self.mix(i as u64);
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -189,7 +272,7 @@ impl AttributedFlow {
 #[cfg(target_os = "linux")]
 #[derive(Default)]
 struct SocketInventory {
-    entries: HashMap<SocketInventoryKey, CachedProcessSocket>,
+    entries: FastHashMap<SocketInventoryKey, CachedProcessSocket>,
     dirty: bool,
 }
 
@@ -353,7 +436,7 @@ struct CachedProcessSocket {
 
 #[cfg(target_os = "linux")]
 trait AttributionBackend {
-    fn drain_records(&mut self) -> Vec<FlowAttributionRecord>;
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>);
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool>;
     fn method(&self) -> &'static str;
 }
@@ -388,8 +471,8 @@ impl AttributionBackend for EbpfAttributionBackend {
     /// cheap mmap operation (no `bpf_map_get_next_key` scan), so this is
     /// O(new records) rather than O(map capacity) like the old map snapshot —
     /// which is what keeps idle CPU near zero.
-    fn drain_records(&mut self) -> Vec<FlowAttributionRecord> {
-        let mut records = Vec::new();
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>) {
+        records.clear();
         while let Some(item) = self.ring.next() {
             let bytes = item.as_ref();
             if bytes.len() >= mem::size_of::<FlowAttributionRecord>() {
@@ -401,7 +484,6 @@ impl AttributionBackend for EbpfAttributionBackend {
                 });
             }
         }
-        records
     }
 
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
@@ -544,9 +626,9 @@ impl ProcfsEnricher {
 #[cfg(target_os = "linux")]
 struct MetadataEnricher {
     procfs: ProcfsEnricher,
-    cache: HashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
+    cache: FastHashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
     pending: VecDeque<ProcessInfoRecord>,
-    pending_keys: HashSet<ProcessDetailsCacheKey>,
+    pending_keys: FastHashSet<ProcessDetailsCacheKey>,
     read_budget: MetadataReadBudget,
 }
 
@@ -555,9 +637,9 @@ impl MetadataEnricher {
     fn host() -> Self {
         Self {
             procfs: ProcfsEnricher::host(),
-            cache: HashMap::new(),
+            cache: FastHashMap::default(),
             pending: VecDeque::new(),
-            pending_keys: HashSet::new(),
+            pending_keys: FastHashSet::default(),
             read_budget: MetadataReadBudget::new(
                 PROCESS_DETAILS_COLD_READS_PER_SECOND,
                 PROCESS_DETAILS_COLD_READ_BURST,
@@ -689,8 +771,8 @@ impl AyaAttributionReader {
         })
     }
 
-    fn drain_records(&mut self) -> Vec<FlowAttributionRecord> {
-        self.backend.drain_records()
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>) {
+        self.backend.drain_records(records)
     }
 
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
@@ -859,9 +941,10 @@ impl FlowAttributionRuntime {
                 // broadcast immediately and core persists them for delayed NetFlow
                 // correlation. Whole-cache re-broadcast is opt-in only because it is
                 // O(cache) work on the ring-reader thread.
-                let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
-                let mut process_index: ProcessAttributionIndex = HashMap::new();
+                let mut cache = FlowAttributionCache::default();
+                let mut process_index = ProcessAttributionIndex::default();
                 let mut expiry_queue: AttributionExpiryQueue = BinaryHeap::new();
+                let mut ring_records = Vec::with_capacity(1024);
                 let mut next_expiry_sequence = 0_u64;
                 let mut last_process_snapshot = runtime_config
                     .process_snapshot_interval
@@ -878,6 +961,7 @@ impl FlowAttributionRuntime {
                         &mut process_index,
                         &mut expiry_queue,
                         &mut next_expiry_sequence,
+                        &mut ring_records,
                     );
                     let enriched = reader.process_pending_metadata();
                     if !enriched.is_empty() {
@@ -994,7 +1078,11 @@ struct CachedAttribution {
 }
 
 #[cfg(target_os = "linux")]
-type ProcessAttributionIndex = HashMap<ProcessDetailsCacheKey, HashSet<FlowAttributionJoinKey>>;
+type FlowAttributionCache = FastHashMap<FlowAttributionJoinKey, CachedAttribution>;
+
+#[cfg(target_os = "linux")]
+type ProcessAttributionIndex =
+    FastHashMap<ProcessDetailsCacheKey, FastHashSet<FlowAttributionJoinKey>>;
 
 #[cfg(target_os = "linux")]
 type AttributionExpiryQueue = BinaryHeap<Reverse<AttributionExpiry>>;
@@ -1084,14 +1172,15 @@ fn drain_ring(
     tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &mut ProcessAttributionIndex,
     expiry_queue: &mut AttributionExpiryQueue,
     next_expiry_sequence: &mut u64,
+    records: &mut Vec<FlowAttributionRecord>,
 ) -> usize {
-    let records = reader.drain_records();
+    reader.drain_records(records);
     let drained = records.len();
-    for record in &records {
+    for record in records.iter() {
         if record.event_kind == EVENT_TCP_CLOSE {
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record) {
@@ -1176,7 +1265,7 @@ fn resend_cache(
     tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &mut ProcessAttributionIndex,
     expiry_queue: &mut AttributionExpiryQueue,
     next_expiry_sequence: &mut u64,
@@ -1196,7 +1285,7 @@ fn resend_cache(
 
 #[cfg(target_os = "linux")]
 fn insert_cached_attribution(
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &mut ProcessAttributionIndex,
     expiry_queue: &mut AttributionExpiryQueue,
     next_expiry_sequence: &mut u64,
@@ -1204,21 +1293,17 @@ fn insert_cached_attribution(
     entry: CachedAttribution,
 ) {
     let last_seen = entry.last_seen;
+    let process_key = entry.process_key;
     if let Some(previous) = cache.insert(key, entry) {
         remove_process_index_key(process_index, previous.process_key, &key);
     }
-    if let Some(current) = cache.get(&key) {
-        process_index
-            .entry(current.process_key)
-            .or_default()
-            .insert(key);
-    }
+    process_index.entry(process_key).or_default().insert(key);
     push_attribution_expiry(expiry_queue, next_expiry_sequence, key, last_seen);
 }
 
 #[cfg(target_os = "linux")]
 fn remove_cached_attribution(
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &mut ProcessAttributionIndex,
     key: &FlowAttributionJoinKey,
 ) -> Option<CachedAttribution> {
@@ -1274,7 +1359,7 @@ fn push_attribution_expiry(
 
 #[cfg(target_os = "linux")]
 fn prune_attribution_cache(
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &mut ProcessAttributionIndex,
     external_flow_matcher: &SharedExternalFlowMatcher,
     expiry_queue: &mut AttributionExpiryQueue,
@@ -1306,7 +1391,7 @@ fn prune_attribution_cache(
     }
 
     if cache.len().saturating_sub(remove_keys.len()) > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES {
-        let remove_set = remove_keys.iter().copied().collect::<HashSet<_>>();
+        let remove_set = remove_keys.iter().copied().collect::<FastHashSet<_>>();
         let mut by_age = cache
             .iter()
             .filter(|(key, _)| !remove_set.contains(key))
@@ -1333,7 +1418,7 @@ fn refresh_enriched_attributions(
     tx: Option<&tokio::sync::broadcast::Sender<FlowAttributionEvent>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
-    cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
+    cache: &mut FlowAttributionCache,
     process_index: &ProcessAttributionIndex,
     updated: Vec<(ProcessDetailsCacheKey, ProcessDetails)>,
 ) {
@@ -2178,7 +2263,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn refresh_enriched_attributions_uses_process_index() {
-        let mut cache = std::collections::HashMap::new();
+        let mut cache = FlowAttributionCache::default();
         let mut process_index = ProcessAttributionIndex::default();
         let mut expiry_queue = AttributionExpiryQueue::default();
         let mut next_expiry_sequence = 0_u64;
@@ -2246,7 +2331,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "linux")]
     fn prune_attribution_cache_enforces_max_entries_and_index() {
-        let mut cache = std::collections::HashMap::new();
+        let mut cache = FlowAttributionCache::default();
         let mut process_index = ProcessAttributionIndex::default();
         let mut expiry_queue = AttributionExpiryQueue::default();
         let mut next_expiry_sequence = 0_u64;
