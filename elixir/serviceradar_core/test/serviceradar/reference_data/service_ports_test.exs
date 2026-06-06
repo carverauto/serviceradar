@@ -3,6 +3,44 @@ defmodule ServiceRadar.ReferenceData.ServicePortsTest do
 
   alias ServiceRadar.ReferenceData.ServicePorts
 
+  describe "lookup/2" do
+    test "returns structured registry metadata for common ports" do
+      assert %{
+               protocol_num: 6,
+               protocol: "tcp",
+               port: 443,
+               name: "https",
+               label: "HTTPS",
+               source: "iana",
+               label_source: "serviceradar"
+             } = ServicePorts.lookup(6, 443)
+    end
+
+    test "returns raw service names and fallback labels from bundled services registry" do
+      assert %{
+               protocol_num: 6,
+               protocol: "tcp",
+               port: 4369,
+               name: "epmd",
+               label: "EPMD",
+               source: "iana",
+               label_source: "iana"
+             } = ServicePorts.lookup(6, 4369)
+    end
+
+    test "returns nil for unsupported protocols and unregistered ports" do
+      refute ServicePorts.lookup(1, 8)
+      refute ServicePorts.lookup(6, 32_760)
+    end
+  end
+
+  describe "lookup/1" do
+    test "falls back to TCP then UDP when protocol is not available" do
+      assert %{protocol: "tcp", label: "HTTPS"} = ServicePorts.lookup(443)
+      assert %{protocol: "tcp", label: "sFlow"} = ServicePorts.lookup(6343)
+    end
+  end
+
   describe "label/2" do
     test "preserves ServiceRadar display labels for common ports" do
       assert ServicePorts.label(6, 443) == "HTTPS"

@@ -82,6 +82,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
     src_vendor = oui_vendor_for_mac(src_mac)
     dst_vendor = oui_vendor_for_mac(dst_mac)
+    dst_service = service_lookup(protocol_num, dst_port)
 
     %{
       protocol_name: protocol_name,
@@ -89,8 +90,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       tcp_flags: tcp_flags,
       tcp_flags_labels: tcp_flag_labels,
       tcp_flags_source: if(is_integer(tcp_flags), do: "iana", else: "unknown"),
-      dst_service_label: service_label(protocol_num, dst_port),
-      dst_service_source: if(is_integer(dst_port), do: "iana", else: "unknown"),
+      dst_service_label: label_from_service(dst_service),
+      dst_service_source: source_from_service(dst_service),
       direction_label: direction_label(bytes_in, bytes_out),
       direction_source: "heuristic",
       src_hosting_provider: src_provider,
@@ -129,6 +130,19 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   end
 
   def service_label(_, _), do: nil
+
+  defp service_lookup(protocol_num, dst_port)
+       when is_integer(protocol_num) and is_integer(dst_port) and dst_port > 0 do
+    ServicePorts.lookup(protocol_num, dst_port)
+  end
+
+  defp service_lookup(_, _), do: nil
+
+  defp label_from_service(%{label: label}), do: label
+  defp label_from_service(_), do: nil
+
+  defp source_from_service(%{source: source}), do: source
+  defp source_from_service(_), do: "unknown"
 
   @spec direction_label(integer() | nil, integer() | nil) :: String.t()
   def direction_label(bytes_in, bytes_out)
