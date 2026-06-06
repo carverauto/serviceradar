@@ -7,6 +7,8 @@ Modern eBPF agents solve this by joining kernel-visible identity with runtime/or
 - Kubernetes API or kube-state inventory resolves owner chains and mutable workload metadata that are not fully available from CRI.
 - Docker and Compose metadata resolves container names, image digests, labels, networks, ports, mounts, and service/project labels for non-Kubernetes installs.
 
+This follows the same broad deployment model used by Cilium/Tetragon, Falco, Tracee, and similar agents: one node-local collector does the kernel/runtime join for everything on that node, while optional cluster-level components add owner-chain or inventory context. ServiceRadar should keep that separation explicit so baseline enrichment stays node-local and does not require every worker agent to hold Kubernetes API credentials.
+
 ## Decision
 Build a shared workload identity collector contract with deployment-specific packaging:
 
@@ -60,7 +62,7 @@ The resolver should prefer CRI-level pod sandbox and container status data over 
 
 Implementation candidates:
 - Generated CRI v1 `tonic`/`prost` bindings for `ListPodSandbox`, `PodSandboxStatus`, `ListContainers`, and `ContainerStatus` are the preferred portable path if no crate exposes the needed API cleanly.
-- `containerd-client` can be evaluated for containerd environments, but the ServiceRadar backend should not depend on containerd-only APIs for Kubernetes baseline enrichment.
+- `containerd-client` can be evaluated for containerd environments, but the ServiceRadar backend should not depend on containerd-only APIs for Kubernetes baseline enrichment. Prefer the CRI service surface even when talking to containerd so CRI-O remains a compatible backend.
 - `bollard` is the likely Docker Engine API candidate for Docker and Compose enrichment after the CRI/cgroup MVP.
 
 The first client spike should reproduce the validated `crictl` calls over the worker's Unix socket and return a small in-memory map of container ID and pod sandbox ID to namespace, pod name, pod UID, container name, image, runtime PID, and cgroup path. Schema, storage, and UI work should wait until that node-local resolver behavior is proven against the demo k3s/containerd socket.
