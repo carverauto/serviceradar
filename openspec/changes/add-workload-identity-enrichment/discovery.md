@@ -1,0 +1,75 @@
+# Workload Identity Discovery Notes
+
+## Existing Attribution Path
+
+Current netprobe attribution is process-level and does not carry workload identity.
+
+- `rust/netprobe/src/attribution.rs` emits `FlowAttributionEvent` from eBPF ring records with local/remote tuple, PID, TGID, UID, GID, comm, redacted cmdline, container ID, socket address, event kind, and TCP state fields.
+- `proto/agent/netprobe/v1/netprobe.proto` carries those events in `FlowAttributionEvent` and `FlowAttributionEventBatch`; `ProcessSnapshotEntry` carries the same process/container fields for device process-listener views.
+- `elixir/serviceradar_core/lib/serviceradar/event_writer/attributed_flow_joiner.ex` joins host-slice flow records with netprobe attribution events and publishes `flow.attributed.<partition>`.
+- `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` persists raw `flow_process_attributions` and stamps matching `platform.ocsf_network_activity.ocsf_payload` with `event_type=attributed_flow`, `agent_id`, and `attribution.{pid,comm,redacted_cmdline,uid,container_id}`.
+- `elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex` reads workload-visible data only from `ocsf_payload.attribution` today, so namespace/pod/container name/image fields need either a proto/schema extension or a companion workload identity observation joined before render.
+- Device process listeners render from device metadata `local_processes` and currently show endpoint, protocol, process, PID/TGID, UID/GID, container ID, and command only.
+
+## Kubernetes CRI Validation
+
+Date: 2026-06-06.
+
+All demo Kubernetes workers expose k3s containerd through `/run/k3s/containerd/containerd.sock` and have `crictl` at `/usr/local/bin/crictl`.
+
+Validation commands:
+
+```sh
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock pods
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock ps
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id>
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id>
+```
+
+Observed node-local metadata:
+
+| Node | Pods | Containers | Sample pod identity | Sample container identity |
+| --- | ---: | ---: | --- | --- |
+| k8s-cp2-worker1 | 82 | 81 | `demo/serviceradar-datasvc-7c6f79649-98s8v`, pod UID, labels, annotations, sandbox cgroup path | `datasvc`, image digest, runtime PID, labels, annotations, container cgroup path |
+| k8s-cp2-worker2 | 98 | 95 | `renovate/renovate-29678777-z9sqr`, pod UID, labels, annotations, sandbox cgroup path | `renovate`, image ref, runtime PID, labels, annotations, container cgroup path |
+| k8s-cp2-worker3 | 43 | 44 | `forgejo-actions/forgejo-runner-serviceradar-678f68685-xs65c`, pod UID, labels, annotations, sandbox cgroup path | `dind`, image ref, runtime PID, labels, annotations, container cgroup path |
+| k8s-cp3-worker1 | 109 | 99 | `forgejo-actions/forgejo-runner-serviceradar-678f68685-gtvgk`, pod UID, labels, annotations, sandbox cgroup path | `dind`, image ref, runtime PID, labels, annotations, container cgroup path |
+| k8s-cp3-worker2 | 33 | 42 | `forgejo-actions/forgejo-runner-serviceradar-678f68685-q5vsk`, pod UID, labels, annotations, sandbox cgroup path | `dind`, image ref, runtime PID, labels, annotations, container cgroup path |
+| k8s-cp3-worker3 | 86 | 83 | `forgejo-actions/forgejo-runner-serviceradar-678f68685-mxxgp`, pod UID, labels, annotations, sandbox cgroup path | `dind`, image ref, runtime PID, labels, annotations, container cgroup path |
+
+Conclusion: direct worker-node CRI access is enough for the MVP baseline: namespace, pod name, pod UID, container name, image, runtime PID, cgroup path, and selected runtime-exposed labels/annotations. Kubernetes API/RBAC is not required for this baseline. The optional overlay is still needed for owner chains, cross-node inventory, and higher-fidelity mutable metadata.
+
+## Docker and Compose Validation
+
+Date: 2026-06-06.
+
+Host `sr-test-pve04` (`192.168.1.62`) has:
+
+- Docker CLI at `/usr/bin/docker`
+- Docker Compose CLI available
+- `/var/run/docker.sock`
+- `/run/containerd/containerd.sock`
+- `/var/run/containerd/containerd.sock`
+
+Validation commands:
+
+```sh
+docker ps
+docker ps -a
+docker inspect <container-id>
+docker compose ls
+docker compose ps
+docker events
+```
+
+There were no running or stopped Docker containers on the host at validation time, so Docker/Compose label, network, port, mount, and service/project extraction remains unproven against a live workload. The socket/tooling path is present and should be validated with a small Compose fixture before closing the Docker/Compose discovery task.
+
+## MVP Packaging Decision
+
+Implement the Kubernetes MVP as a native host add-on first, using the agents already installed on worker nodes. This keeps rollout and commandbus/config-update behavior aligned with the current netprobe add-on model and avoids introducing Kubernetes RBAC for the baseline.
+
+The same binary should keep packaging boundaries clean so it can later run as:
+
+- a Kubernetes DaemonSet for clusters that prefer node-local Kubernetes packaging,
+- a Docker Compose service for non-Kubernetes Docker hosts,
+- or a least-privileged local metadata helper/proxy when direct runtime socket access is unacceptable.

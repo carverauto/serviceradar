@@ -23,6 +23,11 @@ The first implementation should stop at node-local cgroup plus CRI enrichment on
 
 Docker/Compose metadata and the optional Kubernetes inventory overlay are follow-on milestones that reuse the same schema and backend boundary.
 
+## MVP Packaging Decision
+Ship the Kubernetes MVP as a native host add-on first, using the ServiceRadar agents already installed on worker nodes. This matches the current netprobe rollout and commandbus/config-update path, and it avoids broad Kubernetes API/RBAC for the baseline CRI path.
+
+The collector implementation should still keep deployment packaging separate from runtime metadata logic so the same binary can later be delivered as a Kubernetes DaemonSet, Docker Compose service, or least-privileged local metadata helper/proxy.
+
 ## Key Point: CRI Is Enough For Baseline Pod Identity
 On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:
 - pod name
@@ -68,7 +73,6 @@ Controls:
 - Do not retain unbounded raw workload events in CNPG.
 
 ## Open Questions
-- Should the first Kubernetes packaging be a native agent add-on installed on the host, a Kubernetes DaemonSet, or both from the same binary?
 - Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
