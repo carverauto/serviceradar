@@ -78,3 +78,23 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		t.Fatal("netprobe unit must use explicit root ExecStartPre directory setup; systemd RuntimeDirectory/StateDirectory blocked IPC bind after --drop-user")
 	}
 }
+
+func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
+	unitBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"))
+	if err != nil {
+		t.Fatalf("read agent unit: %v", err)
+	}
+	unit := string(unitBytes)
+
+	if strings.Contains(unit, "\nRuntimeDirectory=serviceradar\n") {
+		t.Fatal("agent unit must not own /run/serviceradar as RuntimeDirectory; restarting the agent can remove netprobe's IPC socket")
+	}
+	if strings.Contains(unit, "\nRuntimeDirectoryMode=0700\n") {
+		t.Fatal("agent unit must not force /run/serviceradar to 0700; netprobe and agent share the runtime tree")
+	}
+
+	want := "ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar"
+	if !strings.Contains(unit, want) {
+		t.Fatalf("agent unit missing explicit shared runtime directory setup %q", want)
+	}
+}

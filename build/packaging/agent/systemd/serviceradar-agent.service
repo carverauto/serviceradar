@@ -7,8 +7,11 @@ Type=simple
 User=serviceradar
 WorkingDirectory=/var/lib/serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
-RuntimeDirectory=serviceradar
-RuntimeDirectoryMode=0700
+# Keep /run/serviceradar under explicit setup rather than RuntimeDirectory=.
+# Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
+# shared parent as the agent RuntimeDirectory, an agent restart can remove or
+# recreate the parent after netprobe has bound its socket.
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar
 Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
 Environment="KV_SEC_MODE=mtls"
