@@ -72,6 +72,14 @@ pub struct CgroupIdentity {
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
+pub enum MetadataConfidence {
+    #[default]
+    Unknown,
+    High,
+    Degraded,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct WorkloadIdentity {
     pub pod_sandbox_id: Option<String>,
     pub pod_name: Option<String>,
@@ -86,6 +94,8 @@ pub struct WorkloadIdentity {
     pub labels: BTreeMap<String, String>,
     pub annotations: BTreeMap<String, String>,
     pub runtime_source: RuntimeSource,
+    pub confidence: MetadataConfidence,
+    pub degradation_reason: Option<String>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -541,6 +551,8 @@ fn identity_from_cri(
                 .or(Some(&container.annotations)),
         ),
         runtime_source,
+        confidence: MetadataConfidence::High,
+        degradation_reason: None,
     })
 }
 
@@ -891,6 +903,8 @@ mod tests {
             Some("safe")
         );
         assert_eq!(identity.runtime_source, RuntimeSource::Containerd);
+        assert_eq!(identity.confidence, MetadataConfidence::High);
+        assert_eq!(identity.degradation_reason, None);
     }
 
     #[cfg(unix)]

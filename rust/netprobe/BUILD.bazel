@@ -117,6 +117,22 @@ rust_binary(
     deps = NETPROBE_DEPS,
 )
 
+rust_binary(
+    name = "netprobe_workload_identity_check",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = [
+        "p0f-corpus/p0f.fp",
+        "p0f-corpus/serviceradar-additions.fp",
+        "recog-corpus/serviceradar-recog-additions.xml",
+    ] + glob(["recog-corpus/xml/*.xml"]),
+    crate_features = NETPROBE_FEATURES,
+    crate_root = "src/bin/netprobe-workload-identity-check.rs",
+    edition = "2021",
+    rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
+    deps = NETPROBE_DEPS,
+)
+
 rust_test(
     name = "netprobe_test",
     srcs = glob(["src/**/*.rs"]),

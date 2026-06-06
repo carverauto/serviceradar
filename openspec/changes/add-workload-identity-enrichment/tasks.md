@@ -15,6 +15,7 @@
 - [ ] 2.1 Define `WorkloadIdentityBackend` traits/interfaces for eBPF/cgroup identity, CRI/containerd, Docker/Compose, and optional Kubernetes inventory overlay.
 - [x] 2.1a Introduce the initial Rust workload identity backend boundary for cgroup parsing and CRI runtime lookups so the Kubernetes MVP can use the same interface before Docker/Compose and overlay backends are added.
 - [ ] 2.2 Define stable workload identity event schema with process generation, cgroup ID/path, netns, container ID, pod UID, namespace, pod/container names, image, labels/annotations, compose service/project, runtime source, and confidence/degradation fields.
+- [x] 2.2a Add MVP confidence and degradation fields to the Rust workload identity payload so CRI hits and degraded lookups can be surfaced without changing the payload shape later.
 - [ ] 2.3 Add bounded caches, queue limits, drop counters, stale-entry eviction, and source-specific error metrics.
 - [ ] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
 
@@ -22,6 +23,7 @@
 - [x] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata, with endpoint discovery from explicit config, runtime config files, and common socket paths. Initial CRI endpoint discovery, CRI client wrapper, response normalization tests, and live worker socket validation are implemented.
 - [x] 3.1a Evaluate Rust CRI client options against the required CRI v1 calls (`ListPodSandbox`, `PodSandboxStatus`, `ListContainers`, `ContainerStatus`) and prefer CRI-level bindings over containerd-internal APIs so containerd and CRI-O can share the backend.
 - [x] 3.1b Prototype a node-local CRI resolver that reproduces the validated `crictl pods`, `crictl ps`, `crictl inspectp`, and `crictl inspect` metadata over the demo worker Unix socket before starting storage or UI work. Validated on `k8s-cp3-worker3` against `/run/k3s/containerd/containerd.sock`, returning running container identities with namespace, pod name/UID, container name, image ref, runtime PID, cgroup path, labels, and annotations. `sr-test-pve04` exposes an older CRI endpoint that returns `runtime.v1.RuntimeService` as unimplemented and remains a separate compatibility follow-up.
+- [x] 3.1c Add a first-class Bazel target for the node-local CRI validation helper so worker discovery checks are repeatable outside Cargo-only development.
 - [ ] 3.2 Add cgroup v1/v2 parsing and eBPF cgroup/process event joins that do not depend on procfs scans. Initial cgroup pod/container identity parsing is implemented; eBPF join wiring is still pending.
 - [ ] 3.3 Package the node-local collector as a Kubernetes DaemonSet or native add-on with explicit host mounts/capabilities and security documentation.
 - [ ] 3.4 Add degradation behavior for missing runtime sockets, unsupported runtimes, permission failures, and stale cgroup/container mappings.

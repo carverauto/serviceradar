@@ -5951,7 +5951,7 @@
           "FILE:@@//rust/trapd/Cargo.toml d2ad2119eb2fdc0f7a639e01718e66260d43546b45fa1d6c358fd80342bffaf4",
           "FILE:@@//rust/otel/Cargo.toml 2eb609ab29516980ffe2cd17a953130f394f6b96cec0c868b9b38091d10f09bf",
           "FILE:@@//rust/log-collector/Cargo.toml ab49d44cefa1c4ae4c365cc70dca00c47a68c3e8fb60096d2e437f9e5d8d0884",
-          "FILE:@@//rust/netprobe/Cargo.toml f1399b207336be2f06595d42f686897de7426028e792d78f3fc91664939646c9",
+          "FILE:@@//rust/netprobe/Cargo.toml cacd2e4fad967fec1959ae4e76e0052a32556499d4094a7dcfa54f397a3ed04c",
           "FILE:@@//rust/netprobe/ebpf/Cargo.toml e935029fec654fab951cab98449dcf53477175e8957602a04c67257c04ffe28d",
           "FILE:@@//rust/consumers/zen/Cargo.toml 482dc1f26c73b8a48c080940d5f1505306130591b841cbb6335dd083591d2b78",
           "FILE:@@//rust/rperf-client/Cargo.toml 9ea269ce21e920184fe502fa6db1fdb592dbca4806e8fbeafec0db9a5a125788",

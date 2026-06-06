@@ -60,6 +60,10 @@ path = "src/lib.rs"
 name = "serviceradar-netprobe"
 path = "src/main.rs"
 
+[[bin]]
+name = "netprobe-workload-identity-check"
+path = "src/bin/netprobe-workload-identity-check.rs"
+
 [[bench]]
 name = "af_xdp_cpu"
 harness = false
