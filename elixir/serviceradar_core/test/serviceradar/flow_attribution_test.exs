@@ -213,6 +213,52 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert payload["attribution"]["comm"] == "redis-server"
   end
 
+  test "carries workload identity into attributed flow payload", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      src_ip: "10.42.68.167",
+      src_port: 57_279,
+      dst_ip: "10.43.0.10",
+      dst_port: 6379
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.42.68.167",
+      local_port: 57_279,
+      remote_ip: "10.43.0.10",
+      remote_port: 6379,
+      pid: 44_024,
+      comm: "redis-server",
+      workload_identity: %{
+        "pod_namespace" => "demo",
+        "pod_name" => "redis-0",
+        "pod_uid" => "57e67067-89e4-4001-bdd4-8632d39ea02b",
+        "container_name" => "redis",
+        "image" => "redis:7",
+        "runtime_source" => "containerd",
+        "confidence" => "high",
+        "labels" => %{"app.kubernetes.io/name" => "redis"}
+      }
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    workload = attributed_payload(partition)["attribution"]["workload_identity"]
+    assert workload["pod_namespace"] == "demo"
+    assert workload["pod_name"] == "redis-0"
+    assert workload["container_name"] == "redis"
+    assert workload["labels"]["app.kubernetes.io/name"] == "redis"
+  end
+
   test "correlates UDP attribution when exporter local ephemeral port differs", %{
     partition: partition,
     agent_id: agent_id
@@ -399,9 +445,10 @@ defmodule ServiceRadar.FlowAttributionTest do
         comm,
         cmdline,
         uid,
-        container_id
+        container_id,
+        workload_identity
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL, ($11::text)::jsonb)
       """,
       [
         params.observed_at,
@@ -413,10 +460,14 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.remote_ip,
         params.remote_port,
         params.pid,
-        params.comm
+        params.comm,
+        json_param(Map.get(params, :workload_identity))
       ]
     )
   end
+
+  defp json_param(nil), do: nil
+  defp json_param(value), do: Jason.encode!(value)
 
   defp attributed_payload(partition) do
     %{rows: [[payload]]} =

@@ -133,7 +133,10 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 		"process_snapshot_interval_s": 0,
 		"external_flow_match_window_ms": 45000,
 		"flow_attribution_ipc_batch": false,
-		"emit_raw_flow_attribution_events": false
+		"emit_raw_flow_attribution_events": false,
+		"workload_identity_enabled": true,
+		"cri_endpoint": " /run/k3s/containerd/containerd.sock ",
+		"workload_identity_refresh_interval_s": 45
 	}`))
 	if err != nil {
 		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
@@ -166,6 +169,18 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	if merged.GetEmitRawFlowAttributionEvents() {
 		t.Fatal("EmitRawFlowAttributionEvents = true, want false from add-on override")
 	}
+	if !merged.GetWorkloadIdentityEnabled() {
+		t.Fatal("WorkloadIdentityEnabled = false, want true from add-on override")
+	}
+	if merged.GetCriEndpoint() != "/run/k3s/containerd/containerd.sock" {
+		t.Fatalf("CriEndpoint = %q, want trimmed k3s socket", merged.GetCriEndpoint())
+	}
+	if merged.GetWorkloadIdentityRefreshIntervalS() != 45 {
+		t.Fatalf(
+			"WorkloadIdentityRefreshIntervalS = %d, want 45",
+			merged.GetWorkloadIdentityRefreshIntervalS(),
+		)
+	}
 	if base.GetEnabled() {
 		t.Fatal("base config was mutated")
 	}
@@ -174,6 +189,9 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	}
 	if !base.GetEmitRawFlowAttributionEvents() {
 		t.Fatal("base EmitRawFlowAttributionEvents was mutated")
+	}
+	if base.GetWorkloadIdentityEnabled() {
+		t.Fatal("base WorkloadIdentityEnabled was mutated")
 	}
 }
 
@@ -248,11 +266,14 @@ func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "netprobe.json")
 
 	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
-		Enabled:                      true,
-		ProcessSnapshotIntervalS:     0,
-		ExternalFlowMatchWindowMs:    45_000,
-		FlowAttributionIpcBatch:      true,
-		EmitRawFlowAttributionEvents: true,
+		Enabled:                          true,
+		ProcessSnapshotIntervalS:         0,
+		ExternalFlowMatchWindowMs:        45_000,
+		FlowAttributionIpcBatch:          true,
+		EmitRawFlowAttributionEvents:     true,
+		WorkloadIdentityEnabled:          true,
+		CriEndpoint:                      " /run/k3s/containerd/containerd.sock ",
+		WorkloadIdentityRefreshIntervalS: 45,
 	}); err != nil {
 		t.Fatalf("WriteBootstrapConfig() error = %v", err)
 	}
@@ -267,6 +288,15 @@ func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 	}
 	if !strings.Contains(got, `"external_flow_match_window_ms": 45000`) {
 		t.Fatalf("bootstrap config = %s, want external flow match window", got)
+	}
+	if !strings.Contains(got, `"workload_identity_enabled": true`) {
+		t.Fatalf("bootstrap config = %s, want workload identity enabled", got)
+	}
+	if !strings.Contains(got, `"/run/k3s/containerd/containerd.sock"`) {
+		t.Fatalf("bootstrap config = %s, want trimmed CRI endpoint", got)
+	}
+	if !strings.Contains(got, `"workload_identity_refresh_interval_s": 45`) {
+		t.Fatalf("bootstrap config = %s, want workload identity refresh interval", got)
 	}
 }
 

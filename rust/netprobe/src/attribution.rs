@@ -27,7 +27,16 @@ use crate::af_xdp_classifier::FlowKey;
 use crate::event_queue::EventSender;
 #[cfg(target_os = "linux")]
 use crate::external_flow::SharedExternalFlowMatcher;
-use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
+use crate::{
+    proto::netprobe::{
+        FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry,
+        WorkloadIdentity as WorkloadIdentityPayload,
+    },
+    workload_identity::{
+        MetadataConfidence, SharedWorkloadIdentityCache,
+        WorkloadIdentity as RuntimeWorkloadIdentity,
+    },
+};
 
 #[cfg(target_os = "linux")]
 use crate::metrics::Metrics;
@@ -257,6 +266,7 @@ pub struct ProcessDetails {
     pub comm: String,
     pub cmdline: Vec<String>,
     pub container_id: Option<String>,
+    pub workload_identity: Option<RuntimeWorkloadIdentity>,
     pub last_seen_ns: u64,
     pub process_generation_ns: u64,
 }
@@ -322,6 +332,8 @@ impl SocketInventory {
             container_id: process
                 .and_then(|details| details.container_id.clone())
                 .unwrap_or_default(),
+            workload_identity: process
+                .and_then(|details| proto_workload_identity(details.workload_identity.as_ref())),
         };
         let now = Instant::now();
 
@@ -530,22 +542,29 @@ impl AttributionBackend for EbpfAttributionBackend {
 #[derive(Clone, Debug)]
 pub struct ProcfsEnricher {
     root: PathBuf,
+    workload_identity_cache: Option<SharedWorkloadIdentityCache>,
 }
 
 impl ProcfsEnricher {
-    pub fn host() -> Self {
+    pub fn host(workload_identity_cache: Option<SharedWorkloadIdentityCache>) -> Self {
         Self {
             root: PathBuf::from("/proc"),
+            workload_identity_cache,
         }
     }
 
     pub fn with_root(root: impl Into<PathBuf>) -> Self {
-        Self { root: root.into() }
+        Self {
+            root: root.into(),
+            workload_identity_cache: None,
+        }
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
         let comm =
             read_comm(&self.root, record.tgid).unwrap_or_else(|| comm_from_bytes(&record.comm));
+        let container_id = container_id(&self.root, record.tgid);
+        let workload_identity = self.lookup_workload_identity(container_id.as_deref());
 
         ProcessDetails {
             pid: record.pid,
@@ -554,7 +573,8 @@ impl ProcfsEnricher {
             gid: record.gid,
             comm,
             cmdline: redacted_cmdline(&self.root, record.tgid),
-            container_id: container_id(&self.root, record.tgid),
+            container_id,
+            workload_identity,
             last_seen_ns: record.last_seen_ns,
             process_generation_ns: record.process_generation_ns,
         }
@@ -572,6 +592,8 @@ impl ProcfsEnricher {
         }
 
         let (uid, gid) = read_status_ids(&self.root, pid).unwrap_or_default();
+        let container_id = container_id(&self.root, pid);
+        let workload_identity = self.lookup_workload_identity(container_id.as_deref());
         Some(ProcessDetails {
             pid,
             tgid: pid,
@@ -579,10 +601,21 @@ impl ProcfsEnricher {
             gid,
             comm: read_comm(&self.root, pid).unwrap_or_default(),
             cmdline: redacted_cmdline(&self.root, pid),
-            container_id: container_id(&self.root, pid),
+            container_id,
+            workload_identity,
             last_seen_ns: 0,
             process_generation_ns: 0,
         })
+    }
+
+    fn lookup_workload_identity(
+        &self,
+        container_id: Option<&str>,
+    ) -> Option<RuntimeWorkloadIdentity> {
+        self.workload_identity_cache
+            .as_ref()
+            .zip(container_id)
+            .and_then(|(cache, container_id)| cache.lookup(container_id))
     }
 
     fn process_snapshot(
@@ -614,6 +647,7 @@ impl ProcfsEnricher {
                     comm: process.comm,
                     redacted_cmdline: process.cmdline,
                     container_id: process.container_id.unwrap_or_default(),
+                    workload_identity: proto_workload_identity(process.workload_identity.as_ref()),
                 });
             }
         }
@@ -639,9 +673,9 @@ struct MetadataEnricher {
 
 #[cfg(target_os = "linux")]
 impl MetadataEnricher {
-    fn host() -> Self {
+    fn host(workload_identity_cache: Option<SharedWorkloadIdentityCache>) -> Self {
         Self {
-            procfs: ProcfsEnricher::host(),
+            procfs: ProcfsEnricher::host(workload_identity_cache),
             cache: FastHashMap::default(),
             pending: VecDeque::new(),
             pending_keys: FastHashSet::default(),
@@ -769,9 +803,16 @@ pub struct AyaAttributionReader {
 #[cfg(target_os = "linux")]
 impl AyaAttributionReader {
     pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
+        Self::from_ebpf_with_workload_identity(ebpf, None)
+    }
+
+    pub fn from_ebpf_with_workload_identity(
+        ebpf: &mut aya::Ebpf,
+        workload_identity_cache: Option<SharedWorkloadIdentityCache>,
+    ) -> anyhow::Result<Self> {
         Ok(Self {
             backend: EbpfAttributionBackend::from_ebpf(ebpf)?,
-            metadata: MetadataEnricher::host(),
+            metadata: MetadataEnricher::host(workload_identity_cache),
             socket_inventory: SocketInventory::default(),
         })
     }
@@ -1476,11 +1517,13 @@ fn apply_process_details_to_event(
 ) -> bool {
     let redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
     let container_id = details.container_id.clone().unwrap_or_default();
+    let workload_identity = proto_workload_identity(details.workload_identity.as_ref());
     let changed = event.uid != details.uid
         || event.gid != details.gid
         || event.comm != details.comm
         || event.redacted_cmdline != redacted_cmdline
-        || event.container_id != container_id;
+        || event.container_id != container_id
+        || event.workload_identity != workload_identity;
 
     if changed {
         event.uid = details.uid;
@@ -1488,6 +1531,7 @@ fn apply_process_details_to_event(
         event.comm = details.comm.clone();
         event.redacted_cmdline = redacted_cmdline;
         event.container_id = container_id;
+        event.workload_identity = workload_identity;
     }
 
     changed
@@ -1679,6 +1723,8 @@ fn flow_attribution_event(
         container_id: process
             .and_then(|details| details.container_id.clone())
             .unwrap_or_default(),
+        workload_identity: process
+            .and_then(|details| proto_workload_identity(details.workload_identity.as_ref())),
         observed_at_unix_nano,
         socket_address: flow.pid.socket_address,
         event_kind: u32::from(flow.pid.event_kind),
@@ -1687,6 +1733,38 @@ fn flow_attribution_event(
         source: String::new(),
         external_flow_id: 0,
     })
+}
+
+fn proto_workload_identity(
+    identity: Option<&RuntimeWorkloadIdentity>,
+) -> Option<WorkloadIdentityPayload> {
+    let identity = identity?;
+
+    Some(WorkloadIdentityPayload {
+        pod_sandbox_id: identity.pod_sandbox_id.clone().unwrap_or_default(),
+        pod_name: identity.pod_name.clone().unwrap_or_default(),
+        pod_namespace: identity.pod_namespace.clone().unwrap_or_default(),
+        pod_uid: identity.pod_uid.clone().unwrap_or_default(),
+        container_id: identity.container_id.clone().unwrap_or_default(),
+        container_name: identity.container_name.clone().unwrap_or_default(),
+        image: identity.image.clone().unwrap_or_default(),
+        image_ref: identity.image_ref.clone().unwrap_or_default(),
+        runtime_pid: identity.runtime_pid.unwrap_or_default(),
+        cgroup_path: identity.cgroup_path.clone().unwrap_or_default(),
+        runtime_source: identity.runtime_source.as_str().to_string(),
+        confidence: metadata_confidence(identity.confidence.clone()).to_string(),
+        degradation_reason: identity.degradation_reason.clone().unwrap_or_default(),
+        labels: identity.labels.clone().into_iter().collect(),
+        annotations: identity.annotations.clone().into_iter().collect(),
+    })
+}
+
+fn metadata_confidence(confidence: MetadataConfidence) -> &'static str {
+    match confidence {
+        MetadataConfidence::Unknown => "unknown",
+        MetadataConfidence::High => "high",
+        MetadataConfidence::Degraded => "degraded",
+    }
 }
 
 fn endpoints(flow: &FlowKey, local_endpoint: u8) -> Option<(IpAddr, u16, IpAddr, u16)> {
@@ -1739,6 +1817,7 @@ fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
         comm: comm_from_bytes(&record.comm),
         cmdline: Vec::new(),
         container_id: None,
+        workload_identity: None,
         last_seen_ns: record.last_seen_ns,
         process_generation_ns: record.process_generation_ns,
     }
@@ -2087,6 +2166,7 @@ mod tests {
                     "[redacted 1 arg(s)]".to_string(),
                 ],
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+                workload_identity: None,
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
             }),
@@ -2584,6 +2664,7 @@ mod tests {
                 comm: "longargv".to_string(),
                 cmdline: vec![argv0, "[redacted 9 arg(s)]".to_string()],
                 container_id: None,
+                workload_identity: None,
                 last_seen_ns: 0,
                 process_generation_ns: 0,
             }),

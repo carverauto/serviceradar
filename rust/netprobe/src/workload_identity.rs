@@ -1,8 +1,10 @@
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, HashMap},
     fs,
     future::Future,
     path::{Path, PathBuf},
+    sync::{Arc, RwLock},
+    time::Duration,
 };
 
 use serde::Serialize;
@@ -28,6 +30,8 @@ use tokio::net::UnixStream;
 use tonic::transport::{Channel, Endpoint, Uri};
 #[cfg(unix)]
 use tower::service_fn;
+
+const DEFAULT_CRI_REFRESH_INTERVAL: Duration = Duration::from_secs(60);
 
 const COMMON_CRI_ENDPOINTS: &[&str] = &[
     "/run/k3s/containerd/containerd.sock",
@@ -102,6 +106,132 @@ pub struct WorkloadIdentity {
 pub struct CriContainerLookup {
     pub container_id: String,
     pub identity: WorkloadIdentity,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WorkloadIdentityCache {
+    identities: Arc<RwLock<HashMap<String, WorkloadIdentity>>>,
+}
+
+impl WorkloadIdentityCache {
+    pub fn lookup(&self, container_id: &str) -> Option<WorkloadIdentity> {
+        self.identities
+            .read()
+            .ok()
+            .and_then(|identities| identities.get(container_id).cloned())
+    }
+
+    fn replace_all(&self, identities: Vec<CriContainerLookup>) {
+        let Ok(mut cache) = self.identities.write() else {
+            return;
+        };
+
+        cache.clear();
+        cache.extend(
+            identities
+                .into_iter()
+                .filter(|lookup| !lookup.container_id.is_empty())
+                .map(|lookup| (lookup.container_id, lookup.identity)),
+        );
+    }
+
+    pub fn len(&self) -> usize {
+        self.identities
+            .read()
+            .map_or(0, |identities| identities.len())
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+pub type SharedWorkloadIdentityCache = WorkloadIdentityCache;
+
+#[cfg(unix)]
+pub struct WorkloadIdentityRuntime {
+    cache: SharedWorkloadIdentityCache,
+    task: tokio::task::JoinHandle<()>,
+}
+
+#[cfg(unix)]
+impl WorkloadIdentityRuntime {
+    pub fn start_cri(
+        root: PathBuf,
+        explicit_endpoint: Option<PathBuf>,
+        refresh_interval: Option<Duration>,
+    ) -> Result<Option<Self>> {
+        let Some(endpoint) = discover_cri_endpoint(&root, explicit_endpoint.as_deref()) else {
+            log::warn!("workload identity CRI enrichment disabled: no CRI endpoint discovered");
+            return Ok(None);
+        };
+
+        let interval = refresh_interval
+            .unwrap_or(DEFAULT_CRI_REFRESH_INTERVAL)
+            .max(Duration::from_secs(10));
+        let cache = WorkloadIdentityCache::default();
+        let handle = tokio::runtime::Handle::try_current()
+            .context("workload identity CRI runtime requires a Tokio runtime")?;
+        let mut client = tokio::task::block_in_place(|| {
+            handle.block_on(async {
+                let mut client = CriRuntimeClient::connect(&endpoint).await?;
+                refresh_cri_cache(&mut client, &cache).await?;
+                Result::<CriRuntimeClient>::Ok(client)
+            })
+        })?;
+        let task_cache = cache.clone();
+        let task_endpoint = endpoint.clone();
+        let task = tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(interval).await;
+
+                if let Err(err) = refresh_cri_cache(&mut client, &task_cache).await {
+                    log::warn!("workload identity CRI refresh failed: {err:#}");
+
+                    match CriRuntimeClient::connect(&task_endpoint).await {
+                        Ok(reconnected) => {
+                            client = reconnected;
+                        }
+                        Err(connect_err) => {
+                            log::warn!(
+                                "workload identity CRI reconnect failed at {}: {connect_err:#}",
+                                task_endpoint.path.display()
+                            );
+                        }
+                    }
+                }
+            }
+        });
+
+        log::info!(
+            "workload identity CRI enrichment active at {} with {} cached container(s)",
+            endpoint.path.display(),
+            cache.len()
+        );
+
+        Ok(Some(Self { cache, task }))
+    }
+
+    pub fn cache(&self) -> SharedWorkloadIdentityCache {
+        self.cache.clone()
+    }
+}
+
+#[cfg(unix)]
+impl Drop for WorkloadIdentityRuntime {
+    fn drop(&mut self) {
+        self.task.abort();
+    }
+}
+
+#[cfg(unix)]
+async fn refresh_cri_cache(
+    client: &mut CriRuntimeClient,
+    cache: &SharedWorkloadIdentityCache,
+) -> Result<()> {
+    let identities = client.list_container_identities().await?;
+    cache.replace_all(identities);
+    Ok(())
 }
 
 pub trait CgroupIdentityBackend {

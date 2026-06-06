@@ -7,7 +7,9 @@
 
 ## 1a. Minimal Viable Milestone
 - [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
+- [x] 1a.1a Wire the initial opt-in Kubernetes CRI cache into netprobe startup and attach CRI workload identity to attributed flow/process payloads by container ID.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
+- [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
 - [ ] 1a.4 Choose and document the initial late-enrichment correlation window, including the behavior for unmatched raw observations after the window expires.
 
@@ -16,6 +18,7 @@
 - [x] 2.1a Introduce the initial Rust workload identity backend boundary for cgroup parsing and CRI runtime lookups so the Kubernetes MVP can use the same interface before Docker/Compose and overlay backends are added.
 - [ ] 2.2 Define stable workload identity event schema with process generation, cgroup ID/path, netns, container ID, pod UID, namespace, pod/container names, image, labels/annotations, compose service/project, runtime source, and confidence/degradation fields.
 - [x] 2.2a Add MVP confidence and degradation fields to the Rust workload identity payload so CRI hits and degraded lookups can be surfaced without changing the payload shape later.
+- [x] 2.2b Add workload identity fields to netprobe protobuf messages and flow attribution storage so attributed flows can carry CRI metadata end to end.
 - [ ] 2.3 Add bounded caches, queue limits, drop counters, stale-entry eviction, and source-specific error metrics.
 - [ ] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
 
@@ -43,11 +46,13 @@
 ## 6. Storage, Query, and UI
 - [ ] 6.1 Add current workload identity state storage with retention for raw observations and durable current-state lookup by container ID, pod UID, cgroup, and process generation.
 - [ ] 6.2 Attach best-known workload identity to attributed flow records and flow detail views.
+- [x] 6.2a Attach best-known node-local CRI workload identity to persisted attributed flow records and correlated flow OCSF payloads.
 - [ ] 6.3 Update attributed flow UI and NetFlow map details to show namespace/pod/workload/container for Kubernetes and project/service/container for Compose.
 - [ ] 6.4 Add filters for namespace, workload owner, pod, container image, Compose project, and Compose service.
 
 ## 7. Security and Operations
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
+- [x] 7.1a Add netprobe add-on/bootstrap configuration knobs for workload identity enablement, explicit CRI endpoint, and refresh interval.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
 - [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.

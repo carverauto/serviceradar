@@ -1103,6 +1103,7 @@ mod tests {
                 comm: "longhorn-instan".to_string(),
                 redacted_cmdline: vec![large_cmdline.clone()],
                 container_id: format!("{idx:064x}"),
+                workload_identity: None,
             })
             .collect::<Vec<_>>();
         let snapshot = ProcessSnapshot {

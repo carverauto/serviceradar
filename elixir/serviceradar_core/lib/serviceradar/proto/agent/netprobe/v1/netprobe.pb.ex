@@ -6,7 +6,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :payload, 0
+  oneof(:payload, 0)
 
   field :sequence, 1, type: :uint64
 
@@ -182,6 +182,13 @@ defmodule Serviceradar.Agent.Netprobe.V1.VisibilityAgentConfig do
   field :emit_raw_flow_attribution_events, 44,
     type: :bool,
     json_name: "emitRawFlowAttributionEvents"
+
+  field :workload_identity_enabled, 45, type: :bool, json_name: "workloadIdentityEnabled"
+  field :cri_endpoint, 46, type: :string, json_name: "criEndpoint"
+
+  field :workload_identity_refresh_interval_s, 47,
+    type: :uint32,
+    json_name: "workloadIdentityRefreshIntervalS"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceBinding do
@@ -233,7 +240,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.FingerprintEvent do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :evidence, 0
+  oneof(:evidence, 0)
 
   field :ip, 1, type: :string
   field :profile_id, 2, type: :string, json_name: "profileId"
@@ -261,6 +268,9 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  alias Serviceradar.Agent.Netprobe.V1.FingerprintMatch
+  alias Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch
+
   field :p0f_signature, 1, type: :string, json_name: "p0fSignature"
 
   field :p0f_match, 2,
@@ -270,14 +280,14 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :ja4, 3, type: :string
 
   field :ja4_match, 4,
-    type: Serviceradar.Agent.Netprobe.V1.FingerprintMatch,
+    type: FingerprintMatch,
     json_name: "ja4Match"
 
   field :hassh, 5, type: :string
   field :hassh_server, 6, type: :string, json_name: "hasshServer"
 
   field :hassh_match, 7,
-    type: Serviceradar.Agent.Netprobe.V1.FingerprintMatch,
+    type: FingerprintMatch,
     json_name: "hasshMatch"
 
   field :os_match, 8, type: Serviceradar.Agent.Netprobe.V1.OsMatch, json_name: "osMatch"
@@ -285,39 +295,39 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :muonfp, 10, type: Serviceradar.Agent.Netprobe.V1.MuonFpFingerprintMatch
 
   field :recog_http, 11,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogHttp"
 
   field :recog_ssh, 12,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSsh"
 
   field :recog_smb, 13,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSmb"
 
   field :recog_ftp, 14,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogFtp"
 
   field :recog_telnet, 15,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogTelnet"
 
   field :recog_snmp, 16,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSnmp"
 
   field :recog_sip, 17,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSip"
 
   field :recog_rdp, 18,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogRdp"
 
   field :recog_dns, 19,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogDns"
 
   field :satori_matches, 20,
@@ -339,11 +349,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :sip_observed, 32, type: :bool, json_name: "sipObserved"
 
   field :recog_smtp, 33,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSmtp"
 
   field :recog_ntp, 34,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogNtp"
 end
 
@@ -516,6 +526,65 @@ defmodule Serviceradar.Agent.Netprobe.V1.DpiEvent do
   field :dissector_id, 11, type: :string, json_name: "dissectorId"
 end
 
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.LabelsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.AnnotationsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :pod_sandbox_id, 1, type: :string, json_name: "podSandboxId"
+  field :pod_name, 2, type: :string, json_name: "podName"
+  field :pod_namespace, 3, type: :string, json_name: "podNamespace"
+  field :pod_uid, 4, type: :string, json_name: "podUid"
+  field :container_id, 5, type: :string, json_name: "containerId"
+  field :container_name, 6, type: :string, json_name: "containerName"
+  field :image, 7, type: :string
+  field :image_ref, 8, type: :string, json_name: "imageRef"
+  field :runtime_pid, 9, type: :uint32, json_name: "runtimePid"
+  field :cgroup_path, 10, type: :string, json_name: "cgroupPath"
+  field :runtime_source, 11, type: :string, json_name: "runtimeSource"
+  field :confidence, 12, type: :string
+  field :degradation_reason, 13, type: :string, json_name: "degradationReason"
+
+  field :labels, 14,
+    repeated: true,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.LabelsEntry,
+    map: true
+
+  field :annotations, 15,
+    repeated: true,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.AnnotationsEntry,
+    map: true
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   @moduledoc false
 
@@ -543,6 +612,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   field :new_state, 17, type: :int32, json_name: "newState"
   field :source, 18, type: :string
   field :external_flow_id, 19, type: :uint64, json_name: "externalFlowId"
+
+  field :workload_identity, 20,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
+    json_name: "workloadIdentity"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch do
@@ -590,6 +663,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotEntry do
   field :comm, 8, type: :string
   field :redacted_cmdline, 9, repeated: true, type: :string, json_name: "redactedCmdline"
   field :container_id, 10, type: :string, json_name: "containerId"
+
+  field :workload_identity, 11,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
+    json_name: "workloadIdentity"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ExternalFlowRecord do

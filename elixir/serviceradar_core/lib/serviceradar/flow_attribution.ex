@@ -59,7 +59,8 @@ defmodule ServiceRadar.FlowAttribution do
         comm: blank_to_nil(event.comm),
         cmdline: cmdline_to_string(event.redacted_cmdline),
         uid: zero_to_nil(event.uid),
-        container_id: blank_to_nil(event.container_id)
+        container_id: blank_to_nil(event.container_id),
+        workload_identity: workload_identity_to_map(event.workload_identity)
       }
     else
       _ -> nil
@@ -99,7 +100,8 @@ defmodule ServiceRadar.FlowAttribution do
         picked.comm,
         picked.cmdline,
         picked.uid,
-        picked.container_id
+        picked.container_id,
+        picked.workload_identity
       FROM recent_flows AS f
       JOIN LATERAL (
         SELECT
@@ -109,6 +111,7 @@ defmodule ServiceRadar.FlowAttribution do
           cmdline,
           uid,
           container_id,
+          workload_identity,
           match_rank,
           time_delta_seconds,
           observed_at
@@ -120,6 +123,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -143,6 +147,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -166,6 +171,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -187,6 +193,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -208,6 +215,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             1 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -231,6 +239,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             1 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -254,6 +263,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -281,6 +291,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -308,6 +319,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -334,6 +346,7 @@ defmodule ServiceRadar.FlowAttribution do
             a.cmdline,
             a.uid,
             a.container_id,
+            a.workload_identity,
             2 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at
@@ -365,7 +378,8 @@ defmodule ServiceRadar.FlowAttribution do
              'comm', candidates.comm,
              'redacted_cmdline', candidates.cmdline,
              'uid', candidates.uid,
-             'container_id', candidates.container_id
+             'container_id', candidates.container_id,
+             'workload_identity', candidates.workload_identity
            ))
          )
     FROM candidates
@@ -431,6 +445,35 @@ defmodule ServiceRadar.FlowAttribution do
   defp cmdline_to_string(list) when is_list(list), do: list |> Enum.join(" ") |> blank_to_nil()
   defp cmdline_to_string(value) when is_binary(value), do: blank_to_nil(value)
   defp cmdline_to_string(_), do: nil
+
+  defp workload_identity_to_map(nil), do: nil
+
+  defp workload_identity_to_map(identity) do
+    %{
+      "pod_sandbox_id" => blank_to_nil(Map.get(identity, :pod_sandbox_id)),
+      "pod_name" => blank_to_nil(Map.get(identity, :pod_name)),
+      "pod_namespace" => blank_to_nil(Map.get(identity, :pod_namespace)),
+      "pod_uid" => blank_to_nil(Map.get(identity, :pod_uid)),
+      "container_id" => blank_to_nil(Map.get(identity, :container_id)),
+      "container_name" => blank_to_nil(Map.get(identity, :container_name)),
+      "image" => blank_to_nil(Map.get(identity, :image)),
+      "image_ref" => blank_to_nil(Map.get(identity, :image_ref)),
+      "runtime_pid" => zero_to_nil(Map.get(identity, :runtime_pid)),
+      "cgroup_path" => blank_to_nil(Map.get(identity, :cgroup_path)),
+      "runtime_source" => blank_to_nil(Map.get(identity, :runtime_source)),
+      "confidence" => blank_to_nil(Map.get(identity, :confidence)),
+      "degradation_reason" => blank_to_nil(Map.get(identity, :degradation_reason)),
+      "labels" => empty_map_to_nil(Map.get(identity, :labels)),
+      "annotations" => empty_map_to_nil(Map.get(identity, :annotations))
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+    |> empty_map_to_nil()
+  end
+
+  defp empty_map_to_nil(value) when value == %{}, do: nil
+  defp empty_map_to_nil(value) when is_map(value), do: value
+  defp empty_map_to_nil(_value), do: nil
 
   # IANA protocol numbers (mirrors AttributedFlowJoiner.transport_to_proto).
   defp transport_to_proto(transport) when is_binary(transport) do
