@@ -145,11 +145,18 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert proto_addon.artifact_signature == signature
   end
 
-  test "is a no-op without configured artifacts", %{actor: actor, unique_id: unique_id} do
+  test "stages the manifest version without configured artifacts", %{actor: actor, unique_id: unique_id} do
     version = "0.9.#{unique_id}"
 
     assert :ok = NetprobeAddonPackageSeeder.seed_defaults(version: version, artifacts: %{})
-    assert {:ok, nil} = read_package(version, actor)
+
+    {:ok, package} = read_package(version, actor)
+    assert package.status == :staged
+    assert package.artifacts == %{}
+    assert package.source_oci_ref == nil
+    assert package.source_oci_digest == nil
+    assert package.capabilities == ["host-network-visibility"]
+    assert package.config_schema["title"] == "Host Network Visibility (netprobe) Configuration"
   end
 
   defp read_package(version, actor) do
