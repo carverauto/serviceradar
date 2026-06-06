@@ -101,7 +101,12 @@ defmodule ServiceRadar.FlowAttributionTest do
     partition: partition,
     agent_id: agent_id
   } do
-    now = DateTime.truncate(DateTime.utc_now(), :second)
+    now =
+      DateTime.utc_now()
+      |> DateTime.to_unix()
+      |> div(60)
+      |> Kernel.*(60)
+      |> DateTime.from_unix!()
 
     event = %Netprobepb.FlowAttributionEvent{
       transport_protocol: "tcp",
@@ -137,6 +142,56 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert count == 1
     assert DateTime.compare(observed_at, DateTime.add(now, 5, :second)) in [:eq, :gt]
     assert cmdline == "redis-server --protected-mode yes"
+
+    %{rows: [[history_count, history_cmdline]]} =
+      query!(
+        """
+        SELECT count(*), max(cmdline)
+        FROM platform.flow_process_attributions
+        WHERE partition = $1
+        """,
+        [partition]
+      )
+
+    assert history_count == 1
+    assert history_cmdline == "redis-server --protected-mode yes"
+  end
+
+  test "correlates delayed TCP flow from historical attribution only", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    flow_time = DateTime.add(now, -10, :minute)
+
+    seed_flow(%{
+      partition: partition,
+      time: flow_time,
+      src_ip: "192.168.1.62",
+      src_port: 54_710,
+      dst_ip: "192.168.1.1",
+      dst_port: 443
+    })
+
+    seed_legacy_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(flow_time, -2, :second),
+      local_ip: "192.168.1.62",
+      local_port: 54_710,
+      remote_ip: "192.168.1.1",
+      remote_port: 443,
+      pid: 61_707,
+      comm: "serviceradar-agent"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["agent_id"] == agent_id
+    assert payload["attribution"]["pid"] == 61_707
+    assert payload["attribution"]["comm"] == "serviceradar-agent"
   end
 
   test "correlates pod-local attribution to node-SNATed NetFlow", %{
@@ -586,6 +641,43 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.observed_at,
         params.partition,
         attribution_key(params),
+        params.agent_id,
+        Map.get(params, :proto, 6),
+        params.local_ip,
+        params.local_port,
+        params.remote_ip,
+        params.remote_port,
+        params.pid,
+        params.comm,
+        json_param(Map.get(params, :workload_identity))
+      ]
+    )
+  end
+
+  defp seed_legacy_attribution(params) do
+    query!(
+      """
+      INSERT INTO platform.flow_process_attributions (
+        observed_at,
+        partition,
+        agent_id,
+        proto,
+        local_ip,
+        local_port,
+        remote_ip,
+        remote_port,
+        pid,
+        comm,
+        cmdline,
+        uid,
+        container_id,
+        workload_identity
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL, ($11::text)::jsonb)
+      """,
+      [
+        params.observed_at,
+        params.partition,
         params.agent_id,
         Map.get(params, :proto, 6),
         params.local_ip,
