@@ -4,6 +4,8 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use serde::Serialize;
+
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
 
@@ -11,8 +13,8 @@ use std::os::unix::fs::FileTypeExt;
 use anyhow::{Context, Result};
 #[cfg(unix)]
 use cri_api::v1::{
-    runtime_service_client::RuntimeServiceClient, Container, ContainerFilter,
-    ContainerStatusRequest, ContainerStatusResponse, ListContainersRequest,
+    runtime_service_client::RuntimeServiceClient, Container, ContainerFilter, ContainerState,
+    ContainerStateValue, ContainerStatusRequest, ContainerStatusResponse, ListContainersRequest,
     PodSandboxStatusRequest, PodSandboxStatusResponse,
 };
 #[cfg(unix)]
@@ -38,7 +40,7 @@ const CRI_CONFIG_FILES: &[&str] = &[
     "/var/lib/rancher/k3s/agent/etc/crictl.yaml",
 ];
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum RuntimeSource {
     Containerd,
     Crio,
@@ -61,14 +63,14 @@ impl Default for RuntimeSource {
     }
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct CgroupIdentity {
     pub pod_uid: Option<String>,
     pub container_id: Option<String>,
     pub runtime_source: Option<RuntimeSource>,
 }
 
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Serialize)]
 pub struct WorkloadIdentity {
     pub pod_sandbox_id: Option<String>,
     pub pod_name: Option<String>,
@@ -85,20 +87,20 @@ pub struct WorkloadIdentity {
     pub runtime_source: RuntimeSource,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CriContainerLookup {
     pub container_id: String,
     pub identity: WorkloadIdentity,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub enum CriEndpointSource {
     Explicit,
     ConfigFile(PathBuf),
     CommonPath,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
 pub struct CriEndpoint {
     pub path: PathBuf,
     pub source: CriEndpointSource,
@@ -134,7 +136,16 @@ impl CriRuntimeClient {
     pub async fn list_container_identities(&mut self) -> Result<Vec<CriContainerLookup>> {
         let containers = self
             .client
-            .list_containers(ListContainersRequest { filter: None })
+            .list_containers(ListContainersRequest {
+                filter: Some(ContainerFilter {
+                    id: String::new(),
+                    state: Some(ContainerStateValue {
+                        state: ContainerState::ContainerRunning as i32,
+                    }),
+                    pod_sandbox_id: String::new(),
+                    label_selector: std::collections::HashMap::new(),
+                }),
+            })
             .await
             .context("list CRI containers")?
             .into_inner()
