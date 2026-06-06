@@ -23,11 +23,12 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "Attributed Flows"
     html = render(view)
 
+    assert html =~ "srql-query-bar"
     assert html =~ "Attributed Flow Records"
     assert html =~ "10.42.10.12:53844"
     assert html =~ "198.51.100.20:443"
-    assert html =~ "worker-1.example.test"
-    assert html =~ "edge-api.example.test"
+    assert html =~ "agent-flow-test-tcp"
+    assert html =~ "default/nginx-pod"
     assert html =~ "1234"
     assert html =~ "nginx"
     refute html =~ "203.0.113.44:62001"
@@ -83,15 +84,15 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
   test "live toggle can be disabled and re-enabled", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/observability/flows/attributed")
 
-    assert html =~ "hero-signal"
+    assert html =~ "Off"
 
     html = view |> element("button[phx-click='toggle_live']") |> render_click()
 
-    assert html =~ "hero-pause"
+    assert html =~ "On"
 
     html = view |> element("button[phx-click='toggle_live']") |> render_click()
 
-    assert html =~ "hero-signal"
+    assert html =~ "Off"
   end
 
   test "pagination uses stable patch params and compact grid rows", %{conn: conn} do
@@ -114,16 +115,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     refute html =~ "<table"
   end
 
-  test "all rows render UDP, ICMP, rDNS, and IOC status", %{conn: conn} do
+  test "all rows render UDP and ICMP through SRQL", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{filter: "all"}}")
     html = render(view)
 
     assert html =~ "TCP"
     assert html =~ "UDP"
     assert html =~ "ICMP"
-    assert html =~ "worker-1.example.test"
-    assert html =~ "dns-sinkhole.example.test"
-    assert html =~ "IOC 2"
+    assert html =~ "No IOC"
   end
 
   defp seed_attributed_flow_rows! do
@@ -190,7 +189,13 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
           "comm" => "nginx",
           "redacted_cmdline" => "/usr/sbin/nginx args:sha256:31f0e4c8",
           "uid" => "1000",
-          "container_id" => "container-nginx"
+          "container_id" => "container-nginx",
+          "workload_identity" => %{
+            "pod_namespace" => "default",
+            "pod_name" => "nginx-pod",
+            "container_name" => "nginx",
+            "image" => "nginx:latest"
+          }
         },
         "agent-flow-test-tcp"
       )

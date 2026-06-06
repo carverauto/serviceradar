@@ -108,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
        sample_size: 0
      })
      |> assign(:logs_live?, false)
+     |> assign(:netflows_live?, false)
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
@@ -153,6 +154,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
 
     logs_live? = next_logs_live_state(socket, tab, params)
+    netflows_live? = next_netflows_live_state(socket, tab, params)
     log_view_params = if tab == "logs", do: tracked_log_view_params(params), else: %{}
 
     # For same-tab query changes (stat card clicks), keep current data visible.
@@ -162,6 +164,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         socket
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
+        |> assign(:netflows_live?, netflows_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:netflow_compact?, netflow_compact?)
@@ -183,6 +186,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         socket
         |> assign(:active_tab, tab)
         |> assign(:logs_live?, logs_live?)
+        |> assign(:netflows_live?, netflows_live?)
         |> assign(:current_params, params)
         |> assign(:log_view_params, log_view_params)
         |> assign(:logs, [])
@@ -256,6 +260,23 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     socket =
       if socket.assigns.active_tab == "logs" and socket.assigns.logs_live? do
         refresh_tab(socket, "logs")
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  def handle_event("toggle_netflows_live", _params, socket) do
+    live? =
+      not has_cursor_param?(Map.get(socket.assigns, :current_params, %{})) and
+        not Map.get(socket.assigns, :netflows_live?, false)
+
+    socket = assign(socket, :netflows_live?, live?)
+
+    socket =
+      if socket.assigns.active_tab == "netflows" and socket.assigns.netflows_live? do
+        refresh_tab(socket, "netflows")
       else
         socket
       end
@@ -424,7 +445,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     sankey_prefix = Map.get(socket.assigns, :netflow_sankey_prefix, 24)
     stack_mode = Map.get(socket.assigns, :netflow_stack_mode, @default_netflow_stack_mode)
     graph_mode = Map.get(socket.assigns, :netflow_graph_mode, "stacked")
-    view = Map.get(socket.assigns, :netflow_view, "overview")
 
     port =
       case Integer.parse(to_string(port_raw || "")) do
@@ -457,9 +477,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           sankey_prefix,
           stack_mode,
           graph_mode,
-          view
+          "explorer"
         )
       )
+      |> append_query_param("open_flow", "1")
 
     {:noreply, push_patch(socket, to: href)}
   end
@@ -952,7 +973,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   @impl true
   def handle_info({:flows_ingested, _event}, socket) do
-    {:noreply, schedule_debounced_refresh(socket, "netflows")}
+    {:noreply, maybe_schedule_live_netflows_refresh(socket)}
   end
 
   @impl true
@@ -1024,9 +1045,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <.ui_panel :if={@active_tab != "netflows" or @netflow_view in ["explorer", "all"]}>
             <:header>
               <div class="min-w-0">
-                <div class="text-sm font-semibold">{panel_title(@active_tab, @logs_live?)}</div>
+                <div class="text-sm font-semibold">
+                  {panel_title(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
+                </div>
                 <div class="text-xs text-base-content/70">
-                  {panel_subtitle(@active_tab, @logs_live?)}
+                  {panel_subtitle(@active_tab, panel_live?(@active_tab, @logs_live?, @netflows_live?))}
                 </div>
               </div>
 
@@ -1048,6 +1071,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 stack_mode={@netflow_stack_mode}
                 graph_mode={@netflow_graph_mode}
                 view={@netflow_view}
+                live?={@netflows_live?}
               />
             </:header>
 
@@ -3082,6 +3106,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:stack_mode, :string, default: @default_netflow_stack_mode)
   attr(:graph_mode, :string, default: "stacked")
   attr(:view, :string, default: "overview")
+  attr(:live?, :boolean, default: false)
 
   defp netflow_presets(assigns) do
     query = Map.get(assigns.srql, :query) || ""
@@ -3119,6 +3144,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:stack_mode, assigns.stack_mode)
       |> assign(:graph_mode, assigns.graph_mode)
       |> assign(:view, assigns.view)
+      |> assign(:toggle_title, if(assigns.live?, do: "Pause live flow refresh", else: "Start live flow refresh"))
+      |> assign(:toggle_badge_variant, if(assigns.live?, do: "success", else: "ghost"))
+      |> assign(:toggle_variant, if(assigns.live?, do: "primary", else: "outline"))
 
     ~H"""
     <div class="flex items-center justify-end gap-2">
@@ -3133,6 +3161,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           @graph_mode,
           @view
         ) %>
+      <.ui_button
+        id="netflows-live-toggle"
+        phx-click="toggle_netflows_live"
+        variant={@toggle_variant}
+        size="xs"
+        active={@live?}
+        class="rounded-full gap-2"
+        title={@toggle_title}
+      >
+        <span class="text-xs font-medium">Live</span>
+        <.ui_badge id="netflows-live-status" size="xs" variant={@toggle_badge_variant}>
+          {if @live?, do: "On", else: "Off"}
+        </.ui_badge>
+      </.ui_button>
       <span class="text-[10px] uppercase tracking-wider text-base-content/50">Presets</span>
       <div class="flex flex-wrap gap-1">
         <%= for preset <- @presets do %>
@@ -3186,6 +3228,29 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         Map.get(socket.assigns, :logs_live?, false)
     end
   end
+
+  defp next_netflows_live_state(socket, tab, params) do
+    cond do
+      tab != "netflows" ->
+        false
+
+      has_cursor_param?(params) ->
+        false
+
+      socket.assigns[:_initial_load_done] && socket.assigns.active_tab == "netflows" ->
+        Map.get(socket.assigns, :netflows_live?, false)
+
+      true ->
+        false
+    end
+  end
+
+  defp has_cursor_param?(params) when is_map(params) do
+    value = Map.get(params, "cursor")
+    is_binary(value) and String.trim(value) != ""
+  end
+
+  defp has_cursor_param?(_), do: false
 
   defp manual_log_navigation?(socket, tab, params) do
     socket.assigns[:_initial_load_done] &&
@@ -3279,6 +3344,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_put_param(params, _key, nil), do: params
   defp maybe_put_param(params, _key, ""), do: params
   defp maybe_put_param(params, key, value), do: Map.put(params, key, value)
+
+  defp append_query_param(path, key, value) do
+    joiner = if String.contains?(path, "?"), do: "&", else: "?"
+    path <> joiner <> URI.encode_query(%{key => value})
+  end
 
   defp maybe_put_new_param(params, _key, nil), do: params
   defp maybe_put_new_param(params, _key, ""), do: params
@@ -4564,6 +4634,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       if is_list(tcp_flags_labels), do: Enum.map(tcp_flags_labels, &to_string/1), else: []
 
     tcp_flags_raw = flow_get(assigns.flow, ["tcp_flags"])
+    attribution = netflow_attribution(assigns.flow)
 
     assigns =
       assigns
@@ -4581,6 +4652,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:direction_label, direction_label)
       |> assign(:tcp_flags_labels, tcp_flags_labels)
       |> assign(:tcp_flags_raw, tcp_flags_raw)
+      |> assign(:attribution, attribution)
 
     ~H"""
     <dialog class="modal modal-open" phx-window-keydown="netflow_close" phx-key="escape">
@@ -4807,6 +4879,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </div>
 
               <div class="mt-3 space-y-3 text-xs">
+                <div>
+                  <div class="font-semibold">Process attribution</div>
+                  <%= if is_map(@attribution) do %>
+                    <div class="mt-1 text-base-content/70">
+                      Process:
+                      <span class="font-mono">
+                        {netflow_attribution_process_label(@attribution)}
+                      </span>
+                    </div>
+                    <div class="mt-1 text-base-content/70">
+                      Agent:
+                      <span class="font-mono">
+                        {display_text(netflow_attribution_agent_id(@flow))}
+                      </span>
+                    </div>
+                    <div class="mt-1 text-base-content/70">
+                      Workload:
+                      <span class="font-mono">
+                        {display_text(netflow_attribution_workload_label(@attribution))}
+                      </span>
+                    </div>
+                    <div class="mt-2 flex flex-wrap gap-2">
+                      <.ui_button href={attributed_flow_path(@flow)} variant="ghost" size="xs">
+                        <.icon name="hero-cpu-chip" class="size-3.5" />
+                        Attributed Flow
+                      </.ui_button>
+                    </div>
+                  <% else %>
+                    <div class="mt-1 text-base-content/70">
+                      <span class="badge badge-xs badge-ghost">no match</span>
+                      <span class="ml-2">No process context is attached to this flow row.</span>
+                    </div>
+                  <% end %>
+                </div>
+
                 <div>
                   <div class="font-semibold">GeoIP / ASN</div>
                   <.netflow_geoip_asn_line side="Source" geo={Map.get(@context, :src_geo)} />
@@ -5147,6 +5254,106 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       _ -> nil
     end
   end
+
+  defp netflow_attribution(flow) when is_map(flow) do
+    case flow |> Map.get("ocsf_payload") |> flow_get_in(["attribution"]) do
+      %{} = attribution when map_size(attribution) > 0 -> attribution
+      _ -> nil
+    end
+  end
+
+  defp netflow_attribution(_flow), do: nil
+
+  defp netflow_attribution_process_label(%{} = attribution) do
+    comm = attribution |> flow_get_in(["comm"]) |> clean_display_value()
+    pid = attribution |> flow_get_in(["pid"]) |> clean_display_value()
+
+    cond do
+      is_binary(comm) and is_binary(pid) -> "#{comm} ##{pid}"
+      is_binary(comm) -> comm
+      is_binary(pid) -> "PID #{pid}"
+      true -> "No process match"
+    end
+  end
+
+  defp netflow_attribution_process_label(_), do: "No process match"
+
+  defp netflow_attribution_agent_id(flow) when is_map(flow) do
+    payload = Map.get(flow, "ocsf_payload") || %{}
+    clean_display_value(Map.get(payload, "agent_id") || flow_get_in(payload, ["metadata", "agent_id"]))
+  end
+
+  defp netflow_attribution_agent_id(_), do: nil
+
+  defp netflow_attribution_workload_label(%{} = attribution) do
+    workload = flow_get_in(attribution, ["workload_identity"]) || %{}
+    ns = workload |> flow_get_in(["pod_namespace"]) |> clean_display_value()
+    pod = workload |> flow_get_in(["pod_name"]) |> clean_display_value()
+    container = workload |> flow_get_in(["container_name"]) |> clean_display_value()
+
+    cond do
+      is_binary(ns) and is_binary(pod) -> "#{ns}/#{pod}"
+      is_binary(pod) -> pod
+      is_binary(container) -> container
+      true -> nil
+    end
+  end
+
+  defp netflow_attribution_workload_label(_), do: nil
+
+  defp attributed_flow_path(flow) do
+    "/observability/flows/attributed?" <>
+      URI.encode_query(%{
+        q: attributed_flow_query(flow),
+        filter: "all",
+        per_page: 50
+      })
+  end
+
+  defp attributed_flow_query(flow) do
+    [
+      "in:attributed_flows",
+      "time:last_24h",
+      "sort:time:desc",
+      maybe_srql_token("src_endpoint_ip", netflow_addr(flow, :src)),
+      maybe_srql_token("dst_endpoint_ip", netflow_addr(flow, :dst)),
+      maybe_srql_token("src_endpoint_port", netflow_port(flow, :src)),
+      maybe_srql_token("dst_endpoint_port", netflow_port(flow, :dst)),
+      maybe_srql_token("protocol_num", netflow_protocol_num(flow))
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp maybe_srql_token(_field, nil), do: nil
+  defp maybe_srql_token(_field, ""), do: nil
+  defp maybe_srql_token(field, value), do: "#{field}:#{srql_literal(value)}"
+
+  defp srql_literal(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp srql_literal(value) do
+    value = to_string(value)
+
+    if String.match?(value, ~r/^[A-Za-z0-9_.:\/-]+$/) do
+      value
+    else
+      inspect(value)
+    end
+  end
+
+  defp display_text(value), do: clean_display_value(value) || "-"
+
+  defp clean_display_value(nil), do: nil
+  defp clean_display_value(""), do: nil
+
+  defp clean_display_value(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp clean_display_value(value), do: to_string(value)
 
   defp netflow_value(flow, keys) when is_map(flow) and is_list(keys) do
     Enum.find_value(keys, fn key ->
@@ -6427,13 +6634,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp compute_netflow_summary(_), do: empty_netflow_summary()
 
+  defp panel_live?("logs", logs_live?, _netflows_live?), do: logs_live?
+  defp panel_live?("netflows", _logs_live?, netflows_live?), do: netflows_live?
+  defp panel_live?(_, _logs_live?, _netflows_live?), do: false
+
   defp panel_title("logs", true), do: "Log Stream"
   defp panel_title("logs", false), do: "Logs"
   defp panel_title("traces", _), do: "Traces"
   defp panel_title("metrics", _), do: "Metrics"
   defp panel_title("events", _), do: "Events"
   defp panel_title("alerts", _), do: "Alerts"
-  defp panel_title("netflows", _), do: "Flows"
+  defp panel_title("netflows", true), do: "Flow Stream"
+  defp panel_title("netflows", false), do: "Flows"
   defp panel_title(_, _), do: "Logs"
 
   defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
@@ -6444,7 +6656,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp panel_subtitle("events", _), do: "Click any event to view full details."
   defp panel_subtitle("alerts", _), do: "Click any alert to view full details."
-  defp panel_subtitle("netflows", _), do: "Network flow data from NetFlow collectors."
+  defp panel_subtitle("netflows", true), do: "Refreshing newest network flow data from NetFlow collectors."
+  defp panel_subtitle("netflows", false), do: "Network flow data from NetFlow collectors."
   defp panel_subtitle(_, _), do: "Click any log entry to view full details."
 
   defp panel_result_count("traces", _logs, traces, _metrics, _events, _alerts, _netflows), do: length(traces)
@@ -6746,9 +6959,25 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp maybe_schedule_live_netflows_refresh(socket) do
+    if socket.assigns.active_tab == "netflows" and Map.get(socket.assigns, :netflows_live?, false) do
+      schedule_debounced_refresh(socket, "netflows")
+    else
+      socket
+    end
+  end
+
   defp maybe_refresh_tab(socket, "logs") do
     if socket.assigns.active_tab == "logs" and Map.get(socket.assigns, :logs_live?, false) do
       refresh_tab(socket, "logs")
+    else
+      socket
+    end
+  end
+
+  defp maybe_refresh_tab(socket, "netflows") do
+    if socket.assigns.active_tab == "netflows" and Map.get(socket.assigns, :netflows_live?, false) do
+      refresh_tab(socket, "netflows")
     else
       socket
     end

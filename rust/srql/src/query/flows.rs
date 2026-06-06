@@ -13,7 +13,7 @@ use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
 use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
-use diesel::sql_types::{Array, BigInt, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Bool, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde::{Deserialize, Serialize};
@@ -208,6 +208,49 @@ pub(super) const FLOW_APP_EXPR: &str = r#"
   ) override_rule ON TRUE)
 "#;
 
+const ATTRIBUTED_FLOW_EVENT_TYPE_EXPR: &str = "ocsf_payload ->> 'event_type' = 'attributed_flow'";
+const ATTRIBUTED_FLOW_EVENT_TYPE_EXPR_ALIASED: &str =
+    "f.ocsf_payload ->> 'event_type' = 'attributed_flow'";
+const ATTRIBUTION_STATUS_EXPR: &str = "CASE WHEN ocsf_payload -> 'attribution' ->> 'pid' IS NULL THEN 'unmatched' ELSE 'attributed' END";
+const ATTRIBUTION_STATUS_EXPR_ALIASED: &str = "CASE WHEN f.ocsf_payload -> 'attribution' ->> 'pid' IS NULL THEN 'unmatched' ELSE 'attributed' END";
+const ATTRIBUTION_PID_EXPR: &str = "ocsf_payload -> 'attribution' ->> 'pid'";
+const ATTRIBUTION_PID_EXPR_ALIASED: &str = "f.ocsf_payload -> 'attribution' ->> 'pid'";
+const ATTRIBUTION_UID_EXPR: &str = "ocsf_payload -> 'attribution' ->> 'uid'";
+const ATTRIBUTION_UID_EXPR_ALIASED: &str = "f.ocsf_payload -> 'attribution' ->> 'uid'";
+const ATTRIBUTION_COMM_EXPR: &str = "ocsf_payload -> 'attribution' ->> 'comm'";
+const ATTRIBUTION_COMM_EXPR_ALIASED: &str = "f.ocsf_payload -> 'attribution' ->> 'comm'";
+const ATTRIBUTION_CMDLINE_EXPR: &str = "ocsf_payload -> 'attribution' ->> 'redacted_cmdline'";
+const ATTRIBUTION_CMDLINE_EXPR_ALIASED: &str =
+    "f.ocsf_payload -> 'attribution' ->> 'redacted_cmdline'";
+const ATTRIBUTION_CONTAINER_ID_EXPR: &str = "ocsf_payload -> 'attribution' ->> 'container_id'";
+const ATTRIBUTION_CONTAINER_ID_EXPR_ALIASED: &str =
+    "f.ocsf_payload -> 'attribution' ->> 'container_id'";
+const ATTRIBUTION_AGENT_ID_EXPR: &str =
+    "COALESCE(ocsf_payload ->> 'agent_id', ocsf_payload #>> '{metadata,agent_id}')";
+const ATTRIBUTION_AGENT_ID_EXPR_ALIASED: &str =
+    "COALESCE(f.ocsf_payload ->> 'agent_id', f.ocsf_payload #>> '{metadata,agent_id}')";
+const ATTRIBUTION_POD_NAME_EXPR: &str =
+    "ocsf_payload #>> '{attribution,workload_identity,pod_name}'";
+const ATTRIBUTION_POD_NAME_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,workload_identity,pod_name}'";
+const ATTRIBUTION_POD_NAMESPACE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,workload_identity,pod_namespace}'";
+const ATTRIBUTION_POD_NAMESPACE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,workload_identity,pod_namespace}'";
+const ATTRIBUTION_POD_UID_EXPR: &str = "ocsf_payload #>> '{attribution,workload_identity,pod_uid}'";
+const ATTRIBUTION_POD_UID_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,workload_identity,pod_uid}'";
+const ATTRIBUTION_CONTAINER_NAME_EXPR: &str =
+    "ocsf_payload #>> '{attribution,workload_identity,container_name}'";
+const ATTRIBUTION_CONTAINER_NAME_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,workload_identity,container_name}'";
+const ATTRIBUTION_IMAGE_EXPR: &str = "COALESCE(ocsf_payload #>> '{attribution,workload_identity,image}', ocsf_payload #>> '{attribution,workload_identity,image_ref}')";
+const ATTRIBUTION_IMAGE_EXPR_ALIASED: &str = "COALESCE(f.ocsf_payload #>> '{attribution,workload_identity,image}', f.ocsf_payload #>> '{attribution,workload_identity,image_ref}')";
+const ATTRIBUTION_RUNTIME_SOURCE_EXPR: &str =
+    "ocsf_payload #>> '{attribution,workload_identity,runtime_source}'";
+const ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED: &str =
+    "f.ocsf_payload #>> '{attribution,workload_identity,runtime_source}'";
+
 #[derive(Queryable, Selectable, Serialize, Deserialize)]
 #[diesel(table_name = crate::schema::ocsf_network_activity, check_for_backend(diesel::pg::Pg))]
 struct FlowRow {
@@ -323,7 +366,7 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::Flows => Ok(()),
+        Entity::Flows | Entity::AttributedFlows => Ok(()),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by flows query".into(),
         )),
@@ -332,6 +375,10 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 
 fn build_query(plan: &QueryPlan) -> Result<FlowsQuery<'static>> {
     let mut query = ocsf_network_activity.into_boxed::<Pg>();
+
+    if matches!(plan.entity, Entity::AttributedFlows) {
+        query = query.filter(sql::<Bool>(ATTRIBUTED_FLOW_EVENT_TYPE_EXPR));
+    }
 
     // Apply time filter
     if let Some(TimeRange { start, end }) = &plan.time_range {
@@ -497,6 +544,62 @@ fn apply_filter<'a>(mut query: FlowsQuery<'a>, filter: &Filter) -> Result<FlowsQ
         }
         "flow_source" | "collector" => {
             let expr = sql::<Text>(FLOW_SOURCE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "event_type" => {
+            let expr = sql::<Text>("ocsf_payload ->> 'event_type'");
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "attribution_status" | "status" => {
+            let expr = sql::<Text>(ATTRIBUTION_STATUS_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "pid" | "process_pid" => {
+            let expr = sql::<Text>(ATTRIBUTION_PID_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "uid" => {
+            let expr = sql::<Text>(ATTRIBUTION_UID_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "comm" | "process" | "process_name" => {
+            let expr = sql::<Text>(ATTRIBUTION_COMM_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "cmdline" | "redacted_cmdline" => {
+            let expr = sql::<Text>(ATTRIBUTION_CMDLINE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "container_id" => {
+            let expr = sql::<Text>(ATTRIBUTION_CONTAINER_ID_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "agent_id" => {
+            let expr = sql::<Text>(ATTRIBUTION_AGENT_ID_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "pod_name" => {
+            let expr = sql::<Text>(ATTRIBUTION_POD_NAME_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "pod_namespace" | "namespace" => {
+            let expr = sql::<Text>(ATTRIBUTION_POD_NAMESPACE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "pod_uid" => {
+            let expr = sql::<Text>(ATTRIBUTION_POD_UID_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "container_name" => {
+            let expr = sql::<Text>(ATTRIBUTION_CONTAINER_NAME_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "image" | "image_ref" => {
+            let expr = sql::<Text>(ATTRIBUTION_IMAGE_EXPR);
+            query = apply_text_filter!(query, filter, expr)?;
+        }
+        "runtime_source" => {
+            let expr = sql::<Text>(ATTRIBUTION_RUNTIME_SOURCE_EXPR);
             query = apply_text_filter!(query, filter, expr)?;
         }
         "protocol_group" | "proto_group" => {
@@ -716,9 +819,11 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "device_id" => Ok(()),
         "src_endpoint_ip" | "src_ip" | "dst_endpoint_ip" | "dst_ip" | "protocol_name"
         | "sampler_address" | "direction" | "flow_source" | "collector" | "exporter_name"
-        | "in_if_name" | "out_if_name" | "in_if_speed_bps" | "out_if_speed_bps" => {
-            collect_text_params(params, filter)
-        }
+        | "in_if_name" | "out_if_name" | "in_if_speed_bps" | "out_if_speed_bps" | "event_type"
+        | "attribution_status" | "status" | "pid" | "process_pid" | "uid" | "comm" | "process"
+        | "process_name" | "cmdline" | "redacted_cmdline" | "container_id" | "agent_id"
+        | "pod_name" | "pod_namespace" | "namespace" | "pod_uid" | "container_name" | "image"
+        | "image_ref" | "runtime_source" => collect_text_params(params, filter),
         // These filters are implemented using inline SQL literals in `apply_filter` (no binds),
         // so we must not collect bind params for them or we'll shift LIMIT/OFFSET binds.
         "src_country_iso2" | "src_country" | "dst_country_iso2" | "dst_country" => Ok(()),
@@ -1364,6 +1469,10 @@ fn should_route_flow_stats_to_cagg(
     plan: &QueryPlan,
     spec: &FlowStatsSpec,
 ) -> Option<(&'static str, &'static str)> {
+    if !matches!(plan.entity, Entity::Flows) {
+        return None;
+    }
+
     // CAGG routing currently supports only one aggregate expression.
     let agg = match spec.aggregations.as_slice() {
         [agg] => agg,
@@ -1471,6 +1580,10 @@ fn build_grouped_stats_query(
         where_parts.push("f.time >= ?::timestamptz AND f.time < ?::timestamptz".to_string());
         binds.push(FlowSqlBindValue::Timestamp(*start));
         binds.push(FlowSqlBindValue::Timestamp(*end));
+    }
+
+    if matches!(plan.entity, Entity::AttributedFlows) {
+        where_parts.push(ATTRIBUTED_FLOW_EVENT_TYPE_EXPR_ALIASED.to_string());
     }
 
     // Geo joins are only included if a requested group-by or filter needs them.
@@ -1832,6 +1945,38 @@ fn build_stats_filter_clause(filter: &Filter, binds: &mut Vec<FlowSqlBindValue>)
         "protocol_name" => build_stats_text_filter("f.protocol_name", filter, binds),
         "sampler_address" => build_stats_text_filter("f.sampler_address", filter, binds),
         "flow_source" | "collector" => build_stats_text_filter(FLOW_SOURCE_EXPR, filter, binds),
+        "event_type" => build_stats_text_filter("f.ocsf_payload ->> 'event_type'", filter, binds),
+        "attribution_status" | "status" => {
+            build_stats_text_filter(ATTRIBUTION_STATUS_EXPR_ALIASED, filter, binds)
+        }
+        "pid" | "process_pid" => {
+            build_stats_text_filter(ATTRIBUTION_PID_EXPR_ALIASED, filter, binds)
+        }
+        "uid" => build_stats_text_filter(ATTRIBUTION_UID_EXPR_ALIASED, filter, binds),
+        "comm" | "process" | "process_name" => {
+            build_stats_text_filter(ATTRIBUTION_COMM_EXPR_ALIASED, filter, binds)
+        }
+        "cmdline" | "redacted_cmdline" => {
+            build_stats_text_filter(ATTRIBUTION_CMDLINE_EXPR_ALIASED, filter, binds)
+        }
+        "container_id" => {
+            build_stats_text_filter(ATTRIBUTION_CONTAINER_ID_EXPR_ALIASED, filter, binds)
+        }
+        "agent_id" => build_stats_text_filter(ATTRIBUTION_AGENT_ID_EXPR_ALIASED, filter, binds),
+        "pod_name" => build_stats_text_filter(ATTRIBUTION_POD_NAME_EXPR_ALIASED, filter, binds),
+        "pod_namespace" | "namespace" => {
+            build_stats_text_filter(ATTRIBUTION_POD_NAMESPACE_EXPR_ALIASED, filter, binds)
+        }
+        "pod_uid" => build_stats_text_filter(ATTRIBUTION_POD_UID_EXPR_ALIASED, filter, binds),
+        "container_name" => {
+            build_stats_text_filter(ATTRIBUTION_CONTAINER_NAME_EXPR_ALIASED, filter, binds)
+        }
+        "image" | "image_ref" => {
+            build_stats_text_filter(ATTRIBUTION_IMAGE_EXPR_ALIASED, filter, binds)
+        }
+        "runtime_source" => {
+            build_stats_text_filter(ATTRIBUTION_RUNTIME_SOURCE_EXPR_ALIASED, filter, binds)
+        }
         "exporter_name" => build_stats_text_filter(FLOW_EXPORTER_NAME_GROUP_EXPR, filter, binds),
         "in_if_name" => build_stats_text_filter(FLOW_IN_IF_NAME_GROUP_EXPR, filter, binds),
         "out_if_name" => build_stats_text_filter(FLOW_OUT_IF_NAME_GROUP_EXPR, filter, binds),
@@ -2078,6 +2223,82 @@ mod tests {
         assert_eq!(spec.group_by.len(), 1);
         assert_eq!(spec.group_by[0], FlowGroupSpec::Field(FlowGroupField::App));
         assert_eq!(spec.group_by[0].response_key(), "app");
+    }
+
+    #[test]
+    fn attributed_flows_translation_adds_event_type_and_attribution_filters() {
+        let plan = QueryPlan {
+            entity: Entity::AttributedFlows,
+            filters: vec![
+                Filter {
+                    field: "attribution_status".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("attributed".into()),
+                },
+                Filter {
+                    field: "process".into(),
+                    op: FilterOp::Like,
+                    value: FilterValue::Scalar("%redis%".into()),
+                },
+                Filter {
+                    field: "pod_namespace".into(),
+                    op: FilterOp::Eq,
+                    value: FilterValue::Scalar("demo".into()),
+                },
+            ],
+            order: vec![OrderClause {
+                field: "time".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 50,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: Utc.with_ymd_and_hms(2026, 6, 6, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 6, 7, 0, 0, 0).unwrap(),
+            }),
+            stats: None,
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(sql.contains("ocsf_payload ->> 'event_type' = 'attributed_flow'"));
+        assert!(sql.contains("ocsf_payload -> 'attribution' ->> 'pid'"));
+        assert!(sql.contains("ocsf_payload -> 'attribution' ->> 'comm'"));
+        assert!(sql.contains("ocsf_payload #>> '{attribution,workload_identity,pod_namespace}'"));
+        assert_eq!(params.len(), 7);
+    }
+
+    #[test]
+    fn attributed_flow_stats_stay_on_raw_table() {
+        let plan = QueryPlan {
+            entity: Entity::AttributedFlows,
+            filters: vec![Filter {
+                field: "attribution_status".into(),
+                op: FilterOp::Eq,
+                value: FilterValue::Scalar("unmatched".into()),
+            }],
+            order: vec![],
+            limit: 1,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: Utc.with_ymd_and_hms(2026, 6, 6, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 6, 7, 0, 0, 0).unwrap(),
+            }),
+            stats: Some(crate::parser::StatsSpec::from_raw("count(*) as total")),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params(&plan).unwrap();
+
+        assert!(sql.contains("FROM ocsf_network_activity f"));
+        assert!(!sql.contains("flow_traffic_1h"));
+        assert!(sql.contains("f.ocsf_payload ->> 'event_type' = 'attributed_flow'"));
+        assert_eq!(params.len(), 3);
     }
 
     #[test]

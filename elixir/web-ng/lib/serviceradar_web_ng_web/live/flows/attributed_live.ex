@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
   require Logger
 
@@ -13,127 +13,93 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @default_page_size 50
   @max_page_size 100
 
-  @summary_sql """
-  SELECT
-    COUNT(*)::bigint AS total,
-    COUNT(*) FILTER (WHERE ocsf_payload -> 'attribution' ->> 'pid' IS NOT NULL)::bigint AS attributed,
-    COUNT(*) FILTER (WHERE ocsf_payload -> 'attribution' ->> 'pid' IS NULL)::bigint AS unmatched,
-    COALESCE(SUM(bytes_total), 0)::bigint AS bytes
-  FROM platform.ocsf_network_activity
-  WHERE ocsf_payload ->> 'event_type' = 'attributed_flow'
-    AND time > now() - ($1::int * interval '1 hour')
-  """
-
-  @flows_sql """
-  SELECT
-    md5(concat_ws('|',
-      extract(epoch from time)::text,
-      COALESCE(src_endpoint_ip, ''),
-      COALESCE(src_endpoint_port::text, ''),
-      COALESCE(dst_endpoint_ip, ''),
-      COALESCE(dst_endpoint_port::text, ''),
-      COALESCE(protocol_name, protocol_num::text, ''),
-      COALESCE(ocsf_payload ->> 'agent_id', ''),
-      COALESCE(ocsf_payload -> 'attribution' ->> 'pid', '')
-    )) AS flow_id,
-    time,
-    src_endpoint_ip,
-    src_endpoint_port,
-    dst_endpoint_ip,
-    dst_endpoint_port,
-    protocol_num,
-    protocol_name,
-    COALESCE(bytes_total, 0)::bigint,
-    COALESCE(packets_total, 0)::bigint,
-    ocsf_payload -> 'attribution' ->> 'pid',
-    ocsf_payload -> 'attribution' ->> 'comm',
-    ocsf_payload -> 'attribution' ->> 'redacted_cmdline',
-    ocsf_payload -> 'attribution' ->> 'uid',
-    ocsf_payload -> 'attribution' ->> 'container_id',
-    COALESCE(ocsf_payload ->> 'agent_id', ocsf_payload #>> '{metadata,agent_id}'),
-    COALESCE(partition, ocsf_payload ->> 'partition')
-  FROM platform.ocsf_network_activity
-  WHERE ocsf_payload ->> 'event_type' = 'attributed_flow'
-    AND time > now() - ($1::int * interval '1 hour')
-    AND (
-      $2::text = 'all'
-      OR ($2::text = 'attributed' AND ocsf_payload -> 'attribution' ->> 'pid' IS NOT NULL)
-      OR ($2::text = 'unmatched' AND ocsf_payload -> 'attribution' ->> 'pid' IS NULL)
-    )
-  ORDER BY time DESC,
-           src_endpoint_ip NULLS LAST,
-           src_endpoint_port NULLS LAST,
-           dst_endpoint_ip NULLS LAST,
-           dst_endpoint_port NULLS LAST,
-           protocol_num NULLS LAST
-  LIMIT $3::int
-  OFFSET $4::int
-  """
-
-  @rdns_sql """
-  SELECT ip, hostname
-  FROM platform.ip_rdns_cache
-  WHERE ip = ANY($1::text[])
-    AND status = 'ok'
-    AND hostname IS NOT NULL
-    AND hostname <> ''
-    AND expires_at > now()
-  """
-
-  @threat_sql """
-  SELECT ip, matched, match_count, max_severity, sources
-  FROM platform.ip_threat_intel_cache
-  WHERE ip = ANY($1::text[])
-    AND expires_at > now()
-  """
-
   @impl true
   def mount(_params, _session, socket) do
-    if connected?(socket), do: schedule_refresh()
+    socket =
+      socket
+      |> assign(:page_title, "Attributed Flows")
+      |> assign(:current_path, "/observability/flows/attributed")
+      |> assign(:time_window_hours, @time_window_hours)
+      |> assign(:filter, @default_filter)
+      |> assign(:page, 1)
+      |> assign(:page_size, @default_page_size)
+      |> assign(:page_count, 1)
+      |> assign(:live?, false)
+      |> assign(:summary, empty_summary())
+      |> assign(:rows, [])
+      |> assign(:rows_by_id, %{})
+      |> assign(:selected_flow, nil)
+      |> assign(:loading?, true)
+      |> stream(:attributed_flows, [], dom_id: &flow_dom_id/1)
+      |> SRQLPage.init("attributed_flows", default_limit: @default_page_size)
 
-    {:ok,
-     socket
-     |> assign(:page_title, "Attributed Flows")
-     |> assign(:current_path, "/observability/flows/attributed")
-     |> assign(:time_window_hours, @time_window_hours)
-     |> assign(:filter, @default_filter)
-     |> assign(:page, 1)
-     |> assign(:page_size, @default_page_size)
-     |> assign(:page_count, 1)
-     |> assign(:live?, true)
-     |> assign(:summary, empty_summary())
-     |> assign(:rows, [])
-     |> assign(:rows_by_id, %{})
-     |> assign(:selected_flow, nil)
-     |> assign(:loading?, true)
-     |> stream(:attributed_flows, [], dom_id: &flow_dom_id/1)}
+    {:ok, socket}
   end
 
   @impl true
-  def handle_params(params, _url, socket) do
+  def handle_params(params, uri, socket) do
+    page = normalize_page(params["page"])
+
     socket =
       socket
       |> assign(:filter, normalize_filter(params["filter"]))
-      |> assign(:page, normalize_page(params["page"]))
+      |> assign(:page, page)
       |> assign(:page_size, normalize_page_size(params["per_page"]))
       |> assign(:selected_flow, nil)
+      |> assign(:live?, Map.get(socket.assigns, :live?, false) and page == 1)
+      |> sync_srql(params, uri)
       |> load_flows()
 
     {:noreply, socket}
   end
 
   @impl true
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability/flows/attributed")}
+  end
+
+  def handle_event("srql_builder_toggle", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", params, entity: "attributed_flows")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params, entity: "attributed_flows")}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "attributed_flows")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "attributed_flows")}
+  end
+
+  def handle_event("srql_builder_apply", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", params, entity: "attributed_flows")}
+  end
+
+  def handle_event("srql_builder_run", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", params, fallback_path: "/observability/flows/attributed")}
+  end
+
   def handle_event("set_filter", %{"filter" => filter}, socket) do
     {:noreply, push_patch(socket, to: patch_path(filter, 1, socket.assigns.page_size))}
   end
 
   def handle_event("goto_page", %{"page" => page}, socket) do
     page = normalize_page(page)
-    {:noreply, push_patch(socket, to: patch_path(socket.assigns.filter, page, socket.assigns.page_size))}
+    {:noreply,
+     socket
+     |> assign(:live?, false)
+     |> push_patch(to: patch_path(socket.assigns.filter, page, socket.assigns.page_size))}
   end
 
   def handle_event("toggle_live", _params, socket) do
-    live? = not socket.assigns.live?
+    live? = socket.assigns.page == 1 and not socket.assigns.live?
     if live?, do: schedule_refresh()
     {:noreply, assign(socket, :live?, live?)}
   end
@@ -155,15 +121,16 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   def handle_info(:refresh, socket), do: {:noreply, socket}
 
   defp load_flows(socket) do
-    summary = fetch_summary()
+    scope = socket.assigns.current_scope
+    srql_module = srql_module()
+    summary = fetch_summary(srql_module, scope)
     total_for_filter = summary_count(summary, socket.assigns.filter)
     page_count = page_count(total_for_filter, socket.assigns.page_size)
     page = min(socket.assigns.page, page_count)
 
     rows =
-      socket.assigns.filter
-      |> fetch_flows(page, socket.assigns.page_size)
-      |> enrich_rows()
+      srql_module
+      |> fetch_flows(scope, socket.assigns.srql.query, page, socket.assigns.page_size)
 
     rows_by_id = Map.new(rows, &{&1.id, &1})
     selected_flow = refresh_selected_flow(socket.assigns.selected_flow, rows_by_id)
@@ -179,146 +146,128 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     |> stream(:attributed_flows, rows, reset: true, dom_id: &flow_dom_id/1)
   end
 
-  defp fetch_summary do
-    case Repo.query(@summary_sql, [@time_window_hours]) do
-      {:ok, %{rows: [[total, attributed, unmatched, bytes]]}} ->
-        %{total: total || 0, attributed: attributed || 0, unmatched: unmatched || 0, bytes: bytes || 0}
+  defp sync_srql(socket, params, uri) do
+    query = normalize_query(params["q"], socket.assigns.filter, socket.assigns.page_size)
+    page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
 
+    srql =
+      socket.assigns.srql
+      |> Map.merge(%{
+        enabled: true,
+        entity: "attributed_flows",
+        page_path: page_path,
+        query: query,
+        draft: query,
+        error: nil,
+        loading: false
+      })
+
+    assign(socket, :srql, srql)
+  end
+
+  defp fetch_summary(srql_module, scope) do
+    total = fetch_stat(srql_module, scope, "in:attributed_flows time:last_24h stats:count(*) as total", "total")
+
+    attributed =
+      fetch_stat(
+        srql_module,
+        scope,
+        "in:attributed_flows time:last_24h attribution_status:attributed stats:count(*) as total",
+        "total"
+      )
+
+    unmatched =
+      fetch_stat(
+        srql_module,
+        scope,
+        "in:attributed_flows time:last_24h attribution_status:unmatched stats:count(*) as total",
+        "total"
+      )
+
+    bytes =
+      fetch_stat(
+        srql_module,
+        scope,
+        "in:attributed_flows time:last_24h stats:sum(bytes_total) as total_bytes",
+        "total_bytes"
+      )
+
+    %{total: total, attributed: attributed, unmatched: unmatched, bytes: bytes}
+  end
+
+  defp fetch_stat(srql_module, scope, query, field) do
+    case srql_module.query(query, %{scope: scope, limit: 1}) do
+      {:ok, %{"results" => [%{} = row]}} -> row |> Map.get(field, 0) |> parse_int() || 0
+      {:ok, _} -> 0
       {:error, reason} ->
-        Logger.warning("Attributed flow summary query failed: #{inspect(reason)}")
-        empty_summary()
+        Logger.warning("Attributed flow SRQL stats query failed: #{inspect(reason)}")
+        0
     end
   rescue
     error ->
-      Logger.warning("Attributed flow summary query raised: #{Exception.message(error)}")
-      empty_summary()
+      Logger.warning("Attributed flow SRQL stats query raised: #{Exception.message(error)}")
+      0
   end
 
-  defp fetch_flows(filter, page, page_size) do
-    offset = (page - 1) * page_size
+  defp fetch_flows(srql_module, scope, query, page, page_size) do
+    opts = %{scope: scope, cursor: cursor_for_page(page, page_size), limit: page_size}
 
-    case Repo.query(@flows_sql, [@time_window_hours, filter, page_size, offset]) do
-      {:ok, %{rows: rows}} ->
-        Enum.map(rows, &row_from_db/1)
+    case srql_module.query(query, opts) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        Enum.map(rows, &row_from_srql/1)
+
+      {:ok, _} ->
+        []
 
       {:error, reason} ->
-        Logger.warning("Attributed flow rows query failed: #{inspect(reason)}")
+        Logger.warning("Attributed flow SRQL rows query failed: #{inspect(reason)}")
         []
     end
   rescue
     error ->
-      Logger.warning("Attributed flow rows query raised: #{Exception.message(error)}")
+      Logger.warning("Attributed flow SRQL rows query raised: #{Exception.message(error)}")
       []
   end
 
-  defp row_from_db([
-         id,
-         time,
-         src,
-         src_port,
-         dst,
-         dst_port,
-         protocol_num,
-         protocol,
-         bytes,
-         packets,
-         pid,
-         comm,
-         cmdline,
-         uid,
-         container_id,
-         agent_id,
-         partition
-       ]) do
+  defp row_from_srql(%{} = row) do
+    payload = map_value(row, "ocsf_payload") || %{}
+    attribution = map_value(payload, "attribution") || %{}
+    workload = map_value(attribution, "workload_identity") || %{}
+    pid = attribution |> map_value("pid") |> parse_int()
+    uid = attribution |> map_value("uid") |> parse_int()
+    protocol_num = row |> map_value("protocol_num") |> parse_int()
+
     %{
-      id: id,
-      timestamp: format_ts(time),
-      source: clean_string(src),
-      source_port: src_port,
-      destination: clean_string(dst),
-      destination_port: dst_port,
-      bytes: bytes || 0,
-      packets: packets || 0,
+      id: flow_id(row, attribution),
+      timestamp: row |> map_value("time") |> format_ts(),
+      source: row |> map_value("src_endpoint_ip") |> clean_string(),
+      source_port: row |> map_value("src_endpoint_port") |> parse_int(),
+      destination: row |> map_value("dst_endpoint_ip") |> clean_string(),
+      destination_port: row |> map_value("dst_endpoint_port") |> parse_int(),
+      bytes: row |> map_value("bytes_total") |> parse_int() || 0,
+      packets: row |> map_value("packets_total") |> parse_int() || 0,
       protocol_num: protocol_num,
-      protocol: protocol_name(protocol, protocol_num),
-      pid: parse_int(pid),
-      comm: clean_string(comm),
-      cmdline: clean_string(cmdline),
-      uid: parse_int(uid),
-      container_id: clean_string(container_id),
-      agent_id: clean_string(agent_id),
-      partition: clean_string(partition),
-      attributed?: not is_nil(parse_int(pid))
+      protocol: protocol_name(map_value(row, "protocol_name"), protocol_num),
+      pid: pid,
+      comm: attribution |> map_value("comm") |> clean_string(),
+      cmdline: attribution |> map_value("redacted_cmdline") |> clean_string(),
+      uid: uid,
+      container_id: attribution |> map_value("container_id") |> clean_string(),
+      agent_id: attribution_agent_id(payload),
+      partition: clean_string(map_value(row, "partition") || map_value(payload, "partition")),
+      attributed?: not is_nil(pid),
+      source_hostname: nil,
+      destination_hostname: nil,
+      threat: nil,
+      pod_namespace: workload |> map_value("pod_namespace") |> clean_string(),
+      pod_name: workload |> map_value("pod_name") |> clean_string(),
+      pod_uid: workload |> map_value("pod_uid") |> clean_string(),
+      container_name: workload |> map_value("container_name") |> clean_string(),
+      image: clean_string(map_value(workload, "image") || map_value(workload, "image_ref")),
+      runtime_source: workload |> map_value("runtime_source") |> clean_string(),
+      workload_identity: workload,
+      raw_payload: payload
     }
-  end
-
-  defp enrich_rows([]), do: []
-
-  defp enrich_rows(rows) do
-    ips =
-      rows
-      |> Enum.flat_map(&[&1.source, &1.destination])
-      |> Enum.filter(&present?/1)
-      |> Enum.uniq()
-
-    rdns = fetch_rdns_map(ips)
-    threats = fetch_threat_map(ips)
-
-    Enum.map(rows, fn row ->
-      row
-      |> Map.put(:source_hostname, Map.get(rdns, row.source))
-      |> Map.put(:destination_hostname, Map.get(rdns, row.destination))
-      |> Map.put(:threat, flow_threat(row, threats))
-    end)
-  end
-
-  defp fetch_rdns_map([]), do: %{}
-
-  defp fetch_rdns_map(ips) do
-    case Repo.query(@rdns_sql, [ips]) do
-      {:ok, %{rows: rows}} -> Map.new(rows, fn [ip, hostname] -> {ip, hostname} end)
-      _ -> %{}
-    end
-  rescue
-    _ -> %{}
-  end
-
-  defp fetch_threat_map([]), do: %{}
-
-  defp fetch_threat_map(ips) do
-    case Repo.query(@threat_sql, [ips]) do
-      {:ok, %{rows: rows}} ->
-        Map.new(rows, fn [ip, matched, match_count, max_severity, sources] ->
-          {ip,
-           %{
-             matched?: matched == true,
-             match_count: match_count || 0,
-             max_severity: max_severity,
-             sources: sources || []
-           }}
-        end)
-
-      _ ->
-        %{}
-    end
-  rescue
-    _ -> %{}
-  end
-
-  defp flow_threat(row, threats) do
-    [Map.get(threats, row.source), Map.get(threats, row.destination)]
-    |> Enum.filter(&match?(%{matched?: true}, &1))
-    |> case do
-      [] ->
-        nil
-
-      matches ->
-        %{
-          match_count: Enum.sum(Enum.map(matches, & &1.match_count)),
-          max_severity: matches |> Enum.map(& &1.max_severity) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end),
-          sources: matches |> Enum.flat_map(& &1.sources) |> Enum.uniq()
-        }
-    end
   end
 
   defp refresh_selected_flow(nil, _rows_by_id), do: nil
@@ -356,7 +305,53 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     ~p"/observability/flows/attributed?#{%{filter: filter, page: page, per_page: page_size}}"
   end
 
+  defp normalize_query(query, filter, page_size) when is_binary(query) do
+    case String.trim(query) do
+      "" -> query_for_filter(filter, page_size)
+      q -> ensure_attributed_query(q)
+    end
+  end
+
+  defp normalize_query(_query, filter, page_size), do: query_for_filter(filter, page_size)
+
+  defp ensure_attributed_query(query) do
+    if Regex.match?(~r/(^|\s)in:attributed_flows(?=\s|$)/i, query) do
+      query
+    else
+      Regex.replace(~r/(^|\s)in:\S+/i, query, "\\1in:attributed_flows", global: false)
+      |> case do
+        ^query -> "in:attributed_flows #{query}"
+        rewritten -> rewritten
+      end
+    end
+  end
+
+  defp query_for_filter(filter, page_size) do
+    filter_token =
+      case filter do
+        "attributed" -> " attribution_status:attributed"
+        "unmatched" -> " attribution_status:unmatched"
+        _ -> ""
+      end
+
+    "in:attributed_flows time:last_24h#{filter_token} sort:time:desc limit:#{page_size}"
+  end
+
+  defp cursor_for_page(page, page_size) when page > 1 do
+    offset = (page - 1) * page_size
+
+    %{"offset" => offset}
+    |> Jason.encode!()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp cursor_for_page(_page, _page_size), do: nil
+
   defp schedule_refresh, do: Process.send_after(self(), :refresh, @refresh_interval_ms)
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 
   @impl true
   def render(assigns) do
@@ -366,6 +361,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       current_scope={@current_scope}
       current_path={@current_path}
       page_title="Attributed Flows"
+      srql={@srql}
     >
       <div class="mx-auto max-w-7xl p-4 sm:p-6 space-y-5">
         <.observability_chrome
@@ -383,8 +379,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 aria-label="Toggle live updates"
                 title="Toggle live updates"
               >
-                <.icon name={if @live?, do: "hero-signal", else: "hero-pause"} class="size-4" />
                 <span>Live</span>
+                <.ui_badge size="xs" variant={if @live?, do: "success", else: "ghost"}>
+                  {if @live?, do: "On", else: "Off"}
+                </.ui_badge>
               </.ui_button>
               <.ui_button
                 href={~p"/observability?#{%{tab: "netflows", view: "explorer"}}"}
@@ -494,7 +492,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                     {process_label(row)}
                   </div>
                   <div class="mt-0.5 truncate font-mono text-xs text-base-content/55">
-                    {display(row.agent_id)}
+                    {display(workload_label(row) || row.agent_id)}
                   </div>
                 </div>
 
@@ -703,12 +701,24 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <.detail_item label="Agent" value={display(@flow.agent_id)} subvalue={@flow.partition} />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
-          <.detail_item label="Container" value={display(@flow.container_id)} />
+          <.detail_item
+            label="Workload"
+            value={display(workload_label(@flow))}
+            subvalue={@flow.image}
+          />
+          <.detail_item label="Container" value={display(@flow.container_id)} subvalue={@flow.container_name} />
           <.detail_item
             label="Threat Intel"
             value={threat_label(@flow.threat)}
             subvalue={threat_sources(@flow.threat)}
           />
+        </div>
+
+        <div class="modal-action">
+          <.ui_button href={netflow_details_path(@flow)} variant="primary" size="sm">
+            <.icon name="hero-arrow-top-right-on-square" class="size-4" />
+            NetFlow Details
+          </.ui_button>
         </div>
       </div>
       <button type="button" class="modal-backdrop" phx-click="close_flow">close</button>
@@ -748,6 +758,54 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp process_label(%{pid: pid}) when is_integer(pid), do: "PID #{pid}"
   defp process_label(_), do: "No process match"
+
+  defp workload_label(%{pod_namespace: ns, pod_name: pod}) when is_binary(ns) and is_binary(pod),
+    do: "#{ns}/#{pod}"
+
+  defp workload_label(%{pod_name: pod}) when is_binary(pod), do: pod
+  defp workload_label(%{container_name: name}) when is_binary(name), do: name
+  defp workload_label(_), do: nil
+
+  defp netflow_details_path(row) do
+    ~p"/observability?#{%{
+      tab: "netflows",
+      view: "explorer",
+      q: netflow_query(row),
+      limit: 50,
+      open_flow: "1"
+    }}"
+  end
+
+  defp netflow_query(row) do
+    [
+      "in:flows",
+      "time:last_24h",
+      "sort:time:desc",
+      maybe_query_token("src_endpoint_ip", row.source),
+      maybe_query_token("dst_endpoint_ip", row.destination),
+      maybe_query_token("src_endpoint_port", row.source_port),
+      maybe_query_token("dst_endpoint_port", row.destination_port),
+      maybe_query_token("protocol_num", row.protocol_num)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" ")
+  end
+
+  defp maybe_query_token(_field, nil), do: nil
+  defp maybe_query_token(_field, ""), do: nil
+  defp maybe_query_token(field, value), do: "#{field}:#{srql_value(value)}"
+
+  defp srql_value(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp srql_value(value) do
+    value = to_string(value)
+
+    if String.match?(value, ~r/^[A-Za-z0-9_.:\/-]+$/) do
+      value
+    else
+      inspect(value)
+    end
+  end
 
   defp endpoint(ip, port) when port in [nil, ""] do
     display(ip)
@@ -799,6 +857,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp parse_int(nil), do: nil
   defp parse_int(v) when is_integer(v), do: v
+  defp parse_int(v) when is_float(v), do: trunc(v)
 
   defp parse_int(v) when is_binary(v) do
     case Integer.parse(v) do
@@ -807,7 +866,69 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
+  defp parse_int(%Decimal{} = value), do: value |> Decimal.to_integer()
+  defp parse_int(value) when is_number(value), do: trunc(value)
+  defp parse_int(value) when is_struct(value), do: value |> to_string() |> parse_int()
   defp parse_int(_), do: nil
+
+  defp map_value(nil, _key), do: nil
+
+  defp map_value(%{} = map, key) when is_binary(key) do
+    Map.get(map, key) || Map.get(map, known_atom_key(key))
+  end
+
+  defp map_value(_value, _key), do: nil
+
+  defp known_atom_key("agent_id"), do: :agent_id
+  defp known_atom_key("attribution"), do: :attribution
+  defp known_atom_key("bytes_total"), do: :bytes_total
+  defp known_atom_key("cmdline"), do: :cmdline
+  defp known_atom_key("comm"), do: :comm
+  defp known_atom_key("container_id"), do: :container_id
+  defp known_atom_key("container_name"), do: :container_name
+  defp known_atom_key("dst_endpoint_ip"), do: :dst_endpoint_ip
+  defp known_atom_key("dst_endpoint_port"), do: :dst_endpoint_port
+  defp known_atom_key("image"), do: :image
+  defp known_atom_key("image_ref"), do: :image_ref
+  defp known_atom_key("metadata"), do: :metadata
+  defp known_atom_key("ocsf_payload"), do: :ocsf_payload
+  defp known_atom_key("packets_total"), do: :packets_total
+  defp known_atom_key("partition"), do: :partition
+  defp known_atom_key("pid"), do: :pid
+  defp known_atom_key("pod_name"), do: :pod_name
+  defp known_atom_key("pod_namespace"), do: :pod_namespace
+  defp known_atom_key("pod_uid"), do: :pod_uid
+  defp known_atom_key("protocol_name"), do: :protocol_name
+  defp known_atom_key("protocol_num"), do: :protocol_num
+  defp known_atom_key("redacted_cmdline"), do: :redacted_cmdline
+  defp known_atom_key("runtime_source"), do: :runtime_source
+  defp known_atom_key("src_endpoint_ip"), do: :src_endpoint_ip
+  defp known_atom_key("src_endpoint_port"), do: :src_endpoint_port
+  defp known_atom_key("time"), do: :time
+  defp known_atom_key("uid"), do: :uid
+  defp known_atom_key("workload_identity"), do: :workload_identity
+  defp known_atom_key(_), do: nil
+
+  defp attribution_agent_id(payload) do
+    clean_string(map_value(payload, "agent_id") || map_value(map_value(payload, "metadata"), "agent_id"))
+  end
+
+  defp flow_id(row, attribution) do
+    [
+      map_value(row, "time"),
+      map_value(row, "src_endpoint_ip"),
+      map_value(row, "src_endpoint_port"),
+      map_value(row, "dst_endpoint_ip"),
+      map_value(row, "dst_endpoint_port"),
+      map_value(row, "protocol_num"),
+      attribution_agent_id(map_value(row, "ocsf_payload") || %{}),
+      map_value(attribution, "pid")
+    ]
+    |> Enum.map(&to_string(&1 || ""))
+    |> Enum.join("|")
+    |> then(&:crypto.hash(:md5, &1))
+    |> Base.encode16(case: :lower)
+  end
 
   defp clean_string(nil), do: nil
 
