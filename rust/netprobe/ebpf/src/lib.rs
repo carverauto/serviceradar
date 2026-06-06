@@ -214,7 +214,6 @@ pub struct FlowTableKey {
 
 struct CanonicalFlowKey {
     key: FlowKey,
-    source_endpoint: u8,
 }
 
 #[repr(C)]
@@ -430,6 +429,9 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
 
     if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
         if !tuple_destination_is_zero(&tuple) {
+            if let Some(gate_flow_key) = attribution_gate_flow_key_from_tuple(&tuple) {
+                remove_flow_pid_by_key(&gate_flow_key);
+            }
             if let Some(canonical_flow) = flow_key_from_tuple(&tuple) {
                 remove_flow_pid_by_key(&canonical_flow.key);
             }
@@ -864,17 +866,12 @@ fn emit_event(
     old_state: i32,
     new_state: i32,
 ) {
-    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+    let Some(gate_flow_key) = attribution_gate_flow_key_from_tuple(&tuple) else {
         return;
     };
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = if close_event {
-        canonical_flow.key
-    } else {
-        attribution_gate_flow_key(&canonical_flow)
-    };
     let owner_record = current_pid_record(
         ctx,
         event_kind,
@@ -882,7 +879,7 @@ fn emit_event(
         now,
         old_state,
         new_state,
-        canonical_flow.source_endpoint,
+        FLOW_ENDPOINT_A,
     );
     if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
         return;
@@ -915,7 +912,7 @@ fn emit_event(
     // submitted until after the map updates finish.
     let record_ref = unsafe { &*record };
     if close_event {
-        remove_flow_pid_by_key(&canonical_flow.key);
+        remove_flow_pid_by_key(&gate_flow_key);
         remove_socket_pid_by_address(socket_address);
     } else {
         record_process_info(record_ref, now);
@@ -934,17 +931,12 @@ fn emit_event_with_cached_owner(
     old_state: i32,
     new_state: i32,
 ) {
-    let Some(canonical_flow) = flow_key_from_tuple(&tuple) else {
+    let Some(gate_flow_key) = attribution_gate_flow_key_from_tuple(&tuple) else {
         return;
     };
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let gate_flow_key = if close_event {
-        canonical_flow.key
-    } else {
-        attribution_gate_flow_key(&canonical_flow)
-    };
     let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
     let owner_from_cache = cached_owner.is_some();
     let owner_record = if let Some(owner) = cached_owner {
@@ -955,7 +947,7 @@ fn emit_event_with_cached_owner(
             now,
             old_state,
             new_state,
-            canonical_flow.source_endpoint,
+            FLOW_ENDPOINT_A,
         )
     } else if close_event {
         return;
@@ -967,7 +959,7 @@ fn emit_event_with_cached_owner(
             now,
             old_state,
             new_state,
-            canonical_flow.source_endpoint,
+            FLOW_ENDPOINT_A,
         )
     };
 
@@ -1006,7 +998,7 @@ fn emit_event_with_cached_owner(
     // submitted until after the map updates finish.
     let record_ref = unsafe { &*record };
     if close_event {
-        remove_flow_pid_by_key(&canonical_flow.key);
+        remove_flow_pid_by_key(&gate_flow_key);
         remove_socket_pid_by_address(socket_address);
     } else {
         record_process_info(record_ref, now);
@@ -1275,59 +1267,54 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
 }
 
 #[inline(always)]
-fn attribution_gate_flow_key(flow: &CanonicalFlowKey) -> FlowKey {
-    let mut key = flow.key;
-
-    if should_coalesce_udp_client_gate(flow) {
-        if flow.source_endpoint == FLOW_ENDPOINT_A {
-            key.endpoint_a_port = 0;
-        } else {
-            key.endpoint_b_port = 0;
-        }
-        return key;
+fn attribution_gate_flow_key_from_tuple(tuple: &FlowTuple) -> Option<FlowKey> {
+    if tuple.family != AF_INET && tuple.family != AF_INET6 {
+        return None;
+    }
+    if tuple.protocol != IPPROTO_TCP
+        && tuple.protocol != IPPROTO_UDP
+        && tuple.protocol != IPPROTO_ICMP
+        && tuple.protocol != IPPROTO_ICMPV6
+    {
+        return None;
     }
 
-    if should_coalesce_service_gate(flow) {
-        if flow.source_endpoint == FLOW_ENDPOINT_A {
-            key.endpoint_b_port = 0;
-            key.endpoint_b_addr = [0; 16];
-        } else {
-            key.endpoint_a_port = 0;
-            key.endpoint_a_addr = [0; 16];
-        }
+    let mut key = FlowKey {
+        address_family: tuple.family,
+        transport_protocol: tuple.protocol,
+        endpoint_a_port: tuple.source_port,
+        endpoint_b_port: tuple.destination_port,
+        endpoint_a_addr: tuple.source_addr,
+        endpoint_b_addr: tuple.destination_addr,
+    };
+
+    if should_coalesce_udp_client_directional(&key) {
+        key.endpoint_a_port = 0;
+        return Some(key);
     }
 
-    key
+    if should_coalesce_service_directional(&key) {
+        key.endpoint_b_port = 0;
+        key.endpoint_b_addr = [0; 16];
+    }
+
+    Some(key)
 }
 
 #[inline(always)]
-fn should_coalesce_udp_client_gate(flow: &CanonicalFlowKey) -> bool {
-    if flow.key.transport_protocol != IPPROTO_UDP {
-        return false;
-    }
-
-    let (local_port, peer_port) = if flow.source_endpoint == FLOW_ENDPOINT_A {
-        (flow.key.endpoint_a_port, flow.key.endpoint_b_port)
-    } else {
-        (flow.key.endpoint_b_port, flow.key.endpoint_a_port)
-    };
-
-    local_port >= EPHEMERAL_PORT_FLOOR && peer_port > 0 && peer_port < EPHEMERAL_PORT_FLOOR
+fn should_coalesce_udp_client_directional(flow: &FlowKey) -> bool {
+    flow.transport_protocol == IPPROTO_UDP
+        && flow.endpoint_a_port >= EPHEMERAL_PORT_FLOOR
+        && flow.endpoint_b_port > 0
+        && flow.endpoint_b_port < EPHEMERAL_PORT_FLOOR
 }
 
 #[inline(always)]
-fn should_coalesce_service_gate(flow: &CanonicalFlowKey) -> bool {
-    if flow.key.transport_protocol != IPPROTO_TCP && flow.key.transport_protocol != IPPROTO_UDP {
-        return false;
-    }
-
-    let (local_port, peer_port) = if flow.source_endpoint == FLOW_ENDPOINT_A {
-        (flow.key.endpoint_a_port, flow.key.endpoint_b_port)
-    } else {
-        (flow.key.endpoint_b_port, flow.key.endpoint_a_port)
-    };
-
-    local_port > 0 && local_port < EPHEMERAL_PORT_FLOOR && peer_port >= EPHEMERAL_PORT_FLOOR
+fn should_coalesce_service_directional(flow: &FlowKey) -> bool {
+    (flow.transport_protocol == IPPROTO_TCP || flow.transport_protocol == IPPROTO_UDP)
+        && flow.endpoint_a_port > 0
+        && flow.endpoint_a_port < EPHEMERAL_PORT_FLOOR
+        && flow.endpoint_b_port >= EPHEMERAL_PORT_FLOOR
 }
 
 // Flow accounting: counts packets per flow into flow_table so userspace can join
@@ -1874,7 +1861,7 @@ fn canonical_flow_key(
     // the 512-byte BPF stack limit; write_canonical_flow_key writes each field
     // in place exactly once.
     let mut key = core::mem::MaybeUninit::<FlowKey>::uninit();
-    let source_endpoint = write_canonical_flow_key(
+    let _ = write_canonical_flow_key(
         key.as_mut_ptr(),
         address_family,
         transport_protocol,
@@ -1887,7 +1874,6 @@ fn canonical_flow_key(
     // branches before returning.
     CanonicalFlowKey {
         key: unsafe { key.assume_init() },
-        source_endpoint,
     }
 }
 
