@@ -28,3 +28,7 @@ path = "src/lib.rs"
 [[bin]]
 name = "serviceradar-workload-identity-check"
 path = "src/bin/workload-identity-check.rs"
+
+[[bin]]
+name = "serviceradar-workload-identity"
+path = "src/bin/workload-identity.rs"

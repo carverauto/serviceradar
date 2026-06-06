@@ -132,6 +132,48 @@ config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
 
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 
+workload_identity_addon_artifacts =
+  case System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_ADDON_ARTIFACTS") do
+    json when is_binary(json) and json != "" ->
+      case Jason.decode(json) do
+        {:ok, %{} = map} -> map
+        _ -> %{}
+      end
+
+    _ ->
+      %{}
+  end
+
+workload_identity_addon_config = [artifacts: workload_identity_addon_artifacts]
+
+workload_identity_addon_config =
+  case System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_ADDON_VERSION") do
+    v when is_binary(v) and v != "" -> Keyword.put(workload_identity_addon_config, :version, v)
+    _ -> workload_identity_addon_config
+  end
+
+workload_identity_addon_config =
+  case System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_REF") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(workload_identity_addon_config, :source_oci_ref, v)
+
+    _ ->
+      workload_identity_addon_config
+  end
+
+workload_identity_addon_config =
+  case System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_DIGEST") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(workload_identity_addon_config, :source_oci_digest, v)
+
+    _ ->
+      workload_identity_addon_config
+  end
+
+config :serviceradar_core,
+       :workload_identity_native_addon_package,
+       workload_identity_addon_config
+
 config :serviceradar_core,
   # AshCloak encryption key (required for PII encryption)
   geolite_mmdb_dir: geolite_dir

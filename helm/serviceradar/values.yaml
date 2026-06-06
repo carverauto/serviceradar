@@ -735,6 +735,7 @@ webNg:
     syncIntervalSeconds: 3600
     addonIds:
       - netprobe
+      - workload-identity
     autoApproveAddonIds: []
   host: ""
   publicUrl: ""

@@ -33,6 +33,14 @@ rust_binary(
     deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
 )
 
+rust_binary(
+    name = "workload_identity_daemon",
+    srcs = ["src/bin/workload-identity.rs"],
+    crate_root = "src/bin/workload-identity.rs",
+    edition = "2021",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)
+
 rust_test(
     name = "workload_identity_test",
     srcs = ["src/lib.rs"],

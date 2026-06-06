@@ -9,9 +9,10 @@
 - [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
 - [x] 1a.1a Wire the initial opt-in Kubernetes CRI cache into netprobe startup and attach CRI workload identity to attributed flow/process payloads by container ID.
 - [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe consumes workload identity as an optional dependency instead of owning the collector.
-- [ ] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
+- [x] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
 - [ ] 1a.1d Add package-managed systemd ownership for ServiceRadar host add-ons: netprobe and workload-identity remain separate units, but share a ServiceRadar slice/target for lifecycle grouping, resource accounting, and status attribution instead of pretending they are child processes of `serviceradar-agent`.
 - [x] 1a.1e Put existing native host units (`serviceradar-agent`, netprobe, endpoint-inventory, and bumblebee-scan) in `serviceradar.slice` without adding `PartOf=`, `BindsTo=`, or `Requires=` coupling to `serviceradar-agent.service`.
+- [ ] 1a.1f Add workload-identity-to-agent forwarding so the standalone collector sends bounded identity observations through agent-gateway/core, where upstream coalesces current-state identity. Netprobe must not be required to consume workload-identity output for the data to reach storage/query/UI.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
@@ -58,6 +59,7 @@
 ## 7. Security and Operations
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
 - [x] 7.1a Add netprobe add-on/bootstrap configuration knobs for workload identity enablement, explicit CRI endpoint, and refresh interval.
+- [x] 7.1b Add a first-party workload-identity native add-on manifest, config schema, systemd unit, Helm release-import allowlist entry, native add-on bundle inventory entry, and staged package seeder so `/settings/agents/addons` can surface the capability independently of netprobe.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
 - [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.

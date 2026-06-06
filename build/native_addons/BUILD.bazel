@@ -65,12 +65,14 @@ sh_test(
         "$(rootpath //addons/sample-addon:addon.yaml)",
         "$(rootpath //addons/rust-sample-addon:addon.yaml)",
         "$(rootpath //addons/netprobe:addon.yaml)",
+        "$(rootpath //addons/workload-identity:addon.yaml)",
     ],
     data = [
         "runfile_path.sh",
         "//addons/netprobe:addon.yaml",
         "//addons/rust-sample-addon:addon.yaml",
         "//addons/sample-addon:addon.yaml",
+        "//addons/workload-identity:addon.yaml",
         "//go/tools/addon-manifest-validator",
     ],
 )

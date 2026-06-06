@@ -298,6 +298,7 @@ webNg:
     syncIntervalSeconds: 1800
     addonIds:
       - netprobe
+      - workload-identity
     autoApproveAddonIds:
       - netprobe
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
