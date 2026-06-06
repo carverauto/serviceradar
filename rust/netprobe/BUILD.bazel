@@ -14,8 +14,10 @@ NETPROBE_DEPS = crate_deps([
     "anyhow",
     "clap",
     "crossbeam-channel",
+    "cri-api",
     "env_logger",
     "etherparse",
+    "hyper-util",
     "libc",
     "log",
     "nix",
@@ -29,6 +31,8 @@ NETPROBE_DEPS = crate_deps([
     "sha2",
     "thiserror",
     "tokio",
+    "tonic",
+    "tower",
 ]) + select({
     "//build/platforms:target_linux_aarch64_musl": crate_deps([
         "aya",

@@ -1,10 +1,30 @@
 use std::{
+    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
+
+#[cfg(unix)]
+use anyhow::{Context, Result};
+#[cfg(unix)]
+use cri_api::v1::{
+    runtime_service_client::RuntimeServiceClient, Container, ContainerFilter,
+    ContainerStatusRequest, ContainerStatusResponse, ListContainersRequest,
+    PodSandboxStatusRequest, PodSandboxStatusResponse,
+};
+#[cfg(unix)]
+use hyper_util::rt::TokioIo;
+#[cfg(unix)]
+use serde_json::Value;
+#[cfg(unix)]
+use tokio::net::UnixStream;
+#[cfg(unix)]
+use tonic::transport::{Channel, Endpoint, Uri};
+#[cfg(unix)]
+use tower::service_fn;
 
 const COMMON_CRI_ENDPOINTS: &[&str] = &[
     "/run/k3s/containerd/containerd.sock",
@@ -35,11 +55,40 @@ impl RuntimeSource {
     }
 }
 
+impl Default for RuntimeSource {
+    fn default() -> Self {
+        Self::Containerd
+    }
+}
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct CgroupIdentity {
     pub pod_uid: Option<String>,
     pub container_id: Option<String>,
     pub runtime_source: Option<RuntimeSource>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct WorkloadIdentity {
+    pub pod_sandbox_id: Option<String>,
+    pub pod_name: Option<String>,
+    pub pod_namespace: Option<String>,
+    pub pod_uid: Option<String>,
+    pub container_id: Option<String>,
+    pub container_name: Option<String>,
+    pub image: Option<String>,
+    pub image_ref: Option<String>,
+    pub runtime_pid: Option<u32>,
+    pub cgroup_path: Option<String>,
+    pub labels: BTreeMap<String, String>,
+    pub annotations: BTreeMap<String, String>,
+    pub runtime_source: RuntimeSource,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CriContainerLookup {
+    pub container_id: String,
+    pub identity: WorkloadIdentity,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -53,6 +102,123 @@ pub enum CriEndpointSource {
 pub struct CriEndpoint {
     pub path: PathBuf,
     pub source: CriEndpointSource,
+}
+
+#[cfg(unix)]
+pub struct CriRuntimeClient {
+    client: RuntimeServiceClient<Channel>,
+    runtime_source: RuntimeSource,
+}
+
+#[cfg(unix)]
+impl CriRuntimeClient {
+    pub async fn connect(endpoint: &CriEndpoint) -> Result<Self> {
+        let socket_path = endpoint.path.clone();
+        let runtime_source = runtime_source_from_endpoint(&socket_path);
+        let channel = Endpoint::try_from("http://[::]")
+            .context("create CRI Unix-socket endpoint")?
+            .connect_with_connector(service_fn(move |_: Uri| {
+                let socket_path = socket_path.clone();
+
+                async move { UnixStream::connect(socket_path).await.map(TokioIo::new) }
+            }))
+            .await
+            .with_context(|| format!("connect to CRI socket {}", endpoint.path.display()))?;
+
+        Ok(Self {
+            client: RuntimeServiceClient::new(channel),
+            runtime_source,
+        })
+    }
+
+    pub async fn list_container_identities(&mut self) -> Result<Vec<CriContainerLookup>> {
+        let containers = self
+            .client
+            .list_containers(ListContainersRequest { filter: None })
+            .await
+            .context("list CRI containers")?
+            .into_inner()
+            .containers;
+
+        let mut identities = Vec::with_capacity(containers.len());
+
+        for container in containers {
+            if let Some(identity) = self.identity_for_container(container).await? {
+                let container_id = identity.container_id.clone().unwrap_or_default();
+                identities.push(CriContainerLookup {
+                    container_id,
+                    identity,
+                });
+            }
+        }
+
+        Ok(identities)
+    }
+
+    pub async fn container_identity(
+        &mut self,
+        container_id: &str,
+    ) -> Result<Option<WorkloadIdentity>> {
+        let containers = self
+            .client
+            .list_containers(ListContainersRequest {
+                filter: Some(ContainerFilter {
+                    id: container_id.to_string(),
+                    state: None,
+                    pod_sandbox_id: String::new(),
+                    label_selector: std::collections::HashMap::new(),
+                }),
+            })
+            .await
+            .with_context(|| format!("list CRI container {container_id}"))?
+            .into_inner()
+            .containers;
+
+        let Some(container) = containers.into_iter().next() else {
+            return Ok(None);
+        };
+
+        self.identity_for_container(container).await
+    }
+
+    async fn identity_for_container(
+        &mut self,
+        container: Container,
+    ) -> Result<Option<WorkloadIdentity>> {
+        let status = self
+            .client
+            .container_status(ContainerStatusRequest {
+                container_id: container.id.clone(),
+                verbose: true,
+            })
+            .await
+            .with_context(|| format!("read CRI container status {}", container.id))?
+            .into_inner();
+
+        let sandbox = if container.pod_sandbox_id.is_empty() {
+            None
+        } else {
+            Some(
+                self.client
+                    .pod_sandbox_status(PodSandboxStatusRequest {
+                        pod_sandbox_id: container.pod_sandbox_id.clone(),
+                        verbose: true,
+                    })
+                    .await
+                    .with_context(|| {
+                        format!("read CRI pod sandbox status {}", container.pod_sandbox_id)
+                    })?
+                    .into_inner(),
+            )
+        };
+
+        Ok(identity_from_cri(
+            &container,
+            &status,
+            sandbox.as_ref(),
+            self.runtime_source.clone(),
+        ))
+    }
 }
 
 pub fn parse_cgroup_identity(cgroup_payload: &str) -> CgroupIdentity {
@@ -260,6 +426,175 @@ fn rooted_path(root: &Path, path: &Path) -> PathBuf {
     }
 }
 
+fn runtime_source_from_endpoint(path: &Path) -> RuntimeSource {
+    let path = path.to_string_lossy();
+
+    if path.contains("crio") {
+        RuntimeSource::Crio
+    } else if path.contains("docker") {
+        RuntimeSource::Docker
+    } else {
+        RuntimeSource::Containerd
+    }
+}
+
+#[cfg(unix)]
+fn identity_from_cri(
+    container: &Container,
+    container_status: &ContainerStatusResponse,
+    sandbox_status: Option<&PodSandboxStatusResponse>,
+    runtime_source: RuntimeSource,
+) -> Option<WorkloadIdentity> {
+    let status = container_status.status.as_ref();
+    let sandbox = sandbox_status.and_then(|response| response.status.as_ref());
+    let container_metadata = status
+        .and_then(|status| status.metadata.as_ref())
+        .or(container.metadata.as_ref());
+    let container_image = status
+        .and_then(|status| status.image.as_ref())
+        .or(container.image.as_ref());
+    let sandbox_metadata = sandbox.and_then(|sandbox| sandbox.metadata.as_ref());
+
+    Some(WorkloadIdentity {
+        pod_sandbox_id: (!container.pod_sandbox_id.is_empty())
+            .then(|| container.pod_sandbox_id.clone()),
+        pod_name: sandbox_metadata.and_then(|metadata| non_empty_string(&metadata.name)),
+        pod_namespace: sandbox_metadata.and_then(|metadata| non_empty_string(&metadata.namespace)),
+        pod_uid: sandbox_metadata.and_then(|metadata| non_empty_string(&metadata.uid)),
+        container_id: non_empty_string(&container.id),
+        container_name: container_metadata.and_then(|metadata| non_empty_string(&metadata.name)),
+        image: container_image.and_then(|image| non_empty_string(&image.image)),
+        image_ref: status
+            .and_then(|status| non_empty_string(&status.image_ref))
+            .or_else(|| non_empty_string(&container.image_ref)),
+        runtime_pid: runtime_pid_from_info(&container_status.info),
+        cgroup_path: cgroup_path_from_info(&container_status.info)
+            .or_else(|| sandbox_status.and_then(|status| cgroup_path_from_info(&status.info))),
+        labels: merge_maps(
+            sandbox.map(|sandbox| &sandbox.labels),
+            status
+                .map(|status| &status.labels)
+                .or(Some(&container.labels)),
+        ),
+        annotations: merge_maps(
+            sandbox.map(|sandbox| &sandbox.annotations),
+            status
+                .map(|status| &status.annotations)
+                .or(Some(&container.annotations)),
+        ),
+        runtime_source,
+    })
+}
+
+fn non_empty_string(value: &str) -> Option<String> {
+    (!value.is_empty()).then(|| value.to_string())
+}
+
+#[cfg(unix)]
+fn merge_maps(
+    first: Option<&std::collections::HashMap<String, String>>,
+    second: Option<&std::collections::HashMap<String, String>>,
+) -> BTreeMap<String, String> {
+    let mut merged = BTreeMap::new();
+
+    if let Some(values) = first {
+        merged.extend(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+    }
+
+    if let Some(values) = second {
+        merged.extend(
+            values
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+    }
+
+    merged
+}
+
+#[cfg(unix)]
+fn runtime_pid_from_info(info: &std::collections::HashMap<String, String>) -> Option<u32> {
+    find_json_u64(info, &["pid", "Pid"]).and_then(|pid| u32::try_from(pid).ok())
+}
+
+#[cfg(unix)]
+fn cgroup_path_from_info(info: &std::collections::HashMap<String, String>) -> Option<String> {
+    find_json_string(
+        info,
+        &[
+            "cgroupsPath",
+            "cgroups_path",
+            "cgroupPath",
+            "cgroup_path",
+            "cgroup",
+        ],
+    )
+}
+
+#[cfg(unix)]
+fn find_json_u64(info: &std::collections::HashMap<String, String>, keys: &[&str]) -> Option<u64> {
+    info.values()
+        .filter_map(|value| serde_json::from_str::<Value>(value).ok())
+        .find_map(|value| find_u64_in_json(&value, keys))
+}
+
+#[cfg(unix)]
+fn find_json_string(
+    info: &std::collections::HashMap<String, String>,
+    keys: &[&str],
+) -> Option<String> {
+    info.values()
+        .filter_map(|value| serde_json::from_str::<Value>(value).ok())
+        .find_map(|value| find_string_in_json(&value, keys))
+}
+
+#[cfg(unix)]
+fn find_u64_in_json(value: &Value, keys: &[&str]) -> Option<u64> {
+    match value {
+        Value::Object(map) => {
+            for key in keys {
+                if let Some(value) = map.get(*key).and_then(Value::as_u64) {
+                    return Some(value);
+                }
+            }
+
+            map.values().find_map(|value| find_u64_in_json(value, keys))
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| find_u64_in_json(value, keys)),
+        _ => None,
+    }
+}
+
+#[cfg(unix)]
+fn find_string_in_json(value: &Value, keys: &[&str]) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            for key in keys {
+                if let Some(value) = map
+                    .get(*key)
+                    .and_then(Value::as_str)
+                    .filter(|value| !value.is_empty())
+                {
+                    return Some(value.to_string());
+                }
+            }
+
+            map.values()
+                .find_map(|value| find_string_in_json(value, keys))
+        }
+        Value::Array(values) => values
+            .iter()
+            .find_map(|value| find_string_in_json(value, keys)),
+        _ => None,
+    }
+}
+
 #[cfg(unix)]
 fn is_socket(path: &Path) -> bool {
     fs::metadata(path)
@@ -276,6 +611,12 @@ fn is_socket(path: &Path) -> bool {
 mod tests {
     use super::*;
     use std::{fs, os::unix::net::UnixListener};
+
+    #[cfg(unix)]
+    use cri_api::v1::{
+        Container, ContainerMetadata, ContainerStatus, ContainerStatusResponse, ImageSpec,
+        PodSandboxMetadata, PodSandboxStatus, PodSandboxStatusResponse,
+    };
 
     #[test]
     fn parses_k3s_systemd_cgroup_identity() {
@@ -377,5 +718,137 @@ mod tests {
             PathBuf::from("/run/k3s/containerd/containerd.sock")
         );
         assert_eq!(endpoint.source, CriEndpointSource::CommonPath);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn maps_cri_container_and_sandbox_status_to_workload_identity() {
+        let container = Container {
+            id: "container-1".to_string(),
+            pod_sandbox_id: "sandbox-1".to_string(),
+            metadata: Some(ContainerMetadata {
+                name: "redis".to_string(),
+                attempt: 0,
+            }),
+            image: Some(ImageSpec {
+                image: "redis:7".to_string(),
+                annotations: Default::default(),
+            }),
+            image_ref: "docker.io/library/redis@sha256:abc".to_string(),
+            state: 0,
+            created_at: 1,
+            labels: [("container-label".to_string(), "value".to_string())].into(),
+            annotations: Default::default(),
+        };
+        let mut container_info = std::collections::HashMap::new();
+        container_info.insert(
+            "info".to_string(),
+            r#"{"pid":1234,"runtimeSpec":{"linux":{"cgroupsPath":"kubepods.slice/podabc/cri-containerd-container-1.scope"}}}"#
+                .to_string(),
+        );
+        let container_status = ContainerStatusResponse {
+            status: Some(ContainerStatus {
+                id: "container-1".to_string(),
+                metadata: Some(ContainerMetadata {
+                    name: "redis".to_string(),
+                    attempt: 0,
+                }),
+                state: 0,
+                created_at: 1,
+                started_at: 2,
+                finished_at: 0,
+                exit_code: 0,
+                image: Some(ImageSpec {
+                    image: "redis:7".to_string(),
+                    annotations: Default::default(),
+                }),
+                image_ref: "docker.io/library/redis@sha256:abc".to_string(),
+                reason: String::new(),
+                message: String::new(),
+                labels: [("app".to_string(), "redis".to_string())].into(),
+                annotations: [("annotation".to_string(), "safe".to_string())].into(),
+                mounts: Vec::new(),
+                log_path: String::new(),
+                resources: None,
+            }),
+            info: container_info,
+        };
+        let sandbox_status = PodSandboxStatusResponse {
+            status: Some(PodSandboxStatus {
+                id: "sandbox-1".to_string(),
+                metadata: Some(PodSandboxMetadata {
+                    name: "redis-0".to_string(),
+                    uid: "57e67067-89e4-4001-bdd4-8632d39ea02b".to_string(),
+                    namespace: "demo".to_string(),
+                    attempt: 0,
+                }),
+                state: 0,
+                created_at: 1,
+                network: None,
+                linux: None,
+                labels: [("pod-label".to_string(), "value".to_string())].into(),
+                annotations: Default::default(),
+                runtime_handler: String::new(),
+            }),
+            info: Default::default(),
+        };
+
+        let identity = identity_from_cri(
+            &container,
+            &container_status,
+            Some(&sandbox_status),
+            RuntimeSource::Containerd,
+        )
+        .unwrap();
+
+        assert_eq!(identity.pod_sandbox_id.as_deref(), Some("sandbox-1"));
+        assert_eq!(identity.pod_namespace.as_deref(), Some("demo"));
+        assert_eq!(identity.pod_name.as_deref(), Some("redis-0"));
+        assert_eq!(
+            identity.pod_uid.as_deref(),
+            Some("57e67067-89e4-4001-bdd4-8632d39ea02b")
+        );
+        assert_eq!(identity.container_id.as_deref(), Some("container-1"));
+        assert_eq!(identity.container_name.as_deref(), Some("redis"));
+        assert_eq!(identity.image.as_deref(), Some("redis:7"));
+        assert_eq!(
+            identity.image_ref.as_deref(),
+            Some("docker.io/library/redis@sha256:abc")
+        );
+        assert_eq!(identity.runtime_pid, Some(1234));
+        assert_eq!(
+            identity.cgroup_path.as_deref(),
+            Some("kubepods.slice/podabc/cri-containerd-container-1.scope")
+        );
+        assert_eq!(
+            identity.labels.get("pod-label").map(String::as_str),
+            Some("value")
+        );
+        assert_eq!(
+            identity.labels.get("app").map(String::as_str),
+            Some("redis")
+        );
+        assert_eq!(
+            identity.annotations.get("annotation").map(String::as_str),
+            Some("safe")
+        );
+        assert_eq!(identity.runtime_source, RuntimeSource::Containerd);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extracts_runtime_info_from_nested_json_values() {
+        let mut info = std::collections::HashMap::new();
+        info.insert(
+            "runtime".to_string(),
+            r#"{"runtimeSpec":{"linux":{"cgroupsPath":"/kubepods.slice/pod.scope"}},"status":{"Pid":4321}}"#
+                .to_string(),
+        );
+
+        assert_eq!(runtime_pid_from_info(&info), Some(4321));
+        assert_eq!(
+            cgroup_path_from_info(&info).as_deref(),
+            Some("/kubepods.slice/pod.scope")
+        );
     }
 }
