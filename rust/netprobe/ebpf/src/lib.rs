@@ -430,7 +430,9 @@ pub fn tcp_close(ctx: ProbeContext) -> u32 {
 
     if let Some(tuple) = socket_tuple(sock, IPPROTO_TCP, true) {
         if !tuple_destination_is_zero(&tuple) {
-            emit_event_with_cached_owner(&ctx, EVENT_TCP_CLOSE, sock, tuple, 0, 0);
+            if let Some(canonical_flow) = flow_key_from_tuple(&tuple) {
+                remove_flow_pid_by_key(&canonical_flow.key);
+            }
         }
     }
     remove_socket_pid_by_address(sock as u64);
