@@ -6,7 +6,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
   use Oban.Worker,
     queue: :web_maintenance,
     max_attempts: 3,
-    unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
+    unique: [period: :infinity, states: [:available, :scheduled, :retryable]]
 
   import Ecto.Query, only: [from: 2]
 
@@ -47,6 +47,9 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     |> new()
     |> ObanSupport.safe_insert()
   end
+
+  @impl Oban.Worker
+  def timeout(_job), do: to_timeout(minute: 10)
 
   @impl Oban.Worker
   def perform(%Oban.Job{args: args}) do
@@ -126,7 +129,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     query =
       from(j in Oban.Job,
         where: j.worker == ^to_string(__MODULE__),
-        where: j.state in ["available", "scheduled", "executing", "retryable"],
+        where: j.state in ["available", "scheduled", "retryable"],
         limit: 1
       )
 

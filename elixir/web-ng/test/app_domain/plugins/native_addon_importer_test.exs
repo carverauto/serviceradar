@@ -203,6 +203,14 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert is_map(package.artifacts["linux/amd64"])
   end
 
+  test "sync worker does not let an executing job permanently block future syncs" do
+    changes = NativeAddonSyncWorker.new(%{}).changes
+
+    assert changes.unique.states == [:available, :scheduled, :retryable]
+    refute :executing in changes.unique.states
+    assert NativeAddonSyncWorker.timeout(%Oban.Job{}) == to_timeout(minute: 10)
+  end
+
   test "rejects a tarball signed with a key other than the release key" do
     {_pub, wrong_private_key} = :crypto.generate_key(:eddsa, :ed25519)
     install_fixtures(wrong_private_key)
