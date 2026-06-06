@@ -43,7 +43,7 @@
 - [x] 7.7 Replace recurring `process_snapshot` procfs listener discovery with a user-space cache fed by lifecycle events; keep procfs only for bounded cold-path metadata enrichment
 - [x] 7.8 Add unit/integration coverage proving snapshot emission does not call the procfs listener walker in steady state
 - [ ] 7.9 Add bounded queue/drop/lag counters for eBPF ring reads, netprobe IPC delivery, agent sidecar buffers, and gateway push batches
-- [ ] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
+- [x] 7.10 Add local IPC batching/coalescing for bursty attribution delivery so a slow agent reader drains multiple events per wakeup without unbounded memory growth
 - [ ] 7.11 Add protocol-aware OCSF correlation coverage for TCP, UDP, ICMP, ICMPv6, pod-local, and node-SNAT cases
 - [x] 7.11a Wire `EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED` into core runtime config and enable it in demo so `flow.host-slice.>` records can reach the in-memory attribution joiner.
 - [x] 7.11b Fix `flow-collector` host-slice fanout to publish `Flowpb.AttributedFlowMessage` payloads instead of raw `FlowMessage` bytes, matching `HostSliceSubscriber` and `AttributedFlowJoiner` expectations.
