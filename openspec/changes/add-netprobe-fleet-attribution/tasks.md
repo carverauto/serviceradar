@@ -25,7 +25,8 @@
 - [x] 5.2c Supersede manual `core.netprobeAddon` values-demo population with web-ng native add-on sync; published `serviceradar-native-addon-index.json` entries are now discovered/imported from releases instead of copied into Helm values.
 - [x] 5.2d Wire an auto-importer (the importer existed but was never invoked) so artifact refs track each release with no manual values step; demo enables sync + auto-approval for the verified first-party `netprobe` add-on only.
 - [ ] 5.2e Fix add-on artifact download drift observed on demo workers: some assigned agents report gateway download `404` or certificate verification failures while leaving the current systemd netprobe unchanged. Validate that a new release exposes a current approved package, agents download it without `403`/`404`/TLS errors, and the UI assignment path succeeds end to end.
-- [x] 5.2f Bump netprobe to `0.2.4` after post-`0.2.3` performance changes so the native add-on publish/import path produces a distinct package instead of reusing the older approved `0.2.3` artifact.
+- [x] 5.2f Bump netprobe to `0.2.5` after post-`0.2.3` performance changes so the native add-on publish/import path produces a distinct package instead of reusing the older approved `0.2.3` artifact.
+- [x] 5.2g Add a PR CI guard that fails when netprobe native add-on payload changes without a manifest version bump, and fails when `addon.yaml`, `Cargo.toml`, and Bazel `NETPROBE_VERSION` drift apart.
 
 ## 6. Verification
 - [ ] 6.1 On a release, confirm the add-ons UI shows the new netprobe version + updated schema
@@ -67,7 +68,7 @@
 - [ ] 7.25 Replace raw `FlowAttributionEventBatch` as the steady-state telemetry feed with a bounded agent-up local network/process observation stream. Core must persist forensic observations even when no NetFlow exists, then correlate with NetFlow/IPFIX when available; netprobe CPU must be fixed by profiling/eBPF/coalescing hot paths, not by requiring a NetFlow down-to-agent replay loop.
 - [x] 7.25a Remove the experimental NATS self-subscribe/control-stream external-flow replay path from this branch so the architecture stays agent-up plus core-side correlation.
 - [x] 7.25b Fix the k8s-cp3-worker3 netprobe hot path where procfs metadata refresh scanned every cached flow for each process update. Maintain a process-key attribution index and prune/cache-cap live attribution entries independent of resend; live canary improved from 8.15% CPU / ~1.3 GiB RSS to 0.40% CPU / <50 MiB RSS in the first post-restart sample.
-- [ ] 7.26 Publish/import netprobe `0.2.4` and restart assigned agents so CPU validation runs against the build containing the event-driven snapshot/resend changes; current demo/test workers still show `0.2.3` executables, some marked `(deleted)`, so their `pidstat` samples do not prove the branch-level fix.
+- [ ] 7.26 Publish/import netprobe `0.2.5` and restart assigned agents so CPU validation runs against the build containing the event-driven snapshot/resend changes; current demo/test workers were manually canaried with the branch binary, but the release/import/UI assignment path still needs to prove the same artifact is delivered without `403`/`404`/TLS failures.
 
 ## 8. Demo/CNPG scale guardrails
 - [ ] 8.1 Investigate demo namespace Postgrex/CNPG timeouts observed during netprobe fleet rollout, including `TopologyStateCleanupWorker` 60s queue/check-out timeouts, `ssl recv: closed`, canonical edge telemetry refresh failures, and whether the triggering load is pool starvation, slow topology cleanup, flow/OCSF write amplification, retention debt, or continuous aggregate refresh lag.
