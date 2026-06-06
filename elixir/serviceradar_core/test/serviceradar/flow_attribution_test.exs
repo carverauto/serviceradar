@@ -18,6 +18,11 @@ defmodule ServiceRadar.FlowAttributionTest do
 
     on_exit(fn ->
       query!("DELETE FROM platform.ocsf_network_activity WHERE partition = $1", [partition])
+
+      query!("DELETE FROM platform.flow_process_attribution_current WHERE partition = $1", [
+        partition
+      ])
+
       query!("DELETE FROM platform.flow_process_attributions WHERE partition = $1", [partition])
       query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
     end)
@@ -85,11 +90,53 @@ defmodule ServiceRadar.FlowAttributionTest do
 
     %{rows: [[count]]} =
       query!(
-        "SELECT count(*) FROM platform.flow_process_attributions WHERE partition = $1",
+        "SELECT count(*) FROM platform.flow_process_attribution_current WHERE partition = $1",
         [partition]
       )
 
     assert count == 1
+  end
+
+  test "upserts duplicate attribution observations into current state", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    event = %Netprobepb.FlowAttributionEvent{
+      transport_protocol: "tcp",
+      local_ip: "10.42.221.147",
+      local_port: 6379,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 63_790,
+      uid: 1000,
+      comm: "redis-server",
+      redacted_cmdline: ["redis-server", "*:6379"],
+      observed_at_unix_nano: DateTime.to_unix(now, :nanosecond)
+    }
+
+    later = %{
+      event
+      | redacted_cmdline: ["redis-server", "--protected-mode", "yes"],
+        observed_at_unix_nano: now |> DateTime.add(5, :second) |> DateTime.to_unix(:nanosecond)
+    }
+
+    FlowAttribution.persist([event, later], partition, agent_id)
+
+    %{rows: [[count, observed_at, cmdline]]} =
+      query!(
+        """
+        SELECT count(*), max(observed_at), max(cmdline)
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1
+        """,
+        [partition]
+      )
+
+    assert count == 1
+    assert DateTime.compare(observed_at, DateTime.add(now, 5, :second)) in [:eq, :gt]
+    assert cmdline == "redis-server --protected-mode yes"
   end
 
   test "correlates pod-local attribution to node-SNATed NetFlow", %{
@@ -516,9 +563,10 @@ defmodule ServiceRadar.FlowAttributionTest do
   defp seed_attribution(params) do
     query!(
       """
-      INSERT INTO platform.flow_process_attributions (
+      INSERT INTO platform.flow_process_attribution_current (
         observed_at,
         partition,
+        attribution_key,
         agent_id,
         proto,
         local_ip,
@@ -532,11 +580,12 @@ defmodule ServiceRadar.FlowAttributionTest do
         container_id,
         workload_identity
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL, ($11::text)::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'curl https://example.com', 1000, NULL, ($12::text)::jsonb)
       """,
       [
         params.observed_at,
         params.partition,
+        attribution_key(params),
         params.agent_id,
         Map.get(params, :proto, 6),
         params.local_ip,
@@ -549,6 +598,27 @@ defmodule ServiceRadar.FlowAttributionTest do
       ]
     )
   end
+
+  defp attribution_key(params) do
+    [
+      params.agent_id,
+      Map.get(params, :proto, 6),
+      params.local_ip,
+      params.local_port,
+      params.remote_ip,
+      params.remote_port,
+      params.pid,
+      Map.get(params, :uid, 1000),
+      Map.get(params, :container_id),
+      params.comm
+    ]
+    |> Enum.map_join(<<31>>, &key_part/1)
+    |> then(&:crypto.hash(:md5, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp key_part(nil), do: ""
+  defp key_part(value), do: to_string(value)
 
   defp json_param(nil), do: nil
   defp json_param(value), do: Jason.encode!(value)

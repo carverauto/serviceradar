@@ -4,8 +4,8 @@ defmodule ServiceRadar.FlowAttribution do
   and correlates them against collected NetFlow/sFlow in `ocsf_network_activity`.
 
   NetFlow remains the authoritative flow source — netprobe only supplies the WHO.
-  `persist/3` writes each pushed `FlowAttributionEvent` to `flow_process_attributions`;
-  `correlate/0` joins recent attributions against recent NetFlow (either direction)
+  `persist/3` upserts pushed `FlowAttributionEvent` rows into the current-state
+  attribution table; `correlate/0` joins recent attributions against recent NetFlow (either direction)
   and stamps matching flows with `event_type=attributed_flow` + the process context,
   which the web UI (`/observability/flows/attributed`) reads.
   """
@@ -15,11 +15,76 @@ defmodule ServiceRadar.FlowAttribution do
   require Logger
 
   @schema "platform"
-  @table "flow_process_attributions"
+  @table "flow_process_attribution_current"
+  @legacy_table "flow_process_attributions"
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
   @default_retention_minutes 60
   @minimum_retention_minutes div(@correlation_skew_seconds + 59, 60)
+
+  @upsert_sql """
+  INSERT INTO #{@schema}.#{@table} (
+    observed_at,
+    inserted_at,
+    updated_at,
+    partition,
+    attribution_key,
+    agent_id,
+    proto,
+    local_ip,
+    local_port,
+    remote_ip,
+    remote_port,
+    pid,
+    comm,
+    cmdline,
+    uid,
+    container_id,
+    workload_identity
+  )
+  SELECT
+    r.observed_at::timestamptz,
+    now(),
+    now(),
+    r.partition,
+    r.attribution_key,
+    r.agent_id,
+    r.proto,
+    r.local_ip,
+    r.local_port,
+    r.remote_ip,
+    r.remote_port,
+    r.pid,
+    r.comm,
+    r.cmdline,
+    r.uid,
+    r.container_id,
+    r.workload_identity
+  FROM jsonb_to_recordset(($1::text)::jsonb) AS r(
+    observed_at text,
+    partition text,
+    attribution_key text,
+    agent_id text,
+    proto integer,
+    local_ip text,
+    local_port integer,
+    remote_ip text,
+    remote_port integer,
+    pid integer,
+    comm text,
+    cmdline text,
+    uid integer,
+    container_id text,
+    workload_identity jsonb
+  )
+  ON CONFLICT (partition, attribution_key) DO UPDATE SET
+    observed_at = GREATEST(#{@table}.observed_at, EXCLUDED.observed_at),
+    updated_at = now(),
+    cmdline = COALESCE(EXCLUDED.cmdline, #{@table}.cmdline),
+    uid = COALESCE(EXCLUDED.uid, #{@table}.uid),
+    container_id = COALESCE(EXCLUDED.container_id, #{@table}.container_id),
+    workload_identity = COALESCE(EXCLUDED.workload_identity, #{@table}.workload_identity)
+  """
 
   @doc "Persist a batch of pushed attribution events."
   @spec persist([FlowAttributionEvent.t()], String.t() | nil, String.t() | nil) :: :ok
@@ -30,7 +95,7 @@ defmodule ServiceRadar.FlowAttribution do
       |> Enum.reject(&is_nil/1)
 
     if rows != [] do
-      ServiceRadar.Repo.insert_all(@table, rows, prefix: @schema)
+      insert_current_rows(rows)
     end
 
     :ok
@@ -46,7 +111,7 @@ defmodule ServiceRadar.FlowAttribution do
     with proto when is_integer(proto) <- transport_to_proto(event.transport_protocol),
          true <- is_binary(event.local_ip) and event.local_ip != "",
          true <- is_binary(event.remote_ip) and event.remote_ip != "" do
-      %{
+      put_attribution_key(%{
         observed_at: observed_at(event),
         partition: partition_id || "default",
         agent_id: agent_id,
@@ -61,13 +126,40 @@ defmodule ServiceRadar.FlowAttribution do
         uid: zero_to_nil(event.uid),
         container_id: blank_to_nil(event.container_id),
         workload_identity: workload_identity_to_map(event.workload_identity)
-      }
+      })
     else
       _ -> nil
     end
   end
 
   defp row_from_event(_event, _partition_id, _agent_id), do: nil
+
+  defp insert_current_rows(rows) do
+    rows =
+      rows
+      |> dedupe_current_rows()
+      |> Enum.map(fn row ->
+        Map.update!(row, :observed_at, &DateTime.to_iso8601/1)
+      end)
+
+    ServiceRadar.Repo.query!(@upsert_sql, [Jason.encode!(rows)])
+  end
+
+  defp dedupe_current_rows(rows) do
+    rows
+    |> Enum.reduce(%{}, fn row, acc ->
+      key = {Map.fetch!(row, :partition), Map.fetch!(row, :attribution_key)}
+
+      Map.update(acc, key, row, fn current ->
+        if DateTime.after?(Map.fetch!(row, :observed_at), Map.fetch!(current, :observed_at)) do
+          row
+        else
+          current
+        end
+      end)
+    end)
+    |> Map.values()
+  end
 
   @doc """
   Correlate recent attributions with recent NetFlow and stamp matches as
@@ -445,12 +537,23 @@ defmodule ServiceRadar.FlowAttribution do
   @spec prune() :: {:ok, non_neg_integer()} | {:error, term()}
   def prune do
     sql = """
-    DELETE FROM #{@schema}.#{@table}
-    WHERE observed_at < now() - ($1::integer * interval '1 minute')
+    WITH deleted_current AS (
+      DELETE FROM #{@schema}.#{@table}
+      WHERE observed_at < now() - ($1::integer * interval '1 minute')
+      RETURNING 1
+    ),
+    deleted_legacy AS (
+      DELETE FROM #{@schema}.#{@legacy_table}
+      WHERE observed_at < now() - ($1::integer * interval '1 minute')
+      RETURNING 1
+    )
+    SELECT
+      (SELECT count(*) FROM deleted_current) +
+      (SELECT count(*) FROM deleted_legacy) AS deleted_count
     """
 
     case ServiceRadar.Repo.query(sql, [retention_minutes()]) do
-      {:ok, %{num_rows: num_rows}} -> {:ok, num_rows}
+      {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -522,6 +625,33 @@ defmodule ServiceRadar.FlowAttribution do
   defp empty_map_to_nil(value) when value == %{}, do: nil
   defp empty_map_to_nil(value) when is_map(value), do: value
   defp empty_map_to_nil(_value), do: nil
+
+  defp put_attribution_key(row) do
+    key_parts = [
+      Map.get(row, :agent_id),
+      Map.fetch!(row, :proto),
+      Map.fetch!(row, :local_ip),
+      Map.fetch!(row, :local_port),
+      Map.fetch!(row, :remote_ip),
+      Map.fetch!(row, :remote_port),
+      Map.get(row, :pid),
+      Map.get(row, :uid),
+      Map.get(row, :container_id),
+      Map.get(row, :comm)
+    ]
+
+    Map.put(row, :attribution_key, attribution_key(key_parts))
+  end
+
+  defp attribution_key(parts) do
+    parts
+    |> Enum.map_join(<<31>>, &key_part/1)
+    |> then(&:crypto.hash(:md5, &1))
+    |> Base.encode16(case: :lower)
+  end
+
+  defp key_part(nil), do: ""
+  defp key_part(value), do: to_string(value)
 
   # IANA protocol numbers (mirrors AttributedFlowJoiner.transport_to_proto).
   defp transport_to_proto(transport) when is_binary(transport) do
