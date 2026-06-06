@@ -23,6 +23,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert FlowEnrichment.service_label(17, 53) == "DNS"
       assert FlowEnrichment.service_label(17, 6343) == "sFlow"
     end
+
+    test "maps fallback labels from the bundled services registry" do
+      assert FlowEnrichment.service_label(6, 4369) == "EPMD"
+    end
   end
 
   describe "direction_label/2" do

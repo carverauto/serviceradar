@@ -172,6 +172,54 @@ defmodule ServiceRadar.FlowAttribution do
             a.uid,
             a.container_id,
             a.workload_identity,
+            1 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM #{@schema}.#{@table} AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.remote_port = 0
+            AND a.remote_ip IN ('0.0.0.0', '::')
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.src_endpoint_ip
+            AND a.local_port = f.src_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            a.workload_identity,
+            1 AS match_rank,
+            abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
+            a.observed_at
+          FROM #{@schema}.#{@table} AS a
+          WHERE a.partition = f.partition
+            AND a.proto = f.protocol_num
+            AND a.proto NOT IN (1, 58)
+            AND a.remote_port = 0
+            AND a.remote_ip IN ('0.0.0.0', '::')
+            AND a.observed_at BETWEEN f.time - interval '#{@correlation_skew_seconds} seconds'
+                                  AND f.time + interval '#{@correlation_skew_seconds} seconds'
+            AND a.local_ip = f.dst_endpoint_ip
+            AND a.local_port = f.dst_endpoint_port
+
+          UNION ALL
+
+          SELECT
+            a.agent_id,
+            a.pid,
+            a.comm,
+            a.cmdline,
+            a.uid,
+            a.container_id,
+            a.workload_identity,
             0 AS match_rank,
             abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds,
             a.observed_at

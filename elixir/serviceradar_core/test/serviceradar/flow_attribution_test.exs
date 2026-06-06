@@ -213,6 +213,90 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert payload["attribution"]["comm"] == "redis-server"
   end
 
+  test "correlates wildcard service attribution for server-side fan-in", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      proto: 17,
+      protocol_name: "udp",
+      src_ip: "10.42.221.147",
+      src_port: 53,
+      dst_ip: "10.42.199.32",
+      dst_port: 57_216
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      proto: 17,
+      local_ip: "10.42.221.147",
+      local_port: 53,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 55_053,
+      comm: "coredns"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["event_type"] == "attributed_flow"
+    assert payload["attribution"]["pid"] == 55_053
+    assert payload["attribution"]["comm"] == "coredns"
+  end
+
+  test "keeps exact attribution ahead of wildcard service attribution", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      src_ip: "10.42.221.147",
+      src_port: 6379,
+      dst_ip: "10.42.199.32",
+      dst_port: 57_216
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.42.221.147",
+      local_port: 6379,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 63_790,
+      comm: "wildcard-redis"
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -5, :second),
+      local_ip: "10.42.221.147",
+      local_port: 6379,
+      remote_ip: "10.42.199.32",
+      remote_port: 57_216,
+      pid: 63_791,
+      comm: "exact-redis"
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["attribution"]["pid"] == 63_791
+    assert payload["attribution"]["comm"] == "exact-redis"
+  end
+
   test "carries workload identity into attributed flow payload", %{
     partition: partition,
     agent_id: agent_id

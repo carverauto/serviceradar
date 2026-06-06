@@ -1,0 +1,31 @@
+defmodule ServiceRadar.ReferenceData.ServicePortsTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.ReferenceData.ServicePorts
+
+  describe "label/2" do
+    test "preserves ServiceRadar display labels for common ports" do
+      assert ServicePorts.label(6, 443) == "HTTPS"
+      assert ServicePorts.label(6, 4222) == "NATS"
+      assert ServicePorts.label(17, 6343) == "sFlow"
+    end
+
+    test "falls back to bundled services registry labels" do
+      assert ServicePorts.label(6, 4369) == "EPMD"
+      assert ServicePorts.label(17, 4369) == "EPMD"
+    end
+
+    test "returns nil for unsupported protocols and unregistered ports" do
+      refute ServicePorts.label(1, 8)
+      refute ServicePorts.label(6, 32_760)
+    end
+  end
+
+  describe "registered?/2" do
+    test "reports whether a TCP or UDP port is registered" do
+      assert ServicePorts.registered?(6, 443)
+      assert ServicePorts.registered?(17, 53)
+      refute ServicePorts.registered?(6, 32_760)
+    end
+  end
+end

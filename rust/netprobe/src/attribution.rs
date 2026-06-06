@@ -92,7 +92,6 @@ const TCP_LISTEN_STATE: i32 = 10;
 // replaying every kernel refresh. This is deliberately shorter than the core
 // correlation skew (15 minutes today) and longer than the eBPF 60s refresh.
 const FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
-
 #[cfg(target_os = "linux")]
 type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 #[cfg(target_os = "linux")]
@@ -362,42 +361,52 @@ impl SocketInventory {
     }
 
     fn remove_record(&mut self, record: &FlowAttributionRecord) {
-        let Some(flow) = flow_key_from_record(record) else {
+        if !should_remove_inventory(record) {
+            return;
+        }
+
+        let Some(key) = SocketInventoryKey::from_record(record, None) else {
             return;
         };
-        let key = SocketInventoryKey {
-            address_family: flow.address_family,
-            transport_protocol: flow.transport_protocol,
-            local_addr: flow.endpoint_a_addr,
-            local_port: flow.endpoint_a_port,
-            pid: record.pid,
-            tgid: record.tgid,
-            process_generation_ns: record.process_generation_ns,
-        };
+
         if self.entries.remove(&key).is_some() {
             self.dirty = true;
         }
     }
 
     fn touch_record(&mut self, record: &FlowAttributionRecord) -> bool {
-        let Some(flow) = flow_key_from_record(record) else {
+        let Some(key) = SocketInventoryKey::from_record(record, None) else {
             return false;
         };
-        let key = SocketInventoryKey {
-            address_family: flow.address_family,
-            transport_protocol: flow.transport_protocol,
-            local_addr: flow.endpoint_a_addr,
-            local_port: flow.endpoint_a_port,
-            pid: record.pid,
-            tgid: record.tgid,
-            process_generation_ns: record.process_generation_ns,
-        };
+
         let Some(cached) = self.entries.get_mut(&key) else {
             return false;
         };
 
         cached.last_seen = Instant::now();
         true
+    }
+
+    fn has_listener_for_record(&self, record: &FlowAttributionRecord) -> bool {
+        if should_record_inventory(record) || record.tuple.protocol != IPPROTO_TCP {
+            return false;
+        }
+
+        let Some(exact_key) = SocketInventoryKey::from_record(record, None) else {
+            return false;
+        };
+
+        if self.entries.contains_key(&exact_key) {
+            return true;
+        }
+
+        let wildcard_addr = [0; 16];
+        if exact_key.local_addr == wildcard_addr {
+            return false;
+        }
+
+        SocketInventoryKey::from_record(record, Some(wildcard_addr))
+            .is_some_and(|wildcard_key| self.entries.contains_key(&wildcard_key))
     }
 
     fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
@@ -445,6 +454,23 @@ struct SocketInventoryKey {
     pid: u32,
     tgid: u32,
     process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl SocketInventoryKey {
+    fn from_record(record: &FlowAttributionRecord, local_addr: Option<[u8; 16]>) -> Option<Self> {
+        let flow = flow_key_from_record(record)?;
+
+        Some(Self {
+            address_family: flow.address_family,
+            transport_protocol: flow.transport_protocol,
+            local_addr: local_addr.unwrap_or(flow.endpoint_a_addr),
+            local_port: flow.endpoint_a_port,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        })
+    }
 }
 
 #[cfg(target_os = "linux")]
@@ -832,8 +858,11 @@ impl AyaAttributionReader {
     /// tuples). The record's `tuple` is directional with the local socket as the
     /// source, so endpoint A is always the local side — matching the local/remote
     /// semantics the map-snapshot path produced via the canonical key.
-    fn attributed_flow_from_record_basic(record: &FlowAttributionRecord) -> Option<AttributedFlow> {
-        let flow = flow_key_from_record(record)?;
+    fn attributed_flow_from_record_basic(
+        record: &FlowAttributionRecord,
+        coalesce_service: bool,
+    ) -> Option<AttributedFlow> {
+        let flow = attribution_flow_key_from_record(record, coalesce_service)?;
         let process = Some(process_details_from_record(&ProcessInfoRecord {
             version: record.version,
             reserved: 0,
@@ -870,8 +899,9 @@ impl AyaAttributionReader {
         &mut self,
         record: &FlowAttributionRecord,
         metrics: &Metrics,
+        coalesce_service: bool,
     ) -> Option<AttributedFlow> {
-        let flow = flow_key_from_record(record)?;
+        let flow = attribution_flow_key_from_record(record, coalesce_service)?;
         let pid = FlowPidRecord {
             version: record.version,
             event_kind: record.event_kind,
@@ -916,6 +946,10 @@ impl AyaAttributionReader {
 
     fn touch_inventory_record(&mut self, record: &FlowAttributionRecord) -> bool {
         self.socket_inventory.touch_record(record)
+    }
+
+    fn has_listener_for_record(&self, record: &FlowAttributionRecord) -> bool {
+        self.socket_inventory.has_listener_for_record(record)
     }
 
     fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
@@ -1231,21 +1265,23 @@ fn drain_ring(
     reader.drain_records(records);
     let drained = records.len();
     for record in records.iter() {
+        let coalesce_service = reader.has_listener_for_record(record);
+
         if record.event_kind == EVENT_TCP_CLOSE {
             reader.remove_inventory_record(record);
-            if let Some(key) = join_key_from_record(record) {
+            if let Some(key) = join_key_from_record(record, coalesce_service) {
                 touch_closed_cached_attribution(cache, &key);
             }
             continue;
         }
         if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
             reader.remove_inventory_record(record);
-            if let Some(key) = join_key_from_record(record) {
+            if let Some(key) = join_key_from_record(record, coalesce_service) {
                 touch_closed_cached_attribution(cache, &key);
             }
             continue;
         }
-        let Some(key) = join_key_from_record(record) else {
+        let Some(key) = join_key_from_record(record, coalesce_service) else {
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
         };
@@ -1262,9 +1298,9 @@ fn drain_ring(
         let should_record_inventory = should_record_inventory(record);
         let needs_enrichment = tx.is_some() || should_record_inventory;
         let flow = if needs_enrichment {
-            reader.attributed_flow_from_record_enriched(record, metrics)
+            reader.attributed_flow_from_record_enriched(record, metrics, coalesce_service)
         } else {
-            AyaAttributionReader::attributed_flow_from_record_basic(record)
+            AyaAttributionReader::attributed_flow_from_record_basic(record, coalesce_service)
         };
         let Some(flow) = flow else {
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
@@ -1611,14 +1647,45 @@ fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
 }
 
 #[cfg(target_os = "linux")]
+fn attribution_flow_key_from_record(
+    record: &FlowAttributionRecord,
+    coalesce_service: bool,
+) -> Option<FlowKey> {
+    let mut flow = flow_key_from_record(record)?;
+    if should_coalesce_service_attribution(&flow, coalesce_service) {
+        flow.endpoint_b_addr = [0; 16];
+        flow.endpoint_b_port = 0;
+    }
+    Some(flow)
+}
+
+#[cfg(target_os = "linux")]
+fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -> bool {
+    coalesce_service
+        && flow.transport_protocol == IPPROTO_TCP
+        && flow.endpoint_a_port > 0
+        && flow.endpoint_b_port > 0
+}
+
+#[cfg(target_os = "linux")]
 fn should_record_inventory(record: &FlowAttributionRecord) -> bool {
     record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_LISTEN_STATE
 }
 
 #[cfg(target_os = "linux")]
-fn join_key_from_record(record: &FlowAttributionRecord) -> Option<FlowAttributionJoinKey> {
+fn should_remove_inventory(record: &FlowAttributionRecord) -> bool {
+    record.event_kind == EVENT_INET_SOCK_SET_STATE
+        && record.old_state == TCP_LISTEN_STATE
+        && record.new_state == TCP_CLOSE_STATE
+}
+
+#[cfg(target_os = "linux")]
+fn join_key_from_record(
+    record: &FlowAttributionRecord,
+    coalesce_service: bool,
+) -> Option<FlowAttributionJoinKey> {
     Some(FlowAttributionJoinKey {
-        flow: flow_key_from_record(record)?,
+        flow: attribution_flow_key_from_record(record, coalesce_service)?,
         pid: record.pid,
         tgid: record.tgid,
         process_generation_ns: record.process_generation_ns,
@@ -2141,19 +2208,21 @@ mod tests {
     #[cfg(target_os = "linux")]
     use std::sync::Arc;
 
+    #[cfg(target_os = "linux")]
+    use super::{
+        attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
+        maybe_emit_cached_attribution, process_details_from_record, prune_attribution_cache,
+        refresh_enriched_attributions, touch_closed_cached_attribution, AttributionExpiryQueue,
+        CachedAttribution, FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey,
+        SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
+        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
+        FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
+    };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
         redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
         ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP,
         REDACTED_CMDLINE_MAX_BYTES,
-    };
-    #[cfg(target_os = "linux")]
-    use super::{
-        insert_cached_attribution, process_details_from_record, prune_attribution_cache,
-        refresh_enriched_attributions, AttributionExpiryQueue, CachedAttribution,
-        FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
-        EVENT_INET_SOCK_SET_STATE, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
-        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -2165,6 +2234,54 @@ mod tests {
         comm[..7].copy_from_slice(b"netprob");
 
         assert_eq!(comm_from_bytes(&comm), "netprob");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn listener_side_attribution_coalesces_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key = attribution_flow_key_from_record(&record, true).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn attribution_without_listener_keeps_exact_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 51_000);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_matches_exact_and_wildcard_listeners() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let mut exact_inventory = SocketInventory::default();
+        exact_inventory.update(&listener_flow(ipv4([192, 0, 2, 10]), 8080));
+
+        assert!(exact_inventory.has_listener_for_record(&record));
+
+        let mut wildcard_inventory = SocketInventory::default();
+        wildcard_inventory.update(&listener_flow([0; 16], 8080));
+
+        assert!(wildcard_inventory.has_listener_for_record(&record));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn client_side_attribution_keeps_exact_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 51_000, 443);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 443);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
     }
 
     #[test]
@@ -2341,6 +2458,7 @@ mod tests {
                     "[redacted 1 arg(s)]".to_string(),
                 ],
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+                workload_identity: None,
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
             }),
@@ -2374,7 +2492,7 @@ mod tests {
             gid: 1001,
             socket_address: 0xfeed,
             process_generation_ns: 123_456,
-            old_state: 1,
+            old_state: TCP_LISTEN_STATE,
             new_state: TCP_CLOSE_STATE,
             tuple: super::FlowTupleRecord {
                 family: AF_INET,
@@ -2388,6 +2506,21 @@ mod tests {
         });
 
         assert!(inventory.snapshot_if_dirty(789).unwrap().entries.is_empty());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_keeps_listener_when_accepted_connection_closes() {
+        let mut inventory = SocketInventory::default();
+        inventory.update(&listener_flow(ipv4([192, 0, 2, 10]), 8080));
+        let _ = inventory.snapshot_if_dirty(123);
+
+        let mut close_record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        close_record.new_state = TCP_CLOSE_STATE;
+        inventory.remove_record(&close_record);
+
+        assert!(inventory.snapshot_if_dirty(456).is_none());
+        assert!(inventory.has_listener_for_record(&flow_record(IPPROTO_TCP, 8080, 51_001)));
     }
 
     #[test]
@@ -2461,6 +2594,7 @@ mod tests {
                     "[redacted 3 arg(s)]".to_string(),
                 ],
                 container_id: None,
+                workload_identity: None,
                 last_seen_ns: 99,
                 process_generation_ns: 123_456,
             }),
@@ -2531,6 +2665,7 @@ mod tests {
                     comm: "new".to_string(),
                     cmdline: vec!["/bin/new".to_string()],
                     container_id: Some("container".to_string()),
+                    workload_identity: None,
                     last_seen_ns: 0,
                     process_generation_ns: 42,
                 },
@@ -2912,6 +3047,65 @@ mod tests {
             last_seen: std::time::Instant::now(),
             last_emitted: std::time::Instant::now(),
             last_emitted_fingerprint: 0,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn flow_record(
+        protocol: u16,
+        source_port: u16,
+        destination_port: u16,
+    ) -> super::FlowAttributionRecord {
+        super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 42,
+            old_state: 1,
+            new_state: 1,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol,
+                source_port,
+                destination_port,
+                source_addr: ipv4([192, 0, 2, 10]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_flow(local_addr: [u8; 16], local_port: u16) -> AttributedFlow {
+        AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: 0,
+                endpoint_a_addr: local_addr,
+                endpoint_b_addr: [0; 16],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: 42,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: None,
         }
     }
 
