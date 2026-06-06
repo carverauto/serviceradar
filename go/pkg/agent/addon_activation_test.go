@@ -44,11 +44,13 @@ const testPushedBinaryA = "/pushed/a"
 const testAddonKeyX = "addons/x"
 
 type fakeObjectStore struct {
-	data map[string][]byte
-	err  error
+	data      map[string][]byte
+	err       error
+	downloads int
 }
 
 func (f *fakeObjectStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
+	f.downloads++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -119,6 +121,47 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 	// The versioned copy exists independently of the symlink.
 	if _, err := os.Stat(filepath.Join(root, "sample", addonVersionsDir, "1.0.0", "serviceradar-sample-addon")); err != nil {
 		t.Fatalf("versioned binary missing: %v", err)
+	}
+}
+
+func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("#!/bin/sh\necho hi\n")
+	key := "addons/sample/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "sample",
+		Version:           "1.0.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-sample-addon",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+	}
+
+	got1, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("initial stage: %v", err)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("initial downloads = %d, want 1", store.downloads)
+	}
+
+	metadataPath := filepath.Join(root, "sample", addonVersionsDir, "1.0.0", addonStageMetaFile)
+	if _, err := os.Stat(metadataPath); err != nil {
+		t.Fatalf("expected trusted stage metadata: %v", err)
+	}
+
+	store.err = errors.New("unchanged assignment should not fetch again")
+	got2, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("restage unchanged assignment: %v", err)
+	}
+	if got2 != got1 {
+		t.Fatalf("restaged path = %q, want %q", got2, got1)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("downloads after unchanged restage = %d, want 1", store.downloads)
 	}
 }
 

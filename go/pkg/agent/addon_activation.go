@@ -45,11 +45,12 @@ import (
 )
 
 const (
-	addonsDirName     = "addons"
-	addonVersionsDir  = "versions"
-	addonCurrentLink  = "current"
-	addonBinaryMode   = 0o755
-	addonManifestMode = 0o644 // non-executable bundled files (manifest, config, units)
+	addonsDirName      = "addons"
+	addonVersionsDir   = "versions"
+	addonCurrentLink   = "current"
+	addonBinaryMode    = 0o755
+	addonManifestMode  = 0o644 // non-executable bundled files (manifest, config, units)
+	addonStageMetaFile = ".serviceradar-addon.json"
 
 	// addonLocalOverrideFile is the operator-managed local override (break-glass /
 	// dev) read from the agent config dir; its entries take precedence over pushed
@@ -62,6 +63,15 @@ const (
 	maxAddonTarballFileBytes = 512 << 20 // 512 MiB per extracted file
 	maxAddonTarballBytes     = 1 << 30   // 1 GiB total extracted
 )
+
+type addonStageMetadata struct {
+	AddonID        string `json:"addon_id"`
+	Version        string `json:"version"`
+	BinaryName     string `json:"binary_name"`
+	ArtifactObject string `json:"artifact_object_key"`
+	ArtifactSHA256 string `json:"artifact_sha256"`
+	Signature      string `json:"artifact_signature,omitempty"`
+}
 
 var (
 	// ErrAddonObjectStoreUnavailable is returned when a pushed-artifact add-on is
@@ -163,6 +173,14 @@ func stageAddonArtifactWithClient(
 		return "", fmt.Errorf("%w: version %q", ErrAddonUnsafePath, version)
 	}
 
+	binName := addonBinaryName(a)
+	addonDir := filepath.Join(root, addonID)
+	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
+	resolvedBinary := filepath.Join(addonDir, addonCurrentLink, binName)
+	if stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, a.GetArtifactSignature()) {
+		return resolvedBinary, nil
+	}
+
 	data, err := fetchAddonArtifactBytes(ctx, downloader, httpClient, a, objectKey)
 	if err != nil {
 		return "", err
@@ -183,10 +201,6 @@ func stageAddonArtifactWithClient(
 		}
 	}
 
-	binName := addonBinaryName(a)
-
-	addonDir := filepath.Join(root, addonID)
-	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
 	if err := os.MkdirAll(versionDir, 0o755); err != nil {
 		return "", fmt.Errorf("create addon version dir: %w", err)
 	}
@@ -204,13 +218,65 @@ func stageAddonArtifactWithClient(
 		return "", err
 	}
 
+	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
+		AddonID:        addonID,
+		Version:        version,
+		BinaryName:     binName,
+		ArtifactObject: objectKey,
+		ArtifactSHA256: wantSHA,
+		Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+	}); err != nil {
+		return "", err
+	}
+
 	// Publish current -> versions/<version> atomically so a concurrent reader never
 	// observes a half-written link.
 	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, version)); err != nil {
 		return "", err
 	}
 
-	return filepath.Join(addonDir, addonCurrentLink, binName), nil
+	return resolvedBinary, nil
+}
+
+func stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, signature string) bool {
+	target, ok := readAddonCurrentTarget(addonDir)
+	if !ok || target != filepath.Join(addonVersionsDir, version) {
+		return false
+	}
+
+	data, err := os.ReadFile(filepath.Join(versionDir, addonStageMetaFile))
+	if err != nil {
+		return false
+	}
+
+	var meta addonStageMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return false
+	}
+
+	if strings.TrimSpace(meta.Version) != version ||
+		strings.TrimSpace(meta.BinaryName) != binName ||
+		strings.ToLower(strings.TrimSpace(meta.ArtifactSHA256)) != wantSHA ||
+		strings.TrimSpace(meta.Signature) != strings.TrimSpace(signature) {
+		return false
+	}
+
+	info, err := os.Stat(filepath.Join(versionDir, binName))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func writeAddonStageMetadata(versionDir string, meta addonStageMetadata) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal addon stage metadata: %w", err)
+	}
+
+	data = append(data, '\n')
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, addonStageMetaFile), data, addonManifestMode); err != nil {
+		return fmt.Errorf("write addon stage metadata: %w", err)
+	}
+
+	return nil
 }
 
 // fetchAddonArtifactBytes returns the raw artifact bytes, preferring the gateway-proxied

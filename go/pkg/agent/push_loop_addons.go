@@ -407,6 +407,15 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 // and leaves any already-installed units untouched (reconciliation keeps them because the
 // add-on is still desired).
 func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery, supervision string) bool {
+	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" && p.systemdAddonAssignmentCurrent(a, "") {
+		p.logger.Debug().
+			Str("addon", a.GetAddonId()).
+			Str("version", a.GetVersion()).
+			Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
+
+		return true
+	}
+
 	root := resolveAddonArtifactRoot("")
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
@@ -420,6 +429,29 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 	}
 
 	return p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
+}
+
+func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig, runtimeRoot string) bool {
+	addonID := strings.TrimSpace(a.GetAddonId())
+	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
+	if addonID == "" || wantSHA == "" || !safeAddonSegment(addonID) {
+		return false
+	}
+
+	version := addonStagedVersion(a, wantSHA)
+	if !safeAddonSegment(version) {
+		return false
+	}
+
+	if len(p.systemdAddonUnits(addonID)) == 0 {
+		return false
+	}
+
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	addonDir := filepath.Join(root, addonID)
+	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
+
+	return stagedAddonArtifactCurrent(addonDir, versionDir, version, addonBinaryName(a), wantSHA, a.GetArtifactSignature())
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned

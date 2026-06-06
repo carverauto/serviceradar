@@ -188,3 +188,49 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 		t.Fatalf("remembered units = %v, want [%s]", units, netprobeTestUnit)
 	}
 }
+
+func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUnits(t *testing.T) {
+	const id = "netprobe"
+
+	payload := []byte("netprobe-binary")
+	sha := sha256Hex(payload)
+	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+		"1.1.0": {netprobeTestUnit},
+	})
+	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactObject: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSHA256: sha,
+	}); err != nil {
+		t.Fatalf("write stage metadata: %v", err)
+	}
+
+	assignment := &proto.AddonAssignmentConfig{
+		AddonId:           id,
+		Version:           "1.1.0",
+		BinaryPath:        "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+		ArtifactObjectKey: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSha256:    sha,
+	}
+
+	pl := newSystemdAddonPushLoop(t)
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should not be current until systemd units are tracked")
+	}
+
+	pl.rememberSystemdAddon(id, []string{netprobeTestUnit})
+	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should be current with matching metadata and tracked units")
+	}
+
+	assignment.ArtifactSha256 = sha256Hex([]byte("different"))
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment with a different artifact sha must not be treated as current")
+	}
+}
