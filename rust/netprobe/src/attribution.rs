@@ -113,7 +113,10 @@ impl FastHasher {
 impl Hasher for FastHasher {
     #[inline]
     fn finish(&self) -> u64 {
-        self.state
+        let mut state = self.state;
+        state ^= state >> 32;
+        state = state.wrapping_mul(0x9e3779b97f4a7c15);
+        state ^ (state >> 32)
     }
 
     #[inline]
