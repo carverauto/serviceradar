@@ -45,6 +45,7 @@ defmodule ServiceRadar.ReferenceData.ServicePorts do
     {6, 5432} => "PostgreSQL",
     {6, 5672} => "AMQP",
     {6, 6379} => "Redis",
+    {6, 6343} => "sFlow",
     {6, 6443} => "Kubernetes API",
     {6, 8080} => "HTTP Alt",
     {6, 8443} => "HTTPS Alt",
@@ -127,6 +128,13 @@ defmodule ServiceRadar.ReferenceData.ServicePorts do
   end
 
   def label(_, _), do: nil
+
+  @spec label(integer() | nil) :: String.t() | nil
+  def label(port) when is_integer(port) and port > 0 and port <= 65_535 do
+    label(6, port) || label(17, port)
+  end
+
+  def label(_), do: nil
 
   @spec registered?(integer() | nil, integer() | nil) :: boolean()
   def registered?(protocol_num, port), do: is_binary(label(protocol_num, port))

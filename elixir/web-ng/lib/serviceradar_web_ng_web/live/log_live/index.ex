@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.LogPubSub
   alias ServiceRadar.Observability.NetflowPortAnomalyFlag
   alias ServiceRadar.Observability.NetflowPortScanFlag
+  alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
@@ -4176,10 +4177,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                       <span class="shrink-0">{if dst_port, do: ":#{dst_port}", else: ""}</span>
                       <.netflow_threat_badge :if={dst_threat} threat={dst_threat} />
                     </div>
-                    <div
-                      :if={service_label = netflow_service_label(dst_port)}
-                      class="shrink-0"
-                    >
+                    <div :if={service_label = netflow_service_label(flow, dst_port)} class="shrink-0">
                       <.ui_badge variant="ghost" size="xs" class="font-mono">
                         {service_label}
                       </.ui_badge>
@@ -4573,7 +4571,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       |> assign(:dst_ip, netflow_addr(assigns.flow, :dst))
       |> assign(:src_port, netflow_port(assigns.flow, :src))
       |> assign(:dst_port, netflow_port(assigns.flow, :dst))
-      |> assign(:service_label, netflow_service_label(netflow_port(assigns.flow, :dst)))
+      |> assign(:service_label, netflow_service_label(assigns.flow, netflow_port(assigns.flow, :dst)))
       |> assign(:src_cc, netflow_country_iso2(assigns.flow, :src))
       |> assign(:dst_cc, netflow_country_iso2(assigns.flow, :dst))
       |> assign(:mapbox, Map.get(assigns.context || %{}, :mapbox))
@@ -5544,43 +5542,20 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  @netflow_service_labels %{
-    22 => "SSH",
-    25 => "SMTP",
-    53 => "DNS",
-    67 => "DHCP",
-    68 => "DHCP",
-    80 => "HTTP",
-    110 => "POP3",
-    123 => "NTP",
-    143 => "IMAP",
-    161 => "SNMP",
-    162 => "SNMPTRAP",
-    389 => "LDAP",
-    443 => "HTTPS",
-    445 => "SMB",
-    465 => "SMTPS",
-    514 => "SYSLOG",
-    587 => "SMTP",
-    636 => "LDAPS",
-    1433 => "MSSQL",
-    3306 => "MYSQL",
-    3389 => "RDP",
-    5432 => "POSTGRES",
-    6379 => "REDIS",
-    8080 => "HTTP-ALT",
-    8443 => "HTTPS-ALT",
-    9200 => "ELASTIC",
-    27_017 => "MONGO"
-  }
-
   defp netflow_service_label(nil), do: nil
   defp netflow_service_label(""), do: nil
 
   defp netflow_service_label(port) do
     port
     |> to_int()
-    |> then(&Map.get(@netflow_service_labels, &1))
+    |> ServicePorts.label()
+  end
+
+  defp netflow_service_label(flow, port) do
+    protocol_num = flow |> netflow_protocol_num() |> to_int()
+    port = to_int(port)
+
+    ServicePorts.label(protocol_num, port) || ServicePorts.label(port)
   end
 
   defp format_netflow_bytes(nil), do: "0 B"

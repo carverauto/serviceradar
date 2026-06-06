@@ -21,6 +21,18 @@ defmodule ServiceRadar.ReferenceData.ServicePortsTest do
     end
   end
 
+  describe "label/1" do
+    test "falls back to TCP then UDP when protocol is not available" do
+      assert ServicePorts.label(443) == "HTTPS"
+      assert ServicePorts.label(6343) == "sFlow"
+    end
+
+    test "returns nil for unknown or invalid ports" do
+      refute ServicePorts.label(32_760)
+      refute ServicePorts.label(nil)
+    end
+  end
+
   describe "registered?/2" do
     test "reports whether a TCP or UDP port is registered" do
       assert ServicePorts.registered?(6, 443)
