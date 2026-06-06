@@ -25,6 +25,7 @@ import (
 
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 // ParsedVisibilityConfig is the agent-local view of monitoring.VisibilityConfig.
@@ -156,11 +157,7 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 }
 
 func cloneVisibilityConfig(cfg *netprobepb.VisibilityAgentConfig) *netprobepb.VisibilityAgentConfig {
-	clone := *cfg
-	clone.CaptureInterfaces = append([]string(nil), cfg.GetCaptureInterfaces()...)
-	clone.DeviceBindings = append([]*netprobepb.DeviceBinding(nil), cfg.GetDeviceBindings()...)
-
-	return &clone
+	return gproto.Clone(cfg).(*netprobepb.VisibilityAgentConfig)
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {

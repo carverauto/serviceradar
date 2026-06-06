@@ -37,7 +37,10 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-var errFakeObjectNotFound = errors.New("fake object store: key not found")
+var (
+	errFakeObjectNotFound        = errors.New("fake object store: key not found")
+	errUnexpectedAddonRedownload = errors.New("unchanged assignment should not fetch again")
+)
 
 const testPushedBinaryA = "/pushed/a"
 
@@ -152,7 +155,7 @@ func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
 		t.Fatalf("expected trusted stage metadata: %v", err)
 	}
 
-	store.err = errors.New("unchanged assignment should not fetch again")
+	store.err = errUnexpectedAddonRedownload
 	got2, err := stageAddonArtifact(context.Background(), store, root, a)
 	if err != nil {
 		t.Fatalf("restage unchanged assignment: %v", err)

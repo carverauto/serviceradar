@@ -33,6 +33,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"time"
@@ -75,6 +76,8 @@ const (
 	// surrounding GatewayStatusChunk envelope.
 	flowAttributionMaxBatchMessageBytes = 6 * 1024 * 1024
 )
+
+var errFlowAttributionEventExceedsBatchBudget = errors.New("flow attribution event exceeds batch message byte budget")
 
 // agentFlowAttributionEventsForwardedTotal counts the number of
 // FlowAttributionEvent records the agent has successfully forwarded
@@ -356,7 +359,8 @@ func appendFlowAttributionGatewayStatusChunks(
 
 	if len(events) <= 1 {
 		return nil, 0, fmt.Errorf(
-			"flow attribution event exceeds batch message byte budget: bytes=%d max=%d",
+			"%w: bytes=%d max=%d",
+			errFlowAttributionEventExceedsBatchBudget,
 			len(messageBytes),
 			flowAttributionMaxBatchMessageBytes,
 		)

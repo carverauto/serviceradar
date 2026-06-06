@@ -28,19 +28,22 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const netprobeTestUnit = "serviceradar-netprobe.service"
+const (
+	netprobeTestAddonID = "netprobe"
+	netprobeTestUnit    = "serviceradar-netprobe.service"
+)
 
 var errAgentUpdaterUnavailable = errors.New("agent-updater unavailable")
 
 // stageSystemdAddonFixture builds a temp runtime root with
-// <root>/addons/<id>/versions/<v>/ dirs (each holding the named unit files) and points
-// `current` -> versions/<current>, mirroring the post-stageAndCapability staging layout.
+// <root>/addons/netprobe/versions/<v>/ dirs (each holding the named unit files) and points
+// `current` -> versions/1.1.0, mirroring the post-stageAndCapability staging layout.
 // Returns the runtime root to pass to reconcileStagedSystemdUnits.
-func stageSystemdAddonFixture(t *testing.T, addonID, current string, versions map[string][]string) string {
+func stageSystemdAddonFixture(t *testing.T, versions map[string][]string) string {
 	t.Helper()
 
 	runtimeRoot := t.TempDir()
-	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID)
+	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), netprobeTestAddonID)
 	for version, units := range versions {
 		versionDir := filepath.Join(addonDir, addonVersionsDir, version)
 		if err := os.MkdirAll(versionDir, 0o755); err != nil {
@@ -52,7 +55,7 @@ func stageSystemdAddonFixture(t *testing.T, addonID, current string, versions ma
 			}
 		}
 	}
-	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, current)); err != nil {
+	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, "1.1.0")); err != nil {
 		t.Fatalf("switch current symlink: %v", err)
 	}
 
@@ -83,7 +86,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 	const id = "netprobe"
 
 	prior := filepath.Join(addonVersionsDir, "1.0.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {netprobeTestUnit},
 	})
@@ -121,7 +124,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 	const id = "netprobe"
 
 	prior := filepath.Join(addonVersionsDir, "1.0.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {}, // staged version ships no units
 	})
@@ -152,7 +155,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	const id = "netprobe"
 
 	newTarget := filepath.Join(addonVersionsDir, "1.1.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {netprobeTestUnit},
 	})
@@ -194,7 +197,7 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 
 	payload := []byte("netprobe-binary")
 	sha := sha256Hex(payload)
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.1.0": {netprobeTestUnit},
 	})
 	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0")

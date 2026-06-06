@@ -336,7 +336,7 @@ func assertFlowAttributionChunkEnvelope(
 	}
 }
 
-func decodeFlowAttributionBatchFromChunk(t *testing.T, chunk *proto.GatewayStatusChunk) netprobepb.FlowAttributionEventBatch {
+func decodeFlowAttributionBatchFromChunk(t *testing.T, chunk *proto.GatewayStatusChunk) *netprobepb.FlowAttributionEventBatch {
 	t.Helper()
 
 	if got, want := len(chunk.GetServices()), 1; got != want {
@@ -348,5 +348,5 @@ func decodeFlowAttributionBatchFromChunk(t *testing.T, chunk *proto.GatewayStatu
 		t.Fatalf("unmarshal batch: %v", err)
 	}
 
-	return decoded
+	return &decoded
 }
