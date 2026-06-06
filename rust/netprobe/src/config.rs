@@ -9,6 +9,7 @@ pub const FLOW_TABLE_ENTRIES_PER_INTERFACE: u32 = 65_536;
 pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 0;
 pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
 pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = true;
+pub const DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH: bool = true;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -27,6 +28,9 @@ pub struct Config {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     #[serde(default = "default_emit_raw_flow_attribution_events")]
     pub emit_raw_flow_attribution_events: bool,
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    #[serde(default = "default_flow_attribution_ipc_batch")]
+    pub flow_attribution_ipc_batch: bool,
     #[serde(default = "default_external_flow_match_window_ms")]
     pub external_flow_match_window_ms: u32,
 }
@@ -53,6 +57,7 @@ impl Default for Config {
             process_snapshot_interval_s: DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
             flow_attribution_resend_interval_s: DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
             emit_raw_flow_attribution_events: DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
+            flow_attribution_ipc_batch: DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH,
             external_flow_match_window_ms: default_external_flow_match_window_ms(),
         }
     }
@@ -138,6 +143,10 @@ fn default_emit_raw_flow_attribution_events() -> bool {
     DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS
 }
 
+fn default_flow_attribution_ipc_batch() -> bool {
+    DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH
+}
+
 fn deserialize_capture_interfaces<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>
 where
     D: Deserializer<'de>,
@@ -150,8 +159,8 @@ mod tests {
     use super::{
         effective_flow_table_max_entries, validate_capture_interfaces, validate_interface,
         AllowlistError, Config, DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
-        DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S, DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S,
-        FLOW_TABLE_ENTRIES_PER_INTERFACE,
+        DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH, DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
+        DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S, FLOW_TABLE_ENTRIES_PER_INTERFACE,
     };
 
     #[test]
@@ -288,5 +297,24 @@ mod tests {
             DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS
         );
         assert!(config.emit_raw_flow_attribution_events);
+    }
+
+    #[test]
+    fn enables_flow_attribution_ipc_batching_by_default() {
+        let config: Config = serde_json::from_str("{}").unwrap();
+
+        assert_eq!(
+            config.flow_attribution_ipc_batch,
+            DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH
+        );
+        assert!(config.flow_attribution_ipc_batch);
+    }
+
+    #[test]
+    fn allows_disabling_flow_attribution_ipc_batching() {
+        let config: Config =
+            serde_json::from_str(r#"{"flow_attribution_ipc_batch":false}"#).unwrap();
+
+        assert!(!config.flow_attribution_ipc_batch);
     }
 }

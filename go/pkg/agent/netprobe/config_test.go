@@ -113,10 +113,12 @@ func TestParseVisibilityConfig(t *testing.T) {
 
 func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	base := &netprobepb.VisibilityAgentConfig{
-		Enabled:                 false,
-		CaptureInterfaces:       []string{"eth0"},
-		DefaultSampleIntervalMs: 250,
-		FlowTableMaxEntries:     262_144,
+		Enabled:                   false,
+		CaptureInterfaces:         []string{"eth0"},
+		DefaultSampleIntervalMs:   250,
+		FlowTableMaxEntries:       262_144,
+		FlowAttributionIpcBatch:   true,
+		ExternalFlowMatchWindowMs: 30_000,
 	}
 
 	merged, err := ApplyAddonConfigJSON(base, []byte(`{
@@ -125,7 +127,8 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 		"default_sample_interval_ms": 0,
 		"flow_table_max_entries": 131072,
 		"process_snapshot_interval_s": 0,
-		"external_flow_match_window_ms": 45000
+		"external_flow_match_window_ms": 45000,
+		"flow_attribution_ipc_batch": false
 	}`))
 	if err != nil {
 		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
@@ -152,8 +155,14 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	if merged.GetExternalFlowMatchWindowMs() != 45_000 {
 		t.Fatalf("ExternalFlowMatchWindowMs = %d, want 45000", merged.GetExternalFlowMatchWindowMs())
 	}
+	if merged.GetFlowAttributionIpcBatch() {
+		t.Fatal("FlowAttributionIpcBatch = true, want false from add-on override")
+	}
 	if base.GetEnabled() {
 		t.Fatal("base config was mutated")
+	}
+	if !base.GetFlowAttributionIpcBatch() {
+		t.Fatal("base FlowAttributionIpcBatch was mutated")
 	}
 }
 
@@ -167,6 +176,9 @@ func TestParseVisibilityConfigNil(t *testing.T) {
 	}
 	if parsed.NetprobeConfig.GetEnabled() {
 		t.Fatal("Enabled = true, want false")
+	}
+	if !parsed.NetprobeConfig.GetFlowAttributionIpcBatch() {
+		t.Fatal("FlowAttributionIpcBatch = false, want true default")
 	}
 }
 
@@ -189,6 +201,9 @@ func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
 	if !strings.Contains(payload, "\"enabled\": true") {
 		t.Fatalf("bootstrap config missing enabled=true: %s", payload)
 	}
+	if !strings.Contains(payload, `"flow_attribution_ipc_batch": true`) {
+		t.Fatalf("bootstrap config missing flow attribution batching: %s", payload)
+	}
 }
 
 func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
@@ -198,6 +213,7 @@ func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 		Enabled:                   true,
 		ProcessSnapshotIntervalS:  0,
 		ExternalFlowMatchWindowMs: 45_000,
+		FlowAttributionIpcBatch:   true,
 	}); err != nil {
 		t.Fatalf("WriteBootstrapConfig() error = %v", err)
 	}

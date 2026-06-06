@@ -39,6 +39,7 @@ type bootstrapConfig struct {
 	FlowTableMaxEntries       uint32   `json:"flow_table_max_entries,omitempty"`
 	ProcessSnapshotIntervalS  uint32   `json:"process_snapshot_interval_s,omitempty"`
 	ExternalFlowMatchWindowMs uint32   `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch   bool     `json:"flow_attribution_ipc_batch,omitempty"`
 }
 
 type addonConfig struct {
@@ -48,13 +49,20 @@ type addonConfig struct {
 	FlowTableMaxEntries       *uint32  `json:"flow_table_max_entries"`
 	ProcessSnapshotIntervalS  *uint32  `json:"process_snapshot_interval_s"`
 	ExternalFlowMatchWindowMs *uint32  `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch   *bool    `json:"flow_attribution_ipc_batch"`
+}
+
+func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
+	return &netprobepb.VisibilityAgentConfig{
+		FlowAttributionIpcBatch: true,
+	}
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
 func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityConfig {
 	if cfg == nil {
 		return ParsedVisibilityConfig{
-			NetprobeConfig: &netprobepb.VisibilityAgentConfig{},
+			NetprobeConfig: defaultVisibilityAgentConfig(),
 		}
 	}
 
@@ -109,6 +117,9 @@ func ApplyAddonConfigJSON(
 	if addon.ExternalFlowMatchWindowMs != nil {
 		merged.ExternalFlowMatchWindowMs = *addon.ExternalFlowMatchWindowMs
 	}
+	if addon.FlowAttributionIpcBatch != nil {
+		merged.FlowAttributionIpcBatch = *addon.FlowAttributionIpcBatch
+	}
 
 	return merged, nil
 }
@@ -119,7 +130,7 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		return nil
 	}
 
-	payload := bootstrapConfig{}
+	payload := bootstrapConfig{FlowAttributionIpcBatch: true}
 	if cfg != nil {
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())

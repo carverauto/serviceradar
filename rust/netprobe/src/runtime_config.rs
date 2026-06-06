@@ -91,7 +91,7 @@ impl RuntimeConfig {
                 bindings: HashMap::new(),
                 default_sample_interval_ms: 0,
                 default_dpi: default_dpi_disabled(),
-                flow_attribution_ipc_batch: false,
+                flow_attribution_ipc_batch: config.flow_attribution_ipc_batch,
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
             flow_table_max_entries: config.effective_flow_table_max_entries(),
@@ -613,6 +613,21 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn initializes_flow_attribution_ipc_batch_from_bootstrap_config() {
+        let batched = RuntimeConfig::new(&Config {
+            flow_attribution_ipc_batch: true,
+            ..Default::default()
+        });
+        assert!(batched.flow_attribution_ipc_batch_enabled());
+
+        let unbatched = RuntimeConfig::new(&Config {
+            flow_attribution_ipc_batch: false,
+            ..Default::default()
+        });
+        assert!(!unbatched.flow_attribution_ipc_batch_enabled());
     }
 
     #[test]
