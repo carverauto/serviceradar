@@ -7,7 +7,9 @@ defmodule ServiceRadar.FlowAttribution do
   `persist/3` upserts pushed `FlowAttributionEvent` rows into the current-state
   attribution table; `correlate/0` joins recent attributions against recent NetFlow (either direction)
   and stamps matching flows with `event_type=attributed_flow` + the process context,
-  which the web UI (`/observability/flows/attributed`) reads.
+  which the web UI (`/observability/flows/attributed`) reads. Workload identity
+  is joined from the standalone workload-identity current-state table when
+  netprobe only supplies a container ID.
   """
 
   alias Netprobepb.FlowAttributionEvent
@@ -17,6 +19,7 @@ defmodule ServiceRadar.FlowAttribution do
   @schema "platform"
   @table "flow_process_attribution_current"
   @legacy_table "flow_process_attributions"
+  @workload_identity_table "workload_identity_current"
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
   @default_retention_minutes 60
@@ -377,7 +380,7 @@ defmodule ServiceRadar.FlowAttribution do
         picked.cmdline,
         picked.uid,
         picked.container_id,
-        picked.workload_identity
+        COALESCE(picked.workload_identity, workload.identity) AS workload_identity
       FROM recent_flows AS f
       JOIN LATERAL (
         SELECT
@@ -691,28 +694,61 @@ defmodule ServiceRadar.FlowAttribution do
         ORDER BY match_rank, time_delta_seconds, observed_at DESC
         LIMIT 1
       ) AS picked ON true
+      LEFT JOIN LATERAL (
+        SELECT wi.identity
+        FROM #{@schema}.#{@workload_identity_table} AS wi
+        WHERE wi.partition = f.partition
+          AND wi.agent_id = picked.agent_id
+          AND wi.container_id = picked.container_id
+        ORDER BY wi.observed_at DESC
+        LIMIT 1
+      ) AS workload ON picked.workload_identity IS NULL
+        AND picked.container_id IS NOT NULL
+    ),
+    stamped AS (
+      UPDATE #{@schema}.ocsf_network_activity AS f
+      SET ocsf_payload = f.ocsf_payload
+        || jsonb_build_object(
+             'event_type', 'attributed_flow',
+             'agent_id', candidates.agent_id,
+             'attribution', jsonb_strip_nulls(jsonb_build_object(
+               'pid', candidates.pid,
+               'comm', candidates.comm,
+               'redacted_cmdline', candidates.cmdline,
+               'uid', candidates.uid,
+               'container_id', candidates.container_id,
+               'workload_identity', candidates.workload_identity
+             ))
+           )
+      FROM candidates
+      WHERE f.tableoid = candidates.flow_tableoid
+        AND f.ctid = candidates.flow_ctid
+      RETURNING 1
+    ),
+    workload_backfills AS (
+      UPDATE #{@schema}.ocsf_network_activity AS f
+      SET ocsf_payload = jsonb_set(
+        f.ocsf_payload,
+        '{attribution,workload_identity}',
+        wi.identity,
+        true
+      )
+      FROM #{@schema}.#{@workload_identity_table} AS wi
+      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
+        AND (f.ocsf_payload ->> 'event_type') = 'attributed_flow'
+        AND (f.ocsf_payload #> '{attribution,workload_identity}') IS NULL
+        AND (f.ocsf_payload #>> '{attribution,container_id}') = wi.container_id
+        AND (f.ocsf_payload ->> 'agent_id') = wi.agent_id
+        AND f.partition = wi.partition
+      RETURNING 1
     )
-    UPDATE #{@schema}.ocsf_network_activity AS f
-    SET ocsf_payload = f.ocsf_payload
-      || jsonb_build_object(
-           'event_type', 'attributed_flow',
-           'agent_id', candidates.agent_id,
-           'attribution', jsonb_strip_nulls(jsonb_build_object(
-             'pid', candidates.pid,
-             'comm', candidates.comm,
-             'redacted_cmdline', candidates.cmdline,
-             'uid', candidates.uid,
-             'container_id', candidates.container_id,
-             'workload_identity', candidates.workload_identity
-           ))
-         )
-    FROM candidates
-    WHERE f.tableoid = candidates.flow_tableoid
-      AND f.ctid = candidates.flow_ctid
+    SELECT
+      (SELECT count(*) FROM stamped) +
+      (SELECT count(*) FROM workload_backfills) AS affected_rows
     """
 
     case ServiceRadar.Repo.query(sql, []) do
-      {:ok, %{num_rows: num_rows}} -> {:ok, num_rows}
+      {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
       {:error, reason} -> {:error, reason}
     end
   end

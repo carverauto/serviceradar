@@ -24,6 +24,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       ])
 
       query!("DELETE FROM platform.flow_process_attributions WHERE partition = $1", [partition])
+      query!("DELETE FROM platform.workload_identity_current WHERE partition = $1", [partition])
       query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
     end)
 
@@ -445,6 +446,112 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert workload["labels"]["app.kubernetes.io/name"] == "redis"
   end
 
+  test "joins standalone workload identity by agent and container during correlation", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "containerd://6c6ad30c2ff8796e0c016634eb069cb54eb5539c"
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      src_ip: "10.42.68.167",
+      src_port: 57_279,
+      dst_ip: "10.43.0.10",
+      dst_port: 6379
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.42.68.167",
+      local_port: 57_279,
+      remote_ip: "10.43.0.10",
+      remote_port: 6379,
+      pid: 44_024,
+      comm: "redis-server",
+      container_id: container_id
+    })
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "demo",
+        "pod_name" => "redis-0",
+        "pod_uid" => "57e67067-89e4-4001-bdd4-8632d39ea02b",
+        "container_name" => "redis",
+        "image" => "redis:7",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    payload = attributed_payload(partition)
+    assert payload["attribution"]["container_id"] == container_id
+
+    workload = payload["attribution"]["workload_identity"]
+    assert workload["pod_namespace"] == "demo"
+    assert workload["pod_name"] == "redis-0"
+    assert workload["container_name"] == "redis"
+    assert workload["runtime_source"] == "containerd"
+  end
+
+  test "backfills recent attributed flows when standalone workload identity arrives late", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "containerd://late-identity-container"
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      src_ip: "10.42.68.167",
+      src_port: 57_279,
+      dst_ip: "10.43.0.10",
+      dst_port: 6379,
+      payload: %{
+        "event_type" => "attributed_flow",
+        "agent_id" => agent_id,
+        "attribution" => %{
+          "pid" => 44_024,
+          "comm" => "redis-server",
+          "container_id" => container_id
+        }
+      }
+    })
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, 1, :second),
+      container_id: container_id,
+      identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "demo",
+        "pod_name" => "redis-late-0",
+        "container_name" => "redis",
+        "image" => "redis:7",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    workload = attributed_payload(partition)["attribution"]["workload_identity"]
+    assert workload["pod_namespace"] == "demo"
+    assert workload["pod_name"] == "redis-late-0"
+  end
+
   test "correlates UDP attribution when exporter local ephemeral port differs", %{
     partition: partition,
     agent_id: agent_id
@@ -600,7 +707,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         ocsf_payload,
         partition
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, 2048, 8, '{}'::jsonb, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, 2048, 8, ($8::text)::jsonb, $9)
       """,
       [
         params.time,
@@ -610,6 +717,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.dst_port,
         Map.get(params, :proto, 6),
         Map.get(params, :protocol_name, "tcp"),
+        json_param(Map.get(params, :payload, %{})),
         params.partition
       ]
     )
@@ -635,7 +743,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         container_id,
         workload_identity
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'curl https://example.com', 1000, NULL, ($12::text)::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'curl https://example.com', 1000, $12, ($13::text)::jsonb)
       """,
       [
         params.observed_at,
@@ -649,6 +757,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.remote_port,
         params.pid,
         params.comm,
+        Map.get(params, :container_id),
         json_param(Map.get(params, :workload_identity))
       ]
     )
@@ -673,7 +782,7 @@ defmodule ServiceRadar.FlowAttributionTest do
         container_id,
         workload_identity
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, NULL, ($11::text)::jsonb)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, $11, ($12::text)::jsonb)
       """,
       [
         params.observed_at,
@@ -686,7 +795,69 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.remote_port,
         params.pid,
         params.comm,
+        Map.get(params, :container_id),
         json_param(Map.get(params, :workload_identity))
+      ]
+    )
+  end
+
+  defp seed_workload_identity(params) do
+    identity = Map.fetch!(params, :identity)
+
+    query!(
+      """
+      INSERT INTO platform.workload_identity_current (
+        observed_at,
+        inserted_at,
+        updated_at,
+        partition,
+        agent_id,
+        gateway_id,
+        container_id,
+        pod_uid,
+        pod_namespace,
+        pod_name,
+        container_name,
+        image,
+        runtime_source,
+        confidence,
+        degradation_reason,
+        identity
+      )
+      VALUES (
+        $1,
+        now(),
+        now(),
+        $2,
+        $3,
+        $4,
+        $5,
+        $6,
+        $7,
+        $8,
+        $9,
+        $10,
+        $11,
+        $12,
+        $13,
+        ($14::text)::jsonb
+      )
+      """,
+      [
+        params.observed_at,
+        params.partition,
+        params.agent_id,
+        Map.get(params, :gateway_id),
+        params.container_id,
+        Map.get(identity, "pod_uid"),
+        Map.get(identity, "pod_namespace"),
+        Map.get(identity, "pod_name"),
+        Map.get(identity, "container_name"),
+        Map.get(identity, "image"),
+        Map.get(identity, "runtime_source"),
+        Map.get(identity, "confidence"),
+        Map.get(identity, "degradation_reason"),
+        Jason.encode!(identity)
       ]
     )
   end

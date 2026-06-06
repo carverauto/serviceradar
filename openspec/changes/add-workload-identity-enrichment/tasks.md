@@ -26,7 +26,7 @@
 - [x] 2.2a Add MVP confidence and degradation fields to the Rust workload identity payload so CRI hits and degraded lookups can be surfaced without changing the payload shape later.
 - [x] 2.2b Add workload identity fields to netprobe protobuf messages and flow attribution storage so attributed flows can carry CRI metadata end to end.
 - [ ] 2.3 Add bounded caches, queue limits, drop counters, stale-entry eviction, and source-specific error metrics.
-- [ ] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
+- [x] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
 
 ## 3. Kubernetes Node-Local Metadata
 - [x] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata, with endpoint discovery from explicit config, runtime config files, and common socket paths. Initial CRI endpoint discovery, CRI client wrapper, response normalization tests, and live worker socket validation are implemented.
@@ -54,6 +54,7 @@
 - [x] 6.1a Add upstream current-state storage for standalone workload identity snapshots keyed by partition, agent, and container ID.
 - [ ] 6.2 Attach best-known workload identity to attributed flow records and flow detail views.
 - [x] 6.2a Attach best-known node-local CRI workload identity to persisted attributed flow records and correlated flow OCSF payloads.
+- [x] 6.2b Join standalone workload-identity current state into the central flow correlator by partition, agent, and container ID, including late backfill for recent attributed flows that were stamped before identity arrived.
 - [ ] 6.3 Update attributed flow UI and NetFlow map details to show namespace/pod/workload/container for Kubernetes and project/service/container for Compose.
 - [ ] 6.4 Add filters for namespace, workload owner, pod, container image, Compose project, and Compose service.
 
