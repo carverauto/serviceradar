@@ -1109,15 +1109,35 @@ fn should_emit_flow_event(flow: &FlowKey, next: &FlowPidRecord, now: u64) -> boo
         return true;
     };
 
-    previous.pid != next.pid
+    if previous.pid != next.pid
         || previous.tgid != next.tgid
         || previous.uid != next.uid
         || previous.gid != next.gid
         || previous.process_generation_ns != next.process_generation_ns
-        || previous.event_kind != next.event_kind
+    {
+        return true;
+    }
+
+    if should_emit_lifecycle_change(previous, next) {
+        return true;
+    }
+
+    now.saturating_sub(previous.last_seen_ns) >= FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS
+}
+
+#[inline(always)]
+fn should_emit_lifecycle_change(previous: &FlowPidRecord, next: &FlowPidRecord) -> bool {
+    if next.event_kind != EVENT_INET_SOCK_SET_STATE {
+        return false;
+    }
+
+    if next.new_state != TCP_LISTEN_STATE && previous.new_state != TCP_LISTEN_STATE {
+        return false;
+    }
+
+    previous.event_kind != next.event_kind
         || previous.old_state != next.old_state
         || previous.new_state != next.new_state
-        || now.saturating_sub(previous.last_seen_ns) >= FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS
 }
 
 #[inline(always)]
