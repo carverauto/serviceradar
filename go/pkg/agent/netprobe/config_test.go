@@ -108,6 +108,52 @@ func TestParseVisibilityConfig(t *testing.T) {
 	}
 }
 
+func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
+	base := &netprobepb.VisibilityAgentConfig{
+		Enabled:                 false,
+		CaptureInterfaces:       []string{"eth0"},
+		DefaultSampleIntervalMs: 250,
+		FlowTableMaxEntries:     262_144,
+	}
+
+	merged, err := ApplyAddonConfigJSON(base, []byte(`{
+		"enabled": true,
+		"capture_interfaces": [" ens18 "],
+		"default_sample_interval_ms": 0,
+		"flow_table_max_entries": 131072,
+		"process_snapshot_interval_s": 0,
+		"external_flow_match_window_ms": 45000
+	}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if merged == base {
+		t.Fatal("ApplyAddonConfigJSON returned the input pointer, want clone")
+	}
+	if !merged.GetEnabled() {
+		t.Fatal("Enabled = false, want true")
+	}
+	if got := merged.GetCaptureInterfaces(); len(got) != 1 || got[0] != "ens18" {
+		t.Fatalf("CaptureInterfaces = %#v, want [ens18]", got)
+	}
+	if merged.GetDefaultSampleIntervalMs() != 0 {
+		t.Fatalf("DefaultSampleIntervalMs = %d, want 0", merged.GetDefaultSampleIntervalMs())
+	}
+	if merged.GetFlowTableMaxEntries() != 131_072 {
+		t.Fatalf("FlowTableMaxEntries = %d, want 131072", merged.GetFlowTableMaxEntries())
+	}
+	if merged.GetProcessSnapshotIntervalS() != 0 {
+		t.Fatalf("ProcessSnapshotIntervalS = %d, want 0", merged.GetProcessSnapshotIntervalS())
+	}
+	if merged.GetExternalFlowMatchWindowMs() != 45_000 {
+		t.Fatalf("ExternalFlowMatchWindowMs = %d, want 45000", merged.GetExternalFlowMatchWindowMs())
+	}
+	if base.GetEnabled() {
+		t.Fatal("base config was mutated")
+	}
+}
+
 func TestParseVisibilityConfigNil(t *testing.T) {
 	parsed := ParseVisibilityConfig(nil)
 	if parsed.BinaryOverridePath != "" {
@@ -139,6 +185,30 @@ func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
 	}
 	if !strings.Contains(payload, "\"enabled\": true") {
 		t.Fatalf("bootstrap config missing enabled=true: %s", payload)
+	}
+}
+
+func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
+		Enabled:                   true,
+		ProcessSnapshotIntervalS:  0,
+		ExternalFlowMatchWindowMs: 45_000,
+	}); err != nil {
+		t.Fatalf("WriteBootstrapConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config: %v", err)
+	}
+	got := string(data)
+	if strings.Contains(got, "process_snapshot_interval_s") {
+		t.Fatalf("bootstrap config should omit zero process snapshot interval, got %s", got)
+	}
+	if !strings.Contains(got, `"external_flow_match_window_ms": 45000`) {
+		t.Fatalf("bootstrap config = %s, want external flow match window", got)
 	}
 }
 

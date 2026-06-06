@@ -63,12 +63,12 @@ where
         return Err(FramingError::FrameTooLarge(len));
     }
 
-    let reused = body.capacity() >= len;
+    let frame_len = len + 4;
+    let reused = body.capacity() >= frame_len;
     body.clear();
-    writer.write_all(&(len as u32).to_be_bytes()).await?;
+    body.extend_from_slice(&(len as u32).to_be_bytes());
     frame.encode(&mut *body)?;
     writer.write_all(body.as_slice()).await?;
-    writer.flush().await?;
 
     Ok(reused)
 }

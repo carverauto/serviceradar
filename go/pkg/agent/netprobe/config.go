@@ -34,9 +34,20 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled             bool     `json:"enabled"`
-	CaptureInterfaces   []string `json:"capture_interfaces,omitempty"`
-	FlowTableMaxEntries uint32   `json:"flow_table_max_entries,omitempty"`
+	Enabled                   bool     `json:"enabled"`
+	CaptureInterfaces         []string `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries       uint32   `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS  uint32   `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs uint32   `json:"external_flow_match_window_ms,omitempty"`
+}
+
+type addonConfig struct {
+	Enabled                   *bool    `json:"enabled"`
+	CaptureInterfaces         []string `json:"capture_interfaces"`
+	DefaultSampleIntervalMs   *uint32  `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries       *uint32  `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS  *uint32  `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs *uint32  `json:"external_flow_match_window_ms"`
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
@@ -62,6 +73,45 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 	return parsed
 }
 
+func ApplyAddonConfigJSON(
+	cfg *netprobepb.VisibilityAgentConfig,
+	configJSON []byte,
+) (*netprobepb.VisibilityAgentConfig, error) {
+	if cfg == nil {
+		cfg = &netprobepb.VisibilityAgentConfig{}
+	}
+	if len(strings.TrimSpace(string(configJSON))) == 0 {
+		return cfg, nil
+	}
+
+	var addon addonConfig
+	if err := json.Unmarshal(configJSON, &addon); err != nil {
+		return nil, fmt.Errorf("parse netprobe add-on config: %w", err)
+	}
+
+	merged := cloneVisibilityConfig(cfg)
+	if addon.Enabled != nil {
+		merged.Enabled = *addon.Enabled
+	}
+	if addon.CaptureInterfaces != nil {
+		merged.CaptureInterfaces = trimStrings(addon.CaptureInterfaces)
+	}
+	if addon.DefaultSampleIntervalMs != nil {
+		merged.DefaultSampleIntervalMs = *addon.DefaultSampleIntervalMs
+	}
+	if addon.FlowTableMaxEntries != nil {
+		merged.FlowTableMaxEntries = *addon.FlowTableMaxEntries
+	}
+	if addon.ProcessSnapshotIntervalS != nil {
+		merged.ProcessSnapshotIntervalS = *addon.ProcessSnapshotIntervalS
+	}
+	if addon.ExternalFlowMatchWindowMs != nil {
+		merged.ExternalFlowMatchWindowMs = *addon.ExternalFlowMatchWindowMs
+	}
+
+	return merged, nil
+}
+
 func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) error {
 	path = strings.TrimSpace(path)
 	if path == "" {
@@ -73,6 +123,8 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
 		payload.FlowTableMaxEntries = cfg.GetFlowTableMaxEntries()
+		payload.ProcessSnapshotIntervalS = cfg.GetProcessSnapshotIntervalS()
+		payload.ExternalFlowMatchWindowMs = cfg.GetExternalFlowMatchWindowMs()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")
@@ -89,6 +141,14 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 	}
 
 	return nil
+}
+
+func cloneVisibilityConfig(cfg *netprobepb.VisibilityAgentConfig) *netprobepb.VisibilityAgentConfig {
+	clone := *cfg
+	clone.CaptureInterfaces = append([]string(nil), cfg.GetCaptureInterfaces()...)
+	clone.DeviceBindings = append([]*netprobepb.DeviceBinding(nil), cfg.GetDeviceBindings()...)
+
+	return &clone
 }
 
 func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
