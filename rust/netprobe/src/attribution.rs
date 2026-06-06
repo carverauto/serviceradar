@@ -103,6 +103,8 @@ const UDP_ROLE_CACHE_MAX_ENTRIES: usize = 8192;
 #[cfg(target_os = "linux")]
 const UDP_ROLE_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
+const UDP_EPHEMERAL_PORT_FLOOR: u16 = 32768;
+#[cfg(target_os = "linux")]
 type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 #[cfg(target_os = "linux")]
 type FastHashSet<K> = HashSet<K, BuildHasherDefault<FastHasher>>;
@@ -516,6 +518,10 @@ impl UdpRoleInventory {
             return false;
         }
 
+        if likely_udp_client_record(record) {
+            return false;
+        }
+
         let now = Instant::now();
         self.prune_if_due(now);
 
@@ -523,11 +529,9 @@ impl UdpRoleInventory {
             return false;
         };
         let peer = UdpPeerKey::from_record(record);
-        let role = self.entries.entry(key).or_insert_with(|| UdpSocketRole {
-            peers: Vec::with_capacity(UDP_SERVER_REMOTE_THRESHOLD),
-            server_side: false,
-            last_seen: now,
-        });
+        let Some(role) = self.role_for_key(key, now) else {
+            return false;
+        };
 
         role.last_seen = now;
 
@@ -543,10 +547,24 @@ impl UdpRoleInventory {
         role.server_side
     }
 
+    fn role_for_key(&mut self, key: UdpSocketKey, now: Instant) -> Option<&mut UdpSocketRole> {
+        if self.entries.contains_key(&key) {
+            return self.entries.get_mut(&key);
+        }
+
+        if self.entries.len() >= UDP_ROLE_CACHE_MAX_ENTRIES {
+            return None;
+        }
+
+        Some(self.entries.entry(key).or_insert_with(|| UdpSocketRole {
+            peers: Vec::with_capacity(UDP_SERVER_REMOTE_THRESHOLD),
+            server_side: false,
+            last_seen: now,
+        }))
+    }
+
     fn prune_if_due(&mut self, now: Instant) {
-        if now.duration_since(self.last_prune) < UDP_ROLE_CACHE_PRUNE_INTERVAL
-            && self.entries.len() <= UDP_ROLE_CACHE_MAX_ENTRIES
-        {
+        if now.duration_since(self.last_prune) < UDP_ROLE_CACHE_PRUNE_INTERVAL {
             return;
         }
 
@@ -573,6 +591,12 @@ impl UdpRoleInventory {
             self.entries.remove(&key);
         }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn likely_udp_client_record(record: &FlowAttributionRecord) -> bool {
+    record.tuple.source_port >= UDP_EPHEMERAL_PORT_FLOOR
+        && record.tuple.destination_port < UDP_EPHEMERAL_PORT_FLOOR
 }
 
 #[cfg(target_os = "linux")]
@@ -2473,6 +2497,16 @@ mod tests {
 
         assert!(!roles.should_coalesce_record(&send));
         assert!(!roles.should_coalesce_record(&recv));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_does_not_cache_obvious_ephemeral_client_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let send = udp_record(EVENT_UDP_SEND, 51_000, 53);
+
+        assert!(!roles.should_coalesce_record(&send));
+        assert_eq!(roles.entries.len(), 0);
     }
 
     #[test]
