@@ -269,6 +269,10 @@ core:
     otelTracesDays: 3
     logsDays: 30
     ocsfNetworkActivityDays: 90
+    # Raw netprobe-to-process attribution observations are hot staging data used
+    # to correlate delayed NetFlow/IPFIX rows. Lower this to discard unmatched
+    # raw observations quickly; keep it at least 15 minutes.
+    flowAttributionMinutes: 60
     otelTracesChunkIntervalHours: 6
     logsChunkIntervalHours: 24
     ocsfNetworkActivityChunkIntervalHours: 24

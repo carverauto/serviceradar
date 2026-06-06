@@ -18,7 +18,8 @@ defmodule ServiceRadar.FlowAttribution do
   @table "flow_process_attributions"
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
-  @retention_minutes 60
+  @default_retention_minutes 60
+  @minimum_retention_minutes div(@correlation_skew_seconds + 59, 60)
 
   @doc "Persist a batch of pushed attribution events."
   @spec persist([FlowAttributionEvent.t()], String.t() | nil, String.t() | nil) :: :ok
@@ -381,14 +382,36 @@ defmodule ServiceRadar.FlowAttribution do
   @doc "Delete attributions older than the retention window."
   @spec prune() :: {:ok, non_neg_integer()} | {:error, term()}
   def prune do
-    sql =
-      "DELETE FROM #{@schema}.#{@table} WHERE observed_at < now() - interval '#{@retention_minutes} minutes'"
+    sql = """
+    DELETE FROM #{@schema}.#{@table}
+    WHERE observed_at < now() - ($1::integer * interval '1 minute')
+    """
 
-    case ServiceRadar.Repo.query(sql, []) do
+    case ServiceRadar.Repo.query(sql, [retention_minutes()]) do
       {:ok, %{num_rows: num_rows}} -> {:ok, num_rows}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc """
+  Returns raw attribution staging retention in minutes.
+
+  The value is clamped to the correlation skew so a deployment cannot discard
+  observations before delayed NetFlow/IPFIX rows have a chance to match.
+  """
+  @spec retention_minutes() :: pos_integer()
+  def retention_minutes do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:retention_minutes, @default_retention_minutes)
+    |> normalize_retention_minutes()
+  end
+
+  defp normalize_retention_minutes(value) when is_integer(value) do
+    max(value, @minimum_retention_minutes)
+  end
+
+  defp normalize_retention_minutes(_value), do: @default_retention_minutes
 
   defp observed_at(%FlowAttributionEvent{observed_at_unix_nano: ns})
        when is_integer(ns) and ns > 0 do

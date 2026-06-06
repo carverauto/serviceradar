@@ -283,6 +283,9 @@ if config_env() == :prod do
   ocsf_network_activity_retention_days =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
+  flow_attribution_retention_minutes =
+    "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
+
   otel_traces_chunk_interval_hours =
     "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
 
@@ -848,6 +851,9 @@ if config_env() == :prod do
 
   config :serviceradar_core, RefreshTraceSummariesWorker,
     retention_days: trace_summary_retention_days
+
+  config :serviceradar_core, ServiceRadar.FlowAttribution,
+    retention_minutes: flow_attribution_retention_minutes
 
   config :serviceradar_core,
     ansible_retention_run_detail_days: ansible_retention_run_detail_days,

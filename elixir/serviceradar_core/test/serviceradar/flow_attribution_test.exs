@@ -25,6 +25,73 @@ defmodule ServiceRadar.FlowAttributionTest do
     %{partition: partition, agent_id: agent_id}
   end
 
+  test "clamps configured raw attribution retention to the correlation skew" do
+    old_config = Application.get_env(:serviceradar_core, FlowAttribution)
+
+    on_exit(fn ->
+      if is_nil(old_config) do
+        Application.delete_env(:serviceradar_core, FlowAttribution)
+      else
+        Application.put_env(:serviceradar_core, FlowAttribution, old_config)
+      end
+    end)
+
+    Application.put_env(:serviceradar_core, FlowAttribution, retention_minutes: 1)
+
+    assert FlowAttribution.retention_minutes() == 15
+  end
+
+  test "prunes raw attribution rows using configured retention", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    old_config = Application.get_env(:serviceradar_core, FlowAttribution)
+
+    on_exit(fn ->
+      if is_nil(old_config) do
+        Application.delete_env(:serviceradar_core, FlowAttribution)
+      else
+        Application.put_env(:serviceradar_core, FlowAttribution, old_config)
+      end
+    end)
+
+    Application.put_env(:serviceradar_core, FlowAttribution, retention_minutes: 20)
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(DateTime.utc_now(), -25, :minute),
+      local_ip: "10.0.2.12",
+      local_port: 20_509,
+      remote_ip: "152.117.116.178",
+      remote_port: 161,
+      pid: 72_101,
+      comm: "old-row"
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(DateTime.utc_now(), -5, :minute),
+      local_ip: "10.0.2.12",
+      local_port: 20_510,
+      remote_ip: "152.117.116.178",
+      remote_port: 161,
+      pid: 72_102,
+      comm: "fresh-row"
+    })
+
+    assert {:ok, 1} = FlowAttribution.prune()
+
+    %{rows: [[count]]} =
+      query!(
+        "SELECT count(*) FROM platform.flow_process_attributions WHERE partition = $1",
+        [partition]
+      )
+
+    assert count == 1
+  end
+
   test "correlates pod-local attribution to node-SNATed NetFlow", %{
     partition: partition,
     agent_id: agent_id
