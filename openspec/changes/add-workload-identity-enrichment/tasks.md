@@ -1,6 +1,6 @@
 ## 1. Discovery and Architecture
 - [ ] 1.1 Inventory existing netprobe process/container fields, attributed flow query shape, device detail process-listener payloads, and any current container ID parsing helpers.
-- [ ] 1.2 Validate worker-local CRI metadata on demo Kubernetes nodes: containerd socket path, available pod/container labels, annotations, image IDs, sandbox IDs, and namespace/name/UID fields. Capture quick validation commands such as `crictl pods`, `crictl ps`, `crictl inspect`, and `crictl inspectp` for the runbook.
+- [ ] 1.2 Validate worker-local CRI metadata on demo Kubernetes nodes: containerd socket path, available pod/container labels, annotations, image IDs, sandbox IDs, runtime PIDs, cgroup paths, and namespace/name/UID fields. Capture quick validation commands such as `crictl pods`, `crictl ps`, `crictl inspect`, and `crictl inspectp` for the runbook, including k3s socket discovery for `/run/k3s/containerd/containerd.sock`.
 - [ ] 1.3 Validate Docker/Compose metadata on a non-Kubernetes host: Docker socket availability, Compose labels, container names, image IDs/digests, networks, published ports, and bind mounts. Capture quick validation commands such as `docker ps`, `docker inspect`, `docker compose ps`, and `docker events`.
 - [ ] 1.4 Decide first packaging target: native host add-on, Kubernetes DaemonSet, Docker Compose service, or one binary with all three manifests.
 
@@ -16,7 +16,7 @@
 - [ ] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
 
 ## 3. Kubernetes Node-Local Metadata
-- [ ] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata.
+- [ ] 3.1 Implement CRI/containerd resolver for container ID and pod sandbox ID to pod/container identity using local runtime metadata, with endpoint discovery from explicit config, runtime config files, and common socket paths.
 - [ ] 3.2 Add cgroup v1/v2 parsing and eBPF cgroup/process event joins that do not depend on procfs scans.
 - [ ] 3.3 Package the node-local collector as a Kubernetes DaemonSet or native add-on with explicit host mounts/capabilities and security documentation.
 - [ ] 3.4 Add degradation behavior for missing runtime sockets, unsupported runtimes, permission failures, and stale cgroup/container mappings.

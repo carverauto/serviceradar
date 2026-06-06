@@ -34,6 +34,14 @@ On Kubernetes workers, local CRI metadata is usually enough to map a container I
 
 That means the first implementation can avoid broad Kubernetes API credentials on the host agent. The tradeoff is that CRI is not the best source for higher-level owner chains such as Deployment -> ReplicaSet -> Pod, and it may not reflect all mutable label/annotation changes with the same fidelity as a Kubernetes watch.
 
+The collector must discover the CRI endpoint instead of assuming the default containerd socket. Demo k3s workers expose the runtime at `/run/k3s/containerd/containerd.sock`, while many standard kubeadm/containerd nodes use `/run/containerd/containerd.sock` or `/var/run/containerd/containerd.sock`; CRI-O commonly uses `/var/run/crio/crio.sock`. Endpoint selection should prefer an explicit config value, then known runtime config files, then a bounded list of common socket paths.
+
+Live validation on `k8s-cp3-worker3` showed that node-local `crictl` can resolve:
+- pod sandbox ID -> namespace, pod name, pod UID, pod labels, pod annotation keys, and sandbox cgroup path
+- container ID -> container name, image reference, pod labels, pod UID, runtime PID, and container cgroup path
+
+That is enough for the minimal viable enrichment path without Kubernetes RBAC on the host agent.
+
 ## Security Model
 Runtime sockets are powerful. A read-only hostPath mount does not make a Unix socket API read-only. The design must treat CRI/Docker socket access as privileged and auditable.
 

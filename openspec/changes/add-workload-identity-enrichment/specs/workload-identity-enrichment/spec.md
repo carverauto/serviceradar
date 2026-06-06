@@ -25,6 +25,12 @@ The system SHALL resolve Kubernetes container and pod identity from node-local C
 - **AND** it records an explicit workload identity degradation reason
 - **AND** it increments source-specific miss/error metrics
 
+#### Scenario: Collector discovers non-default CRI endpoint
+- **GIVEN** a Kubernetes worker exposes CRI on a non-default runtime socket such as `/run/k3s/containerd/containerd.sock`
+- **WHEN** workload identity enrichment starts without an explicit socket override
+- **THEN** the collector discovers a supported local CRI endpoint from runtime configuration or common socket paths
+- **AND** it records the selected endpoint source in runtime metadata metrics
+
 ### Requirement: Minimal viable Kubernetes workload identity
 The first workload identity implementation SHALL provide Kubernetes worker-local cgroup plus CRI enrichment before Docker/Compose enrichment or Kubernetes owner-overlay enrichment are required.
 
