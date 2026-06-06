@@ -12,7 +12,7 @@
 - [x] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
 - [ ] 1a.1d Add package-managed systemd ownership for ServiceRadar host add-ons: netprobe and workload-identity remain separate units, but share a ServiceRadar slice/target for lifecycle grouping, resource accounting, and status attribution instead of pretending they are child processes of `serviceradar-agent`.
 - [x] 1a.1e Put existing native host units (`serviceradar-agent`, netprobe, endpoint-inventory, and bumblebee-scan) in `serviceradar.slice` without adding `PartOf=`, `BindsTo=`, or `Requires=` coupling to `serviceradar-agent.service`.
-- [ ] 1a.1f Add workload-identity-to-agent forwarding so the standalone collector sends bounded identity observations through agent-gateway/core, where upstream coalesces current-state identity. Netprobe must not be required to consume workload-identity output for the data to reach storage/query/UI.
+- [x] 1a.1f Add workload-identity-to-agent forwarding so the standalone collector sends bounded identity observations through agent-gateway/core, where upstream coalesces current-state identity. Netprobe must not be required to consume workload-identity output for the data to reach storage/query/UI.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
@@ -51,6 +51,7 @@
 
 ## 6. Storage, Query, and UI
 - [ ] 6.1 Add current workload identity state storage with retention for raw observations and durable current-state lookup by container ID, pod UID, cgroup, and process generation.
+- [x] 6.1a Add upstream current-state storage for standalone workload identity snapshots keyed by partition, agent, and container ID.
 - [ ] 6.2 Attach best-known workload identity to attributed flow records and flow detail views.
 - [x] 6.2a Attach best-known node-local CRI workload identity to persisted attributed flow records and correlated flow OCSF payloads.
 - [ ] 6.3 Update attributed flow UI and NetFlow map details to show namespace/pod/workload/container for Kubernetes and project/service/container for Compose.

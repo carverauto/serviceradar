@@ -25,6 +25,7 @@ defmodule ServiceRadar.StatusHandler do
   require Logger
 
   @flow_attribution_source "flow-attribution"
+  @workload_identity_source "workload-identity"
 
   @telemetry_batch_received [
     :serviceradar,
@@ -111,6 +112,11 @@ defmodule ServiceRadar.StatusHandler do
   defp process(%{source: source} = status, _opts)
        when source in [@flow_attribution_source, :flow_attribution] do
     handle_flow_attribution(status)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in [@workload_identity_source, :workload_identity] do
+    ServiceRadar.WorkloadIdentity.persist_snapshot(status)
   end
 
   defp process(%{service_name: service_name} = status, _opts)

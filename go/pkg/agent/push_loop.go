@@ -130,6 +130,9 @@ type PushLoop struct {
 	ephemeralHelpersMu        sync.Mutex
 	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
 
+	workloadIdentityMu       sync.Mutex
+	lastWorkloadIdentityFile workloadIdentityFileSignature
+
 	stateMu  sync.RWMutex // Protects interval, configPollInterval, enrolled, configVersion, started
 	cancelMu sync.Mutex
 	cancel   context.CancelFunc
@@ -433,6 +436,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentSNMPMetrics := p.pushSNMPMetrics(ctx)
 	sentNetprobeResults := p.pushNetprobeResults(ctx)
 	sentFlowAttribution := p.pushFlowAttribution(ctx)
+	sentWorkloadIdentity := p.pushWorkloadIdentity(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
 
@@ -447,6 +451,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentSNMPMetrics &&
 		!sentNetprobeResults &&
 		!sentFlowAttribution &&
+		!sentWorkloadIdentity &&
 		!sentPluginResults &&
 		!sentPluginTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
