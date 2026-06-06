@@ -106,6 +106,28 @@ spec:
           value: {{ .ociDigest | quote }}
         {{- end }}
         {{- end }}
+        {{- with (default (dict) $coreVals.workloadIdentityAddon) }}
+        {{- if .artifacts }}
+        # Per-arch signed artifact refs for the workload-identity native add-on,
+        # from the published serviceradar-native-addon-index.json. Supplying them
+        # lets WorkloadIdentityAddonPackageSeeder approve an assignable package;
+        # absent, it stages the manifest version.
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_ARTIFACTS
+          value: {{ .artifacts | toJson | quote }}
+        {{- end }}
+        {{- if .version }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_VERSION
+          value: {{ .version | quote }}
+        {{- end }}
+        {{- if .ociRef }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_REF
+          value: {{ .ociRef | quote }}
+        {{- end }}
+        {{- if .ociDigest }}
+        - name: SERVICERADAR_WORKLOAD_IDENTITY_ADDON_OCI_DIGEST
+          value: {{ .ociDigest | quote }}
+        {{- end }}
+        {{- end }}
         - name: CLUSTER_ENABLED
           value: "true"
         - name: CLUSTER_STRATEGY

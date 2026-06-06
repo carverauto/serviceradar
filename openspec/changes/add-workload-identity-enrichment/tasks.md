@@ -62,6 +62,7 @@
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
 - [x] 7.1a Add netprobe add-on/bootstrap configuration knobs for workload identity enablement, explicit CRI endpoint, and refresh interval.
 - [x] 7.1b Add a first-party workload-identity native add-on manifest, config schema, systemd unit, Helm release-import allowlist entry, native add-on bundle inventory entry, and staged package seeder so `/settings/agents/addons` can surface the capability independently of netprobe.
+- [x] 7.1c Add Helm core workload-identity add-on artifact/version/OCI knobs so the release/native-add-on import path can approve assignable workload-identity packages without manual environment overrides.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
 - [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.
