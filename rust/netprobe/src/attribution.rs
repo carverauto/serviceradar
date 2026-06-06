@@ -82,6 +82,10 @@ const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 // Mirrors EVENT_TCP_CLOSE in the eBPF.
 const EVENT_TCP_CLOSE: u16 = 3;
 #[cfg(target_os = "linux")]
+const EVENT_UDP_SEND: u16 = 4;
+#[cfg(target_os = "linux")]
+const EVENT_UDP_RECV: u16 = 5;
+#[cfg(target_os = "linux")]
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
 #[cfg(target_os = "linux")]
 const TCP_CLOSE_STATE: i32 = 7;
@@ -92,6 +96,12 @@ const TCP_LISTEN_STATE: i32 = 10;
 // replaying every kernel refresh. This is deliberately shorter than the core
 // correlation skew (15 minutes today) and longer than the eBPF 60s refresh.
 const FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+const UDP_SERVER_REMOTE_THRESHOLD: usize = 2;
+#[cfg(target_os = "linux")]
+const UDP_ROLE_CACHE_MAX_ENTRIES: usize = 8192;
+#[cfg(target_os = "linux")]
+const UDP_ROLE_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
 type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 #[cfg(target_os = "linux")]
@@ -480,6 +490,145 @@ struct CachedProcessSocket {
 }
 
 #[cfg(target_os = "linux")]
+struct UdpRoleInventory {
+    entries: FastHashMap<UdpSocketKey, UdpSocketRole>,
+    last_prune: Instant,
+}
+
+#[cfg(target_os = "linux")]
+impl Default for UdpRoleInventory {
+    fn default() -> Self {
+        Self {
+            entries: FastHashMap::default(),
+            last_prune: Instant::now(),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl UdpRoleInventory {
+    fn should_coalesce_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        if !matches!(record.event_kind, EVENT_UDP_SEND | EVENT_UDP_RECV)
+            || record.tuple.protocol != IPPROTO_UDP
+            || record.tuple.source_port == 0
+            || record.tuple.destination_port == 0
+        {
+            return false;
+        }
+
+        let now = Instant::now();
+        self.prune_if_due(now);
+
+        let Some(key) = UdpSocketKey::from_record(record) else {
+            return false;
+        };
+        let peer = UdpPeerKey::from_record(record);
+        let role = self.entries.entry(key).or_insert_with(|| UdpSocketRole {
+            peers: Vec::with_capacity(UDP_SERVER_REMOTE_THRESHOLD),
+            server_side: false,
+            last_seen: now,
+        });
+
+        role.last_seen = now;
+
+        if !role.peers.contains(&peer) {
+            if role.peers.len() < UDP_SERVER_REMOTE_THRESHOLD {
+                role.peers.push(peer);
+            }
+            if role.peers.len() >= UDP_SERVER_REMOTE_THRESHOLD {
+                role.server_side = true;
+            }
+        }
+
+        role.server_side
+    }
+
+    fn prune_if_due(&mut self, now: Instant) {
+        if now.duration_since(self.last_prune) < UDP_ROLE_CACHE_PRUNE_INTERVAL
+            && self.entries.len() <= UDP_ROLE_CACHE_MAX_ENTRIES
+        {
+            return;
+        }
+
+        self.last_prune = now;
+        self.entries
+            .retain(|_, role| now.duration_since(role.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
+
+        if self.entries.len() <= UDP_ROLE_CACHE_MAX_ENTRIES {
+            return;
+        }
+
+        let mut by_age = self
+            .entries
+            .iter()
+            .map(|(key, role)| (*key, role.last_seen))
+            .collect::<Vec<_>>();
+        by_age.sort_by_key(|(_, last_seen)| *last_seen);
+
+        let overflow = self
+            .entries
+            .len()
+            .saturating_sub(UDP_ROLE_CACHE_MAX_ENTRIES);
+        for (key, _) in by_age.into_iter().take(overflow) {
+            self.entries.remove(&key);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct UdpSocketKey {
+    address_family: u16,
+    local_addr: [u8; 16],
+    local_port: u16,
+    socket_address: u64,
+    pid: u32,
+    tgid: u32,
+    process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl UdpSocketKey {
+    fn from_record(record: &FlowAttributionRecord) -> Option<Self> {
+        let flow = flow_key_from_record(record)?;
+
+        Some(Self {
+            address_family: flow.address_family,
+            local_addr: flow.endpoint_a_addr,
+            local_port: flow.endpoint_a_port,
+            socket_address: record.socket_address,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct UdpPeerKey {
+    remote_addr: [u8; 16],
+    remote_port: u16,
+}
+
+#[cfg(target_os = "linux")]
+impl UdpPeerKey {
+    fn from_record(record: &FlowAttributionRecord) -> Self {
+        Self {
+            remote_addr: record.tuple.destination_addr,
+            remote_port: record.tuple.destination_port,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct UdpSocketRole {
+    peers: Vec<UdpPeerKey>,
+    server_side: bool,
+    last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
 trait AttributionBackend {
     fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>);
     fn wait_for_records(&self, timeout: Duration) -> io::Result<bool>;
@@ -826,6 +975,7 @@ pub struct AyaAttributionReader {
     backend: EbpfAttributionBackend,
     metadata: MetadataEnricher,
     socket_inventory: SocketInventory,
+    udp_roles: UdpRoleInventory,
 }
 
 #[cfg(target_os = "linux")]
@@ -842,6 +992,7 @@ impl AyaAttributionReader {
             backend: EbpfAttributionBackend::from_ebpf(ebpf)?,
             metadata: MetadataEnricher::host(workload_identity_cache),
             socket_inventory: SocketInventory::default(),
+            udp_roles: UdpRoleInventory::default(),
         })
     }
 
@@ -950,6 +1101,10 @@ impl AyaAttributionReader {
 
     fn has_listener_for_record(&self, record: &FlowAttributionRecord) -> bool {
         self.socket_inventory.has_listener_for_record(record)
+    }
+
+    fn should_coalesce_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        self.has_listener_for_record(record) || self.udp_roles.should_coalesce_record(record)
     }
 
     fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
@@ -1265,7 +1420,7 @@ fn drain_ring(
     reader.drain_records(records);
     let drained = records.len();
     for record in records.iter() {
-        let coalesce_service = reader.has_listener_for_record(record);
+        let coalesce_service = reader.should_coalesce_record(record);
 
         if record.event_kind == EVENT_TCP_CLOSE {
             reader.remove_inventory_record(record);
@@ -1662,7 +1817,7 @@ fn attribution_flow_key_from_record(
 #[cfg(target_os = "linux")]
 fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -> bool {
     coalesce_service
-        && flow.transport_protocol == IPPROTO_TCP
+        && matches!(flow.transport_protocol, IPPROTO_TCP | IPPROTO_UDP)
         && flow.endpoint_a_port > 0
         && flow.endpoint_b_port > 0
 }
@@ -2214,9 +2369,10 @@ mod tests {
         maybe_emit_cached_attribution, process_details_from_record, prune_attribution_cache,
         refresh_enriched_attributions, touch_closed_cached_attribution, AttributionExpiryQueue,
         CachedAttribution, FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey,
-        SocketInventory, EVENT_INET_SOCK_SET_STATE, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
-        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
-        FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
+        SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
+        EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
+        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, IPPROTO_UDP, TCP_CLOSE_STATE,
+        TCP_LISTEN_STATE,
     };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
@@ -2282,6 +2438,58 @@ mod tests {
         assert_eq!(key.endpoint_a_port, 51_000);
         assert_eq!(key.endpoint_b_port, 443);
         assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_promotes_multi_peer_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let second = udp_record(EVENT_UDP_RECV, 53, 51_001);
+        let send = udp_record(EVENT_UDP_SEND, 53, 51_002);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+        assert!(roles.should_coalesce_record(&send));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_promotes_multi_peer_send_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_SEND, 53, 51_000);
+        let second = udp_record(EVENT_UDP_SEND, 53, 51_001);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_keeps_single_peer_client_socket_exact() {
+        let mut roles = UdpRoleInventory::default();
+        let send = udp_record(EVENT_UDP_SEND, 51_000, 53);
+        let recv = udp_record(EVENT_UDP_RECV, 51_000, 53);
+
+        assert!(!roles.should_coalesce_record(&send));
+        assert!(!roles.should_coalesce_record(&recv));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_server_side_attribution_coalesces_remote_endpoint_after_promotion() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let second = udp_record(EVENT_UDP_RECV, 53, 51_001);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+
+        let key = attribution_flow_key_from_record(&second, true).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 53);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
     }
 
     #[test]
@@ -3077,6 +3285,17 @@ mod tests {
             },
             comm: [0; 16],
         }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn udp_record(
+        event_kind: u16,
+        local_port: u16,
+        remote_port: u16,
+    ) -> super::FlowAttributionRecord {
+        let mut record = flow_record(IPPROTO_UDP, local_port, remote_port);
+        record.event_kind = event_kind;
+        record
     }
 
     #[cfg(target_os = "linux")]
