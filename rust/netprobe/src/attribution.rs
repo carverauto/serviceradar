@@ -8,6 +8,8 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
+    cmp::{Ordering as CmpOrdering, Reverse},
+    collections::BinaryHeap,
     collections::VecDeque,
     io, mem,
     os::fd::AsRawFd,
@@ -55,6 +57,8 @@ const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
 const FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
 const FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES: usize = 65_536;
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK: usize = FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES * 7 / 8;
 #[cfg(target_os = "linux")]
 // Process cmdline/container metadata is useful but not required to attribute a
 // flow. Keep procfs reads on a bounded cold path so eBPF PID/comm attribution
@@ -857,6 +861,8 @@ impl FlowAttributionRuntime {
                 // O(cache) work on the ring-reader thread.
                 let mut cache: HashMap<FlowAttributionJoinKey, CachedAttribution> = HashMap::new();
                 let mut process_index: ProcessAttributionIndex = HashMap::new();
+                let mut expiry_queue: AttributionExpiryQueue = BinaryHeap::new();
+                let mut next_expiry_sequence = 0_u64;
                 let mut last_process_snapshot = runtime_config
                     .process_snapshot_interval
                     .map(|interval| Instant::now() - interval);
@@ -870,6 +876,8 @@ impl FlowAttributionRuntime {
                         &metrics,
                         &mut cache,
                         &mut process_index,
+                        &mut expiry_queue,
+                        &mut next_expiry_sequence,
                     );
                     let enriched = reader.process_pending_metadata();
                     if !enriched.is_empty() {
@@ -897,6 +905,8 @@ impl FlowAttributionRuntime {
                                 &metrics,
                                 &mut cache,
                                 &mut process_index,
+                                &mut expiry_queue,
+                                &mut next_expiry_sequence,
                             );
                             last_resend = Instant::now();
                         }
@@ -908,6 +918,9 @@ impl FlowAttributionRuntime {
                             &mut cache,
                             &mut process_index,
                             &external_flow_matcher,
+                            &mut expiry_queue,
+                            &mut next_expiry_sequence,
+                            Instant::now(),
                         );
                         metrics.set_attribution_cache_entries("flow_attribution", cache.len());
                         last_cache_prune = Instant::now();
@@ -984,6 +997,9 @@ struct CachedAttribution {
 type ProcessAttributionIndex = HashMap<ProcessDetailsCacheKey, HashSet<FlowAttributionJoinKey>>;
 
 #[cfg(target_os = "linux")]
+type AttributionExpiryQueue = BinaryHeap<Reverse<AttributionExpiry>>;
+
+#[cfg(target_os = "linux")]
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct ProcessDetailsCacheKey {
     tgid: u32,
@@ -1023,6 +1039,40 @@ struct CachedProcessDetails {
     last_used: Instant,
 }
 
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug)]
+struct AttributionExpiry {
+    expires_at: Instant,
+    sequence: u64,
+    key: FlowAttributionJoinKey,
+}
+
+#[cfg(target_os = "linux")]
+impl PartialEq for AttributionExpiry {
+    fn eq(&self, other: &Self) -> bool {
+        self.expires_at == other.expires_at && self.sequence == other.sequence
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Eq for AttributionExpiry {}
+
+#[cfg(target_os = "linux")]
+impl PartialOrd for AttributionExpiry {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Ord for AttributionExpiry {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        self.expires_at
+            .cmp(&other.expires_at)
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
+}
+
 // Drain the ring buffer and emit a flow-attribution event for every newly-seen
 // flow. A record for an already-cached flow refreshes the cached event (so the
 // next resend carries its latest state) without re-broadcasting. A close record
@@ -1036,6 +1086,8 @@ fn drain_ring(
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
     process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
 ) -> usize {
     let records = reader.drain_records();
     let drained = records.len();
@@ -1096,11 +1148,13 @@ fn drain_ring(
             }
             existing.last_seen = Instant::now();
         } else {
-            external_flow_matcher.observe_attribution(&event);
+            external_flow_matcher.observe_attribution_key(key.flow, &event);
             emit_raw_flow_attribution_event(tx, metrics, &event);
             insert_cached_attribution(
                 cache,
                 process_index,
+                expiry_queue,
+                next_expiry_sequence,
                 key,
                 CachedAttribution {
                     event,
@@ -1124,8 +1178,17 @@ fn resend_cache(
     metrics: &Metrics,
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
     process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
 ) {
-    prune_attribution_cache(cache, process_index, external_flow_matcher);
+    prune_attribution_cache(
+        cache,
+        process_index,
+        external_flow_matcher,
+        expiry_queue,
+        next_expiry_sequence,
+        Instant::now(),
+    );
     for entry in cache.values() {
         emit_raw_flow_attribution_event(tx, metrics, &entry.event);
     }
@@ -1135,9 +1198,12 @@ fn resend_cache(
 fn insert_cached_attribution(
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
     process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
     key: FlowAttributionJoinKey,
     entry: CachedAttribution,
 ) {
+    let last_seen = entry.last_seen;
     if let Some(previous) = cache.insert(key, entry) {
         remove_process_index_key(process_index, previous.process_key, &key);
     }
@@ -1147,6 +1213,7 @@ fn insert_cached_attribution(
             .or_default()
             .insert(key);
     }
+    push_attribution_expiry(expiry_queue, next_expiry_sequence, key, last_seen);
 }
 
 #[cfg(target_os = "linux")]
@@ -1190,17 +1257,53 @@ fn remove_process_index_key(
 }
 
 #[cfg(target_os = "linux")]
+fn push_attribution_expiry(
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    key: FlowAttributionJoinKey,
+    last_seen: Instant,
+) {
+    let sequence = *next_expiry_sequence;
+    *next_expiry_sequence = next_expiry_sequence.wrapping_add(1);
+    expiry_queue.push(Reverse(AttributionExpiry {
+        expires_at: last_seen + FLOW_ATTRIBUTION_CACHE_TTL,
+        sequence,
+        key,
+    }));
+}
+
+#[cfg(target_os = "linux")]
 fn prune_attribution_cache(
     cache: &mut HashMap<FlowAttributionJoinKey, CachedAttribution>,
     process_index: &mut ProcessAttributionIndex,
     external_flow_matcher: &SharedExternalFlowMatcher,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    now: Instant,
 ) {
-    let mut remove_keys = cache
-        .iter()
-        .filter_map(|(key, entry)| {
-            (entry.last_seen.elapsed() >= FLOW_ATTRIBUTION_CACHE_TTL).then_some(*key)
-        })
-        .collect::<Vec<_>>();
+    let mut remove_keys = Vec::new();
+
+    while let Some(Reverse(expiry)) = expiry_queue.peek().copied() {
+        if expiry.expires_at > now {
+            break;
+        }
+        expiry_queue.pop();
+
+        let Some(entry) = cache.get(&expiry.key) else {
+            continue;
+        };
+        let refreshed_expires_at = entry.last_seen + FLOW_ATTRIBUTION_CACHE_TTL;
+        if refreshed_expires_at <= now {
+            remove_keys.push(expiry.key);
+        } else {
+            push_attribution_expiry(
+                expiry_queue,
+                next_expiry_sequence,
+                expiry.key,
+                entry.last_seen,
+            );
+        }
+    }
 
     if cache.len().saturating_sub(remove_keys.len()) > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES {
         let remove_set = remove_keys.iter().copied().collect::<HashSet<_>>();
@@ -1214,7 +1317,7 @@ fn prune_attribution_cache(
         let overflow = cache
             .len()
             .saturating_sub(remove_keys.len())
-            .saturating_sub(FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES);
+            .saturating_sub(FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK);
         remove_keys.extend(by_age.into_iter().take(overflow).map(|(key, _)| key));
     }
 
@@ -1248,7 +1351,7 @@ fn refresh_enriched_attributions(
             }
             entry.event.observed_at_unix_nano = now_unix_nano();
             entry.last_seen = Instant::now();
-            external_flow_matcher.observe_attribution(&entry.event);
+            external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
             emit_raw_flow_attribution_event(tx, metrics, &entry.event);
         }
     }
@@ -1749,8 +1852,9 @@ mod tests {
     #[cfg(target_os = "linux")]
     use super::{
         insert_cached_attribution, process_details_from_record, prune_attribution_cache,
-        refresh_enriched_attributions, CachedAttribution, ProcessAttributionIndex,
-        ProcessDetailsCacheKey, SocketInventory, EVENT_INET_SOCK_SET_STATE,
+        refresh_enriched_attributions, AttributionExpiryQueue, CachedAttribution,
+        ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory,
+        EVENT_INET_SOCK_SET_STATE, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
         FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
     };
     use crate::af_xdp_classifier::FlowKey;
@@ -2076,6 +2180,8 @@ mod tests {
     fn refresh_enriched_attributions_uses_process_index() {
         let mut cache = std::collections::HashMap::new();
         let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
         let matcher = SharedExternalFlowMatcher::new(0);
         let metrics = crate::metrics::Metrics::new().unwrap();
         let matching_process = ProcessDetailsCacheKey {
@@ -2096,12 +2202,16 @@ mod tests {
         insert_cached_attribution(
             &mut cache,
             &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
             matching_key,
             cached_attribution(matching_process, "old"),
         );
         insert_cached_attribution(
             &mut cache,
             &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
             other_key,
             cached_attribution(other_process, "other"),
         );
@@ -2138,6 +2248,8 @@ mod tests {
     fn prune_attribution_cache_enforces_max_entries_and_index() {
         let mut cache = std::collections::HashMap::new();
         let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
         let matcher = SharedExternalFlowMatcher::new(0);
 
         for i in 0..(FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES + 8) {
@@ -2158,14 +2270,23 @@ mod tests {
             insert_cached_attribution(
                 &mut cache,
                 &mut process_index,
+                &mut expiry_queue,
+                &mut next_expiry_sequence,
                 key,
                 cached_attribution(process, "app"),
             );
         }
 
-        prune_attribution_cache(&mut cache, &mut process_index, &matcher);
+        prune_attribution_cache(
+            &mut cache,
+            &mut process_index,
+            &matcher,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            std::time::Instant::now(),
+        );
 
-        assert_eq!(cache.len(), FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES);
+        assert_eq!(cache.len(), FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK);
         assert_eq!(
             process_index.values().map(|keys| keys.len()).sum::<usize>(),
             cache.len()

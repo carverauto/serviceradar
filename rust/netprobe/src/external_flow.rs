@@ -44,11 +44,20 @@ impl SharedExternalFlowMatcher {
             .set_match_window_ms(match_window_ms);
     }
 
+    #[allow(dead_code)]
     pub fn observe_attribution(&self, event: &FlowAttributionEvent) {
         self.inner
             .write()
             .expect("external flow matcher lock poisoned")
             .observe_attribution(event);
+    }
+
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn observe_attribution_key(&self, key: FlowKey, event: &FlowAttributionEvent) {
+        self.inner
+            .write()
+            .expect("external flow matcher lock poisoned")
+            .observe_attribution_key(key, event);
     }
 
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
@@ -79,11 +88,17 @@ impl ExternalFlowMatcher {
         self.match_window_ms = effective_match_window_ms(match_window_ms);
     }
 
+    #[allow(dead_code)]
     pub fn observe_attribution(&mut self, event: &FlowAttributionEvent) {
         let Some(key) = flow_key_from_attribution_event(event) else {
             return;
         };
 
+        self.observe_attribution_key(key, event);
+    }
+
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+    pub fn observe_attribution_key(&mut self, key: FlowKey, event: &FlowAttributionEvent) {
         self.attribution.insert(key, event.clone());
     }
 
@@ -122,6 +137,7 @@ fn effective_match_window_ms(configured: u32) -> u32 {
     }
 }
 
+#[allow(dead_code)]
 fn flow_key_from_attribution_event(event: &FlowAttributionEvent) -> Option<FlowKey> {
     canonical_flow_key(
         event.local_ip.parse().ok()?,
