@@ -92,6 +92,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     defp recent_releases do
       [
+        release_summary(
+          "netprobe-v0.2.9",
+          "Native add-on netprobe 0.2.9",
+          "Add-on only release",
+          addon?: true
+        ),
+        release_summary(
+          "endpoint-inventory-v0.1.1",
+          "Native add-on endpoint inventory 0.1.1",
+          "Add-on only release",
+          addon?: true
+        ),
         release_summary("v7.0.0", "ServiceRadar 7.0.0", "Imported release notes"),
         release_summary("v6.9.9", "ServiceRadar 6.9.9", "Missing manifest", manifest?: false)
         | Enum.map(
@@ -109,15 +121,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
 
     defp release_summary(tag, name, body, opts \\ []) do
       assets =
-        Enum.reject(
+        if Keyword.get(opts, :addon?, false) do
           [
-            Keyword.get(opts, :manifest?, true) &&
-              release_asset(tag, "serviceradar-agent-release-manifest.json", "manifest.json"),
-            Keyword.get(opts, :signature?, true) &&
-              release_asset(tag, "serviceradar-agent-release-manifest.sig", "manifest.sig")
-          ],
-          &(&1 in [nil, false])
-        )
+            release_asset(tag, "serviceradar-native-addon-index.json", "native-addons.json"),
+            release_asset(tag, "serviceradar-native-addon-index.sig", "native-addons.sig")
+          ]
+        else
+          Enum.reject(
+            [
+              Keyword.get(opts, :manifest?, true) &&
+                release_asset(tag, "serviceradar-agent-release-manifest.json", "manifest.json"),
+              Keyword.get(opts, :signature?, true) &&
+                release_asset(tag, "serviceradar-agent-release-manifest.sig", "manifest.sig")
+            ],
+            &(&1 in [nil, false])
+          )
+        end
 
       %{
         "tag_name" => tag,
@@ -338,9 +357,12 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsReleasesLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/agents/releases")
 
     assert html =~ "Recent Repository Releases"
+    assert html =~ "latest 5 agent releases"
     assert html =~ "v7.0.0"
     assert html =~ "v6.9.9"
     assert html =~ "v6.9.6"
+    refute html =~ "netprobe-v0.2.9"
+    refute html =~ "endpoint-inventory-v0.1.1"
     refute html =~ "v6.9.5"
     refute html =~ "v6.8.9"
     refute html =~ "Showing 1-"

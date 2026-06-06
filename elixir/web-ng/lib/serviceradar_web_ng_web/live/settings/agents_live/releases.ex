@@ -591,7 +591,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
                             Recent Repository Releases
                           </div>
                           <div class="text-xs text-base-content/60">
-                            Showing the latest {@visible_release_limit} releases from the selected Forgejo repository.
+                            Showing the latest {@visible_release_limit} agent releases from the selected Forgejo repository.
                           </div>
                         </div>
                         <span class="text-xs text-base-content/50">

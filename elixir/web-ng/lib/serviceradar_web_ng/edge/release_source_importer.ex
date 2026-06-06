@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   @default_manifest_asset_name "serviceradar-agent-release-manifest.json"
   @default_signature_asset_name "serviceradar-agent-release-manifest.sig"
   @default_recent_release_limit 5
+  @max_recent_release_scan_limit 50
   @max_asset_redirects 5
   @default_provider "forgejo"
   @forgejo_host "code.carverauto.dev"
@@ -33,11 +34,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
         @default_signature_asset_name
 
     with {:ok, repo} <- import_repo(attrs),
-         {:ok, releases} <- fetch_recent_releases(repo, limit) do
+         {:ok, releases} <- fetch_recent_releases(repo, recent_release_scan_limit(limit)) do
       {:ok,
        releases
        |> Enum.map(&summarize_release(&1, manifest_asset_name, signature_asset_name))
        |> Enum.reject(&is_nil(&1))
+       |> Enum.filter(&agent_release_candidate?/1)
        |> Enum.take(normalize_limit(limit))}
     end
   end
@@ -215,6 +217,13 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   defp normalize_limit(limit) when is_integer(limit) and limit > 0, do: min(limit, 5)
   defp normalize_limit(_limit), do: @default_recent_release_limit
 
+  defp recent_release_scan_limit(limit) do
+    limit
+    |> normalize_limit()
+    |> Kernel.*(10)
+    |> min(@max_recent_release_scan_limit)
+  end
+
   defp fetch_release_asset(release, asset_name) do
     assets = List.wrap(Map.get(release, "assets"))
 
@@ -302,6 +311,12 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporter do
   end
 
   defp summarize_release(_release, _manifest_asset_name, _signature_asset_name), do: nil
+
+  defp agent_release_candidate?(%{manifest_present?: manifest_present?, signature_present?: signature_present?}) do
+    manifest_present? or signature_present?
+  end
+
+  defp agent_release_candidate?(_release), do: false
 
   defp release_asset_present?(assets, asset_name) when is_list(assets) do
     Enum.any?(assets, &(normalize_string(Map.get(&1, "name")) == asset_name))
