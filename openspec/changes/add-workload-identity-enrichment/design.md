@@ -25,6 +25,8 @@ Docker/Compose metadata and the optional Kubernetes inventory overlay are follow
 
 This milestone should be implementation-gated separately from the broader workload identity plan. Do not block the Kubernetes CRI/cgroup MVP on Docker, Compose, owner-chain overlay, cold storage, or cluster-wide inventory work.
 
+The MVP acceptance test should be narrow: on a demo Kubernetes worker, a containerized attributed flow must show pod namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and explicit degradation fields without granting Kubernetes API credentials to the host agent.
+
 ## MVP Packaging Decision
 Ship the Kubernetes MVP as a native host add-on first, using the ServiceRadar agents already installed on worker nodes. This matches the current netprobe rollout and commandbus/config-update path, and it avoids broad Kubernetes API/RBAC for the baseline CRI path.
 
@@ -63,6 +65,32 @@ Implementation candidates:
 
 The first client spike should reproduce the validated `crictl` calls over the worker's Unix socket and return a small in-memory map of container ID and pod sandbox ID to namespace, pod name, pod UID, container name, image, runtime PID, and cgroup path. Schema, storage, and UI work should wait until that node-local resolver behavior is proven against the demo k3s/containerd socket.
 
+## Node Validation Commands
+Use `crictl` as the operator/debug equivalent of the MVP CRI calls. On k3s/containerd workers:
+
+```bash
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock pods
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock ps
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id>
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id>
+```
+
+On standard containerd workers, use the discovered endpoint, commonly:
+
+```bash
+sudo crictl --runtime-endpoint unix:///run/containerd/containerd.sock pods
+sudo crictl --runtime-endpoint unix:///run/containerd/containerd.sock ps
+```
+
+For Docker/Compose follow-up validation:
+
+```bash
+docker ps --no-trunc
+docker inspect <container-id>
+docker compose ps
+docker events --since 10m
+```
+
 ## Security Model
 Runtime sockets are powerful. A read-only hostPath mount does not make a Unix socket API read-only. The design must treat CRI/Docker socket access as privileged and auditable.
 
@@ -74,6 +102,8 @@ Controls:
 - Where possible, use a small local metadata proxy/helper that exposes only read methods needed by ServiceRadar instead of giving the main agent full runtime API access.
 - Publish degradation counters when metadata sources are unavailable or disabled.
 - Never block flow attribution on workload metadata. Missing enrichment must produce explicit unknown/degraded fields.
+
+The optional Kubernetes inventory overlay is the only component that should need Kubernetes API RBAC. The baseline node-local CRI/cgroup path must work without Kubernetes API access on the host agent.
 
 ## Data Flow
 1. netprobe attributes flow/socket/process context through eBPF.
