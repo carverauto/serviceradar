@@ -1465,7 +1465,7 @@ fn apply_process_details_to_event(
     event: &mut FlowAttributionEvent,
     details: &ProcessDetails,
 ) -> bool {
-    let redacted_cmdline = cap_redacted_cmdline(details.cmdline.clone());
+    let redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
     let container_id = details.container_id.clone().unwrap_or_default();
     let changed = event.uid != details.uid
         || event.gid != details.gid
@@ -1610,10 +1610,21 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
 /// joined, possibly-truncated payload — because the §20.15 contract
 /// caps the cumulative byte length of the field, not its element count.
 fn cap_redacted_cmdline(parts: Vec<String>) -> Vec<String> {
+    cap_redacted_cmdline_ref(&parts)
+}
+
+fn cap_redacted_cmdline_ref(parts: &[String]) -> Vec<String> {
     if parts.is_empty() {
         return Vec::new();
     }
-    let joined = parts.join(" ");
+    let total_len = parts.iter().map(String::len).sum::<usize>() + parts.len().saturating_sub(1);
+    let mut joined = String::with_capacity(total_len);
+    for (idx, part) in parts.iter().enumerate() {
+        if idx > 0 {
+            joined.push(' ');
+        }
+        joined.push_str(part);
+    }
     let capped = trim_to_utf8_boundary(&joined, REDACTED_CMDLINE_MAX_BYTES);
     vec![capped]
 }
@@ -1653,11 +1664,9 @@ fn flow_attribution_event(
         comm: process
             .map(|details| details.comm.clone())
             .unwrap_or_default(),
-        redacted_cmdline: cap_redacted_cmdline(
-            process
-                .map(|details| details.cmdline.clone())
-                .unwrap_or_default(),
-        ),
+        redacted_cmdline: process
+            .map(|details| cap_redacted_cmdline_ref(&details.cmdline))
+            .unwrap_or_default(),
         container_id: process
             .and_then(|details| details.container_id.clone())
             .unwrap_or_default(),
