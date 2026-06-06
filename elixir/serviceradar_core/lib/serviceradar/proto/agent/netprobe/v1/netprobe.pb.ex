@@ -74,6 +74,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
     type: Serviceradar.Agent.Netprobe.V1.ExternalFlowAck,
     json_name: "externalFlowAck",
     oneof: 0
+
+  field :flow_attribution_batch, 29,
+    type: Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch,
+    json_name: "flowAttributionBatch",
+    oneof: 0
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ApplyConfig do
@@ -172,6 +177,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.VisibilityAgentConfig do
   field :flow_table_max_entries, 40, type: :uint32, json_name: "flowTableMaxEntries"
   field :process_snapshot_interval_s, 41, type: :uint32, json_name: "processSnapshotIntervalS"
   field :external_flow_match_window_ms, 42, type: :uint32, json_name: "externalFlowMatchWindowMs"
+  field :flow_attribution_ipc_batch, 43, type: :bool, json_name: "flowAttributionIpcBatch"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceBinding do

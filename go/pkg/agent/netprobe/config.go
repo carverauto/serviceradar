@@ -65,6 +65,7 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 			Dpi:                     parseDPIConfig(cfg.GetDpi()),
 			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
 			FlowTableMaxEntries:     cfg.GetFlowTableMaxEntries(),
+			FlowAttributionIpcBatch: true,
 			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
 		BinaryOverridePath: strings.TrimSpace(cfg.GetBinaryOverrides().GetPath()),

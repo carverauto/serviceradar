@@ -552,10 +552,11 @@ func (c *Client) readLoop() {
 				}
 			}
 			if event := frame.GetFlowAttributionEvent(); event != nil {
-				select {
-				case c.flowEvents <- event:
-				default:
-					c.recordEventDrop(EventStreamFlowAttr, EventDropBackpressure)
+				c.enqueueFlowAttributionEvent(event)
+			}
+			if batch := frame.GetFlowAttributionBatch(); batch != nil {
+				for _, event := range batch.GetEvents() {
+					c.enqueueFlowAttributionEvent(event)
 				}
 			}
 			if snapshot := frame.GetProcessSnapshot(); snapshot != nil {
@@ -576,6 +577,18 @@ func (c *Client) readLoop() {
 		if ch != nil {
 			ch <- response{frame: frame}
 		}
+	}
+}
+
+func (c *Client) enqueueFlowAttributionEvent(event *netprobepb.FlowAttributionEvent) {
+	if event == nil {
+		return
+	}
+
+	select {
+	case c.flowEvents <- event:
+	default:
+		c.recordEventDrop(EventStreamFlowAttr, EventDropBackpressure)
 	}
 }
 

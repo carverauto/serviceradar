@@ -77,6 +77,9 @@ func TestParseVisibilityConfig(t *testing.T) {
 	if cfg.GetFlowTableMaxEntries() != 262_144 {
 		t.Fatalf("FlowTableMaxEntries = %d, want 262144", cfg.GetFlowTableMaxEntries())
 	}
+	if !cfg.GetFlowAttributionIpcBatch() {
+		t.Fatal("FlowAttributionIpcBatch = false, want true")
+	}
 	if !cfg.GetDpi().GetEnabled() {
 		t.Fatal("DPI enabled = false, want true")
 	}

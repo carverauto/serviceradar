@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::{SystemTime, UNIX_EPOCH},
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result};
@@ -12,6 +12,7 @@ use prost::Message;
 use tokio::{
     net::{UnixListener, UnixStream},
     sync::{broadcast, watch, Mutex},
+    time::{timeout, Instant},
 };
 
 use crate::{
@@ -28,11 +29,14 @@ use crate::{
     metrics::Metrics,
     proto::netprobe::{
         netprobe_frame, ConfigAck, DpiEvent, ErrorFrame, ExternalFlowAck, ExternalFlowRecord,
-        FingerprintEvent, FlowAttributionEvent, NetprobeFrame, PingAck, ProcessSnapshot,
-        ProcessSnapshotEntry,
+        FingerprintEvent, FlowAttributionEvent, FlowAttributionEventBatch, NetprobeFrame, PingAck,
+        ProcessSnapshot, ProcessSnapshotEntry,
     },
     runtime_config::RuntimeConfig,
 };
+
+const FLOW_ATTRIBUTION_IPC_BATCH_MAX: usize = 256;
+const FLOW_ATTRIBUTION_IPC_BATCH_WAIT: Duration = Duration::from_millis(25);
 
 pub struct IpcServer {
     socket_path: PathBuf,
@@ -215,12 +219,23 @@ async fn handle_client(
             event = flow_attribution_events.recv() => {
                 match event {
                     Ok(event) => {
-                        external_flows.observe_attribution(&event);
-                        let frame = NetprobeFrame {
-                            sequence: 0,
-                            payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
-                        };
-                        write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                        if runtime_config.flow_attribution_ipc_batch_enabled() {
+                            write_flow_attribution_batch_frame(
+                                &mut writer,
+                                event,
+                                &mut flow_attribution_events,
+                                &external_flows,
+                                &mut encode_buffer,
+                                &metrics,
+                            ).await?;
+                        } else {
+                            external_flows.observe_attribution(&event);
+                            let frame = NetprobeFrame {
+                                sequence: 0,
+                                payload: Some(netprobe_frame::Payload::FlowAttributionEvent(event)),
+                            };
+                            write_reused_frame(&mut writer, &frame, &mut encode_buffer, &metrics).await?;
+                        }
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
@@ -256,6 +271,83 @@ async fn handle_client(
 
 async fn recv_event<T>(receiver: &Arc<Mutex<EventReceiver<T>>>) -> Option<T> {
     receiver.lock().await.recv().await
+}
+
+async fn write_flow_attribution_batch_frame<W>(
+    writer: &mut W,
+    first: FlowAttributionEvent,
+    flow_attribution_events: &mut broadcast::Receiver<FlowAttributionEvent>,
+    external_flows: &SharedExternalFlowMatcher,
+    encode_buffer: &mut Vec<u8>,
+    metrics: &Metrics,
+) -> Result<(), crate::framing::FramingError>
+where
+    W: tokio::io::AsyncWrite + Unpin,
+{
+    let batch_start_unix_nano = now_unix_nano();
+    let deadline = Instant::now() + FLOW_ATTRIBUTION_IPC_BATCH_WAIT;
+    let mut events = Vec::with_capacity(FLOW_ATTRIBUTION_IPC_BATCH_MAX.min(64));
+    let mut dropped_since_last = 0_u32;
+
+    observe_and_push_attribution(first, external_flows, &mut events);
+
+    while events.len() < FLOW_ATTRIBUTION_IPC_BATCH_MAX {
+        match flow_attribution_events.try_recv() {
+            Ok(event) => {
+                observe_and_push_attribution(event, external_flows, &mut events);
+            }
+            Err(broadcast::error::TryRecvError::Empty) => {
+                let remaining = deadline.saturating_duration_since(Instant::now());
+                if remaining.is_zero() {
+                    break;
+                }
+
+                match timeout(remaining, flow_attribution_events.recv()).await {
+                    Ok(Ok(event)) => {
+                        observe_and_push_attribution(event, external_flows, &mut events)
+                    }
+                    Ok(Err(broadcast::error::RecvError::Lagged(skipped))) => {
+                        metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
+                        dropped_since_last = dropped_since_last
+                            .saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
+                        log::warn!("netprobe IPC client lagged; skipped {skipped} flow attribution event(s)");
+                    }
+                    Ok(Err(broadcast::error::RecvError::Closed)) | Err(_) => break,
+                }
+            }
+            Err(broadcast::error::TryRecvError::Lagged(skipped)) => {
+                metrics.inc_flow_attribution_events_dropped("lagged_receiver", skipped);
+                dropped_since_last =
+                    dropped_since_last.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
+                log::warn!(
+                    "netprobe IPC client lagged; skipped {skipped} flow attribution event(s)"
+                );
+            }
+            Err(broadcast::error::TryRecvError::Closed) => break,
+        }
+    }
+
+    let frame = NetprobeFrame {
+        sequence: 0,
+        payload: Some(netprobe_frame::Payload::FlowAttributionBatch(
+            FlowAttributionEventBatch {
+                events,
+                batch_start_unix_nano,
+                batch_end_unix_nano: now_unix_nano(),
+                dropped_since_last,
+            },
+        )),
+    };
+    write_reused_frame(writer, &frame, encode_buffer, metrics).await
+}
+
+fn observe_and_push_attribution(
+    event: FlowAttributionEvent,
+    external_flows: &SharedExternalFlowMatcher,
+    events: &mut Vec<FlowAttributionEvent>,
+) {
+    external_flows.observe_attribution(&event);
+    events.push(event);
 }
 
 async fn write_reused_frame<W>(
@@ -777,6 +869,75 @@ mod tests {
         };
         assert_eq!(event.local_ip, "192.0.2.10");
         assert_eq!(event.pid, 123);
+
+        shutdown_tx.send(true).unwrap();
+        task.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn batches_flow_attribution_events_when_client_opts_in() {
+        let dir = TempDir::new().unwrap();
+        let socket = dir.path().join("ipc.sock");
+        let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let (_event_tx, event_rx) = crate::event_queue::bounded(16);
+        let (_dpi_tx, dpi_rx) = crate::event_queue::bounded(16);
+        let (flow_tx, _) = broadcast::channel(16);
+        let (process_tx, _) = broadcast::channel(16);
+        let server = IpcServer::new(
+            &socket,
+            event_rx,
+            dpi_rx,
+            flow_tx.clone(),
+            process_tx,
+            test_external_flow_matcher(),
+            RuntimeConfig::new(&Config::default()),
+            Metrics::new().unwrap(),
+        );
+        let task = tokio::spawn(server.run(shutdown_rx));
+
+        wait_for_socket(&socket).await;
+
+        let mut client = UnixStream::connect(&socket).await.unwrap();
+        write_frame(
+            &mut client,
+            &NetprobeFrame {
+                sequence: 7,
+                payload: Some(netprobe_frame::Payload::ApplyConfig(ApplyConfig {
+                    config: Some(VisibilityAgentConfig {
+                        flow_attribution_ipc_batch: true,
+                        ..Default::default()
+                    }),
+                })),
+            },
+        )
+        .await
+        .unwrap();
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 7);
+        assert!(matches!(
+            response.payload,
+            Some(netprobe_frame::Payload::ConfigAck(_))
+        ));
+
+        wait_for_event_receiver(&flow_tx).await;
+        for pid in [123, 124, 125] {
+            let mut event = flow_attribution_event();
+            event.pid = pid;
+            flow_tx.send(event).unwrap();
+        }
+
+        let response = read_frame(&mut client).await.unwrap().unwrap();
+        assert_eq!(response.sequence, 0);
+        let Some(netprobe_frame::Payload::FlowAttributionBatch(batch)) = response.payload else {
+            panic!("expected flow attribution batch");
+        };
+        let pids = batch
+            .events
+            .iter()
+            .map(|event| event.pid)
+            .collect::<Vec<_>>();
+        assert_eq!(pids, vec![123, 124, 125]);
+        assert!(batch.batch_start_unix_nano <= batch.batch_end_unix_nano);
 
         shutdown_tx.send(true).unwrap();
         task.await.unwrap().unwrap();
