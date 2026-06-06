@@ -1459,6 +1459,8 @@ struct DrainMetricAccumulator {
     backend_hits: u64,
     backend_misses: u64,
     attribution_records: [u64; ATTRIBUTION_RECORD_METRIC_SLOTS],
+    touched_record_slots: [usize; ATTRIBUTION_RECORD_METRIC_SLOTS],
+    touched_record_slot_count: usize,
 }
 
 #[cfg(target_os = "linux")]
@@ -1469,6 +1471,8 @@ impl DrainMetricAccumulator {
             backend_hits: 0,
             backend_misses: 0,
             attribution_records: [0; ATTRIBUTION_RECORD_METRIC_SLOTS],
+            touched_record_slots: [0; ATTRIBUTION_RECORD_METRIC_SLOTS],
+            touched_record_slot_count: 0,
         }
     }
 
@@ -1493,6 +1497,10 @@ impl DrainMetricAccumulator {
             outcome_index,
             service_coalesced,
         );
+        if self.attribution_records[slot] == 0 {
+            self.touched_record_slots[self.touched_record_slot_count] = slot;
+            self.touched_record_slot_count += 1;
+        }
         self.attribution_records[slot] = self.attribution_records[slot].saturating_add(1);
     }
 
@@ -1508,10 +1516,13 @@ impl DrainMetricAccumulator {
             );
         }
 
-        for (slot, count) in self.attribution_records.iter().enumerate() {
-            if *count == 0 {
-                continue;
-            }
+        for slot in self
+            .touched_record_slots
+            .iter()
+            .take(self.touched_record_slot_count)
+            .copied()
+        {
+            let count = self.attribution_records[slot];
 
             let service_index = slot % 2;
             let outcome_index = (slot / 2) % ATTRIBUTION_OUTCOME_LABELS.len();
@@ -1525,7 +1536,7 @@ impl DrainMetricAccumulator {
                 ATTRIBUTION_PROTOCOL_LABELS[protocol_index],
                 ATTRIBUTION_OUTCOME_LABELS[outcome_index],
                 service_index == 1,
-                *count,
+                count,
             );
         }
     }
