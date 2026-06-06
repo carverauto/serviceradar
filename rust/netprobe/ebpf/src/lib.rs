@@ -62,6 +62,7 @@ const XSK_MAX_QUEUES: u32 = 1024;
 const FLOW_ATTRIBUTION_REFRESH_INTERVAL_NS: u64 = 240_000_000_000;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
+const EPHEMERAL_PORT_FLOOR: u16 = 32_768;
 
 const EVENT_TCP_CONNECT: u16 = 1;
 const EVENT_TCP_ACCEPT: u16 = 2;
@@ -867,6 +868,11 @@ fn emit_event(
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
+    let gate_flow_key = if close_event {
+        canonical_flow.key
+    } else {
+        attribution_gate_flow_key(&canonical_flow)
+    };
     let owner_record = current_pid_record(
         ctx,
         event_kind,
@@ -876,7 +882,7 @@ fn emit_event(
         new_state,
         canonical_flow.source_endpoint,
     );
-    if !close_event && !should_emit_flow_event(&canonical_flow.key, &owner_record, now) {
+    if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
         return;
     }
 
@@ -911,7 +917,7 @@ fn emit_event(
         remove_socket_pid_by_address(socket_address);
     } else {
         record_process_info(record_ref, now);
-        record_flow_pid_by_key(&canonical_flow.key, &owner_record);
+        record_flow_pid_by_key(&gate_flow_key, &owner_record);
         record_socket_pid_by_address(socket_address, &owner_record);
     }
 
@@ -932,7 +938,12 @@ fn emit_event_with_cached_owner(
     let now = now_ns();
     let socket_address = sock as u64;
     let close_event = is_close_event(event_kind, new_state);
-    let cached_owner = cached_owner_for_event(&canonical_flow.key, socket_address);
+    let gate_flow_key = if close_event {
+        canonical_flow.key
+    } else {
+        attribution_gate_flow_key(&canonical_flow)
+    };
+    let cached_owner = cached_owner_for_event(&gate_flow_key, socket_address);
     let owner_from_cache = cached_owner.is_some();
     let owner_record = if let Some(owner) = cached_owner {
         owner_pid_record(
@@ -958,7 +969,7 @@ fn emit_event_with_cached_owner(
         )
     };
 
-    if !close_event && !should_emit_flow_event(&canonical_flow.key, &owner_record, now) {
+    if !close_event && !should_emit_flow_event(&gate_flow_key, &owner_record, now) {
         return;
     }
 
@@ -997,7 +1008,7 @@ fn emit_event_with_cached_owner(
         remove_socket_pid_by_address(socket_address);
     } else {
         record_process_info(record_ref, now);
-        record_flow_pid_by_key(&canonical_flow.key, &owner_record);
+        record_flow_pid_by_key(&gate_flow_key, &owner_record);
     }
 
     entry.submit(0);
@@ -1259,6 +1270,39 @@ fn flow_key_from_tuple(tuple: &FlowTuple) -> Option<CanonicalFlowKey> {
         tuple.source_port,
         tuple.destination_port,
     ))
+}
+
+#[inline(always)]
+fn attribution_gate_flow_key(flow: &CanonicalFlowKey) -> FlowKey {
+    let mut key = flow.key;
+    if !should_coalesce_service_gate(flow) {
+        return key;
+    }
+
+    if flow.source_endpoint == FLOW_ENDPOINT_A {
+        key.endpoint_b_port = 0;
+        key.endpoint_b_addr = [0; 16];
+    } else {
+        key.endpoint_a_port = 0;
+        key.endpoint_a_addr = [0; 16];
+    }
+
+    key
+}
+
+#[inline(always)]
+fn should_coalesce_service_gate(flow: &CanonicalFlowKey) -> bool {
+    if flow.key.transport_protocol != IPPROTO_TCP && flow.key.transport_protocol != IPPROTO_UDP {
+        return false;
+    }
+
+    let (local_port, peer_port) = if flow.source_endpoint == FLOW_ENDPOINT_A {
+        (flow.key.endpoint_a_port, flow.key.endpoint_b_port)
+    } else {
+        (flow.key.endpoint_b_port, flow.key.endpoint_a_port)
+    };
+
+    local_port > 0 && local_port < EPHEMERAL_PORT_FLOOR && peer_port >= EPHEMERAL_PORT_FLOOR
 }
 
 // Flow accounting: counts packets per flow into flow_table so userspace can join

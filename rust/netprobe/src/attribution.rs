@@ -84,6 +84,10 @@ const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 // listener change does not become a continuous IPC stream.
 const PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL: Duration = Duration::from_secs(10);
 #[cfg(target_os = "linux")]
+const EVENT_TCP_CONNECT: u16 = 1;
+#[cfg(target_os = "linux")]
+const EVENT_TCP_ACCEPT: u16 = 2;
+#[cfg(target_os = "linux")]
 // Mirrors EVENT_TCP_CLOSE in the eBPF.
 const EVENT_TCP_CLOSE: u16 = 3;
 #[cfg(target_os = "linux")]
@@ -92,6 +96,8 @@ const EVENT_UDP_SEND: u16 = 4;
 const EVENT_UDP_RECV: u16 = 5;
 #[cfg(target_os = "linux")]
 const EVENT_INET_SOCK_SET_STATE: u16 = 6;
+#[cfg(target_os = "linux")]
+const EVENT_ICMP_SEND: u16 = 7;
 #[cfg(target_os = "linux")]
 const TCP_CLOSE_STATE: i32 = 7;
 #[cfg(target_os = "linux")]
@@ -1461,6 +1467,13 @@ fn drain_ring(
         let coalesce_service = reader.should_coalesce_record(record);
 
         if record.event_kind == EVENT_TCP_CLOSE {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "close",
+                coalesce_service,
+                1,
+            );
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record, coalesce_service) {
                 touch_closed_cached_attribution(cache, &key);
@@ -1468,6 +1481,13 @@ fn drain_ring(
             continue;
         }
         if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "close",
+                coalesce_service,
+                1,
+            );
             reader.remove_inventory_record(record);
             if let Some(key) = join_key_from_record(record, coalesce_service) {
                 touch_closed_cached_attribution(cache, &key);
@@ -1475,12 +1495,26 @@ fn drain_ring(
             continue;
         }
         let Some(key) = join_key_from_record(record, coalesce_service) else {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "miss",
+                coalesce_service,
+                1,
+            );
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
         };
         if let Some(existing) = cache.get_mut(&key) {
             metrics.inc_attribution_backend_events(reader.backend_method(), "hit", 1);
             if !should_record_inventory(record) || reader.touch_inventory_record(record) {
+                metrics.inc_attribution_records(
+                    attribution_event_kind_label(record.event_kind),
+                    attribution_protocol_label(record.tuple.protocol),
+                    "cached",
+                    coalesce_service,
+                    1,
+                );
                 let now = Instant::now();
                 Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
                 existing.last_seen = now;
@@ -1496,6 +1530,13 @@ fn drain_ring(
             AyaAttributionReader::attributed_flow_from_record_basic(record, coalesce_service)
         };
         let Some(flow) = flow else {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "miss",
+                coalesce_service,
+                1,
+            );
             metrics.inc_attribution_backend_events(reader.backend_method(), "miss", 1);
             continue;
         };
@@ -1511,6 +1552,13 @@ fn drain_ring(
         let event = Arc::new(event);
         let now = Instant::now();
         if let Some(existing) = cache.get_mut(&key) {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "updated",
+                coalesce_service,
+                1,
+            );
             existing.event = event;
             if existing.process_key != process_key {
                 move_process_index(process_index, key, existing.process_key, process_key);
@@ -1519,6 +1567,13 @@ fn drain_ring(
             existing.last_seen = now;
             maybe_emit_cached_attribution(tx, metrics, existing, now);
         } else {
+            metrics.inc_attribution_records(
+                attribution_event_kind_label(record.event_kind),
+                attribution_protocol_label(record.tuple.protocol),
+                "new",
+                coalesce_service,
+                1,
+            );
             external_flow_matcher.observe_attribution_key(key.flow, &event);
             emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&event));
             insert_cached_attribution(
@@ -1886,6 +1941,31 @@ fn should_remove_inventory(record: &FlowAttributionRecord) -> bool {
     record.event_kind == EVENT_INET_SOCK_SET_STATE
         && record.old_state == TCP_LISTEN_STATE
         && record.new_state == TCP_CLOSE_STATE
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_event_kind_label(event_kind: u16) -> &'static str {
+    match event_kind {
+        EVENT_TCP_CONNECT => "tcp_connect",
+        EVENT_TCP_ACCEPT => "tcp_accept",
+        EVENT_TCP_CLOSE => "tcp_close",
+        EVENT_UDP_SEND => "udp_send",
+        EVENT_UDP_RECV => "udp_recv",
+        EVENT_INET_SOCK_SET_STATE => "inet_sock_set_state",
+        EVENT_ICMP_SEND => "icmp_send",
+        _ => "other",
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_protocol_label(protocol: u16) -> &'static str {
+    match protocol {
+        IPPROTO_ICMP => "icmp",
+        IPPROTO_TCP => "tcp",
+        IPPROTO_UDP => "udp",
+        IPPROTO_ICMPV6 => "icmpv6",
+        _ => "other",
+    }
 }
 
 #[cfg(target_os = "linux")]

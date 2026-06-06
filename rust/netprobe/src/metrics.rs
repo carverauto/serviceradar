@@ -24,6 +24,7 @@ pub struct Metrics {
     external_flow_invalid_total: IntCounter,
     external_flow_matched_total: IntCounter,
     attribution_backend_events_total: IntCounterVec,
+    attribution_records_total: IntCounterVec,
     attribution_cache_entries: IntGaugeVec,
     #[allow(dead_code)]
     sampling_budget: IntGauge,
@@ -81,6 +82,13 @@ impl Metrics {
             ),
             &["backend", "outcome"],
         )?;
+        let attribution_records_total = IntCounterVec::new(
+            Opts::new(
+                "serviceradar_netprobe_attribution_records_total",
+                "Flow attribution ring records processed by event kind, protocol, outcome, and service coalescing state",
+            ),
+            &["event_kind", "protocol", "outcome", "service_coalesced"],
+        )?;
         let attribution_cache_entries = IntGaugeVec::new(
             Opts::new(
                 "serviceradar_netprobe_attribution_cache_entries",
@@ -108,6 +116,7 @@ impl Metrics {
         registry.register(Box::new(external_flow_invalid_total.clone()))?;
         registry.register(Box::new(external_flow_matched_total.clone()))?;
         registry.register(Box::new(attribution_backend_events_total.clone()))?;
+        registry.register(Box::new(attribution_records_total.clone()))?;
         registry.register(Box::new(attribution_cache_entries.clone()))?;
         registry.register(Box::new(sampling_budget.clone()))?;
         registry.register(Box::new(uptime_seconds.clone()))?;
@@ -125,6 +134,7 @@ impl Metrics {
             external_flow_invalid_total,
             external_flow_matched_total,
             attribution_backend_events_total,
+            attribution_records_total,
             attribution_cache_entries,
             sampling_budget,
             uptime_seconds,
@@ -234,6 +244,25 @@ impl Metrics {
     pub fn inc_attribution_backend_events(&self, backend: &str, outcome: &str, count: u64) {
         self.attribution_backend_events_total
             .with_label_values(&[backend, outcome])
+            .inc_by(count);
+    }
+
+    #[allow(dead_code)]
+    pub fn inc_attribution_records(
+        &self,
+        event_kind: &str,
+        protocol: &str,
+        outcome: &str,
+        service_coalesced: bool,
+        count: u64,
+    ) {
+        self.attribution_records_total
+            .with_label_values(&[
+                event_kind,
+                protocol,
+                outcome,
+                if service_coalesced { "true" } else { "false" },
+            ])
             .inc_by(count);
     }
 
