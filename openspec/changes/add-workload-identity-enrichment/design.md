@@ -39,6 +39,8 @@ On Kubernetes workers, local CRI metadata is usually enough to map a container I
 
 That means the first implementation can avoid broad Kubernetes API credentials on the host agent. The tradeoff is that CRI is not the best source for higher-level owner chains such as Deployment -> ReplicaSet -> Pod, and it may not reflect all mutable label/annotation changes with the same fidelity as a Kubernetes watch.
 
+Because ServiceRadar agents are already installed directly on the worker nodes in the demo environment, the MVP can access the node's local containerd CRI socket directly when the operator enables that source. This should be treated as privileged node-local runtime access, not as a Kubernetes API integration. No Kubernetes RBAC is required for the baseline namespace/pod/container identity path, but socket access still needs explicit configuration, auditing, and degradation metrics.
+
 The collector must discover the CRI endpoint instead of assuming the default containerd socket. Demo k3s workers expose the runtime at `/run/k3s/containerd/containerd.sock`, while many standard kubeadm/containerd nodes use `/run/containerd/containerd.sock` or `/var/run/containerd/containerd.sock`; CRI-O commonly uses `/var/run/crio/crio.sock`. Endpoint selection should prefer an explicit config value, then known runtime config files, then a bounded list of common socket paths.
 
 Live validation on `k8s-cp3-worker3` showed that node-local `crictl` can resolve:
@@ -76,4 +78,5 @@ Controls:
 - Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
-- How long should raw flow and workload identity observations remain available for late enrichment before retention pruning, and how do we bound that window so CNPG storage does not grow with high-volume agents?
+- What default correlation window should hold raw flow and workload identity observations for late enrichment, and should high-volume deployments be able to discard unmatched observations immediately after the window closes?
+- How do we bound retention so CNPG storage does not grow with high-volume agents, while still preserving enough recent data for incident investigation?

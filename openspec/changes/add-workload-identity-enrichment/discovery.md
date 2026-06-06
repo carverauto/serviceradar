@@ -24,6 +24,8 @@ sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock pods
 sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock ps
 sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id>
 sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id>
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspectp <pod-sandbox-id> | jq '.status.metadata, .status.labels, .status.linux.namespaces'
+sudo crictl --runtime-endpoint unix:///run/k3s/containerd/containerd.sock inspect <container-id> | jq '.status.metadata, .status.image, .info.pid, .info.runtimeSpec.linux.cgroupsPath'
 ```
 
 Observed node-local metadata:
@@ -38,6 +40,8 @@ Observed node-local metadata:
 | k8s-cp3-worker3 | 86 | 83 | `forgejo-actions/forgejo-runner-serviceradar-678f68685-mxxgp`, pod UID, labels, annotations, sandbox cgroup path | `dind`, image ref, runtime PID, labels, annotations, container cgroup path |
 
 Conclusion: direct worker-node CRI access is enough for the MVP baseline: namespace, pod name, pod UID, container name, image, runtime PID, cgroup path, and selected runtime-exposed labels/annotations. Kubernetes API/RBAC is not required for this baseline. The optional overlay is still needed for owner chains, cross-node inventory, and higher-fidelity mutable metadata.
+
+Security note: a read-only hostPath mount of a Unix socket does not make the runtime API itself read-only. Direct CRI access must remain opt-in and should be paired with collector AppArmor/SELinux guidance, endpoint/source metrics, and explicit degradation when the socket is unavailable or disabled.
 
 ## Docker and Compose Validation
 

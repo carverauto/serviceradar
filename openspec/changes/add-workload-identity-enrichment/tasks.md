@@ -8,6 +8,7 @@
 - [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
 - [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
+- [ ] 1a.4 Choose and document the initial late-enrichment correlation window, including the behavior for unmatched raw observations after the window expires.
 
 ## 2. Collector Contract
 - [ ] 2.1 Define `WorkloadIdentityBackend` traits/interfaces for eBPF/cgroup identity, CRI/containerd, Docker/Compose, and optional Kubernetes inventory overlay.
