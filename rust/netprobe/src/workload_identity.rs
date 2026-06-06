@@ -1,6 +1,7 @@
 use std::{
     collections::BTreeMap,
     fs,
+    future::Future,
     path::{Path, PathBuf},
 };
 
@@ -91,6 +92,32 @@ pub struct WorkloadIdentity {
 pub struct CriContainerLookup {
     pub container_id: String,
     pub identity: WorkloadIdentity,
+}
+
+pub trait CgroupIdentityBackend {
+    fn identity_from_cgroup(&self, cgroup_payload: &str) -> CgroupIdentity;
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct CgroupParserBackend;
+
+impl CgroupIdentityBackend for CgroupParserBackend {
+    fn identity_from_cgroup(&self, cgroup_payload: &str) -> CgroupIdentity {
+        parse_cgroup_identity(cgroup_payload)
+    }
+}
+
+pub trait WorkloadIdentityBackend {
+    fn backend_name(&self) -> &'static str;
+
+    fn list_container_identities(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<CriContainerLookup>>> + Send + '_;
+
+    fn container_identity<'a>(
+        &'a mut self,
+        container_id: &'a str,
+    ) -> impl Future<Output = Result<Option<WorkloadIdentity>>> + Send + 'a;
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -229,6 +256,26 @@ impl CriRuntimeClient {
             sandbox.as_ref(),
             self.runtime_source.clone(),
         ))
+    }
+}
+
+#[cfg(unix)]
+impl WorkloadIdentityBackend for CriRuntimeClient {
+    fn backend_name(&self) -> &'static str {
+        self.runtime_source.as_str()
+    }
+
+    fn list_container_identities(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<CriContainerLookup>>> + Send + '_ {
+        async move { CriRuntimeClient::list_container_identities(self).await }
+    }
+
+    fn container_identity<'a>(
+        &'a mut self,
+        container_id: &'a str,
+    ) -> impl Future<Output = Result<Option<WorkloadIdentity>>> + Send + 'a {
+        async move { CriRuntimeClient::container_identity(self, container_id).await }
     }
 }
 

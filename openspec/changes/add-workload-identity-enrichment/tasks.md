@@ -13,6 +13,7 @@
 
 ## 2. Collector Contract
 - [ ] 2.1 Define `WorkloadIdentityBackend` traits/interfaces for eBPF/cgroup identity, CRI/containerd, Docker/Compose, and optional Kubernetes inventory overlay.
+- [x] 2.1a Introduce the initial Rust workload identity backend boundary for cgroup parsing and CRI runtime lookups so the Kubernetes MVP can use the same interface before Docker/Compose and overlay backends are added.
 - [ ] 2.2 Define stable workload identity event schema with process generation, cgroup ID/path, netns, container ID, pod UID, namespace, pod/container names, image, labels/annotations, compose service/project, runtime source, and confidence/degradation fields.
 - [ ] 2.3 Add bounded caches, queue limits, drop counters, stale-entry eviction, and source-specific error metrics.
 - [ ] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
