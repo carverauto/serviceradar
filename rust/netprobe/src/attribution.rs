@@ -102,8 +102,7 @@ const UDP_SERVER_REMOTE_THRESHOLD: usize = 2;
 const UDP_ROLE_CACHE_MAX_ENTRIES: usize = 8192;
 #[cfg(target_os = "linux")]
 const UDP_ROLE_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
-#[cfg(target_os = "linux")]
-const UDP_EPHEMERAL_PORT_FLOOR: u16 = 32768;
+const EPHEMERAL_PORT_FLOOR: u16 = 32768;
 #[cfg(target_os = "linux")]
 type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 #[cfg(target_os = "linux")]
@@ -595,8 +594,8 @@ impl UdpRoleInventory {
 
 #[cfg(target_os = "linux")]
 fn likely_udp_client_record(record: &FlowAttributionRecord) -> bool {
-    record.tuple.source_port >= UDP_EPHEMERAL_PORT_FLOOR
-        && record.tuple.destination_port < UDP_EPHEMERAL_PORT_FLOOR
+    record.tuple.source_port >= EPHEMERAL_PORT_FLOOR
+        && record.tuple.destination_port < EPHEMERAL_PORT_FLOOR
 }
 
 #[cfg(target_os = "linux")]
@@ -1128,7 +1127,11 @@ impl AyaAttributionReader {
     }
 
     fn should_coalesce_record(&mut self, record: &FlowAttributionRecord) -> bool {
-        self.has_listener_for_record(record) || self.udp_roles.should_coalesce_record(record)
+        if self.has_listener_for_record(record) || likely_service_side_record(record) {
+            return true;
+        }
+
+        self.udp_roles.should_coalesce_record(record)
     }
 
     fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
@@ -1847,6 +1850,22 @@ fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -
 }
 
 #[cfg(target_os = "linux")]
+fn likely_service_side_record(record: &FlowAttributionRecord) -> bool {
+    likely_service_side_tuple(
+        record.tuple.protocol,
+        record.tuple.source_port,
+        record.tuple.destination_port,
+    )
+}
+
+fn likely_service_side_tuple(protocol: u16, source_port: u16, destination_port: u16) -> bool {
+    matches!(protocol, IPPROTO_TCP | IPPROTO_UDP)
+        && source_port > 0
+        && source_port < EPHEMERAL_PORT_FLOOR
+        && destination_port >= EPHEMERAL_PORT_FLOOR
+}
+
+#[cfg(target_os = "linux")]
 fn should_record_inventory(record: &FlowAttributionRecord) -> bool {
     record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_LISTEN_STATE
 }
@@ -2400,9 +2419,9 @@ mod tests {
     };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
-        ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP,
-        REDACTED_CMDLINE_MAX_BYTES,
+        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary, AttributedFlow,
+        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
+        IPPROTO_TCP, IPPROTO_UDP, REDACTED_CMDLINE_MAX_BYTES,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -2462,6 +2481,63 @@ mod tests {
         assert_eq!(key.endpoint_a_port, 51_000);
         assert_eq!(key.endpoint_b_port, 443);
         assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_detects_tcp_server_shape() {
+        assert!(likely_service_side_tuple(IPPROTO_TCP, 8080, 51_000));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_detects_udp_server_shape() {
+        assert!(likely_service_side_tuple(IPPROTO_UDP, 53, 51_000));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_keeps_client_shape_exact() {
+        assert!(!likely_service_side_tuple(IPPROTO_TCP, 51_000, 443));
+        assert!(!likely_service_side_tuple(IPPROTO_UDP, 51_000, 53));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_keeps_same_port_protocols_exact() {
+        assert!(!likely_service_side_tuple(IPPROTO_UDP, 7946, 7946));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_tcp_service_side_record_coalesces_without_listener_inventory() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_service_side_record_keeps_tcp_client_tuple_exact() {
+        let record = flow_record(IPPROTO_TCP, 51_000, 443);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 443);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_udp_service_side_record_coalesces_first_packet() {
+        let record = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 53);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
     }
 
     #[test]
