@@ -79,6 +79,11 @@ const PROCESS_DETAILS_COLD_READS_PER_SECOND: u32 = 1;
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 #[cfg(target_os = "linux")]
+// Listener inventory changes are useful for host forensics, but a busy runtime
+// can flap several local sockets per second. Coalesce dirty snapshots so one
+// listener change does not become a continuous IPC stream.
+const PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
 // Mirrors EVENT_TCP_CLOSE in the eBPF.
 const EVENT_TCP_CLOSE: u16 = 3;
 #[cfg(target_os = "linux")]
@@ -1213,6 +1218,8 @@ impl FlowAttributionRuntime {
                 let mut last_process_snapshot = runtime_config
                     .process_snapshot_interval
                     .map(|interval| Instant::now() - interval);
+                let mut last_dirty_process_snapshot =
+                    Instant::now() - PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL;
                 let mut last_resend = Instant::now();
                 let mut last_cache_prune = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
@@ -1242,8 +1249,12 @@ impl FlowAttributionRuntime {
                             reader.metadata_cache_len(),
                         );
                     }
-                    if reader.inventory_dirty() {
+                    if reader.inventory_dirty()
+                        && last_dirty_process_snapshot.elapsed()
+                            >= PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL
+                    {
                         emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
+                        last_dirty_process_snapshot = Instant::now();
                     }
                     if let Some(resend_interval) = runtime_config.resend_interval {
                         if last_resend.elapsed() >= resend_interval {
@@ -1696,7 +1707,7 @@ fn prune_attribution_cache(
 
 #[cfg(target_os = "linux")]
 fn refresh_enriched_attributions(
-    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    _tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut FlowAttributionCache,
@@ -1719,7 +1730,7 @@ fn refresh_enriched_attributions(
             let now = Instant::now();
             entry.last_seen = now;
             external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
-            emit_cached_attribution(tx, metrics, entry, now);
+            metrics.inc_flow_attribution_events_dropped("metadata_deferred", 1);
         }
     }
 }
@@ -2414,14 +2425,15 @@ mod tests {
         CachedAttribution, FlowAttributionCache, ProcessAttributionIndex, ProcessDetailsCacheKey,
         SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
         EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
-        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, IPPROTO_UDP, TCP_CLOSE_STATE,
+        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
         TCP_LISTEN_STATE,
     };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary, AttributedFlow,
-        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
-        IPPROTO_TCP, IPPROTO_UDP, REDACTED_CMDLINE_MAX_BYTES,
+        likely_service_side_record, likely_service_side_tuple, redacted_cmdline,
+        trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails, ProcessInfoRecord,
+        ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP, IPPROTO_UDP,
+        REDACTED_CMDLINE_MAX_BYTES,
     };
     use crate::af_xdp_classifier::FlowKey;
     #[cfg(target_os = "linux")]
@@ -2993,6 +3005,60 @@ mod tests {
         assert_eq!(cache.get(&matching_key).unwrap().event.comm, "new");
         assert_eq!(cache.get(&matching_key).unwrap().event.uid, 2000);
         assert_eq!(cache.get(&other_key).unwrap().event.comm, "other");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn refresh_enriched_attributions_defers_ipc_fanout() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let matcher = SharedExternalFlowMatcher::new(0);
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let (tx, mut rx) = crate::event_queue::bounded(4);
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let key = join_key(443, 51_000, 123, 42);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            key,
+            cached_attribution(process, "old"),
+        );
+
+        refresh_enriched_attributions(
+            Some(&tx),
+            &matcher,
+            &metrics,
+            &mut cache,
+            &process_index,
+            vec![(
+                process,
+                ProcessDetails {
+                    pid: 123,
+                    tgid: 123,
+                    uid: 2000,
+                    gid: 2001,
+                    comm: "new".to_string(),
+                    cmdline: vec!["/bin/new".to_string()],
+                    container_id: Some("container".to_string()),
+                    workload_identity: None,
+                    last_seen_ns: 0,
+                    process_generation_ns: 42,
+                },
+            )],
+        );
+
+        assert_eq!(cache.get(&key).unwrap().event.comm, "new");
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]
