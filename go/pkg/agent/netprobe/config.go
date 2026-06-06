@@ -35,27 +35,30 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled                   bool     `json:"enabled"`
-	CaptureInterfaces         []string `json:"capture_interfaces,omitempty"`
-	FlowTableMaxEntries       uint32   `json:"flow_table_max_entries,omitempty"`
-	ProcessSnapshotIntervalS  uint32   `json:"process_snapshot_interval_s,omitempty"`
-	ExternalFlowMatchWindowMs uint32   `json:"external_flow_match_window_ms,omitempty"`
-	FlowAttributionIpcBatch   bool     `json:"flow_attribution_ipc_batch,omitempty"`
+	Enabled                      bool     `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries          uint32   `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32   `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32   `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool     `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents bool     `json:"emit_raw_flow_attribution_events"`
 }
 
 type addonConfig struct {
-	Enabled                   *bool    `json:"enabled"`
-	CaptureInterfaces         []string `json:"capture_interfaces"`
-	DefaultSampleIntervalMs   *uint32  `json:"default_sample_interval_ms"`
-	FlowTableMaxEntries       *uint32  `json:"flow_table_max_entries"`
-	ProcessSnapshotIntervalS  *uint32  `json:"process_snapshot_interval_s"`
-	ExternalFlowMatchWindowMs *uint32  `json:"external_flow_match_window_ms"`
-	FlowAttributionIpcBatch   *bool    `json:"flow_attribution_ipc_batch"`
+	Enabled                      *bool    `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces"`
+	DefaultSampleIntervalMs      *uint32  `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries          *uint32  `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS     *uint32  `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs    *uint32  `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch      *bool    `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents *bool    `json:"emit_raw_flow_attribution_events"`
 }
 
 func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
 	return &netprobepb.VisibilityAgentConfig{
-		FlowAttributionIpcBatch: true,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
 	}
 }
 
@@ -69,13 +72,14 @@ func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityC
 
 	parsed := ParsedVisibilityConfig{
 		NetprobeConfig: &netprobepb.VisibilityAgentConfig{
-			Enabled:                 cfg.GetEnabled(),
-			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
-			Dpi:                     parseDPIConfig(cfg.GetDpi()),
-			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
-			FlowTableMaxEntries:     cfg.GetFlowTableMaxEntries(),
-			FlowAttributionIpcBatch: true,
-			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
+			Enabled:                      cfg.GetEnabled(),
+			CaptureInterfaces:            trimStrings(cfg.GetCaptureInterfaces()),
+			Dpi:                          parseDPIConfig(cfg.GetDpi()),
+			DefaultSampleIntervalMs:      cfg.GetDefaultSampleIntervalMs(),
+			FlowTableMaxEntries:          cfg.GetFlowTableMaxEntries(),
+			FlowAttributionIpcBatch:      true,
+			EmitRawFlowAttributionEvents: true,
+			DeviceBindings:               parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
 		BinaryOverridePath: strings.TrimSpace(cfg.GetBinaryOverrides().GetPath()),
 	}
@@ -88,7 +92,7 @@ func ApplyAddonConfigJSON(
 	configJSON []byte,
 ) (*netprobepb.VisibilityAgentConfig, error) {
 	if cfg == nil {
-		cfg = &netprobepb.VisibilityAgentConfig{}
+		cfg = defaultVisibilityAgentConfig()
 	}
 	if len(strings.TrimSpace(string(configJSON))) == 0 {
 		return cfg, nil
@@ -121,6 +125,9 @@ func ApplyAddonConfigJSON(
 	if addon.FlowAttributionIpcBatch != nil {
 		merged.FlowAttributionIpcBatch = *addon.FlowAttributionIpcBatch
 	}
+	if addon.EmitRawFlowAttributionEvents != nil {
+		merged.EmitRawFlowAttributionEvents = *addon.EmitRawFlowAttributionEvents
+	}
 
 	return merged, nil
 }
@@ -131,13 +138,18 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		return nil
 	}
 
-	payload := bootstrapConfig{FlowAttributionIpcBatch: true}
+	payload := bootstrapConfig{
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}
 	if cfg != nil {
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
 		payload.FlowTableMaxEntries = cfg.GetFlowTableMaxEntries()
 		payload.ProcessSnapshotIntervalS = cfg.GetProcessSnapshotIntervalS()
 		payload.ExternalFlowMatchWindowMs = cfg.GetExternalFlowMatchWindowMs()
+		payload.FlowAttributionIpcBatch = cfg.GetFlowAttributionIpcBatch()
+		payload.EmitRawFlowAttributionEvents = cfg.GetEmitRawFlowAttributionEvents()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

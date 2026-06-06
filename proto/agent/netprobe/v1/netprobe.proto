@@ -93,6 +93,7 @@ message VisibilityAgentConfig {
   uint32 process_snapshot_interval_s = 41;
   uint32 external_flow_match_window_ms = 42;
   bool flow_attribution_ipc_batch = 43;
+  bool emit_raw_flow_attribution_events = 44;
 
   reserved 21 to 39;
   reserved "flow_attribution";

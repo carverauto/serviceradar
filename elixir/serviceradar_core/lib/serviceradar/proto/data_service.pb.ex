@@ -170,15 +170,15 @@ defmodule Proto.DataService.Service do
 
   use GRPC.Service, name: "proto.DataService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:UploadObject, stream(Proto.ObjectUploadChunk), Proto.UploadObjectResponse)
+  rpc :UploadObject, stream(Proto.ObjectUploadChunk), Proto.UploadObjectResponse
 
-  rpc(:DownloadObject, Proto.DownloadObjectRequest, stream(Proto.ObjectDownloadChunk))
+  rpc :DownloadObject, Proto.DownloadObjectRequest, stream(Proto.ObjectDownloadChunk)
 
-  rpc(:DeleteObject, Proto.DeleteObjectRequest, Proto.DeleteObjectResponse)
+  rpc :DeleteObject, Proto.DeleteObjectRequest, Proto.DeleteObjectResponse
 
-  rpc(:GetObjectInfo, Proto.GetObjectInfoRequest, Proto.GetObjectInfoResponse)
+  rpc :GetObjectInfo, Proto.GetObjectInfoRequest, Proto.GetObjectInfoResponse
 
-  rpc(:ListObjects, Proto.ListObjectsRequest, Proto.ListObjectsResponse)
+  rpc :ListObjects, Proto.ListObjectsRequest, Proto.ListObjectsResponse
 end
 
 defmodule Proto.DataService.Stub do

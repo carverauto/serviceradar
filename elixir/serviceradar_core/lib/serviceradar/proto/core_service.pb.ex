@@ -124,13 +124,13 @@ defmodule Core.CoreService.Service do
 
   use GRPC.Service, name: "core.CoreService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc(:GetCanonicalDevice, Core.GetCanonicalDeviceRequest, Core.GetCanonicalDeviceResponse)
+  rpc :GetCanonicalDevice, Core.GetCanonicalDeviceRequest, Core.GetCanonicalDeviceResponse
 
-  rpc(:RegisterTemplate, Core.RegisterTemplateRequest, Core.RegisterTemplateResponse)
+  rpc :RegisterTemplate, Core.RegisterTemplateRequest, Core.RegisterTemplateResponse
 
-  rpc(:GetTemplate, Core.GetTemplateRequest, Core.GetTemplateResponse)
+  rpc :GetTemplate, Core.GetTemplateRequest, Core.GetTemplateResponse
 
-  rpc(:ListTemplates, Core.ListTemplatesRequest, Core.ListTemplatesResponse)
+  rpc :ListTemplates, Core.ListTemplatesRequest, Core.ListTemplatesResponse
 end
 
 defmodule Core.CoreService.Stub do

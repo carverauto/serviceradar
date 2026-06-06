@@ -674,18 +674,19 @@ func (x *ErrorFrame) GetMessage() string {
 }
 
 type VisibilityAgentConfig struct {
-	state                     protoimpl.MessageState `protogen:"open.v1"`
-	Enabled                   bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
-	CaptureInterfaces         []string               `protobuf:"bytes,2,rep,name=capture_interfaces,json=captureInterfaces,proto3" json:"capture_interfaces,omitempty"`
-	DeviceBindings            []*DeviceBinding       `protobuf:"bytes,3,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
-	DefaultSampleIntervalMs   uint32                 `protobuf:"varint,4,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
-	Dpi                       *DpiConfig             `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
-	FlowTableMaxEntries       uint32                 `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
-	ProcessSnapshotIntervalS  uint32                 `protobuf:"varint,41,opt,name=process_snapshot_interval_s,json=processSnapshotIntervalS,proto3" json:"process_snapshot_interval_s,omitempty"`
-	ExternalFlowMatchWindowMs uint32                 `protobuf:"varint,42,opt,name=external_flow_match_window_ms,json=externalFlowMatchWindowMs,proto3" json:"external_flow_match_window_ms,omitempty"`
-	FlowAttributionIpcBatch   bool                   `protobuf:"varint,43,opt,name=flow_attribution_ipc_batch,json=flowAttributionIpcBatch,proto3" json:"flow_attribution_ipc_batch,omitempty"`
-	unknownFields             protoimpl.UnknownFields
-	sizeCache                 protoimpl.SizeCache
+	state                        protoimpl.MessageState `protogen:"open.v1"`
+	Enabled                      bool                   `protobuf:"varint,1,opt,name=enabled,proto3" json:"enabled,omitempty"`
+	CaptureInterfaces            []string               `protobuf:"bytes,2,rep,name=capture_interfaces,json=captureInterfaces,proto3" json:"capture_interfaces,omitempty"`
+	DeviceBindings               []*DeviceBinding       `protobuf:"bytes,3,rep,name=device_bindings,json=deviceBindings,proto3" json:"device_bindings,omitempty"`
+	DefaultSampleIntervalMs      uint32                 `protobuf:"varint,4,opt,name=default_sample_interval_ms,json=defaultSampleIntervalMs,proto3" json:"default_sample_interval_ms,omitempty"`
+	Dpi                          *DpiConfig             `protobuf:"bytes,20,opt,name=dpi,proto3" json:"dpi,omitempty"`
+	FlowTableMaxEntries          uint32                 `protobuf:"varint,40,opt,name=flow_table_max_entries,json=flowTableMaxEntries,proto3" json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32                 `protobuf:"varint,41,opt,name=process_snapshot_interval_s,json=processSnapshotIntervalS,proto3" json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32                 `protobuf:"varint,42,opt,name=external_flow_match_window_ms,json=externalFlowMatchWindowMs,proto3" json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool                   `protobuf:"varint,43,opt,name=flow_attribution_ipc_batch,json=flowAttributionIpcBatch,proto3" json:"flow_attribution_ipc_batch,omitempty"`
+	EmitRawFlowAttributionEvents bool                   `protobuf:"varint,44,opt,name=emit_raw_flow_attribution_events,json=emitRawFlowAttributionEvents,proto3" json:"emit_raw_flow_attribution_events,omitempty"`
+	unknownFields                protoimpl.UnknownFields
+	sizeCache                    protoimpl.SizeCache
 }
 
 func (x *VisibilityAgentConfig) Reset() {
@@ -777,6 +778,13 @@ func (x *VisibilityAgentConfig) GetExternalFlowMatchWindowMs() uint32 {
 func (x *VisibilityAgentConfig) GetFlowAttributionIpcBatch() bool {
 	if x != nil {
 		return x.FlowAttributionIpcBatch
+	}
+	return false
+}
+
+func (x *VisibilityAgentConfig) GetEmitRawFlowAttributionEvents() bool {
+	if x != nil {
+		return x.EmitRawFlowAttributionEvents
 	}
 	return false
 }
@@ -3335,7 +3343,7 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\n" +
 	"ErrorFrame\x12\x12\n" +
 	"\x04code\x18\x01 \x01(\tR\x04code\x12\x18\n" +
-	"\amessage\x18\x02 \x01(\tR\amessage\"\xbd\x04\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\"\x85\x05\n" +
 	"\x15VisibilityAgentConfig\x12\x18\n" +
 	"\aenabled\x18\x01 \x01(\bR\aenabled\x12-\n" +
 	"\x12capture_interfaces\x18\x02 \x03(\tR\x11captureInterfaces\x12V\n" +
@@ -3345,7 +3353,8 @@ const file_agent_netprobe_v1_netprobe_proto_rawDesc = "" +
 	"\x16flow_table_max_entries\x18( \x01(\rR\x13flowTableMaxEntries\x12=\n" +
 	"\x1bprocess_snapshot_interval_s\x18) \x01(\rR\x18processSnapshotIntervalS\x12@\n" +
 	"\x1dexternal_flow_match_window_ms\x18* \x01(\rR\x19externalFlowMatchWindowMs\x12;\n" +
-	"\x1aflow_attribution_ipc_batch\x18+ \x01(\bR\x17flowAttributionIpcBatchJ\x04\b\x15\x10(R\x10flow_attribution\"\xa1\x02\n" +
+	"\x1aflow_attribution_ipc_batch\x18+ \x01(\bR\x17flowAttributionIpcBatch\x12F\n" +
+	" emit_raw_flow_attribution_events\x18, \x01(\bR\x1cemitRawFlowAttributionEventsJ\x04\b\x15\x10(R\x10flow_attribution\"\xa1\x02\n" +
 	"\rDeviceBinding\x12\x0e\n" +
 	"\x02ip\x18\x01 \x01(\tR\x02ip\x12\x1d\n" +
 	"\n" +

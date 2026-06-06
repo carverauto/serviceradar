@@ -80,6 +80,9 @@ func TestParseVisibilityConfig(t *testing.T) {
 	if !cfg.GetFlowAttributionIpcBatch() {
 		t.Fatal("FlowAttributionIpcBatch = false, want true")
 	}
+	if !cfg.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("EmitRawFlowAttributionEvents = false, want true")
+	}
 	if !cfg.GetDpi().GetEnabled() {
 		t.Fatal("DPI enabled = false, want true")
 	}
@@ -113,12 +116,13 @@ func TestParseVisibilityConfig(t *testing.T) {
 
 func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	base := &netprobepb.VisibilityAgentConfig{
-		Enabled:                   false,
-		CaptureInterfaces:         []string{"eth0"},
-		DefaultSampleIntervalMs:   250,
-		FlowTableMaxEntries:       262_144,
-		FlowAttributionIpcBatch:   true,
-		ExternalFlowMatchWindowMs: 30_000,
+		Enabled:                      false,
+		CaptureInterfaces:            []string{"eth0"},
+		DefaultSampleIntervalMs:      250,
+		FlowTableMaxEntries:          262_144,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+		ExternalFlowMatchWindowMs:    30_000,
 	}
 
 	merged, err := ApplyAddonConfigJSON(base, []byte(`{
@@ -128,7 +132,8 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 		"flow_table_max_entries": 131072,
 		"process_snapshot_interval_s": 0,
 		"external_flow_match_window_ms": 45000,
-		"flow_attribution_ipc_batch": false
+		"flow_attribution_ipc_batch": false,
+		"emit_raw_flow_attribution_events": false
 	}`))
 	if err != nil {
 		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
@@ -158,11 +163,34 @@ func TestApplyAddonConfigJSONMergesNetprobeOnlyFields(t *testing.T) {
 	if merged.GetFlowAttributionIpcBatch() {
 		t.Fatal("FlowAttributionIpcBatch = true, want false from add-on override")
 	}
+	if merged.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("EmitRawFlowAttributionEvents = true, want false from add-on override")
+	}
 	if base.GetEnabled() {
 		t.Fatal("base config was mutated")
 	}
 	if !base.GetFlowAttributionIpcBatch() {
 		t.Fatal("base FlowAttributionIpcBatch was mutated")
+	}
+	if !base.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("base EmitRawFlowAttributionEvents was mutated")
+	}
+}
+
+func TestApplyAddonConfigJSONDefaultsAttributionControlsWhenBaseMissing(t *testing.T) {
+	merged, err := ApplyAddonConfigJSON(nil, []byte(`{"enabled":true}`))
+	if err != nil {
+		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
+	}
+
+	if !merged.GetEnabled() {
+		t.Fatal("Enabled = false, want true")
+	}
+	if !merged.GetFlowAttributionIpcBatch() {
+		t.Fatal("FlowAttributionIpcBatch = false, want true default")
+	}
+	if !merged.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("EmitRawFlowAttributionEvents = false, want true default")
 	}
 }
 
@@ -180,12 +208,19 @@ func TestParseVisibilityConfigNil(t *testing.T) {
 	if !parsed.NetprobeConfig.GetFlowAttributionIpcBatch() {
 		t.Fatal("FlowAttributionIpcBatch = false, want true default")
 	}
+	if !parsed.NetprobeConfig.GetEmitRawFlowAttributionEvents() {
+		t.Fatal("EmitRawFlowAttributionEvents = false, want true default")
+	}
 }
 
 func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "netprobe.json")
 
-	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{Enabled: true}); err != nil {
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
+		Enabled:                      true,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}); err != nil {
 		t.Fatalf("WriteBootstrapConfig() error = %v", err)
 	}
 
@@ -204,16 +239,20 @@ func TestWriteBootstrapConfigOmitsEmptyCaptureInterfaces(t *testing.T) {
 	if !strings.Contains(payload, `"flow_attribution_ipc_batch": true`) {
 		t.Fatalf("bootstrap config missing flow attribution batching: %s", payload)
 	}
+	if !strings.Contains(payload, `"emit_raw_flow_attribution_events": true`) {
+		t.Fatalf("bootstrap config missing raw attribution event setting: %s", payload)
+	}
 }
 
 func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "netprobe.json")
 
 	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
-		Enabled:                   true,
-		ProcessSnapshotIntervalS:  0,
-		ExternalFlowMatchWindowMs: 45_000,
-		FlowAttributionIpcBatch:   true,
+		Enabled:                      true,
+		ProcessSnapshotIntervalS:     0,
+		ExternalFlowMatchWindowMs:    45_000,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
 	}); err != nil {
 		t.Fatalf("WriteBootstrapConfig() error = %v", err)
 	}
@@ -231,13 +270,41 @@ func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 	}
 }
 
+func TestWriteBootstrapConfigPreservesFalseAttributionBooleans(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
+		Enabled:                      true,
+		FlowAttributionIpcBatch:      false,
+		EmitRawFlowAttributionEvents: false,
+	}); err != nil {
+		t.Fatalf("WriteBootstrapConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config: %v", err)
+	}
+	got := string(data)
+	if !strings.Contains(got, `"flow_attribution_ipc_batch": false`) {
+		t.Fatalf("bootstrap config = %s, want flow attribution batching false", got)
+	}
+	if !strings.Contains(got, `"emit_raw_flow_attribution_events": false`) {
+		t.Fatalf("bootstrap config = %s, want raw attribution events false", got)
+	}
+}
+
 func TestWriteBootstrapConfigReplacesReadOnlyExistingFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "netprobe.json")
 	if err := os.WriteFile(path, []byte(`{"enabled":false}`), 0o400); err != nil {
 		t.Fatalf("seed read-only bootstrap config: %v", err)
 	}
 
-	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{Enabled: true}); err != nil {
+	if err := WriteBootstrapConfig(path, &netprobepb.VisibilityAgentConfig{
+		Enabled:                      true,
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}); err != nil {
 		t.Fatalf("WriteBootstrapConfig() error = %v", err)
 	}
 
