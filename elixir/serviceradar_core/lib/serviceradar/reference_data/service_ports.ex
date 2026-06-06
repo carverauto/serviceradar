@@ -130,18 +130,21 @@ defmodule ServiceRadar.ReferenceData.ServicePorts do
           label_source: String.t()
         }
 
+  @type protocol_ref :: integer() | String.t() | atom() | nil
+
   @doc """
-  Looks up a registered service by IANA protocol number and port.
+  Looks up a registered service by IANA protocol number/name and port.
 
   Returns structured metadata so flow ingestion, workload identity, and UI code
   can share the same registry without parsing display labels.
   """
-  @spec lookup(integer() | nil, integer() | nil) :: lookup_result() | nil
-  def lookup(protocol_num, port)
-      when is_integer(protocol_num) and is_integer(port) and port > 0 and port <= 65_535 do
-    @service_entries
-    |> Map.get(protocol_num, %{})
-    |> Map.get(port)
+  @spec lookup(protocol_ref(), integer() | nil) :: lookup_result() | nil
+  def lookup(protocol, port) when is_integer(port) and port > 0 and port <= 65_535 do
+    with protocol_num when is_integer(protocol_num) <- normalize_protocol(protocol) do
+      @service_entries
+      |> Map.get(protocol_num, %{})
+      |> Map.get(port)
+    end
   end
 
   def lookup(_, _), do: nil
@@ -159,14 +162,37 @@ defmodule ServiceRadar.ReferenceData.ServicePorts do
 
   def lookup(_), do: nil
 
-  @spec label(integer() | nil, integer() | nil) :: String.t() | nil
-  def label(protocol_num, port), do: protocol_num |> lookup(port) |> label_from_lookup()
+  @spec label(protocol_ref(), integer() | nil) :: String.t() | nil
+  def label(protocol, port), do: protocol |> lookup(port) |> label_from_lookup()
 
   @spec label(integer() | nil) :: String.t() | nil
   def label(port), do: port |> lookup() |> label_from_lookup()
 
-  @spec registered?(integer() | nil, integer() | nil) :: boolean()
-  def registered?(protocol_num, port), do: not is_nil(lookup(protocol_num, port))
+  @spec registered?(protocol_ref(), integer() | nil) :: boolean()
+  def registered?(protocol, port), do: not is_nil(lookup(protocol, port))
+
+  defp normalize_protocol(protocol) when protocol in [6, 17], do: protocol
+
+  defp normalize_protocol(protocol) when is_binary(protocol) do
+    protocol
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "6" -> 6
+      "tcp" -> 6
+      "17" -> 17
+      "udp" -> 17
+      _ -> nil
+    end
+  end
+
+  defp normalize_protocol(protocol) when is_atom(protocol) do
+    protocol
+    |> Atom.to_string()
+    |> normalize_protocol()
+  end
+
+  defp normalize_protocol(_), do: nil
 
   defp label_from_lookup(%{label: label}), do: label
   defp label_from_lookup(_), do: nil

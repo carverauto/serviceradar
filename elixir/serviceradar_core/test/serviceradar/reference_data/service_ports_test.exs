@@ -32,6 +32,12 @@ defmodule ServiceRadar.ReferenceData.ServicePortsTest do
       refute ServicePorts.lookup(1, 8)
       refute ServicePorts.lookup(6, 32_760)
     end
+
+    test "accepts protocol names and numeric protocol strings" do
+      assert %{protocol: "tcp", label: "HTTPS"} = ServicePorts.lookup("tcp", 443)
+      assert %{protocol: "tcp", label: "HTTPS"} = ServicePorts.lookup(:tcp, 443)
+      assert %{protocol: "udp", label: "sFlow"} = ServicePorts.lookup("17", 6343)
+    end
   end
 
   describe "lookup/1" do
@@ -57,6 +63,11 @@ defmodule ServiceRadar.ReferenceData.ServicePortsTest do
       refute ServicePorts.label(1, 8)
       refute ServicePorts.label(6, 32_760)
     end
+
+    test "accepts protocol names" do
+      assert ServicePorts.label("udp", 6343) == "sFlow"
+      assert ServicePorts.label(:tcp, 443) == "HTTPS"
+    end
   end
 
   describe "label/1" do
@@ -75,6 +86,7 @@ defmodule ServiceRadar.ReferenceData.ServicePortsTest do
     test "reports whether a TCP or UDP port is registered" do
       assert ServicePorts.registered?(6, 443)
       assert ServicePorts.registered?(17, 53)
+      assert ServicePorts.registered?("udp", 53)
       refute ServicePorts.registered?(6, 32_760)
     end
   end
