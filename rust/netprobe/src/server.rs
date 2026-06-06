@@ -37,7 +37,10 @@ use crate::{
 };
 
 const FLOW_ATTRIBUTION_IPC_BATCH_MAX: usize = 256;
-const FLOW_ATTRIBUTION_IPC_BATCH_WAIT: Duration = Duration::from_millis(25);
+// NetFlow correlation is delayed by exporter flush cadence, so sub-second IPC
+// latency is acceptable. A wider window turns busy worker attribution bursts
+// into fewer Unix socket writes and protobuf encodes without dropping events.
+const FLOW_ATTRIBUTION_IPC_BATCH_WAIT: Duration = Duration::from_millis(250);
 
 pub struct IpcServer {
     socket_path: PathBuf,
