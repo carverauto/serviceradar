@@ -2601,11 +2601,12 @@ mod tests {
         attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
         likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
         prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
-        AttributionExpiryQueue, CachedAttribution, FlowAttributionCache, ProcessAttributionIndex,
-        ProcessDetailsCacheKey, SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE,
-        EVENT_UDP_RECV, EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK,
-        FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES, FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
-        FLOW_ENDPOINT_A, TCP_CLOSE_STATE, TCP_LISTEN_STATE,
+        AttributionExpiryQueue, CachedAttribution, FlowAttributionCache, MetadataEnricher,
+        ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory, UdpRoleInventory,
+        EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV, EVENT_UDP_SEND,
+        FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
+        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
+        TCP_LISTEN_STATE,
     };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
