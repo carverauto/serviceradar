@@ -201,6 +201,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 		"serviceradar-netprobe",
 		sha256Hex([]byte("netprobe-1.1.0")),
 		"",
+		"",
 		[]string{netprobeTestUnit},
 	) {
 		t.Fatal("expected successful systemd install to record durable activation metadata")
@@ -258,6 +259,25 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 	}
 	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
 		t.Fatal("assignment should be current with matching stage metadata, activation metadata, and tracked units")
+	}
+
+	assignment.ConfigJson = []byte(`{"context_name":"default-cp3"}`)
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment with changed config must not be treated as current")
+	}
+	if err := writeAddonSystemdActivationMetadata(versionDir, addonSystemdActivationMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactSHA256: sha,
+		ConfigSHA256:   addonAssignmentConfigSHA256(assignment.GetConfigJson()),
+		Units:          []string{netprobeTestUnit},
+		Enable:         netprobeTestUnit,
+	}); err != nil {
+		t.Fatalf("write systemd activation metadata with config hash: %v", err)
+	}
+	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should be current after matching config hash is recorded")
 	}
 
 	assignment.ArtifactSha256 = sha256Hex([]byte("different"))

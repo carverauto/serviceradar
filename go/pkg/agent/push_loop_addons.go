@@ -428,6 +428,18 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		return false
 	}
 
+	if err := applyStagedAddonRuntimeConfig("", a); err != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
+		}
+		p.logger.Warn().
+			Err(err).
+			Str("addon", a.GetAddonId()).
+			Msg("Systemd add-on config write failed; leaving current state unchanged")
+
+		return false
+	}
+
 	return p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
 }
 
@@ -454,7 +466,15 @@ func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig,
 
 	binName := addonBinaryName(a)
 	return stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, a.GetArtifactSignature()) &&
-		systemdAddonActivationCurrent(versionDir, version, binName, wantSHA, a.GetArtifactSignature(), units)
+		systemdAddonActivationCurrent(
+			versionDir,
+			version,
+			binName,
+			wantSHA,
+			a.GetArtifactSignature(),
+			addonAssignmentConfigSHA256(a.GetConfigJson()),
+			units,
+		)
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
@@ -512,6 +532,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 			BinaryName:     addonBinaryName(a),
 			ArtifactSHA256: wantSHA,
 			Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+			ConfigSHA256:   addonAssignmentConfigSHA256(a.GetConfigJson()),
 			Units:          units,
 			Enable:         enable,
 		}); err != nil {
