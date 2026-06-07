@@ -10,8 +10,16 @@ const catalog = {
       default_sort: {field: "time", direction: "desc"},
       fields: {
         boolean: [],
-        filter: ["attribution_status", "process"],
-        numeric: [],
+        filter: [
+          "attribution_status",
+          "process",
+          "src_endpoint_ip",
+          "dst_endpoint_ip",
+          "src_endpoint_port",
+          "dst_endpoint_port",
+          "protocol_num",
+        ],
+        numeric: ["src_endpoint_port", "dst_endpoint_port", "protocol_num"],
         series: [],
         stats: [],
         value: [],
@@ -65,5 +73,21 @@ describe("SRQLInput hook", () => {
       detail: "Sort field",
       slot: "field",
     })
+  })
+
+  test("accepts generated attributed flow detail filters", () => {
+    const query =
+      "in:attributed_flows time:last_24h sort:time:desc src_endpoint_ip:10.0.2.10 dst_endpoint_ip:192.168.10.31 src_endpoint_port:179 dst_endpoint_port:38401 protocol_num:6"
+    const state = tokenize(query, query.length)
+    const hook = hookFor(state)
+
+    expect(state.tokens.map(token => [token.kind, token.text])).toContainEqual([
+      "field",
+      "src_endpoint_ip",
+    ])
+
+    for (const token of state.tokens) {
+      expect(hook.isUnknown(token), `${token.kind}:${token.text}`).toBe(false)
+    }
   })
 })

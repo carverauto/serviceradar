@@ -708,6 +708,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "app",
         "sampler_address"
       ],
+      numeric_fields: ["pid", "uid", "src_endpoint_port", "dst_endpoint_port", "protocol_num"],
       downsample: false
     },
     %{

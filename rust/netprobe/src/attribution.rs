@@ -1861,7 +1861,7 @@ fn prune_attribution_cache(
 
 #[cfg(target_os = "linux")]
 fn refresh_enriched_attributions(
-    _tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
     external_flow_matcher: &SharedExternalFlowMatcher,
     metrics: &Metrics,
     cache: &mut FlowAttributionCache,
@@ -1884,7 +1884,7 @@ fn refresh_enriched_attributions(
             let now = Instant::now();
             entry.last_seen = now;
             external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
-            metrics.inc_flow_attribution_events_dropped("metadata_deferred", 1);
+            emit_cached_attribution(tx, metrics, entry, now);
         }
     }
 }
@@ -3141,7 +3141,7 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
-    fn refresh_enriched_attributions_defers_ipc_fanout() {
+    fn refresh_enriched_attributions_emits_changed_metadata() {
         let mut cache = FlowAttributionCache::default();
         let mut process_index = ProcessAttributionIndex::default();
         let mut expiry_queue = AttributionExpiryQueue::default();
@@ -3189,7 +3189,10 @@ mod tests {
         );
 
         assert_eq!(cache.get(&key).unwrap().event.comm, "new");
-        assert!(rx.try_recv().is_err());
+        let emitted = rx.try_recv().expect("enriched metadata event");
+        assert_eq!(emitted.comm, "new");
+        assert_eq!(emitted.redacted_cmdline, vec!["/bin/new"]);
+        assert_eq!(emitted.container_id, "container");
     }
 
     #[test]
