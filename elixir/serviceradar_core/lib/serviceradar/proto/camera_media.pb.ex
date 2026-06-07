@@ -127,13 +127,13 @@ defmodule Camera.CameraMediaService.Service do
 
   use GRPC.Service, name: "camera.CameraMediaService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc :OpenRelaySession, Camera.OpenRelaySessionRequest, Camera.OpenRelaySessionResponse
+  rpc(:OpenRelaySession, Camera.OpenRelaySessionRequest, Camera.OpenRelaySessionResponse)
 
-  rpc :UploadMedia, stream(Camera.MediaChunk), Camera.UploadMediaResponse
+  rpc(:UploadMedia, stream(Camera.MediaChunk), Camera.UploadMediaResponse)
 
-  rpc :Heartbeat, Camera.RelayHeartbeat, Camera.RelayHeartbeatAck
+  rpc(:Heartbeat, Camera.RelayHeartbeat, Camera.RelayHeartbeatAck)
 
-  rpc :CloseRelaySession, Camera.CloseRelaySessionRequest, Camera.CloseRelaySessionResponse
+  rpc(:CloseRelaySession, Camera.CloseRelaySessionRequest, Camera.CloseRelaySessionResponse)
 end
 
 defmodule Camera.CameraMediaService.Stub do

@@ -75,12 +75,14 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert package.capabilities == ["host-network-visibility"]
     assert package.approved_capabilities == ["host-network-visibility"]
     assert package.requires["run_as"] == "serviceradar"
+
     assert package.requires["os_capabilities"] == [
              "CAP_NET_RAW",
              "CAP_NET_ADMIN",
              "CAP_BPF",
              "CAP_PERFMON"
            ]
+
     assert package.config_schema["title"] == "Host Network Visibility (netprobe) Configuration"
     assert package.artifacts["linux/amd64"]["object_key"] == object_key
 
@@ -145,7 +147,10 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert proto_addon.artifact_signature == signature
   end
 
-  test "stages the manifest version without configured artifacts", %{actor: actor, unique_id: unique_id} do
+  test "stages the manifest version without configured artifacts", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
     version = "0.9.#{unique_id}"
 
     assert :ok = NetprobeAddonPackageSeeder.seed_defaults(version: version, artifacts: %{})

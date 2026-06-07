@@ -315,8 +315,7 @@ config :serviceradar_agent_gateway, :metrics,
 
 config :serviceradar_agent_gateway,
   camera_relay_max_sessions_per_agent: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_AGENT", 16),
-  camera_relay_max_sessions_per_gateway:
-    parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_GATEWAY", 32)
+  camera_relay_max_sessions_per_gateway: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_GATEWAY", 32)
 
 config :serviceradar_core, Oban, false
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Test
@@ -332,8 +331,7 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket:
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 # =============================================================================
 # serviceradar_core Dependencies

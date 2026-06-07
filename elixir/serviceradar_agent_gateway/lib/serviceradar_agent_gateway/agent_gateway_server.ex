@@ -590,26 +590,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp message_size(_), do: 0
 
   defp normalize_message(msg, source) do
-    max_bytes =
-      case source do
-        "results" -> @max_results_message_bytes
-        "sysmon-metrics" -> @max_sysmon_message_bytes
-        "snmp-metrics" -> @max_results_message_bytes
-        "plugin-result" -> @max_results_message_bytes
-        "workload-identity" -> @max_workload_identity_message_bytes
-        "flow-attribution" -> @max_flow_attribution_message_bytes
-        _ -> @max_status_message_bytes
-      end
+    max_bytes = max_message_bytes(source)
 
     if byte_size(msg) > max_bytes do
-      if source in [
-           "results",
-           "sysmon-metrics",
-           "snmp-metrics",
-           "plugin-result",
-           "workload-identity",
-           "flow-attribution"
-         ] do
+      if strict_message_size_source?(source) do
         raise GRPC.RPCError,
           status: :resource_exhausted,
           message: "payload exceeds max size"
@@ -619,6 +603,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     else
       msg
     end
+  end
+
+  defp max_message_bytes("results"), do: @max_results_message_bytes
+  defp max_message_bytes("sysmon-metrics"), do: @max_sysmon_message_bytes
+  defp max_message_bytes("snmp-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("plugin-result"), do: @max_results_message_bytes
+  defp max_message_bytes("workload-identity"), do: @max_workload_identity_message_bytes
+  defp max_message_bytes("flow-attribution"), do: @max_flow_attribution_message_bytes
+  defp max_message_bytes(_source), do: @max_status_message_bytes
+
+  defp strict_message_size_source?(source) do
+    source in [
+      "results",
+      "sysmon-metrics",
+      "snmp-metrics",
+      "plugin-result",
+      "workload-identity",
+      "flow-attribution"
+    ]
   end
 
   # Record metrics for the push operation

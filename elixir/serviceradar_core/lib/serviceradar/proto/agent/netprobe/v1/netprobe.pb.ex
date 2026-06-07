@@ -6,7 +6,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :payload, 0
+  oneof(:payload, 0)
 
   field :sequence, 1, type: :uint64
 
@@ -233,7 +233,7 @@ defmodule Serviceradar.Agent.Netprobe.V1.FingerprintEvent do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :evidence, 0
+  oneof(:evidence, 0)
 
   field :ip, 1, type: :string
   field :profile_id, 2, type: :string, json_name: "profileId"
@@ -261,6 +261,9 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
+  alias Serviceradar.Agent.Netprobe.V1.FingerprintMatch
+  alias Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch
+
   field :p0f_signature, 1, type: :string, json_name: "p0fSignature"
 
   field :p0f_match, 2,
@@ -270,14 +273,14 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :ja4, 3, type: :string
 
   field :ja4_match, 4,
-    type: Serviceradar.Agent.Netprobe.V1.FingerprintMatch,
+    type: FingerprintMatch,
     json_name: "ja4Match"
 
   field :hassh, 5, type: :string
   field :hassh_server, 6, type: :string, json_name: "hasshServer"
 
   field :hassh_match, 7,
-    type: Serviceradar.Agent.Netprobe.V1.FingerprintMatch,
+    type: FingerprintMatch,
     json_name: "hasshMatch"
 
   field :os_match, 8, type: Serviceradar.Agent.Netprobe.V1.OsMatch, json_name: "osMatch"
@@ -285,39 +288,39 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :muonfp, 10, type: Serviceradar.Agent.Netprobe.V1.MuonFpFingerprintMatch
 
   field :recog_http, 11,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogHttp"
 
   field :recog_ssh, 12,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSsh"
 
   field :recog_smb, 13,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSmb"
 
   field :recog_ftp, 14,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogFtp"
 
   field :recog_telnet, 15,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogTelnet"
 
   field :recog_snmp, 16,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSnmp"
 
   field :recog_sip, 17,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSip"
 
   field :recog_rdp, 18,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogRdp"
 
   field :recog_dns, 19,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogDns"
 
   field :satori_matches, 20,
@@ -339,11 +342,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.LicenseCleanFingerprint do
   field :sip_observed, 32, type: :bool, json_name: "sipObserved"
 
   field :recog_smtp, 33,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogSmtp"
 
   field :recog_ntp, 34,
-    type: Serviceradar.Agent.Netprobe.V1.RecogFingerprintMatch,
+    type: RecogFingerprintMatch,
     json_name: "recogNtp"
 end
 

@@ -128,10 +128,6 @@ remote_access_ssh_ca_signer_args =
       end
   end
 
-config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
-
-config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
-
 workload_identity_addon_artifacts =
   case System.get_env("SERVICERADAR_WORKLOAD_IDENTITY_ADDON_ARTIFACTS") do
     json when is_binary(json) and json != "" ->
@@ -169,6 +165,10 @@ workload_identity_addon_config =
     _ ->
       workload_identity_addon_config
   end
+
+config :geolix, databases: base_geolite_dbs ++ city_geolite_dbs ++ ipinfo_dbs
+
+config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
 
 config :serviceradar_core,
        :workload_identity_native_addon_package,

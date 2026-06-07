@@ -229,25 +229,25 @@ defmodule Proto.KVService.Service do
 
   use GRPC.Service, name: "proto.KVService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc :Get, Proto.GetRequest, Proto.GetResponse
+  rpc(:Get, Proto.GetRequest, Proto.GetResponse)
 
-  rpc :BatchGet, Proto.BatchGetRequest, Proto.BatchGetResponse
+  rpc(:BatchGet, Proto.BatchGetRequest, Proto.BatchGetResponse)
 
-  rpc :Put, Proto.PutRequest, Proto.PutResponse
+  rpc(:Put, Proto.PutRequest, Proto.PutResponse)
 
-  rpc :PutIfAbsent, Proto.PutRequest, Proto.PutResponse
+  rpc(:PutIfAbsent, Proto.PutRequest, Proto.PutResponse)
 
-  rpc :PutMany, Proto.PutManyRequest, Proto.PutManyResponse
+  rpc(:PutMany, Proto.PutManyRequest, Proto.PutManyResponse)
 
-  rpc :Update, Proto.UpdateRequest, Proto.UpdateResponse
+  rpc(:Update, Proto.UpdateRequest, Proto.UpdateResponse)
 
-  rpc :Delete, Proto.DeleteRequest, Proto.DeleteResponse
+  rpc(:Delete, Proto.DeleteRequest, Proto.DeleteResponse)
 
-  rpc :Watch, Proto.WatchRequest, stream(Proto.WatchResponse)
+  rpc(:Watch, Proto.WatchRequest, stream(Proto.WatchResponse))
 
-  rpc :Info, Proto.InfoRequest, Proto.InfoResponse
+  rpc(:Info, Proto.InfoRequest, Proto.InfoResponse)
 
-  rpc :ListKeys, Proto.ListKeysRequest, Proto.ListKeysResponse
+  rpc(:ListKeys, Proto.ListKeysRequest, Proto.ListKeysResponse)
 end
 
 defmodule Proto.KVService.Stub do

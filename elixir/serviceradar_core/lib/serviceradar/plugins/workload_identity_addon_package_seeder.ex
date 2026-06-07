@@ -114,7 +114,8 @@ defmodule ServiceRadar.Plugins.WorkloadIdentityAddonPackageSeeder do
   defp maybe_restage(package, true, _opts), do: {:ok, package}
 
   defp maybe_restage(%AddonPackage{status: status} = package, false, _opts)
-       when status in [:staged, :approved], do: {:ok, package}
+       when status in [:staged, :approved],
+       do: {:ok, package}
 
   defp maybe_restage(%AddonPackage{} = package, false, opts) do
     package

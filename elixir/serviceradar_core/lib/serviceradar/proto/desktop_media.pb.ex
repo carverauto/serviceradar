@@ -48,7 +48,7 @@ defmodule Desktopmedia.DesktopMediaClientMessage do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :message, 0
+  oneof(:message, 0)
 
   field :frame, 1, type: Desktopmedia.DesktopMediaFrameChunk, oneof: 0
   field :close, 2, type: Desktopmedia.DesktopMediaStreamClose, oneof: 0
@@ -63,7 +63,7 @@ defmodule Desktopmedia.DesktopMediaServerMessage do
     protoc_gen_elixir_version: "0.16.0",
     syntax: :proto3
 
-  oneof :message, 0
+  oneof(:message, 0)
 
   field :ack, 1, type: Desktopmedia.DesktopMediaAck, oneof: 0
   field :close, 2, type: Desktopmedia.DesktopMediaStreamClose, oneof: 0
@@ -195,19 +195,25 @@ defmodule Desktopmedia.DesktopMediaService.Service do
 
   use GRPC.Service, name: "desktopmedia.DesktopMediaService", protoc_gen_elixir_version: "0.16.0"
 
-  rpc :OpenDesktopMediaSession,
-      Desktopmedia.OpenDesktopMediaSessionRequest,
-      Desktopmedia.OpenDesktopMediaSessionResponse
+  rpc(
+    :OpenDesktopMediaSession,
+    Desktopmedia.OpenDesktopMediaSessionRequest,
+    Desktopmedia.OpenDesktopMediaSessionResponse
+  )
 
-  rpc :StreamDesktopMedia,
-      stream(Desktopmedia.DesktopMediaClientMessage),
-      stream(Desktopmedia.DesktopMediaServerMessage)
+  rpc(
+    :StreamDesktopMedia,
+    stream(Desktopmedia.DesktopMediaClientMessage),
+    stream(Desktopmedia.DesktopMediaServerMessage)
+  )
 
-  rpc :Heartbeat, Desktopmedia.DesktopMediaHeartbeat, Desktopmedia.DesktopMediaHeartbeatAck
+  rpc(:Heartbeat, Desktopmedia.DesktopMediaHeartbeat, Desktopmedia.DesktopMediaHeartbeatAck)
 
-  rpc :CloseDesktopMediaSession,
-      Desktopmedia.CloseDesktopMediaSessionRequest,
-      Desktopmedia.CloseDesktopMediaSessionResponse
+  rpc(
+    :CloseDesktopMediaSession,
+    Desktopmedia.CloseDesktopMediaSessionRequest,
+    Desktopmedia.CloseDesktopMediaSessionResponse
+  )
 end
 
 defmodule Desktopmedia.DesktopMediaService.Stub do
