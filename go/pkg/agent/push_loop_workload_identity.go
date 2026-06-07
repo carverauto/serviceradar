@@ -17,10 +17,15 @@
 package agent
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/carverauto/serviceradar/proto"
@@ -36,13 +41,12 @@ const (
 )
 
 type workloadIdentityFileSignature struct {
-	path    string
-	size    int64
-	modTime int64
+	path         string
+	semanticHash [sha256.Size]byte
 }
 
 func (s workloadIdentityFileSignature) zero() bool {
-	return s.path == "" && s.size == 0 && s.modTime == 0
+	return s.path == "" && s.semanticHash == [sha256.Size]byte{}
 }
 
 func (p *PushLoop) pushWorkloadIdentity(ctx context.Context) bool {
@@ -161,10 +165,85 @@ func readWorkloadIdentitySnapshot(path string, maxBytes int64) ([]byte, workload
 	}
 
 	return payload, workloadIdentityFileSignature{
-		path:    path,
-		size:    info.Size(),
-		modTime: info.ModTime().UnixNano(),
+		path:         path,
+		semanticHash: workloadIdentitySemanticHash(payload),
 	}, nil
+}
+
+func workloadIdentitySemanticHash(payload []byte) [sha256.Size]byte {
+	normalized, err := normalizeWorkloadIdentitySnapshot(payload)
+	if err != nil {
+		return sha256.Sum256(payload)
+	}
+
+	return sha256.Sum256(normalized)
+}
+
+func normalizeWorkloadIdentitySnapshot(payload []byte) ([]byte, error) {
+	var snapshot map[string]any
+
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+	if err := decoder.Decode(&snapshot); err != nil {
+		return nil, err
+	}
+
+	delete(snapshot, "observed_at_unix_nano")
+
+	if identities, ok := snapshot["identities"].([]any); ok {
+		sort.SliceStable(identities, func(i, j int) bool {
+			return workloadIdentitySortKey(identities[i]) < workloadIdentitySortKey(identities[j])
+		})
+		snapshot["identities"] = identities
+	}
+
+	return json.Marshal(snapshot)
+}
+
+func workloadIdentitySortKey(value any) string {
+	lookup, ok := value.(map[string]any)
+	if !ok {
+		return workloadIdentityJSONKey(value)
+	}
+
+	identity, _ := lookup["identity"].(map[string]any)
+	parts := []string{
+		stringValue(lookup["container_id"]),
+		stringValue(identity["container_id"]),
+		stringValue(identity["pod_uid"]),
+		stringValue(identity["pod_namespace"]),
+		stringValue(identity["pod_name"]),
+		stringValue(identity["container_name"]),
+		stringValue(identity["image"]),
+		stringValue(identity["image_ref"]),
+	}
+
+	key := strings.Join(parts, "\x00")
+	if strings.Trim(key, "\x00") != "" {
+		return key
+	}
+
+	return workloadIdentityJSONKey(value)
+}
+
+func stringValue(value any) string {
+	if value == nil {
+		return ""
+	}
+	if text, ok := value.(string); ok {
+		return text
+	}
+
+	return workloadIdentityJSONKey(value)
+}
+
+func workloadIdentityJSONKey(value any) string {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return ""
+	}
+
+	return string(data)
 }
 
 func (p *PushLoop) shouldForwardWorkloadIdentity(sig workloadIdentityFileSignature) bool {

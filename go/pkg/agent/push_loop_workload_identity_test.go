@@ -36,7 +36,7 @@ func TestReadWorkloadIdentitySnapshot(t *testing.T) {
 	if string(got) != string(payload) {
 		t.Fatalf("payload = %q, want %q", got, payload)
 	}
-	if sig.path != path || sig.size != int64(len(payload)) || sig.modTime == 0 {
+	if sig.path != path || sig.semanticHash == [32]byte{} {
 		t.Fatalf("unexpected signature: %#v", sig)
 	}
 }
@@ -54,7 +54,10 @@ func TestReadWorkloadIdentitySnapshotRejectsOversizedPayload(t *testing.T) {
 
 func TestWorkloadIdentityForwardingSignatureAdvancesOnlyOnCommit(t *testing.T) {
 	pl := &PushLoop{}
-	sig := workloadIdentityFileSignature{path: "/tmp/latest.json", size: 10, modTime: 123}
+	sig := workloadIdentityFileSignature{
+		path:         "/tmp/latest.json",
+		semanticHash: workloadIdentitySemanticHash([]byte(`{"identities":[]}`)),
+	}
 
 	if !pl.shouldForwardWorkloadIdentity(sig) {
 		t.Fatal("first signature should forward")
@@ -68,8 +71,49 @@ func TestWorkloadIdentityForwardingSignatureAdvancesOnlyOnCommit(t *testing.T) {
 		t.Fatal("committed signature should not forward again")
 	}
 
-	next := workloadIdentityFileSignature{path: "/tmp/latest.json", size: 11, modTime: 124}
+	next := workloadIdentityFileSignature{
+		path:         "/tmp/latest.json",
+		semanticHash: workloadIdentitySemanticHash([]byte(`{"identities":[{"container_id":"abc"}]}`)),
+	}
 	if !pl.shouldForwardWorkloadIdentity(next) {
 		t.Fatal("changed signature should forward")
+	}
+}
+
+func TestWorkloadIdentitySemanticHashIgnoresCollectionTimestamp(t *testing.T) {
+	first := workloadIdentitySemanticHash([]byte(`{
+		"observed_at_unix_nano": 100,
+		"enabled": true,
+		"identities": [
+			{"container_id": "b", "identity": {"pod_name": "pod-b"}},
+			{"container_id": "a", "identity": {"pod_name": "pod-a"}}
+		]
+	}`))
+	second := workloadIdentitySemanticHash([]byte(`{
+		"observed_at_unix_nano": 200,
+		"enabled": true,
+		"identities": [
+			{"container_id": "a", "identity": {"pod_name": "pod-a"}},
+			{"container_id": "b", "identity": {"pod_name": "pod-b"}}
+		]
+	}`))
+
+	if first != second {
+		t.Fatal("semantic hash should ignore observed_at and identity order")
+	}
+}
+
+func TestWorkloadIdentitySemanticHashChangesWhenIdentityChanges(t *testing.T) {
+	first := workloadIdentitySemanticHash([]byte(`{
+		"enabled": true,
+		"identities": [{"container_id": "a", "identity": {"pod_name": "pod-a"}}]
+	}`))
+	second := workloadIdentitySemanticHash([]byte(`{
+		"enabled": true,
+		"identities": [{"container_id": "a", "identity": {"pod_name": "pod-renamed"}}]
+	}`))
+
+	if first == second {
+		t.Fatal("semantic hash should change when identity content changes")
 	}
 }
