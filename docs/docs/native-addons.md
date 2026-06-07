@@ -12,8 +12,12 @@ a Wasm plugin for a sandboxed checker, and a native add-on when a capability nee
 real OS process (a sidecar daemon, a scheduled scanner, a host-level collector).
 
 This page is the operator/author overview for the add-on framework defined in issue
-#3425. The framework spine is in place; some delivery models and UI surfaces are
-landing in follow-up changes (see the `add-native-addon-*` OpenSpec changes).
+#3425. Use it with the first-party add-on runbooks:
+
+- [Host Network Visibility](./netprobe.md) covers `serviceradar-netprobe`,
+  including eBPF-backed process attribution and AF_XDP flow capture.
+- [Workload Identity](./workload-identity.md) covers the standalone runtime
+  metadata collector for Kubernetes, containerd, Docker, and Docker Compose hosts.
 
 ## Why native add-ons
 
@@ -47,7 +51,7 @@ obtain and run it:
 - `os-package` — a deb/rpm that depends on `serviceradar-agent` and is dormant until
   selected.
 
-**Supervision** — how the agent runs it:
+**Supervision** — how the capability runs on the host:
 
 - `config-toggle` — flip a flag on an in-agent capability.
 - `agent-sidecar` — supervised `go-plugin` subprocess (health checks, restart
@@ -57,6 +61,13 @@ obtain and run it:
 - `ephemeral-helper` — a short-lived one-shot process.
 
 The reference `sample` add-on is `pushed-artifact` / `agent-sidecar`.
+
+Privileged host collectors should use the long-term systemd model. They run as
+separate units under `serviceradar.slice`, optionally participate in a
+`serviceradar-agent.target` or `PartOf=serviceradar-agent.service` lifecycle, and
+report health/status through the agent. They are not child processes of the base
+agent. This keeps privileges, restart policy, and cgroup accounting isolated while
+still giving the UI one owner for desired-state drift.
 
 ## Package format
 
