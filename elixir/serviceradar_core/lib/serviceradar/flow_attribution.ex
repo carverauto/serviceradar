@@ -27,6 +27,41 @@ defmodule ServiceRadar.FlowAttribution do
   @history_coalesce_seconds 30
 
   @upsert_sql """
+  WITH input_rows AS (
+    SELECT
+      r.observed_at::timestamptz AS observed_at,
+      r.partition,
+      r.attribution_key,
+      r.agent_id,
+      r.proto,
+      r.local_ip,
+      r.local_port,
+      r.remote_ip,
+      r.remote_port,
+      r.pid,
+      r.comm,
+      r.cmdline,
+      r.uid,
+      r.container_id,
+      r.workload_identity
+    FROM jsonb_to_recordset(($1::text)::jsonb) AS r(
+      observed_at text,
+      partition text,
+      attribution_key text,
+      agent_id text,
+      proto integer,
+      local_ip text,
+      local_port integer,
+      remote_ip text,
+      remote_port integer,
+      pid integer,
+      comm text,
+      cmdline text,
+      uid integer,
+      container_id text,
+      workload_identity jsonb
+    )
+  )
   INSERT INTO #{@schema}.#{@table} (
     observed_at,
     inserted_at,
@@ -47,7 +82,7 @@ defmodule ServiceRadar.FlowAttribution do
     workload_identity
   )
   SELECT
-    r.observed_at::timestamptz,
+    r.observed_at,
     now(),
     now(),
     r.partition,
@@ -63,24 +98,18 @@ defmodule ServiceRadar.FlowAttribution do
     r.cmdline,
     r.uid,
     r.container_id,
-    r.workload_identity
-  FROM jsonb_to_recordset(($1::text)::jsonb) AS r(
-    observed_at text,
-    partition text,
-    attribution_key text,
-    agent_id text,
-    proto integer,
-    local_ip text,
-    local_port integer,
-    remote_ip text,
-    remote_port integer,
-    pid integer,
-    comm text,
-    cmdline text,
-    uid integer,
-    container_id text,
-    workload_identity jsonb
-  )
+    COALESCE(r.workload_identity, workload.identity) AS workload_identity
+  FROM input_rows AS r
+  LEFT JOIN LATERAL (
+    SELECT wi.identity
+    FROM #{@schema}.#{@workload_identity_table} AS wi
+    WHERE wi.partition = r.partition
+      AND wi.agent_id = r.agent_id
+      AND wi.container_id = r.container_id
+    ORDER BY wi.observed_at DESC
+    LIMIT 1
+  ) AS workload ON r.workload_identity IS NULL
+    AND r.container_id IS NOT NULL
   ON CONFLICT (partition, attribution_key) DO UPDATE SET
     observed_at = GREATEST(#{@table}.observed_at, EXCLUDED.observed_at),
     updated_at = now(),
@@ -88,6 +117,63 @@ defmodule ServiceRadar.FlowAttribution do
     uid = COALESCE(EXCLUDED.uid, #{@table}.uid),
     container_id = COALESCE(EXCLUDED.container_id, #{@table}.container_id),
     workload_identity = COALESCE(EXCLUDED.workload_identity, #{@table}.workload_identity)
+  """
+
+  @backfill_current_workload_sql """
+  WITH updated_rows AS (
+    UPDATE #{@schema}.#{@table} AS attr
+    SET
+      workload_identity = workload.identity,
+      updated_at = now()
+    FROM #{@schema}.#{@workload_identity_table} AS workload
+    WHERE attr.workload_identity IS NULL
+      AND attr.container_id IS NOT NULL
+      AND attr.container_id <> ''
+      AND attr.observed_at > now() - interval '#{@correlation_window_minutes * 60 + @correlation_skew_seconds} seconds'
+      AND workload.partition = attr.partition
+      AND workload.agent_id = attr.agent_id
+      AND workload.container_id = attr.container_id
+    RETURNING 1
+  )
+  SELECT count(*) FROM updated_rows
+  """
+
+  @backfill_current_workload_for_keys_sql """
+  WITH input_keys AS (
+    SELECT DISTINCT
+      r.partition,
+      r.agent_id,
+      r.container_id
+    FROM jsonb_to_recordset(($1::text)::jsonb) AS r(
+      partition text,
+      agent_id text,
+      container_id text
+    )
+    WHERE r.partition IS NOT NULL
+      AND r.agent_id IS NOT NULL
+      AND r.container_id IS NOT NULL
+      AND r.container_id <> ''
+  ),
+  updated_rows AS (
+    UPDATE #{@schema}.#{@table} AS attr
+    SET
+      workload_identity = workload.identity,
+      updated_at = now()
+    FROM input_keys AS keys
+    JOIN #{@schema}.#{@workload_identity_table} AS workload
+      ON workload.partition = keys.partition
+     AND workload.agent_id = keys.agent_id
+     AND workload.container_id = keys.container_id
+    WHERE attr.workload_identity IS NULL
+      AND attr.container_id IS NOT NULL
+      AND attr.container_id <> ''
+      AND attr.observed_at > now() - interval '#{@correlation_window_minutes * 60 + @correlation_skew_seconds} seconds'
+      AND attr.partition = keys.partition
+      AND attr.agent_id = keys.agent_id
+      AND attr.container_id = keys.container_id
+    RETURNING 1
+  )
+  SELECT count(*) FROM updated_rows
   """
 
   @legacy_insert_sql """
@@ -747,11 +833,50 @@ defmodule ServiceRadar.FlowAttribution do
       (SELECT count(*) FROM workload_backfills) AS affected_rows
     """
 
-    case ServiceRadar.Repo.query(sql, []) do
+    with {:ok, _current_backfills} <- backfill_current_workload_identity(),
+         {:ok, %{rows: [[num_rows]]}} <- ServiceRadar.Repo.query(sql, []) do
+      {:ok, num_rows}
+    end
+  end
+
+  @doc """
+  Backfill workload identity into recent current-state attribution rows.
+
+  Workload snapshots can arrive after netprobe has already emitted a process/socket
+  observation. Keeping this backfill in core preserves the clean add-on split: the
+  edge does not need to replay process observations just because runtime metadata
+  arrived later.
+  """
+  @spec backfill_current_workload_identity() :: {:ok, non_neg_integer()} | {:error, term()}
+  def backfill_current_workload_identity do
+    case ServiceRadar.Repo.query(@backfill_current_workload_sql, []) do
       {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
       {:error, reason} -> {:error, reason}
     end
   end
+
+  @doc """
+  Backfill recent current-state attribution rows for specific workload identity keys.
+  """
+  @spec backfill_current_workload_identity([map()]) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  def backfill_current_workload_identity(rows) when is_list(rows) do
+    keys =
+      rows
+      |> Enum.map(&workload_backfill_key/1)
+      |> Enum.reject(&is_nil/1)
+
+    if keys == [] do
+      {:ok, 0}
+    else
+      case ServiceRadar.Repo.query(@backfill_current_workload_for_keys_sql, [Jason.encode!(keys)]) do
+        {:ok, %{rows: [[num_rows]]}} -> {:ok, num_rows}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  def backfill_current_workload_identity(_rows), do: {:ok, 0}
 
   @doc "Delete attributions older than the retention window."
   @spec prune() :: {:ok, non_neg_integer()} | {:error, term()}
@@ -845,6 +970,24 @@ defmodule ServiceRadar.FlowAttribution do
   defp empty_map_to_nil(value) when value == %{}, do: nil
   defp empty_map_to_nil(value) when is_map(value), do: value
   defp empty_map_to_nil(_value), do: nil
+
+  defp workload_backfill_key(row) when is_map(row) do
+    partition = Map.get(row, :partition) || Map.get(row, "partition")
+    agent_id = Map.get(row, :agent_id) || Map.get(row, "agent_id")
+    container_id = Map.get(row, :container_id) || Map.get(row, "container_id")
+
+    if partition in [nil, ""] or agent_id in [nil, ""] or container_id in [nil, ""] do
+      nil
+    else
+      %{
+        partition: partition,
+        agent_id: agent_id,
+        container_id: container_id
+      }
+    end
+  end
+
+  defp workload_backfill_key(_row), do: nil
 
   defp put_attribution_key(row) do
     key_parts = [

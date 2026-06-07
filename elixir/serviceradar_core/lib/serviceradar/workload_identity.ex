@@ -8,6 +8,7 @@ defmodule ServiceRadar.WorkloadIdentity do
   required to carry workload metadata.
   """
 
+  alias ServiceRadar.FlowAttribution
   alias ServiceRadar.Repo
 
   require Logger
@@ -212,8 +213,23 @@ defmodule ServiceRadar.WorkloadIdentity do
     """
 
     case Repo.query(sql, [rows]) do
-      {:ok, _result} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, _result} ->
+        backfill_flow_attribution(rows)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp backfill_flow_attribution(encoded_rows) do
+    with {:ok, rows} <- Jason.decode(encoded_rows),
+         {:ok, _count} <- FlowAttribution.backfill_current_workload_identity(rows) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("WorkloadIdentity flow attribution backfill failed: #{inspect(reason)}")
+        :ok
     end
   end
 

@@ -158,6 +158,119 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert history_cmdline == "redis-server --protected-mode yes"
   end
 
+  test "enriches current attribution rows from existing workload identity", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "container-existing-#{System.unique_integer([:positive])}"
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "demo",
+        "pod_name" => "speaker-x6qvg",
+        "container_name" => "speaker",
+        "image" => "metallb/speaker:v0.14.9",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    event = %Netprobepb.FlowAttributionEvent{
+      transport_protocol: "udp",
+      local_ip: "10.0.2.9",
+      local_port: 7946,
+      remote_ip: "192.168.10.96",
+      remote_port: 7946,
+      pid: 112_633,
+      uid: 1000,
+      comm: "speaker",
+      container_id: container_id,
+      observed_at_unix_nano: DateTime.to_unix(now, :nanosecond)
+    }
+
+    FlowAttribution.persist([event], partition, agent_id)
+
+    %{rows: [[workload]]} =
+      query!(
+        """
+        SELECT workload_identity
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1 AND agent_id = $2 AND container_id = $3
+        """,
+        [partition, agent_id, container_id]
+      )
+
+    assert workload["pod_namespace"] == "demo"
+    assert workload["pod_name"] == "speaker-x6qvg"
+    assert workload["container_name"] == "speaker"
+  end
+
+  test "backfills current attribution rows when workload identity arrives late", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "container-late-#{System.unique_integer([:positive])}"
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.0.2.11",
+      local_port: 179,
+      remote_ip: "192.168.10.96",
+      remote_port: 34_491,
+      pid: 45_246,
+      comm: "gobgpd",
+      container_id: container_id
+    })
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "demo",
+        "pod_name" => "gobgp-0",
+        "container_name" => "gobgpd",
+        "image" => "gobgp:latest",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    assert {:ok, 1} =
+             FlowAttribution.backfill_current_workload_identity([
+               %{
+                 partition: partition,
+                 agent_id: agent_id,
+                 container_id: container_id
+               }
+             ])
+
+    %{rows: [[workload]]} =
+      query!(
+        """
+        SELECT workload_identity
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1 AND agent_id = $2 AND container_id = $3
+        """,
+        [partition, agent_id, container_id]
+      )
+
+    assert workload["pod_namespace"] == "demo"
+    assert workload["pod_name"] == "gobgp-0"
+    assert workload["container_name"] == "gobgpd"
+  end
+
   test "correlates delayed TCP flow from historical attribution only", %{
     partition: partition,
     agent_id: agent_id
