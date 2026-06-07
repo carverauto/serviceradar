@@ -9,8 +9,9 @@ metadata.json) per add-on, analogous to the Wasm plugin bundles.
 Each entry's "language" selects how the per-arch binary is produced:
   - "go"   -> the go_binary is cross-compiled per arch via go_cross_binary.
   - "rust" -> the rust_binary is packaged directly (rules_rust has no
-              go_cross_binary analogue wired in this repo yet), so every
-              declared platform reuses the single configured-platform binary.
+              go_cross_binary analogue wired in this repo yet). Rust production
+              add-ons should declare only the configured release arch until
+              real Rust cross-compilation is wired in.
 """
 
 ADDON_BUNDLES = [
@@ -74,7 +75,6 @@ ADDON_BUNDLES = [
         "binary_name": "serviceradar-netprobe",
         "platforms": [
             ("linux", "amd64"),
-            ("linux", "arm64"),
         ],
         "manifest_entries": [
             ("addon.yaml", "//addons/netprobe:addon.yaml"),
@@ -104,7 +104,6 @@ ADDON_BUNDLES = [
         "binary_name": "serviceradar-workload-identity",
         "platforms": [
             ("linux", "amd64"),
-            ("linux", "arm64"),
         ],
         "manifest_entries": [
             ("addon.yaml", "//addons/workload-identity:addon.yaml"),
