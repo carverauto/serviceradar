@@ -83,6 +83,23 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
+## Operator quick start
+
+Use this path for a normal rollout:
+
+1. Import or sync the signed native add-on package from the release catalog.
+2. Open **Settings > Agents > Add-ons** and verify the package is `verified`.
+3. Review the manifest, required privileges, supported platforms, OCI digest, and
+   granted capabilities.
+4. Approve the package.
+5. Assign the approved package to an agent or cohort.
+6. Confirm add-on drift and health from the agent detail page.
+7. Confirm host service state with `systemctl` for systemd-backed add-ons.
+
+The base **Agent Releases** page should show only base `serviceradar-agent` releases.
+If add-on packages appear there, that is a catalog/UI bug: add-ons belong in the
+add-on catalog so operators do not lose sight of base-agent runtime releases.
+
 ## Which add-on to deploy
 
 Deploy add-ons independently. They complement each other, but neither one should be a
@@ -240,3 +257,48 @@ Mirror the Wasm plugin author flow:
 5. The agent fetches/verifies/activates and supervises the add-on per its model.
 6. Per-add-on `installed/active/unhealthy` status is reported back and reconciled
    against the desired assignment in the UI.
+
+## Fleet-scale targeting
+
+Add-on targeting should be derived from control-plane inventory, settings, and cohort
+selection. Do not maintain a static Helm value for every agent in a production fleet.
+That pattern is acceptable only for short-lived demos and becomes unmanageable at
+thousands of agents.
+
+For large deployments:
+
+- Use cohort assignment in **Settings > Agents > Add-ons** for broad rollout.
+- Keep host capability and platform compatibility in the package manifest.
+- Let the control plane compile desired add-on state into the agent config pushed
+  through the gateway command/config path.
+- Treat Helm values as deployment defaults and bootstrap configuration, not as the
+  source of truth for per-agent add-on state.
+- Track unsupported architectures, failed downloads, inactive services, and
+  assignment drift in the add-on drift/status views.
+
+## Status signals
+
+Operators should expect three different states to reconcile:
+
+| Signal | Source | Meaning |
+| --- | --- | --- |
+| Package state | Control plane package catalog | Whether the package is staged, approved, revoked, denied, and verified. |
+| Desired assignment | Control plane agent config | Which add-on version and params an agent should run. |
+| Observed status | Agent and host service | What is actually installed, active, unhealthy, or drifting on the host. |
+
+When troubleshooting, avoid treating one signal as authoritative by itself. A package
+can be approved but unassigned. An assignment can exist while an agent is offline. A
+host service can be running an older package after a failed artifact download.
+
+For systemd-backed add-ons, the host commands are still the fastest local truth:
+
+```bash
+sudo systemctl status serviceradar-agent.service --no-pager
+sudo systemctl status serviceradar-netprobe.service --no-pager
+sudo systemctl status serviceradar-workload-identity.service --no-pager
+sudo systemctl status serviceradar.slice --no-pager
+```
+
+The ServiceRadar UI should surface the same drift in operator terms: assigned but not
+installed, installed but inactive, unhealthy, unsupported architecture, unassigned
+observed add-on, or stale status.
