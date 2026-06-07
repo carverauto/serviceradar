@@ -6,14 +6,14 @@
 - [x] 1.4 Decide first packaging target: native host add-on, Kubernetes DaemonSet, Docker Compose service, or one binary with all three manifests.
 
 ## 1a. Minimal Viable Milestone
-- [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
+- [x] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
 - [x] 1a.1a Remove the initial opt-in Kubernetes CRI cache from netprobe startup so netprobe emits socket/process/container join keys only.
 - [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe does not own or link runtime metadata collection.
 - [x] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
 - [x] 1a.1d Add package-managed systemd ownership for ServiceRadar host add-ons: netprobe and workload-identity remain separate units, but share a ServiceRadar slice/target for lifecycle grouping, resource accounting, and status attribution instead of pretending they are child processes of `serviceradar-agent`.
 - [x] 1a.1e Put existing native host units (`serviceradar-agent`, netprobe, endpoint-inventory, and bumblebee-scan) in `serviceradar.slice` without adding `PartOf=`, `BindsTo=`, or `Requires=` coupling to `serviceradar-agent.service`.
 - [x] 1a.1f Add workload-identity-to-agent forwarding so the standalone collector sends bounded identity observations through agent-gateway/core, where upstream coalesces current-state identity. Netprobe must not be required to consume workload-identity output for the data to reach storage/query/UI.
-- [ ] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
+- [x] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
 - [ ] 1a.4 Choose and document the initial late-enrichment correlation window, including the behavior for unmatched raw observations after the window expires.
@@ -72,7 +72,7 @@
 ## 8. Verification
 - [ ] 8.1 Add unit tests for cgroup/container ID parsing across cgroup v1/v2, containerd, CRI-O, Docker, Kubernetes, and Compose patterns.
 - [ ] 8.2 Add integration tests with fixture CRI/Docker responses for Kubernetes and Compose enrichment.
-- [ ] 8.3 Verify on demo Kubernetes workers that attributed flows show namespace, pod, container name, image, and owner metadata where available.
+- [x] 8.3 Verify on demo Kubernetes workers that attributed flows show namespace, pod, container name, image, and owner metadata where available.
 - [ ] 8.4 Verify on a Docker/Compose host that attributed flows show Compose project/service/container and useful Docker metadata.
-- [ ] 8.5 Verify standalone ingestion by forwarding a workload-identity snapshot through agent -> agent-gateway -> core without requiring netprobe to consume the snapshot locally.
-- [ ] 8.6 Run `openspec validate add-workload-identity-enrichment --strict`.
+- [x] 8.5 Verify standalone ingestion by forwarding a workload-identity snapshot through agent -> agent-gateway -> core without requiring netprobe to consume the snapshot locally.
+- [x] 8.6 Run `openspec validate add-workload-identity-enrichment --strict`.
