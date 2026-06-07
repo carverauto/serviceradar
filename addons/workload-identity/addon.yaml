@@ -24,7 +24,10 @@ requires:
   base_agent: ">=1.2.0"
   platforms: [linux]
   os_capabilities: []
-  run_as: serviceradar
+  # Kubernetes CRI sockets are commonly root:root 0660. Keep this
+  # privilege on the standalone collector instead of routing runtime socket
+  # access through serviceradar-agent or netprobe.
+  run_as: root
 
 exec:
   binary: serviceradar-workload-identity

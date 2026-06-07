@@ -301,6 +301,7 @@ webNg:
       - workload-identity
     autoApproveAddonIds:
       - netprobe
+      - workload-identity
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:

@@ -40,6 +40,8 @@ The ingestion contract should not make workload identity dependent on netprobe c
 
 Native host packaging should model workload identity and netprobe as ServiceRadar-owned peers, not as process children of the agent. Long-running privileged collectors should remain separate systemd units so restart policy, Linux capabilities, hardening, and cgroup accounting are explicit. To make ownership visible, package-managed units should share a ServiceRadar systemd slice or target (for example `serviceradar.slice` / `serviceradar-agent.target`) and report add-on ownership through agent status, while the agent attaches to collector IPC instead of supervising privileged processes directly.
 
+For the native CRI MVP, workload identity runs as its own sandboxed root systemd service because real worker sockets such as `/run/k3s/containerd/containerd.sock` are commonly `root:root 0660`. This does not make the agent a privileged supervisor and does not make netprobe a dependency. A later least-privileged local metadata proxy can reduce that privilege boundary, but the first native add-on must be able to read the node-local runtime socket when explicitly enabled.
+
 ## Key Point: CRI Is Enough For Baseline Pod Identity
 On Kubernetes workers, local CRI metadata is usually enough to map a container ID or pod sandbox ID to:
 - pod name
@@ -104,6 +106,7 @@ Runtime sockets are powerful. A read-only hostPath mount does not make a Unix so
 
 Controls:
 - Socket access is opt-in per deployment.
+- Native host packaging runs the standalone workload identity collector as a tightly sandboxed root service by default because Kubernetes CRI sockets are commonly `root:root 0660`. This privilege belongs to the collector unit, not to `serviceradar-agent` and not to netprobe.
 - Use read-only hostPath mounts for socket paths where the platform supports them, but do not rely on mount mode as the security boundary.
 - Provide AppArmor/SELinux profile guidance for the collector and any metadata helper so runtime metadata access is intentionally scoped.
 - The collector records which metadata source was used: eBPF-only, CRI, Docker API, containerd, Kubernetes inventory overlay, or fallback.

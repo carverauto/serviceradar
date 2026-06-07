@@ -209,7 +209,7 @@ config :serviceradar_web_ng, :native_addon_import,
   auto_sync_enabled: false,
   sync_release_limit: 10,
   sync_interval_seconds: 3_600,
-  addon_ids: ["netprobe"],
+  addon_ids: ["netprobe", "workload-identity"],
   auto_approve_addon_ids: []
 
 config :serviceradar_web_ng, :object_store_retention,

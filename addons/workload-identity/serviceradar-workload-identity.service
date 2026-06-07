@@ -6,7 +6,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=serviceradar
+# Kubernetes CRI sockets are commonly root:root 0660. This unit keeps that
+# privileged runtime access isolated from serviceradar-agent and netprobe.
+User=root
 Group=serviceradar
 UMask=0027
 # Share cgroup accounting with ServiceRadar host components while keeping an

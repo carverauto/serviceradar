@@ -67,7 +67,7 @@ defmodule ServiceRadar.Plugins.WorkloadIdentityAddonPackageSeederTest do
     assert package.binary == "serviceradar-workload-identity"
     assert package.capabilities == ["workload-identity", "container-inventory"]
     assert package.approved_capabilities == ["workload-identity", "container-inventory"]
-    assert package.requires["run_as"] == "serviceradar"
+    assert package.requires["run_as"] == "root"
     assert package.requires["os_capabilities"] == []
     assert package.config_schema["title"] == "Workload Identity Configuration"
     assert package.artifacts["linux/amd64"]["object_key"] == object_key
