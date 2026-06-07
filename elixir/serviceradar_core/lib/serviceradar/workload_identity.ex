@@ -269,9 +269,7 @@ defmodule ServiceRadar.WorkloadIdentity do
 
   defp workload_context_from_snapshot(snapshot) do
     %{
-      "context_name" => normalize_string(Map.get(snapshot, "context_name")),
-      "cluster_id" => normalize_string(Map.get(snapshot, "cluster_id")),
-      "cluster_name" => normalize_string(Map.get(snapshot, "cluster_name"))
+      "context_name" => normalize_string(Map.get(snapshot, "context_name"))
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()

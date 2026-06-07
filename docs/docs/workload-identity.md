@@ -261,8 +261,8 @@ Check:
 - The event is inside the configured metadata retention/correlation window.
 - The base agent release is new enough to report systemd-backed add-on status and
   ingest workload identity snapshots.
-- `context_name` is set when multiple clusters report into the same ServiceRadar
-  deployment.
+- `context_name` is set when multiple Kubernetes contexts or container
+  environments report into the same ServiceRadar deployment.
 
 ### Context name is missing
 
@@ -290,13 +290,13 @@ Docker hosts will not have Kubernetes pod or namespace fields unless an addition
 orchestration overlay supplies them. They should still show container name, image,
 runtime PID, labels, and Compose project/service labels.
 
-### Multiple clusters look identical
+### Multiple contexts look identical
 
 CRI data is node-local and does not contain a durable global context identity. Set
-`context_name` in the add-on assignment for every cluster or container environment, or
-deploy an overlay that stamps context metadata onto the node-local collector config.
-Without that, two clusters can legitimately produce the same namespace, pod, and
-container names.
+`context_name` in the add-on assignment for every Kubernetes context or container
+environment, or deploy an overlay that stamps context metadata onto the node-local
+collector config. Without that, two contexts can legitimately produce the same
+namespace, pod, and container names.
 
 ### Container ID exists but pod metadata is missing
 

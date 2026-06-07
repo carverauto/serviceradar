@@ -77,7 +77,10 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
         picked.cmdline,
         picked.uid,
         picked.container_id,
-        COALESCE(picked.workload_identity, workload.identity) AS workload_identity
+        NULLIF(
+          COALESCE(workload.identity, '{}'::jsonb) || COALESCE(picked.workload_identity, '{}'::jsonb),
+          '{}'::jsonb
+        ) AS workload_identity
       FROM recent_flows AS f
       JOIN LATERAL (
         SELECT
@@ -399,8 +402,7 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
           AND wi.container_id = picked.container_id
         ORDER BY wi.observed_at DESC
         LIMIT 1
-      ) AS workload ON picked.workload_identity IS NULL
-        AND picked.container_id IS NOT NULL
+      ) AS workload ON picked.container_id IS NOT NULL
     ),
     stamped AS (
       UPDATE #{@schema}.ocsf_network_activity AS f
@@ -427,16 +429,28 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       SET ocsf_payload = jsonb_set(
         f.ocsf_payload,
         '{attribution,workload_identity}',
-        wi.identity,
+        NULLIF(
+          COALESCE(wi.identity, '{}'::jsonb) ||
+            COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb),
+          '{}'::jsonb
+        ),
         true
       )
       FROM #{@schema}.#{@workload_identity_table} AS wi
       WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
         AND (f.ocsf_payload ->> 'event_type') = 'attributed_flow'
-        AND (f.ocsf_payload #> '{attribution,workload_identity}') IS NULL
         AND (f.ocsf_payload #>> '{attribution,container_id}') = wi.container_id
         AND (f.ocsf_payload ->> 'agent_id') = wi.agent_id
         AND f.partition = wi.partition
+        AND (
+          (f.ocsf_payload #> '{attribution,workload_identity}') IS NULL
+          OR NOT ((f.ocsf_payload #> '{attribution,workload_identity}') ? 'context_name')
+        )
+        AND COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb) <>
+          (
+            COALESCE(wi.identity, '{}'::jsonb) ||
+              COALESCE(f.ocsf_payload #> '{attribution,workload_identity}', '{}'::jsonb)
+          )
       RETURNING 1
     )
     SELECT

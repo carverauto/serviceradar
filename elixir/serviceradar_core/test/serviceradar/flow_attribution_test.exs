@@ -211,6 +211,68 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert workload["container_name"] == "speaker"
   end
 
+  test "merges current workload context into partial event workload identity", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "container-partial-#{System.unique_integer([:positive])}"
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "context_name" => "default-cp3",
+        "container_id" => container_id,
+        "pod_namespace" => "metallb-system",
+        "pod_name" => "speaker-r7zlz",
+        "container_name" => "speaker",
+        "image" => "quay.io/metallb/speaker:v0.15.2",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    event = %Netprobepb.FlowAttributionEvent{
+      transport_protocol: "udp",
+      local_ip: "10.0.2.13",
+      local_port: 7946,
+      remote_ip: "192.168.10.31",
+      remote_port: 7946,
+      pid: 963_214,
+      uid: 1000,
+      comm: "speaker",
+      container_id: container_id,
+      workload_identity: %Netprobepb.WorkloadIdentity{
+        container_id: container_id,
+        pod_namespace: "metallb-system",
+        pod_name: "speaker-r7zlz",
+        container_name: "speaker"
+      },
+      observed_at_unix_nano: DateTime.to_unix(now, :nanosecond)
+    }
+
+    FlowAttribution.persist([event], partition, agent_id)
+
+    %{rows: [[workload]]} =
+      query!(
+        """
+        SELECT workload_identity
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1 AND agent_id = $2 AND container_id = $3
+        """,
+        [partition, agent_id, container_id]
+      )
+
+    assert workload["context_name"] == "default-cp3"
+    assert workload["pod_namespace"] == "metallb-system"
+    assert workload["pod_name"] == "speaker-r7zlz"
+    assert workload["container_name"] == "speaker"
+    assert workload["image"] == "quay.io/metallb/speaker:v0.15.2"
+  end
+
   test "backfills current attribution rows when workload identity arrives late", %{
     partition: partition,
     agent_id: agent_id
@@ -269,6 +331,74 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert workload["pod_namespace"] == "demo"
     assert workload["pod_name"] == "gobgp-0"
     assert workload["container_name"] == "gobgpd"
+  end
+
+  test "backfills missing context on partial current workload identity", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "container-partial-late-#{System.unique_integer([:positive])}"
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.0.2.12",
+      local_port: 7946,
+      remote_ip: "192.168.10.96",
+      remote_port: 7946,
+      pid: 963_214,
+      comm: "speaker",
+      container_id: container_id,
+      workload_identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "metallb-system",
+        "pod_name" => "speaker-dhj7j",
+        "container_name" => "speaker"
+      }
+    })
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "context_name" => "default-cp3",
+        "container_id" => container_id,
+        "pod_namespace" => "metallb-system",
+        "pod_name" => "speaker-dhj7j",
+        "container_name" => "speaker",
+        "image" => "quay.io/metallb/speaker:v0.15.2",
+        "runtime_source" => "containerd",
+        "confidence" => "high"
+      }
+    })
+
+    assert {:ok, 1} =
+             FlowAttribution.backfill_current_workload_identity([
+               %{
+                 partition: partition,
+                 agent_id: agent_id,
+                 container_id: container_id
+               }
+             ])
+
+    %{rows: [[workload]]} =
+      query!(
+        """
+        SELECT workload_identity
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1 AND agent_id = $2 AND container_id = $3
+        """,
+        [partition, agent_id, container_id]
+      )
+
+    assert workload["context_name"] == "default-cp3"
+    assert workload["pod_namespace"] == "metallb-system"
+    assert workload["pod_name"] == "speaker-dhj7j"
+    assert workload["image"] == "quay.io/metallb/speaker:v0.15.2"
   end
 
   test "correlates delayed TCP flow from historical attribution only", %{
@@ -615,6 +745,70 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert workload["pod_name"] == "redis-0"
     assert workload["container_name"] == "redis"
     assert workload["runtime_source"] == "containerd"
+  end
+
+  test "correlation merges standalone context into partial attributed flow workload", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    container_id = "containerd://partial-flow-context"
+
+    seed_flow(%{
+      partition: partition,
+      time: now,
+      src_ip: "10.0.2.12",
+      src_port: 7946,
+      dst_ip: "192.168.10.96",
+      dst_port: 7946,
+      proto: 17,
+      protocol_name: "udp"
+    })
+
+    seed_attribution(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -2, :second),
+      local_ip: "10.0.2.12",
+      local_port: 7946,
+      remote_ip: "192.168.10.96",
+      remote_port: 7946,
+      proto: 17,
+      pid: 963_214,
+      comm: "speaker",
+      container_id: container_id,
+      workload_identity: %{
+        "container_id" => container_id,
+        "pod_namespace" => "metallb-system",
+        "pod_name" => "speaker-dhj7j",
+        "container_name" => "speaker"
+      }
+    })
+
+    seed_workload_identity(%{
+      partition: partition,
+      agent_id: agent_id,
+      observed_at: DateTime.add(now, -1, :second),
+      container_id: container_id,
+      identity: %{
+        "context_name" => "default-cp3",
+        "container_id" => container_id,
+        "pod_namespace" => "metallb-system",
+        "pod_name" => "speaker-dhj7j",
+        "container_name" => "speaker",
+        "image" => "quay.io/metallb/speaker:v0.15.2",
+        "runtime_source" => "containerd"
+      }
+    })
+
+    assert {:ok, 1} = FlowAttribution.correlate()
+
+    workload = attributed_payload(partition)["attribution"]["workload_identity"]
+    assert workload["context_name"] == "default-cp3"
+    assert workload["pod_namespace"] == "metallb-system"
+    assert workload["pod_name"] == "speaker-dhj7j"
+    assert workload["container_name"] == "speaker"
+    assert workload["image"] == "quay.io/metallb/speaker:v0.15.2"
   end
 
   test "backfills recent attributed flows when standalone workload identity arrives late", %{

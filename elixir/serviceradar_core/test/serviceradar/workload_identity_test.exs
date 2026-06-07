@@ -90,7 +90,6 @@ defmodule ServiceRadar.WorkloadIdentityTest do
                "redis:7",
                %{
                  "context_name" => "demo-context",
-                 "cluster_id" => "cluster-demo-1",
                  "labels" => %{"app" => "redis"}
                }
              ]

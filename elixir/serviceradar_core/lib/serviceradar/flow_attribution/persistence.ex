@@ -79,7 +79,10 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
     r.cmdline,
     r.uid,
     r.container_id,
-    COALESCE(r.workload_identity, workload.identity) AS workload_identity
+    NULLIF(
+      COALESCE(workload.identity, '{}'::jsonb) || COALESCE(r.workload_identity, '{}'::jsonb),
+      '{}'::jsonb
+    ) AS workload_identity
   FROM input_rows AS r
   LEFT JOIN LATERAL (
     SELECT wi.identity
@@ -89,15 +92,17 @@ defmodule ServiceRadar.FlowAttribution.Persistence do
       AND wi.container_id = r.container_id
     ORDER BY wi.observed_at DESC
     LIMIT 1
-  ) AS workload ON r.workload_identity IS NULL
-    AND r.container_id IS NOT NULL
+  ) AS workload ON r.container_id IS NOT NULL
   ON CONFLICT (partition, attribution_key) DO UPDATE SET
     observed_at = GREATEST(#{@table}.observed_at, EXCLUDED.observed_at),
     updated_at = now(),
     cmdline = COALESCE(EXCLUDED.cmdline, #{@table}.cmdline),
     uid = COALESCE(EXCLUDED.uid, #{@table}.uid),
     container_id = COALESCE(EXCLUDED.container_id, #{@table}.container_id),
-    workload_identity = COALESCE(EXCLUDED.workload_identity, #{@table}.workload_identity)
+    workload_identity = NULLIF(
+      COALESCE(#{@table}.workload_identity, '{}'::jsonb) || COALESCE(EXCLUDED.workload_identity, '{}'::jsonb),
+      '{}'::jsonb
+    )
   """
 
   @legacy_insert_sql """
