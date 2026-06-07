@@ -73,4 +73,5 @@
 - [ ] 8.2 Add integration tests with fixture CRI/Docker responses for Kubernetes and Compose enrichment.
 - [ ] 8.3 Verify on demo Kubernetes workers that attributed flows show namespace, pod, container name, image, and owner metadata where available.
 - [ ] 8.4 Verify on a Docker/Compose host that attributed flows show Compose project/service/container and useful Docker metadata.
-- [ ] 8.5 Run `openspec validate add-workload-identity-enrichment --strict`.
+- [ ] 8.5 Verify standalone ingestion by forwarding a workload-identity snapshot through agent -> agent-gateway -> core without requiring netprobe to consume the snapshot locally.
+- [ ] 8.6 Run `openspec validate add-workload-identity-enrichment --strict`.

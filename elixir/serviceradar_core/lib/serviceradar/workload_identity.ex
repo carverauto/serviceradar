@@ -171,7 +171,7 @@ defmodule ServiceRadar.WorkloadIdentity do
       r.confidence,
       r.degradation_reason,
       r.identity
-    FROM jsonb_to_recordset($1::jsonb) AS r(
+    FROM jsonb_to_recordset(($1::text)::jsonb) AS r(
       observed_at timestamptz,
       inserted_at timestamptz,
       updated_at timestamptz,

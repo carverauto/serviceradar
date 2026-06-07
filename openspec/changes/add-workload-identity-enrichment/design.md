@@ -131,7 +131,7 @@ The optional Kubernetes inventory overlay is the only component that should need
 - Do not retain unbounded raw workload events in CNPG.
 
 ## Open Questions
-- Should CRI/Docker metadata be joined on the node before upload, or should raw container identity observations be uploaded and joined in core?
+- How much optional node-local prejoin should netprobe perform for immediate attribution, given that upstream core remains the canonical join and storage path?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
 - What default correlation window should hold raw flow and workload identity observations for late enrichment, such as 1 minute, 5 minutes, or 15 minutes, without bloating CNPG storage?
