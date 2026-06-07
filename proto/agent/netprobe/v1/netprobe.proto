@@ -94,12 +94,11 @@ message VisibilityAgentConfig {
   uint32 external_flow_match_window_ms = 42;
   bool flow_attribution_ipc_batch = 43;
   bool emit_raw_flow_attribution_events = 44;
-  bool workload_identity_enabled = 45;
-  string cri_endpoint = 46;
-  uint32 workload_identity_refresh_interval_s = 47;
 
   reserved 21 to 39;
+  reserved 45 to 47;
   reserved "flow_attribution";
+  reserved "workload_identity_enabled", "cri_endpoint", "workload_identity_refresh_interval_s";
 }
 
 message DeviceBinding {

@@ -36,7 +36,7 @@ The collector implementation should keep deployment packaging separate from runt
 
 The Rust boundary should live outside netprobe. Netprobe MUST NOT own CRI, Docker, Compose, or Kubernetes metadata clients, and it MUST NOT require the workload identity collector to be running. Netprobe emits stable socket/process/container join keys; the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
 
-The ingestion contract should not make workload identity dependent on netprobe consuming it. The workload identity collector publishes compact identity snapshots/events to the local ServiceRadar agent, the agent forwards them through agent-gateway, and core coalesces current identity state plus any bounded raw observations needed for late joins. Netprobe should emit stable socket/process/container join keys and can optionally attach locally cached metadata, but upstream correlation remains the golden path so workload identity is useful without flow attribution and flow attribution can be enriched after delayed metadata arrives.
+The ingestion contract must not make workload identity dependent on netprobe consuming it. The workload identity collector publishes compact identity snapshots/events to the local ServiceRadar agent, the agent forwards them through agent-gateway, and core coalesces current identity state plus any bounded raw observations needed for late joins. Netprobe emits stable socket/process/container join keys only; upstream correlation is the golden path so workload identity is useful without flow attribution and flow attribution can be enriched after delayed metadata arrives.
 
 Native host packaging should model workload identity and netprobe as ServiceRadar-owned peers, not as process children of the agent. Long-running privileged collectors should remain separate systemd units so restart policy, Linux capabilities, hardening, and cgroup accounting are explicit. To make ownership visible, package-managed units should share a ServiceRadar systemd slice or target (for example `serviceradar.slice` / `serviceradar-agent.target`) and report add-on ownership through agent status, while the agent attaches to collector IPC instead of supervising privileged processes directly.
 
@@ -117,12 +117,12 @@ Controls:
 The optional Kubernetes inventory overlay is the only component that should need Kubernetes API RBAC. The baseline node-local CRI/cgroup path must work without Kubernetes API access on the host agent.
 
 ## Data Flow
-1. Netprobe attributes flow/socket/process context through eBPF and emits stable join keys such as process generation, container ID, socket tuple, and network namespace when available.
+1. Netprobe attributes flow/socket/process context through eBPF and emits stable join keys such as process generation, container ID, socket tuple, and network namespace when available. It does not own or forward runtime/orchestrator metadata.
 2. The workload identity collector independently keeps node-local caches keyed by process generation, cgroup ID/path, container ID, pod UID, and network namespace.
 3. Runtime/orchestrator lookups enrich those keys with workload context.
 4. The collector emits bounded workload identity observations to the local agent, which forwards them through agent-gateway to core.
 5. Core coalesces current identity state, keeps only bounded raw observations needed for late joins, and attaches the best known identity to attributed flow records and detail views.
-6. Netprobe is an optional local consumer of workload identity state, not a required hop in the workload identity data path.
+6. Netprobe is not a required hop in the workload identity data path. If a future optimization adds node-local pre-join behavior, it must consume the same bounded identity contract as any other component and must not replace the agent -> agent-gateway -> core coalescing path.
 
 ## Non-Goals
 - Do not require a pod sidecar in every workload namespace for the baseline implementation.
@@ -131,7 +131,7 @@ The optional Kubernetes inventory overlay is the only component that should need
 - Do not retain unbounded raw workload events in CNPG.
 
 ## Open Questions
-- How much optional node-local prejoin should netprobe perform for immediate attribution, given that upstream core remains the canonical join and storage path?
+- Do we need any node-local pre-join optimization after measuring upstream correlation latency, and if so how do we keep it from becoming a second workload identity ingestion path?
 - Which labels/annotations are safe and useful by default, and which should require an allowlist to avoid leaking secrets?
 - Should the optional Kubernetes inventory overlay integrate with existing discovery/DIRE device identity flows?
 - What default correlation window should hold raw flow and workload identity observations for late enrichment, such as 1 minute, 5 minutes, or 15 minutes, without bloating CNPG storage?

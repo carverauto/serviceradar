@@ -272,6 +272,7 @@ func TestWriteBootstrapConfigIncludesStartupOnlyFields(t *testing.T) {
 
 func TestApplyAddonConfigJSONIgnoresLegacyWorkloadIdentityFields(t *testing.T) {
 	merged, err := ApplyAddonConfigJSON(&netprobepb.VisibilityAgentConfig{}, []byte(`{
+		"enabled": true,
 		"workload_identity_enabled": true,
 		"cri_endpoint": " /run/k3s/containerd/containerd.sock ",
 		"workload_identity_refresh_interval_s": 45
@@ -280,8 +281,29 @@ func TestApplyAddonConfigJSONIgnoresLegacyWorkloadIdentityFields(t *testing.T) {
 		t.Fatalf("ApplyAddonConfigJSON() error = %v", err)
 	}
 
-	if merged.GetWorkloadIdentityEnabled() || merged.GetCriEndpoint() != "" || merged.GetWorkloadIdentityRefreshIntervalS() != 0 {
-		t.Fatalf("netprobe config consumed workload identity fields: %#v", merged)
+	if !merged.GetEnabled() {
+		t.Fatalf("netprobe config did not consume supported fields: %#v", merged)
+	}
+
+	path := filepath.Join(t.TempDir(), "netprobe.json")
+	if err := WriteBootstrapConfig(path, merged); err != nil {
+		t.Fatalf("WriteBootstrapConfig() error = %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read bootstrap config: %v", err)
+	}
+
+	got := string(data)
+	for _, legacyField := range []string{
+		"workload_identity_enabled",
+		"cri_endpoint",
+		"workload_identity_refresh_interval_s",
+	} {
+		if strings.Contains(got, legacyField) {
+			t.Fatalf("bootstrap config leaked legacy workload identity field %q: %s", legacyField, got)
+		}
 	}
 }
 
