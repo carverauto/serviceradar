@@ -242,3 +242,13 @@ func TestSystemdAddonStatusesRehydratesWorkloadIdentityFromDisk(t *testing.T) {
 		t.Fatalf("pid = %d, want 1357", got.GetPid())
 	}
 }
+
+func TestParseSystemdUnitStatusOutputIgnoresPropertyOrder(t *testing.T) {
+	got := parseSystemdUnitStatusOutput("MainPID=673112\nActiveState=active\n")
+	if got.state != agentaddon.StateRunning {
+		t.Fatalf("state = %q, want %q", got.state, agentaddon.StateRunning)
+	}
+	if got.pid != 673112 {
+		t.Fatalf("pid = %d, want 673112", got.pid)
+	}
+}

@@ -494,7 +494,6 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		"show",
 		"--property=ActiveState",
 		"--property=MainPID",
-		"--value",
 		unit,
 	)
 	out, err := cmd.Output()
@@ -505,16 +504,26 @@ func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
 		}
 	}
 
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	activeState := ""
-	if len(lines) > 0 {
-		activeState = strings.TrimSpace(lines[0])
-	}
+	return parseSystemdUnitStatusOutput(string(out))
+}
 
+func parseSystemdUnitStatusOutput(out string) systemdUnitStatus {
+	activeState := ""
 	pid := 0
-	if len(lines) > 1 {
-		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(lines[1])); parseErr == nil && parsed > 0 {
-			pid = parsed
+
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+
+		switch strings.TrimSpace(key) {
+		case "ActiveState":
+			activeState = strings.TrimSpace(value)
+		case "MainPID":
+			if parsed, parseErr := strconv.Atoi(strings.TrimSpace(value)); parseErr == nil && parsed > 0 {
+				pid = parsed
+			}
 		}
 	}
 
