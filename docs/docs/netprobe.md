@@ -29,6 +29,14 @@ The central pipeline joins these observations with NetFlow rows. This keeps raw 
 observations available long enough for delayed NetFlow batches, but avoids requiring
 every worker node to receive every NetFlow observation and perform the join locally.
 
+Use this add-on when you need to answer questions such as:
+
+- Which process on this worker owned one endpoint of a NetFlow conversation?
+- Which agent observed the process evidence used for the join?
+- Did a NetFlow row match process attribution, workload identity, or threat intel?
+- Is the host collector dropping events, falling back to cold metadata reads, or
+  running above the expected CPU budget?
+
 ## eBPF and AF_XDP roles
 
 `netprobe` uses eBPF for process and socket attribution. eBPF programs publish
@@ -63,6 +71,18 @@ On Kubernetes worker nodes, run `netprobe` on the host where the agent is instal
 It observes the node kernel and host interfaces. Workload, pod, namespace, and image
 metadata are provided by the separate [Workload Identity](./workload-identity.md)
 add-on and are joined upstream.
+
+The base agent reports desired and observed add-on state to ServiceRadar, but it does
+not supervise `netprobe` as a child process. The expected host shape is:
+
+```text
+serviceradar.slice
+  serviceradar-agent.service
+  serviceradar-netprobe.service
+  serviceradar-workload-identity.service
+```
+
+This keeps BPF/network privileges and CPU accounting isolated from the base agent.
 
 ## Requirements
 
@@ -105,6 +125,24 @@ Keep raw observations enabled when you want central NetFlow-to-process joins. If
 deployment only wants local host telemetry and does not retain unmatched observations,
 configure the upstream retention/discard policy in the chart or control plane rather
 than disabling process attribution at the edge.
+
+For large fleets, prefer assigning by cohort or control-plane-derived host inventory.
+Do not maintain static per-agent host-slice lists in Helm values for production-scale
+deployments.
+
+## Data model and query surfaces
+
+`netprobe` evidence is consumed by the central attribution pipeline and exposed in:
+
+- `in:attributed_flows` SRQL queries for joined NetFlow/process rows.
+- NetFlow flow details when an attributed process match exists.
+- Dashboard NetFlow map popovers when a flow path has attribution evidence.
+- Agent/device details through process listener and add-on status surfaces.
+
+The central join uses the flow tuple, protocol, agent/host ownership, process
+metadata, optional container ID, and workload identity metadata. TCP, UDP, and ICMP
+rows may appear in attributed flows; ICMP uses protocol-specific matching because it
+does not have TCP/UDP ports.
 
 ## Validation
 
@@ -187,6 +225,11 @@ periodic hot-path procfs scans.
 container name, image, and cluster metadata come from the
 [Workload Identity](./workload-identity.md) add-on. Verify that collector is active on
 the same host and that upstream joins are receiving its metadata.
+
+If a row has process attribution but no workload identity, check the container ID
+first. A missing container ID usually means the process is host-level or cold metadata
+enrichment has not found the cgroup yet. A present container ID with blank workload
+fields usually points to Workload Identity collection or upstream join timing.
 
 ## Privacy and retention
 
