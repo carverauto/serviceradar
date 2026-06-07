@@ -12,9 +12,9 @@ versioning.
   procfs scans.
 - Capped the pending netprobe metadata queue to keep high-churn hosts bounded
   while preserving enough cold-path enrichment for central NetFlow joins.
-- Bumped the netprobe native add-on to `0.2.21` so the release import creates a
-  distinct approved package for the updated artifact instead of reusing the
-  `0.2.20` package from `v1.2.95`.
+- Bumped the netprobe native add-on to `0.2.22` and workload-identity to
+  `0.1.4`, so the release import creates distinct approved packages for the
+  updated artifacts instead of reusing the `v1.2.95` packages.
 
 # ServiceRadar v1.2.95
 
