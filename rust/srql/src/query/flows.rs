@@ -1067,6 +1067,7 @@ enum FlowGroupField {
     DstCountryIso2,
     TcpFlagsLabel,
     DurationBucket,
+    AttributionStatus,
 }
 
 impl FlowGroupField {
@@ -1092,6 +1093,7 @@ impl FlowGroupField {
             "dst_country_iso2" | "dst_country" => Some(Self::DstCountryIso2),
             "tcp_flags_label" | "tcp_flag" => Some(Self::TcpFlagsLabel),
             "duration_bucket" | "duration" => Some(Self::DurationBucket),
+            "attribution_status" | "status" => Some(Self::AttributionStatus),
             _ => None,
         }
     }
@@ -1118,6 +1120,7 @@ impl FlowGroupField {
             Self::DstCountryIso2 => "dst_country_iso2",
             Self::TcpFlagsLabel => "tcp_flags_label",
             Self::DurationBucket => "duration_bucket",
+            Self::AttributionStatus => "attribution_status",
         }
     }
 
@@ -1143,6 +1146,7 @@ impl FlowGroupField {
             Self::DstCountryIso2 => "COALESCE(dst_geo.country_iso2, 'Unknown')",
             Self::TcpFlagsLabel => FLOW_TCP_FLAGS_LABEL_EXPR,
             Self::DurationBucket => FLOW_DURATION_BUCKET_EXPR,
+            Self::AttributionStatus => ATTRIBUTION_STATUS_EXPR_ALIASED,
         }
     }
 }
@@ -2299,6 +2303,38 @@ mod tests {
         assert!(!sql.contains("flow_traffic_1h"));
         assert!(sql.contains("f.ocsf_payload ->> 'event_type' = 'attributed_flow'"));
         assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn attributed_flow_stats_can_group_by_attribution_status() {
+        let plan = QueryPlan {
+            entity: Entity::AttributedFlows,
+            filters: vec![],
+            order: vec![OrderClause {
+                field: "total".into(),
+                direction: OrderDirection::Desc,
+            }],
+            limit: 10,
+            offset: 0,
+            time_range: Some(TimeRange {
+                start: Utc.with_ymd_and_hms(2026, 6, 6, 0, 0, 0).unwrap(),
+                end: Utc.with_ymd_and_hms(2026, 6, 7, 0, 0, 0).unwrap(),
+            }),
+            stats: Some(crate::parser::StatsSpec::from_raw(
+                "count(*) as total, sum(bytes_total) as total_bytes by attribution_status",
+            )),
+            downsample: None,
+            rollup_stats: None,
+            include_deleted: false,
+        };
+
+        let (sql, params) = to_sql_and_params_stats(&plan).unwrap();
+
+        assert!(sql.contains("'attribution_status', group_value_0"));
+        assert!(sql.contains("f.ocsf_payload ->> 'event_type' = 'attributed_flow'"));
+        assert!(sql.contains("CASE WHEN f.ocsf_payload -> 'attribution' ->> 'pid' IS NULL"));
+        assert!(sql.contains("ORDER BY agg_value_0 DESC"));
+        assert_eq!(params.len(), 2);
     }
 
     #[test]

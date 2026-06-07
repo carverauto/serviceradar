@@ -14,6 +14,8 @@
 - [x] 2.5 Make stat cards clickable filters and visually indicate the active filter.
 - [x] 2.6 Make each row open NetFlow flow details via navigation or a modal without losing filter/page context.
 - [x] 2.7 Compact the table: show endpoints with optional rDNS, process/agent summary, human-readable bytes/packets, protocol, attribution status, CTI indicator, and timestamp.
+- [x] 2.8 Show reverse-DNS hostnames in attributed flow detail surfaces by reusing the existing `ip_rdns_cache` enrichment path.
+- [x] 2.9 Keep summary cards SRQL-backed while reducing load by using one grouped attribution-status aggregate and attributed-flow partial indexes.
 
 ## 3. NetFlow Map Integration
 
@@ -33,3 +35,5 @@
   - [x] Demo DB has TCP, UDP, and ICMP attributed-flow rows.
   - [ ] Demo DB has CTI-marked rows that overlap current attributed-flow source/destination IPs.
 - [x] 4.4 Run `openspec validate improve-attributed-flow-investigation --strict`.
+- [ ] 4.5 Evaluate a dedicated Timescale continuous aggregate for attributed-flow status/byte summaries before enabling longer default windows or SaaS-scale retention.
+- [ ] 4.6 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex` into smaller LiveView/data/component modules once the attributed-flow and NetFlow UI work stabilizes.

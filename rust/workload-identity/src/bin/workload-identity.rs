@@ -53,6 +53,10 @@ struct Config {
     spool_dir: PathBuf,
     #[serde(default = "default_max_identities")]
     max_identities: usize,
+    #[serde(default, deserialize_with = "deserialize_optional_trimmed_string")]
+    cluster_id: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_trimmed_string")]
+    cluster_name: Option<String>,
 }
 
 impl Default for Config {
@@ -64,6 +68,8 @@ impl Default for Config {
             refresh_interval_s: default_refresh_interval_s(),
             spool_dir: default_spool_dir(),
             max_identities: default_max_identities(),
+            cluster_id: None,
+            cluster_name: None,
         }
     }
 }
@@ -76,6 +82,8 @@ struct Snapshot {
     count: usize,
     identities: Vec<CriContainerLookup>,
     degradation_reason: Option<String>,
+    cluster_id: Option<String>,
+    cluster_name: Option<String>,
 }
 
 #[cfg(unix)]
@@ -115,6 +123,8 @@ async fn collect_once(config: &Config) -> Result<()> {
             count: 0,
             identities: Vec::new(),
             degradation_reason: Some("disabled".to_owned()),
+            cluster_id: config.cluster_id.clone(),
+            cluster_name: config.cluster_name.clone(),
         };
         return write_snapshot(&config.spool_dir, &snapshot);
     }
@@ -128,6 +138,8 @@ async fn collect_once(config: &Config) -> Result<()> {
             count: 0,
             identities: Vec::new(),
             degradation_reason: Some("no_cri_endpoint_discovered".to_owned()),
+            cluster_id: config.cluster_id.clone(),
+            cluster_name: config.cluster_name.clone(),
         };
         return write_snapshot(&config.spool_dir, &snapshot);
     };
@@ -145,9 +157,22 @@ async fn collect_once(config: &Config) -> Result<()> {
         identities,
         degradation_reason: (count > config.max_identities)
             .then(|| "identity_limit_truncated".to_owned()),
+        cluster_id: config.cluster_id.clone(),
+        cluster_name: config.cluster_name.clone(),
     };
 
     write_snapshot(&config.spool_dir, &snapshot)
+}
+
+fn deserialize_optional_trimmed_string<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = Option::<String>::deserialize(deserializer)?;
+    Ok(value.and_then(|value| {
+        let trimmed = value.trim();
+        (!trimmed.is_empty()).then(|| trimmed.to_owned())
+    }))
 }
 
 fn load_config(path: &Path) -> Result<Config> {

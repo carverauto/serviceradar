@@ -36,6 +36,8 @@ defmodule ServiceRadar.WorkloadIdentityTest do
       Jason.encode!(%{
         "observed_at_unix_nano" => System.system_time(:nanosecond),
         "enabled" => true,
+        "cluster_id" => "cluster-demo-1",
+        "cluster_name" => "demo-k3s",
         "identities" => [
           %{
             "container_id" => container_id,
@@ -80,7 +82,11 @@ defmodule ServiceRadar.WorkloadIdentityTest do
                "redis-0",
                "redis",
                "redis:7",
-               %{"labels" => %{"app" => "redis"}}
+               %{
+                 "cluster_id" => "cluster-demo-1",
+                 "cluster_name" => "demo-k3s",
+                 "labels" => %{"app" => "redis"}
+               }
              ]
            ] = rows
   end

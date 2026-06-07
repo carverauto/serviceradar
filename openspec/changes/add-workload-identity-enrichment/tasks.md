@@ -15,6 +15,7 @@
 - [x] 1a.1f Add workload-identity-to-agent forwarding so the standalone collector sends bounded identity observations through agent-gateway/core, where upstream coalesces current-state identity. Netprobe must not be required to consume workload-identity output for the data to reach storage/query/UI.
 - [x] 1a.2 Prove the MVP emits namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation reason for attributed flows.
 - [x] 1a.2a Carry namespace, pod name, pod UID, container name, image, runtime source, confidence, and degradation reason through protobuf, Rust netprobe events, core staging storage, and OCSF attribution payloads.
+- [x] 1a.2b Add operator-provided cluster identity (`cluster_id`, `cluster_name`) to standalone workload-identity snapshots and attributed-flow investigation payloads so multi-cluster deployments can distinguish identical namespace/pod names.
 - [ ] 1a.3 Measure CPU, queue lag, source misses, and CNPG write volume for the MVP so workload enrichment does not regress netprobe performance.
 - [ ] 1a.4 Choose and document the initial late-enrichment correlation window, including the behavior for unmatched raw observations after the window expires.
 
@@ -57,6 +58,7 @@
 - [x] 6.2a Attach best-known node-local CRI workload identity to persisted attributed flow records and correlated flow OCSF payloads.
 - [x] 6.2b Join standalone workload-identity current state into the central flow correlator by partition, agent, and container ID, including late backfill for recent attributed flows that were stamped before identity arrived.
 - [ ] 6.3 Update attributed flow UI and NetFlow map details to show namespace/pod/workload/container for Kubernetes and project/service/container for Compose.
+- [x] 6.3a Show workload cluster identity in attributed flow rows/details when supplied by the workload-identity collector.
 - [ ] 6.4 Add filters for namespace, workload owner, pod, container image, Compose project, and Compose service.
 
 ## 7. Security and Operations
@@ -64,6 +66,7 @@
 - [x] 7.1a Remove netprobe add-on/bootstrap workload identity knobs; workload identity enablement, CRI endpoint, and refresh interval belong to the standalone workload-identity add-on.
 - [x] 7.1b Add a first-party workload-identity native add-on manifest, config schema, systemd unit, Helm release-import allowlist entry, native add-on bundle inventory entry, and staged package seeder so `/settings/agents/addons` can surface the capability independently of netprobe.
 - [x] 7.1c Add Helm core workload-identity add-on artifact/version/OCI knobs so the release/native-add-on import path can approve assignable workload-identity packages without manual environment overrides.
+- [x] 7.1d Add workload-identity add-on config fields for explicit cluster identity because CRI/runtime metadata does not reliably expose the Kubernetes cluster name or UID.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.
 - [ ] 7.3 Document security tradeoffs of CRI/Docker socket access, required Linux capabilities, read-only hostPath mounts where possible, AppArmor/SELinux profiles for the collector/helper, and Kubernetes RBAC for the optional overlay only.
 - [ ] 7.4 Add a retention/storage model so workload identity observations do not create another unbounded CNPG hot table.

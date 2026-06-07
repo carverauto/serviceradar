@@ -31,12 +31,18 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "default/nginx-pod"
     assert html =~ "1234"
     assert html =~ "nginx"
+    assert html =~ "demo-k3s / default/nginx-pod"
     refute html =~ "203.0.113.44:62001"
 
     html = view |> element("#attributed-flows button", "nginx") |> render_click()
 
     assert html =~ "Flow Details"
     assert html =~ "/usr/sbin/nginx args:sha256:31f0e4c8"
+    assert html =~ "worker-1.example.test"
+    assert html =~ "edge-api.example.test"
+    assert html =~ "Cluster"
+    assert html =~ "demo-k3s"
+    assert html =~ "cluster-demo-1"
 
     html = view |> element("button[aria-label='Close details']") |> render_click()
 
@@ -191,6 +197,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
           "uid" => "1000",
           "container_id" => "container-nginx",
           "workload_identity" => %{
+            "cluster_id" => "cluster-demo-1",
+            "cluster_name" => "demo-k3s",
             "pod_namespace" => "default",
             "pod_name" => "nginx-pod",
             "container_name" => "nginx",

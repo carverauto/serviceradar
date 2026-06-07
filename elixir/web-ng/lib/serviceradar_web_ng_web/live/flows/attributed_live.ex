@@ -83,7 +83,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   def handle_event("srql_builder_run", params, socket) do
-    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", params, fallback_path: "/observability/flows/attributed")}
+    {:noreply,
+     SRQLPage.handle_event(socket, "srql_builder_run", params, fallback_path: "/observability/flows/attributed")}
   end
 
   def handle_event("set_filter", %{"filter" => filter}, socket) do
@@ -92,6 +93,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   def handle_event("goto_page", %{"page" => page}, socket) do
     page = normalize_page(page)
+
     {:noreply,
      socket
      |> assign(:live?, false)
@@ -128,9 +130,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     page_count = page_count(total_for_filter, socket.assigns.page_size)
     page = min(socket.assigns.page, page_count)
 
-    rows =
-      srql_module
-      |> fetch_flows(scope, socket.assigns.srql.query, page, socket.assigns.page_size)
+    rows = fetch_flows(srql_module, scope, socket.assigns.srql.query, page, socket.assigns.page_size)
 
     rows_by_id = Map.new(rows, &{&1.id, &1})
     selected_flow = refresh_selected_flow(socket.assigns.selected_flow, rows_by_id)
@@ -151,8 +151,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     page_path = uri |> to_string() |> URI.parse() |> Map.get(:path)
 
     srql =
-      socket.assigns.srql
-      |> Map.merge(%{
+      Map.merge(socket.assigns.srql, %{
         enabled: true,
         entity: "attributed_flows",
         page_path: page_path,
@@ -166,48 +165,45 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   defp fetch_summary(srql_module, scope) do
-    total = fetch_stat(srql_module, scope, "in:attributed_flows time:last_24h stats:count(*) as total", "total")
+    query =
+      ~s|in:attributed_flows time:last_24h stats:"count(*) as total, sum(bytes_total) as total_bytes by attribution_status" sort:total:desc limit:10|
 
-    attributed =
-      fetch_stat(
-        srql_module,
-        scope,
-        "in:attributed_flows time:last_24h attribution_status:attributed stats:count(*) as total",
-        "total"
-      )
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        summarize_stat_rows(rows)
 
-    unmatched =
-      fetch_stat(
-        srql_module,
-        scope,
-        "in:attributed_flows time:last_24h attribution_status:unmatched stats:count(*) as total",
-        "total"
-      )
+      {:ok, _} ->
+        empty_summary()
 
-    bytes =
-      fetch_stat(
-        srql_module,
-        scope,
-        "in:attributed_flows time:last_24h stats:sum(bytes_total) as total_bytes",
-        "total_bytes"
-      )
-
-    %{total: total, attributed: attributed, unmatched: unmatched, bytes: bytes}
-  end
-
-  defp fetch_stat(srql_module, scope, query, field) do
-    case srql_module.query(query, %{scope: scope, limit: 1}) do
-      {:ok, %{"results" => [%{} = row]}} -> row |> Map.get(field, 0) |> parse_int() || 0
-      {:ok, _} -> 0
       {:error, reason} ->
-        Logger.warning("Attributed flow SRQL stats query failed: #{inspect(reason)}")
-        0
+        Logger.warning("Attributed flow SRQL summary query failed: #{inspect(reason)}")
+        empty_summary()
     end
   rescue
     error ->
-      Logger.warning("Attributed flow SRQL stats query raised: #{Exception.message(error)}")
-      0
+      Logger.warning("Attributed flow SRQL summary query raised: #{Exception.message(error)}")
+      empty_summary()
   end
+
+  defp summarize_stat_rows(rows) do
+    Enum.reduce(rows, empty_summary(), fn row, acc ->
+      count = row |> map_value("total") |> parse_int() || 0
+      bytes = row |> map_value("total_bytes") |> parse_int() || 0
+
+      acc =
+        acc
+        |> Map.update!(:total, &(&1 + count))
+        |> Map.update!(:bytes, &(&1 + bytes))
+
+      case row |> map_value("attribution_status") |> to_string() |> String.downcase() do
+        "attributed" -> Map.update!(acc, :attributed, &(&1 + count))
+        "unmatched" -> Map.update!(acc, :unmatched, &(&1 + count))
+        _ -> acc
+      end
+    end)
+  end
+
+  defp empty_summary, do: %{total: 0, attributed: 0, unmatched: 0, bytes: 0}
 
   defp fetch_flows(srql_module, scope, query, page, page_size) do
     opts = %{scope: scope, cursor: cursor_for_page(page, page_size), limit: page_size}
@@ -265,6 +261,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       container_name: workload |> map_value("container_name") |> clean_string(),
       image: clean_string(map_value(workload, "image") || map_value(workload, "image_ref")),
       runtime_source: workload |> map_value("runtime_source") |> clean_string(),
+      cluster_id: workload |> map_value("cluster_id") |> clean_string(),
+      cluster_name: workload |> map_value("cluster_name") |> clean_string(),
       workload_identity: workload,
       raw_payload: payload
     }
@@ -272,8 +270,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
   defp refresh_selected_flow(nil, _rows_by_id), do: nil
   defp refresh_selected_flow(%{id: id} = selected, rows_by_id), do: Map.get(rows_by_id, id, selected)
-
-  defp empty_summary, do: %{total: 0, attributed: 0, unmatched: 0, bytes: 0}
 
   defp summary_count(summary, "attributed"), do: summary.attributed
   defp summary_count(summary, "unmatched"), do: summary.unmatched
@@ -318,7 +314,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     if Regex.match?(~r/(^|\s)in:attributed_flows(?=\s|$)/i, query) do
       query
     else
-      Regex.replace(~r/(^|\s)in:\S+/i, query, "\\1in:attributed_flows", global: false)
+      ~r/(^|\s)in:\S+/i
+      |> Regex.replace(query, "\\1in:attributed_flows", global: false)
       |> case do
         ^query -> "in:attributed_flows #{query}"
         rewritten -> rewritten
@@ -371,19 +368,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
         >
           <:actions>
             <div class="flex items-center gap-2">
-              <.ui_button
-                type="button"
-                variant={if @live?, do: "primary", else: "ghost"}
-                size="sm"
-                phx-click="toggle_live"
-                aria-label="Toggle live updates"
-                title="Toggle live updates"
-              >
-                <span>Live</span>
-                <.ui_badge size="xs" variant={if @live?, do: "success", else: "ghost"}>
-                  {if @live?, do: "On", else: "Off"}
-                </.ui_badge>
-              </.ui_button>
               <.ui_button
                 href={~p"/observability?#{%{tab: "netflows", view: "explorer"}}"}
                 variant="ghost"
@@ -440,6 +424,19 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
                 </div>
               </div>
               <div class="flex items-center gap-2">
+                <.ui_button
+                  type="button"
+                  variant={if @live?, do: "primary", else: "ghost"}
+                  size="sm"
+                  phx-click="toggle_live"
+                  aria-label="Toggle live updates"
+                  title="Toggle live updates"
+                >
+                  <span>Live</span>
+                  <.ui_badge size="xs" variant={if @live?, do: "success", else: "ghost"}>
+                    {if @live?, do: "On", else: "Off"}
+                  </.ui_badge>
+                </.ui_button>
                 <.pagination_controls
                   page={@page}
                   page_count={@page_count}
@@ -699,6 +696,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           />
           <.detail_item label="Packets" value={format_number(@flow.packets)} />
           <.detail_item label="Agent" value={display(@flow.agent_id)} subvalue={@flow.partition} />
+          <.detail_item
+            label="Cluster"
+            value={display(cluster_label(@flow))}
+            subvalue={@flow.cluster_id}
+          />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
           <.detail_item
@@ -706,7 +708,11 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
             value={display(workload_label(@flow))}
             subvalue={@flow.image}
           />
-          <.detail_item label="Container" value={display(@flow.container_id)} subvalue={@flow.container_name} />
+          <.detail_item
+            label="Container"
+            value={display(@flow.container_id)}
+            subvalue={@flow.container_name}
+          />
           <.detail_item
             label="Threat Intel"
             value={threat_label(@flow.threat)}
@@ -716,8 +722,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
 
         <div class="modal-action">
           <.ui_button href={netflow_details_path(@flow)} variant="primary" size="sm">
-            <.icon name="hero-arrow-top-right-on-square" class="size-4" />
-            NetFlow Details
+            <.icon name="hero-arrow-top-right-on-square" class="size-4" /> NetFlow Details
           </.ui_button>
         </div>
       </div>
@@ -759,21 +764,22 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp process_label(%{pid: pid}) when is_integer(pid), do: "PID #{pid}"
   defp process_label(_), do: "No process match"
 
-  defp workload_label(%{pod_namespace: ns, pod_name: pod}) when is_binary(ns) and is_binary(pod),
-    do: "#{ns}/#{pod}"
+  defp workload_label(%{pod_namespace: ns, pod_name: pod} = flow) when is_binary(ns) and is_binary(pod) do
+    [cluster_label(flow), "#{ns}/#{pod}"]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" / ")
+  end
 
   defp workload_label(%{pod_name: pod}) when is_binary(pod), do: pod
   defp workload_label(%{container_name: name}) when is_binary(name), do: name
   defp workload_label(_), do: nil
 
+  defp cluster_label(%{cluster_name: name}) when is_binary(name) and name != "", do: name
+  defp cluster_label(%{cluster_id: id}) when is_binary(id) and id != "", do: id
+  defp cluster_label(_), do: nil
+
   defp netflow_details_path(row) do
-    ~p"/observability?#{%{
-      tab: "netflows",
-      view: "explorer",
-      q: netflow_query(row),
-      limit: 50,
-      open_flow: "1"
-    }}"
+    ~p"/observability?#{%{tab: "netflows", view: "explorer", q: netflow_query(row), limit: 50, open_flow: "1"}}"
   end
 
   defp netflow_query(row) do
@@ -866,7 +872,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end
   end
 
-  defp parse_int(%Decimal{} = value), do: value |> Decimal.to_integer()
+  defp parse_int(%Decimal{} = value), do: Decimal.to_integer(value)
   defp parse_int(value) when is_number(value), do: trunc(value)
   defp parse_int(value) when is_struct(value), do: value |> to_string() |> parse_int()
   defp parse_int(_), do: nil
@@ -886,6 +892,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("comm"), do: :comm
   defp known_atom_key("container_id"), do: :container_id
   defp known_atom_key("container_name"), do: :container_name
+  defp known_atom_key("cluster_id"), do: :cluster_id
+  defp known_atom_key("cluster_name"), do: :cluster_name
   defp known_atom_key("dst_endpoint_ip"), do: :dst_endpoint_ip
   defp known_atom_key("dst_endpoint_port"), do: :dst_endpoint_port
   defp known_atom_key("image"), do: :image
@@ -924,8 +932,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       attribution_agent_id(map_value(row, "ocsf_payload") || %{}),
       map_value(attribution, "pid")
     ]
-    |> Enum.map(&to_string(&1 || ""))
-    |> Enum.join("|")
+    |> Enum.map_join("|", &to_string(&1 || ""))
     |> then(&:crypto.hash(:md5, &1))
     |> Base.encode16(case: :lower)
   end

@@ -25,6 +25,18 @@
       "default": "",
       "x-serviceradar-ui-advanced": true
     },
+    "cluster_id": {
+      "type": "string",
+      "title": "Cluster ID",
+      "description": "Stable operator-assigned cluster identifier stamped onto emitted workload identity. CRI does not expose a reliable cluster identity, so set this when multiple Kubernetes clusters report into the same ServiceRadar deployment.",
+      "default": ""
+    },
+    "cluster_name": {
+      "type": "string",
+      "title": "Cluster name",
+      "description": "Human-friendly cluster name stamped onto emitted workload identity for investigation views.",
+      "default": ""
+    },
     "refresh_interval_s": {
       "type": "integer",
       "title": "Refresh interval (s)",
