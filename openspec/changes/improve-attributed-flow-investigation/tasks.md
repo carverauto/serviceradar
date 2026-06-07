@@ -41,4 +41,4 @@
 - [ ] 4.8 Refactor `elixir/web-ng/assets/js/hooks/OperationsTrafficMap.js` into smaller map geometry, tooltip, URL, and hook lifecycle modules.
 - [ ] 4.9 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex` into smaller query, state, component, and event-handler modules.
 - [ ] 4.10 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` into smaller data-loading, form-state, event-handler, and component modules.
-- [ ] 4.11 Add first-class workload `context_name` support, make it the canonical user-facing workload context in attributed-flow/workload identity displays, and keep legacy `cluster_name` only as a compatibility fallback while namespace/pod remains the locator under that context.
+- [ ] 4.11 Add first-class workload `context_name` support, make it the canonical user-facing workload context in attributed-flow/workload identity displays, and keep legacy `cluster_name`/`cluster_id` only as raw compatibility metadata while namespace/pod remains the locator under that context.

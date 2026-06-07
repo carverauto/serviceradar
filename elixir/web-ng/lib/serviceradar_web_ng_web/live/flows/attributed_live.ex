@@ -328,8 +328,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       image: clean_string(map_value(workload, "image") || map_value(workload, "image_ref")),
       runtime_source: workload |> map_value("runtime_source") |> clean_string(),
       context_name: workload |> map_value("context_name") |> clean_string(),
-      cluster_id: workload |> map_value("cluster_id") |> clean_string(),
-      cluster_name: workload |> map_value("cluster_name") |> clean_string(),
       workload_identity: workload,
       raw_payload: payload
     }
@@ -766,7 +764,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <.detail_item
             label="Context"
             value={display(workload_context_label(@flow))}
-            subvalue={@flow.cluster_id}
           />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
           <.detail_item label="Process" value={process_label(@flow)} subvalue={@flow.cmdline} />
@@ -842,8 +839,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp workload_label(_), do: nil
 
   defp workload_context_label(%{context_name: name}) when is_binary(name) and name != "", do: name
-  defp workload_context_label(%{cluster_name: name}) when is_binary(name) and name != "", do: name
-  defp workload_context_label(%{cluster_id: id}) when is_binary(id) and id != "", do: id
   defp workload_context_label(_), do: nil
 
   defp netflow_details_path(row) do
@@ -961,8 +956,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("container_id"), do: :container_id
   defp known_atom_key("container_name"), do: :container_name
   defp known_atom_key("context_name"), do: :context_name
-  defp known_atom_key("cluster_id"), do: :cluster_id
-  defp known_atom_key("cluster_name"), do: :cluster_name
   defp known_atom_key("dst_endpoint_ip"), do: :dst_endpoint_ip
   defp known_atom_key("dst_endpoint_port"), do: :dst_endpoint_port
   defp known_atom_key("image"), do: :image

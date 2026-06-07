@@ -176,7 +176,7 @@ Field coverage depends on the runtime source. Use this as the expected baseline:
 | Image | Yes | Yes | Digest availability depends on runtime metadata. |
 | Namespace | Yes | No | Kubernetes namespace from pod sandbox metadata. |
 | Pod name / UID | Yes | No | Requires CRI pod sandbox lookup. |
-| Workload owner | Optional overlay | No | Deployment/StatefulSet/DaemonSet owner usually requires Kubernetes API or operator metadata. |
+| Workload owner | Optional context overlay | No | Deployment/StatefulSet/DaemonSet owner usually requires Kubernetes API or operator metadata. |
 | Context name | Assignment or overlay | Assignment | CRI does not expose kubeconfig context names or another reliable global context identity. |
 | Compose project/service | No | Yes, when labels exist | Uses standard Compose labels. |
 
@@ -266,7 +266,7 @@ Check:
 
 ### Context name is missing
 
-Set `context_name` in the assignment or deploy the optional cluster overlay. Node-local
+Set `context_name` in the assignment or deploy the optional context overlay. Node-local
 CRI data can usually identify namespace and pod, but kubeconfig context names are not
 reliably available from the runtime socket alone.
 

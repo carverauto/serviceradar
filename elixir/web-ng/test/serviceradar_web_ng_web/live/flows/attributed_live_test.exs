@@ -42,7 +42,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "edge-api.example.test"
     assert html =~ "Context"
     assert html =~ "demo-context"
-    assert html =~ "cluster-demo-1"
+    refute html =~ "cluster-demo-1"
 
     html = view |> element("button[aria-label='Close details']") |> render_click()
 
