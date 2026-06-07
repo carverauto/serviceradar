@@ -76,13 +76,13 @@ sudo crictl inspect <container-id>
 sudo crictl inspectp <pod-sandbox-id>
 ```
 
-Cluster identity is deployment metadata. In the clean model, set a stable cluster ID
-in the add-on assignment or provide it through a small cluster-level operator. Without
-that value, the collector can report node-local workload metadata but cannot safely
-distinguish two clusters that share namespace and pod names.
+Workload context is deployment metadata. In the clean model, set a stable context
+name in the add-on assignment or provide it through a small cluster-level operator.
+Without that value, the collector can report node-local workload metadata but cannot
+safely distinguish two clusters that share namespace and pod names.
 
-Recommended cluster IDs are stable, human-meaningful values such as
-`prod-us-central-1` or `demo-cp3`. Do not derive cluster identity from namespace or
+Recommended context names are stable, human-meaningful values such as
+`prod-us-central-1` or `demo-cp3`. Do not derive workload context from namespace or
 pod names alone.
 
 ## Docker and Docker Compose model
@@ -120,7 +120,7 @@ Kubernetes worker assignment should include:
 ```json
 {
   "enabled": true,
-  "cluster_id": "prod-us-central-1",
+  "context_name": "prod-us-central-1",
   "runtime": {
     "type": "containerd",
     "socket": "/run/containerd/containerd.sock"
@@ -150,7 +150,7 @@ Use a canary before enabling workload enrichment across a cluster:
 1. Pick one worker node with known running pods or containers.
 2. Confirm the base agent on that node is new enough to install systemd-backed
    add-ons and report their status.
-3. Assign `workload-identity` with an explicit `cluster_id` and runtime socket when
+3. Assign `workload-identity` with an explicit `context_name` and runtime socket when
    possible.
 4. Confirm `serviceradar-workload-identity.service` is active and the running binary
    resolves to the activated add-on version.
@@ -161,9 +161,9 @@ Use a canary before enabling workload enrichment across a cluster:
    runtime.
 8. Expand to the rest of the cluster or Docker cohort.
 
-If multiple Kubernetes clusters report into the same ServiceRadar deployment, treat
-`cluster_id` as required operational metadata. Namespace and pod names are not unique
-across clusters.
+If multiple Kubernetes clusters or container environments report into the same
+ServiceRadar deployment, treat `context_name` as required operational metadata.
+Namespace and pod names are not unique across clusters.
 
 ## Emitted fields
 
@@ -177,7 +177,7 @@ Field coverage depends on the runtime source. Use this as the expected baseline:
 | Namespace | Yes | No | Kubernetes namespace from pod sandbox metadata. |
 | Pod name / UID | Yes | No | Requires CRI pod sandbox lookup. |
 | Workload owner | Optional overlay | No | Deployment/StatefulSet/DaemonSet owner usually requires Kubernetes API or operator metadata. |
-| Cluster ID/name | Assignment or overlay | Assignment | CRI does not expose a reliable cluster identity. |
+| Context name | Assignment or overlay | Assignment | CRI does not expose kubeconfig context names or another reliable global context identity. |
 | Compose project/service | No | Yes, when labels exist | Uses standard Compose labels. |
 
 The collector should publish bounded snapshots and lifecycle changes to the local
@@ -261,14 +261,14 @@ Check:
 - The event is inside the configured metadata retention/correlation window.
 - The base agent release is new enough to report systemd-backed add-on status and
   ingest workload identity snapshots.
-- `cluster_id` is set when multiple clusters report into the same ServiceRadar
+- `context_name` is set when multiple clusters report into the same ServiceRadar
   deployment.
 
-### Cluster name is missing
+### Context name is missing
 
-Set `cluster_id` in the assignment or deploy the optional cluster overlay. Node-local
-CRI data can usually identify namespace and pod, but cluster identity is not reliably
-available from the runtime socket alone.
+Set `context_name` in the assignment or deploy the optional cluster overlay. Node-local
+CRI data can usually identify namespace and pod, but kubeconfig context names are not
+reliably available from the runtime socket alone.
 
 ### Docker host reports CRI errors
 
@@ -292,11 +292,11 @@ runtime PID, labels, and Compose project/service labels.
 
 ### Multiple clusters look identical
 
-CRI data is node-local and does not contain a durable global cluster identity. Set
-`cluster_id` and `cluster_name` in the add-on assignment for every cluster, or deploy
-an overlay that stamps cluster metadata onto the node-local collector config. Without
-that, two clusters can legitimately produce the same namespace, pod, and container
-names.
+CRI data is node-local and does not contain a durable global context identity. Set
+`context_name` in the add-on assignment for every cluster or container environment, or
+deploy an overlay that stamps context metadata onto the node-local collector config.
+Without that, two clusters can legitimately produce the same namespace, pod, and
+container names.
 
 ### Container ID exists but pod metadata is missing
 

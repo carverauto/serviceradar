@@ -2,8 +2,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
+  require Ash.Query
   require Logger
 
   @refresh_interval_ms 5_000
@@ -143,7 +145,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     page_count = page_count(total_for_filter, socket.assigns.page_size)
     page = min(socket.assigns.page, page_count)
 
-    rows = fetch_flows(srql_module, scope, socket.assigns.srql.query, page, socket.assigns.page_size)
+    rows =
+      srql_module
+      |> fetch_flows(scope, socket.assigns.srql.query, page, socket.assigns.page_size)
+      |> enrich_rows_with_rdns(scope)
 
     rows_by_id = Map.new(rows, &{&1.id, &1})
     selected_flow = refresh_selected_flow(socket.assigns.selected_flow, rows_by_id)
@@ -238,6 +243,54 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       []
   end
 
+  defp enrich_rows_with_rdns(rows, scope) when is_list(rows) do
+    rdns_map =
+      rows
+      |> Enum.flat_map(&[&1.source, &1.destination])
+      |> Enum.filter(&present?/1)
+      |> Enum.uniq()
+      |> rdns_map_for_ips(scope)
+
+    Enum.map(rows, fn row ->
+      %{
+        row
+        | source_hostname: Map.get(rdns_map, row.source),
+          destination_hostname: Map.get(rdns_map, row.destination)
+      }
+    end)
+  end
+
+  defp enrich_rows_with_rdns(rows, _scope), do: rows
+
+  defp rdns_map_for_ips([], _scope), do: %{}
+  defp rdns_map_for_ips(_ips, nil), do: %{}
+
+  defp rdns_map_for_ips(ips, scope) when is_list(ips) do
+    query =
+      IpRdnsCache
+      |> Ash.Query.for_read(:read, %{})
+      |> Ash.Query.filter(ip in ^ips)
+
+    case Ash.read(query, scope: scope) do
+      {:ok, rows} when is_list(rows) ->
+        rows
+        |> Enum.filter(fn row ->
+          row.status == "ok" and present?(row.hostname)
+        end)
+        |> Map.new(fn row -> {row.ip, String.trim(row.hostname)} end)
+
+      _ ->
+        %{}
+    end
+  rescue
+    error ->
+      Logger.debug("Failed to load attributed-flow rDNS",
+        reason: inspect(error)
+      )
+
+      %{}
+  end
+
   defp row_from_srql(%{} = row) do
     payload = map_value(row, "ocsf_payload") || %{}
     attribution = map_value(payload, "attribution") || %{}
@@ -274,6 +327,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       container_name: workload |> map_value("container_name") |> clean_string(),
       image: clean_string(map_value(workload, "image") || map_value(workload, "image_ref")),
       runtime_source: workload |> map_value("runtime_source") |> clean_string(),
+      context_name: workload |> map_value("context_name") |> clean_string(),
       cluster_id: workload |> map_value("cluster_id") |> clean_string(),
       cluster_name: workload |> map_value("cluster_name") |> clean_string(),
       workload_identity: workload,
@@ -710,8 +764,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
           <.detail_item label="Packets" value={format_number(@flow.packets)} />
           <.detail_item label="Agent" value={display(@flow.agent_id)} subvalue={@flow.partition} />
           <.detail_item
-            label="Cluster"
-            value={display(cluster_label(@flow))}
+            label="Context"
+            value={display(workload_context_label(@flow))}
             subvalue={@flow.cluster_id}
           />
           <.detail_item label="PID" value={display(@flow.pid)} subvalue={uid_label(@flow.uid)} />
@@ -778,7 +832,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp process_label(_), do: "No process match"
 
   defp workload_label(%{pod_namespace: ns, pod_name: pod} = flow) when is_binary(ns) and is_binary(pod) do
-    [cluster_label(flow), "#{ns}/#{pod}"]
+    [workload_context_label(flow), "#{ns}/#{pod}"]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" / ")
   end
@@ -787,9 +841,10 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp workload_label(%{container_name: name}) when is_binary(name), do: name
   defp workload_label(_), do: nil
 
-  defp cluster_label(%{cluster_name: name}) when is_binary(name) and name != "", do: name
-  defp cluster_label(%{cluster_id: id}) when is_binary(id) and id != "", do: id
-  defp cluster_label(_), do: nil
+  defp workload_context_label(%{context_name: name}) when is_binary(name) and name != "", do: name
+  defp workload_context_label(%{cluster_name: name}) when is_binary(name) and name != "", do: name
+  defp workload_context_label(%{cluster_id: id}) when is_binary(id) and id != "", do: id
+  defp workload_context_label(_), do: nil
 
   defp netflow_details_path(row) do
     ~p"/observability?#{%{tab: "netflows", view: "explorer", q: netflow_query(row), limit: 50, open_flow: "1"}}"
@@ -905,6 +960,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp known_atom_key("comm"), do: :comm
   defp known_atom_key("container_id"), do: :container_id
   defp known_atom_key("container_name"), do: :container_name
+  defp known_atom_key("context_name"), do: :context_name
   defp known_atom_key("cluster_id"), do: :cluster_id
   defp known_atom_key("cluster_name"), do: :cluster_name
   defp known_atom_key("dst_endpoint_ip"), do: :dst_endpoint_ip
@@ -955,6 +1011,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   defp clean_string(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
+      sentinel when sentinel in ["nil", "null", "undefined"] -> nil
       trimmed -> trimmed
     end
   end

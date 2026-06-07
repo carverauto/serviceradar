@@ -47,7 +47,7 @@ defmodule ServiceRadar.WorkloadIdentity do
         gateway_id = normalize_string(status[:gateway_id])
         snapshot_degradation = normalize_string(Map.get(snapshot, "degradation_reason"))
         snapshot_endpoint = Map.get(snapshot, "endpoint")
-        snapshot_cluster = cluster_identity_from_snapshot(snapshot)
+        snapshot_context = workload_context_from_snapshot(snapshot)
 
         rows =
           identities
@@ -60,7 +60,7 @@ defmodule ServiceRadar.WorkloadIdentity do
               gateway_id,
               snapshot_endpoint,
               snapshot_degradation,
-              snapshot_cluster
+              snapshot_context
             )
           )
           |> Enum.reject(&is_nil/1)
@@ -79,7 +79,7 @@ defmodule ServiceRadar.WorkloadIdentity do
          gateway_id,
          snapshot_endpoint,
          snapshot_degradation,
-         snapshot_cluster
+         snapshot_context
        )
        when is_map(lookup) do
     identity = Map.get(lookup, "identity")
@@ -96,7 +96,7 @@ defmodule ServiceRadar.WorkloadIdentity do
         |> Map.put_new("container_id", container_id)
         |> Map.put_new("snapshot_endpoint", snapshot_endpoint)
         |> Map.put_new("snapshot_degradation_reason", snapshot_degradation)
-        |> put_snapshot_cluster_identity(snapshot_cluster)
+        |> put_snapshot_workload_context(snapshot_context)
 
       %{
         observed_at: observed_at,
@@ -128,7 +128,7 @@ defmodule ServiceRadar.WorkloadIdentity do
          _gateway_id,
          _endpoint,
          _degradation,
-         _snapshot_cluster
+         _snapshot_context
        ),
        do: nil
 
@@ -267,8 +267,9 @@ defmodule ServiceRadar.WorkloadIdentity do
 
   defp runtime_source(_identity), do: nil
 
-  defp cluster_identity_from_snapshot(snapshot) do
+  defp workload_context_from_snapshot(snapshot) do
     %{
+      "context_name" => normalize_string(Map.get(snapshot, "context_name")),
       "cluster_id" => normalize_string(Map.get(snapshot, "cluster_id")),
       "cluster_name" => normalize_string(Map.get(snapshot, "cluster_name"))
     }
@@ -276,19 +277,22 @@ defmodule ServiceRadar.WorkloadIdentity do
     |> Map.new()
   end
 
-  defp put_snapshot_cluster_identity(identity, cluster) when map_size(cluster) == 0 do
+  defp put_snapshot_workload_context(identity, context) when map_size(context) == 0 do
     identity
   end
 
-  defp put_snapshot_cluster_identity(identity, cluster) do
-    Enum.reduce(cluster, identity, fn {key, value}, acc ->
+  defp put_snapshot_workload_context(identity, context) do
+    Enum.reduce(context, identity, fn {key, value}, acc ->
       Map.put_new(acc, key, value)
     end)
   end
 
   defp normalize_string(value) when is_binary(value) do
-    value = String.trim(value)
-    if value == "", do: nil, else: value
+    case String.trim(value) do
+      "" -> nil
+      sentinel when sentinel in ["nil", "null", "undefined"] -> nil
+      trimmed -> trimmed
+    end
   end
 
   defp normalize_string(value) when is_atom(value),

@@ -53,16 +53,22 @@
       },
       "x-serviceradar-ui-advanced": true
     },
+    "context_name": {
+      "type": "string",
+      "title": "Context name",
+      "description": "Operator-facing workload context stamped onto emitted workload identity. For Kubernetes this should match the kubeconfig context or another stable human-recognizable environment name. CRI does not expose this reliably, so set it when multiple clusters or container environments report into the same ServiceRadar deployment.",
+      "default": ""
+    },
     "cluster_id": {
       "type": "string",
       "title": "Cluster ID",
-      "description": "Stable operator-assigned cluster identifier stamped onto emitted workload identity. CRI does not expose a reliable cluster identity, so set this when multiple Kubernetes clusters report into the same ServiceRadar deployment.",
+      "description": "Legacy stable cluster identifier stamped onto emitted workload identity. Prefer context_name for user-facing investigation labels.",
       "default": ""
     },
     "cluster_name": {
       "type": "string",
       "title": "Cluster name",
-      "description": "Human-friendly cluster name stamped onto emitted workload identity for investigation views.",
+      "description": "Legacy human-friendly cluster name stamped onto emitted workload identity. Prefer context_name for new assignments.",
       "default": ""
     },
     "refresh_interval_s": {

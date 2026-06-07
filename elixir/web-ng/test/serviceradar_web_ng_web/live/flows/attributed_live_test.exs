@@ -31,7 +31,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "default/nginx-pod"
     assert html =~ "1234"
     assert html =~ "nginx"
-    assert html =~ "demo-k3s / default/nginx-pod"
+    assert html =~ "demo-context / default/nginx-pod"
     refute html =~ "203.0.113.44:62001"
 
     html = view |> element("#attributed-flows button", "nginx") |> render_click()
@@ -40,8 +40,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "/usr/sbin/nginx args:sha256:31f0e4c8"
     assert html =~ "worker-1.example.test"
     assert html =~ "edge-api.example.test"
-    assert html =~ "Cluster"
-    assert html =~ "demo-k3s"
+    assert html =~ "Context"
+    assert html =~ "demo-context"
     assert html =~ "cluster-demo-1"
 
     html = view |> element("button[aria-label='Close details']") |> render_click()
@@ -145,6 +145,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "TCP"
     assert html =~ "UDP"
     assert html =~ "ICMP"
+    assert html =~ "metallb-system/speaker-bjd9k"
+    refute html =~ "nil / metallb-system/speaker-bjd9k"
     assert html =~ "No IOC"
   end
 
@@ -191,7 +193,14 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
           "comm" => "dns-client",
           "redacted_cmdline" => "/usr/bin/dig args:sha256:765d0bcf",
           "uid" => "1000",
-          "container_id" => "container-dns"
+          "container_id" => "container-dns",
+          "workload_identity" => %{
+            "cluster_name" => "nil",
+            "pod_namespace" => "metallb-system",
+            "pod_name" => "speaker-bjd9k",
+            "container_name" => "speaker",
+            "image" => "quay.io/metallb/speaker:v0.15.2"
+          }
         },
         agent_id: "agent-flow-test-udp"
       })
@@ -214,6 +223,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
           "uid" => "1000",
           "container_id" => "container-nginx",
           "workload_identity" => %{
+            "context_name" => "demo-context",
             "cluster_id" => "cluster-demo-1",
             "cluster_name" => "demo-k3s",
             "pod_namespace" => "default",

@@ -59,6 +59,8 @@ struct Config {
     #[serde(default = "default_max_identities")]
     max_identities: usize,
     #[serde(default, deserialize_with = "deserialize_optional_trimmed_string")]
+    context_name: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_optional_trimmed_string")]
     cluster_id: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_trimmed_string")]
     cluster_name: Option<String>,
@@ -75,6 +77,7 @@ impl Default for Config {
             refresh_interval_s: default_refresh_interval_s(),
             spool_dir: default_spool_dir(),
             max_identities: default_max_identities(),
+            context_name: None,
             cluster_id: None,
             cluster_name: None,
         }
@@ -108,6 +111,7 @@ struct Snapshot {
     count: usize,
     identities: Vec<CriContainerLookup>,
     degradation_reason: Option<String>,
+    context_name: Option<String>,
     cluster_id: Option<String>,
     cluster_name: Option<String>,
 }
@@ -155,6 +159,7 @@ async fn collect_once(config: &Config) -> Result<()> {
             count: 0,
             identities: Vec::new(),
             degradation_reason: Some("disabled".to_owned()),
+            context_name: config.context_name.clone(),
             cluster_id: config.cluster_id.clone(),
             cluster_name: config.cluster_name.clone(),
         };
@@ -180,6 +185,7 @@ async fn collect_once(config: &Config) -> Result<()> {
         count,
         identities,
         degradation_reason,
+        context_name: config.context_name.clone(),
         cluster_id: config.cluster_id.clone(),
         cluster_name: config.cluster_name.clone(),
     };
