@@ -19,6 +19,22 @@ the first-party add-on runbooks:
 - [Workload Identity](./workload-identity.md) covers the standalone runtime
   metadata collector for Kubernetes, containerd, Docker, and Docker Compose hosts.
 
+## Documentation map
+
+Native add-on documentation is split by job-to-be-done:
+
+| Need | Page | Primary UI |
+| --- | --- | --- |
+| Understand package delivery, approval, assignment, status, rollback, and authoring | This page | **Settings > Agents > Add-ons** |
+| Roll out NetFlow-to-process attribution and host flow evidence | [Host Network Visibility](./netprobe.md) | **Observability > Attributed Flows** |
+| Add pod, namespace, image, Docker, and Compose context to host evidence | [Workload Identity](./workload-identity.md) | Agent detail, flow details, attributed flows |
+| Roll the base `serviceradar-agent` binary | [Agent Release Management](./agent-release-management.md) | **Settings > Agents > Releases** |
+| Configure NetFlow exporters and understand central flow ingest | [NetFlow Ingest Guide](./netflow.md) | **Observability > NetFlows** |
+
+Keep these paths separate during operations. Agent releases update the base runtime;
+native add-on packages update optional feature services that the base agent installs
+and reports.
+
 ## Why native add-ons
 
 The base `serviceradar-agent` package stays small and ships only the core agent.
@@ -114,18 +130,44 @@ operations; manual edits are overwritten by the next reconciliation.
 
 Use this path for a normal rollout:
 
-1. Import or sync the signed native add-on package from the release catalog.
-2. Open **Settings > Agents > Add-ons** and verify the package is `verified`.
-3. Review the manifest, required privileges, supported platforms, OCI digest, and
+1. Confirm the base agents are on a release new enough to install and report
+   systemd-backed add-ons.
+2. Import or sync the signed native add-on package from the release catalog.
+3. Open **Settings > Agents > Add-ons** and verify the package is `verified`.
+4. Review the manifest, required privileges, supported platforms, OCI digest, and
    granted capabilities.
-4. Approve the package.
-5. Assign the approved package to an agent or cohort.
-6. Confirm add-on drift and health from the agent detail page.
-7. Confirm host service state with `systemctl` for systemd-backed add-ons.
+5. Approve the package.
+6. Assign the approved package to one canary agent or cohort before broad rollout.
+7. Confirm add-on drift and health from the agent detail page.
+8. Confirm host service state with `systemctl` for systemd-backed add-ons.
+9. Validate the add-on's data surface, such as `in:addon_statuses`,
+   `in:attributed_flows`, process listeners, or workload inventory.
 
 The base **Agent Releases** page should show only base `serviceradar-agent` releases.
 If add-on packages appear there, that is a catalog/UI bug: add-ons belong in the
 add-on catalog so operators do not lose sight of base-agent runtime releases.
+
+## Release readiness checklist
+
+Before calling an add-on release ready, verify all of these:
+
+- The add-on manifest version changed when the binary, schema, unit file, privileges,
+  or runtime behavior changed.
+- The package was built for every supported `os/arch` pair and includes its systemd
+  unit, config schema, helper files, and eBPF object files when applicable.
+- The release workflow produced signed artifacts, a signed discovery index, OCI
+  digest metadata, and package verification status.
+- The base agent release supports the add-on supervision model in the manifest.
+- A canary assignment installs the package, flips the `current` symlink, restarts the
+  unit, and reports fresh status.
+- The agent detail page shows no assignment drift, stale status, unsupported
+  architecture, or unhealthy observed service.
+- The add-on's expected telemetry appears through SRQL and the relevant UI surface.
+
+For `netprobe`, that means fresh `in:addon_statuses addon_id:netprobe` rows and
+recent `in:attributed_flows` rows. For `workload-identity`, that means fresh
+`in:addon_statuses addon_id:workload-identity` rows plus pod/container metadata in
+flow details or workload inventory where runtime metadata is available.
 
 ## Which add-on to deploy
 
@@ -360,3 +402,22 @@ Those paths should point at the same versioned add-on directory. If the `current
 symlink changed but the running executable still points at an older version, the
 systemd restart step failed or the host is running an older base agent that does not
 fully reconcile systemd-backed add-ons.
+
+## Rollback
+
+Rollback add-ons through assignment state, not by hand-editing files under
+`/var/lib/serviceradar/agent/addons`.
+
+Preferred rollback order:
+
+1. Disable the add-on assignment or retarget the previous approved package version in
+   **Settings > Agents > Add-ons**.
+2. Wait for the agent to receive the new compiled config and reconcile the unit.
+3. Confirm observed status in the agent detail page and `in:addon_statuses`.
+4. Verify the host unit state and running executable path with `systemctl` and
+   `readlink`.
+
+Manual host intervention should be reserved for break-glass recovery when the agent
+control stream is offline or systemd cannot start the service. If manual recovery is
+required, record the active version path before changing it so the control-plane
+assignment can be corrected afterward.

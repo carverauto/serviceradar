@@ -135,6 +135,24 @@ For large fleets, prefer assigning by cohort or control-plane-derived host inven
 Do not maintain static per-agent host-slice lists in Helm values for production-scale
 deployments.
 
+## Recommended rollout sequence
+
+Use a staged rollout for host network visibility:
+
+1. Assign `netprobe` to one canary host that already has NetFlow involving that host.
+2. Confirm `serviceradar-netprobe.service` is active and the running binary resolves
+   to the activated add-on version.
+3. Confirm fresh `in:addon_statuses addon_id:netprobe` rows for the canary.
+4. Confirm `in:attributed_flows` shows new rows from that agent and includes TCP,
+   UDP, or ICMP coverage expected for the traffic being tested.
+5. Check `pidstat` and the add-on metrics endpoint for sustained CPU, drops, queue
+   lag, stale entries, and duplicate suppression.
+6. Expand to a small worker cohort, then to the full target fleet.
+
+Do not treat a low CPU number alone as success. A healthy rollout also has bounded
+ring-buffer lag, stable cache size, low drop counters, and an attribution hit rate
+that matches the traffic and NetFlow visibility available to ServiceRadar.
+
 ## Data model and query surfaces
 
 `netprobe` evidence is consumed by the central attribution pipeline and exposed in:
@@ -148,6 +166,20 @@ The central join uses the flow tuple, protocol, agent/host ownership, process
 metadata, optional container ID, and workload identity metadata. TCP, UDP, and ICMP
 rows may appear in attributed flows; ICMP uses protocol-specific matching because it
 does not have TCP/UDP ports.
+
+The normal data path is:
+
+```text
+netprobe -> base agent -> agent-gateway -> core -> attributed flow current state
+NetFlow collector -> core ------------------------------------------^
+Workload Identity -> base agent -> agent-gateway -> core -----------^
+```
+
+The join happens centrally so ServiceRadar can retain enough host evidence for
+delayed NetFlow batches and can enrich the same flow record with workload identity,
+reverse DNS, service-port mapping, threat intelligence, and future investigation
+signals. The edge collector should suppress duplicate observations and keep queues
+bounded, but it should not be responsible for fleet-wide joins.
 
 Common SRQL entry points:
 

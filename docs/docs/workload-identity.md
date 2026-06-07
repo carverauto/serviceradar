@@ -143,6 +143,28 @@ A Docker Compose host can use:
 If `runtime` is omitted or set to `{"type": "auto"}`, the collector discovers common
 CRI sockets first and then common Docker sockets such as `/var/run/docker.sock`.
 
+## Recommended rollout sequence
+
+Use a canary before enabling workload enrichment across a cluster:
+
+1. Pick one worker node with known running pods or containers.
+2. Confirm the base agent on that node is new enough to install systemd-backed
+   add-ons and report their status.
+3. Assign `workload-identity` with an explicit `cluster_id` and runtime socket when
+   possible.
+4. Confirm `serviceradar-workload-identity.service` is active and the running binary
+   resolves to the activated add-on version.
+5. Validate the runtime directly with `crictl` or `docker` on the same host.
+6. Confirm fresh `in:addon_statuses addon_id:workload-identity` rows.
+7. Confirm workload rows include useful operator fields such as namespace, pod,
+   container name, image, Compose project/service, or Docker labels depending on the
+   runtime.
+8. Expand to the rest of the cluster or Docker cohort.
+
+If multiple Kubernetes clusters report into the same ServiceRadar deployment, treat
+`cluster_id` as required operational metadata. Namespace and pod names are not unique
+across clusters.
+
 ## Emitted fields
 
 Field coverage depends on the runtime source. Use this as the expected baseline:
@@ -161,6 +183,18 @@ Field coverage depends on the runtime source. Use this as the expected baseline:
 The collector should publish bounded snapshots and lifecycle changes to the local
 spool directory. The base agent reads those snapshots and sends them to the gateway;
 netprobe is not required to consume them locally.
+
+The normal data path is:
+
+```text
+runtime/cgroup metadata -> workload-identity -> local spool
+local spool -> base agent -> agent-gateway -> core workload current state
+core workload current state -> flow details, attributed flows, inventory surfaces
+```
+
+This path is intentionally independent from netprobe. A deployment can use Workload
+Identity for container inventory without host flow attribution, and a deployment can
+use netprobe on bare-metal hosts without any container runtime metadata.
 
 ## Validation
 
