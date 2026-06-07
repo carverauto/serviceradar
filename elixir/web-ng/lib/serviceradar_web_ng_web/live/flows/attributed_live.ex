@@ -260,8 +260,6 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
     end)
   end
 
-  defp enrich_rows_with_rdns(rows, _scope), do: rows
-
   defp rdns_map_for_ips([], _scope), do: %{}
   defp rdns_map_for_ips(_ips, nil), do: %{}
 

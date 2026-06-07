@@ -696,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.DiagnosticsLive.MtrData do
     conditions = []
     params = []
     idx = start_idx
-    prefix = if table_alias in [nil, ""], do: "", else: "#{table_alias}."
+    prefix = "#{table_alias}."
 
     {conditions, params, idx} =
       case Map.get(filters, :target_filter, "") do
