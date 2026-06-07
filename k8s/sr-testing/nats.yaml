@@ -14,10 +14,25 @@ spec:
       labels:
         app: sr-testing-nats
     spec:
+      # Restricted PodSecurity compliance (the sr-testing namespace enforces
+      # "restricted:latest"); nats runs fine as non-root with JetStream on an
+      # fsGroup-owned emptyDir.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: nats
           image: nats:2.14.0-alpine
           imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           args:
             - "-c"
             - "/etc/nats/nats-server.conf"

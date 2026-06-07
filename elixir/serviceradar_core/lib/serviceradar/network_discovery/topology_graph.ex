@@ -208,7 +208,10 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   end
 
   @doc """
-  Creates a MANAGED_BY edge from a device to its management device.
+  Creates a MANAGED_BY edge from a device to its management device, plus the
+  reverse MANAGES edge (Gap D) so the causal engine can traverse manager ->
+  managed directly (e.g. C4 management-unobservable / C5 redundancy reasoning)
+  without scanning every MANAGED_BY edge in reverse.
   """
   @spec upsert_managed_by(String.t(), String.t()) :: :ok
   def upsert_managed_by(device_uid, management_device_uid)
@@ -224,6 +227,8 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       MERGE (mgmt:Device {id: '#{Graph.escape(management_device_uid)}'})
       MERGE (child)-[r:MANAGED_BY]->(mgmt)
       SET r.source = 'mapper'
+      MERGE (mgmt)-[rev:MANAGES]->(child)
+      SET rev.source = 'mapper'
       """
 
       case Graph.execute(cypher) do
@@ -1640,7 +1645,7 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
       flow_bps_ba: flow_bps_ba
     }
 
-    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, observed_at))
+    Map.merge(base, telemetry_status_fields(flow_pps, flow_bps, capacity_bps, observed_at))
   end
 
   defp load_directional_metric(keys, metric_names, direction_fun, value_fun, transform_fun) do
@@ -1753,8 +1758,17 @@ defmodule ServiceRadar.NetworkDiscovery.TopologyGraph do
   defp directional_min_flow(primary, secondary),
     do: min_non_zero(Map.get(primary, :out, 0), Map.get(secondary, :in, 0))
 
-  defp telemetry_status_fields(flow_pps, flow_bps, observed_at) do
-    eligible? = flow_pps > 0 or flow_bps > 0
+  # Gap B (add-causal-engine): an edge is telemetry-eligible only when it carries
+  # both observed flow AND a populated capacity denominator. `capacity_bps` comes
+  # from `min_non_zero/2`, which is 0 when neither endpoint has speed_bps/if_speed,
+  # so `capacity_bps > 0` is exactly the "populated capacity" predicate. Edges
+  # without capacity are marked ineligible so the saturation causaloid (C6) skips
+  # them rather than treating absent capacity as zero/infinite. This refines the
+  # existing `telemetry_eligible` field; it adds no new schema column.
+  defp telemetry_status_fields(flow_pps, flow_bps, capacity_bps, observed_at) do
+    flow_present? = flow_pps > 0 or flow_bps > 0
+    capacity_present? = capacity_bps > 0
+    eligible? = flow_present? and capacity_present?
 
     %{
       telemetry_eligible: eligible?,

@@ -19,6 +19,7 @@ members = [
     "third_party/rust_patches/rperf-0.1.25",
     "rust/flow-collector",
     "rust/srql",
+    "rust/causal-engine",
     "rust/fieldsurvey-sidekick",
     "rust/rdp-adapter",
     "rust/addon-sdk",
