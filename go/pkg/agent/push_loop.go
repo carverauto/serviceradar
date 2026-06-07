@@ -126,6 +126,7 @@ type PushLoop struct {
 	systemdAddonsMu        sync.Mutex
 	systemdRehydrateOnce   sync.Once
 	installedSystemdAddons map[string][]string // systemd-supervised addon id -> installed unit names
+	readSystemdUnitStatus  func(string) systemdUnitStatus
 
 	ephemeralHelpersMu        sync.Mutex
 	availableEphemeralHelpers map[string]string // ephemeral-helper addon id -> resolved staged binary path
@@ -218,6 +219,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		endpointInventoryFreshSem: make(chan struct{}, 1),
 		cameraRelayManager:        cameraRelayManager,
 		remoteConsoleManager:      remoteConsoleManager,
+		readSystemdUnitStatus:     readSystemdUnitStatusDefault,
 	}
 }
 

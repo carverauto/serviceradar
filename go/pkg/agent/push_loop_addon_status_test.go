@@ -47,13 +47,13 @@ func newNetprobeStatusPushLoop(t *testing.T, installed bool) *PushLoop {
 	return pl
 }
 
-func stubSystemdUnitStatus(t *testing.T, fn func(string) systemdUnitStatus) {
+func stubSystemdUnitStatus(t *testing.T, pl *PushLoop, fn func(string) systemdUnitStatus) {
 	t.Helper()
 
-	original := readSystemdUnitStatus
-	readSystemdUnitStatus = fn
+	original := pl.readSystemdUnitStatus
+	pl.readSystemdUnitStatus = fn
 	t.Cleanup(func() {
-		readSystemdUnitStatus = original
+		pl.readSystemdUnitStatus = original
 	})
 }
 
@@ -133,7 +133,7 @@ func TestNetprobeAddonStatusRunning(t *testing.T) {
 func TestNetprobeAddonStatusInstalledNotRunning(t *testing.T) {
 	pl := newNetprobeStatusPushLoop(t, true)
 	root := stageNetprobeCurrent(t, "0.9.0")
-	stubSystemdUnitStatus(t, func(string) systemdUnitStatus {
+	stubSystemdUnitStatus(t, pl, func(string) systemdUnitStatus {
 		return systemdUnitStatus{state: agentaddon.StateStopped}
 	})
 
@@ -160,7 +160,7 @@ func TestSystemdAddonStatusesIncludesWorkloadIdentity(t *testing.T) {
 		"workload-identity": {"serviceradar-workload-identity.service"},
 	}
 	root := stageAddonCurrent(t, "workload-identity", "0.1.0")
-	stubSystemdUnitStatus(t, func(unit string) systemdUnitStatus {
+	stubSystemdUnitStatus(t, pl, func(unit string) systemdUnitStatus {
 		if unit != "serviceradar-workload-identity.service" {
 			t.Fatalf("unexpected systemd unit %q", unit)
 		}

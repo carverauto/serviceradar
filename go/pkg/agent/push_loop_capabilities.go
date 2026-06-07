@@ -329,8 +329,6 @@ type systemdUnitStatus struct {
 	lastError string
 }
 
-var readSystemdUnitStatus = readSystemdUnitStatusDefault
-
 // systemdAddonStatuses synthesizes `addon:<id>` entries so systemd-managed native
 // add-ons land in the control-plane AddonStatus read model. These add-ons are not
 // supervised by the go-plugin add-on manager, so they otherwise have no `addon:` status.
@@ -409,7 +407,7 @@ func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars 
 		return st
 	}
 
-	status := systemdAddonUnitStatus(units)
+	status := systemdAddonUnitStatusWithReader(units, p.readSystemdAddonUnitStatus)
 	st.State = status.state
 	st.PID = status.pid
 	st.LastError = status.lastError
@@ -440,20 +438,35 @@ func foldSidecarStatus(st *agentaddon.Status, id string, sidecars []*proto.Sidec
 	return false
 }
 
-func systemdAddonUnitStatus(units []string) systemdUnitStatus {
+func (p *PushLoop) readSystemdAddonUnitStatus(unit string) systemdUnitStatus {
+	if p != nil && p.readSystemdUnitStatus != nil {
+		return p.readSystemdUnitStatus(unit)
+	}
+
+	return readSystemdUnitStatusDefault(unit)
+}
+
+func systemdAddonUnitStatusWithReader(
+	units []string,
+	readUnitStatus func(string) systemdUnitStatus,
+) systemdUnitStatus {
 	if len(units) == 0 {
 		return systemdUnitStatus{state: agentaddon.StateStopped}
 	}
 
 	best := systemdUnitStatus{state: agentaddon.StateStopped}
 	for _, unit := range units {
-		status := readSystemdUnitStatus(unit)
+		status := readUnitStatus(unit)
 		switch status.state {
 		case agentaddon.StateRunning:
 			return status
 		case agentaddon.StateStarting, agentaddon.StateRestarting:
 			best = status
 		case agentaddon.StateUnhealthy:
+			if best.state == agentaddon.StateStopped {
+				best = status
+			}
+		case agentaddon.StateStopped, agentaddon.StateCircuitOpen:
 			if best.state == agentaddon.StateStopped {
 				best = status
 			}
