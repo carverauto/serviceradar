@@ -280,7 +280,7 @@ addon_build_gates: validate_addon_manifests check_addon_dependency_isolation che
 
 .PHONY: build_native_addons
 build_native_addons: addon_build_gates ## Build first-party native add-on bundle artifacts locally with Bazel (gated on manifest + isolation checks)
-	@bazel build //build/native_addons:all_bundles
+	@bazel build -c opt //build/native_addons:all_bundles
 
 .PHONY: check-dev-image-tags
 check-dev-image-tags: ## Verify dev image tag defaults (latest + APP_TAG fallbacks)

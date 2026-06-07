@@ -2096,6 +2096,7 @@ type AgentHelloRequest struct {
 	ConfigVersion string                 `protobuf:"bytes,8,opt,name=config_version,json=configVersion,proto3" json:"config_version,omitempty"`                                        // Current config version hash (for config sync)
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
 	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
+	HostIp        string                 `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2196,6 +2197,13 @@ func (x *AgentHelloRequest) GetLabels() map[string]string {
 func (x *AgentHelloRequest) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
+	}
+	return ""
+}
+
+func (x *AgentHelloRequest) GetHostIp() string {
+	if x != nil {
+		return x.HostIp
 	}
 	return ""
 }
@@ -2532,8 +2540,16 @@ type AddonAssignmentConfig struct {
 	// to the staged binary via the root-owned agent-updater before launch, e.g.
 	// ["cap_net_raw","cap_bpf","cap_perfmon"]. Empty means no elevated capabilities.
 	OsCapabilities []string `protobuf:"bytes,15,rep,name=os_capabilities,json=osCapabilities,proto3" json:"os_capabilities,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	// Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
+	// NOT access object storage / the KV directly; when these are set the agent fetches
+	// the artifact from the agent-gateway over HTTPS (the same path WASM plugins use).
+	// download_url points at the gateway addon-blob endpoint; download_token is the
+	// signed (HMAC) grant authorizing the specific artifact_object_key. The agent
+	// still verifies artifact_sha256 + artifact_signature after download.
+	DownloadUrl   string `protobuf:"bytes,16,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`
+	DownloadToken string `protobuf:"bytes,17,opt,name=download_token,json=downloadToken,proto3" json:"download_token,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *AddonAssignmentConfig) Reset() {
@@ -2671,6 +2687,20 @@ func (x *AddonAssignmentConfig) GetOsCapabilities() []string {
 	return nil
 }
 
+func (x *AddonAssignmentConfig) GetDownloadUrl() string {
+	if x != nil {
+		return x.DownloadUrl
+	}
+	return ""
+}
+
+func (x *AddonAssignmentConfig) GetDownloadToken() string {
+	if x != nil {
+		return x.DownloadToken
+	}
+	return ""
+}
+
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.
 type AgentConfigChunk struct {
 	state           protoimpl.MessageState `protogen:"open.v1"`
@@ -2793,6 +2823,7 @@ type ControlStreamHello struct {
 	Arch          string                 `protobuf:"bytes,8,opt,name=arch,proto3" json:"arch,omitempty"`                                                                               // Architecture (e.g., "amd64", "arm64")
 	Labels        map[string]string      `protobuf:"bytes,9,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"` // Optional labels/tags for grouping
 	ConfigSource  string                 `protobuf:"bytes,10,opt,name=config_source,json=configSource,proto3" json:"config_source,omitempty"`                                          // Source of sysmon config: "remote", "local", "cached", "default"
+	HostIp        string                 `protobuf:"bytes,11,opt,name=host_ip,json=hostIp,proto3" json:"host_ip,omitempty"`                                                            // Agent's own host IP (for device correlation behind NAT)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -2893,6 +2924,13 @@ func (x *ControlStreamHello) GetLabels() map[string]string {
 func (x *ControlStreamHello) GetConfigSource() string {
 	if x != nil {
 		return x.ConfigSource
+	}
+	return ""
+}
+
+func (x *ControlStreamHello) GetHostIp() string {
+	if x != nil {
+		return x.HostIp
 	}
 	return ""
 }
@@ -7639,7 +7677,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\tpartition\x18\b \x01(\tR\tpartition\x12\x16\n" +
 	"\x06source\x18\t \x01(\tR\x06source\x12\x1e\n" +
 	"\vkv_store_id\x18\n" +
-	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\x94\x03\n" +
+	" \x01(\tR\tkvStoreIdJ\x04\b\v\x10\fJ\x04\b\f\x10\r\"\xad\x03\n" +
 	"\x11AgentHelloRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\"\n" +
@@ -7651,7 +7689,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x0econfig_version\x18\b \x01(\tR\rconfigVersion\x12A\n" +
 	"\x06labels\x18\t \x03(\v2).monitoring.AgentHelloRequest.LabelsEntryR\x06labels\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSource\x1a9\n" +
+	" \x01(\tR\fconfigSource\x12\x17\n" +
+	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x90\x02\n" +
@@ -7686,7 +7725,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\rplugin_config\x18\v \x01(\v2\x18.monitoring.PluginConfigR\fpluginConfig\x12F\n" +
 	"\x10bumblebee_config\x18\f \x01(\v2\x1b.monitoring.BumblebeeConfigR\x0fbumblebeeConfig\x129\n" +
 	"\x06addons\x18\r \x03(\v2!.monitoring.AddonAssignmentConfigR\x06addons\x12_\n" +
-	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\"\x8d\x04\n" +
+	"\x19endpoint_inventory_config\x18\x0e \x01(\v2#.monitoring.EndpointInventoryConfigR\x17endpointInventoryConfig\"\xd7\x04\n" +
 	"\x15AddonAssignmentConfig\x12\x19\n" +
 	"\baddon_id\x18\x01 \x01(\tR\aaddonId\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\tR\aversion\x12\x18\n" +
@@ -7706,7 +7745,9 @@ const file_monitoring_proto_rawDesc = "" +
 	"\ttarget_os\x18\r \x01(\tR\btargetOs\x12\x1f\n" +
 	"\vtarget_arch\x18\x0e \x01(\tR\n" +
 	"targetArch\x12'\n" +
-	"\x0fos_capabilities\x18\x0f \x03(\tR\x0eosCapabilities\"\xc2\x02\n" +
+	"\x0fos_capabilities\x18\x0f \x03(\tR\x0eosCapabilities\x12!\n" +
+	"\fdownload_url\x18\x10 \x01(\tR\vdownloadUrl\x12%\n" +
+	"\x0edownload_token\x18\x11 \x01(\tR\rdownloadToken\"\xc2\x02\n" +
 	"\x10AgentConfigChunk\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12%\n" +
 	"\x0econfig_version\x18\x02 \x01(\tR\rconfigVersion\x12)\n" +
@@ -7717,7 +7758,7 @@ const file_monitoring_proto_rawDesc = "" +
 	"\vchunk_index\x18\a \x01(\x05R\n" +
 	"chunkIndex\x12!\n" +
 	"\ftotal_chunks\x18\b \x01(\x05R\vtotalChunks\x12%\n" +
-	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\x96\x03\n" +
+	"\x0epayload_sha256\x18\t \x01(\tR\rpayloadSha256\"\xaf\x03\n" +
 	"\x12ControlStreamHello\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1c\n" +
 	"\tpartition\x18\x02 \x01(\tR\tpartition\x12\"\n" +
@@ -7729,7 +7770,8 @@ const file_monitoring_proto_rawDesc = "" +
 	"\x04arch\x18\b \x01(\tR\x04arch\x12B\n" +
 	"\x06labels\x18\t \x03(\v2*.monitoring.ControlStreamHello.LabelsEntryR\x06labels\x12#\n" +
 	"\rconfig_source\x18\n" +
-	" \x01(\tR\fconfigSource\x1a9\n" +
+	" \x01(\tR\fconfigSource\x12\x17\n" +
+	"\ahost_ip\x18\v \x01(\tR\x06hostIp\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb5\x01\n" +

@@ -23,8 +23,59 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   alias ServiceRadarWebNG.Plugins.ForgejoOciClient, as: Client
 
   @default_index_asset_name "serviceradar-native-addon-index.json"
+  @default_recent_release_limit 10
   @max_bundle_bytes 64 * 1024 * 1024
   @max_artifact_bytes 256 * 1024 * 1024
+
+  @spec list_recent_addons(map(), pos_integer()) :: {:ok, [map()]} | {:error, term()}
+  def list_recent_addons(attrs \\ %{}, limit \\ @default_recent_release_limit)
+
+  def list_recent_addons(attrs, limit) when is_map(attrs) do
+    with {:ok, summary} <- list_recent_addons_with_summary(attrs, limit) do
+      {:ok, summary.addons}
+    end
+  end
+
+  def list_recent_addons(_attrs, _limit), do: {:error, :invalid_attributes}
+
+  @spec list_recent_addons_with_summary(map(), pos_integer()) :: {:ok, map()} | {:error, term()}
+  def list_recent_addons_with_summary(attrs \\ %{}, limit \\ @default_recent_release_limit)
+
+  def list_recent_addons_with_summary(attrs, limit) when is_map(attrs) do
+    with {:ok, repo} <- import_repo(attrs),
+         {:ok, releases} <- Client.fetch_recent_releases(repo, limit) do
+      index_name = index_asset_name(attrs)
+
+      releases
+      |> Enum.reduce_while({:ok, %{addons: [], indexed_releases: 0}}, fn release, {:ok, acc} ->
+        if Client.release_asset_present?(release, index_name) do
+          case release_addons(repo, release, attrs) do
+            {:ok, addons} ->
+              {:cont, {:ok, %{acc | addons: acc.addons ++ addons, indexed_releases: acc.indexed_releases + 1}}}
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
+          end
+        else
+          {:cont, {:ok, acc}}
+        end
+      end)
+      |> case do
+        {:ok, summary} ->
+          {:ok,
+           Map.merge(summary, %{
+             scanned_releases: length(releases),
+             index_asset_name: index_name,
+             repo_url: repo.repo_url
+           })}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  def list_recent_addons_with_summary(_attrs, _limit), do: {:error, :invalid_attributes}
 
   @spec import(map()) :: {:ok, ServiceRadar.Plugins.AddonPackage.t()} | {:error, term()}
   def import(attrs) when is_map(attrs) do
@@ -79,11 +130,64 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
     end
   end
 
+  defp release_addons(repo, release, attrs) do
+    tag = Client.normalize_string(Map.get(release, "tag_name"))
+
+    cond do
+      is_nil(tag) ->
+        {:ok, []}
+
+      not Client.release_asset_present?(release, index_asset_name(attrs)) ->
+        {:ok, []}
+
+      true ->
+        with {:ok, index} <- fetch_release_index(repo, release, attrs) do
+          entries =
+            index
+            |> index_entries()
+            |> Enum.map(&summarize_entry(repo, release, &1))
+            |> Enum.reject(&is_nil/1)
+
+          {:ok, entries}
+        end
+    end
+  end
+
   defp index_entries(index) when is_map(index) do
     index
     |> Map.get("addons", Map.get(index, :addons, []))
     |> List.wrap()
     |> Enum.filter(&is_map/1)
+  end
+
+  defp summarize_entry(repo, release, entry) do
+    addon_id = entry_string(entry, "addon_id")
+    version = entry_string(entry, "version")
+
+    if addon_id in [nil, ""] or version in [nil, ""] do
+      nil
+    else
+      %{
+        addon_id: addon_id,
+        name: entry_string(entry, "name") || addon_id,
+        version: version,
+        release_tag: Client.normalize_string(Map.get(release, "tag_name")),
+        release_url: Client.normalize_string(Map.get(release, "html_url")),
+        repo_url: repo.repo_url,
+        oci_ref: entry_string(entry, "oci_ref"),
+        oci_digest: entry_string(entry, "oci_digest"),
+        bundle_digest: entry_string(entry, "bundle_digest"),
+        artifacts: List.wrap(entry_value(entry, "artifacts")),
+        import_ready?: import_ready_entry?(entry)
+      }
+    end
+  end
+
+  defp import_ready_entry?(entry) do
+    entry_string(entry, "oci_ref") not in [nil, ""] and
+      entry_string(entry, "oci_digest") not in [nil, ""] and
+      entry_string(entry, "bundle_digest") not in [nil, ""] and
+      List.wrap(entry_value(entry, "artifacts")) != []
   end
 
   defp find_entry(index, nil, nil) do

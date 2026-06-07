@@ -1,0 +1,8 @@
+{
+  "enabled": true,
+  "root": "/",
+  "context_name": "",
+  "refresh_interval_s": 60,
+  "spool_dir": "/var/lib/serviceradar/workload-identity/spool",
+  "max_identities": 50000
+}

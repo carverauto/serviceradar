@@ -10,6 +10,7 @@ exports_files([
     "binary-size-baseline.json",
     "binary_size_test.sh",
     "dependency_isolation_test.sh",
+    "inventory_consistency_test.sh",
     "publish_addon.sh",
     "runfile_path.sh",
     "validate_manifests_test.sh",
@@ -65,13 +66,35 @@ sh_test(
         "$(rootpath //addons/sample-addon:addon.yaml)",
         "$(rootpath //addons/rust-sample-addon:addon.yaml)",
         "$(rootpath //addons/netprobe:addon.yaml)",
+        "$(rootpath //addons/workload-identity:addon.yaml)",
+        "$(rootpath //addons/bumblebee-scan:addon.yaml)",
+        "$(rootpath //addons/endpoint-inventory:addon.yaml)",
     ],
     data = [
+        "//addons/bumblebee-scan:addon.yaml",
+        "//addons/endpoint-inventory:addon.yaml",
         "runfile_path.sh",
         "//addons/netprobe:addon.yaml",
         "//addons/rust-sample-addon:addon.yaml",
         "//addons/sample-addon:addon.yaml",
+        "//addons/workload-identity:addon.yaml",
         "//go/tools/addon-manifest-validator",
+    ],
+)
+
+sh_test(
+    name = "inventory_consistency_test",
+    timeout = "short",
+    srcs = ["inventory_consistency_test.sh"],
+    args = [
+        "$(rootpath :addon_inventory.bzl)",
+        "$(rootpath //scripts:check-native-addon-version-bumps.sh)",
+        "$(rootpath :BUILD.bazel)",
+    ],
+    data = [
+        ":BUILD.bazel",
+        ":addon_inventory.bzl",
+        "//scripts:check-native-addon-version-bumps.sh",
     ],
 )
 
@@ -106,6 +129,7 @@ test_suite(
     tests = [
         ":binary_size_test",
         ":dependency_isolation_test",
+        ":inventory_consistency_test",
         ":validate_addon_manifests_test",
         "//scripts:verify_native_addon_publish_negative_test",
     ],

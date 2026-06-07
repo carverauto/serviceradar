@@ -25,6 +25,7 @@ defmodule ServiceRadar.StatusHandler do
   require Logger
 
   @flow_attribution_source "flow-attribution"
+  @workload_identity_source "workload-identity"
 
   @telemetry_batch_received [
     :serviceradar,
@@ -113,6 +114,11 @@ defmodule ServiceRadar.StatusHandler do
     handle_flow_attribution(status)
   end
 
+  defp process(%{source: source} = status, _opts)
+       when source in [@workload_identity_source, :workload_identity] do
+    ServiceRadar.WorkloadIdentity.persist_snapshot(status)
+  end
+
   defp process(%{service_name: service_name} = status, _opts)
        when service_name in ["agent", :agent] do
     # The agent capability status carries per-add-on state in its payload; record it
@@ -143,6 +149,11 @@ defmodule ServiceRadar.StatusHandler do
           _ ->
             :ok
         end)
+
+        # Persist the pushed attributions to CNPG so the correlation worker can
+        # join them against collected NetFlow into attributed_flow rows. NetFlow
+        # stays the flow source; netprobe only supplies the process context.
+        ServiceRadar.FlowAttribution.persist(events || [], partition_id, agent_id)
 
         :ok
 

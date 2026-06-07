@@ -1,0 +1,27 @@
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+    "serviceradar-workload-identity.service",
+    "workload-identity.json",
+])
+
+filegroup(
+    name = "workload_identity_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "workload_identity_systemd_unit",
+    srcs = ["serviceradar-workload-identity.service"],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "workload_identity_runtime_config",
+    srcs = ["workload-identity.json"],
+    visibility = ["//visibility:public"],
+)

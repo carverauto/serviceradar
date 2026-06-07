@@ -5,6 +5,7 @@
 {{- $clusterNodeBasename := default "serviceradar_agent_gateway" $gateway.kubernetesNodeBasename -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
+{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
 {{- $datasvc := default (dict) $gateway.datasvc -}}
@@ -72,6 +73,8 @@ spec:
           containerPort: 9100
           protocol: TCP
         env:
+        - name: TMPDIR
+          value: /tmp
         - name: ELIXIR_ERL_OPTIONS
           value: "+fnu"
         - name: ERL_FLAGS
@@ -123,6 +126,15 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
               key: web-ng-secret-key-base
+        - name: PLUGIN_STORAGE_SIGNING_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
+              key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}
         - name: KUBERNETES_NODE_BASENAME
@@ -166,6 +178,8 @@ spec:
         {{- end }}
         {{- end }}
         volumeMounts:
+        - name: tmp
+          mountPath: /tmp
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
@@ -191,6 +205,8 @@ spec:
           timeoutSeconds: 5
           failureThreshold: 3
       volumes:
+      - name: tmp
+        emptyDir: {}
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
@@ -239,7 +255,6 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
 spec:
   clusterIP: None
-  publishNotReadyAddresses: true
   selector:
     app: serviceradar-agent-gateway
   ports:
@@ -249,6 +264,12 @@ spec:
   - name: artifacts
     port: {{ default 50053 $gateway.service.artifactPort }}
     targetPort: artifacts
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist
 ---
 apiVersion: v1
 kind: Service

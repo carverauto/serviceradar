@@ -507,6 +507,7 @@ defmodule ServiceRadarWebNGWeb.Router do
     post("/collectors/:id/bundle", CollectorController, :bundle)
     put("/plugin-packages/:id/blob", PluginPackageController, :upload_blob)
     post("/plugin-packages/:id/blob/download", PluginPackageController, :download_blob)
+    post("/addon-packages/:id/blob/download", AddonPackageController, :download_blob)
   end
 
   scope "/api/v2" do

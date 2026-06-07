@@ -52,6 +52,13 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @max_status_message_bytes 4_096
   @max_results_message_bytes 15 * 1024 * 1024
   @max_sysmon_message_bytes 15 * 1024 * 1024
+  @max_workload_identity_message_bytes 15 * 1024 * 1024
+  # Flow-attribution batches (FlowAttributionEventBatch protobuf) carry up to a
+  # few hundred events per push — well past 4 KB. They MUST NOT be truncated
+  # (truncation corrupts the protobuf and core fails to decode the batch), so
+  # they get a large cap like results/sysmon and are rejected (never truncated)
+  # if they ever exceed it.
+  @max_flow_attribution_message_bytes 15 * 1024 * 1024
   @max_stream_status_chunk_bytes 16 * 1024 * 1024
   @max_stream_status_window_bytes 64 * 1024 * 1024
   @max_config_chunk_payload_bytes 1 * 1024 * 1024
@@ -583,17 +590,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp message_size(_), do: 0
 
   defp normalize_message(msg, source) do
-    max_bytes =
-      case source do
-        "results" -> @max_results_message_bytes
-        "sysmon-metrics" -> @max_sysmon_message_bytes
-        "snmp-metrics" -> @max_results_message_bytes
-        "plugin-result" -> @max_results_message_bytes
-        _ -> @max_status_message_bytes
-      end
+    max_bytes = max_message_bytes(source)
 
     if byte_size(msg) > max_bytes do
-      if source in ["results", "sysmon-metrics", "snmp-metrics", "plugin-result"] do
+      if strict_message_size_source?(source) do
         raise GRPC.RPCError,
           status: :resource_exhausted,
           message: "payload exceeds max size"
@@ -603,6 +603,25 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     else
       msg
     end
+  end
+
+  defp max_message_bytes("results"), do: @max_results_message_bytes
+  defp max_message_bytes("sysmon-metrics"), do: @max_sysmon_message_bytes
+  defp max_message_bytes("snmp-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("plugin-result"), do: @max_results_message_bytes
+  defp max_message_bytes("workload-identity"), do: @max_workload_identity_message_bytes
+  defp max_message_bytes("flow-attribution"), do: @max_flow_attribution_message_bytes
+  defp max_message_bytes(_source), do: @max_status_message_bytes
+
+  defp strict_message_size_source?(source) do
+    source in [
+      "results",
+      "sysmon-metrics",
+      "snmp-metrics",
+      "plugin-result",
+      "workload-identity",
+      "flow-attribution"
+    ]
   end
 
   # Record metrics for the push operation
@@ -810,12 +829,16 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp device_attrs_from_request(partition_id, request, source_ip) do
     capabilities = if request, do: request.capabilities || [], else: []
 
+    # Prefer the agent's self-reported host IP when present so DIRE links to the
+    # real device. The TCP peer IP (source_ip) is wrong for NAT'd/external agents.
+    device_ip = request_value(request, :host_ip) || source_ip
+
     %{
       hostname: if(request, do: request.hostname),
       os: if(request, do: request.os),
       arch: if(request, do: request.arch),
       partition: partition_id,
-      source_ip: source_ip,
+      source_ip: device_ip,
       capabilities: capabilities
     }
   end

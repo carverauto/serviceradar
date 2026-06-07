@@ -766,6 +766,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert visibility.capture_interfaces == []
       assert visibility.device_bindings == []
       assert visibility.default_sample_interval_ms == 0
+      assert visibility.flow_table_max_entries == 0
       assert visibility.binary_overrides == nil
       assert visibility.dpi == %Monitoring.VisibilityDpiConfig{enabled: false, protocols: []}
     end

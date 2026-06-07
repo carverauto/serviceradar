@@ -93,6 +93,32 @@ ADDON_BUNDLES = [
         "pushed_artifact_tarball": True,
     },
     {
+        # Workload identity collector add-on. Runs as a standalone ServiceRadar
+        # host component that owns CRI/container runtime metadata discovery. Netprobe
+        # is a later consumer of the upstream identity state, not the collector owner.
+        "name": "workload_identity_addon_bundle",
+        "addon_id": "workload-identity",
+        "repository_name": "serviceradar-addon-workload-identity",
+        "language": "rust",
+        "binary": "//rust/workload-identity:workload_identity_daemon",
+        "binary_name": "serviceradar-workload-identity",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/workload-identity:addon.yaml"),
+            ("config.schema.json", "//addons/workload-identity:config.schema.json"),
+        ],
+        "unit_entries": [
+            ("serviceradar-workload-identity.service", "//addons/workload-identity:serviceradar-workload-identity.service"),
+        ],
+        "data_entries": [
+            ("workload-identity.json", "//addons/workload-identity:workload_identity_runtime_config"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
+    {
         # Bumblebee exposure scanner add-on (migrate-bumblebee-to-native-addon).
         # Ships the root-owned scanner binary plus its systemd service/timer as a
         # signed pushed-artifact bundle. The non-root agent only stages the artifact

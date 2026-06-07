@@ -35,6 +35,7 @@ mod muonfp;
 mod os_matcher;
 #[allow(dead_code)]
 mod p0f_corpus;
+mod p0f_encode;
 #[allow(dead_code)]
 mod p0f_matcher;
 mod proto;
@@ -61,6 +62,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::{
     config::Config,
+    external_flow::SharedExternalFlowMatcher,
     lifecycle::{StartupOps, SystemStartupOps},
     metrics::{serve_metrics, Metrics},
     runtime_config::{DpiEventGate, FingerprintEventGate, RuntimeConfig},
@@ -128,7 +130,7 @@ enum VisibilityRuntime {
     Ebpf(ebpf_runtime::NetprobeEbpfRuntime),
 }
 
-#[tokio::main]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> Result<()> {
     let args = Args::parse();
     init_logging(args.log_format);
@@ -141,9 +143,15 @@ async fn main() -> Result<()> {
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let (_fingerprint_event_tx, fingerprint_event_rx) = event_queue::bounded(4096);
     let (_dpi_event_tx, dpi_event_rx) = event_queue::bounded(4096);
-    let (flow_attribution_event_tx, _) = broadcast::channel(4096);
+    // Flow attribution events can arrive in short bursts on busy worker nodes.
+    // Keep the local IPC queue bounded, but large enough that the single agent
+    // client can absorb bursty ring-buffer drains before its upstream push loop
+    // batches them to the gateway.
+    let (flow_attribution_event_tx, flow_attribution_event_rx) = event_queue::bounded(65_536);
     let (process_snapshot_tx, _) = broadcast::channel(128);
     let runtime_config = RuntimeConfig::new(&config);
+    let external_flow_matcher =
+        SharedExternalFlowMatcher::new(runtime_config.external_flow_match_window_ms());
     let _fingerprint_gate = Arc::new(Mutex::new(FingerprintEventGate::new(
         runtime_config.clone(),
     )));
@@ -169,8 +177,11 @@ async fn main() -> Result<()> {
                 metrics.clone(),
                 _fingerprint_event_tx.clone(),
                 _dpi_event_tx.clone(),
-                flow_attribution_event_tx.clone(),
+                config
+                    .emit_raw_flow_attribution_events
+                    .then(|| flow_attribution_event_tx.clone()),
                 process_snapshot_tx.clone(),
+                external_flow_matcher.clone(),
                 Arc::clone(&_fingerprint_gate),
                 Arc::clone(&_dpi_gate),
             )
@@ -190,25 +201,38 @@ async fn main() -> Result<()> {
         startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
         VisibilityRuntime::Disabled
     };
-    let metrics_task = tokio::spawn(serve_metrics(
+    let mut metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
         metrics.clone(),
         shutdown_rx.clone(),
     ));
-    let ipc_task = tokio::spawn(
+    let mut ipc_task = tokio::spawn(
         IpcServer::new(
             args.socket,
             fingerprint_event_rx,
             dpi_event_rx,
             flow_attribution_event_tx,
+            flow_attribution_event_rx,
             process_snapshot_tx,
+            external_flow_matcher,
             runtime_config,
             metrics,
         )
         .run(shutdown_rx),
     );
 
-    wait_for_shutdown().await;
+    tokio::select! {
+        _ = wait_for_shutdown() => {}
+        result = &mut metrics_task => {
+            result.context("metrics task join failed")?.context("metrics task failed")?;
+            anyhow::bail!("metrics task exited unexpectedly");
+        }
+        result = &mut ipc_task => {
+            result.context("IPC task join failed")?.context("IPC task failed")?;
+            anyhow::bail!("IPC task exited unexpectedly");
+        }
+    }
+
     let _ = shutdown_tx.send(true);
 
     let shutdown_deadline = tokio::time::timeout(Duration::from_secs(5), async {

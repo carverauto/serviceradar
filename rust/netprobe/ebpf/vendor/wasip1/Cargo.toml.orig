@@ -1,0 +1,23 @@
+[package]
+name = "wasip1"
+version = "1.0.0"
+license = "Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT"
+description = "WASIp1 API bindings for Rust"
+edition = "2018"
+categories = ["no-std", "wasm"]
+keywords = ["webassembly", "wasm"]
+repository = "https://github.com/bytecodealliance/wasi"
+readme = "README.md"
+documentation = "https://docs.rs/wasi"
+rust-version.workspace = true
+
+[dependencies]
+# When built as part of libstd
+core = { optional = true, workspace = true }
+alloc = { optional = true, workspace = true }
+
+[features]
+default = ["std"]
+std = []
+# Unstable feature to support being a libstd dependency
+rustc-dep-of-std = ["core", "alloc"]

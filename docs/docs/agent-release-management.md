@@ -33,6 +33,12 @@ Use the authenticated release-management page:
 - For developer and local validation workflows, keep using `Publish Release Manually` and enter the semantic version, release notes, manifest signature, artifact URL, SHA256 digest, OS, architecture, and artifact format directly.
 - Publish the release.
 
+This page is for base `serviceradar-agent` runtime releases. Native add-on packages
+such as `netprobe` and `workload-identity` are reviewed, approved, and assigned from
+[Native Add-ons](./native-addons.md) in **Settings > Agents > Add-ons**. Keeping the
+catalogs separate prevents add-on package versions from hiding the agent releases
+operators expect to roll out from this page.
+
 The control plane stores:
 
 - the desired version,

@@ -179,7 +179,7 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
-	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, netprobeSystemdAssignmentPresent(configResp.GetAddons())) {
+	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons()) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
@@ -207,8 +207,18 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
-	// Apply native add-on (feature set) assignments if present.
-	p.applyAddonAssignments(ctx, configResp.GetAddons())
+	// Apply native add-on (feature set) assignments if present. A failed
+	// pushed-artifact delivery must defer the config version update; otherwise the
+	// next poll reports the new version and the gateway can legitimately respond
+	// NotModified, leaving a transient failed add-on delivery stuck until some
+	// unrelated config change occurs.
+	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
+		p.logger.Warn().
+			Str("version", configResp.ConfigVersion).
+			Str("source", source).
+			Msg("Deferring config version update because add-on assignments did not apply")
+		return false
+	}
 
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
@@ -406,7 +416,11 @@ func (p *PushLoop) applyMapperConfig(configJSON []byte) {
 		Msg("Applied mapper config from gateway")
 }
 
-func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.VisibilityConfig, systemdManaged bool) bool {
+func (p *PushLoop) applyVisibilityConfig(
+	ctx context.Context,
+	cfg *proto.VisibilityConfig,
+	addons []*proto.AddonAssignmentConfig,
+) bool {
 	if cfg == nil || p.server == nil {
 		return true
 	}
@@ -421,6 +435,20 @@ func (p *PushLoop) applyVisibilityConfig(ctx context.Context, cfg *proto.Visibil
 	}
 
 	parsed := agentnetprobe.ParseVisibilityConfig(cfg)
+	netprobeAddon := netprobeSystemdAssignment(addons)
+	systemdManaged := netprobeAddon != nil
+	if systemdManaged {
+		merged, err := agentnetprobe.ApplyAddonConfigJSON(
+			parsed.NetprobeConfig,
+			netprobeAddon.GetConfigJson(),
+		)
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to merge netprobe add-on config")
+			return false
+		}
+		parsed.NetprobeConfig = merged
+	}
+
 	if err := agentnetprobe.WriteBootstrapConfig(
 		netprobeConfigPath(sidecarStatus),
 		parsed.NetprobeConfig,
@@ -528,6 +556,10 @@ func (p *PushLoop) stopNetprobeManager(ctx context.Context, sidecarManager sidec
 // netprobe AddonAssignment with systemd supervision — the switch that moves netprobe off the
 // always-on agent-launched visibility path onto the systemd-service add-on lifecycle.
 func netprobeSystemdAssignmentPresent(addons []*proto.AddonAssignmentConfig) bool {
+	return netprobeSystemdAssignment(addons) != nil
+}
+
+func netprobeSystemdAssignment(addons []*proto.AddonAssignmentConfig) *proto.AddonAssignmentConfig {
 	for _, addon := range addons {
 		if addon == nil {
 			continue
@@ -535,18 +567,20 @@ func netprobeSystemdAssignmentPresent(addons []*proto.AddonAssignmentConfig) boo
 		if addon.GetAddonId() == agentnetprobe.DefaultSidecarName &&
 			addon.GetEnabled() &&
 			classifyAddonSupervision(addon.GetSupervision()) == addonDispatchSystemd {
-			return true
+			return addon
 		}
 	}
 
-	return false
+	return nil
 }
 
+// netprobeConfigHasWork reports whether netprobe should be running. Enabling netprobe is
+// enough on its own: the eBPF kprobe process-attribution path (the flow->PID source that
+// feeds attributed flows) runs with no capture interfaces at all. Packet capture / DPI is
+// purely additive — it only engages when capture_interfaces or device_bindings are set — so
+// requiring them to launch netprobe broke attribution-only ("one-touch") enablement.
 func netprobeConfigHasWork(cfg *netprobepb.VisibilityAgentConfig) bool {
-	return cfg != nil &&
-		cfg.GetEnabled() &&
-		len(cfg.GetCaptureInterfaces()) > 0 &&
-		len(cfg.GetDeviceBindings()) > 0
+	return cfg != nil && cfg.GetEnabled()
 }
 
 func netprobeConfigPath(provider sidecarStatusProvider) string {

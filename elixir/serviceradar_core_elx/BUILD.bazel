@@ -32,7 +32,9 @@ mix_release(
     run_assets = False,
     extra_dirs = [
         "addons/bumblebee-scan",
+        "addons/endpoint-inventory",
         "addons/netprobe",
+        "addons/workload-identity",
         "elixir/connection",
         "elixir/elixir_uuid",
         "elixir/serviceradar_core",
@@ -44,7 +46,9 @@ mix_release(
     ],
     extra_dir_srcs = [
         "//addons/bumblebee-scan:bumblebee_scan_manifest",
+        "//addons/endpoint-inventory:endpoint_inventory_manifest",
         "//addons/netprobe:netprobe_manifest",
+        "//addons/workload-identity:workload_identity_manifest",
         "//elixir/connection:srcs",
         "//elixir/elixir_uuid:srcs",
         "//elixir/serviceradar_core:srcs",
@@ -53,6 +57,21 @@ mix_release(
         "//proto:kv_proto_src",
         "//rust/kvutil:srcs",
         "//rust/srql:srcs",
+    ],
+    # Membrane precompiled OS-dep tarballs (x86_64 linux), pinned in MODULE.bazel.
+    # Staged into the sandbox and copied by Bundlex's patched download/2 so
+    # `mix deps.compile` does not need github.com egress on the CI runner.
+    precompiled_os_deps = [
+        "@membrane_precompiled_fdk_aac//file",
+        "@membrane_precompiled_lame//file",
+        "@membrane_precompiled_mad//file",
+        "@membrane_precompiled_opus//file",
+        "@membrane_precompiled_portaudio//file",
+        "@membrane_precompiled_sdl2//file",
+        "@membrane_precompiled_libvpx//file",
+        "@membrane_precompiled_srt//file",
+        "@membrane_precompiled_srtp//file",
+        "@membrane_precompiled_ffmpeg//file",
     ],
     workdir_name = "serviceradar_core_elx",
 )

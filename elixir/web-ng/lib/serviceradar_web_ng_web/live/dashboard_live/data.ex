@@ -605,6 +605,7 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
     src_local_anchor = local_anchor_select_expr(has_anchor?, "src_anchor")
     dst_local_anchor = local_anchor_select_expr(has_anchor?, "dst_anchor")
     threat_select = threat_select_expr(has_threat?)
+    attribution_select = attribution_select_expr(relation)
 
     geo_select = """
       #{src_lat} AS src_latitude,
@@ -685,7 +686,8 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       COALESCE(SUM(packets_total), 0)::bigint AS packets_total,
       COALESCE(#{flow_count_expr}, 0)::bigint AS flow_count,
       #{geo_select},
-      #{threat_select}
+      #{threat_select},
+      #{attribution_select}
     FROM #{relation} f
     #{geo_join}
     #{anchor_join}
@@ -728,7 +730,16 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
                           dst_threat_matched,
                           dst_threat_match_count,
                           dst_threat_max_severity,
-                          dst_threat_sources
+                          dst_threat_sources,
+                          attributed_flow_count,
+                          attribution_agent_id,
+                          attribution_comm,
+                          attribution_pid,
+                          attribution_container_id,
+                          attribution_pod_namespace,
+                          attribution_pod_name,
+                          attribution_container_name,
+                          attribution_image
                         ], idx} ->
           magnitude = to_int(bytes)
           topology_from = point_for(src)
@@ -761,6 +772,15 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
             threat_match_count: to_int(src_threat_match_count) + to_int(dst_threat_match_count),
             threat_max_severity: max(to_int(src_threat_max_severity), to_int(dst_threat_max_severity)),
             threat_sources: threat_sources,
+            attributed_flow_count: to_int(attributed_flow_count),
+            attribution_agent_id: attribution_agent_id,
+            attribution_comm: attribution_comm,
+            attribution_pid: to_int(attribution_pid),
+            attribution_container_id: attribution_container_id,
+            attribution_pod_namespace: attribution_pod_namespace,
+            attribution_pod_name: attribution_pod_name,
+            attribution_container_name: attribution_container_name,
+            attribution_image: attribution_image,
             magnitude: magnitude,
             bytes: magnitude,
             packets: to_int(packets),
@@ -802,6 +822,47 @@ defmodule ServiceRadarWebNGWeb.DashboardLive.Data do
       0 AS dst_threat_match_count,
       0 AS dst_threat_max_severity,
       '' AS dst_threat_sources
+    """
+  end
+
+  defp attribution_select_expr("ocsf_network_activity") do
+    attributed? = "f.ocsf_payload ->> 'event_type' = 'attributed_flow'"
+    latest = &latest_attribution_expr(&1, attributed?)
+
+    """
+      COALESCE(COUNT(*) FILTER (WHERE #{attributed?}), 0)::bigint AS attributed_flow_count,
+      #{latest.("f.ocsf_payload ->> 'agent_id'")} AS attribution_agent_id,
+      #{latest.("f.ocsf_payload #>> '{attribution,comm}'")} AS attribution_comm,
+      NULLIF(#{latest.("f.ocsf_payload #>> '{attribution,pid}'")}, '')::integer AS attribution_pid,
+      #{latest.("f.ocsf_payload #>> '{attribution,container_id}'")} AS attribution_container_id,
+      #{latest.("f.ocsf_payload #>> '{attribution,workload_identity,pod_namespace}'")} AS attribution_pod_namespace,
+      #{latest.("f.ocsf_payload #>> '{attribution,workload_identity,pod_name}'")} AS attribution_pod_name,
+      #{latest.("f.ocsf_payload #>> '{attribution,workload_identity,container_name}'")} AS attribution_container_name,
+      COALESCE(
+        #{latest.("f.ocsf_payload #>> '{attribution,workload_identity,image}'")},
+        #{latest.("f.ocsf_payload #>> '{attribution,workload_identity,image_ref}'")}
+      ) AS attribution_image
+    """
+  end
+
+  defp attribution_select_expr(_relation) do
+    """
+      0::bigint AS attributed_flow_count,
+      NULL::text AS attribution_agent_id,
+      NULL::text AS attribution_comm,
+      NULL::integer AS attribution_pid,
+      NULL::text AS attribution_container_id,
+      NULL::text AS attribution_pod_namespace,
+      NULL::text AS attribution_pod_name,
+      NULL::text AS attribution_container_name,
+      NULL::text AS attribution_image
+    """
+  end
+
+  defp latest_attribution_expr(expr, attributed_predicate) do
+    """
+    (array_remove(array_agg(NULLIF(#{expr}, '') ORDER BY f.time DESC)
+      FILTER (WHERE #{attributed_predicate}), NULL))[1]
     """
   end
 

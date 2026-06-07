@@ -305,10 +305,16 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   end
 
   defp normalize_object_param(acc, key, prop_schema) do
-    if Map.has_key?(acc, key) do
-      Map.put(acc, key, normalize_value(prop_schema, Map.get(acc, key)))
-    else
-      maybe_put_default(acc, key, prop_schema)
+    case Map.get(acc, key) do
+      value when value in [nil, ""] ->
+        # A blank form value means "not provided". Apply the schema default if any, else
+        # drop the key, so an optional field left empty in the form does not fail type
+        # validation as an empty string (e.g. a blank integer or object field — the
+        # one-touch case where the operator only toggled `enabled`).
+        acc |> Map.delete(key) |> maybe_put_default(key, prop_schema)
+
+      value ->
+        Map.put(acc, key, normalize_value(prop_schema, value))
     end
   end
 

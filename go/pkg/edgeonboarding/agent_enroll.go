@@ -95,7 +95,11 @@ func EnrollAgentFromToken(ctx context.Context, opts EnrollOptions) error {
 		payload.PackageID,
 	)
 
-	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.DownloadToken)
+	// The bundle endpoint verifies the full edgepkg-v3 envelope (signature + package +
+	// partition binding) via OnboardingToken.decode, so send the raw token, not the bare
+	// inner download token. Sending only payload.DownloadToken made the server reject it
+	// as :unsupported_token_format (401 "onboarding token invalid").
+	req, err := newBundleDownloadRequest(ctx, bundleURL, payload.rawToken)
 	if err != nil {
 		return err
 	}

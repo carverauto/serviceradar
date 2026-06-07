@@ -1,8 +1,6 @@
-use std::time::Duration;
+use tokio::sync::mpsc::{self as channel, error::TrySendError};
 
-use crossbeam_channel::{self as channel, TryRecvError};
-
-const IDLE_RECV_SLEEP: Duration = Duration::from_millis(1);
+use tokio::sync::mpsc::error::TryRecvError;
 
 #[derive(Clone, Debug)]
 pub struct EventSender<T> {
@@ -15,28 +13,21 @@ pub struct EventReceiver<T> {
 }
 
 pub fn bounded<T>(capacity: usize) -> (EventSender<T>, EventReceiver<T>) {
-    let (tx, rx) = channel::bounded(capacity);
+    let (tx, rx) = channel::channel(capacity);
     (EventSender { inner: tx }, EventReceiver { inner: rx })
 }
 
 impl<T> EventSender<T> {
-    pub fn try_send(&self, event: T) -> Result<(), channel::TrySendError<T>> {
+    pub fn try_send(&self, event: T) -> Result<(), TrySendError<T>> {
         self.inner.try_send(event)
     }
 }
 
 impl<T> EventReceiver<T> {
     pub async fn recv(&mut self) -> Option<T> {
-        loop {
-            match self.inner.try_recv() {
-                Ok(event) => return Some(event),
-                Err(TryRecvError::Empty) => tokio::time::sleep(IDLE_RECV_SLEEP).await,
-                Err(TryRecvError::Disconnected) => return None,
-            }
-        }
+        self.inner.recv().await
     }
 
-    #[cfg(test)]
     pub fn try_recv(&mut self) -> Result<T, TryRecvError> {
         self.inner.try_recv()
     }

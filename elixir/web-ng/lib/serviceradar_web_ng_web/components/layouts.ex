@@ -54,9 +54,16 @@ defmodule ServiceRadarWebNGWeb.Layouts do
     signed_in? = is_map(current_scope) and not is_nil(Map.get(current_scope, :user))
     current_path = assigns[:current_path] || Map.get(assigns.srql, :page_path)
     page_title = assigns[:page_title] || operations_page_title(current_path)
+    brand_name = operations_brand_name(current_path)
 
     assigns =
-      assign(assigns, signed_in?: signed_in?, current_path: current_path, page_title: page_title)
+      assign(assigns,
+        signed_in?: signed_in?,
+        current_path: current_path,
+        page_title: page_title,
+        brand_name: brand_name,
+        show_page_title?: page_title != brand_name
+      )
 
     cond do
       assigns.shell == :operations -> operations_app(assigns)
@@ -350,10 +357,10 @@ defmodule ServiceRadarWebNGWeb.Layouts do
           <div class="sr-ops-topbar-title">
             <div class="sr-ops-topbar-brand">
               <img src={~p"/images/logo.svg"} alt="" class="size-7" width="28" height="28" />
-              <span class="sr-ops-brand-name">ServiceRadar</span>
-              <span class="sr-ops-topbar-divider"></span>
+              <span class="sr-ops-brand-name">{@brand_name}</span>
+              <span :if={@show_page_title?} class="sr-ops-topbar-divider"></span>
             </div>
-            <h1 class="sr-ops-page-title">
+            <h1 :if={@show_page_title?} class="sr-ops-page-title">
               {@page_title}
             </h1>
           </div>
@@ -510,6 +517,9 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   end
 
   defp operations_page_title(_), do: "ServiceRadar"
+
+  defp operations_brand_name("/observability/flows/attributed"), do: "Attributed Flows"
+  defp operations_brand_name(_), do: "ServiceRadar"
 
   attr(:href, :string, required: true)
   attr(:label, :string, required: true)

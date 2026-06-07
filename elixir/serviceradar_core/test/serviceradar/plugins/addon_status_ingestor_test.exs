@@ -83,6 +83,12 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
         agent_status(agent_uid, [%{"name" => "addon:sample", "state" => "running"}])
       )
 
+    assert [initial] = statuses_for(agent_uid)
+    initial_reported_at = initial.reported_at
+    initial_updated_at = initial.updated_at
+
+    Process.sleep(5)
+
     :ok =
       AddonStatusIngestor.ingest(
         agent_status(agent_uid, [
@@ -94,5 +100,7 @@ defmodule ServiceRadar.Plugins.AddonStatusIngestorTest do
     assert row.state == "unhealthy"
     assert row.active == false
     assert row.degradation_reason == "degraded"
+    assert DateTime.after?(row.reported_at, initial_reported_at)
+    assert DateTime.after?(row.updated_at, initial_updated_at)
   end
 end

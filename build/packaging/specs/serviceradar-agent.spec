@@ -21,6 +21,7 @@ mkdir -p %{buildroot}/etc/serviceradar/checkers/sweep
 mkdir -p %{buildroot}/lib/systemd/system
 
 install -m 755 %{_builddir}/serviceradar-agent %{buildroot}/usr/local/bin/
+install -m 4750 %{_builddir}/serviceradar-agent-updater %{buildroot}/usr/local/bin/
 install -m 755 %{_builddir}/serviceradar-cli %{buildroot}/usr/local/bin/
 install -m 644 %{_sourcedir}/build/packaging/agent/systemd/serviceradar-agent.service %{buildroot}/lib/systemd/system/
 install -m 644 %{_sourcedir}/build/packaging/agent/config/agent.json %{buildroot}/etc/serviceradar/
@@ -28,6 +29,7 @@ install -m 644 %{_sourcedir}/build/packaging/agent/config/checkers/sweep/sweep.j
 
 %files
 %attr(0755, root, root) /usr/local/bin/serviceradar-agent
+%attr(4750, root, serviceradar) /usr/local/bin/serviceradar-agent-updater
 %attr(0755, root, root) /usr/local/bin/serviceradar-cli
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/agent.json
 %config(noreplace) %attr(0644, serviceradar, serviceradar) /etc/serviceradar/checkers/sweep/sweep.json
@@ -63,6 +65,8 @@ fi
 chown -R serviceradar:serviceradar /etc/serviceradar
 install -d -m 0750 -o serviceradar -g serviceradar /var/lib/serviceradar
 chmod 755 /usr/local/bin/serviceradar-agent
+chown root:serviceradar /usr/local/bin/serviceradar-agent-updater
+chmod 4750 /usr/local/bin/serviceradar-agent-updater
 # Set required capability for ICMP scanning
 # setcap cap_net_raw=+ep /usr/local/bin/serviceradar-agent
 sudo setcap '13,21,38,39+ep' /usr/local/bin/serviceradar-agent

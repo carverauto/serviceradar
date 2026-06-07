@@ -133,6 +133,14 @@ cd "$repo_root"
 tag="${tag_prefix}${version}"
 demo_argocd_source_file="helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml"
 
+# The in-place edits below use GNU sed syntax (the `-i` form and the
+# `/match/{n;s/.../;}` block). BSD/macOS sed rejects both, so prefer gsed when
+# present (brew install gnu-sed) and fall back to sed on Linux/CI.
+SED=sed
+if command -v gsed >/dev/null 2>&1; then
+    SED=gsed
+fi
+
 # Ensure the working tree is clean apart from allowed files.
 if [[ "$dry_run" == "false" ]]; then
     mapfile -t dirty < <(git status --porcelain)
@@ -168,15 +176,15 @@ chart_file="helm/serviceradar/Chart.yaml"
 if [[ "$dry_run" == "true" ]]; then
     echo "[dry-run] Would update $chart_file version and appVersion to $version"
 else
-    sed -i "s/^version: .*/version: $version/" "$chart_file"
-    sed -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
+    "$SED" -i "s/^version: .*/version: $version/" "$chart_file"
+    "$SED" -i "s/^appVersion: .*/appVersion: \"$version\"/" "$chart_file"
 fi
 
 if [[ -f "$demo_argocd_source_file" ]]; then
     if [[ "$dry_run" == "true" ]]; then
         echo "[dry-run] Would update $demo_argocd_source_file global.imageTag to $tag"
     else
-        sed -i "/name: global.imageTag/{n;s/value: .*/value: $tag/;}" "$demo_argocd_source_file"
+        "$SED" -i "/name: global.imageTag/{n;s/value: .*/value: $tag/;}" "$demo_argocd_source_file"
     fi
 fi
 
@@ -231,17 +239,30 @@ else
 fi
 
 if [[ "$push" == "true" ]]; then
+    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+    if [[ -z "$current_branch" ]]; then
+        echo "Cannot push release refs from a detached HEAD. Check out a branch first." >&2
+        exit 1
+    fi
+
     if [[ "$dry_run" == "true" ]]; then
-        echo "[dry-run] Would push branch to origin"
-        echo "[dry-run] Would push tag $tag to origin"
+        echo "[dry-run] Would push branch to origin with:"
+        echo "[dry-run]   git push origin $current_branch:refs/heads/$current_branch"
+        echo "[dry-run] Would push tag $tag to origin with:"
+        echo "[dry-run]   git push origin refs/tags/$tag:refs/tags/$tag"
     else
-        git push origin HEAD
-        git push origin "$tag"
+        git push origin "$current_branch:refs/heads/$current_branch"
+        git push origin "refs/tags/$tag:refs/tags/$tag"
     fi
 else
     echo "Branch and tag are ready. Push manually with:"
-    echo "  git push origin HEAD"
-    echo "  git push origin $tag"
+    current_branch=$(git symbolic-ref --quiet --short HEAD || true)
+    if [[ -n "$current_branch" ]]; then
+        echo "  git push origin $current_branch:refs/heads/$current_branch"
+    else
+        echo "  # checkout a branch, then push it with an explicit refs/heads refspec"
+    fi
+    echo "  git push origin refs/tags/$tag:refs/tags/$tag"
 fi
 
 if [[ "$prerelease" == "true" ]]; then

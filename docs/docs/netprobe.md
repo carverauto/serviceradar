@@ -5,168 +5,303 @@ title: Host Network Visibility
 
 # Host Network Visibility
 
-Host Network Visibility uses the `serviceradar-netprobe` sidecar to observe
-traffic from a ServiceRadar agent host and emit passive device fingerprint
-evidence. Phase 1 is limited to passive fingerprinting. DPI, process
-attribution, external flow attribution, and remote packet capture are reserved
-for later phases. See [Fingerprint Architecture](./fingerprint-architecture.md)
-for the p0f, JA4 base, and HASSH licensing and data-flow model.
+Host Network Visibility uses the `serviceradar-netprobe` native add-on to observe
+host network activity, attribute flows to local processes, and emit evidence that
+ServiceRadar can join with NetFlow records, passive fingerprints, workload metadata,
+and threat intelligence.
 
-## Current Scope
+`netprobe` is a privileged Rust service. It is intentionally separate from the base
+`serviceradar-agent`: the agent assigns, verifies, configures, and reports the add-on,
+while `netprobe` owns host-level packet and socket collection.
 
-Phase 1 installs the sidecar binary at:
+## What netprobe does
+
+`serviceradar-netprobe` provides three related data streams:
+
+- **Flow observations.** Low-overhead host flow capture and classification for local
+  traffic that may not be visible to external NetFlow exporters.
+- **Process attribution.** Kernel-derived socket/process context, including PID,
+  TGID, UID, GID, process name, and the socket tuple used for correlation.
+- **Passive evidence.** Host network evidence that can feed device fingerprinting and
+  later enrichment layers.
+
+The central pipeline joins these observations with NetFlow rows. This keeps raw host
+observations available long enough for delayed NetFlow batches, but avoids requiring
+every worker node to receive every NetFlow observation and perform the join locally.
+
+Use this add-on when you need to answer questions such as:
+
+- Which process on this worker owned one endpoint of a NetFlow conversation?
+- Which agent observed the process evidence used for the join?
+- Did a NetFlow row match process attribution, workload identity, or threat intel?
+- Is the host collector dropping events, falling back to cold metadata reads, or
+  running above the expected CPU budget?
+
+## eBPF and AF_XDP roles
+
+`netprobe` uses eBPF for process and socket attribution. eBPF programs publish
+socket lifecycle and process context into bounded maps/ring buffers, which the Rust
+service consumes into an in-memory attribution cache. This is the primary source for
+PID/TGID/UID/GID/comm/socket tuples and avoids hot-path `/proc/net/tcp` walks.
+
+AF_XDP is used for low-overhead packet/flow capture and classification where enabled
+and supported by the host interface. AF_XDP does not identify the owning process by
+itself; it supplies efficient packet/flow visibility that user space correlates with
+the eBPF attribution cache.
+
+Cold-path `/proc` reads are reserved for metadata that the kernel events do not carry
+directly, such as process command line and cgroup/container hints. These reads must be
+bounded, cached by PID generation, and surfaced through degradation metrics so an
+operator can see when enrichment falls back or is incomplete.
+
+## Deployment model
+
+For pushed-artifact add-on installs, the active binary is loaded through the add-on
+activation symlink:
 
 ```bash
-/usr/local/lib/serviceradar/bin/serviceradar-netprobe
+/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe
 ```
 
-Debian and RPM agent packages set `cap_net_raw` on that binary during
-post-install. Kubernetes deployments keep `agent.netprobe.enabled` defaulted to
-`false` so the sidecar can be rolled out deliberately after lab validation.
+Production deployments should run it as a native add-on systemd unit under
+`serviceradar.slice`, not as a child process of `serviceradar-agent`. The agent still
+owns desired state: assignment, artifact verification, config delivery, health
+reporting, and drift detection.
 
-Until your release has completed the sidecar startup validation, treat
-`netprobe` as a lab-only capability. Visibility profiles can be created and
-compiled, but production deployments should leave the Helm toggle disabled.
+On Kubernetes worker nodes, run `netprobe` on the host where the agent is installed.
+It observes the node kernel and host interfaces. Workload, pod, namespace, and image
+metadata are provided by the separate [Workload Identity](./workload-identity.md)
+add-on and are joined upstream.
+
+The base agent reports desired and observed add-on state to ServiceRadar, but it does
+not supervise `netprobe` as a child process. The expected host shape is:
+
+```text
+serviceradar.slice
+  serviceradar-agent.service
+  serviceradar-netprobe.service
+  serviceradar-workload-identity.service
+```
+
+This keeps BPF/network privileges and CPU accounting isolated from the base agent.
 
 ## Requirements
 
-- Linux agent hosts only.
-- A ServiceRadar agent package or image that includes
-  `serviceradar-netprobe`.
-- `cap_net_raw` on the sidecar binary, or `NET_RAW` in the agent pod security
-  context for Kubernetes.
-- Explicit capture interface allowlist. The sidecar refuses `any`, wildcard
-  names, and interfaces outside the allowlist.
-- RBAC permission for visibility profiles:
-  `visibility_profiles:read`, `visibility_profiles:write`, and
-  `visibility_profiles:delete` as appropriate.
+- Linux agent hosts.
+- A ServiceRadar release that includes the `netprobe` native add-on artifact.
+- Kernel support for eBPF maps/ring buffers and BTF where required by the loaded
+  programs.
+- Host privileges for packet capture and BPF loading, typically a constrained
+  combination of `CAP_BPF`, `CAP_NET_ADMIN`, `CAP_NET_RAW`, and access to bpffs and
+  cgroup metadata. Older kernels may require broader capabilities.
+- Explicit capture interface allowlist. Avoid `any` and wildcard interface names.
+- Open firewall path from the agent host to the configured ServiceRadar gateway.
 
-## Enabling Profiles
-
-1. Open **Settings > Networks > Discovery > Visibility Profiles**.
-2. Create a profile with a descriptive name and an SRQL target query.
-3. Set the profile priority. If multiple profiles match a device, the highest
-   priority profile wins.
-4. Enable the Phase 1 fingerprint protocols you want. TCP and HTTP evidence are
-   the initial practical targets; TLS JA4/JA4S extraction is still pending.
-5. Set `sample_interval_ms` to control how often a matching IP/protocol pair
-   may emit a new sample.
-6. Save the profile and confirm the target count is expected.
-
-Example SRQL targets:
-
-```text
-in:devices tags.role:database
-in:devices hostname:edge-*
-in:devices type:Server
-```
-
-## Capture Interface Allowlist
-
-Use concrete interface names, such as `eth0`, `ens192`, or `bond0`. Do not use:
-
-- `any`
-- wildcard values such as `eth*`
-- interface names that do not exist on the agent host
-
-On a Linux host, list interfaces with:
+List host interfaces before enabling capture:
 
 ```bash
 ip -o link show
 ```
 
-For a local lab run, a minimal sidecar config looks like:
+## Configuration
+
+Enable the add-on from **Settings > Agents > Add-ons** after the package has been
+approved. Target individual agents or a cohort and provide the add-on parameters
+validated by the package schema.
+
+A minimal host configuration should include:
 
 ```json
 {
   "enabled": true,
-  "capture_interfaces": ["eth0"]
+  "capture_interfaces": ["eth0"],
+  "flow_attribution_ipc_batch": true,
+  "emit_raw_flow_attribution_events": true
 }
 ```
 
-## Lab Smoke Test
+`enabled` turns on eBPF process attribution. `capture_interfaces` is optional and is
+only needed for passive packet capture, DPI, and fingerprinting; an empty list still
+allows process attribution. `flow_attribution_ipc_batch` should stay enabled unless
+you are debugging an older agent framing problem. `emit_raw_flow_attribution_events`
+keeps the central join path fed with process observations for delayed NetFlow rows.
 
-Use this only on a controlled agent host where passive capture is approved.
+Keep raw observations enabled when you want central NetFlow-to-process joins. If a
+deployment only wants local host telemetry and does not retain unmatched observations,
+configure the upstream retention/discard policy in the chart or control plane rather
+than disabling process attribution at the edge.
 
-```bash
-sudo getcap /usr/local/lib/serviceradar/bin/serviceradar-netprobe
-sudo mkdir -p /run/serviceradar/netprobe
-sudo /usr/local/lib/serviceradar/bin/serviceradar-netprobe \
-  --socket /run/serviceradar/netprobe/ipc.sock \
-  --config /etc/serviceradar/sidecars/netprobe.json \
-  --log-format text
+For large fleets, prefer assigning by cohort or control-plane-derived host inventory.
+Do not maintain static per-agent host-slice lists in Helm values for production-scale
+deployments.
+
+## Recommended rollout sequence
+
+Use a staged rollout for host network visibility:
+
+1. Assign `netprobe` to one canary host that already has NetFlow involving that host.
+2. Confirm `serviceradar-netprobe.service` is active and the running binary resolves
+   to the activated add-on version.
+3. Confirm fresh `in:addon_statuses addon_id:netprobe` rows for the canary.
+4. Confirm `in:attributed_flows` shows new rows from that agent and includes TCP,
+   UDP, or ICMP coverage expected for the traffic being tested.
+5. Check `pidstat` and the add-on metrics endpoint for sustained CPU, drops, queue
+   lag, stale entries, and duplicate suppression.
+6. Expand to a small worker cohort, then to the full target fleet.
+
+Do not treat a low CPU number alone as success. A healthy rollout also has bounded
+ring-buffer lag, stable cache size, low drop counters, and an attribution hit rate
+that matches the traffic and NetFlow visibility available to ServiceRadar.
+
+## Data model and query surfaces
+
+`netprobe` evidence is consumed by the central attribution pipeline and exposed in:
+
+- `in:attributed_flows` SRQL queries for joined NetFlow/process rows.
+- NetFlow flow details when an attributed process match exists.
+- Dashboard NetFlow map popovers when a flow path has attribution evidence.
+- Agent/device details through process listener and add-on status surfaces.
+
+The central join uses the flow tuple, protocol, agent/host ownership, process
+metadata, optional container ID, and workload identity metadata. TCP, UDP, and ICMP
+rows may appear in attributed flows; ICMP uses protocol-specific matching because it
+does not have TCP/UDP ports.
+
+The normal data path is:
+
+```text
+netprobe -> base agent -> agent-gateway -> core -> attributed flow current state
+NetFlow collector -> core ------------------------------------------^
+Workload Identity -> base agent -> agent-gateway -> core -----------^
 ```
 
-In another shell, verify the metrics endpoint:
+The join happens centrally so ServiceRadar can retain enough host evidence for
+delayed NetFlow batches and can enrich the same flow record with workload identity,
+reverse DNS, service-port mapping, threat intelligence, and future investigation
+signals. The edge collector should suppress duplicate observations and keep queues
+bounded, but it should not be responsible for fleet-wide joins.
+
+Common SRQL entry points:
+
+```text
+in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
+in:attributed_flows time:last_1h protocol_name:udp sort:time:desc limit:50
+in:attributed_flows time:last_1h stats:"count(*) as total by agent_id, attribution_status" sort:total:desc
+in:addon_statuses addon_id:netprobe sort:reported_at:desc limit:50
+```
+
+## Validation
+
+On an agent host:
+
+```bash
+sudo systemctl status serviceradar-netprobe.service
+sudo journalctl -u serviceradar-netprobe.service -n 100 --no-pager
+sudo ss -plunt
+readlink -f /var/lib/serviceradar/agent/addons/netprobe/current
+readlink -f /proc/$(pidof serviceradar-netprobe)/exe
+```
+
+Confirm the metrics endpoint if enabled:
 
 ```bash
 curl -s http://127.0.0.1:9417/metrics
 ```
 
-Useful metrics include:
+Useful metric classes include:
 
-- `netprobe_packets_processed_total`
-- `netprobe_packets_dropped_total`
-- `netprobe_events_emitted_total{stream="fingerprint"}`
-- `netprobe_signature_failures_total`
-- `netprobe_uptime_seconds`
+- eBPF events received, dropped, and parse failures.
+- Attribution cache hits, misses, stale entries, and eviction counts.
+- Ring buffer queue lag and backpressure/drop counters.
+- Raw observations emitted and duplicate observations suppressed.
+- AF_XDP packet counts, drops, and unsupported-interface fallbacks.
+- Cold-path metadata enrichment counts and failures.
+
+In the ServiceRadar UI:
+
+- **Settings > Agents > Add-ons** shows package approval and assignment state.
+- The agent detail page shows installed, active, unhealthy, and drift state.
+- **Observability > Attributed Flows** shows the joined flow/process view.
+- NetFlow flow details show matching process attribution when a join exists.
 
 ## Troubleshooting
 
-### Sidecar missing or not executable
+### Add-on is assigned but inactive
 
-Check the binary and file capabilities:
-
-```bash
-ls -l /usr/local/lib/serviceradar/bin/serviceradar-netprobe
-sudo getcap /usr/local/lib/serviceradar/bin/serviceradar-netprobe
-```
-
-If `cap_net_raw` is missing on a package-based install, rerun:
+Check the agent detail page for add-on drift. Then inspect the host unit:
 
 ```bash
-sudo setcap cap_net_raw=+ep /usr/local/lib/serviceradar/bin/serviceradar-netprobe
+sudo systemctl status serviceradar-netprobe.service
+sudo journalctl -u serviceradar-netprobe.service -n 200 --no-pager
 ```
 
-### Interface denied
+Common causes are unsupported architecture, failed artifact verification, missing BPF
+capabilities, an interface allowlist that does not match host interfaces, or a blocked
+gateway connection.
 
-The sidecar rejects `any`, wildcard interfaces, and non-allowlisted names. Use
-`ip -o link show`, update the capture allowlist to concrete interface names, and
-restart the agent or sidecar.
-
-### No fingerprint events
+### No attributed flows
 
 Confirm:
 
-- The visibility profile is enabled.
-- The SRQL target count includes the device.
-- The canonical device has an IP address.
-- The capture interface sees traffic for that device IP.
-- The selected protocol is implemented in the current phase.
+- NetFlow data is arriving for the same time range.
+- Host raw observations are arriving from the agent that owns one endpoint.
+- The source/destination tuple and protocol are supported.
+- Clock skew between the NetFlow exporter and agent host is within the join window.
+- The attributed-flow retention/discard settings have not removed unmatched raw
+  observations before delayed NetFlow batches arrive.
+- `emit_raw_flow_attribution_events` is enabled when using central delayed joins.
+- The add-on status row is fresh in `in:addon_statuses addon_id:netprobe`.
 
-### Repeated restarts
+For protocol coverage, TCP and UDP attribution are expected first. ICMP requires
+protocol-specific tuple extraction because there are no TCP/UDP ports to correlate.
 
-The agent sidecar manager probes health every 5 seconds, restarts with
-exponential backoff from 1 second up to 60 seconds, and opens the restart
-circuit after 5 restarts in a minute. Check the Agent Detail page for the
-`netprobe` state and `last_error`, then review agent logs for entries tagged
-with `sidecar=netprobe`.
+### CPU is higher than expected
 
-## Privacy
+Use `pidstat`, service metrics, and queue/drop counters together:
 
-Phase 1 does not perform active probing, TLS interception, or packet payload
-retention. It does not store full packets, HTTP URIs, DNS query names, or
-decrypted TLS contents.
+```bash
+sudo pidstat -p "$(pidof serviceradar-netprobe)" 1 30
+curl -s http://127.0.0.1:9417/metrics | grep -E 'netprobe_.*(drop|lag|attribution|metadata)'
+```
 
-Phase 1 may emit:
+Sustained CPU usually comes from one of four places: packet rate, ring-buffer drain
+pressure, attribution-cache churn, or cold-path metadata enrichment. The target
+architecture is event-driven socket/process inventory with bounded queues and no
+periodic hot-path procfs scans.
 
-- Source IP bound to a canonical ServiceRadar device.
-- TCP passive fingerprint signatures.
-- Selected HTTP header fingerprints, limited to `Server`, `User-Agent`, and
-  `Accept-Language`.
-- Timing and profile metadata needed for provenance and rate limiting.
+For release validation, capture both host CPU and pipeline health:
 
-Later phases add DPI, process attribution, external flow attribution, and remote
-packet capture. Those phases must preserve the same privacy posture: no
-payload-by-default behavior, explicit profile scoping, and operator-visible
-audit/provenance for captured evidence.
+```bash
+sudo pidstat -p "$(pidof serviceradar-netprobe)" 1 30
+curl -s http://127.0.0.1:9417/metrics | grep -E 'netprobe_.*(drop|lag|cache|coalesce|raw)'
+```
+
+CPU below the fleet budget is not enough by itself. Also check that event drops are
+not rising, queue lag is bounded, duplicate suppression is active, and attributed-flow
+hit rate is not regressing.
+
+### Missing container or workload fields
+
+`netprobe` can capture cgroup/container hints, but user-friendly pod, namespace,
+container name, image, and cluster metadata come from the
+[Workload Identity](./workload-identity.md) add-on. Verify that collector is active on
+the same host and that upstream joins are receiving its metadata.
+
+If a row has process attribution but no workload identity, check the container ID
+first. A missing container ID usually means the process is host-level or cold metadata
+enrichment has not found the cgroup yet. A present container ID with blank workload
+fields usually points to Workload Identity collection or upstream join timing.
+
+## Privacy and retention
+
+`netprobe` does not store packet payloads by default. It emits metadata needed for
+flow correlation, process attribution, passive evidence, and troubleshooting. Keep
+retention short for high-volume raw observations, and use chart/control-plane knobs to
+discard unmatched raw observations when a deployment does not need forensic history
+for delayed joins.
+
+For SaaS-scale deployments, treat raw attribution observations as hot operational
+data. Retain them only as long as needed for delayed NetFlow joins and short
+investigation windows, aggregate current attribution state for UI queries, and move
+longer forensic history to cold storage rather than keeping every unmatched event in
+CNPG indefinitely.

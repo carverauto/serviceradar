@@ -25,6 +25,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
   alias ServiceRadar.Plugins.AddonPackage
 
+  require Ash.Query
+
   @artifact_media_type "application/vnd.serviceradar.native-addon.artifact.v1+gzip"
   @artifact_signature_media_type "application/vnd.serviceradar.native-addon.artifact-signature.v1+hex"
 
@@ -85,10 +87,32 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
     with {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
          {:ok, attrs} <- package_attrs(manifest, entry, mirrored, opts) do
-      AddonPackage
-      |> Ash.Changeset.for_create(:create, attrs, actor: actor)
-      |> Ash.create()
+      upsert_package(attrs, actor)
     end
+  end
+
+  defp upsert_package(%{addon_id: addon_id, version: version} = attrs, actor) do
+    case find_package(addon_id, version, actor) do
+      {:ok, nil} ->
+        AddonPackage
+        |> Ash.Changeset.for_create(:create, attrs, actor: actor)
+        |> Ash.create()
+
+      {:ok, %AddonPackage{} = package} ->
+        package
+        |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]), actor: actor)
+        |> Ash.update()
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp find_package(addon_id, version, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == ^addon_id and version == ^version)
+    |> Ash.read_one(actor: actor)
   end
 
   @doc """

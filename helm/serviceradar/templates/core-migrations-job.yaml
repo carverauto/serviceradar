@@ -4,6 +4,7 @@
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $migrationVals := default (dict) $coreVals.migrations -}}
+{{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
@@ -80,6 +81,18 @@ spec:
           value: "true"
         - name: MTR_RETENTION_DAYS
           value: {{ default 30 $coreVals.mtrRetentionDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_RETENTION_DAYS
+          value: {{ default 3 $observabilityRetention.otelTracesDays | quote }}
+        - name: SERVICERADAR_LOGS_RETENTION_DAYS
+          value: {{ default 30 $observabilityRetention.logsDays | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS
+          value: {{ default 90 $observabilityRetention.ocsfNetworkActivityDays | quote }}
+        - name: SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS
+          value: {{ default 6 $observabilityRetention.otelTracesChunkIntervalHours | quote }}
+        - name: SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.logsChunkIntervalHours | quote }}
+        - name: SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS
+          value: {{ default 24 $observabilityRetention.ocsfNetworkActivityChunkIntervalHours | quote }}
         - name: CNPG_HOST
           value: {{ include "serviceradar.cnpgDirectHost" . | quote }}
         - name: CNPG_PORT

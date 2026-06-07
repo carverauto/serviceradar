@@ -9,74 +9,11 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
   alias Ecto.Adapters.SQL
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadar.Repo
   alias ServiceRadar.Types.Cidr
 
   require Logger
-
-  @tcp_service_labels %{
-    20 => "FTP Data",
-    21 => "FTP",
-    22 => "SSH",
-    23 => "Telnet",
-    25 => "SMTP",
-    53 => "DNS",
-    80 => "HTTP",
-    110 => "POP3",
-    123 => "NTP",
-    143 => "IMAP",
-    161 => "SNMP",
-    162 => "SNMP Trap",
-    389 => "LDAP",
-    443 => "HTTPS",
-    445 => "SMB",
-    465 => "SMTPS",
-    514 => "Syslog",
-    587 => "Submission",
-    636 => "LDAPS",
-    993 => "IMAPS",
-    995 => "POP3S",
-    1433 => "MSSQL",
-    1521 => "Oracle",
-    2049 => "NFS",
-    2379 => "etcd",
-    2380 => "etcd Peer",
-    3000 => "Grafana",
-    3306 => "MySQL",
-    3389 => "RDP",
-    4222 => "NATS",
-    50_051 => "gRPC",
-    5432 => "PostgreSQL",
-    5672 => "AMQP",
-    6379 => "Redis",
-    6443 => "Kubernetes API",
-    8080 => "HTTP Alt",
-    8443 => "HTTPS Alt",
-    9092 => "Kafka",
-    9093 => "Kafka TLS",
-    9200 => "Elasticsearch",
-    9418 => "Git",
-    11_211 => "Memcached",
-    27_017 => "MongoDB"
-  }
-
-  @udp_service_labels %{
-    53 => "DNS",
-    67 => "DHCP Server",
-    68 => "DHCP Client",
-    69 => "TFTP",
-    123 => "NTP",
-    161 => "SNMP",
-    162 => "SNMP Trap",
-    514 => "Syslog",
-    631 => "IPP",
-    1194 => "OpenVPN",
-    2055 => "NetFlow",
-    3478 => "STUN",
-    4739 => "IPFIX",
-    500 => "IKE",
-    6343 => "sFlow"
-  }
 
   @tcp_flag_bits [
     {128, "CWR"},
@@ -145,6 +82,7 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
 
     src_vendor = oui_vendor_for_mac(src_mac)
     dst_vendor = oui_vendor_for_mac(dst_mac)
+    dst_service = service_lookup(protocol_num, dst_port)
 
     %{
       protocol_name: protocol_name,
@@ -152,8 +90,8 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
       tcp_flags: tcp_flags,
       tcp_flags_labels: tcp_flag_labels,
       tcp_flags_source: if(is_integer(tcp_flags), do: "iana", else: "unknown"),
-      dst_service_label: service_label(protocol_num, dst_port),
-      dst_service_source: if(is_integer(dst_port), do: "iana", else: "unknown"),
+      dst_service_label: label_from_service(dst_service),
+      dst_service_source: source_from_service(dst_service),
       direction_label: direction_label(bytes_in, bytes_out),
       direction_source: "heuristic",
       src_hosting_provider: src_provider,
@@ -188,14 +126,23 @@ defmodule ServiceRadar.EventWriter.FlowEnrichment do
   @spec service_label(integer() | nil, integer() | nil) :: String.t() | nil
   def service_label(protocol_num, dst_port)
       when is_integer(protocol_num) and is_integer(dst_port) and dst_port > 0 do
-    case protocol_num do
-      6 -> Map.get(@tcp_service_labels, dst_port)
-      17 -> Map.get(@udp_service_labels, dst_port)
-      _ -> nil
-    end
+    ServicePorts.label(protocol_num, dst_port)
   end
 
   def service_label(_, _), do: nil
+
+  defp service_lookup(protocol_num, dst_port)
+       when is_integer(protocol_num) and is_integer(dst_port) and dst_port > 0 do
+    ServicePorts.lookup(protocol_num, dst_port)
+  end
+
+  defp service_lookup(_, _), do: nil
+
+  defp label_from_service(%{label: label}), do: label
+  defp label_from_service(_), do: nil
+
+  defp source_from_service(%{source: source}), do: source
+  defp source_from_service(_), do: "unknown"
 
   @spec direction_label(integer() | nil, integer() | nil) :: String.t()
   def direction_label(bytes_in, bytes_out)

@@ -1,0 +1,51 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+WORKLOAD_IDENTITY_DEPS = crate_deps([
+    "anyhow",
+    "clap",
+    "cri-api",
+    "hyper-util",
+    "log",
+    "serde",
+    "serde_json",
+    "tokio",
+    "tonic",
+    "tower",
+])
+
+rust_library(
+    name = "workload_identity",
+    srcs = ["src/lib.rs"],
+    crate_root = "src/lib.rs",
+    crate_name = "serviceradar_workload_identity",
+    edition = "2021",
+    deps = WORKLOAD_IDENTITY_DEPS,
+)
+
+rust_binary(
+    name = "workload_identity_check",
+    srcs = ["src/bin/workload-identity-check.rs"],
+    crate_root = "src/bin/workload-identity-check.rs",
+    edition = "2021",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)
+
+rust_binary(
+    name = "workload_identity_daemon",
+    srcs = ["src/bin/workload-identity.rs"],
+    crate_root = "src/bin/workload-identity.rs",
+    edition = "2021",
+    deps = WORKLOAD_IDENTITY_DEPS + [":workload_identity"],
+)
+
+rust_test(
+    name = "workload_identity_test",
+    srcs = ["src/lib.rs"],
+    crate_root = "src/lib.rs",
+    crate_name = "serviceradar_workload_identity",
+    edition = "2021",
+    deps = WORKLOAD_IDENTITY_DEPS + crate_deps(["tempfile"]),
+)

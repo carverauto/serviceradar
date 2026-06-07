@@ -208,6 +208,15 @@ function normalizeTrafficLinks(rawLinks, mapView) {
         threatMatchCount: Number(link?.threat_match_count || 0),
         threatMaxSeverity: Number(link?.threat_max_severity || 0),
         threatSources: Array.isArray(link?.threat_sources) ? link.threat_sources : [],
+        attributedFlowCount: Number(link?.attributed_flow_count || 0),
+        attributionAgentId: link?.attribution_agent_id || "",
+        attributionComm: link?.attribution_comm || "",
+        attributionPid: Number(link?.attribution_pid || 0),
+        attributionContainerId: link?.attribution_container_id || "",
+        attributionPodNamespace: link?.attribution_pod_namespace || "",
+        attributionPodName: link?.attribution_pod_name || "",
+        attributionContainerName: link?.attribution_container_name || "",
+        attributionImage: link?.attribution_image || "",
         geoMapped,
         bytes: Number(link?.bytes || 0),
         packets: Number(link?.packets || 0),
@@ -290,6 +299,20 @@ function flowDetailsUrlForPair(sourceIp, targetIp) {
   return `/observability?${new URLSearchParams({tab: "netflows", q, limit: "100", view: "explorer"}).toString()}`
 }
 
+function attributedFlowsUrlForPair(sourceIp, targetIp) {
+  if (!isIpLike(sourceIp) || !isIpLike(targetIp)) return null
+
+  const q = [
+    "in:attributed_flows",
+    "time:last_24h",
+    "sort:time:desc",
+    `src_endpoint_ip:${srqlQuote(sourceIp)}`,
+    `dst_endpoint_ip:${srqlQuote(targetIp)}`,
+  ].join(" ")
+
+  return `/observability/flows/attributed?${new URLSearchParams({q, limit: "50"}).toString()}`
+}
+
 function endpointFlowSummary(link, side) {
   const sourceIp = link.sourceIp
   const targetIp = link.targetIp
@@ -343,6 +366,26 @@ function endpointFlowsHtml(encodedFlows) {
           </a>
         `)
         .join("")}
+    </div>
+  `
+}
+
+function flowActionsHtml(flowHref, attributedHref) {
+  const actions = [
+    flowHref
+      ? `<a class="sr-ops-anchor-flow-link" href="${escapeHtml(flowHref)}"><span><i>NetFlow</i><b>Flow details</b></span><small>Open matching flow records in the NetFlow explorer</small></a>`
+      : "",
+    attributedHref
+      ? `<a class="sr-ops-anchor-flow-link" href="${escapeHtml(attributedHref)}"><span><i>Attribution</i><b>Attributed flows</b></span><small>Open process-attributed flow records for this path</small></a>`
+      : "",
+  ].filter(Boolean)
+
+  if (actions.length === 0) return ""
+
+  return `
+    <div class="sr-ops-anchor-flow-list is-flow-actions">
+      <em>Drill down</em>
+      ${actions.join("")}
     </div>
   `
 }
@@ -1269,19 +1312,38 @@ export default {
     const nodeRect = flowNode.getBoundingClientRect()
     const source = flowNode.dataset.sourceLabel || "Unknown source"
     const target = flowNode.dataset.targetLabel || "Unknown target"
+    const sourceIp = flowNode.dataset.sourceIp || ""
+    const targetIp = flowNode.dataset.targetIp || ""
     const bytes = Number(flowNode.dataset.bytes || 0)
-  const packets = Number(flowNode.dataset.packets || 0)
-  const flowCount = Number(flowNode.dataset.flowCount || 0)
-  const rate = Number(flowNode.dataset.flowBps || 0)
-  const threatMatched = flowNode.dataset.threatMatched === "true"
-  const threatMatchCount = Number(flowNode.dataset.threatMatchCount || 0)
-  const threatMaxSeverity = Number(flowNode.dataset.threatMaxSeverity || 0)
-  const threatSources = parseThreatSources(flowNode.dataset.threatSources)
-  const sourceThreatMatched = flowNode.dataset.sourceThreatMatched === "true"
-  const targetThreatMatched = flowNode.dataset.targetThreatMatched === "true"
+    const packets = Number(flowNode.dataset.packets || 0)
+    const flowCount = Number(flowNode.dataset.flowCount || 0)
+    const rate = Number(flowNode.dataset.flowBps || 0)
+    const threatMatched = flowNode.dataset.threatMatched === "true"
+    const threatMatchCount = Number(flowNode.dataset.threatMatchCount || 0)
+    const threatMaxSeverity = Number(flowNode.dataset.threatMaxSeverity || 0)
+    const threatSources = parseThreatSources(flowNode.dataset.threatSources)
+    const sourceThreatMatched = flowNode.dataset.sourceThreatMatched === "true"
+    const targetThreatMatched = flowNode.dataset.targetThreatMatched === "true"
+    const attributedFlowCount = Number(flowNode.dataset.attributedFlowCount || 0)
+    const attributionAgentId = flowNode.dataset.attributionAgentId || ""
+    const attributionComm = flowNode.dataset.attributionComm || ""
+    const attributionPid = Number(flowNode.dataset.attributionPid || 0)
+    const attributionContainerId = flowNode.dataset.attributionContainerId || ""
+    const attributionPodNamespace = flowNode.dataset.attributionPodNamespace || ""
+    const attributionPodName = flowNode.dataset.attributionPodName || ""
+    const attributionContainerName = flowNode.dataset.attributionContainerName || ""
+    const attributionImage = flowNode.dataset.attributionImage || ""
+    const processLabel = attributionComm ? `${attributionComm}${attributionPid > 0 ? ` #${attributionPid}` : ""}` : ""
+    const workloadParts = [attributionPodNamespace, attributionPodName].filter(Boolean)
+    const workloadLabel = workloadParts.length > 0 ? workloadParts.join("/") : ""
+    const containerParts = [attributionContainerName, attributionImage].filter(Boolean)
+    const containerLabel = containerParts.length > 0 ? containerParts.join(" / ") : ""
+    const flowHref = flowDetailsUrlForPair(sourceIp, targetIp)
+    const attributedHref = attributedFlowCount > 0 ? attributedFlowsUrlForPair(sourceIp, targetIp) : null
+    const actionsHtml = flowActionsHtml(flowHref, attributedHref)
 
-  if (!this.anchorDetails) {
-    this.anchorDetails = document.createElement("div")
+    if (!this.anchorDetails) {
+      this.anchorDetails = document.createElement("div")
       parent.appendChild(this.anchorDetails)
     }
     this.anchorDetails.className = "sr-ops-anchor-details is-flow-details"
@@ -1294,10 +1356,17 @@ export default {
       <span><em>Traffic</em><b>${formatBytes(bytes)}</b></span>
       ${packets > 0 ? `<span><em>Packets</em><b>${packets.toLocaleString()}</b></span>` : ""}
       ${rate > 0 ? `<span><em>Rate</em><b>${formatRate(rate)}</b></span>` : ""}
+      ${attributedFlowCount > 0 ? `<span class="is-attribution-row"><em>Attributed</em><b>${attributedFlowCount.toLocaleString()} flow${attributedFlowCount === 1 ? "" : "s"}</b></span>` : ""}
+      ${processLabel ? `<span class="is-attribution-row"><em>Process</em><b>${escapeHtml(processLabel)}</b></span>` : ""}
+      ${attributionAgentId ? `<span class="is-attribution-row"><em>Agent</em><b>${escapeHtml(attributionAgentId)}</b></span>` : ""}
+      ${workloadLabel ? `<span class="is-attribution-row"><em>Workload</em><b>${escapeHtml(workloadLabel)}</b></span>` : ""}
+      ${containerLabel ? `<span class="is-attribution-row"><em>Container</em><b>${escapeHtml(containerLabel)}</b></span>` : ""}
+      ${!containerLabel && attributionContainerId ? `<span class="is-attribution-row"><em>Container</em><b>${escapeHtml(attributionContainerId.slice(0, 12))}</b></span>` : ""}
       ${threatMatched ? `<span class="is-threat-row"><em>AlienVault</em><b>${threatMatchCount.toLocaleString()} IOC match${threatMatchCount === 1 ? "" : "es"}</b></span>` : ""}
       ${threatMatched && threatMaxSeverity > 0 ? `<span class="is-threat-row"><em>Severity</em><b>${threatMaxSeverity.toLocaleString()}</b></span>` : ""}
       ${threatMatched && threatSources.length > 0 ? `<span class="is-threat-row"><em>Sources</em><b>${threatSources.map(escapeHtml).join(", ")}</b></span>` : ""}
       ${threatMatched ? `<span class="is-threat-row"><em>Matched side</em><b>${threatSideLabel(sourceThreatMatched, targetThreatMatched)}</b></span>` : ""}
+      ${actionsHtml}
     `
     this.anchorDetails.style.left = `${Math.min(parentRect.width - 300, Math.max(12, nodeRect.left - parentRect.left + nodeRect.width * 0.45))}px`
     this.anchorDetails.style.top = `${Math.min(parentRect.height - 218, Math.max(12, nodeRect.top - parentRect.top + nodeRect.height * 0.35))}px`
@@ -1377,6 +1446,8 @@ export default {
         hit.setAttribute("aria-label", `${source} to ${target} flow`)
         hit.dataset.sourceLabel = source
         hit.dataset.targetLabel = target
+        hit.dataset.sourceIp = link.sourceIp || ""
+        hit.dataset.targetIp = link.targetIp || ""
         hit.dataset.bytes = String(link.bytes || link.magnitude || 0)
         hit.dataset.packets = String(link.packets || 0)
         hit.dataset.flowCount = String(link.flowCount || 0)
@@ -1387,6 +1458,15 @@ export default {
         hit.dataset.threatSources = JSON.stringify(link.threatSources || [])
         hit.dataset.sourceThreatMatched = link.sourceThreatMatched ? "true" : "false"
         hit.dataset.targetThreatMatched = link.targetThreatMatched ? "true" : "false"
+        hit.dataset.attributedFlowCount = String(link.attributedFlowCount || 0)
+        hit.dataset.attributionAgentId = link.attributionAgentId || ""
+        hit.dataset.attributionComm = link.attributionComm || ""
+        hit.dataset.attributionPid = String(link.attributionPid || 0)
+        hit.dataset.attributionContainerId = link.attributionContainerId || ""
+        hit.dataset.attributionPodNamespace = link.attributionPodNamespace || ""
+        hit.dataset.attributionPodName = link.attributionPodName || ""
+        hit.dataset.attributionContainerName = link.attributionContainerName || ""
+        hit.dataset.attributionImage = link.attributionImage || ""
         linkGroup.appendChild(hit)
       }
 

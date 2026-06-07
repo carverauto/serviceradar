@@ -51,25 +51,82 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
 
   def create(attrs, opts) when is_map(attrs) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
     attrs = drop_nil_values(attrs)
 
     AddonAssignment
     |> Ash.Changeset.for_create(:create, attrs)
-    |> create_with_scope(scope)
+    |> create_with_scope(scope, actor)
   end
 
   def create(_attrs, _opts), do: {:error, :invalid_attributes}
+
+  @spec update(String.t(), map(), keyword()) :: {:ok, AddonAssignment.t()} | {:error, term()}
+  def update(id, attrs, opts \\ [])
+
+  def update(id, attrs, opts) when is_binary(id) and is_map(attrs) do
+    scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
+    attrs = attrs |> drop_nil_values() |> drop_update_only_values()
+
+    with {:ok, assignment} <- get(id, scope: scope) do
+      assignment
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> update_with_scope(scope, actor)
+    end
+  end
+
+  def update(_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  @doc """
+  Re-pushing an add-on that an agent already has must not collide with the
+  one-enabled-assignment-per-(agent, add-on) invariant. Resolve the existing
+  assignment for `agent_uid` + `addon_id` (the denormalized dedup key) and update
+  it in place — re-enabling and accepting the new package/params/args, which also
+  covers upgrading to a newer package version of the same add-on — otherwise
+  create a fresh assignment.
+  """
+  @spec upsert(String.t(), map(), keyword()) ::
+          {:ok, AddonAssignment.t()} | {:error, term()}
+  def upsert(addon_id, attrs, opts \\ [])
+
+  def upsert(addon_id, attrs, opts) when is_binary(addon_id) and is_map(attrs) do
+    scope = Keyword.get(opts, :scope)
+    agent_uid = Map.get(attrs, :agent_uid) || Map.get(attrs, "agent_uid")
+
+    case existing_assignment(agent_uid, addon_id, scope) do
+      %AddonAssignment{id: id} ->
+        # agent_uid is the assignment identity, not a mutable field, so the :update action
+        # rejects it. Drop it (the existing row already carries it) and pass only the
+        # mutable attrs when upgrading/re-enabling the existing assignment in place.
+        update(id, attrs |> Map.drop([:agent_uid, "agent_uid"]) |> Map.put(:enabled, true), opts)
+
+      nil ->
+        create(attrs, opts)
+    end
+  end
+
+  def upsert(_addon_id, _attrs, _opts), do: {:error, :invalid_attributes}
+
+  defp existing_assignment(agent_uid, addon_id, _scope) when not is_binary(agent_uid) or not is_binary(addon_id), do: nil
+
+  defp existing_assignment(agent_uid, addon_id, scope) do
+    %{agent_uid: agent_uid, addon_id: addon_id}
+    |> list(scope: scope)
+    |> List.first()
+  end
 
   @spec delete(String.t(), keyword()) :: {:ok, AddonAssignment.t()} | :ok | {:error, term()}
   def delete(id, opts \\ [])
 
   def delete(id, opts) when is_binary(id) do
     scope = Keyword.get(opts, :scope)
+    actor = Keyword.get(opts, :actor)
 
     with {:ok, assignment} <- get(id, scope: scope) do
       assignment
       |> Ash.Changeset.for_destroy(:destroy)
-      |> destroy_with_scope(scope)
+      |> destroy_with_scope(scope, actor)
       |> case do
         :ok -> {:ok, assignment}
         other -> other
@@ -93,11 +150,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     |> Ash.read_one(ash_opts(scope, nil))
   end
 
-  defp create_with_scope(changeset, nil), do: Ash.create(changeset)
-  defp create_with_scope(changeset, scope), do: Ash.create(changeset, ash_opts(scope, nil))
+  defp create_with_scope(changeset, scope, actor), do: Ash.create(changeset, ash_opts(scope, actor))
 
-  defp destroy_with_scope(changeset, nil), do: Ash.destroy(changeset)
-  defp destroy_with_scope(changeset, scope), do: Ash.destroy(changeset, ash_opts(scope, nil))
+  defp update_with_scope(changeset, scope, actor), do: Ash.update(changeset, ash_opts(scope, actor))
+
+  defp destroy_with_scope(changeset, scope, actor), do: Ash.destroy(changeset, ash_opts(scope, actor))
 
   defp ash_opts(scope, actor) when not is_nil(scope) do
     maybe_put_actor([scope: scope], actor || scope_actor(scope))
@@ -157,6 +214,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignments do
     attrs
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
+  end
+
+  defp drop_update_only_values(attrs) do
+    Map.drop(attrs, [:agent_uid, "agent_uid", :addon_id, "addon_id"])
   end
 
   defp normalize_limit(nil), do: @default_limit

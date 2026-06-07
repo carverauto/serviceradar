@@ -42,7 +42,7 @@ def _mix_release_impl(ctx):
         transitive_inputs.append(rust_toolchain.rust_std)
 
     hex_cache = ctx.file.hex_cache
-    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs
+    direct_inputs = toolchain_inputs + ctx.files.srcs + ctx.files.bootstrap_srcs + ctx.files.data + ctx.files.extra_dir_srcs + ctx.files.precompiled_os_deps
     if hex_cache:
         direct_inputs.append(hex_cache)
     if bun:
@@ -64,6 +64,22 @@ def _mix_release_impl(ctx):
                 parent = parent,
             ),
         )
+
+    # Stage the Bazel-pinned Membrane precompiled OS-dep tarballs into a known
+    # dir in the build sandbox. Bundlex's patched download/2 copies from here by
+    # URL basename when BUNDLEX_LOCAL_PRECOMPILED_DIR is set.
+    precompiled_stage_cmds = []
+    for f in ctx.files.precompiled_os_deps:
+        precompiled_stage_cmds.append(
+            'cp "$EXECROOT/{path}" "$WORKDIR/.bundlex_precompiled/{basename}"\n'.format(
+                path = f.path,
+                basename = f.basename,
+            ),
+        )
+    precompiled_stage = (
+        'mkdir -p "$WORKDIR/.bundlex_precompiled"\n' + "".join(precompiled_stage_cmds) +
+        'export BUNDLEX_LOCAL_PRECOMPILED_DIR="$WORKDIR/.bundlex_precompiled"\n'
+    ) if precompiled_stage_cmds else ""
 
     run_assets = "true" if ctx.attr.run_assets else "false"
     bootstrap_inputs = "\\n".join(sorted([f.short_path for f in ctx.files.bootstrap_srcs]))
@@ -363,6 +379,34 @@ patch_file(
         ),
     ],
 )
+
+# Patch Bundlex (v1.5.4) precompiled OS-dep downloader: when
+# BUNDLEX_LOCAL_PRECOMPILED_DIR is set and a file matching the URL basename
+# exists there (staged by Bazel http_file repos via mix_release.bzl), copy it
+# instead of fetching over the network. This lets `mix deps.compile` succeed on
+# CI runners that lack github.com egress. The original Req.get! body is kept
+# intact in the else branch as a fallback.
+patch_file(
+    Path("deps/bundlex/lib/bundlex/toolchain/common/unix/os_deps.ex"),
+    [
+        (
+            "  defp download(url, dest) do\\n"
+            "    response = Req.get!(url)\\n",
+            "  defp download(url, dest) do\\n"
+            "    local = System.get_env(\\"BUNDLEX_LOCAL_PRECOMPILED_DIR\\")\\n"
+            "\\n"
+            "    if local && File.exists?(Path.join(local, Path.basename(url))) do\\n"
+            "      File.cp!(Path.join(local, Path.basename(url)), dest)\\n"
+            "    else\\n"
+            "      download_remote(url, dest)\\n"
+            "    end\\n"
+            "  end\\n"
+            "\\n"
+            "  defp download_remote(url, dest) do\\n"
+            "    response = Req.get!(url)\\n",
+        ),
+    ],
+)
 PY
 """
     # Note: We use a placeholder and manual replacement instead of .format()
@@ -640,6 +684,7 @@ fi
 if [ -z "${{MIX_REBAR3:-}}" ]; then
   mix local.rebar --force
 fi
+{precompiled_stage}
 mix deps.get --only prod
 {patch_script}
 # Compile the minimal dependency chain for the SRQL path dependency first so
@@ -764,6 +809,7 @@ tar -czf "$EXECROOT/{tar_out}" -C "$PACKAGED_RELEASE_DIR" .
             rustc_dir = rustc.dirname,
             otp_tar = otp_tar.path if otp_tar else "",
             extra_copy = "".join(extra_copy_cmds),
+            precompiled_stage = precompiled_stage,
             run_assets = run_assets,
             bootstrap_inputs = bootstrap_inputs,
             patch_script = patch_script_placeholder,
@@ -796,6 +842,10 @@ mix_release = rule(
         "extra_dirs": attr.string_list(doc = "Workspace-relative directories to copy into the build workspace"),
         "extra_dir_srcs": attr.label_list(allow_files = True, doc = "File inputs that back extra_dirs"),
         "hex_cache": attr.label(allow_single_file = True, doc = "Tarball containing offline Hex/Mix cache"),
+        "precompiled_os_deps": attr.label_list(
+            allow_files = True,
+            doc = "Precompiled Membrane OS-dep tarballs staged for Bundlex (copied by URL basename)",
+        ),
         "bun": attr.label(allow_single_file = True, doc = "Optional bun binary for SSR asset builds"),
         "sfw": attr.label(allow_single_file = True, doc = "Optional Socket Firewall binary for supported package manager commands"),
         "workdir_name": attr.string(doc = "Legacy stable workdir/cache name for compatibility"),

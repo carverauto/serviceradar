@@ -6,6 +6,13 @@ title: NetFlow Ingest Guide
 
 ServiceRadar ingests flow telemetry to expose traffic matrices, top talkers, and application reachability trends. The flow collector is a high-performance Rust daemon that receives NetFlow v5/v9/IPFIX and sFlow exports from network devices and processes them through the ServiceRadar pipeline.
 
+For host process attribution on top of NetFlow, enable the
+[Host Network Visibility](./netprobe.md) add-on on the relevant agent hosts. For pod,
+namespace, container, and image enrichment, enable the separate
+[Workload Identity](./workload-identity.md) add-on. The central pipeline joins these
+streams and exposes the result through `in:attributed_flows`, flow details, and the
+dashboard NetFlow map.
+
 ## Architecture Overview
 
 ServiceRadar uses a single canonical NetFlow ingest path:

@@ -7,6 +7,7 @@
 {{- $webNgObanQueues := default (dict) $webNg.obanQueues -}}
 {{- $webNgGodView := default (dict) $webNg.godView -}}
 {{- $webNgFirstPartyImport := default (dict) $webNg.firstPartyPluginImport -}}
+{{- $webNgNativeAddonImport := default (dict) $webNg.nativeAddonImport -}}
 {{- $runtimeGraphAutoRefresh := true -}}
 {{- if hasKey $webNgGodView "runtimeGraphAutoRefresh" -}}
 {{- $runtimeGraphAutoRefresh = get $webNgGodView "runtimeGraphAutoRefresh" -}}
@@ -34,6 +35,7 @@
 {{- $webNgObanQueueWebMaintenance := 2 -}}
 {{- if hasKey $webNgObanQueues "webMaintenance" -}}{{- $webNgObanQueueWebMaintenance = get $webNgObanQueues "webMaintenance" -}}{{- end -}}
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
+{{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
@@ -396,6 +398,20 @@ spec:
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REGISTRY_DOCKER_CONFIG_FILE
           value: {{ $webNgFirstPartyImport.registryDockerConfigFile | quote }}
         {{- end }}
+        - name: SERVICERADAR_NATIVE_ADDON_REPO_URL
+          value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgNativeAddonImport.repoUrl | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_INDEX_ASSET
+          value: {{ default "serviceradar-native-addon-index.json" $webNgNativeAddonImport.indexAssetName | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_AUTO_SYNC
+          value: {{ default false $webNgNativeAddonImport.autoSyncEnabled | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_SYNC_LIMIT
+          value: {{ default 10 $webNgNativeAddonImport.syncReleaseLimit | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_SYNC_INTERVAL_SECONDS
+          value: {{ default 3600 $webNgNativeAddonImport.syncIntervalSeconds | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_IDS
+          value: {{ join "," (default (list "netprobe") $webNgNativeAddonImport.addonIds) | quote }}
+        - name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
+          value: {{ join "," (default (list) $webNgNativeAddonImport.autoApproveAddonIds) | quote }}
         {{- if $pluginStorage.enabled }}
         - name: PLUGIN_STORAGE_BACKEND
           value: {{ $pluginStorageBackend | quote }}
@@ -416,6 +432,10 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: plugin-storage-signing-secret
+        {{- if $webNgPublicUrl }}
+        - name: PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
         {{- end }}
         - name: OBJECT_STORE_RETENTION_ENABLED
           value: {{ default false $objectStoreRetention.enabled | quote }}
@@ -650,10 +670,15 @@ metadata:
   name: serviceradar-web-ng-headless
 spec:
   clusterIP: None
-  publishNotReadyAddresses: true
   selector:
     app: serviceradar-web-ng
   ports:
   - name: http
     port: 4000
     targetPort: http
+  - name: epmd
+    port: 4369
+    targetPort: epmd
+  - name: dist
+    port: 9100
+    targetPort: dist

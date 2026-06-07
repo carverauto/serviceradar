@@ -250,7 +250,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     end
   end
 
-  defp create_device_for_agent(device_context, actor, now) do
+  defp create_device_for_agent(device_context, actor, now, allow_conflict_release? \\ true) do
     %{
       device_uid: device_uid,
       agent_id: agent_id,
@@ -296,32 +296,36 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
         :ok
 
       {:error, reason} ->
-        maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now)
+        maybe_adopt_existing_active_ip_device(
+          reason,
+          source_ip,
+          device_context,
+          actor,
+          now,
+          allow_conflict_release?
+        )
     end
   end
 
-  defp maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now) do
+  defp maybe_adopt_existing_active_ip_device(
+         reason,
+         source_ip,
+         device_context,
+         actor,
+         now,
+         allow_conflict_release?
+       ) do
     if active_ip_unique_conflict?(reason) and present_string?(source_ip) do
       case fetch_active_device_by_ip(source_ip, actor) do
         {:ok, %Device{} = existing_device} ->
-          Logger.info(
-            "Adopting existing device #{existing_device.uid} for agent #{device_context.agent_id} after active IP conflict on #{source_ip}"
+          handle_active_ip_owner_conflict(
+            existing_device,
+            source_ip,
+            device_context,
+            actor,
+            now,
+            allow_conflict_release?
           )
-
-          case update_existing_device_for_agent(
-                 existing_device,
-                 device_context.agent_id,
-                 %{
-                   hostname: device_context.hostname,
-                   source_ip: source_ip
-                 },
-                 device_context.capabilities,
-                 actor,
-                 now
-               ) do
-            :ok -> {:ok, existing_device.uid}
-            {:error, update_reason} -> {:error, update_reason}
-          end
 
         {:error, lookup_reason} ->
           if not_found_error?(lookup_reason), do: {:error, reason}, else: {:error, lookup_reason}
@@ -330,6 +334,117 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
       {:error, reason}
     end
   end
+
+  defp maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now) do
+    maybe_adopt_existing_active_ip_device(reason, source_ip, device_context, actor, now, true)
+  end
+
+  defp handle_active_ip_owner_conflict(
+         existing_device,
+         source_ip,
+         device_context,
+         actor,
+         now,
+         allow_conflict_release?
+       ) do
+    cond do
+      adoptable_active_ip_owner?(existing_device, device_context) ->
+        Logger.info(
+          "Adopting existing device #{existing_device.uid} for agent #{device_context.agent_id} after active IP conflict on #{source_ip}"
+        )
+
+        case update_existing_device_for_agent(
+               existing_device,
+               device_context.agent_id,
+               %{
+                 hostname: device_context.hostname,
+                 source_ip: source_ip
+               },
+               device_context.capabilities,
+               actor,
+               now
+             ) do
+          :ok -> {:ok, existing_device.uid}
+          {:error, update_reason} -> {:error, update_reason}
+        end
+
+      allow_conflict_release? ->
+        with :ok <-
+               release_conflicting_active_ip_owner(
+                 existing_device,
+                 source_ip,
+                 device_context,
+                 actor
+               ) do
+          create_device_for_agent(device_context, actor, now, false)
+        end
+
+      true ->
+        {:error,
+         {:active_ip_owned_by_different_agent, source_ip, existing_device.uid,
+          existing_device.agent_id}}
+    end
+  end
+
+  defp adoptable_active_ip_owner?(%Device{} = existing_device, device_context) do
+    existing_agent_id = normalize_optional_string(existing_device.agent_id)
+    current_agent_id = normalize_optional_string(device_context.agent_id)
+    existing_hostname = normalize_hostname(existing_device.hostname || existing_device.name)
+    current_hostname = normalize_hostname(device_context.hostname)
+
+    is_nil(existing_agent_id) or existing_agent_id == current_agent_id or
+      (present_string?(existing_hostname) and existing_hostname == current_hostname)
+  end
+
+  defp release_conflicting_active_ip_owner(
+         %Device{} = existing_device,
+         source_ip,
+         device_context,
+         actor
+       ) do
+    existing_agent_id = normalize_optional_string(existing_device.agent_id)
+
+    Logger.warning(
+      "Releasing active IP #{source_ip} from device #{existing_device.uid} " <>
+        "owned by agent #{inspect(existing_agent_id)} before linking agent #{device_context.agent_id}"
+    )
+
+    metadata =
+      existing_device.metadata
+      |> Map.new()
+      |> Map.put("released_conflicting_active_ip", source_ip)
+      |> Map.put("released_conflicting_active_ip_at", DateTime.to_iso8601(DateTime.utc_now()))
+      |> Map.put("released_conflicting_active_ip_for_agent", device_context.agent_id)
+
+    existing_device
+    |> Ash.Changeset.for_update(:gateway_sync, %{ip: nil, metadata: metadata})
+    |> Ash.update(actor: actor)
+    |> case do
+      {:ok, _updated} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_optional_string(_), do: nil
+
+  defp normalize_hostname(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> String.downcase()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_hostname(_), do: nil
 
   defp fetch_active_device_by_ip(source_ip, actor) do
     case Device.get_by_ip(source_ip, false, actor: actor) do

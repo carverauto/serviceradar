@@ -7,8 +7,15 @@ Type=simple
 User=serviceradar
 WorkingDirectory=/var/lib/serviceradar
 ExecStart=/usr/local/bin/serviceradar-agent
-RuntimeDirectory=serviceradar
-RuntimeDirectoryMode=0700
+# Keep ServiceRadar host components in one accounting slice. Native add-ons
+# stay separate systemd units; the agent reports and attaches to them over IPC
+# instead of becoming their privileged process supervisor.
+Slice=serviceradar.slice
+# Keep /run/serviceradar under explicit setup rather than RuntimeDirectory=.
+# Netprobe also publishes /run/serviceradar/netprobe/ipc.sock; if systemd owns the
+# shared parent as the agent RuntimeDirectory, an agent restart can remove or
+# recreate the parent after netprobe has bound its socket.
+ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar
 Environment="CONFIG_SOURCE=file"
 Environment="KV_ADDRESS=127.0.0.1:50057"
 Environment="KV_SEC_MODE=mtls"
@@ -18,7 +25,10 @@ Environment="KV_KEY_FILE=/etc/serviceradar/certs/component-key.pem"
 Environment="KV_CA_FILE=/etc/serviceradar/certs/ca-chain.pem"
 EnvironmentFile=-/etc/serviceradar/kv-overrides.env
 AmbientCapabilities=CAP_NET_RAW
-CapabilityBoundingSet=CAP_NET_RAW
+# The agent process only receives CAP_NET_RAW above. The broader bounding set is
+# for the constrained setuid-root agent-updater child process, which applies
+# add-on file capabilities and installs systemd units for pushed native add-ons.
+CapabilityBoundingSet=CAP_NET_RAW CAP_SETFCAP CAP_DAC_OVERRIDE CAP_FOWNER CAP_CHOWN
 Restart=always
 RestartSec=10
 LimitNPROC=512

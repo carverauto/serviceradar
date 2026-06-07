@@ -1,8 +1,9 @@
 use crate::flowpb;
+use flowparser_sflow::flow_records::RawPacketHeader;
 use flowparser_sflow::samples::FlowSample;
 use flowparser_sflow::{AddressType, FlowRecord, SflowDatagram, SflowSample};
 use log::debug;
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 pub struct Converter {
     pub datagram: SflowDatagram,
@@ -113,7 +114,20 @@ impl Converter {
                 FlowRecord::RawPacketHeader(raw) => {
                     if !has_ip_record {
                         msg.bytes = u64::from(raw.frame_length);
-                        msg.etype = raw.header_protocol;
+                        if let Some(header) = parse_raw_packet_header(raw) {
+                            msg.src_addr = header.src_addr;
+                            msg.dst_addr = header.dst_addr;
+                            msg.src_port = header.src_port;
+                            msg.dst_port = header.dst_port;
+                            msg.proto = header.proto;
+                            msg.tcp_flags = header.tcp_flags;
+                            msg.ip_tos = header.ip_tos;
+                            msg.etype = header.etype;
+                            msg.protocol_name = protocol_name(header.proto);
+                            has_ip_record = true;
+                        } else {
+                            msg.etype = raw.header_protocol;
+                        }
                     }
                 }
                 FlowRecord::ExtendedSwitch(sw) => {
@@ -143,14 +157,137 @@ impl Converter {
             }
         }
 
-        if !has_ip_record && msg.bytes == 0 {
+        if !has_ip_record {
             debug!(
-                "Flow sample from {} has no typed IP records and zero bytes",
+                "Flow sample from {} has no decodable IP tuple",
                 self.sampler_addr
             );
+            return None;
         }
 
         Some(msg)
+    }
+}
+
+struct RawHeaderTuple {
+    etype: u32,
+    src_addr: Vec<u8>,
+    dst_addr: Vec<u8>,
+    src_port: u32,
+    dst_port: u32,
+    proto: u32,
+    tcp_flags: u32,
+    ip_tos: u32,
+}
+
+fn parse_raw_packet_header(raw: &RawPacketHeader) -> Option<RawHeaderTuple> {
+    let header = raw.header.as_slice();
+
+    if raw.header_protocol == 1 {
+        if let Some(tuple) = parse_ethernet_header(header) {
+            return Some(tuple);
+        }
+    }
+
+    match header.first().map(|byte| byte >> 4) {
+        Some(4) => parse_ipv4_packet(header),
+        Some(6) => parse_ipv6_packet(header),
+        _ => None,
+    }
+}
+
+fn parse_ethernet_header(header: &[u8]) -> Option<RawHeaderTuple> {
+    if header.len() < 14 {
+        return None;
+    }
+
+    let mut offset = 14;
+    let mut etype = u16::from_be_bytes([header[12], header[13]]);
+
+    while matches!(etype, 0x8100 | 0x88a8 | 0x9100) {
+        if header.len() < offset + 4 {
+            return None;
+        }
+
+        etype = u16::from_be_bytes([header[offset + 2], header[offset + 3]]);
+        offset += 4;
+    }
+
+    match etype {
+        0x0800 => parse_ipv4_packet(header.get(offset..)?),
+        0x86DD => parse_ipv6_packet(header.get(offset..)?),
+        _ => None,
+    }
+}
+
+fn parse_ipv4_packet(packet: &[u8]) -> Option<RawHeaderTuple> {
+    if packet.len() < 20 || packet[0] >> 4 != 4 {
+        return None;
+    }
+
+    let ihl = usize::from(packet[0] & 0x0f) * 4;
+    if ihl < 20 || packet.len() < ihl {
+        return None;
+    }
+
+    let proto = u32::from(packet[9]);
+    let (src_port, dst_port, tcp_flags) = parse_l4_tuple(proto, packet.get(ihl..)?);
+
+    Some(RawHeaderTuple {
+        etype: 0x0800,
+        src_addr: Ipv4Addr::new(packet[12], packet[13], packet[14], packet[15])
+            .octets()
+            .to_vec(),
+        dst_addr: Ipv4Addr::new(packet[16], packet[17], packet[18], packet[19])
+            .octets()
+            .to_vec(),
+        src_port,
+        dst_port,
+        proto,
+        tcp_flags,
+        ip_tos: u32::from(packet[1]),
+    })
+}
+
+fn parse_ipv6_packet(packet: &[u8]) -> Option<RawHeaderTuple> {
+    if packet.len() < 40 || packet[0] >> 4 != 6 {
+        return None;
+    }
+
+    let proto = u32::from(packet[6]);
+    let (src_port, dst_port, tcp_flags) = parse_l4_tuple(proto, packet.get(40..)?);
+
+    let src = Ipv6Addr::from(<[u8; 16]>::try_from(packet.get(8..24)?).ok()?);
+    let dst = Ipv6Addr::from(<[u8; 16]>::try_from(packet.get(24..40)?).ok()?);
+
+    Some(RawHeaderTuple {
+        etype: 0x86DD,
+        src_addr: src.octets().to_vec(),
+        dst_addr: dst.octets().to_vec(),
+        src_port,
+        dst_port,
+        proto,
+        tcp_flags,
+        ip_tos: u32::from(((packet[0] & 0x0f) << 4) | ((packet[1] & 0xf0) >> 4)),
+    })
+}
+
+fn parse_l4_tuple(proto: u32, packet: &[u8]) -> (u32, u32, u32) {
+    match proto {
+        6 if packet.len() >= 14 => {
+            let src_port = u32::from(u16::from_be_bytes([packet[0], packet[1]]));
+            let dst_port = u32::from(u16::from_be_bytes([packet[2], packet[3]]));
+            let tcp_flags = u32::from(packet[13]);
+
+            (src_port, dst_port, tcp_flags)
+        }
+        17 if packet.len() >= 4 => {
+            let src_port = u32::from(u16::from_be_bytes([packet[0], packet[1]]));
+            let dst_port = u32::from(u16::from_be_bytes([packet[2], packet[3]]));
+
+            (src_port, dst_port, 0)
+        }
+        _ => (0, 0, 0),
     }
 }
 
@@ -364,7 +501,57 @@ mod tests {
     }
 
     #[test]
-    fn test_raw_packet_header_only() {
+    fn test_raw_packet_header_ipv4_udp_conversion() {
+        let mut header = vec![
+            0x00, 0x11, 0x22, 0x33, 0x44, 0x55, // dst mac
+            0x66, 0x77, 0x88, 0x99, 0xaa, 0xbb, // src mac
+            0x08, 0x00, // IPv4 ethertype
+            0x45, 0x00, 0x00, 0x20, // IPv4 version/IHL, TOS, total length
+            0x00, 0x00, 0x00, 0x00, // id, flags/fragment
+            0x40, 0x11, 0x00, 0x00, // ttl, UDP, checksum
+            10, 1, 2, 3, // src ip
+            10, 4, 5, 6, // dst ip
+            0x30, 0x39, 0x00, 0x35, // src port 12345, dst port 53
+            0x00, 0x0c, 0x00, 0x00, // UDP length, checksum
+        ];
+        header.resize(64, 0);
+
+        let sample = SflowSample::Flow(FlowSample {
+            sequence_number: 4,
+            source_id_type: 0,
+            source_id_index: 1,
+            sampling_rate: 512,
+            sample_pool: 1024,
+            drops: 0,
+            input: 1,
+            output: 2,
+            records: vec![FlowRecord::RawPacketHeader(RawPacketHeader {
+                header_protocol: 1,
+                frame_length: 1518,
+                stripped: 0,
+                header_length: 64,
+                header,
+            })],
+        });
+
+        let datagram = make_datagram(vec![sample]);
+        let converter = Converter::new(datagram, peer_addr(), 4_000_000_000);
+        let messages = converter.convert();
+
+        assert_eq!(messages.len(), 1);
+        let msg = &messages[0];
+        assert_eq!(msg.bytes, 1518);
+        assert_eq!(msg.etype, 0x0800);
+        assert_eq!(msg.src_addr, Ipv4Addr::new(10, 1, 2, 3).octets().to_vec());
+        assert_eq!(msg.dst_addr, Ipv4Addr::new(10, 4, 5, 6).octets().to_vec());
+        assert_eq!(msg.src_port, 12345);
+        assert_eq!(msg.dst_port, 53);
+        assert_eq!(msg.proto, 17);
+        assert_eq!(msg.protocol_name, "UDP");
+    }
+
+    #[test]
+    fn test_undecodable_raw_packet_header_dropped() {
         let sample = SflowSample::Flow(FlowSample {
             sequence_number: 4,
             source_id_type: 0,
@@ -387,11 +574,7 @@ mod tests {
         let converter = Converter::new(datagram, peer_addr(), 4_000_000_000);
         let messages = converter.convert();
 
-        assert_eq!(messages.len(), 1);
-        let msg = &messages[0];
-        assert_eq!(msg.bytes, 1518);
-        assert_eq!(msg.etype, 1);
-        assert!(msg.src_addr.is_empty());
+        assert!(messages.is_empty());
     }
 
     #[test]

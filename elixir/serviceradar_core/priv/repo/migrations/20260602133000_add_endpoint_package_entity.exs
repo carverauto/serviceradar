@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointPackageEntity do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded
+    # package entity backfill required before endpoint_package_ref is NOT NULL.
     create table(:endpoint_packages, primary_key: false, prefix: "platform") do
       add(:id, :uuid, null: false, default: fragment("gen_random_uuid()"), primary_key: true)
       add(:coordinate_key, :text, null: false)

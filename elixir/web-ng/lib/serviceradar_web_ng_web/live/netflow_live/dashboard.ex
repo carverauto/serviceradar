@@ -8,6 +8,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   alias ServiceRadar.Observability.IpRdnsCache
   alias ServiceRadar.Observability.NetflowInterfaceCache
   alias ServiceRadar.Observability.NetflowLocalCidr
+  alias ServiceRadar.ReferenceData.ServicePorts
 
   require Ash.Query
   require Logger
@@ -44,44 +45,6 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   ]
 
   @top_n 10
-
-  # Well-known port → application name mapping for Top Ports display.
-  # Covers the most common services; extend as needed.
-  @well_known_ports %{
-    "20" => "FTP-Data",
-    "21" => "FTP",
-    "22" => "SSH",
-    "23" => "Telnet",
-    "25" => "SMTP",
-    "53" => "DNS",
-    "67" => "DHCP",
-    "68" => "DHCP",
-    "80" => "HTTP",
-    "110" => "POP3",
-    "123" => "NTP",
-    "143" => "IMAP",
-    "161" => "SNMP",
-    "162" => "SNMP-Trap",
-    "443" => "HTTPS",
-    "465" => "SMTPS",
-    "514" => "Syslog",
-    "587" => "SMTP-Sub",
-    "636" => "LDAPS",
-    "993" => "IMAPS",
-    "995" => "POP3S",
-    "1433" => "MSSQL",
-    "1521" => "Oracle",
-    "2049" => "NFS",
-    "3306" => "MySQL",
-    "3389" => "RDP",
-    "5432" => "PostgreSQL",
-    "5900" => "VNC",
-    "6379" => "Redis",
-    "8080" => "HTTP-Alt",
-    "8443" => "HTTPS-Alt",
-    "9200" => "Elasticsearch",
-    "27017" => "MongoDB"
-  }
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1290,7 +1253,12 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
   @sobelow_skip ["XSS.Raw"]
   defp format_port_cell(row) do
     port = to_string(row.port)
-    app = Map.get(@well_known_ports, port)
+
+    app =
+      case safe_parse_int(port) do
+        {:ok, port_num} -> ServicePorts.label(port_num)
+        :error -> nil
+      end
 
     if app do
       Phoenix.HTML.raw(

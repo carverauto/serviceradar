@@ -24,8 +24,11 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -35,18 +38,23 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-var errFakeObjectNotFound = errors.New("fake object store: key not found")
+var (
+	errFakeObjectNotFound        = errors.New("fake object store: key not found")
+	errUnexpectedAddonRedownload = errors.New("unchanged assignment should not fetch again")
+)
 
 const testPushedBinaryA = "/pushed/a"
 
 const testAddonKeyX = "addons/x"
 
 type fakeObjectStore struct {
-	data map[string][]byte
-	err  error
+	data      map[string][]byte
+	err       error
+	downloads int
 }
 
 func (f *fakeObjectStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
+	f.downloads++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -117,6 +125,47 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 	// The versioned copy exists independently of the symlink.
 	if _, err := os.Stat(filepath.Join(root, "sample", addonVersionsDir, "1.0.0", "serviceradar-sample-addon")); err != nil {
 		t.Fatalf("versioned binary missing: %v", err)
+	}
+}
+
+func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("#!/bin/sh\necho hi\n")
+	key := "addons/sample/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "sample",
+		Version:           "1.0.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-sample-addon",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+	}
+
+	got1, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("initial stage: %v", err)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("initial downloads = %d, want 1", store.downloads)
+	}
+
+	metadataPath := filepath.Join(root, "sample", addonVersionsDir, "1.0.0", addonStageMetaFile)
+	if _, err := os.Stat(metadataPath); err != nil {
+		t.Fatalf("expected trusted stage metadata: %v", err)
+	}
+
+	store.err = errUnexpectedAddonRedownload
+	got2, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("restage unchanged assignment: %v", err)
+	}
+	if got2 != got1 {
+		t.Fatalf("restaged path = %q, want %q", got2, got1)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("downloads after unchanged restage = %d, want 1", store.downloads)
 	}
 }
 
@@ -553,6 +602,22 @@ func makeAddonTarGz(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
+func readJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+
+	return out
+}
+
 func TestStageAddonArtifactExtractsTarball(t *testing.T) {
 	root := t.TempDir()
 	tgz := makeAddonTarGz(t, map[string][]byte{
@@ -598,6 +663,65 @@ func TestStageAddonArtifactExtractsTarball(t *testing.T) {
 		if fi.Mode().Perm()&0o111 != 0 {
 			t.Fatalf("non-binary file %s should not be executable: %v", f, fi.Mode())
 		}
+	}
+}
+
+func TestApplyStagedAddonRuntimeConfigMergesAssignmentConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-workload-identity": []byte("#!/bin/sh\necho workload\n"),
+		"workload-identity.json": []byte(`{
+  "enabled": true,
+  "root": "/",
+  "context_name": "",
+  "refresh_interval_s": 60,
+  "spool_dir": "/var/lib/serviceradar/workload-identity/spool"
+}
+`),
+		"serviceradar-workload-identity.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	key := "addons/workload-identity/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "workload-identity",
+		Version:           "0.1.3",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-workload-identity",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+		ConfigJson:        []byte(`{"context_name":"default-cp3"}`),
+	}
+
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatalf("apply config: %v", err)
+	}
+
+	configPath := filepath.Join(root, "workload-identity", addonCurrentLink, "workload-identity.json")
+	config := readJSONMap(t, configPath)
+	if config["enabled"] != true {
+		t.Fatalf("enabled = %#v, want true", config["enabled"])
+	}
+	if config["context_name"] != "default-cp3" {
+		t.Fatalf("context_name = %#v, want default-cp3", config["context_name"])
+	}
+
+	// Re-applying a changed assignment should merge from the preserved artifact base,
+	// not from the previously written runtime config, so removed fields do not stick.
+	a.ConfigJson = []byte(`{"refresh_interval_s":30}`)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatalf("reapply config: %v", err)
+	}
+	config = readJSONMap(t, configPath)
+	if config["context_name"] != "" {
+		t.Fatalf("context_name = %#v, want artifact default after override removal", config["context_name"])
+	}
+	if config["refresh_interval_s"] != float64(30) {
+		t.Fatalf("refresh_interval_s = %#v, want 30", config["refresh_interval_s"])
 	}
 }
 
@@ -695,5 +819,172 @@ func TestStageAddonArtifactTarballRejectsTooManyEntries(t *testing.T) {
 
 	if _, err := stageAddonArtifact(context.Background(), store, root, a); !errors.Is(err, ErrAddonTarballTooLarge) {
 		t.Fatalf("want ErrAddonTarballTooLarge, got %v", err)
+	}
+}
+
+// TestStageAddonArtifactViaGatewayHTTP verifies that, with a gateway download_url, the
+// artifact is fetched over HTTP (presenting the download token) and still passes sha256
+// + ed25519 verification before staging - all WITHOUT an object store (the external-agent
+// path). It also confirms the gateway path does not call DownloadObject.
+func TestStageAddonArtifactViaGatewayHTTP(t *testing.T) {
+	pub, priv, err := ed25519.GenerateKey(nil)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	t.Setenv(releasePublicKeyEnv, hex.EncodeToString(pub))
+
+	payload := []byte("gateway-delivered-addon-binary")
+	const wantToken = "signed-download-token"
+
+	var gotToken, gotMethod string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotToken = r.Header.Get("X-ServiceRadar-Plugin-Token")
+		gotMethod = r.Method
+		_, _ = w.Write(payload)
+	}))
+	defer srv.Close()
+
+	root := t.TempDir()
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex(payload),
+		ArtifactSignature: hex.EncodeToString(ed25519.Sign(priv, payload)),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     wantToken,
+	}
+
+	// No object store: external agents have none; the gateway URL must drive the fetch.
+	got, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), root, a)
+	if err != nil {
+		t.Fatalf("stage via gateway: %v", err)
+	}
+	if gotToken != wantToken {
+		t.Fatalf("download token header = %q, want %q", gotToken, wantToken)
+	}
+	if gotMethod != http.MethodPost {
+		t.Fatalf("download method = %q, want POST (token present)", gotMethod)
+	}
+
+	staged, err := os.ReadFile(got)
+	if err != nil {
+		t.Fatalf("read staged binary: %v", err)
+	}
+	if !bytes.Equal(staged, payload) {
+		t.Fatalf("staged content mismatch")
+	}
+}
+
+// TestStageAddonArtifactGatewayHashMismatch confirms a gateway-delivered artifact is still
+// rejected when its bytes do not match the assigned sha256 (verification is not skipped on
+// the HTTP path).
+func TestStageAddonArtifactGatewayHashMismatch(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("tampered-bytes"))
+	}))
+	defer srv.Close()
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("expected-bytes")),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactHashMismatch) {
+		t.Fatalf("want ErrAddonArtifactHashMismatch, got %v", err)
+	}
+}
+
+// TestStageAddonArtifactGatewayMissingClient confirms that a gateway download_url with no
+// HTTP client (gateway security unconfigured) surfaces as object-store-unavailable rather
+// than silently falling back to a nil store.
+func TestStageAddonArtifactGatewayMissingClient(t *testing.T) {
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("x")),
+		DownloadUrl:       "https://gateway.example/api/addon-packages/p/blob/download",
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, nil, t.TempDir(), a); !errors.Is(err, ErrAddonObjectStoreUnavailable) {
+		t.Fatalf("want ErrAddonObjectStoreUnavailable, got %v", err)
+	}
+}
+
+func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
+	pl := &PushLoop{}
+	client := pl.gatewayAddonHTTPClient(&proto.AddonAssignmentConfig{
+		AddonId:     "gw",
+		DownloadUrl: "https://demo.serviceradar.cloud/api/addon-packages/pkg/blob/download",
+	})
+	if client == nil {
+		t.Fatal("gatewayAddonHTTPClient() returned nil client")
+	}
+	if client.Transport != nil {
+		t.Fatalf("expected default transport/system roots for public web URL, got %#v", client.Transport)
+	}
+	if client.CheckRedirect == nil {
+		t.Fatal("expected redirect validator to be installed")
+	}
+}
+
+func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
+	pl := &PushLoop{
+		server: &Server{
+			addonManager: agentaddon.NewManager(agentaddon.Config{
+				RuntimeDir: filepath.Join(t.TempDir(), "addons"),
+			}),
+		},
+		logger: logger.NewTestLogger(),
+	}
+	pl.setConfigVersion("old-version")
+
+	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
+		ConfigVersion: "new-version",
+		Addons: []*proto.AddonAssignmentConfig{
+			{
+				AddonId:           "netprobe",
+				Enabled:           true,
+				Delivery:          addonDeliveryPushedArtifact,
+				Supervision:       addonSupervisionAgentSidecar,
+				ArtifactObjectKey: "native-addons/netprobe/0.2.1/linux/amd64/netprobe.tar.gz",
+				ArtifactSha256:    sha256Hex([]byte("artifact")),
+			},
+		},
+	}, "poll")
+
+	if ok {
+		t.Fatal("applyConfigResponse() = true, want false when add-on delivery fails")
+	}
+	if got := pl.getConfigVersion(); got != "old-version" {
+		t.Fatalf("config version = %q, want old-version", got)
+	}
+}
+
+// TestStageAddonArtifactGatewayNon200 confirms a non-200 gateway response is surfaced as a
+// download failure rather than staged as artifact bytes.
+func TestStageAddonArtifactGatewayNon200(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	defer srv.Close()
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "gw",
+		Version:           "1.0.0",
+		ArtifactObjectKey: "addons/gw/linux-amd64",
+		ArtifactSha256:    sha256Hex([]byte("x")),
+		DownloadUrl:       srv.URL,
+		DownloadToken:     "tok",
+	}
+
+	if _, err := stageAddonArtifactWithClient(context.Background(), nil, srv.Client(), t.TempDir(), a); !errors.Is(err, ErrAddonArtifactDownloadFailed) {
+		t.Fatalf("want ErrAddonArtifactDownloadFailed, got %v", err)
 	}
 }

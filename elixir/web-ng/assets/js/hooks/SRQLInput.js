@@ -158,7 +158,7 @@ export default {
         slot: "entity",
       }))
     } else if (state.slot === "field") {
-      candidates = this.fieldsForEntity(state.entity).map(value => ({value, label: value, detail: "Field", slot: "field"}))
+      candidates = this.fieldCandidates(state).map(({value, detail}) => ({value, label: value, detail, slot: "field"}))
     } else if (state.slot === "op") {
       candidates = (this.catalog.operators || []).map(value => ({value, label: value, detail: "Operator", slot: "op"}))
     } else if (state.slot === "value") {
@@ -191,18 +191,34 @@ export default {
     return unique(Object.values(fields).flat())
   },
 
+  sortableFieldsForEntity(entityId) {
+    const entity = this.catalog.entities?.[entityId]
+    const defaultSortField = entity?.default_sort?.field
+
+    return unique([...this.fieldsForEntity(entityId), defaultSortField])
+  },
+
+  fieldCandidates(state) {
+    const position = state.activeRange?.start ?? state.activeToken?.start ?? 0
+
+    if (isSortFieldContext(state.tokens, position)) {
+      return this.sortableFieldsForEntity(state.entity).map(value => ({value, detail: "Sort field"}))
+    }
+
+    return this.fieldsForEntity(state.entity).map(value => ({value, detail: "Field"}))
+  },
+
   valueCandidates(state) {
     const field = nearestField(state.tokens, state.activeRange?.start ?? 0)
     if (field && this.booleanFields(state.entity).includes(field.text)) {
       return BOOLEAN_VALUES.map(value => ({value, label: value, detail: "Boolean", slot: "value"}))
     }
 
-    const control = nearestControl(state.tokens, state.activeRange?.start ?? 0)
-    if (control?.text === "sort:") {
+    if (isSortDirectionContext(state.tokens, state.activeRange?.start ?? 0)) {
       return SORT_DIRECTIONS.map(value => ({value, label: value, detail: "Sort direction", slot: "value"}))
     }
 
-    if (control?.text === "time:") {
+    if (directValueControl(state.tokens, state.activeRange?.start ?? 0)?.text === "time:") {
       return TIME_VALUES.map(value => ({value, label: value, detail: "Time range", slot: "value"}))
     }
 
@@ -337,9 +353,13 @@ export default {
 
   isUnknown(token) {
     if (token.kind === "entity") return !this.catalog.entities?.[token.text]
+    if (token.kind === "field" && isSortFieldContext(this.state.tokens, token.start)) {
+      return Boolean(this.state.entity) && !this.sortableFieldsForEntity(this.state.entity).includes(token.text)
+    }
+
     if (token.kind === "field") return Boolean(this.state.entity) && !this.fieldsForEntity(this.state.entity).includes(token.text)
     if (token.kind === "op") return !(this.catalog.operators || []).includes(token.text)
-    if (token.kind === "value" && nearestControl(this.state.tokens, token.start)?.text === "sort:") {
+    if (token.kind === "value" && isSortDirectionContext(this.state.tokens, token.start)) {
       return !SORT_DIRECTIONS.includes(token.text.toLowerCase())
     }
 
@@ -444,6 +464,23 @@ function nearestField(tokens, position) {
   return [...tokens].reverse().find(token => token.kind === "field" && token.end <= position)
 }
 
-function nearestControl(tokens, position) {
-  return [...tokens].reverse().find(token => token.kind === "control" && token.end <= position)
+function directValueControl(tokens, position) {
+  const previous = previousToken(tokens, position)
+  return previous?.kind === "control" ? previous : null
+}
+
+function isSortFieldContext(tokens, position) {
+  return directValueControl(tokens, position)?.text === "sort:"
+}
+
+function isSortDirectionContext(tokens, position) {
+  const previous = previousToken(tokens, position)
+  const field = previous?.kind === "op" ? previousToken(tokens, previous.start) : null
+  const control = field?.kind === "field" ? previousToken(tokens, field.start) : null
+
+  return previous?.text === ":" && control?.text === "sort:"
+}
+
+function previousToken(tokens, position) {
+  return [...tokens].reverse().find(token => token.end <= position)
 }

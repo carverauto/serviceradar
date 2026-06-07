@@ -16,6 +16,7 @@ NETPROBE_DEPS = crate_deps([
     "crossbeam-channel",
     "env_logger",
     "etherparse",
+    "libc",
     "log",
     "nix",
     "phf",
@@ -50,9 +51,7 @@ NETPROBE_DEPS = crate_deps([
         "procfs",
     ]),
     "//conditions:default": [],
-}) + [
-    ":build_script",
-]
+}) + [":build_script"]
 
 NETPROBE_RUSTC_FLAGS = select({
     "//build/platforms:target_linux_aarch64_musl": [],
@@ -67,6 +66,8 @@ NETPROBE_RUSTC_FLAGS = select({
     ],
     "//conditions:default": [],
 })
+
+NETPROBE_VERSION = "0.2.20"
 
 cargo_build_script(
     name = "build_script",
@@ -106,6 +107,7 @@ rust_binary(
     crate_root = "src/main.rs",
     edition = "2021",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS,
 )
 
@@ -122,5 +124,6 @@ rust_test(
     crate_root = "src/main.rs",
     edition = "2021",
     rustc_flags = NETPROBE_RUSTC_FLAGS,
+    version = NETPROBE_VERSION,
     deps = NETPROBE_DEPS + crate_deps(["tempfile"]),
 )

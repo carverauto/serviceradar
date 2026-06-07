@@ -8,6 +8,12 @@ use std::{
 
 #[cfg(target_os = "linux")]
 use std::{
+    cmp::{Ordering as CmpOrdering, Reverse},
+    collections::{BinaryHeap, VecDeque},
+    hash::{BuildHasherDefault, Hash, Hasher},
+    io, mem,
+    os::fd::AsRawFd,
+    ptr,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -17,6 +23,10 @@ use std::{
 };
 
 use crate::af_xdp_classifier::FlowKey;
+#[cfg(target_os = "linux")]
+use crate::event_queue::EventSender;
+#[cfg(target_os = "linux")]
+use crate::external_flow::SharedExternalFlowMatcher;
 use crate::proto::netprobe::{FlowAttributionEvent, ProcessSnapshot, ProcessSnapshotEntry};
 
 #[cfg(target_os = "linux")]
@@ -24,8 +34,10 @@ use crate::metrics::Metrics;
 
 const AF_INET: u16 = 2;
 const AF_INET6: u16 = 10;
+const IPPROTO_ICMP: u16 = 1;
 const IPPROTO_TCP: u16 = 6;
 const IPPROTO_UDP: u16 = 17;
+const IPPROTO_ICMPV6: u16 = 58;
 const FLOW_ENDPOINT_A: u8 = 1;
 const FLOW_ENDPOINT_B: u8 = 2;
 /// Maximum byte length for the joined `redacted_cmdline` payload on a
@@ -35,7 +47,154 @@ const FLOW_ENDPOINT_B: u8 = 2;
 /// have to truncate.
 const REDACTED_CMDLINE_MAX_BYTES: usize = 256;
 #[cfg(target_os = "linux")]
-const FLOW_ATTRIBUTION_POLL_INTERVAL: Duration = Duration::from_secs(1);
+// Maximum time the ring-reader thread waits in poll(2) before rechecking timers
+// and shutdown state. Data readiness wakes it sooner.
+const FLOW_ATTRIBUTION_RING_MAX_WAIT: Duration = Duration::from_secs(1);
+#[cfg(target_os = "linux")]
+// Drop a cached attribution that has not been refreshed by a new ring record
+// within this window. TCP flows are normally evicted on close; this bounds the
+// cache for flows that never emit a close (and caps memory regardless of churn).
+const FLOW_ATTRIBUTION_CACHE_TTL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES: usize = 65_536;
+#[cfg(target_os = "linux")]
+const FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK: usize = FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES * 7 / 8;
+#[cfg(target_os = "linux")]
+// Process cmdline/container metadata is useful but not required to attribute a
+// flow. Keep procfs reads on a bounded cold path so eBPF PID/comm attribution
+// is emitted immediately.
+const PROCESS_DETAILS_CACHE_TTL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_CACHE_MAX_ENTRIES: usize = 4096;
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_COLD_READS_PER_SECOND: u32 = 1;
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
+#[cfg(target_os = "linux")]
+const PROCESS_DETAILS_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
+// Listener inventory changes are useful for host forensics, but a busy runtime
+// can flap several local sockets per second. Coalesce dirty snapshots so one
+// listener change does not become a continuous IPC stream.
+const PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL: Duration = Duration::from_secs(10);
+#[cfg(target_os = "linux")]
+const EVENT_TCP_CONNECT: u16 = 1;
+#[cfg(target_os = "linux")]
+const EVENT_TCP_ACCEPT: u16 = 2;
+#[cfg(target_os = "linux")]
+// Mirrors EVENT_TCP_CLOSE in the eBPF.
+const EVENT_TCP_CLOSE: u16 = 3;
+#[cfg(target_os = "linux")]
+const EVENT_UDP_SEND: u16 = 4;
+#[cfg(target_os = "linux")]
+const EVENT_UDP_RECV: u16 = 5;
+#[cfg(target_os = "linux")]
+const EVENT_INET_SOCK_SET_STATE: u16 = 6;
+#[cfg(target_os = "linux")]
+const EVENT_ICMP_SEND: u16 = 7;
+#[cfg(target_os = "linux")]
+const TCP_CLOSE_STATE: i32 = 7;
+#[cfg(target_os = "linux")]
+const TCP_LISTEN_STATE: i32 = 10;
+#[cfg(target_os = "linux")]
+// Keep long-lived tuples fresh enough for delayed central NetFlow joins without
+// replaying every kernel refresh. This is deliberately shorter than the core
+// correlation skew (15 minutes today) and longer than the eBPF 240s refresh.
+const FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(300);
+#[cfg(target_os = "linux")]
+const UDP_SERVER_REMOTE_THRESHOLD: usize = 2;
+#[cfg(target_os = "linux")]
+const UDP_ROLE_CACHE_MAX_ENTRIES: usize = 8192;
+#[cfg(target_os = "linux")]
+const UDP_ROLE_CACHE_PRUNE_INTERVAL: Duration = Duration::from_secs(10);
+const EPHEMERAL_PORT_FLOOR: u16 = 32768;
+#[cfg(target_os = "linux")]
+type FastHashMap<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
+#[cfg(target_os = "linux")]
+type FastHashSet<K> = HashSet<K, BuildHasherDefault<FastHasher>>;
+
+#[cfg(target_os = "linux")]
+struct FastHasher {
+    state: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl Default for FastHasher {
+    fn default() -> Self {
+        Self {
+            state: 0xcbf29ce484222325,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl FastHasher {
+    #[inline]
+    fn mix(&mut self, value: u64) {
+        self.state ^= value;
+        self.state = self.state.wrapping_mul(0x100000001b3);
+        self.state ^= self.state >> 32;
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Hasher for FastHasher {
+    #[inline]
+    fn finish(&self) -> u64 {
+        let mut state = self.state;
+        state ^= state >> 32;
+        state = state.wrapping_mul(0x9e3779b97f4a7c15);
+        state ^ (state >> 32)
+    }
+
+    #[inline]
+    fn write(&mut self, bytes: &[u8]) {
+        let mut chunks = bytes.chunks_exact(8);
+        for chunk in &mut chunks {
+            self.mix(u64::from_le_bytes(chunk.try_into().expect("chunk size")));
+        }
+        for byte in chunks.remainder() {
+            self.mix(u64::from(*byte));
+        }
+    }
+
+    #[inline]
+    fn write_u8(&mut self, i: u8) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u16(&mut self, i: u16) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u32(&mut self, i: u32) {
+        self.mix(u64::from(i));
+    }
+
+    #[inline]
+    fn write_u64(&mut self, i: u64) {
+        self.mix(i);
+    }
+
+    #[inline]
+    fn write_usize(&mut self, i: usize) {
+        self.mix(i as u64);
+    }
+
+    #[inline]
+    fn write_i32(&mut self, i: i32) {
+        self.mix(i as u64);
+    }
+
+    #[inline]
+    fn write_i64(&mut self, i: i64) {
+        self.mix(i as u64);
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,6 +207,7 @@ pub struct FlowPidRecord {
     pub gid: u32,
     pub socket_address: u64,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub old_state: i32,
     pub new_state: i32,
     pub local_endpoint: u8,
@@ -69,6 +229,7 @@ pub struct ProcessInfoRecord {
     pub uid: u32,
     pub gid: u32,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
     pub comm: [u8; 16],
 }
 
@@ -76,6 +237,44 @@ pub struct ProcessInfoRecord {
 // SAFETY: ProcessInfoRecord is #[repr(C)], Copy, and contains only integer
 // fields and a fixed byte array. Its layout mirrors the eBPF process_info map value.
 unsafe impl aya::Pod for ProcessInfoRecord {}
+
+// Userspace mirror of the eBPF `FlowAttributionRecord` submitted to the
+// `flow_events` BPF ring buffer (rust/netprobe/ebpf/src/lib.rs). #[repr(C)] and
+// laid out byte-for-byte with the eBPF struct so a ring slot can be read
+// directly with `ptr::read_unaligned`. The `inet_sock_set_state` (TCP),
+// udp_sendmsg/udp_recvmsg (UDP), and ping_sendmsg/raw_sendmsg (ICMP) records
+// carry a populated `tuple` read off the struct sock; the bare
+// tcp_connect/accept/close lifecycle probes submit an empty tuple, so those
+// records have no usable 5-tuple and are skipped by the consumer.
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FlowTupleRecord {
+    family: u16,
+    protocol: u16,
+    source_port: u16,
+    destination_port: u16,
+    source_addr: [u8; 16],
+    destination_addr: [u8; 16],
+}
+
+#[cfg(target_os = "linux")]
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct FlowAttributionRecord {
+    version: u16,
+    event_kind: u16,
+    pid: u32,
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    socket_address: u64,
+    process_generation_ns: u64,
+    old_state: i32,
+    new_state: i32,
+    tuple: FlowTupleRecord,
+    comm: [u8; 16],
+}
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ProcessDetails {
@@ -87,6 +286,7 @@ pub struct ProcessDetails {
     pub cmdline: Vec<String>,
     pub container_id: Option<String>,
     pub last_seen_ns: u64,
+    pub process_generation_ns: u64,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -99,6 +299,448 @@ pub struct AttributedFlow {
 impl AttributedFlow {
     pub fn event(&self) -> Option<FlowAttributionEvent> {
         flow_attribution_event(self, now_unix_nano())
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct SocketInventory {
+    entries: FastHashMap<SocketInventoryKey, CachedProcessSocket>,
+    dirty: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl SocketInventory {
+    fn update(&mut self, flow: &AttributedFlow) {
+        let Some((local_ip, local_port, _, _)) = endpoints(&flow.flow, flow.pid.local_endpoint)
+        else {
+            return;
+        };
+        let process = flow.process.as_ref();
+        let key = SocketInventoryKey {
+            address_family: flow.flow.address_family,
+            transport_protocol: flow.flow.transport_protocol,
+            local_addr: match flow.pid.local_endpoint {
+                FLOW_ENDPOINT_A => flow.flow.endpoint_a_addr,
+                FLOW_ENDPOINT_B => flow.flow.endpoint_b_addr,
+                _ => return,
+            },
+            local_port,
+            pid: flow.pid.pid,
+            tgid: flow.pid.tgid,
+            process_generation_ns: flow.pid.process_generation_ns,
+        };
+
+        let entry = ProcessSnapshotEntry {
+            local_ip: local_ip.to_string(),
+            local_port: u32::from(local_port),
+            transport_protocol: transport_protocol(flow.flow.transport_protocol),
+            pid: flow.pid.pid,
+            tgid: flow.pid.tgid,
+            uid: process.map_or(flow.pid.uid, |details| details.uid),
+            gid: process.map_or(flow.pid.gid, |details| details.gid),
+            comm: process
+                .map(|details| details.comm.clone())
+                .unwrap_or_default(),
+            redacted_cmdline: cap_redacted_cmdline(
+                process
+                    .map(|details| details.cmdline.clone())
+                    .unwrap_or_default(),
+            ),
+            container_id: process
+                .and_then(|details| details.container_id.clone())
+                .unwrap_or_default(),
+            workload_identity: None,
+        };
+        let now = Instant::now();
+
+        match self.entries.get_mut(&key) {
+            Some(cached) if cached.entry == entry => {
+                cached.last_seen = now;
+            }
+            Some(cached) => {
+                cached.entry = entry;
+                cached.last_seen = now;
+                self.dirty = true;
+            }
+            None => {
+                self.entries.insert(
+                    key,
+                    CachedProcessSocket {
+                        entry,
+                        last_seen: now,
+                    },
+                );
+                self.dirty = true;
+            }
+        }
+    }
+
+    fn remove_record(&mut self, record: &FlowAttributionRecord) {
+        if !should_remove_inventory(record) {
+            return;
+        }
+
+        let Some(key) = SocketInventoryKey::from_record(record, None) else {
+            return;
+        };
+
+        if self.entries.remove(&key).is_some() {
+            self.dirty = true;
+        }
+    }
+
+    fn touch_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        let Some(key) = SocketInventoryKey::from_record(record, None) else {
+            return false;
+        };
+
+        let Some(cached) = self.entries.get_mut(&key) else {
+            return false;
+        };
+
+        cached.last_seen = Instant::now();
+        true
+    }
+
+    fn has_listener_for_record(&self, record: &FlowAttributionRecord) -> bool {
+        if should_record_inventory(record) || record.tuple.protocol != IPPROTO_TCP {
+            return false;
+        }
+
+        let Some(exact_key) = SocketInventoryKey::from_record(record, None) else {
+            return false;
+        };
+
+        if self.entries.contains_key(&exact_key) {
+            return true;
+        }
+
+        let wildcard_addr = [0; 16];
+        if exact_key.local_addr == wildcard_addr {
+            return false;
+        }
+
+        SocketInventoryKey::from_record(record, Some(wildcard_addr))
+            .is_some_and(|wildcard_key| self.entries.contains_key(&wildcard_key))
+    }
+
+    fn snapshot_if_dirty(&mut self, observed_at_unix_nano: i64) -> Option<ProcessSnapshot> {
+        self.prune(Instant::now());
+        if !self.dirty {
+            return None;
+        }
+
+        let mut entries = self
+            .entries
+            .values()
+            .map(|cached| cached.entry.clone())
+            .collect::<Vec<_>>();
+        sort_snapshot_entries(&mut entries);
+
+        self.dirty = false;
+        Some(ProcessSnapshot {
+            fingerprint: snapshot_fingerprint(&entries),
+            observed_at_unix_nano,
+            entries,
+        })
+    }
+
+    fn prune(&mut self, now: Instant) {
+        let len_before = self.entries.len();
+        self.entries
+            .retain(|_, entry| now.duration_since(entry.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
+        if self.entries.len() != len_before {
+            self.dirty = true;
+        }
+    }
+
+    fn is_dirty(&self) -> bool {
+        self.dirty
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct SocketInventoryKey {
+    address_family: u16,
+    transport_protocol: u16,
+    local_addr: [u8; 16],
+    local_port: u16,
+    pid: u32,
+    tgid: u32,
+    process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl SocketInventoryKey {
+    fn from_record(record: &FlowAttributionRecord, local_addr: Option<[u8; 16]>) -> Option<Self> {
+        let flow = flow_key_from_record(record)?;
+
+        Some(Self {
+            address_family: flow.address_family,
+            transport_protocol: flow.transport_protocol,
+            local_addr: local_addr.unwrap_or(flow.endpoint_a_addr),
+            local_port: flow.endpoint_a_port,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct CachedProcessSocket {
+    entry: ProcessSnapshotEntry,
+    last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+struct UdpRoleInventory {
+    entries: FastHashMap<UdpSocketKey, UdpSocketRole>,
+    last_prune: Instant,
+}
+
+#[cfg(target_os = "linux")]
+impl Default for UdpRoleInventory {
+    fn default() -> Self {
+        Self {
+            entries: FastHashMap::default(),
+            last_prune: Instant::now(),
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl UdpRoleInventory {
+    fn should_coalesce_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        if !matches!(record.event_kind, EVENT_UDP_SEND | EVENT_UDP_RECV)
+            || record.tuple.protocol != IPPROTO_UDP
+            || record.tuple.source_port == 0
+            || record.tuple.destination_port == 0
+        {
+            return false;
+        }
+
+        if likely_udp_client_record(record) {
+            return false;
+        }
+
+        let now = Instant::now();
+        self.prune_if_due(now);
+
+        let Some(key) = UdpSocketKey::from_record(record) else {
+            return false;
+        };
+        let peer = UdpPeerKey::from_record(record);
+        let Some(role) = self.role_for_key(key, now) else {
+            return false;
+        };
+
+        role.last_seen = now;
+
+        if !role.peers.contains(&peer) {
+            if role.peers.len() < UDP_SERVER_REMOTE_THRESHOLD {
+                role.peers.push(peer);
+            }
+            if role.peers.len() >= UDP_SERVER_REMOTE_THRESHOLD {
+                role.server_side = true;
+            }
+        }
+
+        role.server_side
+    }
+
+    fn role_for_key(&mut self, key: UdpSocketKey, now: Instant) -> Option<&mut UdpSocketRole> {
+        if self.entries.contains_key(&key) {
+            return self.entries.get_mut(&key);
+        }
+
+        if self.entries.len() >= UDP_ROLE_CACHE_MAX_ENTRIES {
+            return None;
+        }
+
+        Some(self.entries.entry(key).or_insert_with(|| UdpSocketRole {
+            peers: Vec::with_capacity(UDP_SERVER_REMOTE_THRESHOLD),
+            server_side: false,
+            last_seen: now,
+        }))
+    }
+
+    fn prune_if_due(&mut self, now: Instant) {
+        if now.duration_since(self.last_prune) < UDP_ROLE_CACHE_PRUNE_INTERVAL {
+            return;
+        }
+
+        self.last_prune = now;
+        self.entries
+            .retain(|_, role| now.duration_since(role.last_seen) < FLOW_ATTRIBUTION_CACHE_TTL);
+
+        if self.entries.len() <= UDP_ROLE_CACHE_MAX_ENTRIES {
+            return;
+        }
+
+        let mut by_age = self
+            .entries
+            .iter()
+            .map(|(key, role)| (*key, role.last_seen))
+            .collect::<Vec<_>>();
+        by_age.sort_by_key(|(_, last_seen)| *last_seen);
+
+        let overflow = self
+            .entries
+            .len()
+            .saturating_sub(UDP_ROLE_CACHE_MAX_ENTRIES);
+        for (key, _) in by_age.into_iter().take(overflow) {
+            self.entries.remove(&key);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn likely_udp_client_record(record: &FlowAttributionRecord) -> bool {
+    record.tuple.source_port >= EPHEMERAL_PORT_FLOOR
+        && record.tuple.destination_port < EPHEMERAL_PORT_FLOOR
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct UdpSocketKey {
+    address_family: u16,
+    local_addr: [u8; 16],
+    local_port: u16,
+    socket_address: u64,
+    pid: u32,
+    tgid: u32,
+    process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl UdpSocketKey {
+    fn from_record(record: &FlowAttributionRecord) -> Option<Self> {
+        let flow = flow_key_from_record(record)?;
+
+        Some(Self {
+            address_family: flow.address_family,
+            local_addr: flow.endpoint_a_addr,
+            local_port: flow.endpoint_a_port,
+            socket_address: record.socket_address,
+            pid: record.pid,
+            tgid: record.tgid,
+            process_generation_ns: record.process_generation_ns,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct UdpPeerKey {
+    remote_addr: [u8; 16],
+    remote_port: u16,
+}
+
+#[cfg(target_os = "linux")]
+impl UdpPeerKey {
+    fn from_record(record: &FlowAttributionRecord) -> Self {
+        Self {
+            remote_addr: record.tuple.destination_addr,
+            remote_port: record.tuple.destination_port,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct UdpSocketRole {
+    peers: Vec<UdpPeerKey>,
+    server_side: bool,
+    last_seen: Instant,
+}
+
+#[cfg(target_os = "linux")]
+trait AttributionBackend {
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>);
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool>;
+    fn method(&self) -> &'static str;
+}
+
+#[cfg(target_os = "linux")]
+struct EbpfAttributionBackend {
+    ring: aya::maps::RingBuf<aya::maps::MapData>,
+    process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
+}
+
+#[cfg(target_os = "linux")]
+impl EbpfAttributionBackend {
+    fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
+        let flow_events = ebpf.take_map("flow_events").ok_or_else(|| {
+            anyhow::anyhow!("flow_events map is missing from netprobe eBPF object")
+        })?;
+        let process_info = ebpf.take_map("process_info").ok_or_else(|| {
+            anyhow::anyhow!("process_info map is missing from netprobe eBPF object")
+        })?;
+
+        Ok(Self {
+            ring: aya::maps::RingBuf::try_from(flow_events)?,
+            process_info: aya::maps::HashMap::try_from(process_info)?,
+        })
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl AttributionBackend for EbpfAttributionBackend {
+    /// Drain every record currently queued in the FLOW_EVENTS ring buffer,
+    /// copying each into an owned `FlowAttributionRecord`. Reading the ring is a
+    /// cheap mmap operation (no `bpf_map_get_next_key` scan), so this is
+    /// O(new records) rather than O(map capacity) like the old map snapshot —
+    /// which is what keeps idle CPU near zero.
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>) {
+        records.clear();
+        while let Some(item) = self.ring.next() {
+            let bytes = item.as_ref();
+            if bytes.len() >= mem::size_of::<FlowAttributionRecord>() {
+                // SAFETY: FlowAttributionRecord is #[repr(C)] and mirrors the eBPF
+                // layout byte-for-byte; the slot is at least that many bytes. Read
+                // unaligned because the ring slot carries no alignment guarantee.
+                records.push(unsafe {
+                    ptr::read_unaligned(bytes.as_ptr() as *const FlowAttributionRecord)
+                });
+            }
+        }
+    }
+
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
+        if timeout.is_zero() {
+            return Ok(false);
+        }
+
+        let timeout_ms = timeout.as_millis().min(i32::MAX as u128) as i32;
+        let mut poll_fd = libc::pollfd {
+            fd: self.ring.as_raw_fd(),
+            events: libc::POLLIN,
+            revents: 0,
+        };
+
+        loop {
+            let result = unsafe { libc::poll(&mut poll_fd, 1, timeout_ms) };
+            if result >= 0 {
+                if poll_fd.revents & (libc::POLLERR | libc::POLLHUP | libc::POLLNVAL) != 0 {
+                    return Err(io::Error::other(format!(
+                        "unexpected ring fd poll event: {}",
+                        poll_fd.revents
+                    )));
+                }
+                return Ok(result > 0 && poll_fd.revents & libc::POLLIN != 0);
+            }
+
+            let err = io::Error::last_os_error();
+            if err.kind() != io::ErrorKind::Interrupted {
+                return Err(err);
+            }
+        }
+    }
+
+    fn method(&self) -> &'static str {
+        "ebpf"
     }
 }
 
@@ -119,15 +761,20 @@ impl ProcfsEnricher {
     }
 
     pub fn process_details(&self, record: &ProcessInfoRecord) -> ProcessDetails {
+        let comm =
+            read_comm(&self.root, record.tgid).unwrap_or_else(|| comm_from_bytes(&record.comm));
+        let container_id = container_id(&self.root, record.tgid);
+
         ProcessDetails {
             pid: record.pid,
             tgid: record.tgid,
             uid: record.uid,
             gid: record.gid,
-            comm: comm_from_bytes(&record.comm),
+            comm,
             cmdline: redacted_cmdline(&self.root, record.tgid),
-            container_id: container_id(&self.root, record.tgid),
+            container_id,
             last_seen_ns: record.last_seen_ns,
+            process_generation_ns: record.process_generation_ns,
         }
     }
 
@@ -137,10 +784,13 @@ impl ProcfsEnricher {
         process_info: &HashMap<u32, ProcessInfoRecord>,
     ) -> Option<ProcessDetails> {
         if let Some(record) = process_info.get(&pid) {
-            return Some(self.process_details(record));
+            let mut details = self.process_details(record);
+            details.pid = pid;
+            return Some(details);
         }
 
         let (uid, gid) = read_status_ids(&self.root, pid).unwrap_or_default();
+        let container_id = container_id(&self.root, pid);
         Some(ProcessDetails {
             pid,
             tgid: pid,
@@ -148,8 +798,9 @@ impl ProcfsEnricher {
             gid,
             comm: read_comm(&self.root, pid).unwrap_or_default(),
             cmdline: redacted_cmdline(&self.root, pid),
-            container_id: container_id(&self.root, pid),
+            container_id,
             last_seen_ns: 0,
+            process_generation_ns: 0,
         })
     }
 
@@ -182,24 +833,12 @@ impl ProcfsEnricher {
                     comm: process.comm,
                     redacted_cmdline: process.cmdline,
                     container_id: process.container_id.unwrap_or_default(),
+                    workload_identity: None,
                 });
             }
         }
 
-        entries.sort_by(|left, right| {
-            (
-                &left.transport_protocol,
-                &left.local_ip,
-                left.local_port,
-                left.pid,
-            )
-                .cmp(&(
-                    &right.transport_protocol,
-                    &right.local_ip,
-                    right.local_port,
-                    right.pid,
-                ))
-        });
+        sort_snapshot_entries(&mut entries);
 
         ProcessSnapshot {
             fingerprint: snapshot_fingerprint(&entries),
@@ -210,52 +849,368 @@ impl ProcfsEnricher {
 }
 
 #[cfg(target_os = "linux")]
-pub struct AyaAttributionReader {
-    flow_to_pid: aya::maps::HashMap<aya::maps::MapData, FlowKey, FlowPidRecord>,
-    process_info: aya::maps::HashMap<aya::maps::MapData, u32, ProcessInfoRecord>,
+struct MetadataEnricher {
     procfs: ProcfsEnricher,
+    cache: FastHashMap<ProcessDetailsCacheKey, CachedProcessDetails>,
+    pending: VecDeque<ProcessInfoRecord>,
+    pending_keys: FastHashSet<ProcessDetailsCacheKey>,
+    read_budget: MetadataReadBudget,
+}
+
+#[cfg(target_os = "linux")]
+impl MetadataEnricher {
+    fn host() -> Self {
+        Self::with_procfs(ProcfsEnricher::host())
+    }
+
+    fn with_procfs(procfs: ProcfsEnricher) -> Self {
+        Self {
+            procfs,
+            cache: FastHashMap::default(),
+            pending: VecDeque::new(),
+            pending_keys: FastHashSet::default(),
+            read_budget: MetadataReadBudget::new(
+                PROCESS_DETAILS_COLD_READS_PER_SECOND,
+                PROCESS_DETAILS_COLD_READ_BURST,
+            ),
+        }
+    }
+
+    fn process_details(
+        &mut self,
+        record: &ProcessInfoRecord,
+    ) -> (ProcessDetails, ProcessDetailsCacheKey, bool) {
+        let key = ProcessDetailsCacheKey::from(record);
+        let now = Instant::now();
+
+        if let Some(cached) = self.cache.get_mut(&key) {
+            if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
+                cached.last_used = now;
+                return (cached.details.clone(), key, false);
+            }
+        }
+
+        if self.read_budget.try_acquire(now) {
+            let details = self.procfs.process_details(record);
+            self.cache_process_details(key, details.clone(), now);
+            return (details, key, true);
+        }
+
+        if self.pending_keys.insert(key) {
+            self.pending.push_back(*record);
+        }
+
+        (process_details_from_record(record), key, false)
+    }
+
+    fn process_pending(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
+        let mut updated = Vec::new();
+        while self.read_budget.try_acquire(Instant::now()) {
+            let Some(record) = self.pending.pop_front() else {
+                break;
+            };
+            let key = ProcessDetailsCacheKey::from(&record);
+            self.pending_keys.remove(&key);
+
+            let now = Instant::now();
+            let details = self.procfs.process_details(&record);
+            self.cache_process_details(key, details.clone(), now);
+            updated.push((key, details));
+        }
+        updated
+    }
+
+    fn cache_len(&self) -> usize {
+        self.cache.len()
+    }
+
+    fn prune(&mut self, now: Instant) {
+        if self.cache.len() < PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            return;
+        }
+
+        self.cache
+            .retain(|_, cached| now.duration_since(cached.last_used) < PROCESS_DETAILS_CACHE_TTL);
+
+        if self.cache.len() >= PROCESS_DETAILS_CACHE_MAX_ENTRIES {
+            self.cache.clear();
+        }
+    }
+
+    fn cache_process_details(
+        &mut self,
+        key: ProcessDetailsCacheKey,
+        details: ProcessDetails,
+        now: Instant,
+    ) {
+        self.prune(now);
+        self.pending_keys.remove(&key);
+        self.cache.insert(
+            key,
+            CachedProcessDetails {
+                details,
+                updated_at: now,
+                last_used: now,
+            },
+        );
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct MetadataReadBudget {
+    available: u32,
+    max_burst: u32,
+    refill_per_second: u32,
+    last_refill: Instant,
+}
+
+#[cfg(target_os = "linux")]
+impl MetadataReadBudget {
+    fn new(refill_per_second: u32, max_burst: u32) -> Self {
+        Self {
+            available: max_burst,
+            max_burst,
+            refill_per_second,
+            last_refill: Instant::now(),
+        }
+    }
+
+    fn try_acquire(&mut self, now: Instant) -> bool {
+        self.refill(now);
+        if self.available == 0 {
+            return false;
+        }
+
+        self.available -= 1;
+        true
+    }
+
+    fn refill(&mut self, now: Instant) {
+        let elapsed = now.duration_since(self.last_refill).as_secs();
+        if elapsed == 0 {
+            return;
+        }
+
+        let refill = elapsed
+            .saturating_mul(u64::from(self.refill_per_second))
+            .min(u64::from(u32::MAX)) as u32;
+        self.available = self.available.saturating_add(refill).min(self.max_burst);
+        self.last_refill = now;
+    }
+}
+
+#[cfg(target_os = "linux")]
+pub struct AyaAttributionReader {
+    backend: EbpfAttributionBackend,
+    metadata: MetadataEnricher,
+    socket_inventory: SocketInventory,
+    udp_roles: UdpRoleInventory,
 }
 
 #[cfg(target_os = "linux")]
 impl AyaAttributionReader {
     pub fn from_ebpf(ebpf: &mut aya::Ebpf) -> anyhow::Result<Self> {
-        let flow_to_pid = ebpf.take_map("flow_to_pid").ok_or_else(|| {
-            anyhow::anyhow!("flow_to_pid map is missing from netprobe eBPF object")
-        })?;
-        let process_info = ebpf.take_map("process_info").ok_or_else(|| {
-            anyhow::anyhow!("process_info map is missing from netprobe eBPF object")
-        })?;
-
         Ok(Self {
-            flow_to_pid: aya::maps::HashMap::try_from(flow_to_pid)?,
-            process_info: aya::maps::HashMap::try_from(process_info)?,
-            procfs: ProcfsEnricher::host(),
+            backend: EbpfAttributionBackend::from_ebpf(ebpf)?,
+            metadata: MetadataEnricher::host(),
+            socket_inventory: SocketInventory::default(),
+            udp_roles: UdpRoleInventory::default(),
         })
     }
 
-    pub fn snapshot(&self) -> Vec<AttributedFlow> {
-        self.flow_to_pid
-            .iter()
-            .filter_map(Result::ok)
-            .map(|(flow, pid)| {
-                let process = self
-                    .process_info
-                    .get(&pid.tgid, 0)
-                    .ok()
-                    .map(|record| self.procfs.process_details(&record));
-                AttributedFlow { flow, pid, process }
-            })
-            .collect()
+    fn drain_records(&mut self, records: &mut Vec<FlowAttributionRecord>) {
+        self.backend.drain_records(records)
     }
 
-    fn process_snapshot(&self) -> ProcessSnapshot {
-        self.procfs
-            .process_snapshot(&self.process_info_records(), now_unix_nano())
+    fn wait_for_records(&self, timeout: Duration) -> io::Result<bool> {
+        self.backend.wait_for_records(timeout)
     }
 
-    fn process_info_records(&self) -> HashMap<u32, ProcessInfoRecord> {
-        self.process_info.iter().filter_map(Result::ok).collect()
+    /// Build an `AttributedFlow` from a ring record. Returns `None` for records
+    /// without a usable 5-tuple (the per-packet tcp/udp probes emit empty
+    /// tuples). The record's `tuple` is directional with the local socket as the
+    /// source, so endpoint A is always the local side — matching the local/remote
+    /// semantics the map-snapshot path produced via the canonical key.
+    fn attributed_flow_from_record_basic(
+        record: &FlowAttributionRecord,
+        coalesce_service: bool,
+    ) -> Option<AttributedFlow> {
+        let flow = attribution_flow_key_from_record(record, coalesce_service)?;
+        let process = Some(process_details_from_record(&ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            comm: record.comm,
+        }));
+        Some(AttributedFlow {
+            flow,
+            pid: FlowPidRecord {
+                version: record.version,
+                event_kind: record.event_kind,
+                pid: record.pid,
+                tgid: record.tgid,
+                uid: record.uid,
+                gid: record.gid,
+                socket_address: record.socket_address,
+                last_seen_ns: 0,
+                process_generation_ns: record.process_generation_ns,
+                old_state: record.old_state,
+                new_state: record.new_state,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process,
+        })
     }
+
+    fn attributed_flow_from_record_enriched(
+        &mut self,
+        record: &FlowAttributionRecord,
+        metrics: &Metrics,
+        coalesce_service: bool,
+    ) -> Option<AttributedFlow> {
+        let flow = attribution_flow_key_from_record(record, coalesce_service)?;
+        let pid = FlowPidRecord {
+            version: record.version,
+            event_kind: record.event_kind,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            socket_address: record.socket_address,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            old_state: record.old_state,
+            new_state: record.new_state,
+            local_endpoint: FLOW_ENDPOINT_A,
+            reserved: [0; 7],
+        };
+        let info = ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            comm: record.comm,
+        };
+        let (details, _, cold_read) = self.metadata.process_details(&info);
+        if cold_read {
+            metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        }
+        metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+        let process = Some(details);
+        Some(AttributedFlow { flow, pid, process })
+    }
+
+    fn record_inventory(&mut self, record: &FlowAttributionRecord, flow: &AttributedFlow) {
+        if should_record_inventory(record) {
+            self.socket_inventory.update(flow);
+        }
+    }
+
+    fn remove_inventory_record(&mut self, record: &FlowAttributionRecord) {
+        self.socket_inventory.remove_record(record);
+    }
+
+    fn touch_inventory_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        self.socket_inventory.touch_record(record)
+    }
+
+    fn has_listener_for_record(&self, record: &FlowAttributionRecord) -> bool {
+        self.socket_inventory.has_listener_for_record(record)
+    }
+
+    fn should_coalesce_record(&mut self, record: &FlowAttributionRecord) -> bool {
+        if self.has_listener_for_record(record) || likely_service_side_record(record) {
+            return true;
+        }
+
+        self.udp_roles.should_coalesce_record(record)
+    }
+
+    fn process_snapshot_if_dirty(&mut self) -> Option<ProcessSnapshot> {
+        let observed_at_unix_nano = now_unix_nano();
+        if let Some(snapshot) = self
+            .socket_inventory
+            .snapshot_if_dirty(observed_at_unix_nano)
+        {
+            return Some(snapshot);
+        }
+
+        if !self.socket_inventory.entries.is_empty() {
+            return None;
+        }
+        None
+    }
+
+    fn backend_method(&self) -> &'static str {
+        self.backend.method()
+    }
+
+    fn inventory_len(&self) -> usize {
+        self.socket_inventory.entries.len()
+    }
+
+    fn inventory_dirty(&self) -> bool {
+        self.socket_inventory.is_dirty()
+    }
+
+    fn process_pending_metadata(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
+        let updated = self.metadata.process_pending();
+        updated
+    }
+
+    fn metadata_cache_len(&self) -> usize {
+        self.metadata.cache_len()
+    }
+
+    fn refresh_cached_process_details(
+        &mut self,
+        record: &FlowAttributionRecord,
+        metrics: &Metrics,
+        cached: &mut CachedAttribution,
+        now: Instant,
+    ) -> bool {
+        if process_metadata_complete(&cached.event) {
+            return false;
+        }
+        if now.duration_since(cached.last_metadata_attempt) < PROCESS_DETAILS_RETRY_INTERVAL {
+            return false;
+        }
+
+        cached.last_metadata_attempt = now;
+        let info = ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            comm: record.comm,
+        };
+        let (details, _, cold_read) = self.metadata.process_details(&info);
+        if cold_read {
+            metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        }
+        metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+
+        apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_metadata_complete(event: &FlowAttributionEvent) -> bool {
+    !event.redacted_cmdline.is_empty() && !event.container_id.is_empty()
 }
 
 #[cfg(target_os = "linux")]
@@ -266,33 +1221,124 @@ pub struct FlowAttributionRuntime {
 }
 
 #[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug)]
+pub struct FlowAttributionRuntimeConfig {
+    pub process_snapshot_interval: Option<Duration>,
+    pub resend_interval: Option<Duration>,
+}
+
+#[cfg(target_os = "linux")]
 #[allow(dead_code)]
 impl FlowAttributionRuntime {
     pub fn start(
-        reader: AyaAttributionReader,
-        tx: tokio::sync::broadcast::Sender<FlowAttributionEvent>,
+        mut reader: AyaAttributionReader,
+        tx: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshot_tx: tokio::sync::broadcast::Sender<ProcessSnapshot>,
+        external_flow_matcher: SharedExternalFlowMatcher,
         metrics: Metrics,
-        process_snapshot_interval: Option<Duration>,
+        runtime_config: FlowAttributionRuntimeConfig,
     ) -> std::io::Result<Self> {
         let stop = Arc::new(AtomicBool::new(false));
         let stop_worker = Arc::clone(&stop);
         let thread = thread::Builder::new()
-            .name("netprobe-flow-attribution-map-reader".to_owned())
+            .name("netprobe-flow-attribution-ring-reader".to_owned())
             .spawn(move || {
-                let mut seen = HashSet::new();
-                let mut last_process_snapshot =
-                    process_snapshot_interval.map(|interval| Instant::now() - interval);
+                // Live attribution cache, keyed by (flow, pid, tgid). New flows are
+                // broadcast immediately and core persists them for delayed NetFlow
+                // correlation. Whole-cache re-broadcast is opt-in only because it is
+                // O(cache) work on the ring-reader thread.
+                let mut cache = FlowAttributionCache::default();
+                let mut process_index = ProcessAttributionIndex::default();
+                let mut expiry_queue: AttributionExpiryQueue = BinaryHeap::new();
+                let mut ring_records = Vec::with_capacity(1024);
+                let mut next_expiry_sequence = 0_u64;
+                let mut last_process_snapshot = runtime_config
+                    .process_snapshot_interval
+                    .map(|interval| Instant::now() - interval);
+                let mut last_dirty_process_snapshot =
+                    Instant::now() - PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL;
+                let mut last_resend = Instant::now();
+                let mut last_cache_prune = Instant::now();
                 while !stop_worker.load(Ordering::Relaxed) {
-                    emit_snapshot(&reader, &tx, &metrics, &mut seen);
-                    if let Some(interval) = process_snapshot_interval {
+                    drain_ring(
+                        &mut reader,
+                        tx.as_ref(),
+                        &external_flow_matcher,
+                        &metrics,
+                        &mut cache,
+                        &mut process_index,
+                        &mut expiry_queue,
+                        &mut next_expiry_sequence,
+                        &mut ring_records,
+                    );
+                    let enriched = reader.process_pending_metadata();
+                    if !enriched.is_empty() {
+                        refresh_enriched_attributions(
+                            tx.as_ref(),
+                            &external_flow_matcher,
+                            &metrics,
+                            &mut cache,
+                            &process_index,
+                            enriched,
+                        );
+                        metrics.set_attribution_cache_entries(
+                            "process_metadata",
+                            reader.metadata_cache_len(),
+                        );
+                    }
+                    if reader.inventory_dirty()
+                        && last_dirty_process_snapshot.elapsed()
+                            >= PROCESS_SNAPSHOT_DIRTY_MIN_INTERVAL
+                    {
+                        emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
+                        last_dirty_process_snapshot = Instant::now();
+                    }
+                    if let Some(resend_interval) = runtime_config.resend_interval {
+                        if last_resend.elapsed() >= resend_interval {
+                            resend_cache(
+                                tx.as_ref(),
+                                &external_flow_matcher,
+                                &metrics,
+                                &mut cache,
+                                &mut process_index,
+                                &mut expiry_queue,
+                                &mut next_expiry_sequence,
+                            );
+                            last_resend = Instant::now();
+                        }
+                    }
+                    if last_cache_prune.elapsed() >= FLOW_ATTRIBUTION_CACHE_PRUNE_INTERVAL
+                        || cache.len() > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES
+                    {
+                        prune_attribution_cache(
+                            &mut cache,
+                            &mut process_index,
+                            &external_flow_matcher,
+                            &mut expiry_queue,
+                            &mut next_expiry_sequence,
+                            Instant::now(),
+                        );
+                        metrics.set_attribution_cache_entries("flow_attribution", cache.len());
+                        last_cache_prune = Instant::now();
+                    }
+                    if let Some(interval) = runtime_config.process_snapshot_interval {
                         let last = last_process_snapshot.get_or_insert_with(Instant::now);
                         if last.elapsed() >= interval {
-                            emit_process_snapshot(&reader, &process_snapshot_tx, &metrics);
+                            emit_process_snapshot(&mut reader, &process_snapshot_tx, &metrics);
                             *last = Instant::now();
                         }
                     }
-                    thread::sleep(FLOW_ATTRIBUTION_POLL_INTERVAL);
+
+                    let wait = ring_wait_duration(
+                        last_resend,
+                        runtime_config.resend_interval,
+                        runtime_config.process_snapshot_interval,
+                        last_process_snapshot,
+                    );
+                    if let Err(err) = reader.wait_for_records(wait) {
+                        log::warn!("flow attribution ring poll failed: {err}");
+                        thread::sleep(wait);
+                    }
                 }
             })?;
 
@@ -316,34 +1362,815 @@ impl Drop for FlowAttributionRuntime {
 }
 
 #[cfg(target_os = "linux")]
-fn emit_snapshot(
-    reader: &AyaAttributionReader,
-    tx: &tokio::sync::broadcast::Sender<FlowAttributionEvent>,
-    metrics: &Metrics,
-    seen: &mut HashSet<FlowAttributionJoinKey>,
-) {
-    for flow in reader.snapshot() {
-        let key = FlowAttributionJoinKey::from(&flow);
-        if !seen.insert(key) {
-            continue;
-        }
-        let Some(event) = flow.event() else {
-            continue;
-        };
-        metrics.inc_flow_attribution_events();
-        if tx.send(event).is_err() {
-            metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+fn ring_wait_duration(
+    last_resend: Instant,
+    resend_interval: Option<Duration>,
+    process_snapshot_interval: Option<Duration>,
+    last_process_snapshot: Option<Instant>,
+) -> Duration {
+    let resend_wait = resend_interval
+        .map(|interval| interval.saturating_sub(last_resend.elapsed()))
+        .unwrap_or(FLOW_ATTRIBUTION_RING_MAX_WAIT);
+    let process_wait = match (process_snapshot_interval, last_process_snapshot) {
+        (Some(interval), Some(last)) => interval.saturating_sub(last.elapsed()),
+        (Some(_), None) => Duration::ZERO,
+        (None, _) => FLOW_ATTRIBUTION_RING_MAX_WAIT,
+    };
+
+    resend_wait
+        .min(process_wait)
+        .min(FLOW_ATTRIBUTION_RING_MAX_WAIT)
+}
+
+#[cfg(target_os = "linux")]
+struct CachedAttribution {
+    event: Arc<FlowAttributionEvent>,
+    process_key: ProcessDetailsCacheKey,
+    last_seen: Instant,
+    last_emitted: Instant,
+    last_emitted_fingerprint: u64,
+    last_metadata_attempt: Instant,
+}
+
+#[cfg(target_os = "linux")]
+type FlowAttributionCache = FastHashMap<FlowAttributionJoinKey, CachedAttribution>;
+
+#[cfg(target_os = "linux")]
+type ProcessAttributionIndex =
+    FastHashMap<ProcessDetailsCacheKey, FastHashSet<FlowAttributionJoinKey>>;
+
+#[cfg(target_os = "linux")]
+type AttributionExpiryQueue = BinaryHeap<Reverse<AttributionExpiry>>;
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+struct ProcessDetailsCacheKey {
+    tgid: u32,
+    uid: u32,
+    gid: u32,
+    process_generation_ns: u64,
+}
+
+#[cfg(target_os = "linux")]
+impl From<&ProcessInfoRecord> for ProcessDetailsCacheKey {
+    fn from(value: &ProcessInfoRecord) -> Self {
+        Self {
+            tgid: value.tgid,
+            uid: value.uid,
+            gid: value.gid,
+            process_generation_ns: value.process_generation_ns,
         }
     }
 }
 
 #[cfg(target_os = "linux")]
+impl From<&FlowAttributionRecord> for ProcessDetailsCacheKey {
+    fn from(value: &FlowAttributionRecord) -> Self {
+        Self {
+            tgid: value.tgid,
+            uid: value.uid,
+            gid: value.gid,
+            process_generation_ns: value.process_generation_ns,
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+struct CachedProcessDetails {
+    details: ProcessDetails,
+    updated_at: Instant,
+    last_used: Instant,
+}
+
+#[cfg(target_os = "linux")]
+#[derive(Clone, Copy, Debug)]
+struct AttributionExpiry {
+    expires_at: Instant,
+    sequence: u64,
+    key: FlowAttributionJoinKey,
+}
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_EVENT_KIND_LABELS: [&str; 8] = [
+    "tcp_connect",
+    "tcp_accept",
+    "tcp_close",
+    "udp_send",
+    "udp_recv",
+    "inet_sock_set_state",
+    "icmp_send",
+    "other",
+];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_PROTOCOL_LABELS: [&str; 5] = ["icmp", "tcp", "udp", "icmpv6", "other"];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_CLOSE: usize = 0;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_MISS: usize = 1;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_CACHED: usize = 2;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_UPDATED: usize = 3;
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_NEW: usize = 4;
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_OUTCOME_LABELS: [&str; 5] = ["close", "miss", "cached", "updated", "new"];
+
+#[cfg(target_os = "linux")]
+const ATTRIBUTION_RECORD_METRIC_SLOTS: usize = ATTRIBUTION_EVENT_KIND_LABELS.len()
+    * ATTRIBUTION_PROTOCOL_LABELS.len()
+    * ATTRIBUTION_OUTCOME_LABELS.len()
+    * 2;
+
+#[cfg(target_os = "linux")]
+struct DrainMetricAccumulator {
+    backend_method: &'static str,
+    backend_hits: u64,
+    backend_misses: u64,
+    attribution_records: [u64; ATTRIBUTION_RECORD_METRIC_SLOTS],
+    touched_record_slots: [usize; ATTRIBUTION_RECORD_METRIC_SLOTS],
+    touched_record_slot_count: usize,
+}
+
+#[cfg(target_os = "linux")]
+impl DrainMetricAccumulator {
+    fn new(backend_method: &'static str) -> Self {
+        Self {
+            backend_method,
+            backend_hits: 0,
+            backend_misses: 0,
+            attribution_records: [0; ATTRIBUTION_RECORD_METRIC_SLOTS],
+            touched_record_slots: [0; ATTRIBUTION_RECORD_METRIC_SLOTS],
+            touched_record_slot_count: 0,
+        }
+    }
+
+    fn inc_backend_hit(&mut self) {
+        self.backend_hits = self.backend_hits.saturating_add(1);
+    }
+
+    fn inc_backend_miss(&mut self) {
+        self.backend_misses = self.backend_misses.saturating_add(1);
+    }
+
+    fn inc_record(
+        &mut self,
+        event_kind: u16,
+        protocol: u16,
+        outcome_index: usize,
+        service_coalesced: bool,
+    ) {
+        let slot = attribution_record_metric_slot(
+            attribution_event_kind_index(event_kind),
+            attribution_protocol_index(protocol),
+            outcome_index,
+            service_coalesced,
+        );
+        if self.attribution_records[slot] == 0 {
+            self.touched_record_slots[self.touched_record_slot_count] = slot;
+            self.touched_record_slot_count += 1;
+        }
+        self.attribution_records[slot] = self.attribution_records[slot].saturating_add(1);
+    }
+
+    fn flush(&self, metrics: &Metrics) {
+        if self.backend_hits > 0 {
+            metrics.inc_attribution_backend_events(self.backend_method, "hit", self.backend_hits);
+        }
+        if self.backend_misses > 0 {
+            metrics.inc_attribution_backend_events(
+                self.backend_method,
+                "miss",
+                self.backend_misses,
+            );
+        }
+
+        for slot in self
+            .touched_record_slots
+            .iter()
+            .take(self.touched_record_slot_count)
+            .copied()
+        {
+            let count = self.attribution_records[slot];
+
+            let service_index = slot % 2;
+            let outcome_index = (slot / 2) % ATTRIBUTION_OUTCOME_LABELS.len();
+            let protocol_index =
+                (slot / (2 * ATTRIBUTION_OUTCOME_LABELS.len())) % ATTRIBUTION_PROTOCOL_LABELS.len();
+            let event_kind_index =
+                slot / (2 * ATTRIBUTION_OUTCOME_LABELS.len() * ATTRIBUTION_PROTOCOL_LABELS.len());
+
+            metrics.inc_attribution_records(
+                ATTRIBUTION_EVENT_KIND_LABELS[event_kind_index],
+                ATTRIBUTION_PROTOCOL_LABELS[protocol_index],
+                ATTRIBUTION_OUTCOME_LABELS[outcome_index],
+                service_index == 1,
+                count,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_record_metric_slot(
+    event_kind_index: usize,
+    protocol_index: usize,
+    outcome_index: usize,
+    service_coalesced: bool,
+) -> usize {
+    (((event_kind_index * ATTRIBUTION_PROTOCOL_LABELS.len() + protocol_index)
+        * ATTRIBUTION_OUTCOME_LABELS.len()
+        + outcome_index)
+        * 2)
+        + usize::from(service_coalesced)
+}
+
+#[cfg(target_os = "linux")]
+impl PartialEq for AttributionExpiry {
+    fn eq(&self, other: &Self) -> bool {
+        self.expires_at == other.expires_at && self.sequence == other.sequence
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Eq for AttributionExpiry {}
+
+#[cfg(target_os = "linux")]
+impl PartialOrd for AttributionExpiry {
+    fn partial_cmp(&self, other: &Self) -> Option<CmpOrdering> {
+        Some(self.cmp(other))
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Ord for AttributionExpiry {
+    fn cmp(&self, other: &Self) -> CmpOrdering {
+        self.expires_at
+            .cmp(&other.expires_at)
+            .then_with(|| self.sequence.cmp(&other.sequence))
+    }
+}
+
+// Drain the ring buffer and emit a flow-attribution event for every newly-seen
+// flow. A record for an already-cached flow refreshes the cached event (so the
+// next resend carries its latest state) without re-broadcasting. A close record
+// evicts the flow. Returns the number of records drained so the caller can
+// distinguish a busy ring (loop again) from an idle one (sleep).
+#[cfg(target_os = "linux")]
+fn drain_ring(
+    reader: &mut AyaAttributionReader,
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
+    metrics: &Metrics,
+    cache: &mut FlowAttributionCache,
+    process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    records: &mut Vec<FlowAttributionRecord>,
+) -> usize {
+    reader.drain_records(records);
+    let drained = records.len();
+    let mut drain_metrics = DrainMetricAccumulator::new(reader.backend_method());
+    for record in records.iter() {
+        let coalesce_service = reader.should_coalesce_record(record);
+
+        if record.event_kind == EVENT_TCP_CLOSE {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_CLOSE,
+                coalesce_service,
+            );
+            reader.remove_inventory_record(record);
+            if let Some(key) = join_key_from_record(record, coalesce_service) {
+                touch_closed_cached_attribution(cache, &key);
+            }
+            continue;
+        }
+        if record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_CLOSE_STATE {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_CLOSE,
+                coalesce_service,
+            );
+            reader.remove_inventory_record(record);
+            if let Some(key) = join_key_from_record(record, coalesce_service) {
+                touch_closed_cached_attribution(cache, &key);
+            }
+            continue;
+        }
+        let Some(key) = join_key_from_record(record, coalesce_service) else {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_MISS,
+                coalesce_service,
+            );
+            drain_metrics.inc_backend_miss();
+            continue;
+        };
+        if let Some(existing) = cache.get_mut(&key) {
+            drain_metrics.inc_backend_hit();
+            if !should_record_inventory(record) || reader.touch_inventory_record(record) {
+                drain_metrics.inc_record(
+                    record.event_kind,
+                    record.tuple.protocol,
+                    ATTRIBUTION_OUTCOME_CACHED,
+                    coalesce_service,
+                );
+                let now = Instant::now();
+                Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
+                if reader.refresh_cached_process_details(record, metrics, existing, now) {
+                    Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
+                }
+                existing.last_seen = now;
+                maybe_emit_cached_attribution(tx, metrics, existing, now);
+                continue;
+            }
+        }
+        let should_record_inventory = should_record_inventory(record);
+        let needs_enrichment = tx.is_some() || should_record_inventory;
+        let flow = if needs_enrichment {
+            reader.attributed_flow_from_record_enriched(record, metrics, coalesce_service)
+        } else {
+            AyaAttributionReader::attributed_flow_from_record_basic(record, coalesce_service)
+        };
+        let Some(flow) = flow else {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_MISS,
+                coalesce_service,
+            );
+            drain_metrics.inc_backend_miss();
+            continue;
+        };
+        drain_metrics.inc_backend_hit();
+        if should_record_inventory {
+            reader.record_inventory(record, &flow);
+            metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
+        }
+        let Some(event) = flow.event() else {
+            continue;
+        };
+        let process_key = ProcessDetailsCacheKey::from(record);
+        let event = Arc::new(event);
+        let now = Instant::now();
+        if let Some(existing) = cache.get_mut(&key) {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_UPDATED,
+                coalesce_service,
+            );
+            existing.event = event;
+            if existing.process_key != process_key {
+                move_process_index(process_index, key, existing.process_key, process_key);
+                existing.process_key = process_key;
+            }
+            existing.last_seen = now;
+            maybe_emit_cached_attribution(tx, metrics, existing, now);
+        } else {
+            drain_metrics.inc_record(
+                record.event_kind,
+                record.tuple.protocol,
+                ATTRIBUTION_OUTCOME_NEW,
+                coalesce_service,
+            );
+            external_flow_matcher.observe_attribution_key(key.flow, &event);
+            emit_raw_flow_attribution_event(tx, metrics, Arc::clone(&event));
+            insert_cached_attribution(
+                cache,
+                process_index,
+                expiry_queue,
+                next_expiry_sequence,
+                key,
+                CachedAttribution {
+                    last_emitted: now,
+                    last_emitted_fingerprint: attribution_event_fingerprint(&event),
+                    event,
+                    process_key,
+                    last_seen: now,
+                    last_metadata_attempt: now,
+                },
+            );
+        }
+    }
+    drain_metrics.flush(metrics);
+    drained
+}
+
+// Prune stale entries, then re-broadcast every live attribution. This is an
+// explicit compatibility knob for deployments that need periodic replays; the
+// default data path emits on eBPF events and relies on core-side persistence for
+// delayed NetFlow correlation.
+#[cfg(target_os = "linux")]
+fn resend_cache(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
+    metrics: &Metrics,
+    cache: &mut FlowAttributionCache,
+    process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+) {
+    prune_attribution_cache(
+        cache,
+        process_index,
+        external_flow_matcher,
+        expiry_queue,
+        next_expiry_sequence,
+        Instant::now(),
+    );
+    let now = Instant::now();
+    for entry in cache.values_mut() {
+        emit_cached_attribution(tx, metrics, entry, now);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn insert_cached_attribution(
+    cache: &mut FlowAttributionCache,
+    process_index: &mut ProcessAttributionIndex,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    key: FlowAttributionJoinKey,
+    entry: CachedAttribution,
+) {
+    let last_seen = entry.last_seen;
+    let process_key = entry.process_key;
+    if let Some(previous) = cache.insert(key, entry) {
+        remove_process_index_key(process_index, previous.process_key, &key);
+    }
+    process_index.entry(process_key).or_default().insert(key);
+    push_attribution_expiry(expiry_queue, next_expiry_sequence, key, last_seen);
+}
+
+#[cfg(target_os = "linux")]
+fn remove_cached_attribution(
+    cache: &mut FlowAttributionCache,
+    process_index: &mut ProcessAttributionIndex,
+    key: &FlowAttributionJoinKey,
+) -> Option<CachedAttribution> {
+    let removed = cache.remove(key)?;
+    remove_process_index_key(process_index, removed.process_key, key);
+    Some(removed)
+}
+
+#[cfg(target_os = "linux")]
+fn touch_closed_cached_attribution(cache: &mut FlowAttributionCache, key: &FlowAttributionJoinKey) {
+    if let Some(entry) = cache.get_mut(key) {
+        entry.last_seen = Instant::now();
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn move_process_index(
+    process_index: &mut ProcessAttributionIndex,
+    key: FlowAttributionJoinKey,
+    old_process_key: ProcessDetailsCacheKey,
+    new_process_key: ProcessDetailsCacheKey,
+) {
+    remove_process_index_key(process_index, old_process_key, &key);
+    process_index
+        .entry(new_process_key)
+        .or_default()
+        .insert(key);
+}
+
+#[cfg(target_os = "linux")]
+fn remove_process_index_key(
+    process_index: &mut ProcessAttributionIndex,
+    process_key: ProcessDetailsCacheKey,
+    key: &FlowAttributionJoinKey,
+) {
+    let Some(keys) = process_index.get_mut(&process_key) else {
+        return;
+    };
+    keys.remove(key);
+    if keys.is_empty() {
+        process_index.remove(&process_key);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn push_attribution_expiry(
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    key: FlowAttributionJoinKey,
+    last_seen: Instant,
+) {
+    let sequence = *next_expiry_sequence;
+    *next_expiry_sequence = next_expiry_sequence.wrapping_add(1);
+    expiry_queue.push(Reverse(AttributionExpiry {
+        expires_at: last_seen + FLOW_ATTRIBUTION_CACHE_TTL,
+        sequence,
+        key,
+    }));
+}
+
+#[cfg(target_os = "linux")]
+fn prune_attribution_cache(
+    cache: &mut FlowAttributionCache,
+    process_index: &mut ProcessAttributionIndex,
+    external_flow_matcher: &SharedExternalFlowMatcher,
+    expiry_queue: &mut AttributionExpiryQueue,
+    next_expiry_sequence: &mut u64,
+    now: Instant,
+) {
+    let mut remove_keys = Vec::new();
+
+    while let Some(Reverse(expiry)) = expiry_queue.peek().copied() {
+        if expiry.expires_at > now {
+            break;
+        }
+        expiry_queue.pop();
+
+        let Some(entry) = cache.get(&expiry.key) else {
+            continue;
+        };
+        let refreshed_expires_at = entry.last_seen + FLOW_ATTRIBUTION_CACHE_TTL;
+        if refreshed_expires_at <= now {
+            remove_keys.push(expiry.key);
+        } else {
+            push_attribution_expiry(
+                expiry_queue,
+                next_expiry_sequence,
+                expiry.key,
+                entry.last_seen,
+            );
+        }
+    }
+
+    if cache.len().saturating_sub(remove_keys.len()) > FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES {
+        let remove_set = remove_keys.iter().copied().collect::<FastHashSet<_>>();
+        let mut by_age = cache
+            .iter()
+            .filter(|(key, _)| !remove_set.contains(key))
+            .map(|(key, entry)| (*key, entry.last_seen))
+            .collect::<Vec<_>>();
+        by_age.sort_by_key(|(_, last_seen)| *last_seen);
+
+        let overflow = cache
+            .len()
+            .saturating_sub(remove_keys.len())
+            .saturating_sub(FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK);
+        remove_keys.extend(by_age.into_iter().take(overflow).map(|(key, _)| key));
+    }
+
+    for key in remove_keys {
+        if remove_cached_attribution(cache, process_index, &key).is_some() {
+            external_flow_matcher.remove_flow(&key.flow);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn refresh_enriched_attributions(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    external_flow_matcher: &SharedExternalFlowMatcher,
+    metrics: &Metrics,
+    cache: &mut FlowAttributionCache,
+    process_index: &ProcessAttributionIndex,
+    updated: Vec<(ProcessDetailsCacheKey, ProcessDetails)>,
+) {
+    for (process_key, details) in updated {
+        metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        let Some(flow_keys) = process_index.get(&process_key) else {
+            continue;
+        };
+        for key in flow_keys {
+            let Some(entry) = cache.get_mut(key) else {
+                continue;
+            };
+            if !apply_process_details_to_event(Arc::make_mut(&mut entry.event), &details) {
+                continue;
+            }
+            Arc::make_mut(&mut entry.event).observed_at_unix_nano = now_unix_nano();
+            let now = Instant::now();
+            entry.last_seen = now;
+            external_flow_matcher.observe_attribution_key(key.flow, &entry.event);
+            emit_cached_attribution(tx, metrics, entry, now);
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn maybe_emit_cached_attribution(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    metrics: &Metrics,
+    entry: &mut CachedAttribution,
+    now: Instant,
+) {
+    let fingerprint = attribution_event_fingerprint(&entry.event);
+    if fingerprint != entry.last_emitted_fingerprint
+        || now.duration_since(entry.last_emitted) >= FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL
+    {
+        emit_cached_attribution(tx, metrics, entry, now);
+    } else {
+        metrics.inc_flow_attribution_events_dropped("duplicate_coalesced", 1);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn emit_cached_attribution(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    metrics: &Metrics,
+    entry: &mut CachedAttribution,
+    now: Instant,
+) {
+    let event = Arc::clone(&entry.event);
+    entry.last_emitted = now;
+    entry.last_emitted_fingerprint = attribution_event_fingerprint(&event);
+    emit_raw_flow_attribution_event(tx, metrics, event);
+}
+
+#[cfg(target_os = "linux")]
+fn emit_raw_flow_attribution_event(
+    tx: Option<&EventSender<Arc<FlowAttributionEvent>>>,
+    metrics: &Metrics,
+    event: Arc<FlowAttributionEvent>,
+) {
+    let Some(tx) = tx else {
+        return;
+    };
+
+    metrics.inc_flow_attribution_events();
+    match tx.try_send(event) {
+        Ok(()) => {}
+        Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+            metrics.inc_flow_attribution_events_dropped("queue_full", 1);
+        }
+        Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+            metrics.inc_flow_attribution_events_dropped("no_receiver", 1);
+        }
+    }
+}
+
+fn apply_process_details_to_event(
+    event: &mut FlowAttributionEvent,
+    details: &ProcessDetails,
+) -> bool {
+    let redacted_cmdline = cap_redacted_cmdline_ref(&details.cmdline);
+    let container_id = details.container_id.clone().unwrap_or_default();
+    let changed = event.uid != details.uid
+        || event.gid != details.gid
+        || event.comm != details.comm
+        || event.redacted_cmdline != redacted_cmdline
+        || event.container_id != container_id;
+
+    if changed {
+        event.uid = details.uid;
+        event.gid = details.gid;
+        event.comm = details.comm.clone();
+        event.redacted_cmdline = redacted_cmdline;
+        event.container_id = container_id;
+    }
+
+    changed
+}
+
+// Directional FlowKey from a ring record's tuple: endpoint A is the local socket
+// (source), endpoint B the peer. Returns None for empty / non-IP /
+// non-TCP-UDP-ICMP tuples. ICMP carries no ports, so a zero source/destination
+// port is expected and accepted (do NOT drop it for missing ports).
+#[cfg(target_os = "linux")]
+fn flow_key_from_record(record: &FlowAttributionRecord) -> Option<FlowKey> {
+    if record.tuple.family != AF_INET && record.tuple.family != AF_INET6 {
+        return None;
+    }
+    if record.tuple.protocol != IPPROTO_TCP
+        && record.tuple.protocol != IPPROTO_UDP
+        && record.tuple.protocol != IPPROTO_ICMP
+        && record.tuple.protocol != IPPROTO_ICMPV6
+    {
+        return None;
+    }
+    Some(FlowKey {
+        address_family: record.tuple.family,
+        transport_protocol: record.tuple.protocol,
+        endpoint_a_port: record.tuple.source_port,
+        endpoint_b_port: record.tuple.destination_port,
+        endpoint_a_addr: record.tuple.source_addr,
+        endpoint_b_addr: record.tuple.destination_addr,
+    })
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_flow_key_from_record(
+    record: &FlowAttributionRecord,
+    coalesce_service: bool,
+) -> Option<FlowKey> {
+    let mut flow = flow_key_from_record(record)?;
+    if should_coalesce_udp_client_attribution(&flow) {
+        flow.endpoint_a_port = 0;
+        return Some(flow);
+    }
+    if should_coalesce_service_attribution(&flow, coalesce_service) {
+        flow.endpoint_b_addr = [0; 16];
+        flow.endpoint_b_port = 0;
+    }
+    Some(flow)
+}
+
+#[cfg(target_os = "linux")]
+fn should_coalesce_service_attribution(flow: &FlowKey, coalesce_service: bool) -> bool {
+    coalesce_service
+        && matches!(flow.transport_protocol, IPPROTO_TCP | IPPROTO_UDP)
+        && flow.endpoint_a_port > 0
+        && flow.endpoint_b_port > 0
+}
+
+#[cfg(target_os = "linux")]
+fn should_coalesce_udp_client_attribution(flow: &FlowKey) -> bool {
+    flow.transport_protocol == IPPROTO_UDP
+        && flow.endpoint_a_port >= EPHEMERAL_PORT_FLOOR
+        && flow.endpoint_b_port > 0
+        && flow.endpoint_b_port < EPHEMERAL_PORT_FLOOR
+}
+
+#[cfg(target_os = "linux")]
+fn likely_service_side_record(record: &FlowAttributionRecord) -> bool {
+    likely_service_side_tuple(
+        record.tuple.protocol,
+        record.tuple.source_port,
+        record.tuple.destination_port,
+    )
+}
+
+fn likely_service_side_tuple(protocol: u16, source_port: u16, destination_port: u16) -> bool {
+    matches!(protocol, IPPROTO_TCP | IPPROTO_UDP)
+        && source_port > 0
+        && source_port < EPHEMERAL_PORT_FLOOR
+        && destination_port >= EPHEMERAL_PORT_FLOOR
+}
+
+#[cfg(target_os = "linux")]
+fn should_record_inventory(record: &FlowAttributionRecord) -> bool {
+    record.event_kind == EVENT_INET_SOCK_SET_STATE && record.new_state == TCP_LISTEN_STATE
+}
+
+#[cfg(target_os = "linux")]
+fn should_remove_inventory(record: &FlowAttributionRecord) -> bool {
+    record.event_kind == EVENT_INET_SOCK_SET_STATE
+        && record.old_state == TCP_LISTEN_STATE
+        && record.new_state == TCP_CLOSE_STATE
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_event_kind_index(event_kind: u16) -> usize {
+    match event_kind {
+        EVENT_TCP_CONNECT => 0,
+        EVENT_TCP_ACCEPT => 1,
+        EVENT_TCP_CLOSE => 2,
+        EVENT_UDP_SEND => 3,
+        EVENT_UDP_RECV => 4,
+        EVENT_INET_SOCK_SET_STATE => 5,
+        EVENT_ICMP_SEND => 6,
+        _ => 7,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_protocol_index(protocol: u16) -> usize {
+    match protocol {
+        IPPROTO_ICMP => 0,
+        IPPROTO_TCP => 1,
+        IPPROTO_UDP => 2,
+        IPPROTO_ICMPV6 => 3,
+        _ => 4,
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn join_key_from_record(
+    record: &FlowAttributionRecord,
+    coalesce_service: bool,
+) -> Option<FlowAttributionJoinKey> {
+    Some(FlowAttributionJoinKey {
+        flow: attribution_flow_key_from_record(record, coalesce_service)?,
+        pid: record.pid,
+        tgid: record.tgid,
+        process_generation_ns: record.process_generation_ns,
+    })
+}
+
+#[cfg(target_os = "linux")]
 fn emit_process_snapshot(
-    reader: &AyaAttributionReader,
+    reader: &mut AyaAttributionReader,
     tx: &tokio::sync::broadcast::Sender<ProcessSnapshot>,
     metrics: &Metrics,
 ) {
-    let snapshot = reader.process_snapshot();
+    let snapshot = reader.process_snapshot_if_dirty();
+    metrics.set_attribution_cache_entries("socket_inventory", reader.inventory_len());
+    let Some(snapshot) = snapshot else {
+        return;
+    };
+
     metrics.inc_process_snapshot_events();
     if tx.send(snapshot).is_err() {
         metrics.inc_process_snapshot_events_dropped("no_receiver", 1);
@@ -356,6 +2183,7 @@ struct FlowAttributionJoinKey {
     flow: FlowKey,
     pid: u32,
     tgid: u32,
+    process_generation_ns: u64,
 }
 
 #[cfg(target_os = "linux")]
@@ -365,6 +2193,7 @@ impl From<&AttributedFlow> for FlowAttributionJoinKey {
             flow: value.flow,
             pid: value.pid.pid,
             tgid: value.pid.tgid,
+            process_generation_ns: value.pid.process_generation_ns,
         }
     }
 }
@@ -415,10 +2244,21 @@ fn container_id(proc_root: &Path, tgid: u32) -> Option<String> {
 /// joined, possibly-truncated payload — because the §20.15 contract
 /// caps the cumulative byte length of the field, not its element count.
 fn cap_redacted_cmdline(parts: Vec<String>) -> Vec<String> {
+    cap_redacted_cmdline_ref(&parts)
+}
+
+fn cap_redacted_cmdline_ref(parts: &[String]) -> Vec<String> {
     if parts.is_empty() {
         return Vec::new();
     }
-    let joined = parts.join(" ");
+    let total_len = parts.iter().map(String::len).sum::<usize>() + parts.len().saturating_sub(1);
+    let mut joined = String::with_capacity(total_len);
+    for (idx, part) in parts.iter().enumerate() {
+        if idx > 0 {
+            joined.push(' ');
+        }
+        joined.push_str(part);
+    }
     let capped = trim_to_utf8_boundary(&joined, REDACTED_CMDLINE_MAX_BYTES);
     vec![capped]
 }
@@ -435,6 +2275,30 @@ fn trim_to_utf8_boundary(value: &str, max_bytes: usize) -> String {
         cut -= 1;
     }
     value[..cut].to_string()
+}
+
+#[cfg(target_os = "linux")]
+fn attribution_event_fingerprint(event: &FlowAttributionEvent) -> u64 {
+    let mut hasher = FastHasher::default();
+    event.local_ip.hash(&mut hasher);
+    event.local_port.hash(&mut hasher);
+    event.remote_ip.hash(&mut hasher);
+    event.remote_port.hash(&mut hasher);
+    event.transport_protocol.hash(&mut hasher);
+    event.pid.hash(&mut hasher);
+    event.tgid.hash(&mut hasher);
+    event.uid.hash(&mut hasher);
+    event.gid.hash(&mut hasher);
+    event.comm.hash(&mut hasher);
+    event.redacted_cmdline.hash(&mut hasher);
+    event.container_id.hash(&mut hasher);
+    event.socket_address.hash(&mut hasher);
+    event.event_kind.hash(&mut hasher);
+    event.old_state.hash(&mut hasher);
+    event.new_state.hash(&mut hasher);
+    event.source.hash(&mut hasher);
+    event.external_flow_id.hash(&mut hasher);
+    hasher.finish()
 }
 
 fn flow_attribution_event(
@@ -458,14 +2322,13 @@ fn flow_attribution_event(
         comm: process
             .map(|details| details.comm.clone())
             .unwrap_or_default(),
-        redacted_cmdline: cap_redacted_cmdline(
-            process
-                .map(|details| details.cmdline.clone())
-                .unwrap_or_default(),
-        ),
+        redacted_cmdline: process
+            .map(|details| cap_redacted_cmdline_ref(&details.cmdline))
+            .unwrap_or_default(),
         container_id: process
             .and_then(|details| details.container_id.clone())
             .unwrap_or_default(),
+        workload_identity: None,
         observed_at_unix_nano,
         socket_address: flow.pid.socket_address,
         event_kind: u32::from(flow.pid.event_kind),
@@ -508,9 +2371,26 @@ fn ip_addr(address_family: u16, bytes: [u8; 16]) -> Option<IpAddr> {
 
 fn transport_protocol(value: u16) -> String {
     match value {
+        IPPROTO_ICMP => "icmp".to_owned(),
+        IPPROTO_ICMPV6 => "icmpv6".to_owned(),
         IPPROTO_TCP => "tcp".to_owned(),
         IPPROTO_UDP => "udp".to_owned(),
         _ => value.to_string(),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn process_details_from_record(record: &ProcessInfoRecord) -> ProcessDetails {
+    ProcessDetails {
+        pid: record.pid,
+        tgid: record.tgid,
+        uid: record.uid,
+        gid: record.gid,
+        comm: comm_from_bytes(&record.comm),
+        cmdline: Vec::new(),
+        container_id: None,
+        last_seen_ns: record.last_seen_ns,
+        process_generation_ns: record.process_generation_ns,
     }
 }
 
@@ -677,6 +2557,23 @@ fn read_comm(proc_root: &Path, pid: u32) -> Option<String> {
         .map(|value| value.trim_end_matches('\n').to_string())
 }
 
+fn sort_snapshot_entries(entries: &mut [ProcessSnapshotEntry]) {
+    entries.sort_by(|left, right| {
+        (
+            &left.transport_protocol,
+            &left.local_ip,
+            left.local_port,
+            left.pid,
+        )
+            .cmp(&(
+                &right.transport_protocol,
+                &right.local_ip,
+                right.local_port,
+                right.pid,
+            ))
+    });
+}
+
 fn snapshot_fingerprint(entries: &[ProcessSnapshotEntry]) -> String {
     let mut hash = 0xcbf29ce484222325u64;
     for entry in entries {
@@ -701,14 +2598,30 @@ fn hash_bytes(hash: &mut u64, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    #[cfg(target_os = "linux")]
+    use std::sync::Arc;
 
+    #[cfg(target_os = "linux")]
+    use super::{
+        attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
+        likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
+        process_metadata_complete, prune_attribution_cache, refresh_enriched_attributions,
+        touch_closed_cached_attribution, AttributionExpiryQueue, CachedAttribution,
+        FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
+        SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
+        EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
+        FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
+        TCP_LISTEN_STATE,
+    };
     use super::{
         cap_redacted_cmdline, comm_from_bytes, container_id, flow_attribution_event,
-        redacted_cmdline, trim_to_utf8_boundary, AttributedFlow, FlowPidRecord, ProcessDetails,
-        ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B, IPPROTO_TCP,
-        REDACTED_CMDLINE_MAX_BYTES,
+        likely_service_side_tuple, redacted_cmdline, trim_to_utf8_boundary, AttributedFlow,
+        FlowPidRecord, ProcessDetails, ProcessInfoRecord, ProcfsEnricher, AF_INET, FLOW_ENDPOINT_B,
+        IPPROTO_TCP, IPPROTO_UDP, REDACTED_CMDLINE_MAX_BYTES,
     };
     use crate::af_xdp_classifier::FlowKey;
+    #[cfg(target_os = "linux")]
+    use crate::external_flow::SharedExternalFlowMatcher;
 
     #[test]
     fn comm_stops_at_nul() {
@@ -716,6 +2629,196 @@ mod tests {
         comm[..7].copy_from_slice(b"netprob");
 
         assert_eq!(comm_from_bytes(&comm), "netprob");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn listener_side_attribution_coalesces_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key = attribution_flow_key_from_record(&record, true).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn attribution_without_listener_keeps_exact_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 51_000);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_matches_exact_and_wildcard_listeners() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let mut exact_inventory = SocketInventory::default();
+        exact_inventory.update(&listener_flow(ipv4([192, 0, 2, 10]), 8080));
+
+        assert!(exact_inventory.has_listener_for_record(&record));
+
+        let mut wildcard_inventory = SocketInventory::default();
+        wildcard_inventory.update(&listener_flow([0; 16], 8080));
+
+        assert!(wildcard_inventory.has_listener_for_record(&record));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn client_side_attribution_keeps_exact_remote_endpoint() {
+        let record = flow_record(IPPROTO_TCP, 51_000, 443);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 443);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_client_service_attribution_coalesces_local_ephemeral_port() {
+        let record = udp_record(EVENT_UDP_SEND, 51_000, 53);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 0);
+        assert_eq!(key.endpoint_a_addr, ipv4([192, 0, 2, 10]));
+        assert_eq!(key.endpoint_b_port, 53);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_client_high_remote_port_keeps_exact_local_port() {
+        let record = udp_record(EVENT_UDP_SEND, 51_000, 51_001);
+        let key = attribution_flow_key_from_record(&record, false).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 51_001);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_detects_tcp_server_shape() {
+        assert!(likely_service_side_tuple(IPPROTO_TCP, 8080, 51_000));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_detects_udp_server_shape() {
+        assert!(likely_service_side_tuple(IPPROTO_UDP, 53, 51_000));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_keeps_client_shape_exact() {
+        assert!(!likely_service_side_tuple(IPPROTO_TCP, 51_000, 443));
+        assert!(!likely_service_side_tuple(IPPROTO_UDP, 51_000, 53));
+    }
+
+    #[test]
+    fn likely_service_side_tuple_keeps_same_port_protocols_exact() {
+        assert!(!likely_service_side_tuple(IPPROTO_UDP, 7946, 7946));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_tcp_service_side_record_coalesces_without_listener_inventory() {
+        let record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 8080);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_service_side_record_keeps_tcp_client_tuple_exact() {
+        let record = flow_record(IPPROTO_TCP, 51_000, 443);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 51_000);
+        assert_eq!(key.endpoint_b_port, 443);
+        assert_eq!(key.endpoint_b_addr, ipv4([198, 51, 100, 20]));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn likely_udp_service_side_record_coalesces_first_packet() {
+        let record = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let key =
+            attribution_flow_key_from_record(&record, likely_service_side_record(&record)).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 53);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_promotes_multi_peer_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let second = udp_record(EVENT_UDP_RECV, 53, 51_001);
+        let send = udp_record(EVENT_UDP_SEND, 53, 51_002);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+        assert!(roles.should_coalesce_record(&send));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_promotes_multi_peer_send_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_SEND, 53, 51_000);
+        let second = udp_record(EVENT_UDP_SEND, 53, 51_001);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_keeps_single_peer_client_socket_exact() {
+        let mut roles = UdpRoleInventory::default();
+        let send = udp_record(EVENT_UDP_SEND, 51_000, 53);
+        let recv = udp_record(EVENT_UDP_RECV, 51_000, 53);
+
+        assert!(!roles.should_coalesce_record(&send));
+        assert!(!roles.should_coalesce_record(&recv));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_role_inventory_does_not_cache_obvious_ephemeral_client_socket() {
+        let mut roles = UdpRoleInventory::default();
+        let send = udp_record(EVENT_UDP_SEND, 51_000, 53);
+
+        assert!(!roles.should_coalesce_record(&send));
+        assert_eq!(roles.entries.len(), 0);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn udp_server_side_attribution_coalesces_remote_endpoint_after_promotion() {
+        let mut roles = UdpRoleInventory::default();
+        let first = udp_record(EVENT_UDP_RECV, 53, 51_000);
+        let second = udp_record(EVENT_UDP_RECV, 53, 51_001);
+
+        assert!(!roles.should_coalesce_record(&first));
+        assert!(roles.should_coalesce_record(&second));
+
+        let key = attribution_flow_key_from_record(&second, true).unwrap();
+
+        assert_eq!(key.endpoint_a_port, 53);
+        assert_eq!(key.endpoint_b_port, 0);
+        assert_eq!(key.endpoint_b_addr, [0; 16]);
     }
 
     #[test]
@@ -749,6 +2852,7 @@ mod tests {
             uid: 1000,
             gid: 1000,
             last_seen_ns: 42,
+            process_generation_ns: 123_456,
             comm,
         };
 
@@ -758,6 +2862,69 @@ mod tests {
         assert_eq!(details.cmdline, vec!["/bin/app", "[redacted 2 arg(s)]"]);
         assert_eq!(details.uid, 1000);
         assert_eq!(details.last_seen_ns, 42);
+        assert_eq!(details.process_generation_ns, 123_456);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn metadata_enricher_uses_budget_for_active_process_metadata() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let root = temp_proc(
+            "123",
+            b"/bin/app\0--token\0abc\0",
+            &format!("0::/kubepods.slice/cri-containerd-{id}.scope\n"),
+        );
+        let mut comm = [0u8; 16];
+        comm[..3].copy_from_slice(b"app");
+        let record = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 42,
+            process_generation_ns: 123_456,
+            comm,
+        };
+        let mut enricher = MetadataEnricher::with_procfs(ProcfsEnricher::with_root(root.path()));
+
+        let (details, key, cold_read) = enricher.process_details(&record);
+
+        assert!(cold_read);
+        assert_eq!(key.tgid, 123);
+        assert_eq!(details.cmdline, vec!["/bin/app", "[redacted 2 arg(s)]"]);
+        assert_eq!(details.container_id.as_deref(), Some(id));
+        assert_eq!(enricher.cache_len(), 1);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_details_from_record_uses_ebpf_process_identity() {
+        let mut comm = [0u8; 16];
+        comm[..3].copy_from_slice(b"app");
+        let record = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 42,
+            process_generation_ns: 111,
+            comm,
+        };
+
+        let details = process_details_from_record(&record);
+
+        assert_eq!(details.pid, 123);
+        assert_eq!(details.tgid, 123);
+        assert_eq!(details.uid, 1000);
+        assert_eq!(details.gid, 1000);
+        assert_eq!(details.comm, "app");
+        assert!(details.cmdline.is_empty());
+        assert_eq!(details.container_id, None);
+        assert_eq!(details.process_generation_ns, 111);
     }
 
     #[test]
@@ -780,6 +2947,7 @@ mod tests {
                 gid: 1000,
                 socket_address: 0xfeed,
                 last_seen_ns: 99,
+                process_generation_ns: 123_456,
                 old_state: 1,
                 new_state: 2,
                 local_endpoint: FLOW_ENDPOINT_B,
@@ -797,6 +2965,7 @@ mod tests {
                 ],
                 container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
                 last_seen_ns: 99,
+                process_generation_ns: 123_456,
             }),
         };
 
@@ -817,6 +2986,447 @@ mod tests {
             "/usr/bin/curl [redacted 1 arg(s)]"
         );
         assert_eq!(event.observed_at_unix_nano, 123_456);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_snapshot_serializes_event_inventory_without_procfs_walk() {
+        let mut inventory = SocketInventory::default();
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 8080,
+                endpoint_b_port: 51_000,
+                endpoint_a_addr: ipv4([127, 0, 0, 1]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+                old_state: 2,
+                new_state: 1,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                comm: "app".to_string(),
+                cmdline: vec![
+                    "/usr/bin/app".to_string(),
+                    "[redacted 1 arg(s)]".to_string(),
+                ],
+                container_id: Some("0123456789abcdef0123456789abcdef".to_string()),
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+            }),
+        };
+
+        inventory.update(&flow);
+        let snapshot = inventory.snapshot_if_dirty(123).unwrap();
+        inventory.update(&flow);
+        let snapshot_again = inventory.snapshot_if_dirty(456);
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
+        assert_eq!(snapshot.entries[0].local_port, 8080);
+        assert_eq!(snapshot.entries[0].transport_protocol, "tcp");
+        assert_eq!(snapshot.entries[0].pid, 123);
+        assert_eq!(snapshot.entries[0].uid, 1000);
+        assert_eq!(snapshot.entries[0].gid, 1001);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 1);
+        assert_eq!(
+            snapshot.entries[0].redacted_cmdline[0],
+            "/usr/bin/app [redacted 1 arg(s)]"
+        );
+        assert!(snapshot_again.is_none());
+
+        inventory.remove_record(&super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 123_456,
+            old_state: TCP_LISTEN_STATE,
+            new_state: TCP_CLOSE_STATE,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol: IPPROTO_TCP,
+                source_port: 8080,
+                destination_port: 51_000,
+                source_addr: ipv4([127, 0, 0, 1]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        });
+
+        assert!(inventory.snapshot_if_dirty(789).unwrap().entries.is_empty());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_keeps_listener_when_accepted_connection_closes() {
+        let mut inventory = SocketInventory::default();
+        inventory.update(&listener_flow(ipv4([192, 0, 2, 10]), 8080));
+        let _ = inventory.snapshot_if_dirty(123);
+
+        let mut close_record = flow_record(IPPROTO_TCP, 8080, 51_000);
+        close_record.new_state = TCP_CLOSE_STATE;
+        inventory.remove_record(&close_record);
+
+        assert!(inventory.snapshot_if_dirty(456).is_none());
+        assert!(inventory.has_listener_for_record(&flow_record(IPPROTO_TCP, 8080, 51_001)));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_only_tracks_durable_lifecycle_records() {
+        let mut record = super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 123_456,
+            old_state: 1,
+            new_state: 1,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol: IPPROTO_TCP,
+                source_port: 8080,
+                destination_port: 51_000,
+                source_addr: ipv4([127, 0, 0, 1]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        };
+
+        assert!(!super::should_record_inventory(&record));
+
+        record.new_state = TCP_LISTEN_STATE;
+
+        assert!(super::should_record_inventory(&record));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn socket_inventory_caps_snapshot_cmdline_payload() {
+        let mut inventory = SocketInventory::default();
+        let flow = AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: 8080,
+                endpoint_b_port: 0,
+                endpoint_a_addr: ipv4([127, 0, 0, 1]),
+                endpoint_b_addr: ipv4([0, 0, 0, 0]),
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: 123_456,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: Some(ProcessDetails {
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                comm: "app".to_string(),
+                cmdline: vec![
+                    "a".repeat(REDACTED_CMDLINE_MAX_BYTES + 1024),
+                    "[redacted 3 arg(s)]".to_string(),
+                ],
+                container_id: None,
+                last_seen_ns: 99,
+                process_generation_ns: 123_456,
+            }),
+        };
+
+        inventory.update(&flow);
+        let snapshot = inventory.snapshot_if_dirty(123).unwrap();
+
+        assert_eq!(snapshot.entries.len(), 1);
+        assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 1);
+        assert!(snapshot.entries[0].redacted_cmdline[0].len() <= REDACTED_CMDLINE_MAX_BYTES);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn refresh_enriched_attributions_uses_process_index() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let matcher = SharedExternalFlowMatcher::new(0);
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let matching_process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let other_process = ProcessDetailsCacheKey {
+            tgid: 456,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 84,
+        };
+        let matching_key = join_key(443, 51_000, 123, 42);
+        let other_key = join_key(8443, 52_000, 456, 84);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            matching_key,
+            cached_attribution(matching_process, "old"),
+        );
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            other_key,
+            cached_attribution(other_process, "other"),
+        );
+
+        refresh_enriched_attributions(
+            None,
+            &matcher,
+            &metrics,
+            &mut cache,
+            &process_index,
+            vec![(
+                matching_process,
+                ProcessDetails {
+                    pid: 123,
+                    tgid: 123,
+                    uid: 2000,
+                    gid: 2001,
+                    comm: "new".to_string(),
+                    cmdline: vec!["/bin/new".to_string()],
+                    container_id: Some("container".to_string()),
+                    last_seen_ns: 0,
+                    process_generation_ns: 42,
+                },
+            )],
+        );
+
+        assert_eq!(cache.get(&matching_key).unwrap().event.comm, "new");
+        assert_eq!(cache.get(&matching_key).unwrap().event.uid, 2000);
+        assert_eq!(cache.get(&other_key).unwrap().event.comm, "other");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn refresh_enriched_attributions_emits_changed_metadata() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let matcher = SharedExternalFlowMatcher::new(0);
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let (tx, mut rx) = crate::event_queue::bounded(4);
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let key = join_key(443, 51_000, 123, 42);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            key,
+            cached_attribution(process, "old"),
+        );
+
+        refresh_enriched_attributions(
+            Some(&tx),
+            &matcher,
+            &metrics,
+            &mut cache,
+            &process_index,
+            vec![(
+                process,
+                ProcessDetails {
+                    pid: 123,
+                    tgid: 123,
+                    uid: 2000,
+                    gid: 2001,
+                    comm: "new".to_string(),
+                    cmdline: vec!["/bin/new".to_string()],
+                    container_id: Some("container".to_string()),
+                    last_seen_ns: 0,
+                    process_generation_ns: 42,
+                },
+            )],
+        );
+
+        assert_eq!(cache.get(&key).unwrap().event.comm, "new");
+        let emitted = rx.try_recv().expect("enriched metadata event");
+        assert_eq!(emitted.comm, "new");
+        assert_eq!(emitted.redacted_cmdline, vec!["/bin/new"]);
+        assert_eq!(emitted.container_id, "container");
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn close_keeps_cached_attribution_for_delayed_central_join() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let key = join_key(443, 51_000, 123, 42);
+
+        insert_cached_attribution(
+            &mut cache,
+            &mut process_index,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            key,
+            cached_attribution(process, "app"),
+        );
+
+        touch_closed_cached_attribution(&mut cache, &key);
+
+        assert!(cache.contains_key(&key));
+        assert!(process_index
+            .get(&process)
+            .is_some_and(|keys| keys.contains(&key)));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn duplicate_cached_attribution_is_coalesced_until_heartbeat() {
+        let metrics = crate::metrics::Metrics::new().unwrap();
+        let (tx, mut rx) = crate::event_queue::bounded(4);
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let mut entry = cached_attribution(process, "app");
+        let now = std::time::Instant::now();
+        entry.last_emitted = now;
+        entry.last_emitted_fingerprint = attribution_event_fingerprint(&entry.event);
+
+        maybe_emit_cached_attribution(Some(&tx), &metrics, &mut entry, now);
+        assert!(rx.try_recv().is_err());
+
+        maybe_emit_cached_attribution(
+            Some(&tx),
+            &metrics,
+            &mut entry,
+            now + FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
+        );
+        assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_metadata_complete_requires_cmdline_and_container() {
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let mut entry = cached_attribution(process, "app");
+
+        assert!(!process_metadata_complete(&entry.event));
+
+        Arc::make_mut(&mut entry.event).redacted_cmdline = vec!["/bin/app".to_string()];
+        assert!(!process_metadata_complete(&entry.event));
+
+        Arc::make_mut(&mut entry.event).container_id = "container".to_string();
+        assert!(process_metadata_complete(&entry.event));
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn prune_attribution_cache_enforces_max_entries_and_index() {
+        let mut cache = FlowAttributionCache::default();
+        let mut process_index = ProcessAttributionIndex::default();
+        let mut expiry_queue = AttributionExpiryQueue::default();
+        let mut next_expiry_sequence = 0_u64;
+        let matcher = SharedExternalFlowMatcher::new(0);
+
+        for i in 0..(FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES + 8) {
+            let tgid = 123 + i as u32;
+            let generation = 42 + i as u64;
+            let process = ProcessDetailsCacheKey {
+                tgid,
+                uid: 1000,
+                gid: 1001,
+                process_generation_ns: generation,
+            };
+            let key = join_key(
+                10_000u16.wrapping_add(i as u16),
+                50_000u16.wrapping_add(i as u16),
+                tgid,
+                generation,
+            );
+            insert_cached_attribution(
+                &mut cache,
+                &mut process_index,
+                &mut expiry_queue,
+                &mut next_expiry_sequence,
+                key,
+                cached_attribution(process, "app"),
+            );
+        }
+
+        prune_attribution_cache(
+            &mut cache,
+            &mut process_index,
+            &matcher,
+            &mut expiry_queue,
+            &mut next_expiry_sequence,
+            std::time::Instant::now(),
+        );
+
+        assert_eq!(cache.len(), FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK);
+        assert_eq!(
+            process_index.values().map(|keys| keys.len()).sum::<usize>(),
+            cache.len()
+        );
     }
 
     #[test]
@@ -856,15 +3466,34 @@ mod tests {
         .unwrap();
         std::os::unix::fs::symlink("socket:[4242]", pid_dir.join("fd/3")).unwrap();
 
-        let snapshot = ProcfsEnricher::with_root(root.path())
-            .process_snapshot(&std::collections::HashMap::new(), 123);
-        let snapshot_again = ProcfsEnricher::with_root(root.path())
-            .process_snapshot(&std::collections::HashMap::new(), 456);
+        let mut scheduler_comm = [0u8; 16];
+        scheduler_comm[..12].copy_from_slice(b"erts_sched_3");
+        let mut process_info = std::collections::HashMap::new();
+        process_info.insert(
+            123,
+            ProcessInfoRecord {
+                version: 1,
+                reserved: 0,
+                pid: 456,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                last_seen_ns: 0,
+                process_generation_ns: 99,
+                comm: scheduler_comm,
+            },
+        );
+
+        let snapshot = ProcfsEnricher::with_root(root.path()).process_snapshot(&process_info, 123);
+        let snapshot_again =
+            ProcfsEnricher::with_root(root.path()).process_snapshot(&process_info, 456);
 
         assert_eq!(snapshot.entries.len(), 1);
         assert_eq!(snapshot.entries[0].local_ip, "127.0.0.1");
         assert_eq!(snapshot.entries[0].local_port, 8080);
         assert_eq!(snapshot.entries[0].pid, 123);
+        assert_eq!(snapshot.entries[0].tgid, 123);
+        assert_eq!(snapshot.entries[0].comm, "app");
         assert_eq!(snapshot.entries[0].uid, 1000);
         assert_eq!(snapshot.entries[0].redacted_cmdline.len(), 2);
         assert_eq!(snapshot.fingerprint, snapshot_again.fingerprint);
@@ -881,7 +3510,10 @@ mod tests {
 
     #[test]
     fn cap_redacted_cmdline_preserves_short_ascii_payload() {
-        let parts = vec!["/usr/bin/curl".to_string(), "[redacted 2 arg(s)]".to_string()];
+        let parts = vec![
+            "/usr/bin/curl".to_string(),
+            "[redacted 2 arg(s)]".to_string(),
+        ];
         let capped = cap_redacted_cmdline(parts);
         assert_eq!(capped.len(), 1);
         assert_eq!(capped[0], "/usr/bin/curl [redacted 2 arg(s)]");
@@ -966,6 +3598,7 @@ mod tests {
                 gid: 0,
                 socket_address: 0,
                 last_seen_ns: 0,
+                process_generation_ns: 0,
                 old_state: 0,
                 new_state: 0,
                 local_endpoint: FLOW_ENDPOINT_B,
@@ -980,6 +3613,7 @@ mod tests {
                 cmdline: vec![argv0, "[redacted 9 arg(s)]".to_string()],
                 container_id: None,
                 last_seen_ns: 0,
+                process_generation_ns: 0,
             }),
         };
 
@@ -990,11 +3624,8 @@ mod tests {
 
     #[test]
     fn redacted_cmdline_producer_reads_unbounded_proc_payload() {
-        // Confirms the cap lives at the FlowAttributionEvent construction
-        // site rather than the /proc read — the producer returns the raw
-        // argv0 + placeholder as before so ProcessSnapshotEntry can stay
-        // unchanged and the cap is only applied on the wire shape that
-        // §20.15 governs.
+        // Confirms /proc reads keep returning raw argv material and capping
+        // happens at the outbound payload construction sites.
         let big_argv0 = "b".repeat(1024);
         let mut bytes = big_argv0.clone().into_bytes();
         bytes.push(0);
@@ -1004,6 +3635,131 @@ mod tests {
         assert_eq!(parts.len(), 2);
         assert_eq!(parts[0], big_argv0);
         assert_eq!(parts[1], "[redacted 2 arg(s)]");
+    }
+
+    #[cfg(target_os = "linux")]
+    fn join_key(
+        local_port: u16,
+        remote_port: u16,
+        tgid: u32,
+        process_generation_ns: u64,
+    ) -> super::FlowAttributionJoinKey {
+        super::FlowAttributionJoinKey {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: remote_port,
+                endpoint_a_addr: ipv4([192, 0, 2, 10]),
+                endpoint_b_addr: ipv4([198, 51, 100, 20]),
+            },
+            pid: tgid,
+            tgid,
+            process_generation_ns,
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn cached_attribution(process_key: ProcessDetailsCacheKey, comm: &str) -> CachedAttribution {
+        CachedAttribution {
+            event: Arc::new(crate::proto::netprobe::FlowAttributionEvent {
+                local_ip: "192.0.2.10".to_string(),
+                local_port: 443,
+                remote_ip: "198.51.100.20".to_string(),
+                remote_port: 51_000,
+                transport_protocol: "tcp".to_string(),
+                pid: process_key.tgid,
+                tgid: process_key.tgid,
+                uid: process_key.uid,
+                gid: process_key.gid,
+                comm: comm.to_string(),
+                redacted_cmdline: Vec::new(),
+                container_id: String::new(),
+                observed_at_unix_nano: 1,
+                socket_address: 0,
+                event_kind: u32::from(EVENT_INET_SOCK_SET_STATE),
+                old_state: 1,
+                new_state: 1,
+                source: String::new(),
+                external_flow_id: 0,
+                workload_identity: None,
+            }),
+            process_key,
+            last_seen: std::time::Instant::now(),
+            last_emitted: std::time::Instant::now(),
+            last_emitted_fingerprint: 0,
+            last_metadata_attempt: std::time::Instant::now(),
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn flow_record(
+        protocol: u16,
+        source_port: u16,
+        destination_port: u16,
+    ) -> super::FlowAttributionRecord {
+        super::FlowAttributionRecord {
+            version: 1,
+            event_kind: EVENT_INET_SOCK_SET_STATE,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            socket_address: 0xfeed,
+            process_generation_ns: 42,
+            old_state: 1,
+            new_state: 1,
+            tuple: super::FlowTupleRecord {
+                family: AF_INET,
+                protocol,
+                source_port,
+                destination_port,
+                source_addr: ipv4([192, 0, 2, 10]),
+                destination_addr: ipv4([198, 51, 100, 20]),
+            },
+            comm: [0; 16],
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    fn udp_record(
+        event_kind: u16,
+        local_port: u16,
+        remote_port: u16,
+    ) -> super::FlowAttributionRecord {
+        let mut record = flow_record(IPPROTO_UDP, local_port, remote_port);
+        record.event_kind = event_kind;
+        record
+    }
+
+    #[cfg(target_os = "linux")]
+    fn listener_flow(local_addr: [u8; 16], local_port: u16) -> AttributedFlow {
+        AttributedFlow {
+            flow: FlowKey {
+                address_family: AF_INET,
+                transport_protocol: IPPROTO_TCP,
+                endpoint_a_port: local_port,
+                endpoint_b_port: 0,
+                endpoint_a_addr: local_addr,
+                endpoint_b_addr: [0; 16],
+            },
+            pid: FlowPidRecord {
+                version: 1,
+                event_kind: EVENT_INET_SOCK_SET_STATE,
+                pid: 123,
+                tgid: 123,
+                uid: 1000,
+                gid: 1001,
+                socket_address: 0xfeed,
+                last_seen_ns: 0,
+                process_generation_ns: 42,
+                old_state: 1,
+                new_state: TCP_LISTEN_STATE,
+                local_endpoint: FLOW_ENDPOINT_A,
+                reserved: [0; 7],
+            },
+            process: None,
+        }
     }
 
     fn temp_proc(pid: &str, cmdline: &[u8], cgroup: &str) -> tempfile::TempDir {

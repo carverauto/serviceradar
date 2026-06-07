@@ -118,3 +118,24 @@ func TestSidecarCapturesEngineVersionOnHealthy(t *testing.T) {
 		t.Fatalf("FingerprintEngineVersion() = %q, want engine-v1", got)
 	}
 }
+
+func TestSidecarDefaultFlowDrainUsesFlowBuffer(t *testing.T) {
+	sc := NewSidecar(SidecarConfig{})
+
+	for i := 0; i < defaultSidecarEventBuffer+1; i++ {
+		sc.flowEvents <- &netprobepb.FlowAttributionEvent{}
+	}
+
+	if got := len(sc.DrainFlowAttributionEvents(0)); got != defaultSidecarEventBuffer+1 {
+		t.Fatalf("DrainFlowAttributionEvents(0) drained %d, want %d", got, defaultSidecarEventBuffer+1)
+	}
+}
+
+func TestSidecarDroppedFlowAttributionEventsIncludesFanInDrops(t *testing.T) {
+	sc := NewSidecar(SidecarConfig{})
+	sc.droppedFlowAttributionEvents.Add(3)
+
+	if got := sc.DroppedFlowAttributionEvents(); got != 3 {
+		t.Fatalf("DroppedFlowAttributionEvents() = %d, want 3", got)
+	}
+}

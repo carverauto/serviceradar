@@ -75,7 +75,14 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert package.capabilities == ["host-network-visibility"]
     assert package.approved_capabilities == ["host-network-visibility"]
     assert package.requires["run_as"] == "serviceradar"
-    assert package.requires["os_capabilities"] == ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
+
+    assert package.requires["os_capabilities"] == [
+             "CAP_NET_RAW",
+             "CAP_NET_ADMIN",
+             "CAP_BPF",
+             "CAP_PERFMON"
+           ]
+
     assert package.config_schema["title"] == "Host Network Visibility (netprobe) Configuration"
     assert package.artifacts["linux/amd64"]["object_key"] == object_key
 
@@ -121,7 +128,7 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert addon.delivery == :pushed_artifact
     assert addon.supervision == :systemd_service
     assert addon.capabilities == ["host-network-visibility"]
-    assert addon.os_capabilities == ["CAP_NET_RAW", "CAP_BPF", "CAP_PERFMON"]
+    assert addon.os_capabilities == ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_BPF", "CAP_PERFMON"]
     assert addon.artifact_object_key == object_key
     assert addon.artifact_sha256 == sha
     assert addon.artifact_signature == signature
@@ -140,11 +147,21 @@ defmodule ServiceRadar.Plugins.NetprobeAddonPackageSeederTest do
     assert proto_addon.artifact_signature == signature
   end
 
-  test "is a no-op without configured artifacts", %{actor: actor, unique_id: unique_id} do
+  test "stages the manifest version without configured artifacts", %{
+    actor: actor,
+    unique_id: unique_id
+  } do
     version = "0.9.#{unique_id}"
 
     assert :ok = NetprobeAddonPackageSeeder.seed_defaults(version: version, artifacts: %{})
-    assert {:ok, nil} = read_package(version, actor)
+
+    {:ok, package} = read_package(version, actor)
+    assert package.status == :staged
+    assert package.artifacts == %{}
+    assert package.source_oci_ref == nil
+    assert package.source_oci_digest == nil
+    assert package.capabilities == ["host-network-visibility"]
+    assert package.config_schema["title"] == "Host Network Visibility (netprobe) Configuration"
   end
 
   defp read_package(version, actor) do

@@ -14,6 +14,7 @@ defmodule ServiceRadar.Plugins.NativeAddonArtifactMirror do
   channel.
   """
 
+  alias ServiceRadar.DataService.Client
   alias ServiceRadar.Sync.Client, as: SyncClient
 
   @default_timeout 30_000
@@ -47,6 +48,32 @@ defmodule ServiceRadar.Plugins.NativeAddonArtifactMirror do
       end
     end
   end
+
+  @doc """
+  Fetch a mirrored native add-on artifact from datasvc object storage.
+
+  Options:
+
+    * `:download_object` - `(object_key, keyword() -> {:ok, {info, binary}} | {:ok, binary} | {:error, term})`.
+      Defaults to the datasvc object-store download. Override in tests.
+    * `:timeout` - download timeout in ms (default #{@default_timeout}).
+  """
+  @spec fetch_blob(String.t(), keyword()) :: {:ok, binary()} | {:error, term()}
+  def fetch_blob(object_key, opts \\ [])
+
+  def fetch_blob(object_key, opts) when is_binary(object_key) do
+    download_object = Keyword.get(opts, :download_object, &default_download_object/2)
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    case download_object.(object_key, timeout: timeout) do
+      {:ok, {_info, data}} when is_binary(data) -> {:ok, data}
+      {:ok, data} when is_binary(data) -> {:ok, data}
+      {:error, %GRPC.RPCError{status: 5}} -> {:error, :not_found}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  def fetch_blob(_object_key, _opts), do: {:error, :invalid_key}
 
   @doc "Deterministic, traversal-safe object key for a per-arch artifact."
   @spec object_key(String.t(), String.t(), String.t(), String.t(), String.t()) :: String.t()
@@ -83,11 +110,23 @@ defmodule ServiceRadar.Plugins.NativeAddonArtifactMirror do
   defp default_upload_object(metadata, data, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
 
-    ServiceRadar.DataService.Client.with_channel(
+    Client.with_channel(
       fn channel ->
         SyncClient.upload_object(channel, metadata, data, timeout: timeout)
       end,
       timeout: timeout
+    )
+  end
+
+  defp default_download_object(object_key, opts) do
+    timeout = Keyword.get(opts, :timeout, @default_timeout)
+
+    Client.with_direct_channel(
+      fn channel ->
+        SyncClient.download_object(channel, object_key, timeout: timeout)
+      end,
+      timeout: timeout,
+      connect_timeout_ms: timeout
     )
   end
 end

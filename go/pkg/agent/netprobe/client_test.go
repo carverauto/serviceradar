@@ -29,9 +29,10 @@ import (
 
 const testDNSProtocol = "dns"
 
-//nolint:gocyclo // end-to-end integration scenario exercising ping, apply_config, and
 // streaming event delivery; the branching mirrors the frame types under test and keeping
 // them in one test preserves ordering guarantees that splitting into subtests would lose.
+//
+//nolint:gocyclo // end-to-end integration scenario exercising ping, apply_config, and
 func TestClientPingApplyConfigAndEvents(t *testing.T) {
 	clientConn, serverConn := net.Pipe()
 	defer func() { _ = serverConn.Close() }()
@@ -415,6 +416,49 @@ func TestClientStreamExternalFlowUsesFireAndForgetFrame(t *testing.T) {
 
 	if err := client.StreamExternalFlow(externalFlowRecord()); err != nil {
 		t.Fatalf("StreamExternalFlow() error = %v", err)
+	}
+
+	_ = client.Close()
+	<-serverDone
+}
+
+func TestClientReadsFlowAttributionBatch(t *testing.T) {
+	clientConn, serverConn := net.Pipe()
+	defer func() { _ = serverConn.Close() }()
+
+	serverDone := make(chan struct{})
+	go func() {
+		defer close(serverDone)
+		err := writeFrame(serverConn, &netprobepb.NetprobeFrame{
+			Payload: &netprobepb.NetprobeFrame_FlowAttributionBatch{
+				FlowAttributionBatch: &netprobepb.FlowAttributionEventBatch{
+					Events: []*netprobepb.FlowAttributionEvent{
+						{LocalIp: "192.0.2.10", Pid: 123},
+						{LocalIp: "192.0.2.11", Pid: 124},
+					},
+				},
+			},
+		})
+		if err != nil {
+			t.Errorf("write flow attribution batch: %v", err)
+		}
+	}()
+
+	client := NewClient(clientConn, 4)
+	defer func() { _ = client.Close() }()
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	for _, wantPID := range []uint32{123, 124} {
+		select {
+		case event := <-client.FlowAttributionEvents():
+			if event.GetPid() != wantPID {
+				t.Fatalf("flow attribution event PID = %d, want %d", event.GetPid(), wantPID)
+			}
+		case <-ctx.Done():
+			t.Fatalf("timed out waiting for flow attribution event PID %d", wantPID)
+		}
 	}
 
 	_ = client.Close()

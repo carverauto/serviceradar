@@ -1,7 +1,10 @@
 defmodule ServiceRadar.Repo.Migrations.PruneInvalidAgentDeviceIdentifiers do
+  @moduledoc false
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup
+    # before agent_id identifiers are trusted for DIRE reconciliation.
     execute("""
     DELETE FROM platform.device_identifiers di
     WHERE di.identifier_type = 'agent_id'

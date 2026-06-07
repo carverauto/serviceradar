@@ -1,0 +1,64 @@
+[package]
+name = "wasip3"
+version = "0.6.0+wasi-0.3.0-rc-2026-03-15"
+description = "WASIp3 API bindings for Rust"
+categories = ["no-std", "wasm"]
+keywords = ["webassembly", "wasm"]
+documentation = "https://docs.rs/wasip3"
+readme = "README.md"
+license.workspace = true
+edition.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[package.metadata.docs.rs]
+all-features = true
+
+[features]
+default = ["std", "bitflags"]
+std = []
+bitflags = ["wit-bindgen/bitflags"]
+async-spawn = ["wit-bindgen/async-spawn"]
+http-compat = [
+    "dep:bytes",
+    "dep:http-body",
+    "dep:http",
+    "dep:thiserror",
+    "async-spawn",
+]
+wit-bindgen-macros = ["wit-bindgen/macros"]
+
+# Unstable feature to support being a libstd dependency
+rustc-dep-of-std = ["core", "alloc", "wit-bindgen/rustc-dep-of-std"]
+
+[dependencies]
+# NB: async bindings require `std` right now so this doesn't optionally disable
+# `std`, it's intentionally always enabled.
+wit-bindgen = { workspace = true, features = ['async'] }
+# Optional dependencies for extending http types.
+bytes = { version = "1.10.1", optional = true }
+http-body = { version = "1.0.1", optional = true }
+http = { version = "1.3.1", optional = true }
+thiserror = { version = "2.0.17", optional = true }
+
+# When built as part of libstd
+core = { optional = true, workspace = true }
+alloc = { optional = true, workspace = true }
+
+[dev-dependencies]
+futures = "0.3.31"
+http = "1.3.1"
+wit-bindgen = { workspace = true, features = ['async-spawn'] }
+
+[[example]]
+name = "cli-command"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "http-proxy"
+crate-type = ["cdylib"]
+
+[[example]]
+name = "http-proxy-compat"
+crate-type = ["cdylib"]
+required-features = ["http-compat"]

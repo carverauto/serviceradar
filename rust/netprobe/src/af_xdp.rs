@@ -20,9 +20,15 @@ mod linux {
     use nix::libc;
 
     const CHANNEL_CAPACITY: usize = 4096;
-    const BUSY_POLL_SPIN: Duration = Duration::from_micros(10);
+    // #3: bound CPU. The RX ring is serviced without a blocking syscall, so the
+    // poll cadence sets CPU under load. 250us caps active polling at ~4k
+    // wakeups/s/queue (vs ~100k/s at 10us) — a large CPU reduction for a
+    // monitoring path where sub-ms batching latency is fine — and we drop to the
+    // 1ms idle sleep after only 20ms idle. (A blocking poll()/epoll with
+    // XDP_USE_NEED_WAKEUP is the ideal follow-up.)
+    const BUSY_POLL_SPIN: Duration = Duration::from_micros(250);
     const IDLE_SLEEP: Duration = Duration::from_millis(1);
-    const IDLE_SLEEP_AFTER: Duration = Duration::from_millis(100);
+    const IDLE_SLEEP_AFTER: Duration = Duration::from_millis(20);
     const RX_RING_SIZE: u32 = 1024;
     const FILL_RING_SIZE: u32 = 2048;
     const COMPLETION_RING_SIZE: u32 = 2048;

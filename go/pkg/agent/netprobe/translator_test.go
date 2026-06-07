@@ -325,6 +325,52 @@ func TestProcessSnapshotToDiscoveredDevice(t *testing.T) {
 	}
 }
 
+func TestSplitProcessSnapshotBoundsMetadataPayload(t *testing.T) {
+	entries := make([]*netprobepb.ProcessSnapshotEntry, 0, 20)
+	for idx := 0; idx < 20; idx++ {
+		entries = append(entries, &netprobepb.ProcessSnapshotEntry{
+			LocalIp:           "127.0.0.1",
+			LocalPort:         uint32(10_000 + idx),
+			TransportProtocol: "tcp",
+			Pid:               uint32(1_000 + idx),
+			Tgid:              uint32(1_000 + idx),
+			Uid:               26,
+			Gid:               26,
+			Comm:              "postgres",
+			RedactedCmdline:   []string{"postgres", strings.Repeat("x", 512)},
+			ContainerId:       "container-abc123",
+		})
+	}
+
+	snapshot := &netprobepb.ProcessSnapshot{
+		Fingerprint:        "snapshot-1",
+		ObservedAtUnixNano: time.Date(2026, 5, 28, 16, 5, 4, 123, time.UTC).UnixNano(),
+		Entries:            entries,
+	}
+	parts := SplitProcessSnapshot(snapshot, 2048)
+
+	if len(parts) <= 1 {
+		t.Fatalf("expected snapshot to be split, got %d part(s)", len(parts))
+	}
+
+	totalEntries := 0
+	for idx, part := range parts {
+		totalEntries += len(part.GetEntries())
+		if got := processSnapshotMetadataSize(part, part.GetEntries()); got > 2048 {
+			t.Fatalf("part %d metadata size = %d, want <= 2048", idx, got)
+		}
+		if part.GetFingerprint() != snapshot.GetFingerprint() {
+			t.Fatalf("part %d fingerprint = %q, want %q", idx, part.GetFingerprint(), snapshot.GetFingerprint())
+		}
+		if part.GetObservedAtUnixNano() != snapshot.GetObservedAtUnixNano() {
+			t.Fatalf("part %d observed_at = %d, want %d", idx, part.GetObservedAtUnixNano(), snapshot.GetObservedAtUnixNano())
+		}
+	}
+	if totalEntries != len(entries) {
+		t.Fatalf("split preserved %d entries, want %d", totalEntries, len(entries))
+	}
+}
+
 func TestDpiEventToDiscoveredDeviceValidation(t *testing.T) {
 	tests := []struct {
 		name  string

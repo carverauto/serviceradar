@@ -23,6 +23,8 @@ defmodule ServiceRadar.Security.SecurityEvent do
     :lockout_triggered,
     :lockout_cleared,
     :csp_violation,
+    :edge_onboarding_succeeded,
+    :edge_onboarding_failed,
     :other
   ]
 

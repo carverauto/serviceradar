@@ -35,8 +35,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/hashutil"
@@ -44,11 +46,13 @@ import (
 )
 
 const (
-	addonsDirName     = "addons"
-	addonVersionsDir  = "versions"
-	addonCurrentLink  = "current"
-	addonBinaryMode   = 0o755
-	addonManifestMode = 0o644 // non-executable bundled files (manifest, config, units)
+	addonsDirName                  = "addons"
+	addonVersionsDir               = "versions"
+	addonCurrentLink               = "current"
+	addonBinaryMode                = 0o755
+	addonManifestMode              = 0o644 // non-executable bundled files (manifest, config, units)
+	addonStageMetaFile             = ".serviceradar-addon.json"
+	addonSystemdActivationMetaFile = ".serviceradar-systemd-activation.json"
 
 	// addonLocalOverrideFile is the operator-managed local override (break-glass /
 	// dev) read from the agent config dir; its entries take precedence over pushed
@@ -62,6 +66,26 @@ const (
 	maxAddonTarballBytes     = 1 << 30   // 1 GiB total extracted
 )
 
+type addonStageMetadata struct {
+	AddonID        string `json:"addon_id"`
+	Version        string `json:"version"`
+	BinaryName     string `json:"binary_name"`
+	ArtifactObject string `json:"artifact_object_key"`
+	ArtifactSHA256 string `json:"artifact_sha256"`
+	Signature      string `json:"artifact_signature,omitempty"`
+}
+
+type addonSystemdActivationMetadata struct {
+	AddonID        string   `json:"addon_id"`
+	Version        string   `json:"version"`
+	BinaryName     string   `json:"binary_name"`
+	ArtifactSHA256 string   `json:"artifact_sha256"`
+	Signature      string   `json:"artifact_signature,omitempty"`
+	ConfigSHA256   string   `json:"config_sha256,omitempty"`
+	Units          []string `json:"units"`
+	Enable         string   `json:"enable,omitempty"`
+}
+
 var (
 	// ErrAddonObjectStoreUnavailable is returned when a pushed-artifact add-on is
 	// assigned but the agent has no object store configured to fetch it from.
@@ -69,6 +93,9 @@ var (
 	// ErrAddonArtifactIncomplete is returned when the assignment is missing the
 	// object key or expected sha256 required to fetch and verify the artifact.
 	ErrAddonArtifactIncomplete = errors.New("addon artifact reference incomplete")
+	// ErrAddonArtifactDownloadFailed is returned when the gateway-proxied HTTPS
+	// download of an add-on artifact returns a non-200 status.
+	ErrAddonArtifactDownloadFailed = errors.New("addon artifact gateway download failed")
 	// ErrAddonArtifactHashMismatch is returned when the fetched artifact does not
 	// match the expected sha256.
 	ErrAddonArtifactHashMismatch = errors.New("addon artifact sha256 mismatch")
@@ -91,6 +118,10 @@ var (
 	// ErrAddonTarballBinaryMissing is returned when a pushed-artifact tarball does not
 	// contain the add-on's declared executable.
 	ErrAddonTarballBinaryMissing = errors.New("addon tarball is missing the add-on binary")
+	// ErrAddonRuntimeConfigAmbiguous is returned when assignment config cannot be
+	// materialized because a staged systemd add-on has multiple plausible runtime
+	// JSON config files and no <addon_id>.json convention match.
+	ErrAddonRuntimeConfigAmbiguous = errors.New("addon runtime config file is ambiguous")
 )
 
 // safeAddonSegment reports whether s is safe to use as a single path component under
@@ -123,10 +154,23 @@ func stageAddonArtifact(
 	root string,
 	a *proto.AddonAssignmentConfig,
 ) (string, error) {
-	if downloader == nil {
-		return "", ErrAddonObjectStoreUnavailable
-	}
+	return stageAddonArtifactWithClient(ctx, downloader, nil, root, a)
+}
 
+// stageAddonArtifactWithClient is stageAddonArtifact with an optional gateway HTTP
+// client. When the assignment carries a gateway download_url and httpClient is
+// non-nil, the artifact is fetched over HTTPS through the gateway/web-ng addon-blob
+// endpoint (mirroring the WASM plugin download path) instead of the direct object
+// store; the same sha256 + ed25519-signature verification is applied either way.
+// When download_url is empty it falls back to the direct object store (internal
+// agents with a kv_address).
+func stageAddonArtifactWithClient(
+	ctx context.Context,
+	downloader ObjectStore,
+	httpClient *http.Client,
+	root string,
+	a *proto.AddonAssignmentConfig,
+) (string, error) {
 	objectKey := strings.TrimSpace(a.GetArtifactObjectKey())
 	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
 	if objectKey == "" || wantSHA == "" {
@@ -146,9 +190,17 @@ func stageAddonArtifact(
 		return "", fmt.Errorf("%w: version %q", ErrAddonUnsafePath, version)
 	}
 
-	data, err := downloader.DownloadObject(ctx, objectKey)
+	binName := addonBinaryName(a)
+	addonDir := filepath.Join(root, addonID)
+	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
+	resolvedBinary := filepath.Join(addonDir, addonCurrentLink, binName)
+	if stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, a.GetArtifactSignature()) {
+		return resolvedBinary, nil
+	}
+
+	data, err := fetchAddonArtifactBytes(ctx, downloader, httpClient, a, objectKey)
 	if err != nil {
-		return "", fmt.Errorf("download addon artifact %q: %w", objectKey, err)
+		return "", err
 	}
 
 	// Verify the digest with the shared constant-time helper before touching disk.
@@ -166,10 +218,6 @@ func stageAddonArtifact(
 		}
 	}
 
-	binName := addonBinaryName(a)
-
-	addonDir := filepath.Join(root, addonID)
-	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
 	if err := os.MkdirAll(versionDir, 0o755); err != nil {
 		return "", fmt.Errorf("create addon version dir: %w", err)
 	}
@@ -187,13 +235,329 @@ func stageAddonArtifact(
 		return "", err
 	}
 
+	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
+		AddonID:        addonID,
+		Version:        version,
+		BinaryName:     binName,
+		ArtifactObject: objectKey,
+		ArtifactSHA256: wantSHA,
+		Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+	}); err != nil {
+		return "", err
+	}
+
 	// Publish current -> versions/<version> atomically so a concurrent reader never
 	// observes a half-written link.
 	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, version)); err != nil {
 		return "", err
 	}
 
-	return filepath.Join(addonDir, addonCurrentLink, binName), nil
+	return resolvedBinary, nil
+}
+
+func stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, signature string) bool {
+	target, ok := readAddonCurrentTarget(addonDir)
+	if !ok || target != filepath.Join(addonVersionsDir, version) {
+		return false
+	}
+
+	data, err := os.ReadFile(filepath.Join(versionDir, addonStageMetaFile))
+	if err != nil {
+		return false
+	}
+
+	var meta addonStageMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return false
+	}
+
+	if strings.TrimSpace(meta.Version) != version ||
+		strings.TrimSpace(meta.BinaryName) != binName ||
+		strings.ToLower(strings.TrimSpace(meta.ArtifactSHA256)) != wantSHA ||
+		strings.TrimSpace(meta.Signature) != strings.TrimSpace(signature) {
+		return false
+	}
+
+	info, err := os.Stat(filepath.Join(versionDir, binName))
+	return err == nil && info.Mode().IsRegular()
+}
+
+func writeAddonStageMetadata(versionDir string, meta addonStageMetadata) error {
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal addon stage metadata: %w", err)
+	}
+
+	data = append(data, '\n')
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, addonStageMetaFile), data, addonManifestMode); err != nil {
+		return fmt.Errorf("write addon stage metadata: %w", err)
+	}
+
+	return nil
+}
+
+func systemdAddonActivationCurrent(
+	versionDir, version, binName, wantSHA, signature string,
+	configSHA string,
+	units []string,
+) bool {
+	data, err := os.ReadFile(filepath.Join(versionDir, addonSystemdActivationMetaFile))
+	if err != nil {
+		return false
+	}
+
+	var meta addonSystemdActivationMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(meta.Version) == version &&
+		strings.TrimSpace(meta.BinaryName) == binName &&
+		strings.ToLower(strings.TrimSpace(meta.ArtifactSHA256)) == wantSHA &&
+		strings.TrimSpace(meta.Signature) == strings.TrimSpace(signature) &&
+		strings.TrimSpace(meta.ConfigSHA256) == strings.TrimSpace(configSHA) &&
+		sameStringSet(meta.Units, units)
+}
+
+func writeAddonSystemdActivationMetadata(versionDir string, meta addonSystemdActivationMetadata) error {
+	meta.Units = sortedStrings(meta.Units)
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal addon systemd activation metadata: %w", err)
+	}
+
+	data = append(data, '\n')
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, addonSystemdActivationMetaFile), data, addonManifestMode); err != nil {
+		return fmt.Errorf("write addon systemd activation metadata: %w", err)
+	}
+
+	return nil
+}
+
+func addonAssignmentConfigSHA256(configJSON []byte) string {
+	configJSON = bytes.TrimSpace(configJSON)
+	if len(configJSON) == 0 {
+		return ""
+	}
+
+	sum := sha256.Sum256(configJSON)
+	return fmt.Sprintf("%x", sum[:])
+}
+
+func applyStagedAddonRuntimeConfig(runtimeRoot string, a *proto.AddonAssignmentConfig) error {
+	configJSON := bytes.TrimSpace(a.GetConfigJson())
+	if len(configJSON) == 0 {
+		return nil
+	}
+
+	addonID := strings.TrimSpace(a.GetAddonId())
+	if !safeAddonSegment(addonID) {
+		return fmt.Errorf("%w: addon_id %q", ErrAddonUnsafePath, addonID)
+	}
+
+	currentDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID, addonCurrentLink)
+	configName, err := selectStagedAddonRuntimeConfig(currentDir, addonID)
+	if err != nil {
+		return err
+	}
+	if configName == "" {
+		return nil
+	}
+
+	configPath := filepath.Join(currentDir, configName)
+	basePath := filepath.Join(currentDir, ".serviceradar-config-base-"+configName)
+
+	baseConfig, err := os.ReadFile(basePath)
+	if errors.Is(err, os.ErrNotExist) {
+		baseConfig, err = os.ReadFile(configPath)
+		if err != nil {
+			return fmt.Errorf("read staged addon config: %w", err)
+		}
+		if err := writeAddonFileAtomic(basePath, baseConfig, addonManifestMode); err != nil {
+			return fmt.Errorf("preserve staged addon config base: %w", err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("read staged addon config base: %w", err)
+	}
+
+	mergedConfig, err := mergeAddonRuntimeConfig(baseConfig, configJSON)
+	if err != nil {
+		return err
+	}
+
+	if err := writeAddonFileAtomic(configPath, mergedConfig, addonManifestMode); err != nil {
+		return fmt.Errorf("write staged addon runtime config: %w", err)
+	}
+
+	return nil
+}
+
+func selectStagedAddonRuntimeConfig(dir, addonID string) (string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return "", fmt.Errorf("read staged addon dir: %w", err)
+	}
+
+	candidates := make([]string, 0, 1)
+	preferred := addonID + ".json"
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if name == preferred {
+			return name, nil
+		}
+		if strings.HasPrefix(name, ".serviceradar-") ||
+			name == "config.schema.json" ||
+			!strings.HasSuffix(name, ".json") {
+			continue
+		}
+
+		candidates = append(candidates, name)
+	}
+
+	switch len(candidates) {
+	case 0:
+		return "", nil
+	case 1:
+		return candidates[0], nil
+	default:
+		sort.Strings(candidates)
+		return "", fmt.Errorf("%w: %s", ErrAddonRuntimeConfigAmbiguous, strings.Join(candidates, ", "))
+	}
+}
+
+func mergeAddonRuntimeConfig(baseConfig, overrideConfig []byte) ([]byte, error) {
+	var base map[string]any
+	var override map[string]any
+	if err := json.Unmarshal(baseConfig, &base); err != nil {
+		return nil, fmt.Errorf("decode staged addon config base: %w", err)
+	}
+	if err := json.Unmarshal(overrideConfig, &override); err != nil {
+		return nil, fmt.Errorf("decode addon assignment config: %w", err)
+	}
+
+	for key, value := range override {
+		base[key] = value
+	}
+
+	out, err := json.MarshalIndent(base, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("encode merged addon config: %w", err)
+	}
+
+	return append(out, '\n'), nil
+}
+
+func sameStringSet(a, b []string) bool {
+	a = sortedStrings(a)
+	b = sortedStrings(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+
+	return out
+}
+
+// fetchAddonArtifactBytes returns the raw artifact bytes, preferring the gateway-proxied
+// HTTPS download (download_url + download_token) when the assignment carries one and an
+// HTTP client is available, mirroring the WASM plugin download path. It falls back to the
+// direct object store otherwise. The bytes are returned UNVERIFIED; the caller applies the
+// sha256 + ed25519-signature checks regardless of which path produced them.
+func fetchAddonArtifactBytes(
+	ctx context.Context,
+	downloader ObjectStore,
+	httpClient *http.Client,
+	a *proto.AddonAssignmentConfig,
+	objectKey string,
+) ([]byte, error) {
+	if downloadURL := strings.TrimSpace(a.GetDownloadUrl()); downloadURL != "" {
+		if httpClient == nil {
+			return nil, ErrAddonObjectStoreUnavailable
+		}
+
+		data, err := downloadAddonArtifactHTTP(ctx, httpClient, downloadURL, a.GetDownloadToken())
+		if err != nil {
+			return nil, fmt.Errorf("download addon artifact via gateway: %w", err)
+		}
+
+		return data, nil
+	}
+
+	// No gateway download URL: fall back to the direct object store (internal agents
+	// configured with a kv_address).
+	if downloader == nil {
+		return nil, ErrAddonObjectStoreUnavailable
+	}
+
+	data, err := downloader.DownloadObject(ctx, objectKey)
+	if err != nil {
+		return nil, fmt.Errorf("download addon artifact %q: %w", objectKey, err)
+	}
+
+	return data, nil
+}
+
+// downloadAddonArtifactHTTP fetches an add-on artifact from the gateway/web-ng addon-blob
+// endpoint over HTTPS, presenting the per-poll signed download token in the
+// X-ServiceRadar-Plugin-Token header (the same header the WASM plugin download uses). The
+// response body is bounded to the maximum add-on tarball size to guard against a hostile
+// or misbehaving endpoint. The returned bytes are unverified; the caller still checks the
+// sha256 and ed25519 signature.
+func downloadAddonArtifactHTTP(ctx context.Context, client *http.Client, downloadURL, token string) ([]byte, error) {
+	method := http.MethodGet
+	if strings.TrimSpace(token) != "" {
+		method = http.MethodPost
+	}
+
+	req, err := http.NewRequestWithContext(ctx, method, downloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(token) != "" {
+		req.Header.Set("X-ServiceRadar-Plugin-Token", token)
+	}
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("%w: status %d", ErrAddonArtifactDownloadFailed, resp.StatusCode)
+	}
+
+	// Cap at one byte over the total-extracted bound so an oversized response is rejected
+	// rather than buffered whole.
+	limited := io.LimitReader(resp.Body, maxAddonTarballBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > maxAddonTarballBytes {
+		return nil, fmt.Errorf("%w: addon artifact exceeds %d bytes", ErrAddonTarballTooLarge, maxAddonTarballBytes)
+	}
+
+	return data, nil
 }
 
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes

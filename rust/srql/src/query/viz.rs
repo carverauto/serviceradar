@@ -74,6 +74,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 | Entity::DiskMetrics
                 | Entity::ProcessMetrics
                 | Entity::Flows
+                | Entity::AttributedFlows
         )
     {
         return Some(VizMeta {
@@ -1254,7 +1255,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
-        Entity::Flows => VizMeta {
+        Entity::Flows | Entity::AttributedFlows => VizMeta {
             columns: vec![
                 col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),
                 col("src_endpoint_ip", ColumnType::Text, None),
@@ -1277,6 +1278,17 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 col("out_if_name", ColumnType::Text, None),
                 col("in_if_speed_bps", ColumnType::Int, None),
                 col("out_if_speed_bps", ColumnType::Int, None),
+                col("attribution_status", ColumnType::Text, None),
+                col("pid", ColumnType::Text, None),
+                col("process", ColumnType::Text, None),
+                col("cmdline", ColumnType::Text, None),
+                col("uid", ColumnType::Text, None),
+                col("container_id", ColumnType::Text, None),
+                col("agent_id", ColumnType::Text, None),
+                col("pod_namespace", ColumnType::Text, None),
+                col("pod_name", ColumnType::Text, None),
+                col("container_name", ColumnType::Text, None),
+                col("image", ColumnType::Text, None),
                 col("ocsf_payload", ColumnType::Jsonb, None),
             ],
             suggestions: vec![

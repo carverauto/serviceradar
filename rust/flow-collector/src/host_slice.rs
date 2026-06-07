@@ -6,42 +6,57 @@ use std::sync::Arc;
 
 #[derive(Debug, Default)]
 pub struct HostSliceRouter {
-    subjects_by_ip: HashMap<IpAddr, Vec<Arc<str>>>,
+    targets_by_ip: HashMap<IpAddr, Vec<HostSliceTarget>>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HostSliceTarget {
+    pub agent_id: Arc<str>,
+    pub partition: Arc<str>,
+    pub subject: Arc<str>,
 }
 
 impl HostSliceRouter {
     pub fn from_config(config: &Config) -> Self {
-        let mut subjects_by_ip: HashMap<IpAddr, Vec<Arc<str>>> = HashMap::new();
+        let mut targets_by_ip: HashMap<IpAddr, Vec<HostSliceTarget>> = HashMap::new();
 
         for slice in config
             .host_slices
             .iter()
             .filter(|slice| host_slice_publication_allowed(config, slice))
         {
-            let subject: Arc<str> = Arc::from(slice.subject());
+            let target = HostSliceTarget {
+                agent_id: Arc::from(slice.agent_id.as_str()),
+                partition: Arc::from(slice.partition.as_str()),
+                subject: Arc::from(slice.subject()),
+            };
 
             for ip in &slice.host_ips {
-                subjects_by_ip
-                    .entry(*ip)
-                    .or_default()
-                    .push(Arc::clone(&subject));
+                targets_by_ip.entry(*ip).or_default().push(target.clone());
             }
         }
 
-        Self { subjects_by_ip }
+        Self { targets_by_ip }
     }
 
     pub fn subjects_for_flow(&self, flow: &FlowMessage) -> Vec<String> {
-        let mut subjects = Vec::new();
+        self.targets_for_flow(flow)
+            .into_iter()
+            .map(|target| target.subject.to_string())
+            .collect()
+    }
+
+    pub fn targets_for_flow(&self, flow: &FlowMessage) -> Vec<HostSliceTarget> {
+        let mut targets = Vec::new();
 
         if let Some(src) = flow_ip(&flow.src_addr) {
-            self.push_subjects(src, &mut subjects);
+            self.push_targets(src, &mut targets);
         }
         if let Some(dst) = flow_ip(&flow.dst_addr) {
-            self.push_subjects(dst, &mut subjects);
+            self.push_targets(dst, &mut targets);
         }
 
-        subjects
+        targets
     }
 
     pub fn metric_slices(config: &Config) -> Vec<(String, String)> {
@@ -57,14 +72,17 @@ impl HostSliceRouter {
         slices
     }
 
-    fn push_subjects(&self, ip: IpAddr, subjects: &mut Vec<String>) {
-        let Some(matches) = self.subjects_by_ip.get(&ip) else {
+    fn push_targets(&self, ip: IpAddr, targets: &mut Vec<HostSliceTarget>) {
+        let Some(matches) = self.targets_by_ip.get(&ip) else {
             return;
         };
 
-        for subject in matches {
-            if !subjects.iter().any(|existing| existing == subject.as_ref()) {
-                subjects.push(subject.to_string());
+        for target in matches {
+            if !targets
+                .iter()
+                .any(|existing| existing.subject == target.subject)
+            {
+                targets.push(target.clone());
             }
         }
     }
@@ -170,6 +188,17 @@ mod tests {
         });
 
         assert_eq!(subjects, vec!["flow.host-slice.agent-1"]);
+
+        let targets = router.targets_for_flow(&FlowMessage {
+            src_addr: vec![192, 0, 2, 10],
+            dst_addr: vec![192, 0, 2, 10],
+            ..Default::default()
+        });
+
+        assert_eq!(targets.len(), 1);
+        assert_eq!(targets[0].agent_id.as_ref(), "agent-1");
+        assert_eq!(targets[0].partition.as_ref(), "default");
+        assert_eq!(targets[0].subject.as_ref(), "flow.host-slice.agent-1");
     }
 
     #[test]
