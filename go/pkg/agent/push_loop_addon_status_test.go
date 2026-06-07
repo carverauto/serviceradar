@@ -142,6 +142,42 @@ func TestNetprobeAddonStatusRunning(t *testing.T) {
 	}
 }
 
+// Installed + a healthy netprobe sidecar entry without a PID still needs to
+// report the systemd MainPID. In systemd attach mode the IPC health path may not
+// own the process handle, but Edge Ops still needs process-level accounting.
+func TestNetprobeAddonStatusRunningFillsMissingSidecarPIDFromSystemd(t *testing.T) {
+	pl := newNetprobeStatusPushLoop(t, true)
+	root := stageNetprobeCurrent(t, "1.2.4")
+	sidecars := []*proto.SidecarStatus{
+		{
+			Name:         "netprobe",
+			State:        string(sidecar.StateRunning),
+			LastHealthAt: time.Unix(1_700_000_001, 0).UTC().UnixNano(),
+		},
+	}
+	stubSystemdUnitStatus(t, pl, func(unit string) systemdUnitStatus {
+		if unit != "serviceradar-netprobe.service" {
+			t.Fatalf("unexpected systemd unit %q", unit)
+		}
+
+		return systemdUnitStatus{state: agentaddon.StateRunning, pid: 9876}
+	})
+
+	got := pl.netprobeAddonStatus(root, sidecars)
+	if got == nil {
+		t.Fatal("expected addon:netprobe status")
+	}
+	if got.GetState() != string(sidecar.StateRunning) {
+		t.Fatalf("state = %q, want %q", got.GetState(), sidecar.StateRunning)
+	}
+	if got.GetPid() != 9876 {
+		t.Fatalf("pid = %d, want systemd MainPID 9876", got.GetPid())
+	}
+	if got.GetLastHealthAt() == 0 {
+		t.Fatalf("expected last_health_at to be carried from the sidecar")
+	}
+}
+
 // Installed but with no running sidecar entry => addon:netprobe reports the installed
 // version but a stopped state (installed, not active).
 func TestNetprobeAddonStatusInstalledNotRunning(t *testing.T) {

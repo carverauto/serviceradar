@@ -411,15 +411,23 @@ func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars 
 		st.Version = filepath.Base(target)
 	}
 
-	if foldSidecarStatus(&st, id, sidecars) {
+	foldedSidecar := foldSidecarStatus(&st, id, sidecars)
+	if foldedSidecar && st.PID > 0 {
 		return st
 	}
 
 	status := systemdAddonUnitStatusWithReader(units, p.readSystemdAddonUnitStatus)
-	st.State = status.state
-	st.PID = status.pid
-	st.LastError = status.lastError
-	if status.state == agentaddon.StateRunning {
+	if !foldedSidecar {
+		st.State = status.state
+		st.LastError = status.lastError
+	}
+	if st.PID <= 0 {
+		st.PID = status.pid
+	}
+	if st.LastError == "" {
+		st.LastError = status.lastError
+	}
+	if st.LastHealthAt.IsZero() && status.state == agentaddon.StateRunning {
 		st.LastHealthAt = time.Now().UTC()
 	}
 
