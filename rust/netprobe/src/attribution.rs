@@ -75,6 +75,8 @@ const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_RETRY_INTERVAL: Duration = Duration::from_secs(5);
 #[cfg(target_os = "linux")]
+const PROCESS_DETAILS_PENDING_MAX_ENTRIES: usize = 8192;
+#[cfg(target_os = "linux")]
 // Listener inventory changes are useful for host forensics, but a busy runtime
 // can flap several local sockets per second. Coalesce dirty snapshots so one
 // listener change does not become a continuous IPC stream.
@@ -880,6 +882,21 @@ impl MetadataEnricher {
         &mut self,
         record: &ProcessInfoRecord,
     ) -> (ProcessDetails, ProcessDetailsCacheKey, bool) {
+        self.process_details_with_priority(record, false)
+    }
+
+    fn process_details_priority(
+        &mut self,
+        record: &ProcessInfoRecord,
+    ) -> (ProcessDetails, ProcessDetailsCacheKey, bool) {
+        self.process_details_with_priority(record, true)
+    }
+
+    fn process_details_with_priority(
+        &mut self,
+        record: &ProcessInfoRecord,
+        priority: bool,
+    ) -> (ProcessDetails, ProcessDetailsCacheKey, bool) {
         let key = ProcessDetailsCacheKey::from(record);
         let now = Instant::now();
 
@@ -896,11 +913,53 @@ impl MetadataEnricher {
             return (details, key, true);
         }
 
-        if self.pending_keys.insert(key) {
-            self.pending.push_back(*record);
-        }
+        self.queue_pending_metadata(key, *record, priority);
 
         (process_details_from_record(record), key, false)
+    }
+
+    fn queue_pending_metadata(
+        &mut self,
+        key: ProcessDetailsCacheKey,
+        record: ProcessInfoRecord,
+        priority: bool,
+    ) {
+        if self.pending_keys.insert(key) {
+            if priority {
+                self.pending.push_front(record);
+            } else {
+                self.pending.push_back(record);
+            }
+            self.trim_pending_metadata(priority);
+            return;
+        }
+
+        if priority {
+            if let Some(index) = self
+                .pending
+                .iter()
+                .position(|pending| ProcessDetailsCacheKey::from(pending) == key)
+            {
+                let _ = self.pending.remove(index);
+            }
+            self.pending.push_front(record);
+        }
+    }
+
+    fn trim_pending_metadata(&mut self, priority_insert: bool) {
+        while self.pending.len() > PROCESS_DETAILS_PENDING_MAX_ENTRIES {
+            let removed = if priority_insert {
+                self.pending.pop_back()
+            } else {
+                self.pending.pop_front()
+            };
+            if let Some(record) = removed {
+                self.pending_keys
+                    .remove(&ProcessDetailsCacheKey::from(&record));
+            } else {
+                break;
+            }
+        }
     }
 
     fn process_pending(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
@@ -1198,7 +1257,7 @@ impl AyaAttributionReader {
             process_generation_ns: record.process_generation_ns,
             comm: record.comm,
         };
-        let (details, _, cold_read) = self.metadata.process_details(&info);
+        let (details, _, cold_read) = self.metadata.process_details_priority(&info);
         if cold_read {
             metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
         }
@@ -2896,6 +2955,79 @@ mod tests {
         assert_eq!(details.cmdline, vec!["/bin/app", "[redacted 2 arg(s)]"]);
         assert_eq!(details.container_id.as_deref(), Some(id));
         assert_eq!(enricher.cache_len(), 1);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn metadata_enricher_prioritizes_active_cached_flow_metadata() {
+        let low_id = "1111111111111111111111111111111111111111111111111111111111111111";
+        let active_id = "2222222222222222222222222222222222222222222222222222222222222222";
+        let root = temp_proc(
+            "100",
+            b"/bin/low\0",
+            &format!("0::/kubepods.slice/cri-containerd-{low_id}.scope\n"),
+        );
+        let active_dir = root.path().join("200");
+        fs::create_dir_all(&active_dir).unwrap();
+        fs::write(active_dir.join("cmdline"), b"/bin/active\0--secret\0").unwrap();
+        fs::write(
+            active_dir.join("cgroup"),
+            format!("0::/kubepods.slice/cri-containerd-{active_id}.scope\n"),
+        )
+        .unwrap();
+
+        let mut low_comm = [0u8; 16];
+        low_comm[..3].copy_from_slice(b"low");
+        let low = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 100,
+            tgid: 100,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 0,
+            process_generation_ns: 1,
+            comm: low_comm,
+        };
+        let mut active_comm = [0u8; 16];
+        active_comm[..6].copy_from_slice(b"active");
+        let active = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 200,
+            tgid: 200,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 0,
+            process_generation_ns: 2,
+            comm: active_comm,
+        };
+        let mut enricher = MetadataEnricher::with_procfs(ProcfsEnricher::with_root(root.path()));
+        enricher.read_budget.available = 0;
+
+        let (_, low_key, low_cold_read) = enricher.process_details(&low);
+        let (_, active_key, active_cold_read) = enricher.process_details(&active);
+        assert!(!low_cold_read);
+        assert!(!active_cold_read);
+        assert_eq!(enricher.pending.len(), 2);
+
+        let (_, priority_key, priority_cold_read) = enricher.process_details_priority(&active);
+        assert_eq!(priority_key, active_key);
+        assert!(!priority_cold_read);
+        assert_eq!(enricher.pending.len(), 2);
+
+        enricher.read_budget.available = 1;
+        let updated = enricher.process_pending();
+
+        assert_eq!(updated.len(), 1);
+        assert_eq!(updated[0].0, active_key);
+        assert_eq!(updated[0].1.container_id.as_deref(), Some(active_id));
+        assert_eq!(
+            updated[0].1.cmdline,
+            vec!["/bin/active", "[redacted 1 arg(s)]"]
+        );
+        assert!(enricher.pending_keys.contains(&low_key));
+        assert!(!enricher.pending_keys.contains(&active_key));
     }
 
     #[test]
