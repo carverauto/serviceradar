@@ -9,15 +9,15 @@ defmodule ServiceRadar.Repo.Migrations.ReconcileObservabilityRetentionChunks do
   use Ecto.Migration
 
   @tables [
-    {"otel_traces", "SERVICERADAR_OTEL_TRACES_RETENTION_DAYS", 3,
-     "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS", 6},
-    {"logs", "SERVICERADAR_LOGS_RETENTION_DAYS", 30, "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS",
-     24},
+    {"otel_traces", "SERVICERADAR_OTEL_TRACES_RETENTION_DAYS", 3, "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS", 6},
+    {"logs", "SERVICERADAR_LOGS_RETENTION_DAYS", 30, "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS", 24},
     {"ocsf_network_activity", "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS", 90,
      "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS", 24}
   ]
 
   def up do
+    # serviceradar:allow-startup-maintenance - Timescale retention/chunk policy
+    # reconciliation is metadata-only and idempotent for existing hypertables.
     Enum.each(@tables, fn {table_name, retention_env, retention_default, chunk_env, chunk_default} ->
       replace_retention_policy(
         table_name,

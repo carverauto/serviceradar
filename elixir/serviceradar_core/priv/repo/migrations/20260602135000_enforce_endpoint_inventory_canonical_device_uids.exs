@@ -13,6 +13,8 @@ defmodule ServiceRadar.Repo.Migrations.EnforceEndpointInventoryCanonicalDeviceUi
   ]
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded cleanup
+    # before adding sr: device_uid constraints across endpoint inventory tables.
     Enum.each(@tables, fn table ->
       execute("""
       UPDATE platform.#{table}

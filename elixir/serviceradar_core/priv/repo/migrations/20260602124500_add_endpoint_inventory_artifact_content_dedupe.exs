@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointInventoryArtifactContentDedupe
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded
+    # dedupe backfill required before artifact_content_ref can be populated.
     drop_if_exists(
       index(:endpoint_inventory_artifacts, [:object_key],
         name: "endpoint_inventory_artifacts_object_key_uidx",

@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.DisableLegacyNetprobePeriodicSnapshots do
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - bounded config normalization for
+    # existing netprobe assignments; fresh installs have no rows to update.
     execute("""
     UPDATE platform.addon_assignments AS assignment
     SET params = jsonb_set(

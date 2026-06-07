@@ -3,6 +3,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointInventoryCanonicalPurlIndexes 
   use Ecto.Migration
 
   def up do
+    # serviceradar:allow-startup-maintenance - schema-critical bounded
+    # normalization required before enforcing purl_canonical NOT NULL.
     alter table(:endpoint_inventory_packages, prefix: "platform") do
       add(:purl_canonical, :text)
     end
