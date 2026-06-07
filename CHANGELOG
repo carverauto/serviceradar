@@ -1,3 +1,32 @@
+# ServiceRadar v1.2.95
+
+NetFlow-to-process attribution hardening, workload identity enrichment, and the
+native add-on release path for netprobe/workload-identity.
+
+## Whats New
+
+**1.2.95**
+- Reworked netprobe attribution around an eBPF-fed socket/process inventory so
+  the hot path no longer depends on periodic procfs process snapshots, reducing
+  worker CPU and keeping UDP/ICMP/TCP attribution active on the demo k8s nodes.
+- Added bounded metadata retry for partial process attribution so short-lived
+  processes can still pick up cmdline/container context when the first eBPF
+  event only carries part of the metadata.
+- Split flow attribution persistence/correlation/retention code, added current
+  attribution lookup tables, workload backfill indexes, and service-port
+  reference data for upstream enrichment.
+- Added workload-identity as a standalone native add-on with docs, packaging,
+  systemd units, CRI/container metadata ingestion, and UI/API support separate
+  from netprobe.
+- Updated attributed-flow and NetFlow UI paths with SRQL-backed filtering,
+  pagination/live-mode behavior, reverse-DNS display, row/detail navigation,
+  map enrichment, and better workload/context/process display.
+- Fixed native add-on status reporting by preserving systemd MainPID for
+  add-ons managed outside the agent process tree.
+- Documented startup-maintenance exceptions for bounded/idempotent migrations
+  so the database bootstrap guard remains strict while allowing required schema
+  normalization and Timescale policy setup.
+
 # ServiceRadar v1.2.94
 
 Fixes the netprobe fleet rollout path and makes k8s NetFlow-to-process
