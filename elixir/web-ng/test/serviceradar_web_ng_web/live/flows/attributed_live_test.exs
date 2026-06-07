@@ -156,58 +156,58 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
 
       now
       |> DateTime.add(30, :second)
-      |> insert_flow!(
-        "10.42.10.12",
-        8,
-        "198.51.100.23",
-        nil,
-        1,
-        "icmp",
-        96,
-        2,
-        %{
+      |> insert_flow!(%{
+        src_ip: "10.42.10.12",
+        src_port: 8,
+        dst_ip: "198.51.100.23",
+        dst_port: nil,
+        protocol_num: 1,
+        protocol_name: "icmp",
+        bytes: 96,
+        packets: 2,
+        attribution: %{
           "pid" => "3333",
           "comm" => "icmp-probe",
           "redacted_cmdline" => "/usr/bin/ping args:sha256:fc2b0c61",
           "uid" => "1000",
           "container_id" => "container-icmp"
         },
-        "agent-flow-test-icmp"
-      )
+        agent_id: "agent-flow-test-icmp"
+      })
 
       now
       |> DateTime.add(20, :second)
-      |> insert_flow!(
-        "10.42.10.12",
-        53_211,
-        "198.51.100.23",
-        53,
-        17,
-        "udp",
-        2_048,
-        8,
-        %{
+      |> insert_flow!(%{
+        src_ip: "10.42.10.12",
+        src_port: 53_211,
+        dst_ip: "198.51.100.23",
+        dst_port: 53,
+        protocol_num: 17,
+        protocol_name: "udp",
+        bytes: 2_048,
+        packets: 8,
+        attribution: %{
           "pid" => "2222",
           "comm" => "dns-client",
           "redacted_cmdline" => "/usr/bin/dig args:sha256:765d0bcf",
           "uid" => "1000",
           "container_id" => "container-dns"
         },
-        "agent-flow-test-udp"
-      )
+        agent_id: "agent-flow-test-udp"
+      })
 
       now
       |> DateTime.add(10, :second)
-      |> insert_flow!(
-        "10.42.10.12",
-        53_844,
-        "198.51.100.20",
-        443,
-        6,
-        "tcp",
-        1_536,
-        12,
-        %{
+      |> insert_flow!(%{
+        src_ip: "10.42.10.12",
+        src_port: 53_844,
+        dst_ip: "198.51.100.20",
+        dst_port: 443,
+        protocol_num: 6,
+        protocol_name: "tcp",
+        bytes: 1_536,
+        packets: 12,
+        attribution: %{
           "pid" => "1234",
           "comm" => "nginx",
           "redacted_cmdline" => "/usr/sbin/nginx args:sha256:31f0e4c8",
@@ -222,23 +222,23 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
             "image" => "nginx:latest"
           }
         },
-        "agent-flow-test-tcp"
-      )
+        agent_id: "agent-flow-test-tcp"
+      })
 
       now
       |> DateTime.add(5, :second)
-      |> insert_flow!(
-        "203.0.113.44",
-        62_001,
-        "10.42.10.12",
-        22,
-        6,
-        "tcp",
-        512,
-        4,
-        nil,
-        "agent-flow-test-unmatched"
-      )
+      |> insert_flow!(%{
+        src_ip: "203.0.113.44",
+        src_port: 62_001,
+        dst_ip: "10.42.10.12",
+        dst_port: 22,
+        protocol_num: 6,
+        protocol_name: "tcp",
+        bytes: 512,
+        packets: 4,
+        attribution: nil,
+        agent_id: "agent-flow-test-unmatched"
+      })
 
       upsert_rdns!("10.42.10.12", "worker-1.example.test", now)
       upsert_rdns!("198.51.100.20", "edge-api.example.test", now)
@@ -259,28 +259,16 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     )
   end
 
-  defp insert_flow!(
-         time,
-         src_ip,
-         src_port,
-         dst_ip,
-         dst_port,
-         protocol_num,
-         protocol_name,
-         bytes,
-         packets,
-         attribution,
-         agent_id
-       ) do
+  defp insert_flow!(time, attrs) do
     payload =
       maybe_put_attribution(
         %{
           "event_type" => "attributed_flow",
-          "agent_id" => agent_id,
+          "agent_id" => attrs.agent_id,
           "partition" => "default",
           "test_suite" => "attributed_live_test"
         },
-        attribution
+        attrs.attribution
       )
 
     SQL.query!(
@@ -302,7 +290,18 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
       )
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, 'default', $1)
       """,
-      [time, src_ip, src_port, dst_ip, dst_port, protocol_num, protocol_name, bytes, packets, payload]
+      [
+        time,
+        attrs.src_ip,
+        attrs.src_port,
+        attrs.dst_ip,
+        attrs.dst_port,
+        attrs.protocol_num,
+        attrs.protocol_name,
+        attrs.bytes,
+        attrs.packets,
+        payload
+      ]
     )
   end
 

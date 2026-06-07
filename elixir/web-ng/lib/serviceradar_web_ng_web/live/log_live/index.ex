@@ -465,8 +465,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       end)
 
     href =
-      netflow_talker_cidr_patch(
-        base_path,
+      base_path
+      |> netflow_talker_cidr_patch(
         new_query,
         limit,
         netflow_patch_opts(
@@ -4902,8 +4902,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                     </div>
                     <div class="mt-2 flex flex-wrap gap-2">
                       <.ui_button href={attributed_flow_path(@flow)} variant="ghost" size="xs">
-                        <.icon name="hero-cpu-chip" class="size-3.5" />
-                        Attributed Flow
+                        <.icon name="hero-cpu-chip" class="size-3.5" /> Attributed Flow
                       </.ui_button>
                     </div>
                   <% else %>

@@ -110,6 +110,15 @@ config :serviceradar_core, Oban,
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
 
+config :serviceradar_core, :plugin_storage,
+  backend: :jetstream,
+  upload_ttl_seconds: 900,
+  download_ttl_seconds: 900,
+  max_upload_bytes: 52_428_800,
+  jetstream_bucket: "serviceradar_plugins",
+  jetstream_replicas: 1,
+  jetstream_storage: :file
+
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
   ash_domains: [
@@ -218,15 +227,6 @@ config :serviceradar_web_ng, :object_store_retention,
   plugin_orphan_grace_seconds: 604_800
 
 config :serviceradar_web_ng, :plugin_storage,
-  backend: :jetstream,
-  upload_ttl_seconds: 900,
-  download_ttl_seconds: 900,
-  max_upload_bytes: 52_428_800,
-  jetstream_bucket: "serviceradar_plugins",
-  jetstream_replicas: 1,
-  jetstream_storage: :file
-
-config :serviceradar_core, :plugin_storage,
   backend: :jetstream,
   upload_ttl_seconds: 900,
   download_ttl_seconds: 900,

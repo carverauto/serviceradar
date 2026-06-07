@@ -2670,8 +2670,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetworksLive.Index do
 
   defp parse_banner_ports(values) when is_list(values) do
     values
-    |> Enum.filter(&is_integer/1)
-    |> Enum.filter(&(&1 > 0 and &1 <= 65_535))
+    |> Enum.filter(&(is_integer(&1) and &1 > 0 and &1 <= 65_535))
     |> Enum.uniq()
   end
 
