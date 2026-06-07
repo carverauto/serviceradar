@@ -63,6 +63,24 @@ version_from_bazel_constant() {
     '
 }
 
+sha256_from_ref_path() {
+  local ref="$1" path="$2"
+
+  if command -v sha256sum >/dev/null 2>&1; then
+    git show "${ref}:${path}" 2>/dev/null | sha256sum | awk '{print $1}'
+  else
+    git show "${ref}:${path}" 2>/dev/null | shasum -a 256 | awk '{print $1}'
+  fi
+}
+
+module_lock_has_file_hash() {
+  local ref="$1" path="$2" expected_hash="$3"
+  local module_lock
+
+  module_lock="$(git show "${ref}:MODULE.bazel.lock" 2>/dev/null)" || return 1
+  grep -Fq "FILE:@@//${path} ${expected_hash}" <<<"${module_lock}"
+}
+
 addon_ids() {
   cat <<'EOF'
 sample
@@ -203,6 +221,7 @@ version_changed() {
 changed_paths="$(git diff --name-only "${BASE_REF}" "${HEAD_REF}")"
 required_bumps=""
 version_checks=""
+rust_bazel_lock_checks=""
 inventory_changed=false
 inventory_mapped=false
 
@@ -227,6 +246,7 @@ while IFS= read -r path; do
     cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
     if [[ -n "${cargo_path}" && "${path}" == "${cargo_path}" ]]; then
       version_checks="${version_checks}${addon}"$'\n'
+      rust_bazel_lock_checks="${rust_bazel_lock_checks}${addon}"$'\n'
     fi
 
     bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
@@ -268,6 +288,7 @@ fi
 
 required_bumps="$(printf '%s' "${required_bumps}" | sort -u | sed '/^$/d')"
 version_checks="$(printf '%s' "${version_checks}" | sort -u | sed '/^$/d')"
+rust_bazel_lock_checks="$(printf '%s' "${rust_bazel_lock_checks}" | sort -u | sed '/^$/d')"
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
@@ -292,6 +313,39 @@ EOF
     exit 1
   fi
 done <<<"${required_bumps}"
+
+while IFS= read -r addon; do
+  [[ -n "${addon}" ]] || continue
+
+  cargo_path="$(cargo_version_path "${addon}")"
+  missing_lock_hashes=""
+
+  for lock_input_path in "Cargo.lock" "${cargo_path}"; do
+    expected_hash="$(sha256_from_ref_path "${HEAD_REF}" "${lock_input_path}")"
+
+    if ! module_lock_has_file_hash "${HEAD_REF}" "${lock_input_path}" "${expected_hash}"; then
+      missing_lock_hashes="${missing_lock_hashes}  ${lock_input_path}: ${expected_hash}"$'\n'
+    fi
+  done
+
+  if [[ -z "${missing_lock_hashes}" ]]; then
+    continue
+  fi
+
+  cat >&2 <<EOF
+error: ${addon} Rust add-on metadata changed but MODULE.bazel.lock is stale
+${missing_lock_hashes}
+${cargo_path} changed, but Bazel crate_universe lock metadata does not record
+the current Cargo input hash(es) above.
+
+Rust native add-on packages are built through Bazel crate_universe metadata. Run:
+  bazel --batch mod deps --lockfile_mode=update
+
+Then commit the refreshed MODULE.bazel.lock so release packaging uses the same
+Cargo package metadata as the source tree.
+EOF
+  exit 1
+done <<<"${rust_bazel_lock_checks}"
 
 while IFS= read -r addon; do
   [[ -n "${addon}" ]] || continue
