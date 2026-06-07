@@ -27,7 +27,7 @@ Docker/Compose metadata and the optional Kubernetes inventory overlay are follow
 
 This milestone should be implementation-gated separately from the broader workload identity plan. Do not block the Kubernetes CRI/cgroup MVP on Docker, Compose, owner-chain overlay, cold storage, or cluster-wide inventory work.
 
-The MVP acceptance test should be narrow: on a demo Kubernetes worker, a containerized attributed flow must show pod namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and explicit degradation fields without granting Kubernetes API credentials to the host agent.
+The MVP acceptance test should be narrow: on a demo Kubernetes worker, standalone workload identity observations must reach agent-gateway/core and a containerized attributed flow must show pod namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and explicit degradation fields without granting Kubernetes API credentials to the host agent.
 
 ## MVP Packaging Decision
 Ship the Kubernetes MVP as a standalone workload-identity capability first, using the ServiceRadar agents already installed on worker nodes. Netprobe is an optional consumer of this capability, not the owner of CRI, Docker, Compose, or Kubernetes metadata. This avoids broad Kubernetes API/RBAC for the baseline CRI path while keeping workload identity useful for customers that want container/pod inventory even when flow attribution is disabled.
@@ -35,6 +35,8 @@ Ship the Kubernetes MVP as a standalone workload-identity capability first, usin
 The collector implementation should keep deployment packaging separate from runtime metadata logic so the same library and binary can later be delivered as a native add-on, Kubernetes DaemonSet, Docker Compose service, or least-privileged local metadata helper/proxy.
 
 The Rust boundary should live outside netprobe. Netprobe may link the shared workload identity crate and attach best-known metadata to flow/process payloads when configured, but the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
+
+The ingestion contract should not make workload identity dependent on netprobe consuming it. The workload identity collector publishes compact identity snapshots/events to the local ServiceRadar agent, the agent forwards them through agent-gateway, and core coalesces current identity state plus any bounded raw observations needed for late joins. Netprobe should emit stable socket/process/container join keys and can optionally attach locally cached metadata, but upstream correlation remains the golden path so workload identity is useful without flow attribution and flow attribution can be enriched after delayed metadata arrives.
 
 Native host packaging should model workload identity and netprobe as ServiceRadar-owned peers, not as process children of the agent. Long-running privileged collectors should remain separate systemd units so restart policy, Linux capabilities, hardening, and cgroup accounting are explicit. To make ownership visible, package-managed units should share a ServiceRadar systemd slice or target (for example `serviceradar.slice` / `serviceradar-agent.target`) and report add-on ownership through agent status, while the agent attaches to collector IPC instead of supervising privileged processes directly.
 
@@ -112,11 +114,12 @@ Controls:
 The optional Kubernetes inventory overlay is the only component that should need Kubernetes API RBAC. The baseline node-local CRI/cgroup path must work without Kubernetes API access on the host agent.
 
 ## Data Flow
-1. netprobe attributes flow/socket/process context through eBPF.
-2. The workload identity collector keeps node-local caches keyed by process generation, cgroup ID/path, container ID, pod UID, and network namespace.
+1. Netprobe attributes flow/socket/process context through eBPF and emits stable join keys such as process generation, cgroup ID/path, container ID, pod UID when known, and network namespace.
+2. The workload identity collector independently keeps node-local caches keyed by process generation, cgroup ID/path, container ID, pod UID, and network namespace.
 3. Runtime/orchestrator lookups enrich those keys with workload context.
-4. The collector emits bounded workload identity observations to agent-gateway/core.
-5. Core stores current identity state and attaches the best known identity to attributed flow records and detail views.
+4. The collector emits bounded workload identity observations to the local agent, which forwards them through agent-gateway to core.
+5. Core coalesces current identity state, keeps only bounded raw observations needed for late joins, and attaches the best known identity to attributed flow records and detail views.
+6. Netprobe is an optional local consumer of workload identity state, not a required hop in the workload identity data path.
 
 ## Non-Goals
 - Do not require a pod sidecar in every workload namespace for the baseline implementation.

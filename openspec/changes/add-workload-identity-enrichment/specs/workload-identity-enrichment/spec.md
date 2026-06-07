@@ -34,10 +34,17 @@ The system SHALL resolve Kubernetes container and pod identity from node-local C
 ### Requirement: Minimal viable Kubernetes workload identity
 The first workload identity implementation SHALL provide Kubernetes worker-local cgroup plus CRI enrichment before Docker/Compose enrichment or Kubernetes owner-overlay enrichment are required.
 
+#### Scenario: MVP publishes standalone identity
+- **GIVEN** workload identity is enabled on a Kubernetes worker
+- **AND** local CRI/containerd metadata is available
+- **WHEN** the MVP workload identity collector observes container and pod identity
+- **THEN** it publishes bounded workload identity observations through the local agent to agent-gateway/core
+- **AND** ServiceRadar coalesces current workload identity state without requiring netprobe to consume the observation
+
 #### Scenario: MVP enriches a Kubernetes flow
 - **GIVEN** netprobe attributes a flow to a containerized process on a Kubernetes worker
 - **AND** local CRI/containerd metadata is available
-- **WHEN** the MVP workload identity collector processes the attribution
+- **WHEN** ServiceRadar joins the attributed flow with current workload identity state
 - **THEN** the resulting flow context includes namespace, pod name, pod UID, container name, image, node, runtime source, confidence, and degradation fields
 - **AND** it does not require Kubernetes API credentials on the host agent
 
@@ -119,3 +126,10 @@ The system SHALL store workload identity observations with bounded retention and
 - **WHEN** raw flow or workload identity observations are held for late enrichment
 - **THEN** the retention window is explicitly configurable
 - **AND** storage metrics expose raw observation volume and oldest retained observation age
+
+#### Scenario: Workload identity is useful without flow attribution
+- **GIVEN** workload identity is enabled for an agent
+- **AND** netprobe flow attribution is disabled or not assigned
+- **WHEN** the workload identity collector emits observations
+- **THEN** ServiceRadar stores current workload identity state for inventory and investigation surfaces
+- **AND** no netprobe process is required to forward or persist that identity state
