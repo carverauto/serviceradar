@@ -25,6 +25,7 @@
 - [ ] 2.2 Define stable workload identity event schema with process generation, cgroup ID/path, netns, container ID, pod UID, namespace, pod/container names, image, labels/annotations, compose service/project, runtime source, and confidence/degradation fields.
 - [x] 2.2a Add MVP confidence and degradation fields to the Rust workload identity payload so CRI hits and degraded lookups can be surfaced without changing the payload shape later.
 - [x] 2.2b Add workload identity fields to netprobe protobuf messages and flow attribution storage so attributed flows can carry CRI metadata end to end.
+- [ ] 2.2c Move the canonical workload identity wire schema out of netprobe-owned protobuf/types. Netprobe may emit stable join keys, but runtime/orchestrator identity must be owned by a workload-identity contract consumed by agent, agent-gateway, core, SRQL, and UI; reserve or deprecate any old netprobe in-band identity fields after the standalone path is proven.
 - [ ] 2.3 Add bounded caches, queue limits, drop counters, stale-entry eviction, and source-specific error metrics.
 - [x] 2.4 Ensure flow attribution does not block on workload lookups; enrichment must be asynchronous and backfillable when late metadata arrives.
 
