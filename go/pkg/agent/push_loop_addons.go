@@ -443,7 +443,8 @@ func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig,
 		return false
 	}
 
-	if len(p.systemdAddonUnits(addonID)) == 0 {
+	units := p.systemdAddonUnits(addonID)
+	if len(units) == 0 {
 		return false
 	}
 
@@ -451,7 +452,9 @@ func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig,
 	addonDir := filepath.Join(root, addonID)
 	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
 
-	return stagedAddonArtifactCurrent(addonDir, versionDir, version, addonBinaryName(a), wantSHA, a.GetArtifactSignature())
+	binName := addonBinaryName(a)
+	return stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, a.GetArtifactSignature()) &&
+		systemdAddonActivationCurrent(versionDir, version, binName, wantSHA, a.GetArtifactSignature(), units)
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
@@ -499,6 +502,26 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 	if err := install(ctx, a.GetAddonId(), units, enable); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false
+	}
+
+	if wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())); wantSHA != "" {
+		version := addonStagedVersion(a, wantSHA)
+		if err := writeAddonSystemdActivationMetadata(filepath.Join(root, a.GetAddonId(), addonVersionsDir, version), addonSystemdActivationMetadata{
+			AddonID:        a.GetAddonId(),
+			Version:        version,
+			BinaryName:     addonBinaryName(a),
+			ArtifactSHA256: wantSHA,
+			Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+			Units:          units,
+			Enable:         enable,
+		}); err != nil {
+			p.rememberSystemdAddon(a.GetAddonId(), units)
+			p.logger.Warn().
+				Err(err).
+				Str("addon", a.GetAddonId()).
+				Msg("Installed systemd add-on but failed to record durable activation metadata; will retry activation")
+			return false
+		}
 	}
 
 	// If an update renamed or dropped unit files, uninstall the previously-installed

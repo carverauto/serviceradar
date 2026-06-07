@@ -38,6 +38,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/carverauto/serviceradar/go/pkg/hashutil"
@@ -45,12 +46,13 @@ import (
 )
 
 const (
-	addonsDirName      = "addons"
-	addonVersionsDir   = "versions"
-	addonCurrentLink   = "current"
-	addonBinaryMode    = 0o755
-	addonManifestMode  = 0o644 // non-executable bundled files (manifest, config, units)
-	addonStageMetaFile = ".serviceradar-addon.json"
+	addonsDirName                  = "addons"
+	addonVersionsDir               = "versions"
+	addonCurrentLink               = "current"
+	addonBinaryMode                = 0o755
+	addonManifestMode              = 0o644 // non-executable bundled files (manifest, config, units)
+	addonStageMetaFile             = ".serviceradar-addon.json"
+	addonSystemdActivationMetaFile = ".serviceradar-systemd-activation.json"
 
 	// addonLocalOverrideFile is the operator-managed local override (break-glass /
 	// dev) read from the agent config dir; its entries take precedence over pushed
@@ -71,6 +73,16 @@ type addonStageMetadata struct {
 	ArtifactObject string `json:"artifact_object_key"`
 	ArtifactSHA256 string `json:"artifact_sha256"`
 	Signature      string `json:"artifact_signature,omitempty"`
+}
+
+type addonSystemdActivationMetadata struct {
+	AddonID        string   `json:"addon_id"`
+	Version        string   `json:"version"`
+	BinaryName     string   `json:"binary_name"`
+	ArtifactSHA256 string   `json:"artifact_sha256"`
+	Signature      string   `json:"artifact_signature,omitempty"`
+	Units          []string `json:"units"`
+	Enable         string   `json:"enable,omitempty"`
 }
 
 var (
@@ -277,6 +289,68 @@ func writeAddonStageMetadata(versionDir string, meta addonStageMetadata) error {
 	}
 
 	return nil
+}
+
+func systemdAddonActivationCurrent(
+	versionDir, version, binName, wantSHA, signature string,
+	units []string,
+) bool {
+	data, err := os.ReadFile(filepath.Join(versionDir, addonSystemdActivationMetaFile))
+	if err != nil {
+		return false
+	}
+
+	var meta addonSystemdActivationMetadata
+	if err := json.Unmarshal(data, &meta); err != nil {
+		return false
+	}
+
+	return strings.TrimSpace(meta.Version) == version &&
+		strings.TrimSpace(meta.BinaryName) == binName &&
+		strings.ToLower(strings.TrimSpace(meta.ArtifactSHA256)) == wantSHA &&
+		strings.TrimSpace(meta.Signature) == strings.TrimSpace(signature) &&
+		sameStringSet(meta.Units, units)
+}
+
+func writeAddonSystemdActivationMetadata(versionDir string, meta addonSystemdActivationMetadata) error {
+	meta.Units = sortedStrings(meta.Units)
+
+	data, err := json.Marshal(meta)
+	if err != nil {
+		return fmt.Errorf("marshal addon systemd activation metadata: %w", err)
+	}
+
+	data = append(data, '\n')
+	if err := writeAddonFileAtomic(filepath.Join(versionDir, addonSystemdActivationMetaFile), data, addonManifestMode); err != nil {
+		return fmt.Errorf("write addon systemd activation metadata: %w", err)
+	}
+
+	return nil
+}
+
+func sameStringSet(a, b []string) bool {
+	a = sortedStrings(a)
+	b = sortedStrings(b)
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func sortedStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := append([]string(nil), values...)
+	sort.Strings(out)
+
+	return out
 }
 
 // fetchAddonArtifactBytes returns the raw artifact bytes, preferring the gateway-proxied

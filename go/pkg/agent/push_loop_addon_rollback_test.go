@@ -171,7 +171,12 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 
 	pl.reconcileStagedSystemdUnits(
 		context.Background(),
-		&proto.AddonAssignmentConfig{AddonId: id},
+		&proto.AddonAssignmentConfig{
+			AddonId:        id,
+			Version:        "1.1.0",
+			BinaryPath:     "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+			ArtifactSha256: sha256Hex([]byte("netprobe-1.1.0")),
+		},
 		addonSupervisionSystemdService,
 		runtimeRoot,
 		filepath.Join(addonVersionsDir, "1.0.0"),
@@ -189,6 +194,16 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	}
 	if units := pl.systemdAddonUnits(id); len(units) != 1 || units[0] != netprobeTestUnit {
 		t.Fatalf("remembered units = %v, want [%s]", units, netprobeTestUnit)
+	}
+	if !systemdAddonActivationCurrent(
+		filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0"),
+		"1.1.0",
+		"serviceradar-netprobe",
+		sha256Hex([]byte("netprobe-1.1.0")),
+		"",
+		[]string{netprobeTestUnit},
+	) {
+		t.Fatal("expected successful systemd install to record durable activation metadata")
 	}
 }
 
@@ -228,8 +243,21 @@ func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUni
 	}
 
 	pl.rememberSystemdAddon(id, []string{netprobeTestUnit})
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should not be current until systemd activation metadata is recorded")
+	}
+	if err := writeAddonSystemdActivationMetadata(versionDir, addonSystemdActivationMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactSHA256: sha,
+		Units:          []string{netprobeTestUnit},
+		Enable:         netprobeTestUnit,
+	}); err != nil {
+		t.Fatalf("write systemd activation metadata: %v", err)
+	}
 	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
-		t.Fatal("assignment should be current with matching metadata and tracked units")
+		t.Fatal("assignment should be current with matching stage metadata, activation metadata, and tracked units")
 	}
 
 	assignment.ArtifactSha256 = sha256Hex([]byte("different"))
