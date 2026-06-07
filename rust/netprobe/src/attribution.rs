@@ -1179,7 +1179,7 @@ impl AyaAttributionReader {
         cached: &mut CachedAttribution,
         now: Instant,
     ) -> bool {
-        if !cached.event.redacted_cmdline.is_empty() || !cached.event.container_id.is_empty() {
+        if process_metadata_complete(&cached.event) {
             return false;
         }
         if now.duration_since(cached.last_metadata_attempt) < PROCESS_DETAILS_RETRY_INTERVAL {
@@ -1206,6 +1206,11 @@ impl AyaAttributionReader {
 
         apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
     }
+}
+
+#[cfg(target_os = "linux")]
+fn process_metadata_complete(event: &FlowAttributionEvent) -> bool {
+    !event.redacted_cmdline.is_empty() && !event.container_id.is_empty()
 }
 
 #[cfg(target_os = "linux")]
@@ -2600,11 +2605,11 @@ mod tests {
     use super::{
         attribution_event_fingerprint, attribution_flow_key_from_record, insert_cached_attribution,
         likely_service_side_record, maybe_emit_cached_attribution, process_details_from_record,
-        prune_attribution_cache, refresh_enriched_attributions, touch_closed_cached_attribution,
-        AttributionExpiryQueue, CachedAttribution, FlowAttributionCache, MetadataEnricher,
-        ProcessAttributionIndex, ProcessDetailsCacheKey, SocketInventory, UdpRoleInventory,
-        EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV, EVENT_UDP_SEND,
-        FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
+        process_metadata_complete, prune_attribution_cache, refresh_enriched_attributions,
+        touch_closed_cached_attribution, AttributionExpiryQueue, CachedAttribution,
+        FlowAttributionCache, MetadataEnricher, ProcessAttributionIndex, ProcessDetailsCacheKey,
+        SocketInventory, UdpRoleInventory, EVENT_INET_SOCK_SET_STATE, EVENT_UDP_RECV,
+        EVENT_UDP_SEND, FLOW_ATTRIBUTION_CACHE_LOW_WATERMARK, FLOW_ATTRIBUTION_CACHE_MAX_ENTRIES,
         FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL, FLOW_ENDPOINT_A, TCP_CLOSE_STATE,
         TCP_LISTEN_STATE,
     };
@@ -3352,6 +3357,26 @@ mod tests {
             now + FLOW_ATTRIBUTION_RAW_HEARTBEAT_INTERVAL,
         );
         assert!(rx.try_recv().is_ok());
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
+    fn process_metadata_complete_requires_cmdline_and_container() {
+        let process = ProcessDetailsCacheKey {
+            tgid: 123,
+            uid: 1000,
+            gid: 1001,
+            process_generation_ns: 42,
+        };
+        let mut entry = cached_attribution(process, "app");
+
+        assert!(!process_metadata_complete(&entry.event));
+
+        Arc::make_mut(&mut entry.event).redacted_cmdline = vec!["/bin/app".to_string()];
+        assert!(!process_metadata_complete(&entry.event));
+
+        Arc::make_mut(&mut entry.event).container_id = "container".to_string();
+        assert!(process_metadata_complete(&entry.event));
     }
 
     #[test]
