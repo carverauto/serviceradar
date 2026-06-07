@@ -73,6 +73,8 @@ const PROCESS_DETAILS_COLD_READS_PER_SECOND: u32 = 1;
 #[cfg(target_os = "linux")]
 const PROCESS_DETAILS_COLD_READ_BURST: u32 = 4;
 #[cfg(target_os = "linux")]
+const PROCESS_DETAILS_RETRY_INTERVAL: Duration = Duration::from_secs(5);
+#[cfg(target_os = "linux")]
 // Listener inventory changes are useful for host forensics, but a busy runtime
 // can flap several local sockets per second. Coalesce dirty snapshots so one
 // listener change does not become a continuous IPC stream.
@@ -858,8 +860,12 @@ struct MetadataEnricher {
 #[cfg(target_os = "linux")]
 impl MetadataEnricher {
     fn host() -> Self {
+        Self::with_procfs(ProcfsEnricher::host())
+    }
+
+    fn with_procfs(procfs: ProcfsEnricher) -> Self {
         Self {
-            procfs: ProcfsEnricher::host(),
+            procfs,
             cache: FastHashMap::default(),
             pending: VecDeque::new(),
             pending_keys: FastHashSet::default(),
@@ -873,22 +879,28 @@ impl MetadataEnricher {
     fn process_details(
         &mut self,
         record: &ProcessInfoRecord,
-    ) -> (ProcessDetails, ProcessDetailsCacheKey) {
+    ) -> (ProcessDetails, ProcessDetailsCacheKey, bool) {
         let key = ProcessDetailsCacheKey::from(record);
         let now = Instant::now();
 
         if let Some(cached) = self.cache.get_mut(&key) {
             if now.duration_since(cached.updated_at) < PROCESS_DETAILS_CACHE_TTL {
                 cached.last_used = now;
-                return (cached.details.clone(), key);
+                return (cached.details.clone(), key, false);
             }
+        }
+
+        if self.read_budget.try_acquire(now) {
+            let details = self.procfs.process_details(record);
+            self.cache_process_details(key, details.clone(), now);
+            return (details, key, true);
         }
 
         if self.pending_keys.insert(key) {
             self.pending.push_back(*record);
         }
 
-        (process_details_from_record(record), key)
+        (process_details_from_record(record), key, false)
     }
 
     fn process_pending(&mut self) -> Vec<(ProcessDetailsCacheKey, ProcessDetails)> {
@@ -900,17 +912,9 @@ impl MetadataEnricher {
             let key = ProcessDetailsCacheKey::from(&record);
             self.pending_keys.remove(&key);
 
-            let details = self.procfs.process_details(&record);
             let now = Instant::now();
-            self.prune(now);
-            self.cache.insert(
-                key,
-                CachedProcessDetails {
-                    details: details.clone(),
-                    updated_at: now,
-                    last_used: now,
-                },
-            );
+            let details = self.procfs.process_details(&record);
+            self.cache_process_details(key, details.clone(), now);
             updated.push((key, details));
         }
         updated
@@ -931,6 +935,24 @@ impl MetadataEnricher {
         if self.cache.len() >= PROCESS_DETAILS_CACHE_MAX_ENTRIES {
             self.cache.clear();
         }
+    }
+
+    fn cache_process_details(
+        &mut self,
+        key: ProcessDetailsCacheKey,
+        details: ProcessDetails,
+        now: Instant,
+    ) {
+        self.prune(now);
+        self.pending_keys.remove(&key);
+        self.cache.insert(
+            key,
+            CachedProcessDetails {
+                details,
+                updated_at: now,
+                last_used: now,
+            },
+        );
     }
 }
 
@@ -1079,7 +1101,10 @@ impl AyaAttributionReader {
             process_generation_ns: record.process_generation_ns,
             comm: record.comm,
         };
-        let (details, _) = self.metadata.process_details(&info);
+        let (details, _, cold_read) = self.metadata.process_details(&info);
+        if cold_read {
+            metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        }
         metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
         let process = Some(details);
         Some(AttributedFlow { flow, pid, process })
@@ -1145,6 +1170,41 @@ impl AyaAttributionReader {
 
     fn metadata_cache_len(&self) -> usize {
         self.metadata.cache_len()
+    }
+
+    fn refresh_cached_process_details(
+        &mut self,
+        record: &FlowAttributionRecord,
+        metrics: &Metrics,
+        cached: &mut CachedAttribution,
+        now: Instant,
+    ) -> bool {
+        if !cached.event.redacted_cmdline.is_empty() || !cached.event.container_id.is_empty() {
+            return false;
+        }
+        if now.duration_since(cached.last_metadata_attempt) < PROCESS_DETAILS_RETRY_INTERVAL {
+            return false;
+        }
+
+        cached.last_metadata_attempt = now;
+        let info = ProcessInfoRecord {
+            version: record.version,
+            reserved: 0,
+            pid: record.pid,
+            tgid: record.tgid,
+            uid: record.uid,
+            gid: record.gid,
+            last_seen_ns: 0,
+            process_generation_ns: record.process_generation_ns,
+            comm: record.comm,
+        };
+        let (details, _, cold_read) = self.metadata.process_details(&info);
+        if cold_read {
+            metrics.inc_attribution_backend_events("procfs", "metadata_cold_read", 1);
+        }
+        metrics.set_attribution_cache_entries("process_metadata", self.metadata.cache_len());
+
+        apply_process_details_to_event(Arc::make_mut(&mut cached.event), &details)
     }
 }
 
@@ -1324,6 +1384,7 @@ struct CachedAttribution {
     last_seen: Instant,
     last_emitted: Instant,
     last_emitted_fingerprint: u64,
+    last_metadata_attempt: Instant,
 }
 
 #[cfg(target_os = "linux")]
@@ -1618,6 +1679,9 @@ fn drain_ring(
                 );
                 let now = Instant::now();
                 Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
+                if reader.refresh_cached_process_details(record, metrics, existing, now) {
+                    Arc::make_mut(&mut existing.event).observed_at_unix_nano = now_unix_nano();
+                }
                 existing.last_seen = now;
                 maybe_emit_cached_attribution(tx, metrics, existing, now);
                 continue;
@@ -1686,6 +1750,7 @@ fn drain_ring(
                     event,
                     process_key,
                     last_seen: now,
+                    last_metadata_attempt: now,
                 },
             );
         }
@@ -2796,6 +2861,39 @@ mod tests {
 
     #[test]
     #[cfg(target_os = "linux")]
+    fn metadata_enricher_uses_budget_for_active_process_metadata() {
+        let id = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+        let root = temp_proc(
+            "123",
+            b"/bin/app\0--token\0abc\0",
+            &format!("0::/kubepods.slice/cri-containerd-{id}.scope\n"),
+        );
+        let mut comm = [0u8; 16];
+        comm[..3].copy_from_slice(b"app");
+        let record = ProcessInfoRecord {
+            version: 1,
+            reserved: 0,
+            pid: 123,
+            tgid: 123,
+            uid: 1000,
+            gid: 1000,
+            last_seen_ns: 42,
+            process_generation_ns: 123_456,
+            comm,
+        };
+        let mut enricher = MetadataEnricher::with_procfs(ProcfsEnricher::with_root(root.path()));
+
+        let (details, key, cold_read) = enricher.process_details(&record);
+
+        assert!(cold_read);
+        assert_eq!(key.tgid, 123);
+        assert_eq!(details.cmdline, vec!["/bin/app", "[redacted 2 arg(s)]"]);
+        assert_eq!(details.container_id.as_deref(), Some(id));
+        assert_eq!(enricher.cache_len(), 1);
+    }
+
+    #[test]
+    #[cfg(target_os = "linux")]
     fn process_details_from_record_uses_ebpf_process_identity() {
         let mut comm = [0u8; 16];
         comm[..3].copy_from_slice(b"app");
@@ -3564,6 +3662,7 @@ mod tests {
             last_seen: std::time::Instant::now(),
             last_emitted: std::time::Instant::now(),
             last_emitted_fingerprint: 0,
+            last_metadata_attempt: std::time::Instant::now(),
         }
     }
 
