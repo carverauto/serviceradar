@@ -17,13 +17,13 @@ defmodule ServiceRadar.Repo.Migrations.AddAttributedFlowActivityIndexes do
 
   def up do
     execute("""
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ocsf_network_activity_attributed_flow_time
+    CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_attributed_flow_time
     ON #{@schema}.#{@table} (time DESC)
     WHERE (ocsf_payload ->> 'event_type') = 'attributed_flow'
     """)
 
     execute("""
-    CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_ocsf_network_activity_attributed_flow_status_time
+    CREATE INDEX IF NOT EXISTS idx_ocsf_network_activity_attributed_flow_status_time
     ON #{@schema}.#{@table} (
       (CASE
         WHEN (ocsf_payload -> 'attribution' ->> 'pid') IS NULL THEN 'unmatched'
@@ -37,11 +37,9 @@ defmodule ServiceRadar.Repo.Migrations.AddAttributedFlowActivityIndexes do
 
   def down do
     execute(
-      "DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.idx_ocsf_network_activity_attributed_flow_status_time"
+      "DROP INDEX IF EXISTS #{@schema}.idx_ocsf_network_activity_attributed_flow_status_time"
     )
 
-    execute(
-      "DROP INDEX CONCURRENTLY IF EXISTS #{@schema}.idx_ocsf_network_activity_attributed_flow_time"
-    )
+    execute("DROP INDEX IF EXISTS #{@schema}.idx_ocsf_network_activity_attributed_flow_time")
   end
 end
