@@ -1,4 +1,4 @@
-use std::{collections::HashSet, path::PathBuf};
+use std::collections::HashSet;
 
 use crate::external_flow::default_external_flow_match_window_ms;
 
@@ -10,8 +10,6 @@ pub const DEFAULT_PROCESS_SNAPSHOT_INTERVAL_S: u64 = 0;
 pub const DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S: u64 = 0;
 pub const DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS: bool = true;
 pub const DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH: bool = true;
-pub const DEFAULT_WORKLOAD_IDENTITY_ENABLED: bool = false;
-pub const DEFAULT_WORKLOAD_IDENTITY_REFRESH_INTERVAL_S: u64 = 60;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct Config {
@@ -33,15 +31,6 @@ pub struct Config {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     #[serde(default = "default_flow_attribution_ipc_batch")]
     pub flow_attribution_ipc_batch: bool,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    #[serde(default = "default_workload_identity_enabled")]
-    pub workload_identity_enabled: bool,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    #[serde(default)]
-    pub cri_endpoint: Option<PathBuf>,
-    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
-    #[serde(default = "default_workload_identity_refresh_interval_s")]
-    pub workload_identity_refresh_interval_s: u64,
     #[serde(default = "default_external_flow_match_window_ms")]
     pub external_flow_match_window_ms: u32,
 }
@@ -69,9 +58,6 @@ impl Default for Config {
             flow_attribution_resend_interval_s: DEFAULT_FLOW_ATTRIBUTION_RESEND_INTERVAL_S,
             emit_raw_flow_attribution_events: DEFAULT_EMIT_RAW_FLOW_ATTRIBUTION_EVENTS,
             flow_attribution_ipc_batch: DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH,
-            workload_identity_enabled: DEFAULT_WORKLOAD_IDENTITY_ENABLED,
-            cri_endpoint: None,
-            workload_identity_refresh_interval_s: DEFAULT_WORKLOAD_IDENTITY_REFRESH_INTERVAL_S,
             external_flow_match_window_ms: default_external_flow_match_window_ms(),
         }
     }
@@ -159,14 +145,6 @@ fn default_emit_raw_flow_attribution_events() -> bool {
 
 fn default_flow_attribution_ipc_batch() -> bool {
     DEFAULT_FLOW_ATTRIBUTION_IPC_BATCH
-}
-
-fn default_workload_identity_enabled() -> bool {
-    DEFAULT_WORKLOAD_IDENTITY_ENABLED
-}
-
-fn default_workload_identity_refresh_interval_s() -> u64 {
-    DEFAULT_WORKLOAD_IDENTITY_REFRESH_INTERVAL_S
 }
 
 fn deserialize_capture_interfaces<'de, D>(deserializer: D) -> Result<Vec<String>, D::Error>

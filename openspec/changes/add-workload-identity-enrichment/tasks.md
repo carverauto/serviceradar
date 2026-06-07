@@ -7,8 +7,8 @@
 
 ## 1a. Minimal Viable Milestone
 - [ ] 1a.1 Implement Kubernetes worker node-local cgroup plus CRI enrichment only, before Docker/Compose and Kubernetes owner overlay work.
-- [x] 1a.1a Wire the initial opt-in Kubernetes CRI cache into netprobe startup and attach CRI workload identity to attributed flow/process payloads by container ID.
-- [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe consumes workload identity as an optional dependency instead of owning the collector.
+- [x] 1a.1a Remove the initial opt-in Kubernetes CRI cache from netprobe startup so netprobe emits socket/process/container join keys only.
+- [x] 1a.1b Split cgroup/CRI/cache/runtime metadata code into a standalone `serviceradar-workload-identity` Rust crate so netprobe does not own or link runtime metadata collection.
 - [x] 1a.1c Package workload identity as its own native add-on/agent capability so operators can enable container/pod inventory without enabling netprobe flow attribution.
 - [x] 1a.1d Add package-managed systemd ownership for ServiceRadar host add-ons: netprobe and workload-identity remain separate units, but share a ServiceRadar slice/target for lifecycle grouping, resource accounting, and status attribution instead of pretending they are child processes of `serviceradar-agent`.
 - [x] 1a.1e Put existing native host units (`serviceradar-agent`, netprobe, endpoint-inventory, and bumblebee-scan) in `serviceradar.slice` without adding `PartOf=`, `BindsTo=`, or `Requires=` coupling to `serviceradar-agent.service`.
@@ -60,7 +60,7 @@
 
 ## 7. Security and Operations
 - [ ] 7.1 Add Helm and Compose configuration knobs for enabling workload identity enrichment and selecting metadata sources.
-- [x] 7.1a Add netprobe add-on/bootstrap configuration knobs for workload identity enablement, explicit CRI endpoint, and refresh interval.
+- [x] 7.1a Remove netprobe add-on/bootstrap workload identity knobs; workload identity enablement, CRI endpoint, and refresh interval belong to the standalone workload-identity add-on.
 - [x] 7.1b Add a first-party workload-identity native add-on manifest, config schema, systemd unit, Helm release-import allowlist entry, native add-on bundle inventory entry, and staged package seeder so `/settings/agents/addons` can surface the capability independently of netprobe.
 - [x] 7.1c Add Helm core workload-identity add-on artifact/version/OCI knobs so the release/native-add-on import path can approve assignable workload-identity packages without manual environment overrides.
 - [ ] 7.2 Surface metrics for eBPF identity hits, CRI/Docker hits, overlay hits, misses, stale mappings, socket/API errors, drops, queue lag, cache size, and enrichment latency.

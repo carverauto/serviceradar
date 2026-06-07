@@ -35,30 +35,24 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled                          bool     `json:"enabled"`
-	CaptureInterfaces                []string `json:"capture_interfaces,omitempty"`
-	FlowTableMaxEntries              uint32   `json:"flow_table_max_entries,omitempty"`
-	ProcessSnapshotIntervalS         uint32   `json:"process_snapshot_interval_s,omitempty"`
-	ExternalFlowMatchWindowMs        uint32   `json:"external_flow_match_window_ms,omitempty"`
-	FlowAttributionIpcBatch          bool     `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents     bool     `json:"emit_raw_flow_attribution_events"`
-	WorkloadIdentityEnabled          bool     `json:"workload_identity_enabled,omitempty"`
-	CriEndpoint                      string   `json:"cri_endpoint,omitempty"`
-	WorkloadIdentityRefreshIntervalS uint32   `json:"workload_identity_refresh_interval_s,omitempty"`
+	Enabled                      bool     `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries          uint32   `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32   `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32   `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool     `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents bool     `json:"emit_raw_flow_attribution_events"`
 }
 
 type addonConfig struct {
-	Enabled                          *bool    `json:"enabled"`
-	CaptureInterfaces                []string `json:"capture_interfaces"`
-	DefaultSampleIntervalMs          *uint32  `json:"default_sample_interval_ms"`
-	FlowTableMaxEntries              *uint32  `json:"flow_table_max_entries"`
-	ProcessSnapshotIntervalS         *uint32  `json:"process_snapshot_interval_s"`
-	ExternalFlowMatchWindowMs        *uint32  `json:"external_flow_match_window_ms"`
-	FlowAttributionIpcBatch          *bool    `json:"flow_attribution_ipc_batch"`
-	EmitRawFlowAttributionEvents     *bool    `json:"emit_raw_flow_attribution_events"`
-	WorkloadIdentityEnabled          *bool    `json:"workload_identity_enabled"`
-	CriEndpoint                      *string  `json:"cri_endpoint"`
-	WorkloadIdentityRefreshIntervalS *uint32  `json:"workload_identity_refresh_interval_s"`
+	Enabled                      *bool    `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces"`
+	DefaultSampleIntervalMs      *uint32  `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries          *uint32  `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS     *uint32  `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs    *uint32  `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch      *bool    `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents *bool    `json:"emit_raw_flow_attribution_events"`
 }
 
 func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
@@ -134,15 +128,6 @@ func ApplyAddonConfigJSON(
 	if addon.EmitRawFlowAttributionEvents != nil {
 		merged.EmitRawFlowAttributionEvents = *addon.EmitRawFlowAttributionEvents
 	}
-	if addon.WorkloadIdentityEnabled != nil {
-		merged.WorkloadIdentityEnabled = *addon.WorkloadIdentityEnabled
-	}
-	if addon.CriEndpoint != nil {
-		merged.CriEndpoint = strings.TrimSpace(*addon.CriEndpoint)
-	}
-	if addon.WorkloadIdentityRefreshIntervalS != nil {
-		merged.WorkloadIdentityRefreshIntervalS = *addon.WorkloadIdentityRefreshIntervalS
-	}
 
 	return merged, nil
 }
@@ -165,9 +150,6 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		payload.ExternalFlowMatchWindowMs = cfg.GetExternalFlowMatchWindowMs()
 		payload.FlowAttributionIpcBatch = cfg.GetFlowAttributionIpcBatch()
 		payload.EmitRawFlowAttributionEvents = cfg.GetEmitRawFlowAttributionEvents()
-		payload.WorkloadIdentityEnabled = cfg.GetWorkloadIdentityEnabled()
-		payload.CriEndpoint = strings.TrimSpace(cfg.GetCriEndpoint())
-		payload.WorkloadIdentityRefreshIntervalS = cfg.GetWorkloadIdentityRefreshIntervalS()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")

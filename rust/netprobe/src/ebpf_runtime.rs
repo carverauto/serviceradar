@@ -10,7 +10,7 @@ use tokio::sync::broadcast;
 use std::{
     collections::VecDeque,
     io,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -33,7 +33,6 @@ use crate::{
     proto::netprobe::{DpiEvent, FingerprintEvent, FlowAttributionEvent, ProcessSnapshot},
     runtime_config::{DpiEventGate, FingerprintEventGate},
 };
-use serviceradar_workload_identity::WorkloadIdentityRuntime;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -61,7 +60,6 @@ pub struct NetprobeEbpfRuntime {
     _classifier_runtime: Option<AfXdpClassifierRuntime>,
     _p0f_runtime: Option<P0fSignatureRuntime>,
     _attribution_runtime: FlowAttributionRuntime,
-    _workload_identity_runtime: Option<WorkloadIdentityRuntime>,
     _sampling_runtime: Option<AdaptiveSamplingRuntime>,
     // In attribution-only mode we don't run the fingerprint/DPI producers, but the
     // IPC server streams those event types to the agent; dropping the senders would
@@ -90,10 +88,6 @@ impl NetprobeEbpfRuntime {
             kernel.release
         );
         let mut ebpf = load_netprobe_ebpf(object_path, config)?;
-        let workload_identity_runtime = start_workload_identity_runtime(config);
-        let workload_identity_cache = workload_identity_runtime
-            .as_ref()
-            .map(|runtime| runtime.cache());
         // Attach the global socket-lifecycle attribution probes. These populate
         // the flow_to_pid / process_info maps the FlowAttributionRuntime polls.
         // They are GLOBAL kernel hooks (not per-interface), so flow attribution
@@ -104,10 +98,7 @@ impl NetprobeEbpfRuntime {
         attach_attribution_probes(&mut ebpf)?;
         // Flow attribution (kprobe-driven) runs in EVERY mode, before and
         // independently of the packet-capture data path.
-        let attribution_reader = AyaAttributionReader::from_ebpf_with_workload_identity(
-            &mut ebpf,
-            workload_identity_cache.clone(),
-        )?;
+        let attribution_reader = AyaAttributionReader::from_ebpf(&mut ebpf)?;
         let attribution_runtime = FlowAttributionRuntime::start(
             attribution_reader,
             flow_attribution_events,
@@ -127,7 +118,6 @@ impl NetprobeEbpfRuntime {
             return Ok(Self::attribution_only(
                 ebpf,
                 attribution_runtime,
-                workload_identity_runtime,
                 fingerprint_events,
                 dpi_events,
                 "0 capture interfaces",
@@ -145,7 +135,6 @@ impl NetprobeEbpfRuntime {
             return Ok(Self::attribution_only(
                 ebpf,
                 attribution_runtime,
-                workload_identity_runtime,
                 fingerprint_events,
                 dpi_events,
                 "unsafe capture interface",
@@ -193,7 +182,6 @@ impl NetprobeEbpfRuntime {
             _classifier_runtime: Some(classifier_runtime),
             _p0f_runtime: Some(p0f_runtime),
             _attribution_runtime: attribution_runtime,
-            _workload_identity_runtime: workload_identity_runtime,
             _sampling_runtime: Some(sampling_runtime),
             _fingerprint_keepalive: None,
             _dpi_keepalive: None,
@@ -204,7 +192,6 @@ impl NetprobeEbpfRuntime {
     fn attribution_only(
         ebpf: Ebpf,
         attribution_runtime: FlowAttributionRuntime,
-        workload_identity_runtime: Option<WorkloadIdentityRuntime>,
         fingerprint_events: EventSender<FingerprintEvent>,
         dpi_events: EventSender<DpiEvent>,
         reason: &str,
@@ -216,7 +203,6 @@ impl NetprobeEbpfRuntime {
             _classifier_runtime: None,
             _p0f_runtime: None,
             _attribution_runtime: attribution_runtime,
-            _workload_identity_runtime: workload_identity_runtime,
             _sampling_runtime: None,
             _fingerprint_keepalive: Some(fingerprint_events),
             _dpi_keepalive: Some(dpi_events),
@@ -231,25 +217,6 @@ fn flow_attribution_runtime_config(config: &Config) -> FlowAttributionRuntimeCon
             .then(|| Duration::from_secs(config.process_snapshot_interval_s)),
         resend_interval: (config.flow_attribution_resend_interval_s > 0)
             .then(|| Duration::from_secs(config.flow_attribution_resend_interval_s)),
-    }
-}
-
-fn start_workload_identity_runtime(config: &Config) -> Option<WorkloadIdentityRuntime> {
-    if !config.workload_identity_enabled {
-        return None;
-    }
-
-    match WorkloadIdentityRuntime::start_cri(
-        PathBuf::from("/"),
-        config.cri_endpoint.clone(),
-        (config.workload_identity_refresh_interval_s > 0)
-            .then(|| Duration::from_secs(config.workload_identity_refresh_interval_s)),
-    ) {
-        Ok(runtime) => runtime,
-        Err(err) => {
-            log::warn!("workload identity CRI enrichment disabled: {err:#}");
-            None
-        }
     }
 }
 

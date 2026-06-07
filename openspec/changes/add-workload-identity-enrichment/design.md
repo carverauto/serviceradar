@@ -34,7 +34,7 @@ Ship the Kubernetes MVP as a standalone workload-identity capability first, usin
 
 The collector implementation should keep deployment packaging separate from runtime metadata logic so the same library and binary can later be delivered as a native add-on, Kubernetes DaemonSet, Docker Compose service, or least-privileged local metadata helper/proxy.
 
-The Rust boundary should live outside netprobe. Netprobe may link the shared workload identity crate and attach best-known metadata to flow/process payloads when configured, but the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
+The Rust boundary should live outside netprobe. Netprobe MUST NOT own CRI, Docker, Compose, or Kubernetes metadata clients, and it MUST NOT require the workload identity collector to be running. Netprobe emits stable socket/process/container join keys; the workload identity crate owns cgroup parsing, CRI/Docker client behavior, runtime metadata caches, degradation states, and validation tooling.
 
 The ingestion contract should not make workload identity dependent on netprobe consuming it. The workload identity collector publishes compact identity snapshots/events to the local ServiceRadar agent, the agent forwards them through agent-gateway, and core coalesces current identity state plus any bounded raw observations needed for late joins. Netprobe should emit stable socket/process/container join keys and can optionally attach locally cached metadata, but upstream correlation remains the golden path so workload identity is useful without flow attribution and flow attribution can be enriched after delayed metadata arrives.
 
@@ -117,7 +117,7 @@ Controls:
 The optional Kubernetes inventory overlay is the only component that should need Kubernetes API RBAC. The baseline node-local CRI/cgroup path must work without Kubernetes API access on the host agent.
 
 ## Data Flow
-1. Netprobe attributes flow/socket/process context through eBPF and emits stable join keys such as process generation, cgroup ID/path, container ID, pod UID when known, and network namespace.
+1. Netprobe attributes flow/socket/process context through eBPF and emits stable join keys such as process generation, container ID, socket tuple, and network namespace when available.
 2. The workload identity collector independently keeps node-local caches keyed by process generation, cgroup ID/path, container ID, pod UID, and network namespace.
 3. Runtime/orchestrator lookups enrich those keys with workload context.
 4. The collector emits bounded workload identity observations to the local agent, which forwards them through agent-gateway to core.

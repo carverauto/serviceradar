@@ -51,10 +51,7 @@ NETPROBE_DEPS = crate_deps([
         "procfs",
     ]),
     "//conditions:default": [],
-}) + [
-    ":build_script",
-    "//rust/workload-identity:workload_identity",
-]
+}) + [":build_script"]
 
 NETPROBE_RUSTC_FLAGS = select({
     "//build/platforms:target_linux_aarch64_musl": [],
@@ -70,7 +67,7 @@ NETPROBE_RUSTC_FLAGS = select({
     "//conditions:default": [],
 })
 
-NETPROBE_VERSION = "0.2.16"
+NETPROBE_VERSION = "0.2.17"
 
 cargo_build_script(
     name = "build_script",

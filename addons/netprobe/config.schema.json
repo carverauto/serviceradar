@@ -65,28 +65,6 @@
       "default": true,
       "x-serviceradar-ui-advanced": true
     },
-    "workload_identity_enabled": {
-      "type": "boolean",
-      "title": "Workload identity enrichment",
-      "description": "Resolve container IDs to node-local workload metadata such as Kubernetes namespace, pod, container name, image, runtime source, and confidence. Requires explicit access to the local CRI runtime socket.",
-      "default": false,
-      "x-serviceradar-ui-advanced": true
-    },
-    "cri_endpoint": {
-      "type": "string",
-      "title": "CRI endpoint",
-      "description": "Optional explicit CRI Unix socket path. Leave empty to discover common endpoints such as /run/k3s/containerd/containerd.sock, /run/containerd/containerd.sock, and /var/run/crio/crio.sock.",
-      "default": "",
-      "x-serviceradar-ui-advanced": true
-    },
-    "workload_identity_refresh_interval_s": {
-      "type": "integer",
-      "title": "Workload identity refresh interval (s)",
-      "description": "How often netprobe refreshes the node-local CRI workload identity cache. Values below 10 seconds are clamped by the sidecar.",
-      "minimum": 0,
-      "default": 60,
-      "x-serviceradar-ui-advanced": true
-    },
     "dpi": { "$ref": "#/definitions/dpi", "x-serviceradar-ui-advanced": true },
     "device_bindings": {
       "type": "array",
