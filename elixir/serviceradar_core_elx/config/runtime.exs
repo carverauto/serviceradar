@@ -302,12 +302,10 @@ config :serviceradar_core, :spiffe,
   mode: spiffe_mode,
   trust_domain: System.get_env("SPIFFE_TRUST_DOMAIN", "serviceradar.local"),
   cert_dir: System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs"),
-  workload_api_socket:
-    System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
+  workload_api_socket: System.get_env("SPIFFE_WORKLOAD_API_SOCKET", "unix:///run/spire/sockets/agent.sock")
 
 config :serviceradar_core,
-  mapper_topology_edge_stale_minutes:
-    parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
+  mapper_topology_edge_stale_minutes: parse_int_env.("SERVICERADAR_MAPPER_TOPOLOGY_EDGE_STALE_MINUTES", 180)
 
 if config_env() == :prod do
   cloak_key =
@@ -381,10 +379,8 @@ if config_env() == :prod do
     repo_enabled: System.get_env("SERVICERADAR_CORE_REPO_ENABLED", "true") in ~w(true 1 yes),
     control_repo_enabled: System.get_env("CONTROL_REPO_ENABLED", "true") in ~w(true 1 yes),
     vault_enabled: System.get_env("SERVICERADAR_CORE_VAULT_ENABLED", "true") in ~w(true 1 yes),
-    registries_enabled:
-      System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
-    run_startup_migrations:
-      System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
+    registries_enabled: System.get_env("SERVICERADAR_CORE_REGISTRIES_ENABLED", "true") in ~w(true 1 yes),
+    run_startup_migrations: System.get_env("SERVICERADAR_CORE_RUN_MIGRATIONS", "false") in ~w(true 1 yes),
     cluster_enabled: cluster_enabled,
     cluster_coordinator: cluster_coordinator,
     # StatusHandler processes agent-gateway push results (sync ingestor, DIRE)
@@ -686,13 +682,11 @@ if config_env() == :prod do
 
   extra_cron_entries = [
     {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker,
-     queue: :maintenance},
+    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
     {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-    {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *",
-     DataRetentionWorker, queue: :maintenance},
-    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker,
-     queue: :maintenance}
+    {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
+     queue: :maintenance},
+    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
   ]
 
   add_cron_entries = fn config, entries ->
@@ -735,27 +729,17 @@ if config_env() == :prod do
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
     ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
-    sweep_host_result_retention_days:
-      "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
-    sweep_execution_retention_days:
-      "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    sweep_host_result_retention_days: "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),
+    sweep_execution_retention_days: "SERVICERADAR_SWEEP_EXECUTION_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
     trivy_retention_days: "SERVICERADAR_TRIVY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
-    endpoint_inventory_retention_days:
-      "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
-    dataset_snapshot_retention_days:
-      "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
-    topology_link_retention_days:
-      "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+    endpoint_inventory_retention_days: "SERVICERADAR_ENDPOINT_INVENTORY_RETENTION_DAYS" |> parse_int_env.(30) |> max(1),
+    dataset_snapshot_retention_days: "SERVICERADAR_DATASET_SNAPSHOT_RETENTION_DAYS" |> parse_int_env.(14) |> max(1),
+    topology_link_retention_days: "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
   config :serviceradar_core, Oban, if(oban_enabled, do: oban_config, else: false)
-
-  config :serviceradar_core, RefreshTraceSummariesWorker,
-    retention_days: trace_summary_retention_days
-
-  config :serviceradar_core, ServiceRadar.FlowAttribution,
-    retention_minutes: flow_attribution_retention_minutes
-
+  config :serviceradar_core, RefreshTraceSummariesWorker, retention_days: trace_summary_retention_days
   config :serviceradar_core, ServiceRadar.ControlRepo, control_repo_opts
+  config :serviceradar_core, ServiceRadar.FlowAttribution, retention_minutes: flow_attribution_retention_minutes
   config :serviceradar_core, ServiceRadar.Repo, repo_opts
   config :serviceradar_core, :age_graph_name, age_graph_name
   config :serviceradar_core, :oban_enabled, oban_enabled
