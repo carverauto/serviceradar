@@ -115,6 +115,40 @@ describe("OperationsTrafficMap netflow links", () => {
       geoMapped: false,
     })
   })
+
+  it("normalizes attribution metadata for the map popup", () => {
+    const [link] = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.2.11",
+          target_label: "192.168.10.96",
+          topology_from: [-120, 20],
+          topology_to: [-90, 30],
+          bytes: 70,
+          attributed_flow_count: 3,
+          attribution_agent_id: "agent-k8s-cp3-worker1",
+          attribution_comm: "gobgpd",
+          attribution_pid: 45246,
+          attribution_pod_namespace: "demo",
+          attribution_pod_name: "gobgpd-0",
+          attribution_container_name: "gobgpd",
+          attribution_image: "registry.example/gobgpd:latest",
+        },
+      ],
+      "netflow",
+    )
+
+    expect(link).toMatchObject({
+      attributedFlowCount: 3,
+      attributionAgentId: "agent-k8s-cp3-worker1",
+      attributionComm: "gobgpd",
+      attributionPid: 45246,
+      attributionPodNamespace: "demo",
+      attributionPodName: "gobgpd-0",
+      attributionContainerName: "gobgpd",
+      attributionImage: "registry.example/gobgpd:latest",
+    })
+  })
 })
 
 describe("OperationsTrafficMap netflow details dismissal", () => {

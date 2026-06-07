@@ -101,9 +101,22 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   end
 
   def handle_event("toggle_live", _params, socket) do
-    live? = socket.assigns.page == 1 and not socket.assigns.live?
-    if live?, do: schedule_refresh()
-    {:noreply, assign(socket, :live?, live?)}
+    cond do
+      socket.assigns.live? ->
+        {:noreply, assign(socket, :live?, false)}
+
+      socket.assigns.page > 1 ->
+        schedule_refresh()
+
+        {:noreply,
+         socket
+         |> assign(:live?, true)
+         |> push_patch(to: patch_path(socket.assigns.filter, 1, socket.assigns.page_size))}
+
+      true ->
+        schedule_refresh()
+        {:noreply, assign(socket, :live?, true)}
+    end
   end
 
   def handle_event("open_flow", %{"id" => id}, socket) do

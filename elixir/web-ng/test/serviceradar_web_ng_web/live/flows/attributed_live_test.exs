@@ -101,6 +101,23 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLiveTest do
     assert html =~ "Off"
   end
 
+  test "live toggle from a later page returns to the first page", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{per_page: 1}}")
+
+    render_click(view, "goto_page", %{"page" => "2"})
+    assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "attributed", page: 2, per_page: 1}}")
+
+    view |> element("button[phx-click='toggle_live']") |> render_click()
+
+    assert_patch(view, ~p"/observability/flows/attributed?#{%{filter: "attributed", page: 1, per_page: 1}}")
+
+    html = render(view)
+    assert html =~ "On"
+    assert html =~ "Page 1 of 3"
+    assert html =~ "icmp-probe"
+    refute html =~ "dns-client"
+  end
+
   test "pagination uses stable patch params and compact grid rows", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/flows/attributed?#{%{per_page: 1}}")
     html = render(view)
