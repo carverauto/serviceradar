@@ -53,7 +53,7 @@ defmodule ServiceRadar.Plugins.AddonStatus do
 
       upsert? true
       upsert_identity :unique_agent_addon
-      upsert_fields @report_fields
+      upsert_fields @report_fields ++ [:updated_at]
     end
   end
 
