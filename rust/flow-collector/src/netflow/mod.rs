@@ -4,6 +4,7 @@ use crate::config::PendingFlowsCacheConfig;
 use crate::flowpb::FlowMessage;
 use crate::listener::{FlowHandler, filter_and_track_flows, get_current_time_ns};
 use crate::metrics::ListenerMetrics;
+use crate::sflow::SflowHandler;
 use converter::Converter;
 use log::{debug, info, warn};
 use netflow_parser::{AutoScopedParser, NetflowParserBuilder, PendingFlowsConfig, TemplateEvent};
@@ -80,6 +81,7 @@ fn make_template_event_callback(
 
 pub struct NetflowHandler {
     parser: Mutex<AutoScopedParser>,
+    sflow_fallback: SflowHandler,
     metrics: Arc<ListenerMetrics>,
 }
 
@@ -109,6 +111,7 @@ impl NetflowHandler {
 
         Self {
             parser: Mutex::new(parser),
+            sflow_fallback: SflowHandler::new(None, Arc::clone(&metrics)),
             metrics,
         }
     }
@@ -116,6 +119,14 @@ impl NetflowHandler {
 
 impl FlowHandler for NetflowHandler {
     fn parse_datagram(&self, buf: &[u8], _len: usize, peer: SocketAddr) -> Vec<FlowMessage> {
+        if is_sflow_datagram(buf) {
+            debug!(
+                "Detected sFlow datagram on NetFlow listener from {}; routing through sFlow parser",
+                peer
+            );
+            return self.sflow_fallback.parse_datagram(buf, buf.len(), peer);
+        }
+
         let receive_time_ns = match get_current_time_ns() {
             Ok(t) => t,
             Err(e) => {
@@ -163,5 +174,40 @@ impl FlowHandler for NetflowHandler {
 
     fn protocol_name(&self) -> &'static str {
         "netflow"
+    }
+}
+
+fn is_sflow_datagram(buf: &[u8]) -> bool {
+    let Some(header) = buf.get(..4) else {
+        return false;
+    };
+
+    matches!(
+        u32::from_be_bytes(header.try_into().expect("slice length checked")),
+        5
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_sflow_datagram;
+
+    #[test]
+    fn detects_sflow_v5_datagram_header() {
+        let buf = [0x00, 0x00, 0x00, 0x05, 0x00, 0x00, 0x00, 0x01];
+
+        assert!(is_sflow_datagram(&buf));
+    }
+
+    #[test]
+    fn does_not_treat_netflow_v5_as_sflow() {
+        let buf = [0x00, 0x05, 0x00, 0x1e, 0x00, 0x00, 0x00, 0x00];
+
+        assert!(!is_sflow_datagram(&buf));
+    }
+
+    #[test]
+    fn ignores_short_datagrams() {
+        assert!(!is_sflow_datagram(&[0x00, 0x00, 0x00]));
     }
 }

@@ -25,6 +25,7 @@ import (
 
 	monitoringpb "github.com/carverauto/serviceradar/proto"
 	netprobepb "github.com/carverauto/serviceradar/proto/agent/netprobe/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 // ParsedVisibilityConfig is the agent-local view of monitoring.VisibilityConfig.
@@ -34,32 +35,101 @@ type ParsedVisibilityConfig struct {
 }
 
 type bootstrapConfig struct {
-	Enabled             bool     `json:"enabled"`
-	CaptureInterfaces   []string `json:"capture_interfaces"`
-	FlowTableMaxEntries uint32   `json:"flow_table_max_entries,omitempty"`
+	Enabled                      bool     `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces,omitempty"`
+	FlowTableMaxEntries          uint32   `json:"flow_table_max_entries,omitempty"`
+	ProcessSnapshotIntervalS     uint32   `json:"process_snapshot_interval_s,omitempty"`
+	ExternalFlowMatchWindowMs    uint32   `json:"external_flow_match_window_ms,omitempty"`
+	FlowAttributionIpcBatch      bool     `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents bool     `json:"emit_raw_flow_attribution_events"`
+}
+
+type addonConfig struct {
+	Enabled                      *bool    `json:"enabled"`
+	CaptureInterfaces            []string `json:"capture_interfaces"`
+	DefaultSampleIntervalMs      *uint32  `json:"default_sample_interval_ms"`
+	FlowTableMaxEntries          *uint32  `json:"flow_table_max_entries"`
+	ProcessSnapshotIntervalS     *uint32  `json:"process_snapshot_interval_s"`
+	ExternalFlowMatchWindowMs    *uint32  `json:"external_flow_match_window_ms"`
+	FlowAttributionIpcBatch      *bool    `json:"flow_attribution_ipc_batch"`
+	EmitRawFlowAttributionEvents *bool    `json:"emit_raw_flow_attribution_events"`
+}
+
+func defaultVisibilityAgentConfig() *netprobepb.VisibilityAgentConfig {
+	return &netprobepb.VisibilityAgentConfig{
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}
 }
 
 // ParseVisibilityConfig converts monitoring visibility config into netprobe IPC config.
 func ParseVisibilityConfig(cfg *monitoringpb.VisibilityConfig) ParsedVisibilityConfig {
 	if cfg == nil {
 		return ParsedVisibilityConfig{
-			NetprobeConfig: &netprobepb.VisibilityAgentConfig{},
+			NetprobeConfig: defaultVisibilityAgentConfig(),
 		}
 	}
 
 	parsed := ParsedVisibilityConfig{
 		NetprobeConfig: &netprobepb.VisibilityAgentConfig{
-			Enabled:                 cfg.GetEnabled(),
-			CaptureInterfaces:       trimStrings(cfg.GetCaptureInterfaces()),
-			Dpi:                     parseDPIConfig(cfg.GetDpi()),
-			DefaultSampleIntervalMs: cfg.GetDefaultSampleIntervalMs(),
-			FlowTableMaxEntries:     cfg.GetFlowTableMaxEntries(),
-			DeviceBindings:          parseDeviceBindings(cfg.GetDeviceBindings()),
+			Enabled:                      cfg.GetEnabled(),
+			CaptureInterfaces:            trimStrings(cfg.GetCaptureInterfaces()),
+			Dpi:                          parseDPIConfig(cfg.GetDpi()),
+			DefaultSampleIntervalMs:      cfg.GetDefaultSampleIntervalMs(),
+			FlowTableMaxEntries:          cfg.GetFlowTableMaxEntries(),
+			FlowAttributionIpcBatch:      true,
+			EmitRawFlowAttributionEvents: true,
+			DeviceBindings:               parseDeviceBindings(cfg.GetDeviceBindings()),
 		},
 		BinaryOverridePath: strings.TrimSpace(cfg.GetBinaryOverrides().GetPath()),
 	}
 
 	return parsed
+}
+
+func ApplyAddonConfigJSON(
+	cfg *netprobepb.VisibilityAgentConfig,
+	configJSON []byte,
+) (*netprobepb.VisibilityAgentConfig, error) {
+	if cfg == nil {
+		cfg = defaultVisibilityAgentConfig()
+	}
+	if len(strings.TrimSpace(string(configJSON))) == 0 {
+		return cfg, nil
+	}
+
+	var addon addonConfig
+	if err := json.Unmarshal(configJSON, &addon); err != nil {
+		return nil, fmt.Errorf("parse netprobe add-on config: %w", err)
+	}
+
+	merged := cloneVisibilityConfig(cfg)
+	if addon.Enabled != nil {
+		merged.Enabled = *addon.Enabled
+	}
+	if addon.CaptureInterfaces != nil {
+		merged.CaptureInterfaces = trimStrings(addon.CaptureInterfaces)
+	}
+	if addon.DefaultSampleIntervalMs != nil {
+		merged.DefaultSampleIntervalMs = *addon.DefaultSampleIntervalMs
+	}
+	if addon.FlowTableMaxEntries != nil {
+		merged.FlowTableMaxEntries = *addon.FlowTableMaxEntries
+	}
+	if addon.ProcessSnapshotIntervalS != nil {
+		merged.ProcessSnapshotIntervalS = *addon.ProcessSnapshotIntervalS
+	}
+	if addon.ExternalFlowMatchWindowMs != nil {
+		merged.ExternalFlowMatchWindowMs = *addon.ExternalFlowMatchWindowMs
+	}
+	if addon.FlowAttributionIpcBatch != nil {
+		merged.FlowAttributionIpcBatch = *addon.FlowAttributionIpcBatch
+	}
+	if addon.EmitRawFlowAttributionEvents != nil {
+		merged.EmitRawFlowAttributionEvents = *addon.EmitRawFlowAttributionEvents
+	}
+
+	return merged, nil
 }
 
 func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) error {
@@ -68,11 +138,18 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 		return nil
 	}
 
-	payload := bootstrapConfig{}
+	payload := bootstrapConfig{
+		FlowAttributionIpcBatch:      true,
+		EmitRawFlowAttributionEvents: true,
+	}
 	if cfg != nil {
 		payload.Enabled = cfg.GetEnabled()
 		payload.CaptureInterfaces = trimStrings(cfg.GetCaptureInterfaces())
 		payload.FlowTableMaxEntries = cfg.GetFlowTableMaxEntries()
+		payload.ProcessSnapshotIntervalS = cfg.GetProcessSnapshotIntervalS()
+		payload.ExternalFlowMatchWindowMs = cfg.GetExternalFlowMatchWindowMs()
+		payload.FlowAttributionIpcBatch = cfg.GetFlowAttributionIpcBatch()
+		payload.EmitRawFlowAttributionEvents = cfg.GetEmitRawFlowAttributionEvents()
 	}
 
 	data, err := json.MarshalIndent(payload, "", "  ")
@@ -84,9 +161,47 @@ func WriteBootstrapConfig(path string, cfg *netprobepb.VisibilityAgentConfig) er
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return fmt.Errorf("create netprobe config dir: %w", err)
 	}
-	if err := os.WriteFile(path, data, 0o640); err != nil {
+	if err := writeFileAtomic(path, data, 0o640); err != nil {
 		return fmt.Errorf("write netprobe bootstrap config: %w", err)
 	}
+
+	return nil
+}
+
+func cloneVisibilityConfig(cfg *netprobepb.VisibilityAgentConfig) *netprobepb.VisibilityAgentConfig {
+	return gproto.Clone(cfg).(*netprobepb.VisibilityAgentConfig)
+}
+
+func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
+	dir := filepath.Dir(path)
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*.tmp")
+	if err != nil {
+		return err
+	}
+
+	tmpName := tmp.Name()
+	cleanup := true
+	defer func() {
+		if cleanup {
+			_ = os.Remove(tmpName)
+		}
+	}()
+
+	if err := tmp.Chmod(perm); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		_ = tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		return err
+	}
+	cleanup = false
 
 	return nil
 }

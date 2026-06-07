@@ -113,16 +113,21 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   end
 
   defp resolve_fallback_device_id(update, ids, actor) do
-    if serviceradar_uuid?(update.device_id) do
-      {:ok, update.device_id}
-    else
-      case lookup_by_ip(ids, actor, allow_strong: true) do
-        {:ok, device_id} when is_binary(device_id) and device_id != "" ->
-          {:ok, device_id}
+    cond do
+      serviceradar_uuid?(update.device_id) ->
+        {:ok, update.device_id}
 
-        _ ->
-          {:ok, generate_deterministic_device_id(ids)}
-      end
+      has_strong_identifier?(ids) ->
+        {:ok, generate_deterministic_device_id(ids)}
+
+      true ->
+        case lookup_by_ip(ids, actor) do
+          {:ok, device_id} when is_binary(device_id) and device_id != "" ->
+            {:ok, device_id}
+
+          _ ->
+            {:ok, generate_deterministic_device_id(ids)}
+        end
     end
   end
 
@@ -820,13 +825,32 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     Enum.reduce(@identifier_priority, %{}, fn id_type, acc ->
       with id_value when not is_nil(id_value) <- get_identifier_value(ids, id_type),
            {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-             lookup_device_identifier(id_type, id_value, partition, actor) do
+             lookup_device_identifier(id_type, id_value, partition, actor),
+           true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
         Map.put(acc, id_type, %{value: id_value, device_id: device_id})
       else
         _ -> acc
       end
     end)
   end
+
+  defp trusted_identifier_match?(:agent_id, agent_id, device_id, actor) do
+    case Device.get_by_uid(device_id, true, actor: actor) do
+      {:ok, %Device{deleted_at: %_{} = _deleted_at}} ->
+        false
+
+      {:ok, %Device{agent_id: existing_agent_id}} ->
+        existing_agent_id = existing_agent_id |> to_string() |> String.trim()
+        existing_agent_id == "" or existing_agent_id == agent_id
+
+      _ ->
+        true
+    end
+  rescue
+    _ -> true
+  end
+
+  defp trusted_identifier_match?(_id_type, _id_value, _device_id, _actor), do: true
 
   defp select_canonical_device_id(preferred_device_id, matches, actor) do
     device_ids = matches |> Map.values() |> Enum.map(& &1.device_id) |> Enum.uniq()
@@ -907,7 +931,16 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   # Merge only when there is at least one non-MAC strong identifier involved,
   # and the match set is not entirely medium-confidence MACs.
   defp merge_allowed_for_matches?(matches) do
-    not mac_only_matches?(matches) and not medium_confidence_only?(matches)
+    not agent_id_only_matches?(matches) and not mac_only_matches?(matches) and
+      not medium_confidence_only?(matches)
+  end
+
+  defp agent_id_only_matches?(matches) do
+    Enum.any?(matches) and
+      Enum.all?(matches, fn
+        {:agent_id, _} -> true
+        _ -> false
+      end)
   end
 
   # MAC-only matches are too noisy (especially interface MACs observed by mapper)
@@ -969,6 +1002,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
 
   defp blocked_merge_reason(matches) do
     cond do
+      agent_id_only_matches?(matches) -> "agent_id_only_conflict"
       mac_only_matches?(matches) -> "mac_only_conflict"
       medium_confidence_only?(matches) -> "medium_confidence_only"
       true -> "policy_blocked"

@@ -74,6 +74,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.NetprobeFrame do
     type: Serviceradar.Agent.Netprobe.V1.ExternalFlowAck,
     json_name: "externalFlowAck",
     oneof: 0
+
+  field :flow_attribution_batch, 29,
+    type: Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch,
+    json_name: "flowAttributionBatch",
+    oneof: 0
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ApplyConfig do
@@ -172,6 +177,11 @@ defmodule Serviceradar.Agent.Netprobe.V1.VisibilityAgentConfig do
   field :flow_table_max_entries, 40, type: :uint32, json_name: "flowTableMaxEntries"
   field :process_snapshot_interval_s, 41, type: :uint32, json_name: "processSnapshotIntervalS"
   field :external_flow_match_window_ms, 42, type: :uint32, json_name: "externalFlowMatchWindowMs"
+  field :flow_attribution_ipc_batch, 43, type: :bool, json_name: "flowAttributionIpcBatch"
+
+  field :emit_raw_flow_attribution_events, 44,
+    type: :bool,
+    json_name: "emitRawFlowAttributionEvents"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.DeviceBinding do
@@ -509,6 +519,65 @@ defmodule Serviceradar.Agent.Netprobe.V1.DpiEvent do
   field :dissector_id, 11, type: :string, json_name: "dissectorId"
 end
 
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.LabelsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity.LabelsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.AnnotationsEntry do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity.AnnotationsEntry",
+    map: true,
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :key, 1, type: :string
+  field :value, 2, type: :string
+end
+
+defmodule Serviceradar.Agent.Netprobe.V1.WorkloadIdentity do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.netprobe.v1.WorkloadIdentity",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :pod_sandbox_id, 1, type: :string, json_name: "podSandboxId"
+  field :pod_name, 2, type: :string, json_name: "podName"
+  field :pod_namespace, 3, type: :string, json_name: "podNamespace"
+  field :pod_uid, 4, type: :string, json_name: "podUid"
+  field :container_id, 5, type: :string, json_name: "containerId"
+  field :container_name, 6, type: :string, json_name: "containerName"
+  field :image, 7, type: :string
+  field :image_ref, 8, type: :string, json_name: "imageRef"
+  field :runtime_pid, 9, type: :uint32, json_name: "runtimePid"
+  field :cgroup_path, 10, type: :string, json_name: "cgroupPath"
+  field :runtime_source, 11, type: :string, json_name: "runtimeSource"
+  field :confidence, 12, type: :string
+  field :degradation_reason, 13, type: :string, json_name: "degradationReason"
+
+  field :labels, 14,
+    repeated: true,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.LabelsEntry,
+    map: true
+
+  field :annotations, 15,
+    repeated: true,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity.AnnotationsEntry,
+    map: true
+end
+
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   @moduledoc false
 
@@ -536,6 +605,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEvent do
   field :new_state, 17, type: :int32, json_name: "newState"
   field :source, 18, type: :string
   field :external_flow_id, 19, type: :uint64, json_name: "externalFlowId"
+
+  field :workload_identity, 20,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
+    json_name: "workloadIdentity"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.FlowAttributionEventBatch do
@@ -583,6 +656,10 @@ defmodule Serviceradar.Agent.Netprobe.V1.ProcessSnapshotEntry do
   field :comm, 8, type: :string
   field :redacted_cmdline, 9, repeated: true, type: :string, json_name: "redactedCmdline"
   field :container_id, 10, type: :string, json_name: "containerId"
+
+  field :workload_identity, 11,
+    type: Serviceradar.Agent.Netprobe.V1.WorkloadIdentity,
+    json_name: "workloadIdentity"
 end
 
 defmodule Serviceradar.Agent.Netprobe.V1.ExternalFlowRecord do

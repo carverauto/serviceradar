@@ -185,10 +185,14 @@ plugin_storage_defaults = Application.get_env(:serviceradar_web_ng, :plugin_stor
 plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
+plugin_storage_public_url = System.get_env("PLUGIN_STORAGE_PUBLIC_URL")
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 
 first_party_plugin_import_defaults =
   Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
+
+native_addon_import_defaults =
+  Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
 
 client_ip_defaults = Application.get_env(:serviceradar_web_ng, :client_ip, [])
 
@@ -442,6 +446,7 @@ plugin_storage_overrides =
     System.get_env("PLUGIN_STORAGE_JS_TTL_SECONDS"),
     to_int
   )
+  |> maybe_put_env_simple.(:public_url, plugin_storage_public_url)
   |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
 god_view_runtime_graph_refresh_ms =
@@ -634,9 +639,11 @@ if remote_access_ssh_ca_signer_enabled do
 end
 
 if plugin_storage_overrides != [] do
-  config :serviceradar_web_ng,
-         :plugin_storage,
-         Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  plugin_storage_config = Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+
+  config :serviceradar_core, :plugin_storage, plugin_storage_config
+
+  config :serviceradar_web_ng, :plugin_storage, plugin_storage_config
 end
 
 object_store_retention_defaults =
@@ -761,6 +768,48 @@ if first_party_plugin_import_overrides != [] do
   config :serviceradar_web_ng,
          :first_party_plugin_import,
          Keyword.merge(first_party_plugin_import_defaults, first_party_plugin_import_overrides)
+end
+
+native_addon_import_overrides =
+  []
+  |> maybe_put_env_simple.(
+    :repo_url,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_REPO_URL")
+  )
+  |> maybe_put_env_simple.(
+    :index_asset_name,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_INDEX_ASSET")
+  )
+  |> maybe_put_env.(
+    :auto_sync_enabled,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_AUTO_SYNC"),
+    to_bool
+  )
+  |> maybe_put_env.(
+    :sync_release_limit,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_SYNC_LIMIT"),
+    to_int
+  )
+  |> maybe_put_env.(
+    :sync_interval_seconds,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_SYNC_INTERVAL_SECONDS"),
+    to_int
+  )
+  |> maybe_put_env.(
+    :addon_ids,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_IDS"),
+    to_csv_list
+  )
+  |> maybe_put_env.(
+    :auto_approve_addon_ids,
+    System.get_env("SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS"),
+    to_csv_list
+  )
+
+if native_addon_import_overrides != [] do
+  config :serviceradar_web_ng,
+         :native_addon_import,
+         Keyword.merge(native_addon_import_defaults, native_addon_import_overrides)
 end
 
 client_ip_overrides =

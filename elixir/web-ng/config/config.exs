@@ -110,6 +110,15 @@ config :serviceradar_core, Oban,
 # Ash manages all migrations in serviceradar_core/priv/repo/migrations/
 config :serviceradar_core, ServiceRadar.Repo, migration_source: "ash_schema_migrations"
 
+config :serviceradar_core, :plugin_storage,
+  backend: :jetstream,
+  upload_ttl_seconds: 900,
+  download_ttl_seconds: 900,
+  max_upload_bytes: 52_428_800,
+  jetstream_bucket: "serviceradar_plugins",
+  jetstream_replicas: 1,
+  jetstream_storage: :file
+
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
   ash_domains: [
@@ -202,6 +211,15 @@ config :serviceradar_web_ng, :first_party_plugin_import,
   cosign_public_key_file: nil
 
 config :serviceradar_web_ng, :god_view_enabled, false
+
+config :serviceradar_web_ng, :native_addon_import,
+  repo_url: "https://code.carverauto.dev/carverauto/serviceradar",
+  index_asset_name: "serviceradar-native-addon-index.json",
+  auto_sync_enabled: false,
+  sync_release_limit: 10,
+  sync_interval_seconds: 3_600,
+  addon_ids: ["netprobe", "workload-identity"],
+  auto_approve_addon_ids: []
 
 config :serviceradar_web_ng, :object_store_retention,
   enabled?: false,

@@ -22,10 +22,11 @@ use std::{
 use crate::{
     af_xdp::{self, DEFAULT_REDIRECT_BUDGET},
     af_xdp_classifier::AfXdpClassifierRuntime,
-    attribution::{AyaAttributionReader, FlowAttributionRuntime},
+    attribution::{AyaAttributionReader, FlowAttributionRuntime, FlowAttributionRuntimeConfig},
     config::Config,
     ebpf_loader::load_netprobe_ebpf,
     event_queue::EventSender,
+    external_flow::SharedExternalFlowMatcher,
     fingerprint::{FingerprintAccumulator, P0fSignatureRuntime},
     kernel::ensure_supported_kernel,
     metrics::Metrics,
@@ -75,8 +76,9 @@ impl NetprobeEbpfRuntime {
         metrics: Metrics,
         fingerprint_events: EventSender<FingerprintEvent>,
         dpi_events: EventSender<DpiEvent>,
-        flow_attribution_events: broadcast::Sender<FlowAttributionEvent>,
+        flow_attribution_events: Option<EventSender<Arc<FlowAttributionEvent>>>,
         process_snapshots: broadcast::Sender<ProcessSnapshot>,
+        external_flow_matcher: SharedExternalFlowMatcher,
         fingerprint_gate: Arc<std::sync::Mutex<FingerprintEventGate>>,
         dpi_gate: Arc<DpiEventGate>,
     ) -> Result<Self> {
@@ -101,8 +103,9 @@ impl NetprobeEbpfRuntime {
             attribution_reader,
             flow_attribution_events,
             process_snapshots,
+            external_flow_matcher,
             metrics.clone(),
-            process_snapshot_interval(config),
+            flow_attribution_runtime_config(config),
         )?;
 
         if config.capture_interfaces.is_empty() {
@@ -208,9 +211,13 @@ impl NetprobeEbpfRuntime {
     }
 }
 
-fn process_snapshot_interval(config: &Config) -> Option<Duration> {
-    (config.process_snapshot_interval_s > 0)
-        .then(|| Duration::from_secs(config.process_snapshot_interval_s))
+fn flow_attribution_runtime_config(config: &Config) -> FlowAttributionRuntimeConfig {
+    FlowAttributionRuntimeConfig {
+        process_snapshot_interval: (config.process_snapshot_interval_s > 0)
+            .then(|| Duration::from_secs(config.process_snapshot_interval_s)),
+        resend_interval: (config.flow_attribution_resend_interval_s > 0)
+            .then(|| Duration::from_secs(config.flow_attribution_resend_interval_s)),
+    }
 }
 
 fn fingerprint_interface_name(config: &Config) -> String {
@@ -595,6 +602,21 @@ fn attach_attribution_probes(ebpf: &mut Ebpf) -> Result<()> {
     tracepoint
         .attach("sock", "inet_sock_set_state")
         .context("failed to attach attribution tracepoint inet_sock_set_state")?;
+
+    for name in ["sched_process_exec", "sched_process_exit"] {
+        let tracepoint: &mut TracePoint = ebpf
+            .program_mut(name)
+            .ok_or_else(|| {
+                anyhow::anyhow!("{name} tracepoint is missing from netprobe eBPF object")
+            })?
+            .try_into()?;
+        tracepoint
+            .load()
+            .with_context(|| format!("failed to load attribution tracepoint {name}"))?;
+        tracepoint
+            .attach("sched", name)
+            .with_context(|| format!("failed to attach attribution tracepoint {name}"))?;
+    }
 
     // Best-effort optional probes. ICMP echo: ping_v4_sendmsg / ping_v6_sendmsg
     // (dgram ICMP / ICMPv6) + raw_sendmsg / rawv6_sendmsg (raw). IPv6 UDP:

@@ -8,6 +8,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointInventoryHistoryHypertables do
   @compression_after "7 days"
 
   def up do
+    # serviceradar:allow-startup-maintenance - Timescale policy setup is
+    # idempotent and operates only on newly-created empty history tables.
     create_scan_history_table()
     create_package_events_table()
   end

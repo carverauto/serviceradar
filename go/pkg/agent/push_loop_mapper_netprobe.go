@@ -28,6 +28,12 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+const (
+	netprobeResultsPayloadMaxBytes          = 8 * 1024 * 1024
+	netprobeResultsStreamPayloadMaxBytes    = 48 * 1024 * 1024
+	netprobeProcessSnapshotMetadataMaxBytes = 512 * 1024
+)
+
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
 	p.server.mu.RLock()
 	mapperSvc := p.server.mapperService
@@ -112,6 +118,8 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		CollectorIP: collectorIP,
 	}
 	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
+	processSnapshotParts := 0
+
 	for _, event := range fingerprintEvents {
 		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
 		if err != nil {
@@ -148,50 +156,77 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		}
 		updates = append(updates, update)
 	}
-	for _, snapshot := range processSnapshots {
-		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
-		if err != nil {
-			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
-			continue
-		}
 
-		update := map[string]any{
-			"ip":         device.GetIp(),
-			"agent_id":   agentID,
-			"gateway_id": opts.GatewayID,
-			"partition":  partition,
-			"source":     string(models.DiscoverySourcePassiveNetprobe),
-			"metadata":   device.GetMetadata(),
-			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+	for _, snapshot := range processSnapshots {
+		parts := agentnetprobe.SplitProcessSnapshot(snapshot, netprobeProcessSnapshotMetadataMaxBytes)
+		processSnapshotParts += len(parts)
+
+		for _, part := range parts {
+			device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(part, opts)
+			if err != nil {
+				p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
+				continue
+			}
+
+			update := map[string]any{
+				"ip":         device.GetIp(),
+				"agent_id":   agentID,
+				"gateway_id": opts.GatewayID,
+				"partition":  partition,
+				"source":     string(models.DiscoverySourcePassiveNetprobe),
+				"metadata":   device.GetMetadata(),
+				"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+			}
+			updates = append(updates, update)
 		}
-		updates = append(updates, update)
 	}
+
 	if len(updates) == 0 {
 		return false
 	}
 
-	payload, err := json.Marshal(updates)
+	payloads, skippedUpdates, err := buildNetprobeResultsPayloads(
+		updates,
+		netprobeResultsPayloadMaxBytes,
+		netprobeResultsStreamPayloadMaxBytes,
+	)
 	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to marshal netprobe results")
 		return false
 	}
+	if len(payloads) == 0 {
+		if skippedUpdates > 0 {
+			p.logger.Warn().
+				Int("skipped_update_count", skippedUpdates).
+				Msg("Skipped oversized netprobe result updates")
+		}
+		return false
+	}
 
 	seq := fmt.Sprintf("%d", time.Now().UnixNano())
-	response := mapperResultsResponse(
-		payload,
-		seq,
+	chunks := make([]*proto.ResultsChunk, 0, len(payloads))
+	for idx, payload := range payloads {
+		response := mapperResultsResponse(
+			payload,
+			seq,
+			string(models.DiscoverySourcePassiveNetprobe),
+			string(models.DiscoverySourcePassiveNetprobe),
+		)
+		chunks = append(chunks, &proto.ResultsChunk{
+			Data:            response.Data,
+			IsFinal:         idx == len(payloads)-1,
+			ChunkIndex:      int32(idx),
+			TotalChunks:     int32(len(payloads)),
+			CurrentSequence: response.CurrentSequence,
+			Timestamp:       response.Timestamp,
+		})
+	}
+
+	statusChunks := p.buildResultsStatusChunks(
+		chunks,
 		string(models.DiscoverySourcePassiveNetprobe),
 		string(models.DiscoverySourcePassiveNetprobe),
 	)
-	chunks := []*proto.ResultsChunk{{
-		Data:            response.Data,
-		IsFinal:         true,
-		ChunkIndex:      0,
-		TotalChunks:     1,
-		CurrentSequence: response.CurrentSequence,
-		Timestamp:       response.Timestamp,
-	}}
-	statusChunks := p.buildResultsStatusChunks(chunks, response.ServiceName, response.ServiceType)
 	if len(statusChunks) == 0 {
 		return false
 	}
@@ -204,14 +239,109 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		return false
 	}
 
-	p.logger.Info().
+	event := p.logger.Info()
+	if skippedUpdates > 0 {
+		event = p.logger.Warn().Int("skipped_update_count", skippedUpdates)
+	}
+	event.
 		Int("fingerprint_event_count", len(fingerprintEvents)).
 		Int("dpi_event_count", len(dpiEvents)).
 		Int("process_snapshot_count", len(processSnapshots)).
+		Int("process_snapshot_part_count", processSnapshotParts).
 		Int("update_count", len(updates)).
+		Int("status_chunk_count", len(statusChunks)).
 		Msg("Streamed netprobe results to gateway")
 
 	return true
+}
+
+func buildNetprobeResultsPayloads(
+	updates []map[string]any,
+	maxPayloadBytes int,
+	maxStreamBytes int,
+) ([][]byte, int, error) {
+	if len(updates) == 0 {
+		return nil, 0, nil
+	}
+	if maxPayloadBytes <= 0 {
+		maxPayloadBytes = netprobeResultsPayloadMaxBytes
+	}
+	if maxStreamBytes <= 0 {
+		maxStreamBytes = maxPayloadBytes
+	}
+
+	var (
+		payloads    [][]byte
+		batch       []byte
+		batchCount  int
+		streamBytes int
+		skipped     int
+		streamFull  bool
+	)
+
+	flush := func() {
+		if batchCount == 0 {
+			return
+		}
+
+		payload := append(append([]byte(nil), batch...), ']')
+		if streamBytes+len(payload) > maxStreamBytes {
+			skipped += batchCount
+			streamFull = true
+			batch = nil
+			batchCount = 0
+
+			return
+		}
+
+		payloads = append(payloads, payload)
+		streamBytes += len(payload)
+		batch = nil
+		batchCount = 0
+	}
+
+	for _, update := range updates {
+		if update == nil {
+			continue
+		}
+		if streamFull {
+			skipped++
+			continue
+		}
+
+		updateJSON, err := json.Marshal(update)
+		if err != nil {
+			return nil, skipped, err
+		}
+		if len(updateJSON)+2 > maxPayloadBytes {
+			skipped++
+			continue
+		}
+
+		extraBytes := len(updateJSON) + 1
+		if batchCount > 0 {
+			extraBytes++
+		}
+		if batchCount > 0 && len(batch)+extraBytes > maxPayloadBytes {
+			flush()
+			if streamFull {
+				skipped++
+				continue
+			}
+		}
+
+		if batchCount == 0 {
+			batch = []byte{'['}
+		} else {
+			batch = append(batch, ',')
+		}
+		batch = append(batch, updateJSON...)
+		batchCount++
+	}
+
+	flush()
+
+	return payloads, skipped, nil
 }
 
 func netprobeDiscoverySource(metadata map[string]string) string {

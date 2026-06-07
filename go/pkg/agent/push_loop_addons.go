@@ -407,6 +407,15 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 // and leaves any already-installed units untouched (reconciliation keeps them because the
 // add-on is still desired).
 func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery, supervision string) bool {
+	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" && p.systemdAddonAssignmentCurrent(a, "") {
+		p.logger.Debug().
+			Str("addon", a.GetAddonId()).
+			Str("version", a.GetVersion()).
+			Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
+
+		return true
+	}
+
 	root := resolveAddonArtifactRoot("")
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
@@ -419,7 +428,53 @@ func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignme
 		return false
 	}
 
+	if err := applyStagedAddonRuntimeConfig("", a); err != nil {
+		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
+			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
+		}
+		p.logger.Warn().
+			Err(err).
+			Str("addon", a.GetAddonId()).
+			Msg("Systemd add-on config write failed; leaving current state unchanged")
+
+		return false
+	}
+
 	return p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
+}
+
+func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig, runtimeRoot string) bool {
+	addonID := strings.TrimSpace(a.GetAddonId())
+	wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256()))
+	if addonID == "" || wantSHA == "" || !safeAddonSegment(addonID) {
+		return false
+	}
+
+	version := addonStagedVersion(a, wantSHA)
+	if !safeAddonSegment(version) {
+		return false
+	}
+
+	units := p.systemdAddonUnits(addonID)
+	if len(units) == 0 {
+		return false
+	}
+
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	addonDir := filepath.Join(root, addonID)
+	versionDir := filepath.Join(addonDir, addonVersionsDir, version)
+
+	binName := addonBinaryName(a)
+	return stagedAddonArtifactCurrent(addonDir, versionDir, version, binName, wantSHA, a.GetArtifactSignature()) &&
+		systemdAddonActivationCurrent(
+			versionDir,
+			version,
+			binName,
+			wantSHA,
+			a.GetArtifactSignature(),
+			addonAssignmentConfigSHA256(a.GetConfigJson()),
+			units,
+		)
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
@@ -469,6 +524,27 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		return false
 	}
 
+	if wantSHA := strings.ToLower(strings.TrimSpace(a.GetArtifactSha256())); wantSHA != "" {
+		version := addonStagedVersion(a, wantSHA)
+		if err := writeAddonSystemdActivationMetadata(filepath.Join(root, a.GetAddonId(), addonVersionsDir, version), addonSystemdActivationMetadata{
+			AddonID:        a.GetAddonId(),
+			Version:        version,
+			BinaryName:     addonBinaryName(a),
+			ArtifactSHA256: wantSHA,
+			Signature:      strings.TrimSpace(a.GetArtifactSignature()),
+			ConfigSHA256:   addonAssignmentConfigSHA256(a.GetConfigJson()),
+			Units:          units,
+			Enable:         enable,
+		}); err != nil {
+			p.rememberSystemdAddon(a.GetAddonId(), units)
+			p.logger.Warn().
+				Err(err).
+				Str("addon", a.GetAddonId()).
+				Msg("Installed systemd add-on but failed to record durable activation metadata; will retry activation")
+			return false
+		}
+	}
+
 	// If an update renamed or dropped unit files, uninstall the previously-installed
 	// units the new bundle no longer ships so they do not leak on the host.
 	if stale := stringsNotIn(p.systemdAddonUnits(a.GetAddonId()), units); len(stale) > 0 {
@@ -504,7 +580,11 @@ func (p *PushLoop) systemdAddonUnits(id string) []string {
 // reconciler still knows which add-ons own systemd units and can uninstall them when an
 // assignment is later disabled or removed.
 func (p *PushLoop) rehydrateSystemdAddons() {
-	discovered := discoverInstalledSystemdAddons(resolveAddonArtifactRoot(""))
+	p.rehydrateSystemdAddonsFromRoot(resolveAddonArtifactRoot(""))
+}
+
+func (p *PushLoop) rehydrateSystemdAddonsFromRoot(addonsRoot string) {
+	discovered := discoverInstalledSystemdAddons(addonsRoot)
 	if len(discovered) == 0 {
 		return // no staging root / no systemd add-ons to rehydrate
 	}

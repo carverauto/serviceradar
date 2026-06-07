@@ -18,6 +18,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	goproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -43,6 +44,94 @@ func TestMarshalJSONLimitedRejectsOversizedPayload(t *testing.T) {
 	_, err := marshalJSONLimited(payload, 64)
 	if !errors.Is(err, errJSONPayloadTooLarge) {
 		t.Fatalf("expected payload limit error, got %v", err)
+	}
+}
+
+func TestBuildNetprobeResultsPayloadsBoundsStatusChunks(t *testing.T) {
+	updates := make([]map[string]any, 0, 80)
+	for idx := 0; idx < 80; idx++ {
+		updates = append(updates, map[string]any{
+			"ip":         "192.0.2.10",
+			"agent_id":   "agent-1",
+			"gateway_id": "gateway-1",
+			"partition":  "default",
+			"source":     "passive-netprobe",
+			"metadata": map[string]string{
+				"local_processes":             strings.Repeat("x", 24*1024),
+				"local_processes.entry_count": "10",
+			},
+			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
+		})
+	}
+
+	payloads, skipped, err := buildNetprobeResultsPayloads(updates, 256*1024, 2*1024*1024)
+	if err != nil {
+		t.Fatalf("buildNetprobeResultsPayloads() error = %v", err)
+	}
+	if skipped != 0 {
+		t.Fatalf("skipped = %d, want 0", skipped)
+	}
+	if len(payloads) <= 1 {
+		t.Fatalf("expected payloads to be split, got %d", len(payloads))
+	}
+
+	chunks := make([]*proto.ResultsChunk, 0, len(payloads))
+	for idx, payload := range payloads {
+		if len(payload) > 256*1024 {
+			t.Fatalf("payload %d has %d bytes, want <= 256KiB", idx, len(payload))
+		}
+		chunks = append(chunks, &proto.ResultsChunk{
+			Data:        payload,
+			IsFinal:     idx == len(payloads)-1,
+			ChunkIndex:  int32(idx),
+			TotalChunks: int32(len(payloads)),
+			Timestamp:   time.Now().UnixNano(),
+		})
+	}
+
+	statusChunks := buildResultsStatusChunksForAgent(
+		chunks,
+		"passive-netprobe",
+		"passive-netprobe",
+		"agent-1",
+		"default",
+		"gateway-1",
+	)
+	for idx, chunk := range statusChunks {
+		if size := goproto.Size(chunk); size >= 16*1024*1024 {
+			t.Fatalf("status chunk %d has %d bytes, want below gateway hard limit", idx, size)
+		}
+	}
+}
+
+func TestBuildNetprobeResultsPayloadsSkipsOversizedSingleUpdate(t *testing.T) {
+	updates := []map[string]any{
+		{
+			"ip": "192.0.2.10",
+			"metadata": map[string]string{
+				"local_processes": strings.Repeat("x", 1024),
+			},
+		},
+		{
+			"ip": "192.0.2.11",
+			"metadata": map[string]string{
+				"local_processes": "ok",
+			},
+		},
+	}
+
+	payloads, skipped, err := buildNetprobeResultsPayloads(updates, 256, 1024)
+	if err != nil {
+		t.Fatalf("buildNetprobeResultsPayloads() error = %v", err)
+	}
+	if skipped != 1 {
+		t.Fatalf("skipped = %d, want 1", skipped)
+	}
+	if len(payloads) != 1 {
+		t.Fatalf("payload count = %d, want 1", len(payloads))
+	}
+	if !strings.Contains(string(payloads[0]), "192.0.2.11") {
+		t.Fatalf("payload does not contain retained update: %s", payloads[0])
 	}
 }
 

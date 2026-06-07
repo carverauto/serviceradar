@@ -36,6 +36,17 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
              status: 200,
              body: [
                %{
+                 "tag_name" => "netprobe-v0.2.9",
+                 "name" => "Native add-on netprobe 0.2.9",
+                 "body" => "Add-on only release",
+                 "html_url" => "https://code.carverauto.dev/carverauto/serviceradar/releases/tag/netprobe-v0.2.9",
+                 "published_at" => "2026-03-29T20:00:00Z",
+                 "assets" => [
+                   %{"name" => "serviceradar-native-addon-index.json"},
+                   %{"name" => "serviceradar-native-addon-index.sig"}
+                 ]
+               },
+               %{
                  "tag_name" => "v1.2.4",
                  "name" => "ServiceRadar 1.2.4",
                  "body" => "Newest release",
@@ -215,5 +226,16 @@ defmodule ServiceRadarWebNG.Edge.ReleaseSourceImporterTest do
     refute previous.import_ready?
     refute previous.manifest_present?
     assert previous.signature_present?
+  end
+
+  test "recent release browser ignores add-on only releases" do
+    Application.put_env(:serviceradar_web_ng, :agent_release_import_http_client, ForgejoClient)
+
+    assert {:ok, releases} =
+             ReleaseSourceImporter.list_recent_releases(%{
+               "repo_url" => "https://code.carverauto.dev/carverauto/serviceradar"
+             })
+
+    refute Enum.any?(releases, &(&1.tag == "netprobe-v0.2.9"))
   end
 end

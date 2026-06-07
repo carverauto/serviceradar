@@ -239,3 +239,42 @@ func TestManagerRestartsOnBinaryChange(t *testing.T) {
 	}
 	t.Fatalf("expected relaunch with a new PID after binary change; old pid=%d, status=%+v", s1.PID, mgr.Status())
 }
+
+func TestManagerRestartsOnVersionChangeWithStableBinaryPath(t *testing.T) {
+	requireSampleAddon(t)
+
+	mgr := NewManager(testConfig(t))
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	spec := Spec{
+		ID:         "sample",
+		Version:    "0.1.0",
+		BinaryPath: sampleAddonBin,
+		ConfigJSON: []byte("{}"),
+	}
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply v1: %v", err)
+	}
+	s1 := waitForState(t, mgr, "sample", 15*time.Second)
+	if s1.PID == 0 {
+		t.Skip("go-plugin did not report a PID; cannot assert relaunch")
+	}
+
+	// Add-ons are launched through stable paths such as
+	// /var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe.
+	// When current is retargeted to a new version directory, the path string stays
+	// the same, so the assigned version must also be a restart boundary.
+	spec.Version = "0.2.0"
+	if err := mgr.Apply(context.Background(), []Spec{spec}); err != nil {
+		t.Fatalf("apply v2: %v", err)
+	}
+
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if s, ok := statusByID(mgr, "sample"); ok && s.State == StateRunning && s.PID != 0 && s.PID != s1.PID {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("expected relaunch with a new PID after version change; old pid=%d, status=%+v", s1.PID, mgr.Status())
+}

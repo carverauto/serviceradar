@@ -23,6 +23,11 @@ never reach operators:
   `0.1.0` with a stale `config_schema` no matter how much netprobe code, the
   manifest version, or the schema changed. `native-addons.yml` also only ran on
   manual dispatch, so the artifacts were never refreshed on release.
+- **The attribution inventory still has a polling hot path.** The ring reader can
+  be event-driven, but the process snapshot path still periodically scans
+  `/proc/net/{tcp,tcp6,udp,udp6}` and `/proc/*/fd` to rebuild listener ownership.
+  That does not scale on busy Kubernetes workers and keeps attribution above the
+  fleet CPU budget even when packet capture is disabled.
 
 ## What Changes
 
@@ -30,6 +35,12 @@ never reach operators:
   process-attribution path on its own, with no capture interfaces or device
   bindings required. A single fleet-wide assignment (Enable) is valid for any
   number of agents.
+- **Control-plane host visibility routing:** host-network visibility enablement
+  is stored in the database/settings UI and delivered as effective agent config
+  through agent-gateway commandbus/control-stream pushes. Flow collectors consume
+  generated host-slice routing state from the control plane instead of requiring
+  per-agent `host_slices` in Helm. The current demo static routes are canary
+  scaffolding only and must be removed or disabled after the generated feed lands.
 - **Capture/DPI demoted to advanced opt-in:** `capture_interfaces`, `dpi`,
   `default_sample_interval_ms`, `external_flow_match_window_ms`, and
   `device_bindings` become optional advanced fields, collapsed in the operator
@@ -41,6 +52,22 @@ never reach operators:
   manifest version bump (or schema change) is reflected on the next core boot.
 - **Republish on release:** `native-addons.yml` triggers on `v*` tags so the
   published add-on artifacts (and the UI version) track each release.
+- **Event-driven attribution inventory:** netprobe replaces periodic host-wide
+  procfs listener/process discovery with eBPF socket/process lifecycle events and
+  bounded user-space caches. Process command line and container identity remain
+  required forensic enrichment fields; procfs is retained only as a temporary,
+  bounded cold-path enrichment implementation until eBPF exec/cgroup metadata
+  capture replaces it, not as recurring global discovery or PID attribution.
+- **Protocol-aware correlation:** attribution matching handles TCP, UDP, ICMP,
+  ICMPv6, node-SNAT, and pod-local cases with protocol-specific tuple rules
+  instead of treating every flow as a TCP-style 5-tuple.
+- **Bounded delivery path:** ring buffers, local IPC queues, agent queues, and
+  gateway batches expose drop counters/lag and use bounded backpressure or
+  coalescing so burst handling is observable and cannot grow without limit.
+- **Performance release gate:** attribution-only netprobe must remain below the
+  sustained fleet CPU budget on representative busy workers, without persistent
+  drops, queue lag, attribution freshness regressions, or protocol hit-rate
+  regressions, before the release path is considered complete.
 
 ## Impact
 
@@ -52,3 +79,8 @@ never reach operators:
   - `elixir/serviceradar_core/lib/serviceradar/plugins/netprobe_addon_package_seeder.ex` — manifest-driven version/schema.
   - `elixir/web-ng/...` add-on assignment config form — collapse advanced fields, attribution-only default.
   - `.forgejo/workflows/native-addons.yml` — `v*` tag trigger (done in v1.2.90).
+  - `rust/netprobe/ebpf/src/lib.rs`, `rust/netprobe/src/attribution.rs` — event-driven listener/process inventory, cache-backed snapshots, CPU gate.
+  - `elixir/serviceradar_core/...` agent config compiler / `AgentCommandBus` — DB/settings-driven visibility config and commandbus push.
+  - `rust/flow-collector/...` — consume generated host-slice routing snapshots/deltas instead of static Helm-only routing.
+  - `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` — protocol-aware OCSF correlation.
+  - `go/pkg/agent/netprobe/*`, `go/pkg/agent/push_loop_flow_attribution.go` — bounded event queues, drain sizing, and delivery counters.

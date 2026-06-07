@@ -115,6 +115,40 @@ describe("OperationsTrafficMap netflow links", () => {
       geoMapped: false,
     })
   })
+
+  it("normalizes attribution metadata for the map popup", () => {
+    const [link] = OperationsTrafficMap._normalizeTrafficLinks(
+      [
+        {
+          source_label: "10.0.2.11",
+          target_label: "192.168.10.96",
+          topology_from: [-120, 20],
+          topology_to: [-90, 30],
+          bytes: 70,
+          attributed_flow_count: 3,
+          attribution_agent_id: "agent-k8s-cp3-worker1",
+          attribution_comm: "gobgpd",
+          attribution_pid: 45246,
+          attribution_pod_namespace: "demo",
+          attribution_pod_name: "gobgpd-0",
+          attribution_container_name: "gobgpd",
+          attribution_image: "registry.example/gobgpd:latest",
+        },
+      ],
+      "netflow",
+    )
+
+    expect(link).toMatchObject({
+      attributedFlowCount: 3,
+      attributionAgentId: "agent-k8s-cp3-worker1",
+      attributionComm: "gobgpd",
+      attributionPid: 45246,
+      attributionPodNamespace: "demo",
+      attributionPodName: "gobgpd-0",
+      attributionContainerName: "gobgpd",
+      attributionImage: "registry.example/gobgpd:latest",
+    })
+  })
 })
 
 describe("OperationsTrafficMap netflow details dismissal", () => {
@@ -158,5 +192,43 @@ describe("OperationsTrafficMap netflow details dismissal", () => {
 
     expect(anchorDetails.remove).not.toHaveBeenCalled()
     expect(ctx.anchorDetails).toBe(anchorDetails)
+  })
+})
+
+describe("OperationsTrafficMap flow detail links", () => {
+  it("renders drilldown links for clicked attributed NetFlow paths", () => {
+    const anchorDetails = {className: "", innerHTML: "", style: {}}
+    const parent = {
+      appendChild: vi.fn(),
+      getBoundingClientRect: vi.fn(() => ({width: 800, height: 500, left: 0, top: 0})),
+    }
+    const flowNode = {
+      getBoundingClientRect: vi.fn(() => ({width: 20, height: 20, left: 120, top: 80})),
+      dataset: {
+        sourceLabel: "Kansas City, US, 34.117.62.14",
+        targetLabel: "Carver, MN",
+        sourceIp: "34.117.62.14",
+        targetIp: "10.0.2.13",
+        bytes: "36249",
+        packets: "50",
+        flowCount: "1",
+        attributedFlowCount: "1",
+        attributionAgentId: "agent-k8s-cp3-worker3",
+        attributionComm: "cosign",
+        attributionPid: "2663619",
+      },
+    }
+
+    const ctx = {
+      el: {parentElement: parent},
+      anchorDetails,
+    }
+
+    OperationsTrafficMap._showFlowDetails.call(ctx, flowNode)
+
+    expect(ctx.anchorDetails.innerHTML).toContain("Flow details")
+    expect(ctx.anchorDetails.innerHTML).toContain("tab=netflows")
+    expect(ctx.anchorDetails.innerHTML).toContain("Attributed flows")
+    expect(ctx.anchorDetails.innerHTML).toContain("/observability/flows/attributed")
   })
 })

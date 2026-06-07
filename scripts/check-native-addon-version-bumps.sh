@@ -1,0 +1,352 @@
+#!/usr/bin/env bash
+# Fails PRs that change a first-party native add-on payload without advancing
+# that add-on's manifest version. Also checks version sources that feed Rust
+# add-on bundles stay aligned, so operators do not see a package version that
+# differs from the binary-reported version.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BASE_REF="${1:-${BASE_REF:-origin/staging}}"
+HEAD_REF="${2:-${HEAD_REF:-HEAD}}"
+
+cd "${REPO_ROOT}"
+
+if ! git rev-parse --verify "${BASE_REF}^{commit}" >/dev/null 2>&1; then
+  echo "error: base ref not found: ${BASE_REF}" >&2
+  exit 2
+fi
+
+if ! git rev-parse --verify "${HEAD_REF}^{commit}" >/dev/null 2>&1; then
+  echo "error: head ref not found: ${HEAD_REF}" >&2
+  exit 2
+fi
+
+version_from_yaml() {
+  local ref="$1" path="$2"
+  git show "${ref}:${path}" 2>/dev/null |
+    awk -F: '/^[[:space:]]*version[[:space:]]*:/ {
+      value=$2
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+      gsub(/^["'\'']|["'\'']$/, "", value)
+      print value
+      exit
+    }'
+}
+
+version_from_toml() {
+  local ref="$1" path="$2"
+  git show "${ref}:${path}" 2>/dev/null |
+    awk -F= '
+      /^[[:space:]]*\[package\][[:space:]]*$/ { in_package=1; next }
+      /^[[:space:]]*\[/ && in_package { exit }
+      in_package && /^[[:space:]]*version[[:space:]]*=/ {
+        value=$2
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        gsub(/^["'\'']|["'\'']$/, "", value)
+        print value
+        exit
+      }
+    '
+}
+
+version_from_bazel_constant() {
+  local ref="$1" path="$2" constant="$3"
+  git show "${ref}:${path}" 2>/dev/null |
+    awk -F= -v constant="${constant}" '
+      $1 ~ "^[[:space:]]*" constant "[[:space:]]*$" {
+        value=$2
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        gsub(/^["'\'']|["'\'']$/, "", value)
+        print value
+        exit
+      }
+    '
+}
+
+addon_ids() {
+  cat <<'EOF'
+sample
+rust-sample
+netprobe
+workload-identity
+bumblebee
+endpoint-inventory
+EOF
+}
+
+manifest_path() {
+  case "$1" in
+    sample) echo "addons/sample-addon/addon.yaml" ;;
+    rust-sample) echo "addons/rust-sample-addon/addon.yaml" ;;
+    netprobe) echo "addons/netprobe/addon.yaml" ;;
+    workload-identity) echo "addons/workload-identity/addon.yaml" ;;
+    bumblebee) echo "addons/bumblebee-scan/addon.yaml" ;;
+    endpoint-inventory) echo "addons/endpoint-inventory/addon.yaml" ;;
+    *) return 1 ;;
+  esac
+}
+
+cargo_version_path() {
+  case "$1" in
+    rust-sample) echo "rust/addon-sdk/Cargo.toml" ;;
+    netprobe) echo "rust/netprobe/Cargo.toml" ;;
+    workload-identity) echo "rust/workload-identity/Cargo.toml" ;;
+    *) return 1 ;;
+  esac
+}
+
+bazel_version_path() {
+  case "$1" in
+    netprobe) echo "rust/netprobe/BUILD.bazel" ;;
+    *) return 1 ;;
+  esac
+}
+
+bazel_version_constant() {
+  case "$1" in
+    netprobe) echo "NETPROBE_VERSION" ;;
+    *) return 1 ;;
+  esac
+}
+
+path_belongs_to_addon() {
+  local addon="$1" path="$2"
+
+  case "${addon}" in
+    sample)
+      case "${path}" in
+        addons/sample-addon/*|go/cmd/serviceradar-sample-addon/*) return 0 ;;
+      esac
+      ;;
+    rust-sample)
+      case "${path}" in
+        addons/rust-sample-addon/*|rust/addon-sdk/*) return 0 ;;
+      esac
+      ;;
+    netprobe)
+      case "${path}" in
+        addons/netprobe/*|rust/netprobe/*) return 0 ;;
+      esac
+      ;;
+    workload-identity)
+      case "${path}" in
+        addons/workload-identity/*|rust/workload-identity/*) return 0 ;;
+      esac
+      ;;
+    bumblebee)
+      case "${path}" in
+        addons/bumblebee-scan/*|go/cmd/bumblebee-scan/*) return 0 ;;
+      esac
+      ;;
+    endpoint-inventory)
+      case "${path}" in
+        addons/endpoint-inventory/*|go/cmd/endpoint-inventory/*) return 0 ;;
+      esac
+      ;;
+  esac
+
+  return 1
+}
+
+inventory_stanza() {
+  local ref="$1" addon="$2"
+  python3 - "${ref}" "${addon}" <<'PY'
+import subprocess
+import sys
+
+ref, addon = sys.argv[1:3]
+try:
+    data = subprocess.check_output(
+        ["git", "show", f"{ref}:build/native_addons/addon_inventory.bzl"],
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+except subprocess.CalledProcessError:
+    sys.exit(0)
+
+lines = data.splitlines()
+needle = f'"addon_id": "{addon}"'
+line_index = next((i for i, line in enumerate(lines) if needle in line), None)
+if line_index is None:
+    sys.exit(0)
+
+start = line_index
+while start >= 0 and lines[start].strip() != "{":
+    start -= 1
+if start < 0:
+    sys.exit(0)
+
+depth = 0
+for end in range(start, len(lines)):
+    depth += lines[end].count("{")
+    depth -= lines[end].count("}")
+    if depth == 0:
+        print("\n".join(lines[start : end + 1]))
+        sys.exit(0)
+PY
+}
+
+inventory_stanza_changed() {
+  local addon="$1"
+  [[ "$(inventory_stanza "${BASE_REF}" "${addon}")" != "$(inventory_stanza "${HEAD_REF}" "${addon}")" ]]
+}
+
+version_changed() {
+  local addon="$1" manifest old_version new_version
+  manifest="$(manifest_path "${addon}")"
+  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}" || true)"
+  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+
+  [[ -n "${new_version}" && "${old_version}" != "${new_version}" ]]
+}
+
+changed_paths="$(git diff --name-only "${BASE_REF}" "${HEAD_REF}")"
+required_bumps=""
+version_checks=""
+inventory_changed=false
+inventory_mapped=false
+
+while IFS= read -r path; do
+  [[ -n "${path}" ]] || continue
+
+  if [[ "${path}" == "build/native_addons/addon_inventory.bzl" ]]; then
+    inventory_changed=true
+    continue
+  fi
+
+  while IFS= read -r addon; do
+    if path_belongs_to_addon "${addon}" "${path}"; then
+      required_bumps="${required_bumps}${addon}"$'\n'
+      version_checks="${version_checks}${addon}"$'\n'
+    fi
+
+    if [[ "${path}" == "$(manifest_path "${addon}")" ]]; then
+      version_checks="${version_checks}${addon}"$'\n'
+    fi
+
+    cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
+    if [[ -n "${cargo_path}" && "${path}" == "${cargo_path}" ]]; then
+      version_checks="${version_checks}${addon}"$'\n'
+    fi
+
+    bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
+    if [[ -n "${bazel_path}" && "${path}" == "${bazel_path}" ]]; then
+      version_checks="${version_checks}${addon}"$'\n'
+    fi
+  done < <(addon_ids)
+done <<<"${changed_paths}"
+
+  if [[ "${inventory_changed}" == true ]]; then
+  while IFS= read -r addon; do
+    if inventory_stanza_changed "${addon}"; then
+      inventory_mapped=true
+      required_bumps="${required_bumps}${addon}"$'\n'
+      version_checks="${version_checks}${addon}"$'\n'
+    fi
+  done < <(addon_ids)
+
+  if [[ "${inventory_mapped}" == false ]]; then
+    bumped_any=false
+    while IFS= read -r addon; do
+      if version_changed "${addon}"; then
+        bumped_any=true
+      fi
+    done < <(addon_ids)
+
+    if [[ "${bumped_any}" == false ]]; then
+      cat >&2 <<EOF
+error: build/native_addons/addon_inventory.bzl changed, but no first-party native add-on version changed
+
+Bundle inventory changes affect the signed artifact contents/import index. Bump
+the relevant addons/*/addon.yaml version so release import creates a distinct
+approved package and agents can receive the new artifact.
+EOF
+      exit 1
+    fi
+  fi
+fi
+
+required_bumps="$(printf '%s' "${required_bumps}" | sort -u | sed '/^$/d')"
+version_checks="$(printf '%s' "${version_checks}" | sort -u | sed '/^$/d')"
+
+while IFS= read -r addon; do
+  [[ -n "${addon}" ]] || continue
+
+  manifest="$(manifest_path "${addon}")"
+  old_version="$(version_from_yaml "${BASE_REF}" "${manifest}" || true)"
+  new_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+
+  if [[ -z "${new_version}" ]]; then
+    echo "error: ${manifest} has no version at ${HEAD_REF}" >&2
+    exit 1
+  fi
+
+  if [[ -n "${old_version}" && "${old_version}" == "${new_version}" ]]; then
+    cat >&2 <<EOF
+error: ${addon} native add-on payload changed but ${manifest} stayed at ${new_version}
+
+Bump ${manifest} when that add-on's source, config, unit, or bundle inventory
+changes so release import creates a distinct approved package and agents can
+receive the new artifact.
+EOF
+    exit 1
+  fi
+done <<<"${required_bumps}"
+
+while IFS= read -r addon; do
+  [[ -n "${addon}" ]] || continue
+
+  manifest="$(manifest_path "${addon}")"
+  addon_version="$(version_from_yaml "${HEAD_REF}" "${manifest}" || true)"
+
+  cargo_path="$(cargo_version_path "${addon}" 2>/dev/null || true)"
+  if [[ -n "${cargo_path}" ]]; then
+    cargo_version="$(version_from_toml "${HEAD_REF}" "${cargo_path}" || true)"
+
+    if [[ -z "${addon_version}" || -z "${cargo_version}" ]]; then
+      echo "error: unable to read ${addon} version sources" >&2
+      echo "  ${manifest}: ${addon_version:-<missing>}" >&2
+      echo "  ${cargo_path}: ${cargo_version:-<missing>}" >&2
+      exit 1
+    fi
+
+    if [[ "${addon_version}" != "${cargo_version}" ]]; then
+      cat >&2 <<EOF
+error: ${addon} version sources are out of sync
+  ${manifest}: ${addon_version}
+  ${cargo_path}: ${cargo_version}
+
+Keep these aligned so the add-on package and binary version describe the same
+artifact.
+EOF
+      exit 1
+    fi
+  fi
+
+  bazel_path="$(bazel_version_path "${addon}" 2>/dev/null || true)"
+  if [[ -n "${bazel_path}" ]]; then
+    bazel_constant="$(bazel_version_constant "${addon}")"
+    bazel_version="$(version_from_bazel_constant "${HEAD_REF}" "${bazel_path}" "${bazel_constant}" || true)"
+
+    if [[ -z "${addon_version}" || -z "${bazel_version}" ]]; then
+      echo "error: unable to read ${addon} Bazel version source" >&2
+      echo "  ${manifest}: ${addon_version:-<missing>}" >&2
+      echo "  ${bazel_path} ${bazel_constant}: ${bazel_version:-<missing>}" >&2
+      exit 1
+    fi
+
+    if [[ "${addon_version}" != "${bazel_version}" ]]; then
+      cat >&2 <<EOF
+error: ${addon} version sources are out of sync
+  ${manifest}: ${addon_version}
+  ${bazel_path} ${bazel_constant}: ${bazel_version}
+
+Keep these aligned so the add-on package, Bazel build metadata, and binary
+version all describe the same artifact.
+EOF
+      exit 1
+    fi
+  fi
+done <<<"${version_checks}"
+
+echo "native add-on version bump check passed"

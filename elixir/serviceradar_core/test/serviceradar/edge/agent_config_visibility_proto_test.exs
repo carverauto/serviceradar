@@ -11,6 +11,7 @@ defmodule ServiceRadar.Edge.AgentConfigVisibilityProtoTest do
       capture_interfaces: ["en0"],
       binary_overrides: %Monitoring.VisibilityBinaryOverrides{path: "/tmp/netprobe"},
       default_sample_interval_ms: 250,
+      flow_table_max_entries: 262_144,
       dpi: %Monitoring.VisibilityDpiConfig{enabled: true, protocols: ["dns", "tls"]},
       device_bindings: [
         %Monitoring.VisibilityDeviceBinding{

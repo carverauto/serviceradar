@@ -30,6 +30,7 @@ struct VisibilityState {
     bindings: HashMap<String, BindingState>,
     default_sample_interval_ms: u32,
     default_dpi: DpiConfig,
+    flow_attribution_ipc_batch: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -90,6 +91,7 @@ impl RuntimeConfig {
                 bindings: HashMap::new(),
                 default_sample_interval_ms: 0,
                 default_dpi: default_dpi_disabled(),
+                flow_attribution_ipc_batch: config.flow_attribution_ipc_batch,
             })),
             capture_interfaces: Arc::new(normalize_capture_interfaces(&config.capture_interfaces)),
             flow_table_max_entries: config.effective_flow_table_max_entries(),
@@ -123,6 +125,7 @@ impl RuntimeConfig {
             bindings: bindings_by_ip(&config.device_bindings),
             default_sample_interval_ms: config.default_sample_interval_ms,
             default_dpi: config.dpi.clone().unwrap_or_else(default_dpi_disabled),
+            flow_attribution_ipc_batch: config.flow_attribution_ipc_batch,
         };
         let external_flow_match_window_ms =
             effective_external_flow_match_window_ms(config.external_flow_match_window_ms);
@@ -143,6 +146,13 @@ impl RuntimeConfig {
             .external_flow_match_window_ms
             .read()
             .expect("external flow match window lock poisoned")
+    }
+
+    pub fn flow_attribution_ipc_batch_enabled(&self) -> bool {
+        self.inner
+            .read()
+            .expect("runtime config lock poisoned")
+            .flow_attribution_ipc_batch
     }
 
     #[cfg_attr(not(feature = "remote-capture"), allow(dead_code))]
@@ -603,6 +613,21 @@ mod tests {
         });
 
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn initializes_flow_attribution_ipc_batch_from_bootstrap_config() {
+        let batched = RuntimeConfig::new(&Config {
+            flow_attribution_ipc_batch: true,
+            ..Default::default()
+        });
+        assert!(batched.flow_attribution_ipc_batch_enabled());
+
+        let unbatched = RuntimeConfig::new(&Config {
+            flow_attribution_ipc_batch: false,
+            ..Default::default()
+        });
+        assert!(!unbatched.flow_attribution_ipc_batch_enabled());
     }
 
     #[test]

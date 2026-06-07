@@ -46,9 +46,7 @@ async fn main() -> Result<()> {
     log::info!("  Stream name: {}", config.stream_name);
     log::info!("  Default channel size: {}", config.channel_size);
     log::info!("  Batch size: {}", config.batch_size);
-    log::info!(
-        "  Backpressure policy: DropNewest (tokio mpsc::try_send; see config.rs comment)"
-    );
+    log::info!("  Backpressure policy: DropNewest (tokio mpsc::try_send; see config.rs comment)");
     log::info!("  Listeners: {}", config.listeners.len());
 
     for (i, listener_cfg) in config.listeners.iter().enumerate() {
@@ -72,12 +70,15 @@ async fn main() -> Result<()> {
     // publisher consumes from a single merged channel. This isolates noisy
     // listeners from quiet ones — a saturated sflow stream no longer steals
     // capacity from a sparse netflow stream.
-    let (publisher_tx, publisher_rx) =
-        mpsc::channel::<(String, Vec<u8>)>(config.channel_size);
+    let (publisher_tx, publisher_rx) = mpsc::channel::<(String, Vec<u8>)>(config.channel_size);
 
     // Spawn publisher
     let publisher_config = Arc::clone(&config);
-    let publisher = Publisher::new(publisher_config, publisher_rx, Arc::clone(&host_slice_metrics));
+    let publisher = Publisher::new(
+        publisher_config,
+        publisher_rx,
+        Arc::clone(&host_slice_metrics),
+    );
     let publisher_handle = tokio::spawn(async move {
         if let Err(e) = publisher.run().await {
             log::error!("Publisher error: {}", e);
@@ -109,8 +110,7 @@ async fn main() -> Result<()> {
         // `channel_size` but can be overridden per listener so operators can
         // give sflow more headroom than netflow (or vice versa).
         let cap = listener_cfg.channel_size(config.channel_size);
-        let (listener_tx, mut listener_rx) =
-            mpsc::channel::<(String, Vec<u8>)>(cap);
+        let (listener_tx, mut listener_rx) = mpsc::channel::<(String, Vec<u8>)>(cap);
 
         // Forwarder: drains this listener's channel into the shared publisher
         // channel. We use `send().await` here (not `try_send`) — by the time

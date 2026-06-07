@@ -102,7 +102,9 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 	defer cancel()
 
 	// systemd-managed -> attach mode (connect, don't launch).
-	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{Enabled: true}, true) {
+	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
+		{AddonId: "netprobe", Enabled: true, Supervision: "systemd_service"},
+	}) {
 		t.Fatal("applyVisibilityConfig(systemdManaged=true) = false, want true")
 	}
 	if started, attach := manager.Mode(); !started || !attach {
@@ -111,7 +113,7 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 
 	// Assignment removed + no capture work -> reverts to the agent-launched path and stops,
 	// so the agent and systemd never both run netprobe.
-	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{}, false) {
+	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{}, nil) {
 		t.Fatal("applyVisibilityConfig(systemdManaged=false, no work) = false, want true")
 	}
 	if started, _ := manager.Mode(); started {

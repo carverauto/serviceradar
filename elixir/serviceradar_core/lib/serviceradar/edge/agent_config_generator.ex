@@ -1816,7 +1816,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         |> List.wrap()
         |> Enum.map(&build_visibility_device_binding/1),
       dpi: build_visibility_dpi_config(Map.get(config, "dpi")),
-      default_sample_interval_ms: Map.get(config, "default_sample_interval_ms", 0) || 0
+      default_sample_interval_ms: Map.get(config, "default_sample_interval_ms", 0) || 0,
+      flow_table_max_entries: Map.get(config, "flow_table_max_entries", 0) || 0
     }
   end
 

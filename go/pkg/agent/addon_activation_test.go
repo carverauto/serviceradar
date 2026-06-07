@@ -24,6 +24,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -37,18 +38,23 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-var errFakeObjectNotFound = errors.New("fake object store: key not found")
+var (
+	errFakeObjectNotFound        = errors.New("fake object store: key not found")
+	errUnexpectedAddonRedownload = errors.New("unchanged assignment should not fetch again")
+)
 
 const testPushedBinaryA = "/pushed/a"
 
 const testAddonKeyX = "addons/x"
 
 type fakeObjectStore struct {
-	data map[string][]byte
-	err  error
+	data      map[string][]byte
+	err       error
+	downloads int
 }
 
 func (f *fakeObjectStore) DownloadObject(_ context.Context, key string) ([]byte, error) {
+	f.downloads++
 	if f.err != nil {
 		return nil, f.err
 	}
@@ -119,6 +125,47 @@ func TestStageAddonArtifactSuccess(t *testing.T) {
 	// The versioned copy exists independently of the symlink.
 	if _, err := os.Stat(filepath.Join(root, "sample", addonVersionsDir, "1.0.0", "serviceradar-sample-addon")); err != nil {
 		t.Fatalf("versioned binary missing: %v", err)
+	}
+}
+
+func TestStageAddonArtifactSkipsUnchangedCurrentArtifact(t *testing.T) {
+	root := t.TempDir()
+	payload := []byte("#!/bin/sh\necho hi\n")
+	key := "addons/sample/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: payload}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "sample",
+		Version:           "1.0.0",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-sample-addon",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(payload),
+	}
+
+	got1, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("initial stage: %v", err)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("initial downloads = %d, want 1", store.downloads)
+	}
+
+	metadataPath := filepath.Join(root, "sample", addonVersionsDir, "1.0.0", addonStageMetaFile)
+	if _, err := os.Stat(metadataPath); err != nil {
+		t.Fatalf("expected trusted stage metadata: %v", err)
+	}
+
+	store.err = errUnexpectedAddonRedownload
+	got2, err := stageAddonArtifact(context.Background(), store, root, a)
+	if err != nil {
+		t.Fatalf("restage unchanged assignment: %v", err)
+	}
+	if got2 != got1 {
+		t.Fatalf("restaged path = %q, want %q", got2, got1)
+	}
+	if store.downloads != 1 {
+		t.Fatalf("downloads after unchanged restage = %d, want 1", store.downloads)
 	}
 }
 
@@ -555,6 +602,22 @@ func makeAddonTarGz(t *testing.T, files map[string][]byte) []byte {
 	return buf.Bytes()
 }
 
+func readJSONMap(t *testing.T, path string) map[string]any {
+	t.Helper()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+
+	var out map[string]any
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("decode %s: %v", path, err)
+	}
+
+	return out
+}
+
 func TestStageAddonArtifactExtractsTarball(t *testing.T) {
 	root := t.TempDir()
 	tgz := makeAddonTarGz(t, map[string][]byte{
@@ -600,6 +663,65 @@ func TestStageAddonArtifactExtractsTarball(t *testing.T) {
 		if fi.Mode().Perm()&0o111 != 0 {
 			t.Fatalf("non-binary file %s should not be executable: %v", f, fi.Mode())
 		}
+	}
+}
+
+func TestApplyStagedAddonRuntimeConfigMergesAssignmentConfig(t *testing.T) {
+	runtimeRoot := t.TempDir()
+	root := resolveAddonArtifactRoot(runtimeRoot)
+	tgz := makeAddonTarGz(t, map[string][]byte{
+		"serviceradar-workload-identity": []byte("#!/bin/sh\necho workload\n"),
+		"workload-identity.json": []byte(`{
+  "enabled": true,
+  "root": "/",
+  "context_name": "",
+  "refresh_interval_s": 60,
+  "spool_dir": "/var/lib/serviceradar/workload-identity/spool"
+}
+`),
+		"serviceradar-workload-identity.service": []byte("[Service]\nExecStart=/bin/true\n"),
+	})
+	key := "addons/workload-identity/linux-amd64"
+	store := &fakeObjectStore{data: map[string][]byte{key: tgz}}
+
+	a := &proto.AddonAssignmentConfig{
+		AddonId:           "workload-identity",
+		Version:           "0.1.3",
+		BinaryPath:        "/usr/local/lib/serviceradar/bin/serviceradar-workload-identity",
+		Delivery:          "pushed_artifact",
+		ArtifactObjectKey: key,
+		ArtifactSha256:    sha256Hex(tgz),
+		ConfigJson:        []byte(`{"context_name":"default-cp3"}`),
+	}
+
+	if _, err := stageAddonArtifact(context.Background(), store, root, a); err != nil {
+		t.Fatalf("stage: %v", err)
+	}
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatalf("apply config: %v", err)
+	}
+
+	configPath := filepath.Join(root, "workload-identity", addonCurrentLink, "workload-identity.json")
+	config := readJSONMap(t, configPath)
+	if config["enabled"] != true {
+		t.Fatalf("enabled = %#v, want true", config["enabled"])
+	}
+	if config["context_name"] != "default-cp3" {
+		t.Fatalf("context_name = %#v, want default-cp3", config["context_name"])
+	}
+
+	// Re-applying a changed assignment should merge from the preserved artifact base,
+	// not from the previously written runtime config, so removed fields do not stick.
+	a.ConfigJson = []byte(`{"refresh_interval_s":30}`)
+	if err := applyStagedAddonRuntimeConfig(runtimeRoot, a); err != nil {
+		t.Fatalf("reapply config: %v", err)
+	}
+	config = readJSONMap(t, configPath)
+	if config["context_name"] != "" {
+		t.Fatalf("context_name = %#v, want artifact default after override removal", config["context_name"])
+	}
+	if config["refresh_interval_s"] != float64(30) {
+		t.Fatalf("refresh_interval_s = %#v, want 30", config["refresh_interval_s"])
 	}
 }
 

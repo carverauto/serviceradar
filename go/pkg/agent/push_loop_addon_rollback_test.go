@@ -28,19 +28,22 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
-const netprobeTestUnit = "serviceradar-netprobe.service"
+const (
+	netprobeTestAddonID = "netprobe"
+	netprobeTestUnit    = "serviceradar-netprobe.service"
+)
 
 var errAgentUpdaterUnavailable = errors.New("agent-updater unavailable")
 
 // stageSystemdAddonFixture builds a temp runtime root with
-// <root>/addons/<id>/versions/<v>/ dirs (each holding the named unit files) and points
-// `current` -> versions/<current>, mirroring the post-stageAndCapability staging layout.
+// <root>/addons/netprobe/versions/<v>/ dirs (each holding the named unit files) and points
+// `current` -> versions/1.1.0, mirroring the post-stageAndCapability staging layout.
 // Returns the runtime root to pass to reconcileStagedSystemdUnits.
-func stageSystemdAddonFixture(t *testing.T, addonID, current string, versions map[string][]string) string {
+func stageSystemdAddonFixture(t *testing.T, versions map[string][]string) string {
 	t.Helper()
 
 	runtimeRoot := t.TempDir()
-	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), addonID)
+	addonDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), netprobeTestAddonID)
 	for version, units := range versions {
 		versionDir := filepath.Join(addonDir, addonVersionsDir, version)
 		if err := os.MkdirAll(versionDir, 0o755); err != nil {
@@ -52,7 +55,7 @@ func stageSystemdAddonFixture(t *testing.T, addonID, current string, versions ma
 			}
 		}
 	}
-	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, current)); err != nil {
+	if err := switchAddonCurrentSymlink(addonDir, filepath.Join(addonVersionsDir, "1.1.0")); err != nil {
 		t.Fatalf("switch current symlink: %v", err)
 	}
 
@@ -83,7 +86,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 	const id = "netprobe"
 
 	prior := filepath.Join(addonVersionsDir, "1.0.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {netprobeTestUnit},
 	})
@@ -121,7 +124,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 	const id = "netprobe"
 
 	prior := filepath.Join(addonVersionsDir, "1.0.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {}, // staged version ships no units
 	})
@@ -152,7 +155,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	const id = "netprobe"
 
 	newTarget := filepath.Join(addonVersionsDir, "1.1.0")
-	runtimeRoot := stageSystemdAddonFixture(t, id, "1.1.0", map[string][]string{
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
 		"1.0.0": {netprobeTestUnit},
 		"1.1.0": {netprobeTestUnit},
 	})
@@ -168,7 +171,12 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 
 	pl.reconcileStagedSystemdUnits(
 		context.Background(),
-		&proto.AddonAssignmentConfig{AddonId: id},
+		&proto.AddonAssignmentConfig{
+			AddonId:        id,
+			Version:        "1.1.0",
+			BinaryPath:     "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+			ArtifactSha256: sha256Hex([]byte("netprobe-1.1.0")),
+		},
 		addonSupervisionSystemdService,
 		runtimeRoot,
 		filepath.Join(addonVersionsDir, "1.0.0"),
@@ -186,5 +194,94 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	}
 	if units := pl.systemdAddonUnits(id); len(units) != 1 || units[0] != netprobeTestUnit {
 		t.Fatalf("remembered units = %v, want [%s]", units, netprobeTestUnit)
+	}
+	if !systemdAddonActivationCurrent(
+		filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0"),
+		"1.1.0",
+		"serviceradar-netprobe",
+		sha256Hex([]byte("netprobe-1.1.0")),
+		"",
+		"",
+		[]string{netprobeTestUnit},
+	) {
+		t.Fatal("expected successful systemd install to record durable activation metadata")
+	}
+}
+
+func TestSystemdAddonAssignmentCurrentRequiresMatchingStageMetadataAndTrackedUnits(t *testing.T) {
+	const id = "netprobe"
+
+	payload := []byte("netprobe-binary")
+	sha := sha256Hex(payload)
+	runtimeRoot := stageSystemdAddonFixture(t, map[string][]string{
+		"1.1.0": {netprobeTestUnit},
+	})
+	versionDir := filepath.Join(resolveAddonArtifactRoot(runtimeRoot), id, addonVersionsDir, "1.1.0")
+	if err := os.WriteFile(filepath.Join(versionDir, "serviceradar-netprobe"), payload, addonBinaryMode); err != nil {
+		t.Fatalf("write binary: %v", err)
+	}
+	if err := writeAddonStageMetadata(versionDir, addonStageMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactObject: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSHA256: sha,
+	}); err != nil {
+		t.Fatalf("write stage metadata: %v", err)
+	}
+
+	assignment := &proto.AddonAssignmentConfig{
+		AddonId:           id,
+		Version:           "1.1.0",
+		BinaryPath:        "/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe",
+		ArtifactObjectKey: "native-addons/netprobe/1.1.0/linux/amd64/netprobe.tar.gz",
+		ArtifactSha256:    sha,
+	}
+
+	pl := newSystemdAddonPushLoop(t)
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should not be current until systemd units are tracked")
+	}
+
+	pl.rememberSystemdAddon(id, []string{netprobeTestUnit})
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should not be current until systemd activation metadata is recorded")
+	}
+	if err := writeAddonSystemdActivationMetadata(versionDir, addonSystemdActivationMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactSHA256: sha,
+		Units:          []string{netprobeTestUnit},
+		Enable:         netprobeTestUnit,
+	}); err != nil {
+		t.Fatalf("write systemd activation metadata: %v", err)
+	}
+	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should be current with matching stage metadata, activation metadata, and tracked units")
+	}
+
+	assignment.ConfigJson = []byte(`{"context_name":"default-cp3"}`)
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment with changed config must not be treated as current")
+	}
+	if err := writeAddonSystemdActivationMetadata(versionDir, addonSystemdActivationMetadata{
+		AddonID:        id,
+		Version:        "1.1.0",
+		BinaryName:     "serviceradar-netprobe",
+		ArtifactSHA256: sha,
+		ConfigSHA256:   addonAssignmentConfigSHA256(assignment.GetConfigJson()),
+		Units:          []string{netprobeTestUnit},
+		Enable:         netprobeTestUnit,
+	}); err != nil {
+		t.Fatalf("write systemd activation metadata with config hash: %v", err)
+	}
+	if !pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment should be current after matching config hash is recorded")
+	}
+
+	assignment.ArtifactSha256 = sha256Hex([]byte("different"))
+	if pl.systemdAddonAssignmentCurrent(assignment, runtimeRoot) {
+		t.Fatal("assignment with a different artifact sha must not be treated as current")
 	}
 }

@@ -74,6 +74,57 @@ type processSnapshotEntryMetadata struct {
 	ContainerID       string   `json:"container_id,omitempty"`
 }
 
+// SplitProcessSnapshot returns shallow snapshot copies whose entries fit under
+// maxMetadataBytes when encoded in the local_processes metadata payload.
+func SplitProcessSnapshot(snapshot *netprobepb.ProcessSnapshot, maxMetadataBytes int) []*netprobepb.ProcessSnapshot {
+	if snapshot == nil {
+		return nil
+	}
+	if maxMetadataBytes <= 0 || len(snapshot.GetEntries()) <= 1 {
+		return []*netprobepb.ProcessSnapshot{snapshot}
+	}
+
+	var (
+		out                []*netprobepb.ProcessSnapshot
+		current            []*netprobepb.ProcessSnapshotEntry
+		baseSize           = processSnapshotMetadataSize(snapshot, nil)
+		currentEntriesSize int
+	)
+
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		out = append(out, processSnapshotWithEntries(snapshot, current))
+		current = nil
+		currentEntriesSize = 0
+	}
+
+	for _, entry := range snapshot.GetEntries() {
+		entrySize := processSnapshotEntryMetadataSize(entry)
+		candidateSize := baseSize + currentEntriesSize + entrySize
+		if len(current) > 0 {
+			candidateSize++
+		}
+		if len(current) > 0 && candidateSize > maxMetadataBytes {
+			flush()
+		}
+
+		if len(current) > 0 {
+			currentEntriesSize++
+		}
+		current = append(current, entry)
+		currentEntriesSize += entrySize
+	}
+
+	flush()
+	if len(out) == 0 {
+		return []*netprobepb.ProcessSnapshot{processSnapshotWithEntries(snapshot, nil)}
+	}
+
+	return out
+}
+
 // FingerprintEventToDiscoveredDevice converts a netprobe fingerprint event into a discovery device record.
 func FingerprintEventToDiscoveredDevice(event *netprobepb.FingerprintEvent, opts TranslationOptions) (*discoverypb.DiscoveredDevice, error) {
 	if event == nil {
@@ -356,21 +407,67 @@ func processSnapshotEntries(entries []*netprobepb.ProcessSnapshotEntry) []proces
 		if entry == nil {
 			continue
 		}
-		out = append(out, processSnapshotEntryMetadata{
-			LocalIP:           strings.TrimSpace(entry.GetLocalIp()),
-			LocalPort:         entry.GetLocalPort(),
-			TransportProtocol: strings.ToLower(strings.TrimSpace(entry.GetTransportProtocol())),
-			PID:               entry.GetPid(),
-			TGID:              entry.GetTgid(),
-			UID:               entry.GetUid(),
-			GID:               entry.GetGid(),
-			Comm:              strings.TrimSpace(entry.GetComm()),
-			RedactedCmdline:   append([]string(nil), entry.GetRedactedCmdline()...),
-			ContainerID:       strings.TrimSpace(entry.GetContainerId()),
-		})
+		out = append(out, processSnapshotEntry(entry))
 	}
 
 	return out
+}
+
+func processSnapshotEntry(entry *netprobepb.ProcessSnapshotEntry) processSnapshotEntryMetadata {
+	return processSnapshotEntryMetadata{
+		LocalIP:           strings.TrimSpace(entry.GetLocalIp()),
+		LocalPort:         entry.GetLocalPort(),
+		TransportProtocol: strings.ToLower(strings.TrimSpace(entry.GetTransportProtocol())),
+		PID:               entry.GetPid(),
+		TGID:              entry.GetTgid(),
+		UID:               entry.GetUid(),
+		GID:               entry.GetGid(),
+		Comm:              strings.TrimSpace(entry.GetComm()),
+		RedactedCmdline:   append([]string(nil), entry.GetRedactedCmdline()...),
+		ContainerID:       strings.TrimSpace(entry.GetContainerId()),
+	}
+}
+
+func processSnapshotMetadataSize(snapshot *netprobepb.ProcessSnapshot, entries []*netprobepb.ProcessSnapshotEntry) int {
+	payload := processSnapshotMetadata{
+		Fingerprint:        strings.TrimSpace(snapshot.GetFingerprint()),
+		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
+		Entries:            processSnapshotEntries(entries),
+	}
+	if observed := observedAtUnixNano(snapshot.GetObservedAtUnixNano()); !observed.IsZero() {
+		payload.ObservedAt = observed.Format(time.RFC3339Nano)
+	}
+
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+
+	return len(encoded)
+}
+
+func processSnapshotEntryMetadataSize(entry *netprobepb.ProcessSnapshotEntry) int {
+	if entry == nil {
+		return 0
+	}
+
+	encoded, err := json.Marshal(processSnapshotEntry(entry))
+	if err != nil {
+		return int(^uint(0) >> 1)
+	}
+
+	return len(encoded)
+}
+
+func processSnapshotWithEntries(
+	snapshot *netprobepb.ProcessSnapshot,
+	entries []*netprobepb.ProcessSnapshotEntry,
+) *netprobepb.ProcessSnapshot {
+	return &netprobepb.ProcessSnapshot{
+		Fingerprint:        snapshot.GetFingerprint(),
+		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
+		Entries:            append([]*netprobepb.ProcessSnapshotEntry(nil), entries...),
+	}
 }
 
 func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent, base string) error {

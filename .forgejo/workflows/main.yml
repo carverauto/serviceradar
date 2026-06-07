@@ -52,6 +52,13 @@ jobs:
           git fetch --no-tags --depth=1 origin "${GITHUB_SHA}"
           git checkout --detach FETCH_HEAD
 
+      - name: Check native add-on version bumps
+        run: |
+          set -euo pipefail
+          base_ref="${GITHUB_BASE_REF:-staging}"
+          git fetch --no-tags --depth=1 origin "${base_ref}"
+          scripts/check-native-addon-version-bumps.sh FETCH_HEAD HEAD
+
       - name: Install build dependencies
         run: ./scripts/ci/ensure-forgejo-tools.sh service-build
 

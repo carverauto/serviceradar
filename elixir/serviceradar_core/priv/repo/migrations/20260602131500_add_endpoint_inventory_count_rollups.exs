@@ -10,6 +10,8 @@ defmodule ServiceRadar.Repo.Migrations.AddEndpointInventoryCountRollups do
   @compression_after "7 days"
 
   def up do
+    # serviceradar:allow-startup-maintenance - Timescale policy/CAGG setup uses
+    # WITH NO DATA and only wires empty count-history tables on bootstrap.
     create_current_count_tables()
     create_count_history_tables()
     create_continuous_aggregates()

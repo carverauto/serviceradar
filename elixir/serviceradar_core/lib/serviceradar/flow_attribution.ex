@@ -1,35 +1,34 @@
 defmodule ServiceRadar.FlowAttribution do
   @moduledoc """
-  Persists netprobe process attributions (5-tuple -> process) pushed by agents,
-  and correlates them against collected NetFlow/sFlow in `ocsf_network_activity`.
+  Persists netprobe process attributions pushed by agents and correlates them
+  against collected NetFlow/sFlow in `ocsf_network_activity`.
 
-  NetFlow remains the authoritative flow source — netprobe only supplies the WHO.
-  `persist/3` writes each pushed `FlowAttributionEvent` to `flow_process_attributions`;
-  `correlate/0` joins recent attributions against recent NetFlow (either direction)
-  and stamps matching flows with `event_type=attributed_flow` + the process context,
-  which the web UI (`/observability/flows/attributed`) reads.
+  NetFlow remains the authoritative flow source; netprobe supplies process and
+  workload context. This module intentionally stays as the public API while the
+  persistence, correlation, retention, and protobuf normalization details live in
+  smaller implementation modules under `ServiceRadar.FlowAttribution`.
   """
 
   alias Netprobepb.FlowAttributionEvent
+  alias ServiceRadar.FlowAttribution.Correlation
+  alias ServiceRadar.FlowAttribution.EventRows
+  alias ServiceRadar.FlowAttribution.Persistence
+  alias ServiceRadar.FlowAttribution.Retention
+  alias ServiceRadar.FlowAttribution.WorkloadBackfill
 
   require Logger
-
-  @schema "platform"
-  @table "flow_process_attributions"
-  @correlation_window_minutes 15
-  @correlation_skew_seconds 900
-  @retention_minutes 60
 
   @doc "Persist a batch of pushed attribution events."
   @spec persist([FlowAttributionEvent.t()], String.t() | nil, String.t() | nil) :: :ok
   def persist(events, partition_id, agent_id) when is_list(events) do
     rows =
       events
-      |> Enum.map(&row_from_event(&1, partition_id, agent_id))
+      |> Enum.map(&EventRows.from_event(&1, partition_id, agent_id))
       |> Enum.reject(&is_nil/1)
 
     if rows != [] do
-      ServiceRadar.Repo.insert_all(@table, rows, prefix: @schema)
+      Persistence.insert_legacy_rows(rows)
+      Persistence.insert_current_rows(rows)
     end
 
     :ok
@@ -41,158 +40,39 @@ defmodule ServiceRadar.FlowAttribution do
 
   def persist(_events, _partition_id, _agent_id), do: :ok
 
-  defp row_from_event(%FlowAttributionEvent{} = event, partition_id, agent_id) do
-    with proto when is_integer(proto) <- transport_to_proto(event.transport_protocol),
-         true <- is_binary(event.local_ip) and event.local_ip != "",
-         true <- is_binary(event.remote_ip) and event.remote_ip != "" do
-      %{
-        observed_at: observed_at(event),
-        partition: partition_id || "default",
-        agent_id: agent_id,
-        proto: proto,
-        local_ip: event.local_ip,
-        local_port: event.local_port || 0,
-        remote_ip: event.remote_ip,
-        remote_port: event.remote_port || 0,
-        pid: zero_to_nil(event.pid),
-        comm: blank_to_nil(event.comm),
-        cmdline: cmdline_to_string(event.redacted_cmdline),
-        uid: zero_to_nil(event.uid),
-        container_id: blank_to_nil(event.container_id)
-      }
-    else
-      _ -> nil
-    end
-  end
-
-  defp row_from_event(_event, _partition_id, _agent_id), do: nil
-
   @doc """
   Correlate recent attributions with recent NetFlow and stamp matches as
-  `attributed_flow`. Direction-agnostic (matches src->dst or dst->src). Idempotent.
+  `attributed_flow`. Direction-agnostic and idempotent.
   """
   @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
-  def correlate do
-    sql = """
-    WITH candidates AS (
-      SELECT DISTINCT ON (f.ctid)
-        f.ctid AS flow_ctid,
-        a.agent_id,
-        a.pid,
-        a.comm,
-        a.cmdline,
-        a.uid,
-        a.container_id,
-        CASE
-          WHEN (
-                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
-              )
-          THEN 0
-          ELSE 1
-        END AS match_rank,
-        abs(extract(epoch from (f.time - a.observed_at))) AS time_delta_seconds
-      FROM #{@schema}.ocsf_network_activity AS f
-      JOIN #{@schema}.#{@table} AS a
-        ON f.partition = a.partition
-       AND f.protocol_num = a.proto
-       AND a.observed_at > now() - interval '#{@correlation_window_minutes} minutes'
-       AND abs(extract(epoch from (f.time - a.observed_at))) <= #{@correlation_skew_seconds}
-      LEFT JOIN #{@schema}.ocsf_agents AS ag
-        ON ag.uid = a.agent_id
-       AND ag.ip IS NOT NULL
-       AND ag.ip <> ''
-      WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
-        AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
-        AND (
-              (
-                (f.src_endpoint_ip = a.local_ip AND f.dst_endpoint_ip = a.remote_ip
-                 AND f.src_endpoint_port = a.local_port AND f.dst_endpoint_port = a.remote_port)
-             OR (f.src_endpoint_ip = a.remote_ip AND f.dst_endpoint_ip = a.local_ip
-                 AND f.src_endpoint_port = a.remote_port AND f.dst_endpoint_port = a.local_port)
-              )
-           OR (
-                ag.ip IS NOT NULL
-            AND a.local_ip <> ag.ip
-            AND (
-                  (f.src_endpoint_ip = ag.ip AND f.dst_endpoint_ip = a.remote_ip
-                   AND f.dst_endpoint_port = a.remote_port)
-               OR (f.dst_endpoint_ip = ag.ip AND f.src_endpoint_ip = a.remote_ip
-                   AND f.src_endpoint_port = a.remote_port)
-                )
-              )
-            )
-      ORDER BY f.ctid, match_rank, time_delta_seconds, a.observed_at DESC
-    )
-    UPDATE #{@schema}.ocsf_network_activity AS f
-    SET ocsf_payload = f.ocsf_payload
-      || jsonb_build_object(
-           'event_type', 'attributed_flow',
-           'agent_id', candidates.agent_id,
-           'attribution', jsonb_strip_nulls(jsonb_build_object(
-             'pid', candidates.pid,
-             'comm', candidates.comm,
-             'redacted_cmdline', candidates.cmdline,
-             'uid', candidates.uid,
-             'container_id', candidates.container_id
-           ))
-         )
-    FROM candidates
-    WHERE f.ctid = candidates.flow_ctid
-    """
+  defdelegate correlate, to: Correlation
 
-    case ServiceRadar.Repo.query(sql, []) do
-      {:ok, %{num_rows: num_rows}} -> {:ok, num_rows}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc """
+  Backfill workload identity into recent current-state attribution rows.
+
+  Workload snapshots can arrive after netprobe has already emitted a process/socket
+  observation. Keeping this backfill in core preserves the clean add-on split: the
+  edge does not need to replay process observations just because runtime metadata
+  arrived later.
+  """
+  @spec backfill_current_workload_identity() :: {:ok, non_neg_integer()} | {:error, term()}
+  defdelegate backfill_current_workload_identity, to: WorkloadBackfill
+
+  @doc "Backfill recent current-state attribution rows for specific workload identity keys."
+  @spec backfill_current_workload_identity([map()]) ::
+          {:ok, non_neg_integer()} | {:error, term()}
+  defdelegate backfill_current_workload_identity(rows), to: WorkloadBackfill
 
   @doc "Delete attributions older than the retention window."
   @spec prune() :: {:ok, non_neg_integer()} | {:error, term()}
-  def prune do
-    sql =
-      "DELETE FROM #{@schema}.#{@table} WHERE observed_at < now() - interval '#{@retention_minutes} minutes'"
+  defdelegate prune, to: Retention
 
-    case ServiceRadar.Repo.query(sql, []) do
-      {:ok, %{num_rows: num_rows}} -> {:ok, num_rows}
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  @doc """
+  Returns raw attribution staging retention in minutes.
 
-  defp observed_at(%FlowAttributionEvent{observed_at_unix_nano: ns})
-       when is_integer(ns) and ns > 0 do
-    DateTime.from_unix!(ns, :nanosecond)
-  rescue
-    _ -> DateTime.utc_now()
-  end
-
-  defp observed_at(_event), do: DateTime.utc_now()
-
-  defp zero_to_nil(n) when is_integer(n) and n > 0, do: n
-  defp zero_to_nil(_), do: nil
-
-  defp blank_to_nil(value) when is_binary(value) and value != "", do: value
-  defp blank_to_nil(_), do: nil
-
-  defp cmdline_to_string(list) when is_list(list), do: list |> Enum.join(" ") |> blank_to_nil()
-  defp cmdline_to_string(value) when is_binary(value), do: blank_to_nil(value)
-  defp cmdline_to_string(_), do: nil
-
-  # IANA protocol numbers (mirrors AttributedFlowJoiner.transport_to_proto).
-  defp transport_to_proto(transport) when is_binary(transport) do
-    case String.downcase(transport) do
-      "tcp" -> 6
-      "udp" -> 17
-      "icmp" -> 1
-      "icmp6" -> 58
-      "icmpv6" -> 58
-      "ipv6-icmp" -> 58
-      _ -> nil
-    end
-  end
-
-  defp transport_to_proto(transport) when is_integer(transport), do: transport
-  defp transport_to_proto(_), do: nil
+  The value is clamped to the correlation skew so a deployment cannot discard
+  observations before delayed NetFlow/IPFIX rows have a chance to match.
+  """
+  @spec retention_minutes() :: pos_integer()
+  defdelegate retention_minutes, to: Retention
 end

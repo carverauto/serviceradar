@@ -799,7 +799,8 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "cpu_metrics",
          "memory_metrics",
          "disk_metrics",
-         "process_metrics"
+         "process_metrics",
+         "attributed_flows"
        ] do
       tokens ++ ["time:last_7d"]
     else

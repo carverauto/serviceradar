@@ -182,8 +182,15 @@ networkPolicy:
       # Envoy Gateway runs shared Gateway data-plane pods in this namespace;
       # allow those proxies to reach ServiceRadar backends.
       - envoy-gateway-system
+      # Prometheus runs in this namespace and scrapes ServiceRadar and CNPG metrics.
+      - monitoring
     cnpgOperator:
       enabled: true
+    monitoring:
+      enabled: true
+      namespace: monitoring
+      cnpgMetricsPort: 9187
+      pgbouncerMetricsPort: 9127
   egress:
     allowDNS: true
     allowKubeAPIServer: true
@@ -285,6 +292,16 @@ webNg:
       cp6jIdZ3L4AkL/WI9oFn5xqJSnwTC29cz+JN/bXzWE807+iPS/DOl3C9EQ==
       -----END PUBLIC KEY-----
     registryDockerConfigSecret: registry-carverauto-dev-cred
+  nativeAddonImport:
+    autoSyncEnabled: true
+    syncReleaseLimit: 20
+    syncIntervalSeconds: 1800
+    addonIds:
+      - netprobe
+      - workload-identity
+    autoApproveAddonIds:
+      - netprobe
+      - workload-identity
   gatewayAddress: "demo-gw.serviceradar.cloud:50052"
   agentReleasePublicKey: "ZY2//cpkD3oVdC6q4Cg6lN1I2M6SgmDMzL4QyQjptH8="
   extraEnv:
@@ -410,6 +427,13 @@ core:
     consensusEnabled: false
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
+  observabilityRetention:
+    traceSummaryDays: 1
+    otelTracesDays: 1
+    logsDays: 1
+    flowAttributionMinutes: 20
+    otelTracesChunkIntervalHours: 6
+    logsChunkIntervalHours: 6
   deviceEnrichment:
     rulesDir: "/var/lib/serviceradar/rules/device-enrichment"
     filesystemOverrides:

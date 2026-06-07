@@ -56,6 +56,7 @@ pub enum Entity {
     TraceSummaries,
     Traces,
     Flows,
+    AttributedFlows,
     Alerts,
     AddonStatuses,
     EndpointPackageCatalog,
@@ -489,6 +490,9 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "otel_traces" | "traces" | "trace_spans" => Ok(Entity::Traces),
         "flows" | "flow" | "network_activity" => Ok(Entity::Flows),
+        "attributed_flows" | "attributed_flow" | "flow_attributions" | "flow_attribution" => {
+            Ok(Entity::AttributedFlows)
+        }
         "alerts" | "alert" => Ok(Entity::Alerts),
         "addon_statuses" | "addon_status" => Ok(Entity::AddonStatuses),
         "endpoint_inventory_scans"

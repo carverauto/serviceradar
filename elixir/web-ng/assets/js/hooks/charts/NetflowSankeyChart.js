@@ -140,6 +140,8 @@ export default {
         const dst = e?.dst
         const bytes = Number(e?.bytes || 0)
         const port = e?.port
+        const attributedCount = Number(e?.attributed_count || 0)
+        const iocCount = Number(e?.ioc_count || 0)
         if (!src || !mid || !dst || !Number.isFinite(bytes) || bytes <= 0) continue
 
         addNode(src, "src")
@@ -153,13 +155,13 @@ export default {
           source: nodeKey("src", src),
           target: nodeKey("mid", mid),
           value: bytes,
-          edge: {src, dst, port, mid_field, mid_value},
+          edge: {src, dst, port, mid_field, mid_value, attributed_count: attributedCount, ioc_count: iocCount},
         })
         links.push({
           source: nodeKey("mid", mid),
           target: nodeKey("dst", dst),
           value: bytes,
-          edge: {src, dst, port, mid_field, mid_value},
+          edge: {src, dst, port, mid_field, mid_value, attributed_count: attributedCount, ioc_count: iocCount},
         })
       }
 
@@ -211,15 +213,24 @@ export default {
           add2(src2, "src")
           add2(dst2, "dst")
           const key = `${nodeKey("src", src2)}|${nodeKey("dst", dst2)}`
-          const cur = byPair.get(key) || 0
-          byPair.set(key, cur + bytes2)
+          const cur = byPair.get(key) || {bytes: 0, attributed_count: 0, ioc_count: 0}
+          byPair.set(key, {
+            bytes: cur.bytes + bytes2,
+            attributed_count: cur.attributed_count + Number(e2?.attributed_count || 0),
+            ioc_count: cur.ioc_count + Number(e2?.ioc_count || 0),
+          })
         }
 
         const links2 = []
         for (const [key, value] of byPair.entries()) {
           const [s, t] = key.split("|")
           if (!s || !t) continue
-          links2.push({source: s, target: t, value})
+          links2.push({
+            source: s,
+            target: t,
+            value: value.bytes,
+            edge: {attributed_count: value.attributed_count, ioc_count: value.ioc_count},
+          })
         }
 
         graph = buildSankey(nodes2, links2)
@@ -254,7 +265,9 @@ export default {
         })
         .attr("stroke-opacity", (d) => {
           const grp = d?.source?.group || "src"
-          return groupHidden(grp) ? 0.03 : 0.25
+          if (groupHidden(grp)) return 0.03
+          const edge = d?.edge || {}
+          return Number(edge.attributed_count || 0) > 0 || Number(edge.ioc_count || 0) > 0 ? 0.42 : 0.25
         })
         .attr("stroke-width", (d) => Math.max(1, d.width || 1))
         .style("cursor", "pointer")
@@ -265,6 +278,23 @@ export default {
           const port = edge?.port ?? ""
           const mf = String(edge?.mid_field || "")
           const mv = String(edge?.mid_value || "")
+          const attributedCount = Number(edge?.attributed_count || 0)
+          const iocCount = Number(edge?.ioc_count || 0)
+          const signalHtml =
+            attributedCount > 0 || iocCount > 0
+              ? `<div class="mt-1 flex gap-1 text-[10px]">
+	                  ${
+                      attributedCount > 0
+                        ? `<span style="border-radius:3px;background:rgba(34,197,94,.16);color:#22c55e;padding:1px 4px;">Attributed ${escapeHtml(String(attributedCount))}</span>`
+                        : ""
+                    }
+	                  ${
+                      iocCount > 0
+                        ? `<span style="border-radius:3px;background:rgba(239,68,68,.16);color:#ef4444;padding:1px 4px;">IOC ${escapeHtml(String(iocCount))}</span>`
+                        : ""
+                    }
+	                </div>`
+              : ""
 
           const midLabel = (() => {
             if (mf === "dst_port" || mf === "dst_endpoint_port") return `${groupLabel.mid}: ${String(port || mv || "-")}`
@@ -277,6 +307,7 @@ export default {
 	            <div class="mt-0.5 text-[11px] opacity-70">${escapeHtml(midLabel)}</div>
 	            <div class="mt-0.5 text-[11px]"><span class="opacity-70">${escapeHtml(groupLabel.dst)}:</span> <span class="font-mono">${escapeHtml(t)}</span></div>
 	            <div class="mt-0.5 text-[11px] font-mono">${escapeHtml(formatBytes(d?.value || 0))}</div>
+	            ${signalHtml}
 	          `
           showTooltip(evt, html)
         })
@@ -296,7 +327,13 @@ export default {
         .text((d) => {
           const s = d?.source?.label || d?.source?.id || ""
           const t = d?.target?.label || d?.target?.id || ""
-          return `${s} -> ${t}\n${formatBytes(d.value)}`
+          const edge = d?.edge || {}
+          const attributed = Number(edge.attributed_count || 0)
+          const ioc = Number(edge.ioc_count || 0)
+          const extras = [attributed > 0 ? `Attributed ${attributed}` : null, ioc > 0 ? `IOC ${ioc}` : null]
+            .filter(Boolean)
+            .join("\n")
+          return `${s} -> ${t}\n${formatBytes(d.value)}${extras ? `\n${extras}` : ""}`
         })
 
       // Nodes

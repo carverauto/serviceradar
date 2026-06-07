@@ -18,6 +18,15 @@ defmodule ServiceRadarWebNGWeb.Api.SrqlCatalogControllerTest do
       assert is_map(response["entities"])
       assert is_map(response["entities"]["devices"])
       assert "hostname" in response["entities"]["devices"]["fields"]["filter"]
+      attributed_flow_fields = response["entities"]["attributed_flows"]["fields"]
+      assert "src_endpoint_ip" in attributed_flow_fields["filter"]
+      assert "dst_endpoint_ip" in attributed_flow_fields["filter"]
+      assert "src_endpoint_port" in attributed_flow_fields["filter"]
+      assert "dst_endpoint_port" in attributed_flow_fields["filter"]
+      assert "protocol_num" in attributed_flow_fields["filter"]
+      assert "src_endpoint_port" in attributed_flow_fields["numeric"]
+      assert "dst_endpoint_port" in attributed_flow_fields["numeric"]
+      assert "protocol_num" in attributed_flow_fields["numeric"]
       refute "in:" in response["control_tokens"]
       assert "time:" in response["control_tokens"]
       assert ":" in response["operators"]

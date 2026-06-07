@@ -38,9 +38,9 @@
     "process_snapshot_interval_s": {
       "type": "integer",
       "title": "Process snapshot interval (s)",
-      "description": "Optional. How often eBPF process-attribution snapshots are emitted.",
+      "description": "Optional. Periodic process-attribution snapshot reconciliation interval. 0 means event-driven snapshots only.",
       "minimum": 0,
-      "default": 30,
+      "default": 0,
       "x-serviceradar-ui-advanced": true
     },
     "external_flow_match_window_ms": {
@@ -49,6 +49,20 @@
       "description": "Optional. Temporal window for matching external (non-process) flows by 5-tuple.",
       "minimum": 0,
       "default": 0,
+      "x-serviceradar-ui-advanced": true
+    },
+    "flow_attribution_ipc_batch": {
+      "type": "boolean",
+      "title": "Batch attribution IPC",
+      "description": "Batch process attribution events over the local netprobe-agent IPC stream. Disable only for debugging older agents or framing issues.",
+      "default": true,
+      "x-serviceradar-ui-advanced": true
+    },
+    "emit_raw_flow_attribution_events": {
+      "type": "boolean",
+      "title": "Emit raw attribution events",
+      "description": "Emit every raw process attribution observation upstream for central correlation and forensic history. Disable to reduce agent CPU, IPC traffic, and CNPG writes on high-volume hosts; this degrades central attributed-flow joins until matched-only export is enabled.",
+      "default": true,
       "x-serviceradar-ui-advanced": true
     },
     "dpi": { "$ref": "#/definitions/dpi", "x-serviceradar-ui-advanced": true },

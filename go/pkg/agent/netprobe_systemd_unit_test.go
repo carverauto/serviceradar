@@ -60,10 +60,13 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 		"ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar/netprobe",
 		"ExecStartPre=+/usr/bin/install -d -o root -g root -m 0700 /sys/fs/bpf/serviceradar /sys/fs/bpf/serviceradar/netprobe",
 		"/sys/fs/bpf/flow_events",
+		"/sys/fs/bpf/socket_to_pid",
 		"/sys/fs/bpf/serviceradar/netprobe/flow_events",
+		"/sys/fs/bpf/serviceradar/netprobe/socket_to_pid",
 		"AmbientCapabilities=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON",
 		"CapabilityBoundingSet=CAP_NET_RAW CAP_NET_ADMIN CAP_BPF CAP_PERFMON CAP_SETUID CAP_SETGID",
 		"ReadWritePaths=/run/serviceradar /run/serviceradar/netprobe /var/lib/serviceradar /var/lib/serviceradar/netprobe /sys/fs/bpf",
+		"Slice=serviceradar.slice",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(unit, want) {
@@ -76,5 +79,81 @@ func TestNetprobeSystemdUnitPrivilegedStartupContract(t *testing.T) {
 	}
 	if strings.Contains(unit, "\nRuntimeDirectory=") || strings.Contains(unit, "\nStateDirectory=") {
 		t.Fatal("netprobe unit must use explicit root ExecStartPre directory setup; systemd RuntimeDirectory/StateDirectory blocked IPC bind after --drop-user")
+	}
+}
+
+func TestAgentSystemdUnitDoesNotOwnSharedRuntimeDirectory(t *testing.T) {
+	unitBytes, err := os.ReadFile(filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"))
+	if err != nil {
+		t.Fatalf("read agent unit: %v", err)
+	}
+	unit := string(unitBytes)
+
+	if strings.Contains(unit, "\nRuntimeDirectory=serviceradar\n") {
+		t.Fatal("agent unit must not own /run/serviceradar as RuntimeDirectory; restarting the agent can remove netprobe's IPC socket")
+	}
+	if strings.Contains(unit, "\nRuntimeDirectoryMode=0700\n") {
+		t.Fatal("agent unit must not force /run/serviceradar to 0700; netprobe and agent share the runtime tree")
+	}
+
+	want := "ExecStartPre=+/usr/bin/install -d -o serviceradar -g serviceradar -m 0750 /run/serviceradar"
+	if !strings.Contains(unit, want) {
+		t.Fatalf("agent unit missing explicit shared runtime directory setup %q", want)
+	}
+
+	if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
+		t.Fatal("agent unit must join serviceradar.slice for ServiceRadar host-component cgroup accounting")
+	}
+}
+
+func TestHostComponentSystemdUnitsShareSliceWithoutAgentParentage(t *testing.T) {
+	units := map[string]string{
+		"agent": filepath.Join("..", "..", "..", "build", "packaging", "agent", "systemd", "serviceradar-agent.service"),
+		"netprobe": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"netprobe",
+			"serviceradar-netprobe.service",
+		),
+		"bumblebee": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"bumblebee-scan",
+			"serviceradar-bumblebee-scan.service",
+		),
+		"endpoint-inventory": filepath.Join(
+			"..",
+			"..",
+			"..",
+			"addons",
+			"endpoint-inventory",
+			"serviceradar-endpoint-inventory.service",
+		),
+	}
+
+	for name, unitPath := range units {
+		unitBytes, err := os.ReadFile(unitPath)
+		if err != nil {
+			t.Fatalf("read %s unit: %v", name, err)
+		}
+		unit := string(unitBytes)
+
+		if !strings.Contains(unit, "\nSlice=serviceradar.slice\n") {
+			t.Fatalf("%s unit must join serviceradar.slice", name)
+		}
+
+		for _, forbidden := range []string{
+			"\nPartOf=serviceradar-agent.service\n",
+			"\nBindsTo=serviceradar-agent.service\n",
+			"\nRequires=serviceradar-agent.service\n",
+		} {
+			if strings.Contains(unit, forbidden) {
+				t.Fatalf("%s unit must not make privileged add-ons process children/dependents of serviceradar-agent.service via %q", name, strings.TrimSpace(forbidden))
+			}
+		}
 	}
 }

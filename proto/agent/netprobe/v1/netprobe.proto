@@ -45,6 +45,7 @@ message NetprobeFrame {
     BannerBatch banner_batch = 26;
     BannerMatchBatch banner_match_batch = 27;
     ExternalFlowAck external_flow_ack = 28;
+    FlowAttributionEventBatch flow_attribution_batch = 29;
   }
 }
 
@@ -91,9 +92,13 @@ message VisibilityAgentConfig {
   uint32 flow_table_max_entries = 40;
   uint32 process_snapshot_interval_s = 41;
   uint32 external_flow_match_window_ms = 42;
+  bool flow_attribution_ipc_batch = 43;
+  bool emit_raw_flow_attribution_events = 44;
 
   reserved 21 to 39;
+  reserved 45 to 47;
   reserved "flow_attribution";
+  reserved "workload_identity_enabled", "cri_endpoint", "workload_identity_refresh_interval_s";
 }
 
 message DeviceBinding {
@@ -267,6 +272,24 @@ message DpiEvent {
   string dissector_id = 11;
 }
 
+message WorkloadIdentity {
+  string pod_sandbox_id = 1;
+  string pod_name = 2;
+  string pod_namespace = 3;
+  string pod_uid = 4;
+  string container_id = 5;
+  string container_name = 6;
+  string image = 7;
+  string image_ref = 8;
+  uint32 runtime_pid = 9;
+  string cgroup_path = 10;
+  string runtime_source = 11;
+  string confidence = 12;
+  string degradation_reason = 13;
+  map<string, string> labels = 14;
+  map<string, string> annotations = 15;
+}
+
 message FlowAttributionEvent {
   string local_ip = 1;
   uint32 local_port = 2;
@@ -287,6 +310,7 @@ message FlowAttributionEvent {
   int32 new_state = 17;
   string source = 18;
   uint64 external_flow_id = 19;
+  WorkloadIdentity workload_identity = 20;
 }
 
 // FlowAttributionEventBatch is the wire payload the agent ships to the
@@ -328,6 +352,7 @@ message ProcessSnapshotEntry {
   string comm = 8;
   repeated string redacted_cmdline = 9;
   string container_id = 10;
+  WorkloadIdentity workload_identity = 11;
 }
 
 message ExternalFlowRecord {

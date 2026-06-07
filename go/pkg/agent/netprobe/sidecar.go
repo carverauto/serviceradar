@@ -30,13 +30,14 @@ import (
 )
 
 const (
-	DefaultSidecarName                = "netprobe"
-	DefaultBinaryPath                 = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
-	DefaultLogFormat                  = "json"
-	defaultHealthPort          uint16 = 0
-	defaultSidecarEventBuffer         = 1024
-	defaultApplyWaitInterval          = 100 * time.Millisecond
-	defaultDesiredApplyTimeout        = 30 * time.Second
+	DefaultSidecarName                  = "netprobe"
+	DefaultBinaryPath                   = "/usr/local/lib/serviceradar/bin/serviceradar-netprobe"
+	DefaultLogFormat                    = "json"
+	defaultHealthPort            uint16 = 0
+	defaultSidecarEventBuffer           = 1024
+	defaultFlowAttributionBuffer        = 65_536
+	defaultApplyWaitInterval            = 100 * time.Millisecond
+	defaultDesiredApplyTimeout          = 30 * time.Second
 )
 
 var ErrSidecarUnavailable = errors.New("netprobe sidecar is unavailable")
@@ -56,19 +57,20 @@ type Sidecar struct {
 	cfg    SidecarConfig
 	logger zerolog.Logger
 
-	mu            sync.RWMutex
-	client        *Client
-	eventClient   *Client
-	events        chan *netprobepb.FingerprintEvent
-	dpiEvents     chan *netprobepb.DpiEvent
-	flowEvents    chan *netprobepb.FlowAttributionEvent
-	processSnaps  chan *netprobepb.ProcessSnapshot
-	healthy       atomic.Bool
-	unhealthy     atomic.Bool
-	runningAsRoot atomic.Bool
-	engineVersion atomic.Value
-	revisions     atomic.Value
-	lastError     atomic.Value
+	mu                           sync.RWMutex
+	client                       *Client
+	eventClient                  *Client
+	events                       chan *netprobepb.FingerprintEvent
+	dpiEvents                    chan *netprobepb.DpiEvent
+	flowEvents                   chan *netprobepb.FlowAttributionEvent
+	processSnaps                 chan *netprobepb.ProcessSnapshot
+	droppedFlowAttributionEvents atomic.Uint64
+	healthy                      atomic.Bool
+	unhealthy                    atomic.Bool
+	runningAsRoot                atomic.Bool
+	engineVersion                atomic.Value
+	revisions                    atomic.Value
+	lastError                    atomic.Value
 
 	// desiredConfig + applyMu implement apply-on-connect: the latest desired visibility
 	// config is (re)applied over IPC whenever a client connects, so a systemd-managed
@@ -117,7 +119,7 @@ func NewSidecar(cfg SidecarConfig) *Sidecar {
 		logger:       cfg.Logger,
 		events:       make(chan *netprobepb.FingerprintEvent, defaultSidecarEventBuffer),
 		dpiEvents:    make(chan *netprobepb.DpiEvent, defaultSidecarEventBuffer),
-		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultSidecarEventBuffer),
+		flowEvents:   make(chan *netprobepb.FlowAttributionEvent, defaultFlowAttributionBuffer),
 		processSnaps: make(chan *netprobepb.ProcessSnapshot, defaultSidecarEventBuffer),
 		baseCtx:      context.Background(),
 	}
@@ -325,7 +327,7 @@ func (s *Sidecar) EnqueueFingerprintEvent(event *netprobepb.FingerprintEvent) {
 
 func (s *Sidecar) DrainEvents(max int) []*netprobepb.FingerprintEvent {
 	if max <= 0 {
-		max = defaultSidecarEventBuffer
+		max = defaultFlowAttributionBuffer
 	}
 
 	events := make([]*netprobepb.FingerprintEvent, 0, max)
@@ -365,7 +367,7 @@ func (s *Sidecar) DrainDPIEvents(max int) []*netprobepb.DpiEvent {
 
 func (s *Sidecar) DrainFlowAttributionEvents(max int) []*netprobepb.FlowAttributionEvent {
 	if max <= 0 {
-		max = defaultSidecarEventBuffer
+		max = defaultFlowAttributionBuffer
 	}
 
 	events := make([]*netprobepb.FlowAttributionEvent, 0, max)
@@ -404,14 +406,15 @@ func (s *Sidecar) DrainProcessSnapshots(max int) []*netprobepb.ProcessSnapshot {
 }
 
 // DroppedFlowAttributionEvents returns the cumulative number of
-// FlowAttributionEvents the IPC client has dropped due to backpressure.
-// Returns 0 when no client is currently attached.
+// FlowAttributionEvents dropped due to backpressure in either the IPC
+// client buffer or the sidecar fan-in buffer.
 func (s *Sidecar) DroppedFlowAttributionEvents() uint64 {
+	dropped := s.droppedFlowAttributionEvents.Load()
 	client := s.currentClient()
 	if client == nil {
-		return 0
+		return dropped
 	}
-	return client.DroppedFlowAttributionEvents()
+	return dropped + client.DroppedFlowAttributionEvents()
 }
 
 func (s *Sidecar) currentClient() *Client {
@@ -475,6 +478,7 @@ func (s *Sidecar) forwardEvents(client *Client) {
 			select {
 			case s.flowEvents <- event:
 			default:
+				s.droppedFlowAttributionEvents.Add(1)
 			}
 		}
 	}()

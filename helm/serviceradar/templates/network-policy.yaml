@@ -111,6 +111,18 @@
   {{- $cnpgEnabled = $cnpg.enabled -}}
 {{- end -}}
 {{- $cnpgClusterName := include "serviceradar.cnpgClusterName" . -}}
+{{- $cnpgPooler := default (dict) $cnpg.pooler -}}
+{{- $cnpgPoolerEnabled := default false $cnpgPooler.enabled -}}
+{{- $cnpgPoolerCreate := true -}}
+{{- if hasKey $cnpgPooler "create" -}}
+  {{- $cnpgPoolerCreate = $cnpgPooler.create -}}
+{{- end -}}
+{{- $cnpgPoolerName := include "serviceradar.cnpgPoolerName" . -}}
+{{- $monitoringIngress := default (dict) $ingress.monitoring -}}
+{{- $monitoringIngressEnabled := default false $monitoringIngress.enabled -}}
+{{- $monitoringIngressNamespace := default "monitoring" $monitoringIngress.namespace -}}
+{{- $cnpgMetricsPort := default 9187 $monitoringIngress.cnpgMetricsPort -}}
+{{- $pgbouncerMetricsPort := default 9127 $monitoringIngress.pgbouncerMetricsPort -}}
 {{- $egress := default (dict) $np.egress -}}
 {{- $allowDNS := default false $egress.allowDNS -}}
 {{- $allowKubeAPI := default false $egress.allowKubeAPIServer -}}
@@ -416,5 +428,51 @@ spec:
       ports:
         - protocol: TCP
           port: {{ $cnpgOperatorPort }}
+{{- end }}
+{{- if and $cnpgEnabled $monitoringIngressEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $cnpgClusterName | quote }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringIngressNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $cnpgMetricsPort }}
+{{- end }}
+{{- if and $cnpgEnabled $cnpgPoolerEnabled $cnpgPoolerCreate $monitoringIngressEnabled }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-cnpg-pooler-metrics
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/poolerName: {{ $cnpgPoolerName | quote }}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $monitoringIngressNamespace | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $pgbouncerMetricsPort }}
 {{- end }}
 {{- end }}

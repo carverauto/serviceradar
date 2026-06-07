@@ -261,6 +261,29 @@ core:
     baselineTickMs: 60000
     consensusCohortRetentionMs: 300000
   mtrRetentionDays: 30
+  observabilityRetention:
+    # High-volume raw tables. Retention is reconciled at runtime and by the
+    # migration job on upgrade; chunk intervals affect newly-created Timescale
+    # chunks and should stay smaller than the retention window.
+    traceSummaryDays: 3
+    otelTracesDays: 3
+    logsDays: 30
+    ocsfNetworkActivityDays: 90
+    # Raw netprobe-to-process attribution observations are hot staging data used
+    # to correlate delayed NetFlow/IPFIX rows. Lower this to discard unmatched
+    # raw observations quickly; keep it at least 15 minutes.
+    flowAttributionMinutes: 60
+    otelTracesChunkIntervalHours: 6
+    logsChunkIntervalHours: 24
+    ocsfNetworkActivityChunkIntervalHours: 24
+    batchSize: 50000
+    cron: "17 3 * * *"
+    sweepHostResultDays: 7
+    sweepExecutionDays: 30
+    trivyDays: 30
+    endpointInventoryDays: 30
+    datasetSnapshotDays: 14
+    topologyLinkDays: 30
   # Ansible integration: AWX/AAP playbook execution + observability.
   # Per-controller / per-repository / per-schedule overrides are stored
   # on the Ash resources themselves (e.g. AnsibleController.run_pulse_interval_ms);
@@ -282,6 +305,20 @@ core:
     # Base directory for GitCatalogSyncWorker repo clones.
     # Mount a PVC at this path if you want survival across pod restarts.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
+  # Optional first-party native add-on package seed refs. The release/native
+  # add-on import path populates these with per-platform signed artifact refs.
+  # Without artifacts, the package seeder stages the manifest version but does
+  # not approve assignment.
+  netprobeAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
+  workloadIdentityAddon:
+    version: ""
+    ociRef: ""
+    ociDigest: ""
+    artifacts: {}
   # Extra environment variables for the core-elx pod.
   extraEnv: {}
   # Extra environment variables sourced from Kubernetes secrets/configmaps.
@@ -704,6 +741,16 @@ webNg:
     registryDockerConfigSecretKey: ".dockerconfigjson"
     registryDockerConfigJson: ""
     registryDockerConfigFile: ""
+  nativeAddonImport:
+    repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
+    indexAssetName: "serviceradar-native-addon-index.json"
+    autoSyncEnabled: false
+    syncReleaseLimit: 10
+    syncIntervalSeconds: 3600
+    addonIds:
+      - netprobe
+      - workload-identity
+    autoApproveAddonIds: []
   host: ""
   publicUrl: ""
   godViewEnabled: "true"
@@ -1327,6 +1374,11 @@ networkPolicy:
     allowSameNamespace: true
     allowedNamespaces: []
     allowedCIDRs: []
+    monitoring:
+      enabled: false
+      namespace: monitoring
+      cnpgMetricsPort: 9187
+      pgbouncerMetricsPort: 9127
     # Ordinary application ingress ports. ERTS distribution is intentionally
     # excluded and handled by ingress.erts below so the BEAM cookie cannot be
     # abused by arbitrary same-namespace pods.
@@ -1337,6 +1389,8 @@ networkPolicy:
         port: 4222
       - protocol: TCP
         port: 4317
+      - protocol: TCP
+        port: 9090
       - protocol: TCP
         port: 50040
       - protocol: TCP

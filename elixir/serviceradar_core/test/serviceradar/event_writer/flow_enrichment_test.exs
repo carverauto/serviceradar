@@ -23,6 +23,10 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert FlowEnrichment.service_label(17, 53) == "DNS"
       assert FlowEnrichment.service_label(17, 6343) == "sFlow"
     end
+
+    test "maps fallback labels from the bundled services registry" do
+      assert FlowEnrichment.service_label(6, 4369) == "EPMD"
+    end
   end
 
   describe "direction_label/2" do
@@ -65,9 +69,21 @@ defmodule ServiceRadar.EventWriter.FlowEnrichmentTest do
       assert enriched.protocol_source == "iana"
       assert enriched.tcp_flags_labels == ["ACK", "SYN"]
       assert enriched.dst_service_label == "HTTPS"
+      assert enriched.dst_service_source == "iana"
       assert enriched.direction_label == "bidirectional"
       assert enriched.src_mac == "001122334455"
       assert enriched.dst_mac == "66778899AABB"
+    end
+
+    test "does not mark unknown numeric ports as IANA service matches" do
+      enriched =
+        FlowEnrichment.enrich(%{
+          protocol_num: 6,
+          dst_port: 32_760
+        })
+
+      assert enriched.dst_service_label == nil
+      assert enriched.dst_service_source == "unknown"
     end
   end
 end

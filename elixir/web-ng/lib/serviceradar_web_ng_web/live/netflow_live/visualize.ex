@@ -997,6 +997,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
               Source
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
+              Attribution
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-28 text-right">
               {flows_table_traffic_header(@unit_mode)}
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-10 text-right">
@@ -1136,6 +1139,9 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
                 </span>
               </td>
               <td class="whitespace-nowrap text-xs text-right font-mono align-top">
+                <.flow_attribution_summary flow={flow} />
+              </td>
+              <td class="whitespace-nowrap text-xs text-right font-mono align-top">
                 <% packets = flow_get(flow, ["packets_total", "packets"]) %>
                 <% raw_bytes = flow_get(flow, ["bytes_total", "bytes"]) %>
                 <%= case @unit_mode do %>
@@ -1226,6 +1232,31 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     """
   end
 
+  attr(:flow, :map, required: true)
+
+  defp flow_attribution_summary(assigns) do
+    assigns = assign(assigns, :attribution, flow_attribution(assigns.flow))
+
+    ~H"""
+    <div class="flex flex-col items-end gap-0.5 leading-tight">
+      <.ui_badge
+        variant={if Map.get(@attribution, :attributed?), do: "success", else: "ghost"}
+        size="xs"
+        class="font-mono"
+      >
+        {if Map.get(@attribution, :attributed?), do: "Attributed", else: "—"}
+      </.ui_badge>
+      <div
+        :if={Map.get(@attribution, :attributed?)}
+        class="max-w-28 truncate text-[10px] text-base-content/60"
+        title={Map.get(@attribution, :process_label)}
+      >
+        {Map.get(@attribution, :process_label)}
+      </div>
+    </div>
+    """
+  end
+
   defp flow_get(nil, _keys), do: nil
 
   # SRQL results are typically JSON maps with string keys, but some code paths can hand us
@@ -1304,6 +1335,82 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
   end
 
   defp flow_get_in(_map, _path), do: nil
+
+  defp enrich_flow_rows_with_attribution(rows) when is_list(rows) do
+    Enum.map(rows, fn
+      %{} = row -> Map.put(row, "attribution", flow_attribution(row))
+      other -> other
+    end)
+  end
+
+  defp enrich_flow_rows_with_attribution(_rows), do: []
+
+  defp flow_attribution(%{} = flow) do
+    existing = Map.get(flow, "attribution") || Map.get(flow, :attribution)
+
+    case existing do
+      %{attributed?: _} = normalized ->
+        normalized
+
+      _ ->
+        ocsf = flow_get(flow, ["ocsf_payload", "ocsf"]) || %{}
+        raw = flow_get_in(ocsf, ["attribution"]) || %{}
+        agent_id = clean_text(flow_get_in(ocsf, ["agent_id"]) || flow_get(flow, ["agent_id"]))
+        pid = clean_text(flow_get_in(raw, ["pid"]))
+        comm = clean_text(flow_get_in(raw, ["comm"]))
+        cmdline = clean_text(flow_get_in(raw, ["redacted_cmdline"]) || flow_get_in(raw, ["cmdline"]))
+        uid = clean_text(flow_get_in(raw, ["uid"]))
+        container_id = clean_text(flow_get_in(raw, ["container_id"]))
+        attributed? = attributed_event?(ocsf) and (present_text?(pid) or present_text?(comm))
+
+        %{
+          attributed?: attributed?,
+          agent_id: agent_id,
+          pid: pid,
+          comm: comm,
+          cmdline: cmdline,
+          uid: uid,
+          container_id: container_id,
+          process_label: process_attribution_label(comm, pid)
+        }
+    end
+  end
+
+  defp flow_attribution(_flow), do: %{attributed?: false, process_label: "—"}
+
+  defp attributed_event?(%{} = ocsf) do
+    flow_get_in(ocsf, ["event_type"]) == "attributed_flow" or is_map(flow_get_in(ocsf, ["attribution"]))
+  end
+
+  defp attributed_event?(_), do: false
+
+  defp process_attribution_label(comm, pid) do
+    cond do
+      present_text?(comm) and present_text?(pid) -> "#{comm} ##{pid}"
+      present_text?(comm) -> comm
+      present_text?(pid) -> "PID #{pid}"
+      true -> "—"
+    end
+  end
+
+  defp clean_text(nil), do: nil
+
+  defp clean_text(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> case do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp clean_text(value), do: value |> to_string() |> clean_text()
+
+  defp present_text?(value), do: is_binary(value) and String.trim(value) != ""
+
+  defp display_value(nil), do: "—"
+  defp display_value(""), do: "—"
+  defp display_value(value), do: value
 
   defp flow_map_get(%{} = acc, key) when is_atom(key) do
     Map.get(acc, key) || Map.get(acc, Atom.to_string(key))
@@ -1489,10 +1596,10 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
     {flows, pagination} =
       case srql_module.query(list_query, %{cursor: cursor, limit: limit, scope: scope}) do
         {:ok, %{"results" => results, "pagination" => pag}} when is_list(results) ->
-          {extract_srql_rows(results), pag || %{}}
+          {results |> extract_srql_rows() |> enrich_flow_rows_with_attribution(), pag || %{}}
 
         {:ok, %{"results" => results}} when is_list(results) ->
-          {extract_srql_rows(results), %{}}
+          {results |> extract_srql_rows() |> enrich_flow_rows_with_attribution(), %{}}
 
         _ ->
           {[], %{}}
@@ -2161,6 +2268,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
             flow_get_in(ocsf, ["enrichment", "dst_hosting_provider"]) %>
         <% direction_label =
           flow_get(@flow, ["direction_label"]) || flow_get_in(ocsf, ["enrichment", "direction_label"]) %>
+        <% attribution = flow_attribution(@flow) %>
         <% service_label =
           flow_get(@flow, ["dst_service_label"]) ||
             flow_get_in(ocsf, ["enrichment", "dst_service_label"]) %>
@@ -2190,6 +2298,46 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         <div class="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
           <div class="space-y-3 lg:col-span-2">
             <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <div
+                :if={Map.get(attribution, :attributed?)}
+                class="p-3 rounded-lg border border-success/25 bg-success/5 md:col-span-2"
+              >
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="badge badge-success badge-sm">Attributed</span>
+                  <span class="text-xs text-base-content/60">Agent</span>
+                  <span class="font-mono text-xs">
+                    {display_value(Map.get(attribution, :agent_id))}
+                  </span>
+                  <span class="text-xs text-base-content/60">Process</span>
+                  <span class="font-mono text-xs">
+                    {display_value(Map.get(attribution, :process_label))}
+                  </span>
+                  <span class="text-xs text-base-content/60">UID</span>
+                  <span class="font-mono text-xs">{display_value(Map.get(attribution, :uid))}</span>
+                </div>
+                <div class="mt-2 grid gap-2 md:grid-cols-2">
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Command
+                    </div>
+                    <div class="truncate font-mono text-xs" title={Map.get(attribution, :cmdline)}>
+                      {display_value(Map.get(attribution, :cmdline))}
+                    </div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase tracking-wider text-base-content/50">
+                      Container
+                    </div>
+                    <div
+                      class="truncate font-mono text-xs"
+                      title={Map.get(attribution, :container_id)}
+                    >
+                      {display_value(Map.get(attribution, :container_id))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div class="p-3 rounded-lg border border-base-200 bg-base-200/30">
                 <div class="text-xs uppercase tracking-wider text-base-content/50">Source</div>
                 <div class="mt-1 font-mono text-sm flex items-baseline gap-1 min-w-0">
@@ -3846,6 +3994,8 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
 
     src = if is_binary(src), do: String.trim(src), else: src
     dst = if is_binary(dst), do: String.trim(dst), else: dst
+    attributed_count = to_int(Map.get(row, "attributed_count"))
+    ioc_count = to_int(Map.get(row, "ioc_count"))
 
     if is_binary(src) and src != "" and is_binary(dst) and dst != "" and bytes > 0 do
       %{
@@ -3857,7 +4007,11 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Visualize do
         src_field: src_field,
         dst_field: dst_field,
         mid_field: mid_field,
-        mid_value: mid_value
+        mid_value: mid_value,
+        attributed_count: attributed_count,
+        ioc_count: ioc_count,
+        attributed?: attributed_count > 0,
+        ioc?: ioc_count > 0
       }
     end
   end

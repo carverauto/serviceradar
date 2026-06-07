@@ -1,8 +1,8 @@
 use log::info;
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::RwLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 use tokio::time::interval;
 
@@ -58,15 +58,17 @@ impl SubjectDropRegistry {
     /// yet exist. Returns the new value.
     pub fn record_drop(&self, subject: &str) -> u64 {
         // Fast path: subject already known.
-        if let Some(counter) = self.counters.read().expect("subject drop lock poisoned").get(subject) {
+        if let Some(counter) = self
+            .counters
+            .read()
+            .expect("subject drop lock poisoned")
+            .get(subject)
+        {
             return counter.fetch_add(1, Ordering::Relaxed) + 1;
         }
 
         // Slow path: insert a new counter under the write lock.
-        let mut guard = self
-            .counters
-            .write()
-            .expect("subject drop lock poisoned");
+        let mut guard = self.counters.write().expect("subject drop lock poisoned");
         let counter = guard
             .entry(subject.to_string())
             .or_insert_with(|| Arc::new(AtomicU64::new(0)))

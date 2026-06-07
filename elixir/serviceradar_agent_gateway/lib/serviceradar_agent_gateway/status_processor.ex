@@ -267,7 +267,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       "sysmon-metrics",
       :sysmon_metrics,
       "plugin-result",
-      :plugin_result
+      :plugin_result,
+      "workload-identity",
+      :workload_identity
     ]
   end
 

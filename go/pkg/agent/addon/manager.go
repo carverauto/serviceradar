@@ -269,12 +269,15 @@ func (r *runner) finished() bool {
 	}
 }
 
-// needsRestart reports whether a restart-boundary field changed (the binary path
-// or its args), which requires relaunching the subprocess rather than reconfiguring.
+// needsRestart reports whether a restart-boundary field changed (the assigned
+// version, binary path, or args), which requires relaunching the subprocess
+// rather than reconfiguring. Version is a restart boundary because add-ons are
+// launched through stable "current" symlinks whose string path does not change
+// when the symlink is retargeted to a new package directory.
 func (r *runner) needsRestart(spec Spec) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.spec.BinaryPath != spec.BinaryPath || !equalStrings(r.spec.Args, spec.Args)
+	return r.spec.Version != spec.Version || r.spec.BinaryPath != spec.BinaryPath || !equalStrings(r.spec.Args, spec.Args)
 }
 
 func equalStrings(a, b []string) bool {
