@@ -27,6 +27,7 @@ defmodule ServiceRadar.Plugins.WorkloadIdentityAddonPackageSeeder do
   @manifest @manifest_path |> File.read!() |> YamlElixir.read_from_string!()
   @version Map.get(@manifest, "version", "0.1.0")
   @capabilities Map.get(@manifest, "capabilities", ["workload-identity"])
+  @requires Map.get(@manifest, "requires", %{})
 
   @spec seed_defaults(keyword()) :: :ok | {:error, term()}
   def seed_defaults(opts \\ []) do
@@ -158,12 +159,7 @@ defmodule ServiceRadar.Plugins.WorkloadIdentityAddonPackageSeeder do
       capabilities: @capabilities,
       config_schema: @config_schema,
       artifacts: artifacts,
-      requires: %{
-        "base_agent" => ">=1.2.0",
-        "platforms" => ["linux"],
-        "os_capabilities" => [],
-        "run_as" => "serviceradar"
-      },
+      requires: @requires,
       source_type: :first_party,
       source_oci_ref: Keyword.get(config, :source_oci_ref),
       source_oci_digest: Keyword.get(config, :source_oci_digest),
