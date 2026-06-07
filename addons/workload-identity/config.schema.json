@@ -25,6 +25,34 @@
       "default": "",
       "x-serviceradar-ui-advanced": true
     },
+    "docker_endpoint": {
+      "type": "string",
+      "title": "Docker endpoint",
+      "description": "Optional explicit Docker Engine Unix socket path. Leave empty to discover common endpoints such as /var/run/docker.sock.",
+      "default": "",
+      "x-serviceradar-ui-advanced": true
+    },
+    "runtime": {
+      "type": "object",
+      "title": "Runtime source",
+      "description": "Optional runtime selector. Use auto discovery by default, containerd/crio/cri for Kubernetes CRI sockets, or docker for Docker and Docker Compose hosts.",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "title": "Runtime type",
+          "enum": ["auto", "containerd", "crio", "cri", "docker"],
+          "default": "auto"
+        },
+        "socket": {
+          "type": "string",
+          "title": "Runtime socket",
+          "description": "Optional Unix socket path for the selected runtime type.",
+          "default": ""
+        }
+      },
+      "x-serviceradar-ui-advanced": true
+    },
     "cluster_id": {
       "type": "string",
       "title": "Cluster ID",

@@ -46,15 +46,15 @@ require broad Kubernetes API access by default.
 
 ## Current implementation status
 
-The first supported path is Kubernetes worker enrichment through the local CRI
-runtime socket. That path resolves container IDs to pod namespace, pod name, pod UID,
-container name, and image without granting ServiceRadar broad Kubernetes API access.
+Kubernetes worker enrichment is supported through the local CRI runtime socket. That
+path resolves container IDs to pod namespace, pod name, pod UID, container name, and
+image without granting ServiceRadar broad Kubernetes API access.
 
-Docker and Docker Compose metadata are part of the target design, but they should be
-treated as a separate runtime backend. On a host where the configured socket does not
-serve the CRI v1 RuntimeService, the collector should report a degraded runtime-source
-state rather than pretending Kubernetes metadata is available. Future Docker support
-should use Docker's socket/events and Compose labels instead of the CRI client.
+Docker and Docker Compose hosts are supported through a separate Docker Engine socket
+backend. The Docker path resolves container ID, container name, image, runtime PID,
+labels, and Compose project/service labels when present. If runtime type is left on
+auto, the collector tries CRI first and falls back to Docker when Docker Engine is the
+available local runtime.
 
 ## Kubernetes model
 
@@ -88,7 +88,7 @@ pod names alone.
 ## Docker and Docker Compose model
 
 On non-Kubernetes hosts, Workload Identity reads Docker metadata from the Docker
-socket or event stream when enabled. Useful fields include:
+socket when enabled. Useful fields include:
 
 - Container ID and container name.
 - Image repository, tag, and digest when available.
@@ -139,6 +139,9 @@ A Docker Compose host can use:
   }
 }
 ```
+
+If `runtime` is omitted or set to `{"type": "auto"}`, the collector discovers common
+CRI sockets first and then common Docker sockets such as `/var/run/docker.sock`.
 
 ## Validation
 
@@ -201,10 +204,23 @@ available from the runtime socket alone.
 
 ### Docker host reports CRI errors
 
-Docker-only and Docker Compose hosts do not necessarily expose CRI v1. If the service
-logs an error such as `unknown service runtime.v1.RuntimeService`, point the
-assignment at a supported runtime backend for that host. Until the Docker backend is
-enabled, Kubernetes-style workload fields are not expected on that host.
+Docker-only and Docker Compose hosts do not necessarily expose CRI v1. If an older
+collector logs an error such as `unknown service runtime.v1.RuntimeService`, update to
+a workload-identity add-on version with Docker backend support or set the assignment
+runtime to:
+
+```json
+{
+  "runtime": {
+    "type": "docker",
+    "socket": "/var/run/docker.sock"
+  }
+}
+```
+
+Docker hosts will not have Kubernetes pod or namespace fields unless an additional
+orchestration overlay supplies them. They should still show container name, image,
+runtime PID, labels, and Compose project/service labels.
 
 ### Container ID exists but pod metadata is missing
 

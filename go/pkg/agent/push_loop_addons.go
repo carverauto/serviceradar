@@ -559,7 +559,11 @@ func (p *PushLoop) systemdAddonUnits(id string) []string {
 // reconciler still knows which add-ons own systemd units and can uninstall them when an
 // assignment is later disabled or removed.
 func (p *PushLoop) rehydrateSystemdAddons() {
-	discovered := discoverInstalledSystemdAddons(resolveAddonArtifactRoot(""))
+	p.rehydrateSystemdAddonsFromRoot(resolveAddonArtifactRoot(""))
+}
+
+func (p *PushLoop) rehydrateSystemdAddonsFromRoot(addonsRoot string) {
+	discovered := discoverInstalledSystemdAddons(addonsRoot)
 	if len(discovered) == 0 {
 		return // no staging root / no systemd add-ons to rehydrate
 	}

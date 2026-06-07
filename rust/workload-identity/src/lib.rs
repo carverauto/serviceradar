@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 #[cfg(unix)]
 use std::os::unix::fs::FileTypeExt;
@@ -27,6 +27,8 @@ use hyper_util::rt::TokioIo;
 #[cfg(unix)]
 use serde_json::Value;
 #[cfg(unix)]
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(unix)]
 use tokio::net::UnixStream;
 #[cfg(unix)]
 use tonic::transport::{Channel, Endpoint, Uri};
@@ -41,6 +43,8 @@ const COMMON_CRI_ENDPOINTS: &[&str] = &[
     "/var/run/containerd/containerd.sock",
     "/var/run/crio/crio.sock",
 ];
+
+const COMMON_DOCKER_ENDPOINTS: &[&str] = &["/var/run/docker.sock", "/run/docker.sock"];
 
 const CRI_CONFIG_FILES: &[&str] = &[
     "/etc/crictl.yaml",
@@ -275,6 +279,18 @@ pub struct CriEndpoint {
     pub source: CriEndpointSource,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub enum DockerEndpointSource {
+    Explicit,
+    CommonPath,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct DockerEndpoint {
+    pub path: PathBuf,
+    pub source: DockerEndpointSource,
+}
+
 #[cfg(unix)]
 pub struct CriRuntimeClient {
     client: RuntimeServiceClient<Channel>,
@@ -421,6 +437,95 @@ impl WorkloadIdentityBackend for CriRuntimeClient {
     }
 }
 
+#[cfg(unix)]
+pub struct DockerRuntimeClient {
+    endpoint: DockerEndpoint,
+}
+
+#[cfg(unix)]
+impl DockerRuntimeClient {
+    pub async fn connect(endpoint: &DockerEndpoint) -> Result<Self> {
+        UnixStream::connect(&endpoint.path)
+            .await
+            .with_context(|| format!("connect to Docker socket {}", endpoint.path.display()))?;
+
+        Ok(Self {
+            endpoint: endpoint.clone(),
+        })
+    }
+
+    pub async fn list_container_identities(&mut self) -> Result<Vec<CriContainerLookup>> {
+        let containers: Vec<DockerContainerSummary> =
+            docker_get_json(&self.endpoint.path, "/containers/json?all=false")
+                .await
+                .context("list Docker containers")?;
+
+        let mut identities = Vec::with_capacity(containers.len());
+
+        for container in containers {
+            if let Some(identity) = self.identity_for_container(container).await? {
+                let container_id = identity.container_id.clone().unwrap_or_default();
+                identities.push(CriContainerLookup {
+                    container_id,
+                    identity,
+                });
+            }
+        }
+
+        Ok(identities)
+    }
+
+    pub async fn container_identity(
+        &mut self,
+        container_id: &str,
+    ) -> Result<Option<WorkloadIdentity>> {
+        let safe_id = docker_safe_container_id(container_id)?;
+        let inspect: DockerContainerInspect =
+            docker_get_json(&self.endpoint.path, &format!("/containers/{safe_id}/json"))
+                .await
+                .with_context(|| format!("inspect Docker container {container_id}"))?;
+
+        Ok(Some(identity_from_docker(None, &inspect)))
+    }
+
+    async fn identity_for_container(
+        &mut self,
+        container: DockerContainerSummary,
+    ) -> Result<Option<WorkloadIdentity>> {
+        if container.id.is_empty() {
+            return Ok(None);
+        }
+
+        let safe_id = docker_safe_container_id(&container.id)?;
+        let inspect: DockerContainerInspect =
+            docker_get_json(&self.endpoint.path, &format!("/containers/{safe_id}/json"))
+                .await
+                .with_context(|| format!("inspect Docker container {}", container.id))?;
+
+        Ok(Some(identity_from_docker(Some(&container), &inspect)))
+    }
+}
+
+#[cfg(unix)]
+impl WorkloadIdentityBackend for DockerRuntimeClient {
+    fn backend_name(&self) -> &'static str {
+        RuntimeSource::Docker.as_str()
+    }
+
+    fn list_container_identities(
+        &mut self,
+    ) -> impl Future<Output = Result<Vec<CriContainerLookup>>> + Send + '_ {
+        async move { DockerRuntimeClient::list_container_identities(self).await }
+    }
+
+    fn container_identity<'a>(
+        &'a mut self,
+        container_id: &'a str,
+    ) -> impl Future<Output = Result<Option<WorkloadIdentity>>> + Send + 'a {
+        async move { DockerRuntimeClient::container_identity(self, container_id).await }
+    }
+}
+
 pub fn parse_cgroup_identity(cgroup_payload: &str) -> CgroupIdentity {
     let mut identity = CgroupIdentity::default();
 
@@ -486,6 +591,29 @@ pub fn discover_cri_endpoint(root: &Path, explicit: Option<&Path>) -> Option<Cri
         is_socket(&candidate).then_some(CriEndpoint {
             path,
             source: CriEndpointSource::CommonPath,
+        })
+    })
+}
+
+pub fn discover_docker_endpoint(root: &Path, explicit: Option<&Path>) -> Option<DockerEndpoint> {
+    if let Some(path) = explicit {
+        let candidate = rooted_path(root, path);
+
+        if is_socket(&candidate) {
+            return Some(DockerEndpoint {
+                path: path.to_path_buf(),
+                source: DockerEndpointSource::Explicit,
+            });
+        }
+    }
+
+    COMMON_DOCKER_ENDPOINTS.iter().find_map(|path| {
+        let path = PathBuf::from(path);
+        let candidate = rooted_path(root, &path);
+
+        is_socket(&candidate).then_some(DockerEndpoint {
+            path,
+            source: DockerEndpointSource::CommonPath,
         })
     })
 }
@@ -636,6 +764,247 @@ fn runtime_source_from_endpoint(path: &Path) -> RuntimeSource {
     } else {
         RuntimeSource::Containerd
     }
+}
+
+#[cfg(unix)]
+#[derive(Debug, Deserialize)]
+struct DockerContainerSummary {
+    #[serde(rename = "Id", default)]
+    id: String,
+    #[serde(rename = "Names", default)]
+    names: Vec<String>,
+    #[serde(rename = "Image", default)]
+    image: String,
+    #[serde(rename = "ImageID", default)]
+    image_id: String,
+    #[serde(rename = "Labels", default)]
+    labels: std::collections::HashMap<String, String>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Deserialize)]
+struct DockerContainerInspect {
+    #[serde(rename = "Id", default)]
+    id: String,
+    #[serde(rename = "Name", default)]
+    name: String,
+    #[serde(rename = "Image", default)]
+    image_ref: String,
+    #[serde(rename = "Config", default)]
+    config: Option<DockerContainerConfig>,
+    #[serde(rename = "State", default)]
+    state: Option<DockerContainerState>,
+    #[serde(rename = "HostConfig", default)]
+    host_config: Option<DockerHostConfig>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Default, Deserialize)]
+struct DockerContainerConfig {
+    #[serde(rename = "Image", default)]
+    image: String,
+    #[serde(rename = "Labels", default)]
+    labels: std::collections::HashMap<String, String>,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Default, Deserialize)]
+struct DockerContainerState {
+    #[serde(rename = "Pid", default)]
+    pid: u32,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Default, Deserialize)]
+struct DockerHostConfig {
+    #[serde(rename = "CgroupParent", default)]
+    cgroup_parent: String,
+}
+
+#[cfg(unix)]
+fn identity_from_docker(
+    summary: Option<&DockerContainerSummary>,
+    inspect: &DockerContainerInspect,
+) -> WorkloadIdentity {
+    let labels = docker_labels(summary, inspect);
+    let container_name = docker_container_name(summary, inspect);
+
+    WorkloadIdentity {
+        pod_sandbox_id: None,
+        pod_name: None,
+        pod_namespace: None,
+        pod_uid: None,
+        container_id: non_empty_string(&inspect.id)
+            .or_else(|| summary.and_then(|summary| non_empty_string(&summary.id))),
+        container_name,
+        image: inspect
+            .config
+            .as_ref()
+            .and_then(|config| non_empty_string(&config.image))
+            .or_else(|| summary.and_then(|summary| non_empty_string(&summary.image))),
+        image_ref: non_empty_string(&inspect.image_ref)
+            .or_else(|| summary.and_then(|summary| non_empty_string(&summary.image_id))),
+        runtime_pid: inspect
+            .state
+            .as_ref()
+            .and_then(|state| (state.pid > 0).then_some(state.pid)),
+        cgroup_path: inspect
+            .host_config
+            .as_ref()
+            .and_then(|host_config| non_empty_string(&host_config.cgroup_parent)),
+        labels,
+        annotations: BTreeMap::new(),
+        runtime_source: RuntimeSource::Docker,
+        confidence: MetadataConfidence::High,
+        degradation_reason: None,
+    }
+}
+
+#[cfg(unix)]
+fn docker_container_name(
+    summary: Option<&DockerContainerSummary>,
+    inspect: &DockerContainerInspect,
+) -> Option<String> {
+    non_empty_string(inspect.name.trim_start_matches('/')).or_else(|| {
+        summary.and_then(|summary| {
+            summary
+                .names
+                .iter()
+                .find_map(|name| non_empty_string(name.trim_start_matches('/')))
+        })
+    })
+}
+
+#[cfg(unix)]
+fn docker_labels(
+    summary: Option<&DockerContainerSummary>,
+    inspect: &DockerContainerInspect,
+) -> BTreeMap<String, String> {
+    let mut labels = BTreeMap::new();
+    if let Some(summary) = summary {
+        labels.extend(
+            summary
+                .labels
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+    }
+    if let Some(config) = inspect.config.as_ref() {
+        labels.extend(
+            config
+                .labels
+                .iter()
+                .map(|(key, value)| (key.clone(), value.clone())),
+        );
+    }
+
+    labels
+}
+
+#[cfg(unix)]
+async fn docker_get_json<T>(socket_path: &Path, path: &str) -> Result<T>
+where
+    T: for<'de> Deserialize<'de>,
+{
+    let mut stream = UnixStream::connect(socket_path)
+        .await
+        .with_context(|| format!("connect to Docker socket {}", socket_path.display()))?;
+    let request = format!(
+        "GET {path} HTTP/1.1\r\nHost: docker\r\nConnection: close\r\nAccept: application/json\r\n\r\n"
+    );
+    stream
+        .write_all(request.as_bytes())
+        .await
+        .context("write Docker API request")?;
+    stream
+        .shutdown()
+        .await
+        .context("finish Docker API request")?;
+
+    let mut response = Vec::new();
+    stream
+        .read_to_end(&mut response)
+        .await
+        .context("read Docker API response")?;
+
+    let body = docker_response_body(&response)?;
+    serde_json::from_slice(&body).context("decode Docker API JSON")
+}
+
+#[cfg(unix)]
+fn docker_response_body(response: &[u8]) -> Result<Vec<u8>> {
+    let header_end = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .context("Docker API response missing header terminator")?;
+    let headers = std::str::from_utf8(&response[..header_end])
+        .context("Docker API response headers are not UTF-8")?;
+    let mut lines = headers.lines();
+    let status = lines.next().unwrap_or_default();
+    let status_code = status
+        .split_whitespace()
+        .nth(1)
+        .and_then(|code| code.parse::<u16>().ok())
+        .unwrap_or_default();
+    if !(200..300).contains(&status_code) {
+        anyhow::bail!("Docker API request failed: {status}");
+    }
+
+    if headers
+        .lines()
+        .any(|line| line.eq_ignore_ascii_case("transfer-encoding: chunked"))
+    {
+        return decode_http_chunks(&response[header_end + 4..]);
+    }
+
+    Ok(response[header_end + 4..].to_vec())
+}
+
+#[cfg(unix)]
+fn decode_http_chunks(body: &[u8]) -> Result<Vec<u8>> {
+    let mut out = Vec::new();
+    let mut offset = 0usize;
+
+    loop {
+        let size_end = body[offset..]
+            .windows(2)
+            .position(|window| window == b"\r\n")
+            .map(|idx| offset + idx)
+            .context("chunked Docker API response missing chunk size")?;
+        let size_line =
+            std::str::from_utf8(&body[offset..size_end]).context("chunk size is not UTF-8")?;
+        let size_hex = size_line.split(';').next().unwrap_or_default().trim();
+        let size = usize::from_str_radix(size_hex, 16).context("invalid chunk size")?;
+        offset = size_end + 2;
+
+        if size == 0 {
+            return Ok(out);
+        }
+        if body.len() < offset + size + 2 {
+            anyhow::bail!("chunked Docker API response ended early");
+        }
+
+        out.extend_from_slice(&body[offset..offset + size]);
+        offset += size;
+        if body.get(offset..offset + 2) != Some(b"\r\n") {
+            anyhow::bail!("chunked Docker API response missing chunk terminator");
+        }
+        offset += 2;
+    }
+}
+
+#[cfg(unix)]
+fn docker_safe_container_id(container_id: &str) -> Result<&str> {
+    let trimmed = container_id.trim();
+    if trimmed.is_empty()
+        || !trimmed
+            .bytes()
+            .all(|byte| byte.is_ascii_hexdigit() || byte == b'-' || byte == b'_')
+    {
+        anyhow::bail!("Docker container id is invalid: {container_id:?}");
+    }
+
+    Ok(trimmed)
 }
 
 #[cfg(unix)]
@@ -1037,6 +1406,62 @@ mod tests {
         assert_eq!(identity.runtime_source, RuntimeSource::Containerd);
         assert_eq!(identity.confidence, MetadataConfidence::High);
         assert_eq!(identity.degradation_reason, None);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn maps_docker_container_to_workload_identity() {
+        let summary = DockerContainerSummary {
+            id: "0123456789abcdef".to_string(),
+            names: vec!["/compose-web-1".to_string()],
+            image: "nginx:alpine".to_string(),
+            image_id: "sha256:summary".to_string(),
+            labels: [(
+                "com.docker.compose.project".to_string(),
+                "demo-stack".to_string(),
+            )]
+            .into(),
+        };
+        let inspect = DockerContainerInspect {
+            id: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".to_string(),
+            name: "/compose-web-1".to_string(),
+            image_ref: "sha256:inspect".to_string(),
+            config: Some(DockerContainerConfig {
+                image: "nginx:1.27-alpine".to_string(),
+                labels: [
+                    (
+                        "com.docker.compose.project".to_string(),
+                        "demo-stack".to_string(),
+                    ),
+                    ("com.docker.compose.service".to_string(), "web".to_string()),
+                ]
+                .into(),
+            }),
+            state: Some(DockerContainerState { pid: 4242 }),
+            host_config: Some(DockerHostConfig {
+                cgroup_parent: "/system.slice/docker.scope".to_string(),
+            }),
+        };
+
+        let identity = identity_from_docker(Some(&summary), &inspect);
+
+        assert_eq!(
+            identity.container_id.as_deref(),
+            Some("0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef")
+        );
+        assert_eq!(identity.container_name.as_deref(), Some("compose-web-1"));
+        assert_eq!(identity.image.as_deref(), Some("nginx:1.27-alpine"));
+        assert_eq!(identity.image_ref.as_deref(), Some("sha256:inspect"));
+        assert_eq!(identity.runtime_pid, Some(4242));
+        assert_eq!(
+            identity
+                .labels
+                .get("com.docker.compose.service")
+                .map(String::as_str),
+            Some("web")
+        );
+        assert_eq!(identity.runtime_source, RuntimeSource::Docker);
+        assert_eq!(identity.confidence, MetadataConfidence::High);
     }
 
     #[cfg(unix)]

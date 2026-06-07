@@ -337,6 +337,14 @@ type systemdUnitStatus struct {
 // netprobe, the richer sidecar state is folded in; standalone services such as
 // workload-identity use systemd active state and MainPID.
 func (p *PushLoop) systemdAddonStatuses(root string, sidecars []*proto.SidecarStatus) []*proto.SidecarStatus {
+	if root == "" {
+		root = resolveAddonArtifactRoot("")
+	}
+
+	p.systemdRehydrateOnce.Do(func() {
+		p.rehydrateSystemdAddonsFromRoot(root)
+	})
+
 	installed := p.systemdAddonSnapshot()
 	if len(installed) == 0 {
 		return nil

@@ -74,6 +74,20 @@ func stageAddonCurrent(t *testing.T, addonID string, version string) string {
 	return root
 }
 
+func stageAddonCurrentWithFiles(t *testing.T, addonID string, version string, files map[string]string) string {
+	t.Helper()
+
+	root := stageAddonCurrent(t, addonID, version)
+	current := filepath.Join(root, addonID, "current")
+	for name, contents := range files {
+		if err := os.WriteFile(filepath.Join(current, name), []byte(contents), 0o644); err != nil {
+			t.Fatalf("write staged addon file %s: %v", name, err)
+		}
+	}
+
+	return root
+}
+
 func stageNetprobeCurrent(t *testing.T, version string) string {
 	t.Helper()
 
@@ -188,5 +202,43 @@ func TestSystemdAddonStatusesIncludesWorkloadIdentity(t *testing.T) {
 	}
 	if got.GetLastHealthAt() == 0 {
 		t.Fatalf("expected running systemd add-on to carry last_health_at")
+	}
+}
+
+func TestSystemdAddonStatusesRehydratesWorkloadIdentityFromDisk(t *testing.T) {
+	pl := NewPushLoop(
+		&Server{config: &ServerConfig{AgentID: "agent-workload-identity-rehydrate"}},
+		nil,
+		30*time.Second,
+		logger.NewTestLogger(),
+	)
+	root := stageAddonCurrentWithFiles(t, "workload-identity", "0.1.1", map[string]string{
+		"serviceradar-workload-identity.service": "[Service]\n",
+	})
+	stubSystemdUnitStatus(t, pl, func(unit string) systemdUnitStatus {
+		if unit != "serviceradar-workload-identity.service" {
+			t.Fatalf("unexpected systemd unit %q", unit)
+		}
+
+		return systemdUnitStatus{state: agentaddon.StateRunning, pid: 1357}
+	})
+
+	statuses := pl.systemdAddonStatuses(root, nil)
+	if len(statuses) != 1 {
+		t.Fatalf("systemd addon statuses = %#v, want rehydrated workload-identity status", statuses)
+	}
+
+	got := statuses[0]
+	if got.GetName() != "addon:workload-identity" {
+		t.Fatalf("name = %q, want addon:workload-identity", got.GetName())
+	}
+	if got.GetState() != string(agentaddon.StateRunning) {
+		t.Fatalf("state = %q, want %q", got.GetState(), agentaddon.StateRunning)
+	}
+	if got.GetVersion() != "0.1.1" {
+		t.Fatalf("version = %q, want 0.1.1", got.GetVersion())
+	}
+	if got.GetPid() != 1357 {
+		t.Fatalf("pid = %d, want 1357", got.GetPid())
 	}
 }
