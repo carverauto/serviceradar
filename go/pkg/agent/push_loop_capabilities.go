@@ -17,9 +17,14 @@
 package agent
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -92,9 +97,7 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 		addonStatuses = addonManager.Status()
 	}
 	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
-	if netprobeStatus := p.netprobeAddonStatus(resolveAddonArtifactRoot(""), sidecars); netprobeStatus != nil {
-		sidecars = append(sidecars, netprobeStatus)
-	}
+	sidecars = append(sidecars, p.systemdAddonStatuses(resolveAddonArtifactRoot(""), sidecars)...)
 
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
@@ -320,24 +323,79 @@ func hostNetworkVisibilityFingerprintStatus(capabilities []string) string {
 	return "unavailable"
 }
 
-// netprobeAddonStatus synthesizes an `addon:netprobe` entry so the systemd-managed
-// netprobe add-on lands in the control-plane AddonStatus read model (Edge Ops drift),
-// which only ingests `addon:<id>` sidecar entries. netprobe is supervised as a
-// systemd-service (not the go-plugin addon manager) and otherwise reports under the bare
-// "netprobe" sidecar name, so it would never reach the read model. Returns nil when
-// netprobe is not installed as a systemd add-on on this host. The installed version comes
-// from the activation `current` symlink (target `versions/<version>`); arch is the host
-// arch (the agent runs the arch-matching artifact); live state/health is folded in from
-// the running netprobe sidecar entry when present. Reuses agentaddon.ToProtoStatuses for
-// the `addon:` prefix + version/arch mapping. Explicit capture-active reporting needs a
-// netprobe IPC signal (follow-up); a running-but-incapable netprobe still surfaces via its
-// state + last_error.
-func (p *PushLoop) netprobeAddonStatus(root string, sidecars []*proto.SidecarStatus) *proto.SidecarStatus {
-	id := agentnetprobe.DefaultSidecarName
-	if len(p.systemdAddonUnits(id)) == 0 {
+type systemdUnitStatus struct {
+	state     agentaddon.State
+	pid       int
+	lastError string
+}
+
+var readSystemdUnitStatus = readSystemdUnitStatusDefault
+
+// systemdAddonStatuses synthesizes `addon:<id>` entries so systemd-managed native
+// add-ons land in the control-plane AddonStatus read model. These add-ons are not
+// supervised by the go-plugin add-on manager, so they otherwise have no `addon:` status.
+// The installed version comes from the activation `current` symlink (target
+// `versions/<version>`). For add-ons that also expose a sidecar/IPC status such as
+// netprobe, the richer sidecar state is folded in; standalone services such as
+// workload-identity use systemd active state and MainPID.
+func (p *PushLoop) systemdAddonStatuses(root string, sidecars []*proto.SidecarStatus) []*proto.SidecarStatus {
+	installed := p.systemdAddonSnapshot()
+	if len(installed) == 0 {
 		return nil
 	}
 
+	ids := make([]string, 0, len(installed))
+	for id := range installed {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	statuses := make([]agentaddon.Status, 0, len(ids))
+	for _, id := range ids {
+		st := p.systemdAddonStatus(root, id, installed[id], sidecars)
+		if st.ID != "" {
+			statuses = append(statuses, st)
+		}
+	}
+
+	return agentaddon.ToProtoStatuses(statuses)
+}
+
+// netprobeAddonStatus is retained for focused tests and legacy call sites; the
+// production path uses systemdAddonStatuses for every installed systemd add-on.
+func (p *PushLoop) netprobeAddonStatus(root string, sidecars []*proto.SidecarStatus) *proto.SidecarStatus {
+	id := agentnetprobe.DefaultSidecarName
+	units := p.systemdAddonUnits(id)
+	if len(units) == 0 {
+		return nil
+	}
+
+	st := p.systemdAddonStatus(root, id, units, sidecars)
+	out := agentaddon.ToProtoStatuses([]agentaddon.Status{st})
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out[0]
+}
+
+func (p *PushLoop) systemdAddonSnapshot() map[string][]string {
+	p.systemdAddonsMu.Lock()
+	defer p.systemdAddonsMu.Unlock()
+
+	if len(p.installedSystemdAddons) == 0 {
+		return nil
+	}
+
+	out := make(map[string][]string, len(p.installedSystemdAddons))
+	for id, units := range p.installedSystemdAddons {
+		out[id] = append([]string(nil), units...)
+	}
+
+	return out
+}
+
+func (p *PushLoop) systemdAddonStatus(root, id string, units []string, sidecars []*proto.SidecarStatus) agentaddon.Status {
 	st := agentaddon.Status{
 		ID:    id,
 		State: agentaddon.StateStopped,
@@ -347,10 +405,27 @@ func (p *PushLoop) netprobeAddonStatus(root string, sidecars []*proto.SidecarSta
 		st.Version = filepath.Base(target)
 	}
 
+	if foldSidecarStatus(&st, id, sidecars) {
+		return st
+	}
+
+	status := systemdAddonUnitStatus(units)
+	st.State = status.state
+	st.PID = status.pid
+	st.LastError = status.lastError
+	if status.state == agentaddon.StateRunning {
+		st.LastHealthAt = time.Now().UTC()
+	}
+
+	return st
+}
+
+func foldSidecarStatus(st *agentaddon.Status, id string, sidecars []*proto.SidecarStatus) bool {
 	for _, s := range sidecars {
 		if s == nil || !strings.EqualFold(s.GetName(), id) {
 			continue
 		}
+
 		st.State = agentaddon.State(s.GetState())
 		st.PID = int(s.GetPid())
 		st.RestartCount = int(s.GetRestartCount())
@@ -359,15 +434,81 @@ func (p *PushLoop) netprobeAddonStatus(root string, sidecars []*proto.SidecarSta
 			st.LastHealthAt = time.Unix(0, s.GetLastHealthAt()).UTC()
 		}
 
-		break
+		return true
 	}
 
-	out := agentaddon.ToProtoStatuses([]agentaddon.Status{st})
-	if len(out) == 0 {
-		return nil
+	return false
+}
+
+func systemdAddonUnitStatus(units []string) systemdUnitStatus {
+	if len(units) == 0 {
+		return systemdUnitStatus{state: agentaddon.StateStopped}
 	}
 
-	return out[0]
+	best := systemdUnitStatus{state: agentaddon.StateStopped}
+	for _, unit := range units {
+		status := readSystemdUnitStatus(unit)
+		switch status.state {
+		case agentaddon.StateRunning:
+			return status
+		case agentaddon.StateStarting, agentaddon.StateRestarting:
+			best = status
+		case agentaddon.StateUnhealthy:
+			if best.state == agentaddon.StateStopped {
+				best = status
+			}
+		}
+	}
+
+	return best
+}
+
+func readSystemdUnitStatusDefault(unit string) systemdUnitStatus {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(
+		ctx,
+		"systemctl",
+		"show",
+		"--property=ActiveState",
+		"--property=MainPID",
+		"--value",
+		unit,
+	)
+	out, err := cmd.Output()
+	if err != nil {
+		return systemdUnitStatus{
+			state:     agentaddon.StateUnhealthy,
+			lastError: fmt.Sprintf("systemctl show %s failed: %v", unit, err),
+		}
+	}
+
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	activeState := ""
+	if len(lines) > 0 {
+		activeState = strings.TrimSpace(lines[0])
+	}
+
+	pid := 0
+	if len(lines) > 1 {
+		if parsed, parseErr := strconv.Atoi(strings.TrimSpace(lines[1])); parseErr == nil && parsed > 0 {
+			pid = parsed
+		}
+	}
+
+	switch activeState {
+	case "active":
+		return systemdUnitStatus{state: agentaddon.StateRunning, pid: pid}
+	case "activating":
+		return systemdUnitStatus{state: agentaddon.StateStarting, pid: pid}
+	case "deactivating", "reloading":
+		return systemdUnitStatus{state: agentaddon.StateRestarting, pid: pid}
+	case "failed":
+		return systemdUnitStatus{state: agentaddon.StateUnhealthy, pid: pid, lastError: "systemd unit failed"}
+	default:
+		return systemdUnitStatus{state: agentaddon.StateStopped, pid: pid}
+	}
 }
 
 func hasHealthyNetprobeSidecar(sidecars []*proto.SidecarStatus) bool {
