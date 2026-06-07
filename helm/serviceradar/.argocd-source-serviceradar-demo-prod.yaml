@@ -1,7 +1,7 @@
 helm:
   parameters:
   - name: global.imageTag
-    value: sha-699a045dc5dfbf910403a8284b39ca937823d71d
+    value: sha-86134570f130e2c35e0a6527f1f4a8929292622b
     forcestring: true
   - name: image.name
     value: registry.carverauto.dev/serviceradar/serviceradar-web-ng
