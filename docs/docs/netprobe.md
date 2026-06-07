@@ -56,10 +56,11 @@ operator can see when enrichment falls back or is incomplete.
 
 ## Deployment model
 
-For package-based installs, the binary is installed at:
+For pushed-artifact add-on installs, the active binary is loaded through the add-on
+activation symlink:
 
 ```bash
-/usr/local/lib/serviceradar/bin/serviceradar-netprobe
+/var/lib/serviceradar/agent/addons/netprobe/current/serviceradar-netprobe
 ```
 
 Production deployments should run it as a native add-on systemd unit under
@@ -114,12 +115,16 @@ A minimal host configuration should include:
 {
   "enabled": true,
   "capture_interfaces": ["eth0"],
-  "attribution": {
-    "enabled": true,
-    "emit_raw_observations": true
-  }
+  "flow_attribution_ipc_batch": true,
+  "emit_raw_flow_attribution_events": true
 }
 ```
+
+`enabled` turns on eBPF process attribution. `capture_interfaces` is optional and is
+only needed for passive packet capture, DPI, and fingerprinting; an empty list still
+allows process attribution. `flow_attribution_ipc_batch` should stay enabled unless
+you are debugging an older agent framing problem. `emit_raw_flow_attribution_events`
+keeps the central join path fed with process observations for delayed NetFlow rows.
 
 Keep raw observations enabled when you want central NetFlow-to-process joins. If a
 deployment only wants local host telemetry and does not retain unmatched observations,
@@ -144,6 +149,15 @@ metadata, optional container ID, and workload identity metadata. TCP, UDP, and I
 rows may appear in attributed flows; ICMP uses protocol-specific matching because it
 does not have TCP/UDP ports.
 
+Common SRQL entry points:
+
+```text
+in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
+in:attributed_flows time:last_1h protocol_name:udp sort:time:desc limit:50
+in:attributed_flows time:last_1h stats:"count(*) as total by agent_id, attribution_status" sort:total:desc
+in:addon_statuses addon_id:netprobe sort:reported_at:desc limit:50
+```
+
 ## Validation
 
 On an agent host:
@@ -152,6 +166,8 @@ On an agent host:
 sudo systemctl status serviceradar-netprobe.service
 sudo journalctl -u serviceradar-netprobe.service -n 100 --no-pager
 sudo ss -plunt
+readlink -f /var/lib/serviceradar/agent/addons/netprobe/current
+readlink -f /proc/$(pidof serviceradar-netprobe)/exe
 ```
 
 Confirm the metrics endpoint if enabled:
@@ -201,6 +217,8 @@ Confirm:
 - Clock skew between the NetFlow exporter and agent host is within the join window.
 - The attributed-flow retention/discard settings have not removed unmatched raw
   observations before delayed NetFlow batches arrive.
+- `emit_raw_flow_attribution_events` is enabled when using central delayed joins.
+- The add-on status row is fresh in `in:addon_statuses addon_id:netprobe`.
 
 For protocol coverage, TCP and UDP attribution are expected first. ICMP requires
 protocol-specific tuple extraction because there are no TCP/UDP ports to correlate.
@@ -218,6 +236,17 @@ Sustained CPU usually comes from one of four places: packet rate, ring-buffer dr
 pressure, attribution-cache churn, or cold-path metadata enrichment. The target
 architecture is event-driven socket/process inventory with bounded queues and no
 periodic hot-path procfs scans.
+
+For release validation, capture both host CPU and pipeline health:
+
+```bash
+sudo pidstat -p "$(pidof serviceradar-netprobe)" 1 30
+curl -s http://127.0.0.1:9417/metrics | grep -E 'netprobe_.*(drop|lag|cache|coalesce|raw)'
+```
+
+CPU below the fleet budget is not enough by itself. Also check that event drops are
+not rising, queue lag is bounded, duplicate suppression is active, and attributed-flow
+hit rate is not regressing.
 
 ### Missing container or workload fields
 
@@ -238,3 +267,9 @@ flow correlation, process attribution, passive evidence, and troubleshooting. Ke
 retention short for high-volume raw observations, and use chart/control-plane knobs to
 discard unmatched raw observations when a deployment does not need forensic history
 for delayed joins.
+
+For SaaS-scale deployments, treat raw attribution observations as hot operational
+data. Retain them only as long as needed for delayed NetFlow joins and short
+investigation windows, aggregate current attribution state for UI queries, and move
+longer forensic history to cold storage rather than keeping every unmatched event in
+CNPG indefinitely.

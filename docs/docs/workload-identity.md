@@ -143,6 +143,25 @@ A Docker Compose host can use:
 If `runtime` is omitted or set to `{"type": "auto"}`, the collector discovers common
 CRI sockets first and then common Docker sockets such as `/var/run/docker.sock`.
 
+## Emitted fields
+
+Field coverage depends on the runtime source. Use this as the expected baseline:
+
+| Field | Kubernetes CRI | Docker / Compose | Notes |
+| --- | --- | --- | --- |
+| Container ID | Yes | Yes | Primary join key for containerized processes. |
+| Container name | Yes | Yes | Docker Compose names may include project and replica suffixes. |
+| Image | Yes | Yes | Digest availability depends on runtime metadata. |
+| Namespace | Yes | No | Kubernetes namespace from pod sandbox metadata. |
+| Pod name / UID | Yes | No | Requires CRI pod sandbox lookup. |
+| Workload owner | Optional overlay | No | Deployment/StatefulSet/DaemonSet owner usually requires Kubernetes API or operator metadata. |
+| Cluster ID/name | Assignment or overlay | Assignment | CRI does not expose a reliable cluster identity. |
+| Compose project/service | No | Yes, when labels exist | Uses standard Compose labels. |
+
+The collector should publish bounded snapshots and lifecycle changes to the local
+spool directory. The base agent reads those snapshots and sends them to the gateway;
+netprobe is not required to consume them locally.
+
 ## Validation
 
 On a host:
@@ -150,6 +169,9 @@ On a host:
 ```bash
 sudo systemctl status serviceradar-workload-identity.service
 sudo journalctl -u serviceradar-workload-identity.service -n 100 --no-pager
+readlink -f /var/lib/serviceradar/agent/addons/workload-identity/current
+readlink -f /proc/$(pidof serviceradar-workload-identity)/exe
+sudo find /var/lib/serviceradar/workload-identity/spool -maxdepth 1 -type f -ls | tail
 ```
 
 For Kubernetes/containerd:
@@ -168,6 +190,14 @@ sudo docker inspect <container-id> --format '{{json .Config.Labels}}'
 
 In ServiceRadar, validate that attributed flow details and process listener views show
 namespace, pod, container name, image, and cluster where available.
+
+Useful SRQL checks:
+
+```text
+in:addon_statuses addon_id:workload-identity sort:reported_at:desc limit:50
+in:attributed_flows time:last_1h attribution_status:attributed sort:time:desc limit:50
+in:attributed_flows time:last_1h workload_namespace:demo sort:time:desc limit:50
+```
 
 For a quick database-side smoke check in an operational tools pod, verify recent
 workload rows by agent:
@@ -195,6 +225,10 @@ Check:
 - The process is inside a container cgroup.
 - The container was still known to the runtime when enrichment ran.
 - The event is inside the configured metadata retention/correlation window.
+- The base agent release is new enough to report systemd-backed add-on status and
+  ingest workload identity snapshots.
+- `cluster_id` is set when multiple clusters report into the same ServiceRadar
+  deployment.
 
 ### Cluster name is missing
 
@@ -221,6 +255,14 @@ runtime to:
 Docker hosts will not have Kubernetes pod or namespace fields unless an additional
 orchestration overlay supplies them. They should still show container name, image,
 runtime PID, labels, and Compose project/service labels.
+
+### Multiple clusters look identical
+
+CRI data is node-local and does not contain a durable global cluster identity. Set
+`cluster_id` and `cluster_name` in the add-on assignment for every cluster, or deploy
+an overlay that stamps cluster metadata onto the node-local collector config. Without
+that, two clusters can legitimately produce the same namespace, pod, and container
+names.
 
 ### Container ID exists but pod metadata is missing
 

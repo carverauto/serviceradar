@@ -83,6 +83,33 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
+## On-host layout
+
+For pushed-artifact add-ons, the package-managed agent stages verified payloads under
+the agent runtime root. The default layout is:
+
+```text
+/var/lib/serviceradar/agent/addons/
+  netprobe/
+    versions/0.2.18/
+      serviceradar-netprobe
+      serviceradar-netprobe.service
+      netprobe_ebpf.o
+    current -> versions/0.2.18
+  workload-identity/
+    versions/0.1.2/
+      serviceradar-workload-identity
+      serviceradar-workload-identity.service
+      workload-identity.json
+    current -> versions/0.1.2
+```
+
+The `current` symlink is the activation boundary. The agent verifies the artifact,
+stages the versioned directory, applies required file capabilities through the
+updater when declared by the manifest, flips `current`, installs the systemd unit,
+and restarts the unit. Do not edit files in this tree by hand during normal
+operations; manual edits are overwritten by the next reconciliation.
+
 ## Operator quick start
 
 Use this path for a normal rollout:
@@ -160,6 +187,8 @@ For systemd-backed host add-ons, also check the local host:
 sudo systemctl status serviceradar-netprobe.service
 sudo systemctl status serviceradar-workload-identity.service
 sudo systemctl status serviceradar.slice
+sudo journalctl -u serviceradar-netprobe.service -n 100 --no-pager
+sudo journalctl -u serviceradar-workload-identity.service -n 100 --no-pager
 ```
 
 The expected ownership model is separate units under the ServiceRadar slice. Add-ons
@@ -185,6 +214,12 @@ versions. The expected release path is:
 4. Import the package into ServiceRadar as `staged`.
 5. Review and approve the package in **Settings > Agents > Add-ons**.
 6. Assign the approved package to agents or cohorts.
+
+Every change to an add-on payload, config schema, manifest requirements, systemd unit,
+or runtime behavior must bump that add-on's manifest version. The release build has a
+native add-on version-bump gate so new binaries do not silently publish under an old
+package version. Treat a failed gate as a release hygiene problem, not as a test to
+skip.
 
 Do not use **Settings > Agents > Releases** for add-on rollout decisions. That page is
 for `serviceradar-agent` releases. Add-on packages belong in the add-on catalog so the
@@ -302,3 +337,26 @@ sudo systemctl status serviceradar.slice --no-pager
 The ServiceRadar UI should surface the same drift in operator terms: assigned but not
 installed, installed but inactive, unhealthy, unsupported architecture, unassigned
 observed add-on, or stale status.
+
+You can also inspect current add-on status through SRQL:
+
+```text
+in:addon_statuses sort:reported_at:desc limit:50
+in:addon_statuses addon_id:netprobe state:unhealthy sort:reported_at:desc
+in:addon_statuses addon_id:workload-identity active:true sort:reported_at:desc
+```
+
+For a host-side spot check, compare the running process path with the activated
+version:
+
+```bash
+readlink -f /var/lib/serviceradar/agent/addons/netprobe/current
+readlink -f /proc/$(pidof serviceradar-netprobe)/exe
+readlink -f /var/lib/serviceradar/agent/addons/workload-identity/current
+readlink -f /proc/$(pidof serviceradar-workload-identity)/exe
+```
+
+Those paths should point at the same versioned add-on directory. If the `current`
+symlink changed but the running executable still points at an older version, the
+systemd restart step failed or the host is running an older base agent that does not
+fully reconcile systemd-backed add-ons.
