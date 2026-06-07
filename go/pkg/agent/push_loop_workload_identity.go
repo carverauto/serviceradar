@@ -40,6 +40,13 @@ const (
 	maxWorkloadIdentitySnapshotBytes    = 15 * 1024 * 1024
 )
 
+var (
+	errWorkloadIdentitySnapshotNotRegular = errors.New("workload identity snapshot is not a regular file")
+	errWorkloadIdentitySnapshotEmpty      = errors.New("workload identity snapshot is empty")
+	errWorkloadIdentitySnapshotTooLarge   = errors.New("workload identity snapshot exceeds maximum size")
+	errWorkloadIdentitySnapshotChanged    = errors.New("workload identity snapshot changed during read")
+)
+
 type workloadIdentityFileSignature struct {
 	path         string
 	semanticHash [sha256.Size]byte
@@ -145,13 +152,13 @@ func readWorkloadIdentitySnapshot(path string, maxBytes int64) ([]byte, workload
 		return nil, workloadIdentityFileSignature{}, err
 	}
 	if !info.Mode().IsRegular() {
-		return nil, workloadIdentityFileSignature{}, errors.New("workload identity snapshot is not a regular file")
+		return nil, workloadIdentityFileSignature{}, errWorkloadIdentitySnapshotNotRegular
 	}
 	if info.Size() <= 0 {
-		return nil, workloadIdentityFileSignature{}, errors.New("workload identity snapshot is empty")
+		return nil, workloadIdentityFileSignature{}, errWorkloadIdentitySnapshotEmpty
 	}
 	if info.Size() > maxBytes {
-		return nil, workloadIdentityFileSignature{}, errors.New("workload identity snapshot exceeds maximum size")
+		return nil, workloadIdentityFileSignature{}, errWorkloadIdentitySnapshotTooLarge
 	}
 
 	payload, err := os.ReadFile(path)
@@ -161,7 +168,7 @@ func readWorkloadIdentitySnapshot(path string, maxBytes int64) ([]byte, workload
 	if int64(len(payload)) != info.Size() {
 		// The producer publishes by atomic rename, so this should be rare. Skip this
 		// cycle instead of forwarding a signature that does not describe the bytes.
-		return nil, workloadIdentityFileSignature{}, errors.New("workload identity snapshot changed during read")
+		return nil, workloadIdentityFileSignature{}, errWorkloadIdentitySnapshotChanged
 	}
 
 	return payload, workloadIdentityFileSignature{
