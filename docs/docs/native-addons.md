@@ -11,8 +11,8 @@ agents. Add-ons are the native counterpart to [Wasm Plugins](./wasm-plugins.md):
 a Wasm plugin for a sandboxed checker, and a native add-on when a capability needs a
 real OS process (a sidecar daemon, a scheduled scanner, a host-level collector).
 
-This page is the operator/author overview for the add-on framework defined in issue
-#3425. Use it with the first-party add-on runbooks:
+This page is the operator and author overview for the add-on framework. Use it with
+the first-party add-on runbooks:
 
 - [Host Network Visibility](./netprobe.md) covers `serviceradar-netprobe`,
   including eBPF-backed process attribution and AF_XDP flow capture.
@@ -76,12 +76,25 @@ ServiceRadar currently ships these native add-ons:
 | Add-on | Binary / unit | Primary capability | Typical target |
 | --- | --- | --- | --- |
 | `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution | Linux hosts and Kubernetes workers |
-| `workload-identity` | `serviceradar-workload-identity.service` | Container, pod, namespace, image, and runtime metadata | Kubernetes workers first; Docker/Compose support is planned as a separate runtime path |
+| `workload-identity` | `serviceradar-workload-identity.service` | Container, pod, namespace, image, and runtime metadata | Kubernetes workers, Docker hosts, and Docker Compose hosts |
 
 Both add-ons are assigned from **Settings > Agents > Add-ons**, not from the base
 agent release page. The base agent release catalog only rolls the `serviceradar-agent`
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
+
+## Which add-on to deploy
+
+Deploy add-ons independently. They complement each other, but neither one should be a
+hard runtime dependency of the other:
+
+| Need | Add-on | Notes |
+| --- | --- | --- |
+| Attribute NetFlow rows to local host processes | `netprobe` | Uses eBPF socket/process attribution and optional AF_XDP packet capture. |
+| Show pod, namespace, container name, image, and Compose labels | `workload-identity` | Uses node-local CRI or Docker metadata. |
+| Enrich attributed flows with workload context | Both | Core joins NetFlow, process attribution, and workload identity upstream. |
+| Inventory containers without host flow capture | `workload-identity` only | Useful for asset inventory and future workload-level search. |
+| Capture host flow evidence without container metadata | `netprobe` only | Useful on bare-metal or VM hosts where process context is sufficient. |
 
 ## Package format
 
@@ -141,6 +154,47 @@ When creating an agent onboarding package in **Settings > Edge Ops > Onboarding*
 select an **Initial Feature Set** to preassign approved add-ons to the generated
 agent identity. The new agent receives those add-on assignments when it enrolls and
 fetches its first compiled configuration.
+
+## Release and package workflow
+
+Add-on packages are versioned independently from the base agent release. A ServiceRadar
+release may include one base agent version and multiple native add-on package
+versions. The expected release path is:
+
+1. Update the add-on manifest under `addons/<id>/addon.yaml` and the implementation
+   version in the source package.
+2. Build signed per-platform add-on bundles through `build/native_addons/`.
+3. Publish the add-on discovery index and artifact metadata with the release.
+4. Import the package into ServiceRadar as `staged`.
+5. Review and approve the package in **Settings > Agents > Add-ons**.
+6. Assign the approved package to agents or cohorts.
+
+Do not use **Settings > Agents > Releases** for add-on rollout decisions. That page is
+for `serviceradar-agent` releases. Add-on packages belong in the add-on catalog so the
+UI can keep base-agent upgrades, add-on approval, and add-on targeting separate.
+
+## Runtime ownership model
+
+The long-term host shape is one ServiceRadar slice with separate units:
+
+```text
+serviceradar.slice
+  serviceradar-agent.service
+  serviceradar-netprobe.service
+  serviceradar-workload-identity.service
+```
+
+The base agent should not become a privileged process supervisor. It owns desired
+state, artifact verification, configuration delivery, and reported status. Systemd
+owns restart policy, hardening, privileges, and cgroup accounting for privileged
+collectors.
+
+For operators this means:
+
+- `systemctl status serviceradar-agent.service` shows the base agent.
+- `systemctl status serviceradar-netprobe.service` shows Host Network Visibility.
+- `systemctl status serviceradar-workload-identity.service` shows Workload Identity.
+- ServiceRadar UI reconciles assignment, installed state, active state, and drift.
 
 ## SDKs and authoring
 
