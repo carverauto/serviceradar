@@ -1,6 +1,6 @@
 [package]
 name = "serviceradar-workload-identity"
-version = "0.1.3"
+version = "0.1.4"
 edition = "2021"
 authors = ["ServiceRadar Team"]
 description = "Node-local workload identity enrichment for ServiceRadar"

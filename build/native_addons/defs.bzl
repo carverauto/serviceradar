@@ -47,8 +47,9 @@ def declare_native_addon_targets(addon_bundles):
         produce_tarball = bundle.get("pushed_artifact_tarball", False)
 
         # "go" (default) cross-compiles a go_binary per arch; "rust" packages the
-        # rules_rust rust_binary directly (no go_cross_binary analogue), reusing
-        # the single configured-platform binary for each declared platform path.
+        # rules_rust rust_binary directly. Production Rust add-ons should only
+        # declare platforms that match the configured release binary until a real
+        # Rust cross-compile path is wired in.
         language = bundle.get("language", "go")
 
         for (os, arch) in bundle["platforms"]:
@@ -67,9 +68,9 @@ def declare_native_addon_targets(addon_bundles):
             if label not in srcs:
                 srcs.append(label)
 
-            # rust bundles reuse one binary label across every declared platform, so
-            # dedup before aggregating into the `all_binaries` filegroup (a duplicate
-            # label in filegroup srcs is a hard package-load error).
+            # Rust bundles may reuse one binary label, so dedup before aggregating
+            # into the `all_binaries` filegroup (a duplicate label in filegroup srcs
+            # is a hard package-load error).
             if label not in binary_outputs:
                 binary_outputs.append(label)
             archive_path = "bin/{}/{}/{}".format(os, arch, bundle["binary_name"])
