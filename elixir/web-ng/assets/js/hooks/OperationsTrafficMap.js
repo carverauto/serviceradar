@@ -299,6 +299,20 @@ function flowDetailsUrlForPair(sourceIp, targetIp) {
   return `/observability?${new URLSearchParams({tab: "netflows", q, limit: "100", view: "explorer"}).toString()}`
 }
 
+function attributedFlowsUrlForPair(sourceIp, targetIp) {
+  if (!isIpLike(sourceIp) || !isIpLike(targetIp)) return null
+
+  const q = [
+    "in:attributed_flows",
+    "time:last_24h",
+    "sort:time:desc",
+    `src_endpoint_ip:${srqlQuote(sourceIp)}`,
+    `dst_endpoint_ip:${srqlQuote(targetIp)}`,
+  ].join(" ")
+
+  return `/observability/flows/attributed?${new URLSearchParams({q, limit: "50"}).toString()}`
+}
+
 function endpointFlowSummary(link, side) {
   const sourceIp = link.sourceIp
   const targetIp = link.targetIp
@@ -352,6 +366,26 @@ function endpointFlowsHtml(encodedFlows) {
           </a>
         `)
         .join("")}
+    </div>
+  `
+}
+
+function flowActionsHtml(flowHref, attributedHref) {
+  const actions = [
+    flowHref
+      ? `<a class="sr-ops-anchor-flow-link" href="${escapeHtml(flowHref)}"><span><i>NetFlow</i><b>Flow details</b></span><small>Open matching flow records in the NetFlow explorer</small></a>`
+      : "",
+    attributedHref
+      ? `<a class="sr-ops-anchor-flow-link" href="${escapeHtml(attributedHref)}"><span><i>Attribution</i><b>Attributed flows</b></span><small>Open process-attributed flow records for this path</small></a>`
+      : "",
+  ].filter(Boolean)
+
+  if (actions.length === 0) return ""
+
+  return `
+    <div class="sr-ops-anchor-flow-list is-flow-actions">
+      <em>Drill down</em>
+      ${actions.join("")}
     </div>
   `
 }
@@ -1278,6 +1312,8 @@ export default {
     const nodeRect = flowNode.getBoundingClientRect()
     const source = flowNode.dataset.sourceLabel || "Unknown source"
     const target = flowNode.dataset.targetLabel || "Unknown target"
+    const sourceIp = flowNode.dataset.sourceIp || ""
+    const targetIp = flowNode.dataset.targetIp || ""
     const bytes = Number(flowNode.dataset.bytes || 0)
     const packets = Number(flowNode.dataset.packets || 0)
     const flowCount = Number(flowNode.dataset.flowCount || 0)
@@ -1302,6 +1338,9 @@ export default {
     const workloadLabel = workloadParts.length > 0 ? workloadParts.join("/") : ""
     const containerParts = [attributionContainerName, attributionImage].filter(Boolean)
     const containerLabel = containerParts.length > 0 ? containerParts.join(" / ") : ""
+    const flowHref = flowDetailsUrlForPair(sourceIp, targetIp)
+    const attributedHref = attributedFlowCount > 0 ? attributedFlowsUrlForPair(sourceIp, targetIp) : null
+    const actionsHtml = flowActionsHtml(flowHref, attributedHref)
 
     if (!this.anchorDetails) {
       this.anchorDetails = document.createElement("div")
@@ -1327,6 +1366,7 @@ export default {
       ${threatMatched && threatMaxSeverity > 0 ? `<span class="is-threat-row"><em>Severity</em><b>${threatMaxSeverity.toLocaleString()}</b></span>` : ""}
       ${threatMatched && threatSources.length > 0 ? `<span class="is-threat-row"><em>Sources</em><b>${threatSources.map(escapeHtml).join(", ")}</b></span>` : ""}
       ${threatMatched ? `<span class="is-threat-row"><em>Matched side</em><b>${threatSideLabel(sourceThreatMatched, targetThreatMatched)}</b></span>` : ""}
+      ${actionsHtml}
     `
     this.anchorDetails.style.left = `${Math.min(parentRect.width - 300, Math.max(12, nodeRect.left - parentRect.left + nodeRect.width * 0.45))}px`
     this.anchorDetails.style.top = `${Math.min(parentRect.height - 218, Math.max(12, nodeRect.top - parentRect.top + nodeRect.height * 0.35))}px`
@@ -1406,6 +1446,8 @@ export default {
         hit.setAttribute("aria-label", `${source} to ${target} flow`)
         hit.dataset.sourceLabel = source
         hit.dataset.targetLabel = target
+        hit.dataset.sourceIp = link.sourceIp || ""
+        hit.dataset.targetIp = link.targetIp || ""
         hit.dataset.bytes = String(link.bytes || link.magnitude || 0)
         hit.dataset.packets = String(link.packets || 0)
         hit.dataset.flowCount = String(link.flowCount || 0)

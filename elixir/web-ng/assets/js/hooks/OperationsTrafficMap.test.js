@@ -194,3 +194,41 @@ describe("OperationsTrafficMap netflow details dismissal", () => {
     expect(ctx.anchorDetails).toBe(anchorDetails)
   })
 })
+
+describe("OperationsTrafficMap flow detail links", () => {
+  it("renders drilldown links for clicked attributed NetFlow paths", () => {
+    const anchorDetails = {className: "", innerHTML: "", style: {}}
+    const parent = {
+      appendChild: vi.fn(),
+      getBoundingClientRect: vi.fn(() => ({width: 800, height: 500, left: 0, top: 0})),
+    }
+    const flowNode = {
+      getBoundingClientRect: vi.fn(() => ({width: 20, height: 20, left: 120, top: 80})),
+      dataset: {
+        sourceLabel: "Kansas City, US, 34.117.62.14",
+        targetLabel: "Carver, MN",
+        sourceIp: "34.117.62.14",
+        targetIp: "10.0.2.13",
+        bytes: "36249",
+        packets: "50",
+        flowCount: "1",
+        attributedFlowCount: "1",
+        attributionAgentId: "agent-k8s-cp3-worker3",
+        attributionComm: "cosign",
+        attributionPid: "2663619",
+      },
+    }
+
+    const ctx = {
+      el: {parentElement: parent},
+      anchorDetails,
+    }
+
+    OperationsTrafficMap._showFlowDetails.call(ctx, flowNode)
+
+    expect(ctx.anchorDetails.innerHTML).toContain("Flow details")
+    expect(ctx.anchorDetails.innerHTML).toContain("tab=netflows")
+    expect(ctx.anchorDetails.innerHTML).toContain("Attributed flows")
+    expect(ctx.anchorDetails.innerHTML).toContain("/observability/flows/attributed")
+  })
+})

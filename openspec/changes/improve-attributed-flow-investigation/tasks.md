@@ -37,3 +37,7 @@
 - [x] 4.4 Run `openspec validate improve-attributed-flow-investigation --strict`.
 - [ ] 4.5 Evaluate a dedicated Timescale continuous aggregate for attributed-flow status/byte summaries before enabling longer default windows or SaaS-scale retention.
 - [ ] 4.6 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/log_live/index.ex` into smaller LiveView/data/component modules once the attributed-flow and NetFlow UI work stabilizes.
+- [x] 4.7 Refactor `elixir/serviceradar_core/lib/serviceradar/flow_attribution.ex` into smaller persistence, correlation, retention, and event-normalization modules.
+- [ ] 4.8 Refactor `elixir/web-ng/assets/js/hooks/OperationsTrafficMap.js` into smaller map geometry, tooltip, URL, and hook lifecycle modules.
+- [ ] 4.9 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/flows/attributed_live.ex` into smaller query, state, component, and event-handler modules.
+- [ ] 4.10 Refactor `elixir/web-ng/lib/serviceradar_web_ng_web/live/settings/networks_live/index.ex` into smaller data-loading, form-state, event-handler, and component modules.
