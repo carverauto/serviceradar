@@ -1,3 +1,23 @@
+# ServiceRadar v1.2.97
+
+Topology God View reliability, camera controls, and LiveView cleanup.
+
+## Whats New
+
+**1.2.97**
+- Fixed God View startup handling so transient snapshot/channel failures keep
+  the topology stream in retrying state until a valid snapshot is seen instead
+  of getting stuck in a hard error state.
+- Stopped treating valid over-budget topology snapshots as unavailable; the
+  stream now serves and caches the latest valid snapshot while still emitting
+  budget telemetry for follow-up tuning.
+- Added topology map zoom controls for zoom in, zoom out, fit, and reset using
+  the deck.gl camera path so users no longer have to fight the God View zoom
+  behavior.
+- Split the God View LiveView and template into focused stream, MTR overlay,
+  control-state, camera relay, and HEEx component modules so the core LiveView
+  is a small event coordinator again.
+
 # ServiceRadar v1.2.96
 
 Netprobe attribution follow-up for high-churn workers and native add-on release
