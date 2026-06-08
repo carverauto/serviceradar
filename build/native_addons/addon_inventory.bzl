@@ -173,4 +173,23 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # RDP per-session helper add-on. This replaces the old RDP-flavored
+        # managed-agent runtime archive: the base agent stays core-only, while
+        # remote-access resolves this staged ephemeral helper on demand.
+        "name": "rdp_adapter_addon_bundle",
+        "addon_id": "rdp",
+        "repository_name": "serviceradar-addon-rdp-adapter",
+        "language": "rust",
+        "binary": "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental",
+        "binary_name": "serviceradar-rdp-adapter",
+        "platforms": [
+            ("linux", "amd64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/rdp-adapter:addon.yaml"),
+            ("config.schema.json", "//addons/rdp-adapter:config.schema.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

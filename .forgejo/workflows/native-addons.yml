@@ -283,4 +283,13 @@ jobs:
             -H "Authorization: token ${FORGEJO_TOKEN}" \
             -F "attachment=@${index_path}" \
             "${api_base}/releases/${release_id}/assets?name=serviceradar-native-addon-index.json" >/dev/null
+
+          refreshed_release_json="$(curl -sSf -H "Accept: application/json" -H "Authorization: token ${FORGEJO_TOKEN}" \
+            "${api_base}/releases/${release_id}")"
+          uploaded_asset_id="$(echo "${refreshed_release_json}" | jq -r '.assets[]? | select(.name == "serviceradar-native-addon-index.json") | .id' | head -n1)"
+          if [[ -z "${uploaded_asset_id}" ]]; then
+            echo "Native add-on import index asset was not present after upload for ${release_tag}" >&2
+            exit 1
+          fi
+
           echo "Uploaded serviceradar-native-addon-index.json to ${release_tag}"

@@ -89,8 +89,6 @@ type Sidecar struct {
 	baseCtx       context.Context
 }
 
-var _ sidecar.Sidecar = (*Sidecar)(nil)
-
 type CorpusRevisions struct {
 	P0f                   string `json:"p0f,omitempty"`
 	ServiceRadarAdditions string `json:"serviceradar_additions,omitempty"`
@@ -240,9 +238,9 @@ func (s *Sidecar) ApplyConfig(ctx context.Context, cfg *netprobepb.VisibilityAge
 // config is pushed asynchronously so a not-yet-running netprobe never blocks the caller, and
 // it is re-pushed on every (re)connect via pushDesired (see setClient), so the full config
 // (incl. device bindings, which the bootstrap file does not carry) survives systemd restarts
-// regardless of the gateway config poll cadence. Pass nil to clear (e.g. when switching back
-// to the agent-launched path, which applies config explicitly). ctx is the agent run/poll-loop
-// context; it bounds the async push to the agent lifetime (cancelled on shutdown).
+// regardless of the gateway config poll cadence. Pass nil to clear when the add-on assignment
+// is absent. ctx is the agent run/poll-loop context; it bounds the async push to the agent
+// lifetime (cancelled on shutdown).
 func (s *Sidecar) SetDesiredConfig(ctx context.Context, cfg *netprobepb.VisibilityAgentConfig) {
 	if ctx != nil {
 		s.mu.Lock()

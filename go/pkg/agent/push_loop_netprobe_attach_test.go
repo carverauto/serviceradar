@@ -71,12 +71,12 @@ func TestNetprobeSystemdAssignmentPresent(t *testing.T) {
 
 // TestApplyVisibilityConfigRoutesNetprobeBySupervision proves the §2.2 cutover routing: a
 // netprobe systemd-service assignment puts the supervisor in ATTACH mode (systemd owns the
-// process), and removing the assignment reverts to the agent-launched path (here with no
-// capture work, so the manager stops) — never both at once.
+// process), and removing the assignment stops the attach loop rather than launching an
+// optional netprobe binary from the base agent.
 func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 	dir := t.TempDir()
 	netprobeSidecar := agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()})
-	manager, err := sidecar.NewManager(sidecar.Config{
+	manager, err := agentnetprobe.NewAttachManager(agentnetprobe.AttachManagerConfig{
 		RuntimeDir:     filepath.Join(dir, "run"),
 		ConfigDir:      filepath.Join(dir, "cfg"),
 		HealthInterval: 10 * time.Millisecond,
@@ -86,7 +86,7 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 		Logger: zerolog.Nop(),
 	}, netprobeSidecar)
 	if err != nil {
-		t.Fatalf("NewManager: %v", err)
+		t.Fatalf("NewAttachManager: %v", err)
 	}
 
 	srv := &Server{
@@ -111,8 +111,8 @@ func TestApplyVisibilityConfigRoutesNetprobeBySupervision(t *testing.T) {
 		t.Fatalf("Mode after systemd-managed apply = (%v,%v), want (true,true)", started, attach)
 	}
 
-	// Assignment removed + no capture work -> reverts to the agent-launched path and stops,
-	// so the agent and systemd never both run netprobe.
+	// Assignment removed -> stop the attach loop; the agent no longer falls back to
+	// launching netprobe from the base runtime.
 	if !pl.applyVisibilityConfig(ctx, &proto.VisibilityConfig{}, nil) {
 		t.Fatal("applyVisibilityConfig(systemdManaged=false, no work) = false, want true")
 	}

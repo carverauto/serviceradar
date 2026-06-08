@@ -3,9 +3,9 @@
 > Implements the remaining reporting/UI tasks from `add-agent-feature-sets`. Task
 > numbers in parentheses map back to that change.
 
-> **In progress** (branch `feat/native-addon-edge-ops`). The status read model (7.2)
-> is implemented; the Edge Ops UI surfaces (8.x) need a browser/LiveView environment
-> to build and verify and are not done here.
+> **Complete.** The status read model, SRQL entity, Edge Ops approval/targeting UI,
+> per-agent drift view, onboarding initial add-on assignment, operator docs, and
+> targeted tests have landed.
 
 ## 1. Status read model
 - [x] 1.1 Parse the per-add-on installed/available/active/unhealthy state (reason +

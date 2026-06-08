@@ -45,8 +45,9 @@ type desktopRDPHelperTransport interface {
 type desktopRDPHelperStarter func(context.Context, string) (desktopRDPHelperTransport, error)
 
 type desktopRDPHelperAdapter struct {
-	HelperPath string
-	Start      desktopRDPHelperStarter
+	HelperPath         string
+	HelperPathResolver func() string
+	Start              desktopRDPHelperStarter
 }
 
 type desktopRDPHelperOpenPayload struct {
@@ -81,12 +82,19 @@ func (a desktopRDPHelperAdapter) Open(
 		return nil, fmt.Errorf("%w: missing media sender", remoteaccess.ErrInvalidDesktopTarget)
 	}
 
-	helperPath, err := remoteaccess.ResolveRDPAdapterPath(a.HelperPath)
+	configuredPath := strings.TrimSpace(a.HelperPath)
+	if a.HelperPathResolver != nil {
+		if resolved := strings.TrimSpace(a.HelperPathResolver()); resolved != "" {
+			configuredPath = resolved
+		}
+	}
+
+	helperPath, err := remoteaccess.ResolveRDPAdapterPath(configuredPath)
 	if err != nil && a.Start == nil {
 		return nil, err
 	}
 	if helperPath == "" {
-		helperPath = remoteaccess.NormalizeRDPAdapterPath(a.HelperPath)
+		helperPath = remoteaccess.NormalizeRDPAdapterPath(configuredPath)
 	}
 
 	start := a.Start

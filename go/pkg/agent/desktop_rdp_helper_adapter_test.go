@@ -94,6 +94,40 @@ func TestDesktopRDPHelperAdapterOpenSendsPayloadAndClearsCredential(t *testing.T
 	}
 }
 
+func TestDesktopRDPHelperAdapterUsesDynamicHelperPath(t *testing.T) {
+	t.Parallel()
+
+	transport := newFakeDesktopRDPHelperTransport()
+	var gotPath string
+
+	session, err := (desktopRDPHelperAdapter{
+		HelperPath: "fallback-helper",
+		HelperPathResolver: func() string {
+			return "/staged/rdp/current/serviceradar-rdp-adapter"
+		},
+		Start: func(_ context.Context, path string) (desktopRDPHelperTransport, error) {
+			gotPath = path
+			return transport, nil
+		},
+	}).Open(context.Background(), remoteaccess.DesktopAdapterOpenRequest{
+		SessionID:        "desktop-session-1",
+		ActorID:          "user-1",
+		LocalAgentID:     "agent-1",
+		CurrentGatewayID: "gateway-1",
+		StartUnix:        1_778_000_000,
+		Target:           testDesktopRDPHelperTarget(),
+		MediaSender:      &fakeDesktopRDPHelperMediaSender{},
+	})
+	if err != nil {
+		t.Fatalf("Open returned error: %v", err)
+	}
+	t.Cleanup(func() { _ = session.Close(context.Background(), "test done") })
+
+	if gotPath != "/staged/rdp/current/serviceradar-rdp-adapter" {
+		t.Fatalf("helper path = %q, want staged add-on helper", gotPath)
+	}
+}
+
 func TestDesktopRDPHelperAdapterOpenClearsCredentialOnHelperStartFailure(t *testing.T) {
 	t.Parallel()
 

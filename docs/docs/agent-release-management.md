@@ -60,9 +60,9 @@ Recommended repository-release asset convention:
 - `serviceradar-agent-release-manifest.sig`
 - `serviceradar-agent_<version>_linux_amd64.tar.gz`
 
-The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, platform metadata, and optional capability and helper metadata. Base agent artifacts should use `capabilities: ["agent"]`. RDP-capable helper or bundle artifacts should include `remote_access.rdp`, the helper protocol version, compatible agent version range, checksums, signature references, SBOM/license-review references, and any deployment requirements needed by the one-click installer. Experimental RDP artifacts whose connector is not ready must include `deployment_requirements.helper_connector_ready_reason`.
+The manifest asset should contain the full multi-platform release manifest, including the final artifact URLs, SHA256 digests, and platform metadata. Base agent artifacts should use `capabilities: ["agent"]`. Optional capability helpers are not bundled into alternate managed-agent runtimes; publish them as native add-ons with their own signed artifacts and discovery index entries.
 
-The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work. RDP-enabled releases may also attach `serviceradar-agent-rdp_<version>_linux_amd64.tar.gz`; when present, the signed manifest should list that RDP bundle before the base agent artifact so RDP-enabled deployments select the bundle while default deployments filter it out and keep using the base artifact.
+The GitHub release pipeline now publishes these assets automatically when `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is configured for the release job. Manual repository releases must attach the same three assets for one-click import to work. RDP helper delivery uses the `rdp` native add-on artifact instead of a `serviceradar-agent-rdp_*` runtime archive.
 
 ## Signing Key Handling
 

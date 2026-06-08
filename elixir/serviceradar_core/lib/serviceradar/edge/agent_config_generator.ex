@@ -386,10 +386,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         []
 
       _ ->
-        # Resolve the agent's platform only when there are assignments to compile,
-        # so the common no-add-on path avoids the extra registry lookup.
-        {agent_os, agent_arch} = resolve_agent_platform(agent_id, actor)
-        Enum.map(assignments, &build_addon_assignment_config(&1, agent_os, agent_arch))
+        # Resolve the agent's compatibility profile only when there are assignments
+        # to compile, so the common no-add-on path avoids the extra registry lookup.
+        profile = resolve_agent_addon_profile(agent_id, actor)
+
+        assignments
+        |> Enum.map(&build_deliverable_addon_assignment_config(&1, profile))
+        |> Enum.reject(&is_nil/1)
     end
   rescue
     e ->
@@ -429,9 +432,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
-  defp build_addon_assignment_config(%AddonAssignment{} = assignment, agent_os, agent_arch) do
+  defp build_deliverable_addon_assignment_config(%AddonAssignment{} = assignment, profile) do
     package = assignment.addon_package
-    artifact = select_addon_artifact(package.artifacts, agent_os, agent_arch)
+    artifact = select_addon_artifact(package.artifacts, profile.os, profile.arch)
+
+    if deliverable_addon_assignment?(assignment, profile, artifact) do
+      build_addon_assignment_config(assignment, artifact)
+    end
+  end
+
+  defp build_addon_assignment_config(%AddonAssignment{} = assignment, artifact) do
+    package = assignment.addon_package
 
     # Mint a gateway-proxied download request for the selected per-arch artifact so
     # agents fetch it over HTTPS through the gateway/web-ng addon-blob endpoint
@@ -461,19 +472,57 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     }
   end
 
-  # Resolves the target agent's {os, arch} from registry metadata so the generator
-  # can select the matching per-architecture artifact. Returns {nil, nil} when the
-  # agent or its platform metadata is unavailable.
-  defp resolve_agent_platform(agent_id, actor) do
+  defp deliverable_addon_assignment?(
+         %AddonAssignment{addon_package: %AddonPackage{} = package} = assignment,
+         profile,
+         artifact
+       ) do
+    cond do
+      not agent_platform_allowed?(package, profile.os) ->
+        Logger.warning(
+          "Skipping addon assignment #{assignment.id}: package #{package.id} does not support agent platform #{inspect(profile.os)}"
+        )
+
+        false
+
+      not agent_version_allowed?(package, profile.version) ->
+        Logger.warning(
+          "Skipping addon assignment #{assignment.id}: package #{package.id} requires base agent #{inspect(addon_base_agent_requirement(package))}, got #{inspect(profile.version)}"
+        )
+
+        false
+
+      package.delivery == :pushed_artifact and not artifact_selected?(artifact) ->
+        Logger.warning(
+          "Skipping addon assignment #{assignment.id}: package #{package.id} has no verified artifact for #{inspect(profile.os)}/#{inspect(profile.arch)}"
+        )
+
+        false
+
+      true ->
+        true
+    end
+  end
+
+  defp deliverable_addon_assignment?(_assignment, _profile, _artifact), do: false
+
+  # Resolves the target agent's add-on compatibility profile from registry
+  # metadata. Platform comes from metadata because Go agents report runtime
+  # OS/arch there; version comes from the first-class agent version field.
+  defp resolve_agent_addon_profile(agent_id, actor) do
     case Agent.get_by_uid(agent_id, actor: actor) do
-      {:ok, %{metadata: meta}} when is_map(meta) ->
-        {map_string(meta, "os", nil), map_string(meta, "arch", nil)}
+      {:ok, %{metadata: meta} = agent} when is_map(meta) ->
+        %{
+          os: map_string(meta, "os", nil),
+          arch: map_string(meta, "arch", nil),
+          version: agent.version
+        }
 
       _ ->
-        {nil, nil}
+        %{os: nil, arch: nil, version: nil}
     end
   rescue
-    _ -> {nil, nil}
+    _ -> %{os: nil, arch: nil, version: nil}
   end
 
   # Selects the per-architecture artifact matching the agent's os/arch from the
@@ -501,6 +550,79 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp select_addon_artifact(_artifacts, _os, _arch), do: %{}
+
+  defp artifact_selected?(artifact) when is_map(artifact) do
+    fetch_map_value(artifact, :object_key) not in [nil, ""] and
+      fetch_map_value(artifact, :sha256) not in [nil, ""]
+  end
+
+  defp artifact_selected?(_), do: false
+
+  defp agent_platform_allowed?(%AddonPackage{requires: requires}, agent_os)
+       when is_map(requires) do
+    case fetch_map_value(requires, :platforms, []) do
+      [] ->
+        true
+
+      platforms when is_list(platforms) ->
+        is_binary(agent_os) and agent_os in Enum.map(platforms, &to_string/1)
+
+      _ ->
+        true
+    end
+  end
+
+  defp agent_platform_allowed?(_package, _agent_os), do: true
+
+  defp agent_version_allowed?(%AddonPackage{} = package, agent_version) do
+    case addon_base_agent_requirement(package) do
+      nil -> true
+      "" -> true
+      requirement -> version_requirement_satisfied?(agent_version, requirement)
+    end
+  end
+
+  defp addon_base_agent_requirement(%AddonPackage{requires: requires}) when is_map(requires) do
+    fetch_map_value(requires, :base_agent)
+  end
+
+  defp addon_base_agent_requirement(_package), do: nil
+
+  defp version_requirement_satisfied?(agent_version, requirement)
+       when is_binary(agent_version) and is_binary(requirement) do
+    case Regex.run(~r/^\s*>?=\s*v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?\s*$/, requirement) do
+      [_, req_major, req_minor, req_patch] ->
+        with {:ok, current} <- parse_semver(agent_version),
+             {req_major, ""} <- Integer.parse(req_major),
+             {req_minor, ""} <- Integer.parse(req_minor),
+             {req_patch, ""} <- Integer.parse(req_patch) do
+          current >= {req_major, req_minor, req_patch}
+        else
+          _ -> false
+        end
+
+      _ ->
+        true
+    end
+  end
+
+  defp version_requirement_satisfied?(_agent_version, _requirement), do: false
+
+  defp parse_semver(version) when is_binary(version) do
+    case Regex.run(~r/v?(\d+)\.(\d+)\.(\d+)(?:[-+][0-9A-Za-z.-]+)?/, version) do
+      [_, major, minor, patch] ->
+        with {major, ""} <- Integer.parse(major),
+             {minor, ""} <- Integer.parse(minor),
+             {patch, ""} <- Integer.parse(patch) do
+          {:ok, {major, minor, patch}}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
 
   # Prefer the operator-approved capability subset when set (mirrors plugin
   # effective_capabilities); fall back to the package's full manifest list.

@@ -6,7 +6,6 @@
 # verifies on fetch. Layers pushed:
 #
 #   <bundle>.zip                         bundle_media_type        (manifest + per-arch binaries)
-#   upload-signature.json                upload_signature_media_type (bundle-level ed25519, plugin-upload key)
 #   <name>.<os>.<arch>.tar.gz            _ARTIFACT_MEDIA_TYPE     (per-arch pushed-artifact)
 #   <name>.<os>.<arch>.tar.gz.sig        _ARTIFACT_SIGNATURE_MEDIA_TYPE (hex ed25519 over the tarball, agent release key)
 #

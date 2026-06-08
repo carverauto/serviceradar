@@ -21,25 +21,18 @@ import (
 	"time"
 )
 
-// Client is the minimal health-probe client contract used by the manager.
+// Client is the minimal health-probe client contract used by native sidecar
+// attach paths such as netprobe.
 type Client interface {
 	Ping(context.Context) error
 	Close() error
 }
 
-// ClientFactory opens a health client for a sidecar socket.
+// ClientFactory opens a health client for a native sidecar socket.
 type ClientFactory func(ctx context.Context, socketPath string) (Client, error)
 
-// Sidecar describes a long-lived agent child process.
-type Sidecar interface {
-	Name() string
-	BinaryPath() string
-	Args(socketPath, configPath string) []string
-	OnHealthy(Client)
-	OnUnhealthy(error)
-}
-
-// State is the lifecycle state reported for a sidecar process.
+// State is the lifecycle state reported for an externally supervised native
+// sidecar process.
 type State string
 
 const (
@@ -51,7 +44,7 @@ const (
 	StateCircuitOpen State = "circuit_open"
 )
 
-// Status is a snapshot of one managed sidecar.
+// Status is a snapshot of one native sidecar observed by the agent.
 type Status struct {
 	Name          string    `json:"name"`
 	State         State     `json:"state"`

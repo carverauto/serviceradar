@@ -43,8 +43,9 @@ until an operator selects it:
 
 - **Selectable.** Operators choose which agents (or cohorts) run which add-ons in the
   Edge Ops UI - no rebuild, no redeploy of the base agent.
-- **Signed.** Add-on artifacts are Cosign-signed (Rekor transparency log) and carry an
-  ed25519 upload-signature; the agent verifies before activation.
+- **Signed.** Add-on OCI bundles are Cosign-signed (Rekor transparency log), and
+  each per-architecture pushed artifact carries an ed25519 signature from the agent
+  release key; the agent verifies before activation.
 - **Out-of-process by default.** The `agent-sidecar` model runs add-ons as
   [HashiCorp `go-plugin`](https://github.com/hashicorp/go-plugin) subprocesses
   (gRPC over a Unix-domain socket with AutoMTLS). The base agent never imports an
@@ -155,7 +156,7 @@ Before calling an add-on release ready, verify all of these:
   or runtime behavior changed.
 - The package was built for every supported `os/arch` pair and includes its systemd
   unit, config schema, helper files, and eBPF object files when applicable.
-- The release workflow produced signed artifacts, a signed discovery index, OCI
+- The release workflow produced signed artifacts, a published discovery index, OCI
   digest metadata, and package verification status.
 - The base agent release supports the add-on supervision model in the manifest.
 - A canary assignment installs the package, flips the `current` symlink, restarts the
@@ -181,6 +182,22 @@ hard runtime dependency of the other:
 | Enrich attributed flows with workload context | Both | Core joins NetFlow, process attribution, and workload identity upstream. |
 | Inventory containers without host flow capture | `workload-identity` only | Useful for asset inventory and future workload-level search. |
 | Capture host flow evidence without container metadata | `netprobe` only | Useful on bare-metal or VM hosts where process context is sufficient. |
+
+## Reference consumer coordination
+
+The native add-on framework intentionally landed before every historical optional
+capability was fully migrated. Keep these boundaries in mind when planning or
+reviewing follow-up changes:
+
+| Capability | Current add-on contract | Coordination notes |
+| --- | --- | --- |
+| Bumblebee exposure scanning | `pushed-artifact` or `os-package` with `systemd-timer` supervision | Keep the timer and spool model. The scanner should remain root-owned and dormant until assigned; the non-root agent should ingest bounded spool output only when an approved `AddonAssignment` enables the package. |
+| Host Network Visibility / netprobe | `pushed-artifact` with `systemd-service` supervision | Keep netprobe out of the base agent package. Its manifest declares Linux platform support, required file capabilities, systemd unit metadata, and eBPF/runtime files. The agent should activate the staged artifact, apply capabilities through the updater, install the unit, and report drift through `addon_statuses`. |
+| Remote access | `compiled-in` with `config-toggle`; RDP adapter is the separate `rdp` `pushed-artifact` / `ephemeral-helper` add-on | Remote access stays compiled in because the control-stream, HMAC, and session-recorder paths remain tightly coupled to the base agent. The per-session RDP helper ships through the native add-on pipeline, keeping the base-agent package boundary explicit. |
+
+These migration notes are coordination guardrails, not permission to bypass the
+framework. New native capabilities should default to out-of-process add-ons unless
+they are tightly coupled to the base agent like current remote-access.
 
 ## Package format
 
