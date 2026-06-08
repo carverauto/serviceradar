@@ -12,12 +12,12 @@
 
 ## 3. LiveView Refactor
 - [x] 3.1 Extract God View template and presentation helpers into component/template modules.
-- [ ] 3.2 Extract stream state and client perf telemetry into a dedicated module.
-- [ ] 3.3 Extract MTR overlay query/cache/normalization into a dedicated module.
-- [ ] 3.4 Extract camera relay single-session workflow into a dedicated module.
-- [ ] 3.5 Extract camera relay tile workflow into a dedicated module.
-- [ ] 3.6 Extract filter/layer/zoom assign transformations into a dedicated control-state module.
-- [ ] 3.7 Keep `TopologyLive.GodView` under a few hundred lines with event delegation and no embedded workflow bulk.
+- [x] 3.2 Extract stream state and client perf telemetry into a dedicated module.
+- [x] 3.3 Extract MTR overlay query/cache/normalization into a dedicated module.
+- [x] 3.4 Extract camera relay single-session workflow into a dedicated module.
+- [x] 3.5 Extract camera relay tile workflow into a dedicated module.
+- [x] 3.6 Extract filter/layer/zoom assign transformations into a dedicated control-state module.
+- [x] 3.7 Keep `TopologyLive.GodView` under a few hundred lines with event delegation and no embedded workflow bulk.
 
 ## 4. Shared Map Controls
 - [x] 4.1 Add pure God View deck camera math for focal zoom, pan, clamp, and reset/fit state.
