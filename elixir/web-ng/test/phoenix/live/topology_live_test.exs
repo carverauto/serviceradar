@@ -42,13 +42,49 @@ defmodule ServiceRadarWebNGWeb.TopologyLiveTest do
     refute html =~ "Topology unavailable"
   end
 
-  test "keeps topology unavailable copy when the stream errors", %{conn: conn} do
+  test "shows loading copy when the initial snapshot stream is still retrying", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/topology")
 
-    html = render_hook(view, "god_view_stream_error", %{})
+    html = render_hook(view, "god_view_stream_retrying", %{"reason" => "snapshot_bootstrap_failed"})
+
+    assert html =~ "Loading topology"
+    assert html =~ "Waiting for the topology snapshot stream to hydrate."
+    refute html =~ "Topology unavailable"
+  end
+
+  test "treats transient startup stream errors as retrying until the graph hydrates", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html = render_hook(view, "god_view_stream_error", %{"reason" => "snapshot_bootstrap_failed"})
+
+    assert html =~ "Loading topology"
+    refute html =~ "Topology unavailable"
+  end
+
+  test "keeps topology unavailable copy for fatal startup stream errors", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    html = render_hook(view, "god_view_stream_error", %{"reason" => "decode_error"})
 
     assert html =~ "Topology unavailable"
     assert html =~ "The topology stream failed."
+  end
+
+  test "does not cover an already hydrated topology after a transient stream error", %{conn: conn} do
+    {:ok, view, _html} = live(conn, ~p"/topology")
+
+    render_hook(view, "god_view_stream_stats", %{
+      "revision" => 42,
+      "node_count" => 7,
+      "edge_count" => 9,
+      "pipeline_stats" => %{"final_nodes" => 7, "final_edges" => 9}
+    })
+
+    html = render_hook(view, "god_view_stream_error", %{"reason" => "channel_close"})
+
+    refute html =~ "Topology unavailable"
+    refute html =~ "Loading topology"
+    refute html =~ "No topology data yet"
   end
 
   test "endpoint layer toggle only changes the endpoints control state", %{conn: conn} do

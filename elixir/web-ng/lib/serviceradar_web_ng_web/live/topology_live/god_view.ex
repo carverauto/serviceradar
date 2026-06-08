@@ -111,8 +111,26 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
      |> assign(:last_zoom_mode, Map.get(params, "zoom_mode", socket.assigns.last_zoom_mode))}
   end
 
-  def handle_event("god_view_stream_error", _params, socket) do
-    {:noreply, assign(socket, :stream_state, :error)}
+  def handle_event("god_view_stream_retrying", _params, socket) do
+    stream_state = if topology_snapshot_seen?(socket), do: :ok, else: :retrying
+
+    {:noreply, assign(socket, :stream_state, stream_state)}
+  end
+
+  def handle_event("god_view_stream_error", params, socket) do
+    stream_state =
+      cond do
+        topology_snapshot_seen?(socket) ->
+          :ok
+
+        transient_startup_stream_error?(Map.get(params, "reason")) ->
+          :retrying
+
+        true ->
+          :error
+      end
+
+    {:noreply, assign(socket, :stream_state, stream_state)}
   end
 
   def handle_event("toggle_causal_filter", %{"state" => state}, socket) do
@@ -1431,6 +1449,12 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
           message: "The topology stream failed. Check web-ng/runtime-graph logs and AGE topology data."
         }
 
+      stream_state == :retrying ->
+        %{
+          title: "Loading topology",
+          message: "Waiting for the topology snapshot stream to hydrate. This usually resolves automatically."
+        }
+
       stream_state == :ok and node_count == 0 and edge_count == 0 ->
         %{
           title: "No topology data yet",
@@ -1442,6 +1466,24 @@ defmodule ServiceRadarWebNGWeb.TopologyLive.GodView do
         nil
     end
   end
+
+  defp topology_snapshot_seen?(socket) do
+    not is_nil(socket.assigns.last_revision) or
+      not is_nil(socket.assigns.last_node_count) or
+      not is_nil(socket.assigns.last_edge_count)
+  end
+
+  defp transient_startup_stream_error?(reason)
+       when reason in [
+              "snapshot_bootstrap_failed",
+              "snapshot_error",
+              "snapshot_unavailable",
+              "join_failed",
+              "channel_error",
+              "channel_close"
+            ], do: true
+
+  defp transient_startup_stream_error?(_reason), do: false
 
   defp normalize_zoom_mode("global"), do: "global"
   defp normalize_zoom_mode("regional"), do: "regional"

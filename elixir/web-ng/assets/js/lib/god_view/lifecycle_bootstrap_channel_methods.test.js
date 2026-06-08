@@ -96,4 +96,40 @@ describe("lifecycle_bootstrap_channel_methods", () => {
       globalThis.fetch = originalFetch
     }
   })
+
+  it("bootstrapLatestSnapshot reports retrying instead of fatal error when the first fetch fails", async () => {
+    const originalFetch = globalThis.fetch
+    const fetchMock = vi.fn(async () => ({
+      ok: false,
+      status: 500,
+      headers: buildHeaders({}),
+      arrayBuffer: async () => new ArrayBuffer(0),
+    }))
+    globalThis.fetch = fetchMock
+
+    try {
+      const state = {
+        el: {dataset: {url: "/topology/snapshot/latest"}},
+        summary: {textContent: ""},
+        snapshotBootstrapPromise: null,
+        lastGraph: null,
+      }
+      const ctx = createStateBackedContext(state, {})
+      Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelMethods), {
+        handleSnapshot: vi.fn(async () => {}),
+        reportSnapshotStartupError: vi.fn(),
+      })
+
+      const loaded = await ctx.bootstrapLatestSnapshot()
+
+      expect(loaded).toEqual(false)
+      expect(state.summary.textContent).toBe("waiting for topology snapshot")
+      expect(ctx.reportSnapshotStartupError).toHaveBeenCalledWith("snapshot_bootstrap_failed", {
+        message: "Error: snapshot bootstrap http 500",
+      })
+      expect(ctx.handleSnapshot).not.toHaveBeenCalled()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
 })
