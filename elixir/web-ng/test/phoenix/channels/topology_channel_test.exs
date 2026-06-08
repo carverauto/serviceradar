@@ -77,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
     refute_push "snapshot_meta", _duplicate_meta, 500
   end
 
-  test "channel emits snapshot_error when snapshot build fails budget guard", %{user: user} do
+  test "channel still emits snapshot when build exceeds real-time budget", %{user: user} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
@@ -96,7 +96,9 @@ defmodule ServiceRadarWebNGWeb.TopologyChannelTest do
              |> socket("user-id", %{current_user: user})
              |> subscribe_and_join(TopologyChannel, @channel, %{})
 
-    assert_push "snapshot_error", %{reason: "snapshot_unavailable"}, 2_000
+    assert_push "snapshot", {:binary, _frame}, 2_000
+    assert_push "snapshot_meta", _meta, 2_000
+    refute_push "snapshot_error", _payload, 500
   end
 
   test "next_expanded_clusters keeps expansion exclusive" do

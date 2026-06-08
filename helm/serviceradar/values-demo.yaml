@@ -282,6 +282,8 @@ webNg:
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
+    snapshotBudgetMs: 2000
+    snapshotCoalesceMs: 0
   firstPartyPluginImport:
     autoSyncEnabled: true
     syncReleaseLimit: 20

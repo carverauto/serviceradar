@@ -364,6 +364,10 @@ spec:
           value: {{ default 30000 $webNgGodView.runtimeGraphRefreshMs | quote }}
         - name: SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_AUTO_REFRESH
           value: {{ $runtimeGraphAutoRefresh | quote }}
+        - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_BUDGET_MS
+          value: {{ default 2000 $webNgGodView.snapshotBudgetMs | quote }}
+        - name: SERVICERADAR_GOD_VIEW_SNAPSHOT_COALESCE_MS
+          value: {{ default 0 $webNgGodView.snapshotCoalesceMs | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_REPO_URL
           value: {{ default "https://code.carverauto.dev/carverauto/serviceradar" $webNgFirstPartyImport.repoUrl | quote }}
         - name: SERVICERADAR_FIRST_PARTY_PLUGIN_INDEX_ASSET

@@ -114,6 +114,7 @@ export const godViewLifecycleBootstrapStateDefaultsMethods = {
     this.state.canvas = null
     this.state.summary = null
     this.state.details = null
+    this.state.mapControls = null
     this.state.deck = null
     this.state.channel = null
     this.state.rendererMode = "initializing"

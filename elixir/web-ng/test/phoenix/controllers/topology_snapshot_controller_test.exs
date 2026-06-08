@@ -53,7 +53,7 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
   end
 
-  test "show returns build failure payload when budget guard drops snapshot", %{conn: conn} do
+  test "show returns binary snapshot when build exceeds real-time budget", %{conn: conn} do
     Application.put_env(:serviceradar_web_ng, :god_view_enabled, true)
 
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
@@ -68,11 +68,11 @@ defmodule ServiceRadarWebNGWeb.TopologySnapshotControllerTest do
     end)
 
     conn = get(conn, ~p"/topology/snapshot/latest")
-    body = Jason.decode!(conn.resp_body)
 
-    assert conn.status == 500
-    assert body["error"] == "snapshot_build_failed"
-    refute Map.has_key?(body, "reason")
+    assert conn.status == 200
+    assert conn |> get_resp_header("content-type") |> List.first() =~ "application/octet-stream"
+    assert binary_part(conn.resp_body, 0, 6) == "ARROW1"
+    assert binary_part(conn.resp_body, byte_size(conn.resp_body) - 6, 6) == "ARROW1"
   end
 
   test "show fails closed without an authenticated scope", %{conn: conn} do

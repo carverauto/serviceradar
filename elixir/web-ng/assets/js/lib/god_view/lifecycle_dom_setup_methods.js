@@ -206,10 +206,22 @@ export const godViewLifecycleDomSetupMethods = {
     this.state.details.addEventListener("click", (event) => this.handleDetailsPanelClick(event))
     this.state.el.addEventListener("click", (event) => this.handleTooltipPanelClick(event))
 
+    this.state.mapControls = document.createElement("div")
+    this.state.mapControls.className = "sr-god-view-map-controls"
+    this.state.mapControls.innerHTML = `
+      <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="zoom-in" aria-label="Zoom in">+</button>
+      <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="zoom-out" aria-label="Zoom out">-</button>
+      <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="fit" aria-label="Fit topology">Fit</button>
+      <button type="button" class="sr-ops-map-control-button" data-god-view-map-action="reset" aria-label="Reset topology view">Reset</button>
+    `
+    this.state.mapControls.addEventListener("click", this.handleMapControlClick)
+    this.state.mapControls.addEventListener("pointerdown", (event) => event.stopPropagation?.())
+
     this.state.el.style.backgroundColor = `rgb(${this.state.visual.bg.slice(0, 3).join(",")})`
     this.state.el.appendChild(this.state.canvas)
     this.state.el.appendChild(this.state.summary)
     this.state.el.appendChild(this.state.details)
+    this.state.el.appendChild(this.state.mapControls)
 
     this.state.canvas.addEventListener("wheel", this.handleWheelZoom, {passive: false})
     this.state.canvas.addEventListener("pointerdown", this.handlePanStart)

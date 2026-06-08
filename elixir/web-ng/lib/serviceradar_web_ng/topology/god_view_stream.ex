@@ -144,14 +144,11 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
 
         emit_snapshot_drop_telemetry(snapshot, build_ms, budget_ms, dropped)
         emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms)
-        {:error, {:real_time_budget_exceeded, %{build_ms: build_ms, budget_ms: budget_ms}}}
+        maybe_put_default_snapshot_cache(snapshot_opts, result)
+        {:ok, result}
       else
         emit_snapshot_built_telemetry(snapshot, payload, build_ms, budget_ms)
-
-        if default_snapshot_options?(snapshot_opts) do
-          put_snapshot_cache(result)
-        end
-
+        maybe_put_default_snapshot_cache(snapshot_opts, result)
         {:ok, result}
       end
     else
@@ -5760,6 +5757,10 @@ defmodule ServiceRadarWebNG.Topology.GodViewStream do
       result: result,
       built_at_ms: System.monotonic_time(:millisecond)
     })
+  end
+
+  defp maybe_put_default_snapshot_cache(snapshot_opts, result) when is_map(snapshot_opts) and is_map(result) do
+    if default_snapshot_options?(snapshot_opts), do: put_snapshot_cache(result)
   end
 
   defp real_time_budget_ms do
