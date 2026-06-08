@@ -56,9 +56,16 @@ defmodule ServiceRadar.EventWriter.StateChangePublisherTest do
     test "no-ops on an unusable entity id even when enabled" do
       Application.put_env(:serviceradar_core, :state_change_events_enabled, true)
 
-      assert :ok = StateChangePublisher.publish_transition("ocsf_devices", nil, field: "is_available")
-      assert :ok = StateChangePublisher.publish_transition("ocsf_devices", "", field: "is_available")
-      assert :ok = StateChangePublisher.publish_transition("ocsf_devices", "   ", field: "is_available")
+      assert :ok =
+               StateChangePublisher.publish_transition("ocsf_devices", nil, field: "is_available")
+
+      assert :ok =
+               StateChangePublisher.publish_transition("ocsf_devices", "", field: "is_available")
+
+      assert :ok =
+               StateChangePublisher.publish_transition("ocsf_devices", "   ",
+                 field: "is_available"
+               )
     end
   end
 

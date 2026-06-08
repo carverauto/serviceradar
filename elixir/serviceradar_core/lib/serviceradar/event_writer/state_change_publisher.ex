@@ -163,8 +163,7 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
   defp normalize_value(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
   defp normalize_value(value), do: value
 
-  defp stringify_keys(map) when is_map(map),
-    do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
+  defp stringify_keys(map) when is_map(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
 
   defp stringify_keys(_), do: %{}
 end

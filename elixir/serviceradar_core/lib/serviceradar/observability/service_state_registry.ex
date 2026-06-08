@@ -64,8 +64,6 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
         %ServiceState{} = state -> %{available: state.available, state: state.state}
         _ -> nil
       end
-    else
-      nil
     end
   rescue
     _ -> nil
