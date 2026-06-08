@@ -21,8 +21,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 )
 
 // sampleAddonBin is the compiled reference add-on used across the e2e tests. It
@@ -99,6 +102,15 @@ func statusByID(m *Manager, id string) (Status, bool) {
 	return Status{}, false
 }
 
+func statusHasCapability(status Status, capability string) bool {
+	for _, candidate := range status.Capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+	return false
+}
+
 func waitForState(t *testing.T, m *Manager, id string, timeout time.Duration) Status {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
@@ -157,6 +169,39 @@ func TestManagerLaunchesConfiguresAndSupervises(t *testing.T) {
 	}
 	if s.LastHealthAt.IsZero() {
 		t.Fatalf("expected a health timestamp to be recorded")
+	}
+}
+
+func TestManagerKeepsLegacyAddonNonTelemetry(t *testing.T) {
+	requireSampleAddon(t)
+
+	var telemetryBatches atomic.Int64
+	cfg := testConfig(t)
+	cfg.TelemetryHandler = func(_ string, _ *coreaddon.TelemetryBatch) {
+		telemetryBatches.Add(1)
+	}
+
+	mgr := NewManager(cfg)
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	err := mgr.Apply(context.Background(), []Spec{{
+		ID:         "sample",
+		Version:    "0.1.0",
+		BinaryPath: sampleAddonBin,
+		ConfigJSON: []byte(`{"message":"legacy"}`),
+	}})
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+
+	s := waitForState(t, mgr, "sample", 15*time.Second)
+	if statusHasCapability(s, coreaddon.CapabilityNativeTelemetryV1) {
+		t.Fatalf("legacy addon unexpectedly reported telemetry capability: %+v", s.Capabilities)
+	}
+
+	time.Sleep(250 * time.Millisecond)
+	if got := telemetryBatches.Load(); got != 0 {
+		t.Fatalf("legacy addon emitted telemetry batches = %d, want 0", got)
 	}
 }
 

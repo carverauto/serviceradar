@@ -3,6 +3,9 @@ defmodule ServiceRadar.StatusHandlerTest do
 
   alias Netprobepb.FlowAttributionEvent
   alias Netprobepb.FlowAttributionEventBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias ServiceRadar.EventWriter.AttributedFlowJoiner
   alias ServiceRadar.StatusHandler
 
@@ -162,5 +165,108 @@ defmodule ServiceRadar.StatusHandlerTest do
     end
   end
 
-  def stub_publish(subject, payload, fun), do: fun.(subject, payload)
+  describe "addon telemetry source" do
+    setup do
+      original = Application.get_env(:serviceradar_core, StatusHandler, [])
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        addon_telemetry_publisher: {__MODULE__, :stub_publish, [self()]}
+      )
+
+      on_exit(fn ->
+        if original == [] do
+          Application.delete_env(:serviceradar_core, StatusHandler)
+        else
+          Application.put_env(:serviceradar_core, StatusHandler, original)
+        end
+      end)
+
+      :ok
+    end
+
+    test "publishes OCSF add-on telemetry records to pdns.ocsf with trusted metadata" do
+      ocsf_event =
+        Jason.encode!(%{
+          "id" => "4cc2b0d9-2f02-437c-83ec-df0d53ebdb47",
+          "time" => "2026-06-08T12:00:00Z",
+          "class_uid" => 4003,
+          "category_uid" => 4,
+          "type_uid" => 400_302,
+          "activity_id" => 2,
+          "severity_id" => 3,
+          "metadata" => %{
+            "service_radar" => %{
+              "addon_id" => "spoofed-addon",
+              "agent_id" => "spoofed-agent",
+              "gateway_id" => "spoofed-gateway",
+              "partition_id" => "spoofed-partition",
+              "source_ip" => "203.0.113.1"
+            }
+          }
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "powerdns", source_instance: "ns03"},
+          records: [
+            %TelemetryRecord{
+              event_id: "pdns-event-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ocsf_event
+            },
+            %TelemetryRecord{
+              event_id: "ignored-otel",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+              payload: "{}"
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:powerdns",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "ns03",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, "pdns.ocsf", payload}
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["class_uid"] == 4003
+      assert decoded["metadata"]["service_radar"]["addon_id"] == "powerdns"
+      assert decoded["metadata"]["service_radar"]["agent_id"] == "ns03"
+      assert decoded["metadata"]["service_radar"]["gateway_id"] == "gateway-a"
+      assert decoded["metadata"]["service_radar"]["partition_id"] == "prod-east"
+      assert decoded["metadata"]["service_radar"]["source_ip"] == "192.0.2.55"
+      assert decoded["metadata"]["service_radar"]["source_instance"] == "ns03"
+      refute_receive {:published, "pdns.ocsf", _payload}
+    end
+
+    test "ignores malformed add-on telemetry messages without crashing" do
+      status = %{
+        source: "addon:powerdns",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "agent-a",
+        partition: "prod-east",
+        message: <<255, 255, 255, 255>>
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+    end
+  end
+
+  def stub_publish(subject, payload, fun) when is_function(fun, 2), do: fun.(subject, payload)
+
+  def stub_publish(subject, payload, pid) when is_pid(pid) do
+    send(pid, {:published, subject, payload})
+    :ok
+  end
 end

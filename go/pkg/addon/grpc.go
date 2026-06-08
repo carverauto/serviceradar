@@ -18,6 +18,8 @@ package addon
 
 import (
 	"context"
+	"errors"
+	"io"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	goplugin "github.com/hashicorp/go-plugin"
@@ -97,12 +99,45 @@ func (s *grpcServer) Health(ctx context.Context, _ *addonpb.HealthRequest) (*add
 	}, nil
 }
 
+func (s *grpcServer) StreamTelemetry(
+	_ *addonpb.StreamTelemetryRequest,
+	stream addonpb.AddonService_StreamTelemetryServer,
+) error {
+	source, ok := s.impl.(TelemetrySource)
+	if !ok {
+		return nil
+	}
+
+	batches, err := source.StreamTelemetry(stream.Context())
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case batch, ok := <-batches:
+			if !ok {
+				return nil
+			}
+			if batch == nil {
+				continue
+			}
+			if err := stream.Send(batch); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // grpcClient adapts the generated AddonServiceClient to the Addon interface.
 type grpcClient struct {
 	client addonpb.AddonServiceClient
 }
 
 var _ Addon = (*grpcClient)(nil)
+var _ TelemetryClient = (*grpcClient)(nil)
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
 	resp, err := c.client.Info(ctx, &addonpb.InfoRequest{})
@@ -138,4 +173,34 @@ func (c *grpcClient) Health(ctx context.Context) (Health, error) {
 		Version:           resp.GetVersion(),
 		DegradationReason: resp.GetDegradationReason(),
 	}, nil
+}
+
+func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error) {
+	stream, err := c.client.StreamTelemetry(ctx, &addonpb.StreamTelemetryRequest{
+		Capability: CapabilityNativeTelemetryV1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan *addonpb.TelemetryBatch)
+	go func() {
+		defer close(out)
+		for {
+			batch, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return
+				}
+				return
+			}
+			select {
+			case out <- batch:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, nil
 }

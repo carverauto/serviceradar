@@ -56,6 +56,7 @@ type Config struct {
 	RestartBackoffInitial time.Duration
 	RestartBackoffMax     time.Duration
 	RestartLimitPerMinute int
+	TelemetryHandler      func(addonID string, batch *coreaddon.TelemetryBatch)
 	Logger                zerolog.Logger
 }
 
@@ -392,12 +393,61 @@ func (r *runner) runOnce(ctx context.Context) error {
 	}
 
 	version := spec.Version
-	if info, err := ac.Info(ctx); err == nil && info.Version != "" {
-		version = info.Version
+	capabilities := append([]string(nil), spec.Capabilities...)
+	if info, err := ac.Info(ctx); err == nil {
+		if info.Version != "" {
+			version = info.Version
+		}
+		if len(info.Capabilities) > 0 {
+			capabilities = append([]string(nil), info.Capabilities...)
+		}
 	}
-	r.setRunning(pid, version)
+
+	r.setRunning(pid, version, capabilities)
+
+	telemetryCtx, telemetryCancel := context.WithCancel(ctx)
+	defer telemetryCancel()
+	if hasCapability(capabilities, coreaddon.CapabilityNativeTelemetryV1) {
+		if telemetryClient, ok := ac.(coreaddon.TelemetryClient); ok {
+			go r.drainTelemetry(telemetryCtx, telemetryClient)
+		}
+	}
 
 	return r.supervise(ctx, client, ac, pid)
+}
+
+func hasCapability(capabilities []string, capability string) bool {
+	for _, candidate := range capabilities {
+		if candidate == capability {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
+	batches, err := telemetryClient.StreamTelemetry(ctx)
+	if err != nil {
+		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon telemetry stream failed to open")
+		return
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case batch, ok := <-batches:
+			if !ok {
+				return
+			}
+			if batch == nil {
+				continue
+			}
+			if r.cfg.TelemetryHandler != nil {
+				r.cfg.TelemetryHandler(r.id, batch)
+			}
+		}
+	}
 }
 
 // supervise polls health and applies reconfiguration until the add-on exits or
@@ -469,7 +519,11 @@ func (r *runner) snapshot() Status {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	status := r.status
-	status.Capabilities = append([]string(nil), r.spec.Capabilities...)
+	if len(status.Capabilities) == 0 {
+		status.Capabilities = append([]string(nil), r.spec.Capabilities...)
+	} else {
+		status.Capabilities = append([]string(nil), status.Capabilities...)
+	}
 	return status
 }
 
@@ -481,12 +535,13 @@ func (r *runner) setState(state State, lastErr string) {
 	r.status.LastError = lastErr
 }
 
-func (r *runner) setRunning(pid int, version string) {
+func (r *runner) setRunning(pid int, version string, capabilities []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.status.State = StateRunning
 	r.status.PID = pid
 	r.status.Version = version
+	r.status.Capabilities = append([]string(nil), capabilities...)
 	r.status.DegradationReason = ""
 	r.status.LastStartedAt = time.Now().UTC()
 	r.status.LastExitedAt = time.Time{}

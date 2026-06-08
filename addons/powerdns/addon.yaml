@@ -1,0 +1,40 @@
+# PowerDNS protobuf telemetry native add-on.
+#
+# Runs as an agent-sidecar go-plugin add-on on DNS hosts. PowerDNS Recursor
+# connects to the add-on's localhost TCP listener using protobufServer()
+# framing; the add-on decodes PBDNSMessage, maps RPZ/policy-hit responses to
+# OCSF DNS Activity, and emits generic native telemetry batches to the local
+# serviceradar-agent.
+id: powerdns
+name: PowerDNS DNS Telemetry
+version: 0.1.0
+description: >-
+  Local PowerDNS protobuf receiver that maps RPZ policy hits to OCSF DNS
+  Activity events and forwards them through the authenticated ServiceRadar agent
+  path.
+
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+language: rust
+
+capabilities:
+  - native-telemetry:v1
+  - dns-activity
+  - powerdns-rpz
+
+requires:
+  base_agent: ">=1.2.0"
+  platforms: [linux]
+  os_capabilities: []
+  run_as: serviceradar
+
+plugin:
+  protocol: grpc
+  app_protocol_version: 1
+
+exec:
+  binary: serviceradar-powerdns-addon
+  install_path: /usr/local/lib/serviceradar/bin
+
+config_schema: config.schema.json

@@ -61,4 +61,32 @@ func TestInsertOCSFEvents_SurfacesBatchInsertErrors(t *testing.T) {
 	require.Equal(t, 1, br.closeCalls)
 }
 
+func TestBuildOCSFEventsInsertQueryUsesIdTimeDedup(t *testing.T) {
+	query := buildOCSFEventsInsertQuery("ocsf_events")
+
+	require.Contains(t, query, "ON CONFLICT (id, time) DO NOTHING")
+}
+
+func TestInsertOCSFEvents_QueuesDuplicateRowsForDatabaseDedup(t *testing.T) {
+	ctx := context.Background()
+	br := &fakeBatchResults{}
+	db := &DB{executor: &fakePgxExecutor{br: br}}
+
+	now := time.Now().UTC()
+	duplicate := models.OCSFEventRow{
+		ID:          "dns-rpz-event",
+		Time:        now,
+		ClassUID:    4003,
+		CategoryUID: 4,
+		TypeUID:     400302,
+		ActivityID:  2,
+	}
+
+	err := db.InsertOCSFEvents(ctx, "ocsf_events", []models.OCSFEventRow{duplicate, duplicate})
+
+	require.NoError(t, err)
+	require.Equal(t, 2, br.execCalls)
+	require.Equal(t, 1, br.closeCalls)
+}
+
 // StoreBatchUsers coverage removed with auth storage deprecation.

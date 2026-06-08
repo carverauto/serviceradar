@@ -60,6 +60,7 @@ type Server struct {
 	netprobeSidecar    *agentnetprobe.Sidecar
 	flowPublisher      *flowPublisher
 	addonManager       agentaddon.AddonManager
+	addonTelemetry     *addonTelemetryBuffer
 	objectStore        ObjectStore
 }
 

@@ -31,9 +31,10 @@ use crate::handshake::{self, HandshakeError};
 use crate::pb::addon_service_server::{AddonService, AddonServiceServer};
 use crate::pb::{
     ConfigureRequest, ConfigureResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
+    StreamTelemetryRequest,
 };
 use crate::tls::{self, MtlsError};
-use crate::Addon;
+use crate::{Addon, TelemetryStream};
 
 /// The gRPC health-check service name the go-plugin client probes
 /// (`go-plugin`'s `GRPCServiceName`). The agent calls `Health/Check` for this
@@ -190,6 +191,8 @@ struct AddonGrpc {
 
 #[tonic::async_trait]
 impl AddonService for AddonGrpc {
+    type StreamTelemetryStream = TelemetryStream;
+
     async fn info(&self, _request: Request<InfoRequest>) -> Result<Response<InfoResponse>, Status> {
         let info = self
             .inner
@@ -234,5 +237,12 @@ impl AddonService for AddonGrpc {
             version: health.version,
             degradation_reason: health.degradation_reason,
         }))
+    }
+
+    async fn stream_telemetry(
+        &self,
+        _request: Request<StreamTelemetryRequest>,
+    ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
+        Ok(Response::new(self.inner.stream_telemetry()))
     }
 }

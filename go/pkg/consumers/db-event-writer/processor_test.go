@@ -1,6 +1,7 @@
 package dbeventwriter
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -286,7 +287,35 @@ func TestParseOCSFEvent(t *testing.T) {
 		t.Fatalf("unexpected class_uid: %d", row.ClassUID)
 	}
 
+	assertRawJSON(t, row.Metadata, `{}`)
+	assertRawJSON(t, row.Observables, `[]`)
+	assertRawJSON(t, row.Actor, `{}`)
+	assertRawJSON(t, row.Device, `{}`)
+	assertRawJSON(t, row.SrcEndpoint, `{}`)
+	assertRawJSON(t, row.DstEndpoint, `{}`)
+	assertRawJSON(t, row.Unmapped, `{}`)
+
 	if !row.CreatedAt.Before(time.Now().Add(1 * time.Minute)) {
 		t.Fatalf("expected created_at to be near now")
+	}
+}
+
+func assertRawJSON(t *testing.T, got json.RawMessage, want string) {
+	t.Helper()
+
+	var gotValue interface{}
+	if err := json.Unmarshal(got, &gotValue); err != nil {
+		t.Fatalf("failed to decode json %q: %v", string(got), err)
+	}
+
+	var wantValue interface{}
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("failed to decode expected json %q: %v", want, err)
+	}
+
+	gotBytes, gotErr := json.Marshal(gotValue)
+	wantBytes, wantErr := json.Marshal(wantValue)
+	if gotErr != nil || wantErr != nil || string(gotBytes) != string(wantBytes) {
+		t.Fatalf("unexpected json: got %s want %s", string(got), want)
 	}
 }

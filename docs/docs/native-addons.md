@@ -18,6 +18,8 @@ the first-party add-on runbooks:
   including eBPF-backed process attribution and AF_XDP flow capture.
 - [Workload Identity](./workload-identity.md) covers the standalone runtime
   metadata collector for Kubernetes, containerd, Docker, and Docker Compose hosts.
+- [PowerDNS Telemetry](#powerdns-telemetry-add-on) covers `serviceradar-powerdns-addon`,
+  including RPZ-hit DNS Activity events from PowerDNS Recursor protobuf logging.
 
 ## Documentation map
 
@@ -28,6 +30,7 @@ Native add-on documentation is split by job-to-be-done:
 | Understand package delivery, approval, assignment, status, rollback, and authoring | This page | **Settings > Agents > Add-ons** |
 | Roll out NetFlow-to-process attribution and host flow evidence | [Host Network Visibility](./netprobe.md) | **Observability > Attributed Flows** |
 | Add pod, namespace, image, Docker, and Compose context to host evidence | [Workload Identity](./workload-identity.md) | Agent detail, flow details, attributed flows |
+| Ingest PowerDNS RPZ policy hits as OCSF DNS Activity events | [PowerDNS Telemetry](#powerdns-telemetry-add-on) | Universal event search / SRQL `in:events` |
 | Roll the base `serviceradar-agent` binary | [Agent Release Management](./agent-release-management.md) | **Settings > Agents > Releases** |
 | Configure NetFlow exporters and understand central flow ingest | [NetFlow Ingest Guide](./netflow.md) | **Observability > NetFlows** |
 
@@ -94,11 +97,78 @@ ServiceRadar currently ships these native add-ons:
 | --- | --- | --- | --- |
 | `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution | Linux hosts and Kubernetes workers |
 | `workload-identity` | `serviceradar-workload-identity.service` | Container, pod, namespace, image, and runtime metadata | Kubernetes workers, Docker hosts, and Docker Compose hosts |
+| `powerdns` | `serviceradar-powerdns-addon` | PowerDNS Recursor protobuf ingest and RPZ-to-OCSF DNS Activity mapping | DNS resolver hosts running ServiceRadar Agent |
 
-Both add-ons are assigned from **Settings > Agents > Add-ons**, not from the base
+Native add-ons are assigned from **Settings > Agents > Add-ons**, not from the base
 agent release page. The base agent release catalog only rolls the `serviceradar-agent`
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
+
+## PowerDNS telemetry add-on
+
+The `powerdns` add-on is a Rust `agent-sidecar` that runs next to
+`serviceradar-agent` on DNS resolver hosts. PowerDNS Recursor connects to the add-on's
+localhost TCP listener and streams protobuf messages using PowerDNS' two-byte frame:
+`[uint16 big-endian length][PBDNSMessage]`. The add-on decodes the vendored
+PowerDNS `dnsmessage.proto`, defaults to RPZ/policy-hit filtering, maps accepted
+records to OCSF 1.8.0 DNS Activity (`class_uid=4003`), and emits those events through
+the generic `native-telemetry:v1` add-on stream.
+
+The transport path is:
+
+```text
+PowerDNS Recursor -> serviceradar-powerdns-addon -> serviceradar-agent
+  -> gateway StreamStatus source=addon:powerdns -> core-elx
+  -> NATS pdns.ocsf -> db-event-writer -> ocsf_events
+```
+
+This path intentionally avoids exposing the cluster OTEL collector to DNS hosts. The
+agent/gateway path already provides the authenticated agent identity, gateway,
+partition, and source IP envelope; core-elx overwrites any add-on-supplied
+`metadata.service_radar` values with that trusted envelope before publishing to NATS.
+
+### PowerDNS Recursor config
+
+For Recursor releases with Lua protobuf logging, configure a localhost receiver with
+responses enabled and tagged-only output:
+
+```lua
+protobufServer("127.0.0.1:6000", { logResponses = true, taggedOnly = true })
+```
+
+For Recursor 5.1.0 and newer YAML configuration, use the equivalent
+`logging.protobuf_servers` entry with `logResponses=true` and `taggedOnly=true`.
+`taggedOnly=true` is the source-side volume control: RPZ policy/tagged answers are
+sent, while the full query firehose is not. Keep the add-on's `rpz_only` config at
+its default `true` unless full DNS query/response logging has been capacity-tested.
+
+Use `setProtobufMasks()` when client-IP anonymization is required by the deployment.
+`outgoingProtobufServer` is not needed for RPZ hit logging because the policy verdict
+is present on the client-facing response stream.
+
+### Event shape and SRQL
+
+PowerDNS RPZ records are stored as OCSF DNS Activity events in `ocsf_events`. Search
+them through the generic events entity:
+
+```text
+in:events class_uid:4003 time:last_24h sort:time:desc
+in:events class_uid:4003 severity_id:3 time:last_1h
+```
+
+The add-on maps RPZ fields into first-class OCSF Security Control attributes:
+`action_id`, `disposition_id`, and `firewall_rule`. PowerDNS source-only fields such
+as server identity, device ID/name, message ID, newly observed domain, and requestor
+ID are preserved under `unmapped`; unbounded raw protobuf payloads are not stored by
+default.
+
+If profiling shows CTI dashboards over DNS domains, client IPs, policy names, or
+actions cannot be served from the generic JSONB event store at observed volume,
+promote the v1 write model without changing the add-on contract: add generated and
+indexed columns plus DNS continuous aggregates on `ocsf_events`, or create a
+dedicated `ocsf_dns_activity` hypertable following the existing
+`ocsf_network_activity` pattern. A dedicated `dns_events` SRQL entity should be added
+with that promotion; until then, use `in:events class_uid:4003`.
 
 ## On-host layout
 
