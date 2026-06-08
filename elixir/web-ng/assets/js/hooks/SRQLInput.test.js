@@ -26,6 +26,18 @@ const catalog = {
       },
       label: "Attributed Flows",
     },
+    events: {
+      default_sort: {field: "timestamp", direction: "desc"},
+      fields: {
+        boolean: [],
+        filter: ["log_name", "message", "severity"],
+        numeric: [],
+        series: [],
+        stats: [],
+        value: [],
+      },
+      label: "Events",
+    },
   },
   operators: [":"],
 }
@@ -73,6 +85,21 @@ describe("SRQLInput hook", () => {
       detail: "Sort field",
       slot: "field",
     })
+  })
+
+  test("accepts event time aliases in sort field context", () => {
+    const query = 'in:events log_name:"pdns.ocsf" sort:time:desc limit:50'
+    const state = tokenize(query, query.indexOf("time:desc") + "time".length)
+    const hook = hookFor(state)
+    const sortField = state.tokens.find(
+      token => token.kind === "field" && token.text === "time" && query.slice(token.start - 5, token.start) === "sort:"
+    )
+
+    expect(sortField).toBeTruthy()
+    expect(hook.isUnknown(sortField)).toBe(false)
+    expect(hook.sortableFieldsForEntity("events")).toEqual(
+      expect.arrayContaining(["event_timestamp", "time", "timestamp"])
+    )
   })
 
   test("accepts generated attributed flow detail filters", () => {

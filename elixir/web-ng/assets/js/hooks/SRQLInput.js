@@ -33,6 +33,12 @@ function unique(values) {
   return [...new Set(values.filter(Boolean))].sort()
 }
 
+function timestampSortAliases(field) {
+  return ["event_timestamp", "time", "timestamp"].includes(field)
+    ? ["event_timestamp", "time", "timestamp"]
+    : []
+}
+
 export default {
   mounted() {
     this.input = this.el
@@ -195,7 +201,11 @@ export default {
     const entity = this.catalog.entities?.[entityId]
     const defaultSortField = entity?.default_sort?.field
 
-    return unique([...this.fieldsForEntity(entityId), defaultSortField])
+    return unique([
+      ...this.fieldsForEntity(entityId),
+      defaultSortField,
+      ...timestampSortAliases(defaultSortField),
+    ])
   },
 
   fieldCandidates(state) {

@@ -37,19 +37,19 @@ func parseOCSFEvent(payload []byte) (*models.OCSFEventRow, error) {
 		Status:       rawString(raw, "status"),
 		StatusCode:   rawString(raw, "status_code"),
 		StatusDetail: rawString(raw, "status_detail"),
-		Metadata:     rawJSONOrDefault(raw, "metadata", jsonObjectDefault),
-		Observables:  rawJSONOrDefault(raw, "observables", jsonArrayDefault),
+		Metadata:     rawJSONOrDefault(raw, "metadata", jsonObjectDefault()),
+		Observables:  rawJSONOrDefault(raw, "observables", jsonArrayDefault()),
 		TraceID:      rawString(raw, "trace_id", "traceId"),
 		SpanID:       rawString(raw, "span_id", "spanId"),
-		Actor:        rawJSONOrDefault(raw, "actor", jsonObjectDefault),
-		Device:       rawJSONOrDefault(raw, "device", jsonObjectDefault),
-		SrcEndpoint:  rawJSONOrDefault(raw, "src_endpoint", jsonObjectDefault),
-		DstEndpoint:  rawJSONOrDefault(raw, "dst_endpoint", jsonObjectDefault),
+		Actor:        rawJSONOrDefault(raw, "actor", jsonObjectDefault()),
+		Device:       rawJSONOrDefault(raw, "device", jsonObjectDefault()),
+		SrcEndpoint:  rawJSONOrDefault(raw, "src_endpoint", jsonObjectDefault()),
+		DstEndpoint:  rawJSONOrDefault(raw, "dst_endpoint", jsonObjectDefault()),
 		LogName:      rawString(raw, "log_name"),
 		LogProvider:  rawString(raw, "log_provider"),
 		LogLevel:     rawString(raw, "log_level"),
 		LogVersion:   rawString(raw, "log_version"),
-		Unmapped:     rawJSONOrDefault(raw, "unmapped", jsonObjectDefault),
+		Unmapped:     rawJSONOrDefault(raw, "unmapped", jsonObjectDefault()),
 		RawData:      rawString(raw, "raw_data"),
 		CreatedAt:    time.Now().UTC(),
 	}
@@ -148,10 +148,13 @@ func rawJSON(raw map[string]json.RawMessage, key string) json.RawMessage {
 	return clone
 }
 
-var (
-	jsonObjectDefault = json.RawMessage(`{}`)
-	jsonArrayDefault  = json.RawMessage(`[]`)
-)
+func jsonObjectDefault() json.RawMessage {
+	return json.RawMessage(`{}`)
+}
+
+func jsonArrayDefault() json.RawMessage {
+	return json.RawMessage(`[]`)
+}
 
 func rawJSONOrDefault(raw map[string]json.RawMessage, key string, fallback json.RawMessage) json.RawMessage {
 	value := rawJSON(raw, key)

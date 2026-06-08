@@ -298,7 +298,7 @@ fn map_message_to_record(
     }
 
     let event_time_unix_nano = message_time_unix_nano(message);
-    let event = map_message_to_ocsf(message, event_time_unix_nano)?;
+    let event = map_message_to_ocsf(message, config, event_time_unix_nano)?;
     let event_id = event
         .get("id")
         .and_then(Value::as_str)
@@ -317,6 +317,7 @@ fn map_message_to_record(
 
 fn map_message_to_ocsf(
     message: &dnsmessage::PbdnsMessage,
+    config: &Config,
     event_time_unix_nano: i64,
 ) -> Option<Value> {
     let activity_id = match message.r#type {
@@ -329,6 +330,10 @@ fn map_message_to_ocsf(
     let (action_id, disposition_id, severity_id) = policy_control(response);
     let rcode = response.and_then(|r| r.rcode);
     let status_id = if rcode == Some(65536) { 2 } else { 1 };
+    let event_message = dns_event_message(message, response, activity_id);
+    let device_name = non_blank(message.device_name.as_deref())
+        .or_else(|| non_blank(Some(config.source_instance.as_str())))
+        .unwrap_or(SOURCE_TYPE);
 
     let mut event = json!({
         "id": stable_uuid(message, event_time_unix_nano),
@@ -340,11 +345,15 @@ fn map_message_to_ocsf(
         "activity_name": if activity_id == 1 { "Query" } else { "Response" },
         "severity_id": severity_id,
         "severity": severity_name(severity_id),
+        "message": event_message,
         "status_id": status_id,
         "status": if status_id == 1 { "Success" } else { "Failure" },
         "log_name": "pdns.ocsf",
+        "log_provider": config.source_instance,
         "actor": {},
-        "device": {},
+        "device": {
+            "name": device_name
+        },
         "observables": [],
         "query": dns_query(message),
         "src_endpoint": endpoint(message.from.as_deref(), message.from_port),
@@ -380,6 +389,40 @@ fn map_message_to_ocsf(
     }
 
     Some(event)
+}
+
+fn dns_event_message(
+    message: &dnsmessage::PbdnsMessage,
+    response: Option<&dnsmessage::pbdns_message::DnsResponse>,
+    activity_id: i32,
+) -> String {
+    let hostname = message
+        .question
+        .as_ref()
+        .and_then(|question| question.q_name.as_deref())
+        .map(trim_dns_name)
+        .unwrap_or_else(|| "<unknown>".to_owned());
+
+    if let Some(response) = response {
+        if has_policy_hit(Some(response)) {
+            let policy = non_blank(response.applied_policy.as_deref()).unwrap_or("unknown-policy");
+            let kind = response
+                .applied_policy_kind
+                .and_then(policy_kind_name)
+                .unwrap_or("policy");
+            return format!("PowerDNS RPZ {kind} match for {hostname} via {policy}");
+        }
+    }
+
+    if activity_id == 1 {
+        format!("PowerDNS DNS query for {hostname}")
+    } else {
+        let rcode = response
+            .and_then(|response| response.rcode)
+            .map(rcode_name)
+            .unwrap_or("unknown rcode");
+        format!("PowerDNS DNS response for {hostname} ({rcode})")
+    }
 }
 
 fn dns_query(message: &dnsmessage::PbdnsMessage) -> Value {
@@ -454,6 +497,10 @@ fn source_extras(message: &dnsmessage::PbdnsMessage) -> Value {
     );
     extras.insert("requestor_id", message.requestor_id.clone());
     json!(extras)
+}
+
+fn non_blank(value: Option<&str>) -> Option<&str> {
+    value.map(str::trim).filter(|value| !value.is_empty())
 }
 
 fn policy_control(response: Option<&dnsmessage::pbdns_message::DnsResponse>) -> (u32, u32, u32) {
@@ -705,8 +752,13 @@ mod tests {
         assert_eq!(event["disposition_id"], 2);
         assert_eq!(event["severity_id"], 3);
         assert_eq!(event["log_name"], "pdns.ocsf");
+        assert_eq!(event["log_provider"], "powerdns");
+        assert_eq!(
+            event["message"],
+            "PowerDNS RPZ NXDOMAIN match for bad.example via hagezi-pro"
+        );
         assert_eq!(event["actor"], json!({}));
-        assert_eq!(event["device"], json!({}));
+        assert_eq!(event["device"], json!({"name": "powerdns"}));
         assert_eq!(event["observables"], json!([]));
     }
 

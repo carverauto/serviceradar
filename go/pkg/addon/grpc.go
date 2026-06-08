@@ -18,6 +18,7 @@ package addon
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
@@ -188,7 +189,7 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 		for {
 			batch, err := stream.Recv()
 			if err != nil {
-				if err == io.EOF {
+				if errors.Is(err, io.EOF) {
 					return
 				}
 				return

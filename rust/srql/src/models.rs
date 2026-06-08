@@ -563,11 +563,26 @@ impl EventRow {
     pub fn into_json(self) -> serde_json::Value {
         let id = self.id.to_string();
         let host = extract_device_host(&self.device);
+        let raw_json = self
+            .raw_data
+            .as_deref()
+            .and_then(|raw_data| serde_json::from_str::<Value>(raw_data).ok());
+        let message = first_non_blank([
+            self.message.clone(),
+            raw_json.as_ref().and_then(derive_event_message_from_raw),
+        ]);
         let source_device_uid = source_device_uid_from_json_values(&[
             &self.device,
             &self.metadata,
             &self.unmapped,
             &self.observables,
+        ]);
+        let source = first_non_blank([
+            self.log_provider.clone(),
+            host.clone(),
+            raw_json.as_ref().and_then(derive_event_source_from_raw),
+            self.log_name.clone(),
+            source_device_uid.clone(),
         ]);
 
         serde_json::json!({
@@ -581,7 +596,7 @@ impl EventRow {
             "activity_name": self.activity_name,
             "severity_id": self.severity_id,
             "severity": self.severity,
-            "message": self.message,
+            "message": message.clone(),
             "status_id": self.status_id,
             "status": self.status,
             "status_code": self.status_code,
@@ -602,11 +617,19 @@ impl EventRow {
             "raw_data": self.raw_data,
             "host": host,
             "source_device_uid": source_device_uid,
-            "source": self.log_provider,
-            "short_message": self.message,
+            "source": source,
+            "short_message": message,
             "created_at": self.created_at,
         })
     }
+}
+
+fn first_non_blank(values: impl IntoIterator<Item = Option<String>>) -> Option<String> {
+    values
+        .into_iter()
+        .flatten()
+        .map(|value| value.trim().to_owned())
+        .find(|value| !value.is_empty())
 }
 
 fn extract_device_host(device: &serde_json::Value) -> Option<String> {
@@ -619,6 +642,51 @@ fn extract_device_host(device: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+fn derive_event_source_from_raw(raw: &Value) -> Option<String> {
+    first_non_blank([
+        json_path_string(raw, &["log_provider"]),
+        json_path_string(raw, &["device", "name"]),
+        json_path_string(raw, &["device", "hostname"]),
+        json_path_string(raw, &["unmapped", "device_name"]),
+        json_path_string(raw, &["log_name"]),
+    ])
+}
+
+fn derive_event_message_from_raw(raw: &Value) -> Option<String> {
+    if let Some(message) = json_path_string(raw, &["message"]) {
+        if !message.trim().is_empty() {
+            return Some(message);
+        }
+    }
+
+    let hostname = json_path_string(raw, &["query", "hostname"])?;
+    let policy = json_path_string(raw, &["firewall_rule", "name"]);
+    let policy_kind = json_path_string(raw, &["firewall_rule", "type"]);
+
+    if let Some(policy) = policy.filter(|value| !value.trim().is_empty()) {
+        let kind = policy_kind.unwrap_or_else(|| "policy".to_owned());
+        return Some(format!(
+            "PowerDNS RPZ {kind} match for {hostname} via {policy}"
+        ));
+    }
+
+    let activity =
+        json_path_string(raw, &["activity_name"]).unwrap_or_else(|| "DNS event".to_owned());
+    Some(format!("PowerDNS {activity} for {hostname}"))
+}
+
+fn json_path_string(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for key in path {
+        current = current.get(*key)?;
+    }
+    match current {
+        Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
+        Value::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]

@@ -175,7 +175,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       label: "Events",
       route: "/events",
       default_time: "last_7d",
-      default_sort_field: "timestamp",
+      default_sort_field: "time",
       default_sort_dir: "desc",
       default_filter_field: "message",
       filter_fields: [
