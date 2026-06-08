@@ -179,11 +179,15 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
 	}
-	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons()) {
+
+	// Apply native add-on assignments before visibility so independent telemetry add-ons
+	// can start even when a netprobe visibility apply is deferred. This also lets
+	// systemd-managed netprobe assignments install before visibility enters attach mode.
+	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
-			Msg("Deferring config version update because visibility config did not apply")
+			Msg("Deferring config version update because add-on assignments did not apply")
 		return false
 	}
 
@@ -207,16 +211,11 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		p.applyPluginConfig(pluginConfig)
 	}
 
-	// Apply native add-on (feature set) assignments if present. A failed
-	// pushed-artifact delivery must defer the config version update; otherwise the
-	// next poll reports the new version and the gateway can legitimately respond
-	// NotModified, leaving a transient failed add-on delivery stuck until some
-	// unrelated config change occurs.
-	if !p.applyAddonAssignments(ctx, configResp.GetAddons()) {
+	if !p.applyVisibilityConfig(ctx, configResp.VisibilityConfig, configResp.GetAddons()) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
-			Msg("Deferring config version update because add-on assignments did not apply")
+			Msg("Deferring config version update because visibility config did not apply")
 		return false
 	}
 
