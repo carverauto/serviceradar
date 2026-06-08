@@ -3,6 +3,7 @@ export const godViewLifecycleBootstrapCleanupDomMethods = {
     window.removeEventListener("resize", this.resizeCanvas)
     if (this.state.canvas) this.state.canvas.removeEventListener("wheel", this.handleWheelZoom)
     if (this.state.canvas) this.state.canvas.removeEventListener("pointerdown", this.handlePanStart)
+    if (this.state.mapControls) this.state.mapControls.removeEventListener("click", this.handleMapControlClick)
     window.removeEventListener("pointermove", this.handlePanMove)
     window.removeEventListener("pointerup", this.handlePanEnd)
     window.removeEventListener("pointercancel", this.handlePanEnd)

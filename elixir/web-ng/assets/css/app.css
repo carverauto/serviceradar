@@ -1555,6 +1555,16 @@
   color: #e0f2fe;
 }
 
+.sr-god-view-map-controls {
+  position: absolute;
+  z-index: 31;
+  right: 0.75rem;
+  bottom: 0.75rem;
+  display: inline-flex;
+  gap: 0.35rem;
+  pointer-events: auto;
+}
+
 .sr-ops-select,
 .sr-ops-button,
 .sr-ops-icon-button {

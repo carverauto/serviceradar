@@ -55,12 +55,9 @@ const godViewLifecycleBootstrapChannelCoreMethods = {
     })()
       .catch((error) => {
         if (!this.state.lastGraph && this.state.summary) {
-          this.state.summary.textContent = "snapshot bootstrap failed"
+          this.state.summary.textContent = "waiting for topology snapshot"
         }
-        this.state.pushEvent?.("god_view_stream_error", {
-          reason: "snapshot_bootstrap_failed",
-          message: `${error}`,
-        })
+        this.reportSnapshotStartupError?.("snapshot_bootstrap_failed", {message: `${error}`})
         return false
       })
       .finally(() => {

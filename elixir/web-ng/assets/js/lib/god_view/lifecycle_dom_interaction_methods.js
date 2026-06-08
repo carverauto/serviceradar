@@ -1,3 +1,5 @@
+import {canvasPoint, focalZoomViewState, panViewState, wheelZoomDelta} from "./deck_camera_controls"
+
 export const godViewLifecycleDomInteractionMethods = {
   startAnimationLoop() {
     if (this.state.animationTimer) return
@@ -69,6 +71,18 @@ export const godViewLifecycleDomInteractionMethods = {
       startY: Number(event.clientY || 0),
     }
   },
+  applyDeckViewState(viewState, {userLocked = true, syncZoomTier = true} = {}) {
+    if (!this.state.deck || !viewState) return
+
+    this.state.viewState = viewState
+    this.state.userCameraLocked = userLocked
+    this.state.isProgrammaticViewUpdate = true
+    this.state.deck.setProps({viewState: this.state.viewState})
+
+    if (syncZoomTier && this.state.zoomMode === "auto") {
+      this.deps.setZoomTier(this.deps.resolveZoomTier(this.state.viewState.zoom || 0), true)
+    }
+  },
   handlePanMove(event) {
     if (!this.state.deck) return
 
@@ -107,17 +121,7 @@ export const godViewLifecycleDomInteractionMethods = {
     this.state.dragState.lastX = clientX
     this.state.dragState.lastY = clientY
 
-    const zoom = Number(this.state.viewState.zoom || 0)
-    const scale = Math.max(0.0001, 2 ** zoom)
-    const [targetX = 0, targetY = 0, targetZ = 0] = this.state.viewState.target || [0, 0, 0]
-
-    this.state.viewState = {
-      ...this.state.viewState,
-      target: [targetX - dx / scale, targetY - dy / scale, targetZ],
-    }
-    this.state.userCameraLocked = true
-    this.state.isProgrammaticViewUpdate = true
-    this.state.deck.setProps({viewState: this.state.viewState})
+    this.applyDeckViewState(panViewState(this.state.viewState, dx, dy))
   },
   handlePanEnd(event) {
     if (this.state.pendingDragState) {
@@ -145,19 +149,49 @@ export const godViewLifecycleDomInteractionMethods = {
   handleWheelZoom(event) {
     if (!this.state.deck) return
     event.preventDefault()
+    event.stopPropagation?.()
 
-    const delta = Number(event.deltaY || 0)
-    const direction = delta > 0 ? -1 : 1
-    const zoomStep = 0.12
-    const nextZoom = (this.state.viewState.zoom || 0) + direction * zoomStep
-    const clamped = Math.max(this.state.viewState.minZoom, Math.min(this.state.viewState.maxZoom, nextZoom))
+    const point = canvasPoint(event, this.state.canvas)
+    const nextZoom = (this.state.viewState.zoom || 0) + wheelZoomDelta(event)
+    this.applyDeckViewState(focalZoomViewState(this.state.viewState, point, nextZoom))
+  },
+  zoomDeckCamera(delta, event = null) {
+    if (!this.state.deck) return
 
-    this.state.viewState = {...this.state.viewState, zoom: clamped}
-    this.state.userCameraLocked = true
-    this.state.isProgrammaticViewUpdate = true
-    this.state.deck.setProps({viewState: this.state.viewState})
-    if (this.state.zoomMode === "auto") {
-      this.deps.setZoomTier(this.deps.resolveZoomTier(clamped), true)
+    const rect = this.state.canvas?.getBoundingClientRect?.()
+    const centerEvent = rect
+      ? {clientX: rect.left + rect.width / 2, clientY: rect.top + rect.height / 2}
+      : null
+    const point = canvasPoint(event || centerEvent, this.state.canvas)
+    const nextZoom = (this.state.viewState.zoom || 0) + delta
+    this.applyDeckViewState(focalZoomViewState(this.state.viewState, point, nextZoom))
+  },
+  resetViewCamera({collapseExpanded = true} = {}) {
+    if (!this.state.deck) return
+
+    this.state.userCameraLocked = false
+    this.state.hasAutoFit = false
+
+    const hasExpandedClusters = Array.isArray(this.state.lastGraph?.nodes)
+      && this.state.lastGraph.nodes.some((node) => node?.details?.cluster_expanded === true)
+
+    if (collapseExpanded && hasExpandedClusters && typeof this.collapseAllClusters === "function") {
+      this.collapseAllClusters()
+      return
     }
+
+    this.deps.autoFitViewState(this.state.lastGraph)
+  },
+  handleMapControlClick(event) {
+    const action = event.target?.closest?.("[data-god-view-map-action]")?.getAttribute("data-god-view-map-action")
+    if (!action) return
+
+    event.preventDefault()
+    event.stopPropagation?.()
+
+    if (action === "zoom-in") this.zoomDeckCamera(0.35)
+    if (action === "zoom-out") this.zoomDeckCamera(-0.35)
+    if (action === "fit") this.resetViewCamera({collapseExpanded: false})
+    if (action === "reset") this.resetViewCamera({collapseExpanded: true})
   },
 }

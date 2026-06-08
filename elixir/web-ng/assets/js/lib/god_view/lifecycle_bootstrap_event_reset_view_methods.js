@@ -1,6 +1,11 @@
 export const godViewLifecycleBootstrapEventResetViewMethods = {
   registerResetViewEvent() {
     this.state.handleEvent("god_view:reset_view", () => {
+      if (typeof this.resetViewCamera === "function") {
+        this.resetViewCamera()
+        return
+      }
+
       if (!this.state.deck) return
 
       this.state.userCameraLocked = false

@@ -68,7 +68,7 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
     expect(ctx.startPolling).not.toHaveBeenCalled()
   })
 
-  it("schedules reconnect on join error", () => {
+  it("reports retrying and schedules reconnect on startup join error", () => {
     const {handlers, chain} = makeJoin()
     const channel = {join: vi.fn(() => chain)}
     const state = {
@@ -86,10 +86,23 @@ describe("lifecycle_bootstrap_channel_event_methods", () => {
     handlers.error({reason: "boom"})
 
     expect(state.channelJoined).toBe(false)
-    expect(state.summary.textContent).toBe("topology channel failed")
-    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {reason: "boom"})
+    expect(state.summary.textContent).toBe("waiting for topology channel")
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_retrying", {reason: "boom"})
     expect(ctx.bootstrapLatestSnapshot).toHaveBeenCalledTimes(1)
     expect(ctx.scheduleChannelReconnect).toHaveBeenCalledTimes(1)
+  })
+
+  it("reports fatal stream errors after a graph has hydrated", () => {
+    const state = {
+      lastGraph: {nodes: [], edges: []},
+      pushEvent: vi.fn(),
+    }
+    const ctx = createStateBackedContext(state, {})
+    Object.assign(ctx, bindApi(ctx, godViewLifecycleBootstrapChannelEventMethods))
+
+    ctx.reportSnapshotStartupError("channel_close")
+
+    expect(state.pushEvent).toHaveBeenCalledWith("god_view_stream_error", {reason: "channel_close"})
   })
 
   it("reconnectSnapshotChannel leaves current channel and re-sets up channel", () => {

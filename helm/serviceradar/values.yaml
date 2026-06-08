@@ -728,6 +728,8 @@ webNg:
   godView:
     runtimeGraphRefreshMs: 30000
     runtimeGraphAutoRefresh: true
+    snapshotBudgetMs: 2000
+    snapshotCoalesceMs: 0
   firstPartyPluginImport:
     repoUrl: "https://code.carverauto.dev/carverauto/serviceradar"
     indexAssetName: "serviceradar-wasm-plugin-index.json"

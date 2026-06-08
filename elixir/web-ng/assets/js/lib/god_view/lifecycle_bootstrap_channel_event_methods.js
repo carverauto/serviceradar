@@ -27,8 +27,10 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
     channel.on("snapshot", (msg) => this.handleSnapshot(msg))
 
     channel.on("snapshot_error", (msg) => {
-      this.state.summary.textContent = "snapshot stream error"
-      this.state.pushEvent("god_view_stream_error", {reason: msg?.reason || "snapshot_error"})
+      this.state.summary.textContent = this.hasHydratedSnapshot()
+        ? "snapshot stream error"
+        : "waiting for topology snapshot"
+      this.reportSnapshotStartupError(msg?.reason || "snapshot_error")
       if (!this.state.lastGraph) this.bootstrapLatestSnapshot()
     })
 
@@ -46,18 +48,37 @@ export const godViewLifecycleBootstrapChannelEventMethods = {
       })
       .receive("error", (reason) => {
         this.state.channelJoined = false
-        this.state.summary.textContent = "topology channel failed"
-        this.state.pushEvent("god_view_stream_error", {reason: reason?.reason || "join_failed"})
+        this.state.summary.textContent = this.hasHydratedSnapshot()
+          ? "topology channel failed"
+          : "waiting for topology channel"
+        this.reportSnapshotStartupError(reason?.reason || "join_failed")
         this.bootstrapLatestSnapshot()
         this.scheduleChannelReconnect()
       })
   },
   handleChannelDown(reason) {
     this.state.channelJoined = false
-    this.state.summary.textContent = "topology channel disconnected"
-    this.state.pushEvent("god_view_stream_error", {reason})
+    this.state.summary.textContent = this.hasHydratedSnapshot()
+      ? "topology channel disconnected"
+      : "waiting for topology channel"
+    this.reportSnapshotStartupError(reason)
     this.bootstrapLatestSnapshot()
     this.scheduleChannelReconnect()
+  },
+  hasHydratedSnapshot() {
+    return Boolean(this.state.lastGraph)
+  },
+  reportSnapshotStartupError(reason, extra = {}) {
+    const payload = {
+      ...extra,
+      reason: typeof reason === "string" && reason.trim() !== "" ? reason : "snapshot_error",
+    }
+
+    if (this.hasHydratedSnapshot()) {
+      this.state.pushEvent("god_view_stream_error", payload)
+    } else {
+      this.state.pushEvent("god_view_stream_retrying", payload)
+    }
   },
   scheduleChannelReconnect() {
     if (this.state.channelReconnectTimer) return

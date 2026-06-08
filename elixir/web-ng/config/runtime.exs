@@ -455,6 +455,18 @@ god_view_runtime_graph_refresh_ms =
     _ -> 30_000
   end
 
+god_view_snapshot_budget_ms =
+  case to_int.(System.get_env("SERVICERADAR_GOD_VIEW_SNAPSHOT_BUDGET_MS", "2000")) do
+    value when is_integer(value) and value > 0 -> value
+    _ -> 2_000
+  end
+
+god_view_snapshot_coalesce_ms =
+  case to_int.(System.get_env("SERVICERADAR_GOD_VIEW_SNAPSHOT_COALESCE_MS", "0")) do
+    value when is_integer(value) and value >= 0 -> value
+    _ -> 0
+  end
+
 god_view_runtime_graph_auto_refresh_default =
   if config_env() == :test, do: "false", else: "true"
 
@@ -589,7 +601,9 @@ config :serviceradar_web_ng,
 
 config :serviceradar_web_ng,
   god_view_runtime_graph_refresh_ms: god_view_runtime_graph_refresh_ms,
-  god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh
+  god_view_runtime_graph_auto_refresh: god_view_runtime_graph_auto_refresh,
+  god_view_snapshot_budget_ms: god_view_snapshot_budget_ms,
+  god_view_snapshot_coalesce_ms: god_view_snapshot_coalesce_ms
 
 config :serviceradar_web_ng,
   remote_access_app_enabled: remote_access_app_enabled

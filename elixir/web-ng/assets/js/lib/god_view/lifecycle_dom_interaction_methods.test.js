@@ -125,4 +125,76 @@ describe("lifecycle_dom_interaction_methods", () => {
     expect(preventDefault).toHaveBeenCalled()
     expect(setPointerCapture).toHaveBeenCalledWith(11)
   })
+
+  it("handleWheelZoom preserves the world point under the pointer", () => {
+    const rect = {left: 0, top: 0, width: 1000, height: 500}
+    const canvas = {getBoundingClientRect: vi.fn(() => rect)}
+    const state = {
+      canvas,
+      deck: {setProps: vi.fn()},
+      viewState: {zoom: 1, minZoom: -2, maxZoom: 5, target: [100, 50, 0]},
+      zoomMode: "auto",
+    }
+    const deps = {
+      setZoomTier: vi.fn(),
+      resolveZoomTier: vi.fn(() => "regional"),
+    }
+    const ctx = makeContext({state, deps})
+    const event = {
+      clientX: 700,
+      clientY: 350,
+      deltaY: -120,
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+    const worldBefore = {
+      x: state.viewState.target[0] + (event.clientX - rect.width / 2) / (2 ** state.viewState.zoom),
+      y: state.viewState.target[1] + (event.clientY - rect.height / 2) / (2 ** state.viewState.zoom),
+    }
+
+    ctx.handleWheelZoom(event)
+
+    const next = ctx.state.viewState
+    const worldAfter = {
+      x: next.target[0] + (event.clientX - rect.width / 2) / (2 ** next.zoom),
+      y: next.target[1] + (event.clientY - rect.height / 2) / (2 ** next.zoom),
+    }
+
+    expect(event.preventDefault).toHaveBeenCalledTimes(1)
+    expect(event.stopPropagation).toHaveBeenCalledTimes(1)
+    expect(next.zoom).toBeGreaterThan(1)
+    expect(worldAfter.x).toBeCloseTo(worldBefore.x, 5)
+    expect(worldAfter.y).toBeCloseTo(worldBefore.y, 5)
+    expect(ctx.state.userCameraLocked).toEqual(true)
+    expect(ctx.state.deck.setProps).toHaveBeenCalledWith({viewState: ctx.state.viewState})
+    expect(deps.setZoomTier).toHaveBeenCalledWith("regional", true)
+  })
+
+  it("handleMapControlClick triggers fit without collapsing expanded clusters", () => {
+    const graph = {nodes: [{details: {cluster_expanded: true}}]}
+    const ctx = makeContext({
+      state: {
+        deck: {setProps: vi.fn()},
+        lastGraph: graph,
+        userCameraLocked: true,
+        hasAutoFit: true,
+      },
+      deps: {autoFitViewState: vi.fn(), setZoomTier: vi.fn(), resolveZoomTier: vi.fn(() => "local")},
+      overrides: {collapseAllClusters: vi.fn()},
+    })
+    const event = {
+      target: {
+        closest: vi.fn(() => ({getAttribute: () => "fit"})),
+      },
+      preventDefault: vi.fn(),
+      stopPropagation: vi.fn(),
+    }
+
+    ctx.handleMapControlClick(event)
+
+    expect(ctx.collapseAllClusters).not.toHaveBeenCalled()
+    expect(ctx.deps.autoFitViewState).toHaveBeenCalledWith(graph)
+    expect(ctx.state.userCameraLocked).toEqual(false)
+    expect(ctx.state.hasAutoFit).toEqual(false)
+  })
 })

@@ -599,11 +599,14 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
     assert is_binary(Map.get(edge, :local_if_name_ba))
   end
 
-  test "latest_snapshot/0 drops snapshot when real-time budget is exceeded" do
+  test "latest_snapshot/0 serves valid snapshot when real-time budget is exceeded" do
     original_budget = Application.get_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
     Application.put_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms, -1)
+    handler_id = "god-view-dropped-#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
+      :telemetry.detach(handler_id)
+
       if is_nil(original_budget) do
         Application.delete_env(:serviceradar_web_ng, :god_view_snapshot_budget_ms)
       else
@@ -611,11 +614,24 @@ defmodule ServiceRadarWebNG.Topology.GodViewStreamTest do
       end
     end)
 
-    assert {:error, {:real_time_budget_exceeded, %{build_ms: build_ms, budget_ms: -1}}} =
-             latest_snapshot_for_test()
+    :ok =
+      :telemetry.attach(
+        handler_id,
+        [:serviceradar, :god_view, :snapshot, :dropped],
+        fn _event, measurements, metadata, pid ->
+          send(pid, {:god_view_dropped, measurements, metadata})
+        end,
+        self()
+      )
 
-    assert is_integer(build_ms)
-    assert build_ms >= 0
+    assert {:ok, %{snapshot: snapshot, payload: payload}} = latest_snapshot_for_test()
+    assert snapshot.revision > 0
+    assert is_binary(payload)
+
+    assert_receive {:god_view_dropped, measurements, metadata}, 2_000
+    assert measurements.build_ms >= 0
+    assert measurements.dropped_count >= 1
+    assert metadata.budget_ms == -1
   end
 
   test "latest_snapshot/0 returns causal bitmaps with consistent counts and widths" do
