@@ -29,7 +29,6 @@ import (
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
-	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/config"
 	srgrpc "github.com/carverauto/serviceradar/go/pkg/grpc"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -278,15 +277,15 @@ func (s *Server) initNetprobeSidecarStatus() {
 	netprobeSidecar := netprobe.NewSidecar(netprobe.SidecarConfig{
 		Logger: s.logger.WithComponent("agent.netprobe"),
 	})
-	manager, err := sidecar.NewManager(
-		sidecar.Config{
+	manager, err := netprobe.NewAttachManager(
+		netprobe.AttachManagerConfig{
 			ClientFactory: netprobe.ClientFactory(),
-			Logger:        s.logger.WithComponent("agent.sidecar"),
+			Logger:        s.logger.WithComponent("agent.netprobe.attach"),
 		},
 		netprobeSidecar,
 	)
 	if err != nil {
-		s.logger.Warn().Err(err).Msg("Failed to initialize netprobe sidecar status")
+		s.logger.Warn().Err(err).Msg("Failed to initialize netprobe attach status")
 		return
 	}
 

@@ -36,26 +36,3 @@ pkg_tar(
     extension = "tar.gz",
     package_dir = "/",
 )
-
-# netprobe carved out (delivered as a pushed-artifact add-on). rdp-adapter is a
-# separate optional binary still bundled here pending its own add-on migration.
-pkg_files(
-    name = "agent_rdp_release_runtime_files",
-    srcs = [
-        "//go/cmd/agent",
-        "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental",
-    ],
-    attributes = pkg_attributes(mode = "0755"),
-    prefix = "/",
-    renames = {
-        "//go/cmd/agent": "serviceradar-agent",
-        "//rust/rdp-adapter:rdp_adapter_ironrdp_connector_experimental": "serviceradar-rdp-adapter",
-    },
-)
-
-pkg_tar(
-    name = "agent_rdp_release_runtime_archive",
-    srcs = [":agent_rdp_release_runtime_files"],
-    extension = "tar.gz",
-    package_dir = "/",
-)

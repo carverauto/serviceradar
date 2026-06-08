@@ -1,36 +1,22 @@
-# Agent Sidecar Runtime
+# Agent Sidecar Status Types
 
-The `sidecar` package supervises long-lived helper processes owned by the Go
-agent. Phase 1 uses the runtime for `serviceradar-netprobe`; future sidecars can
-reuse the same contract.
+The `sidecar` package contains the shared status types used when the Go agent
+reports externally supervised native helpers such as `serviceradar-netprobe`.
+It no longer launches or supervises add-on subprocesses.
 
-## Contract
+## Runtime Ownership
 
-Implement `Sidecar` for each child process:
+Native add-ons use one of two runtime paths:
 
-- `Name()` returns a stable identifier used in logs, status snapshots, socket
-  paths, and config paths.
-- `BinaryPath()` returns the executable to launch.
-- `Args(socketPath, configPath string)` returns process arguments. The manager
-  computes the socket and config paths as `<runtime-dir>/<name>/ipc.sock` and
-  `<config-dir>/<name>.json`.
-- `OnHealthy(client)` is called after a successful health probe. The health
-  client is closed after the callback returns.
-- `OnUnhealthy(err)` is called after the configured consecutive health probe
-  failure threshold or when the restart circuit breaker opens.
+- `agent-sidecar` add-ons are supervised by `go/pkg/agent/addon`, which uses
+  HashiCorp `go-plugin` and manages one client per assigned add-on.
+- netprobe is delivered as a `systemd-service` add-on. The agent does not own
+  that process; `go/pkg/agent/netprobe.AttachManager` only attaches to the
+  well-known IPC socket, health checks it, pushes desired config on reconnect,
+  and maps health into this package's `Status` shape.
 
-## Supervision
+## Status
 
-The manager starts each sidecar with `exec.CommandContext`, streams stdout and
-stderr through the agent logger with `sidecar=<name>` and `pid=<pid>` fields,
-and restarts unexpected exits with exponential backoff. Defaults:
-
-- health interval: 5 seconds
-- unhealthy threshold: 3 failed probes
-- restart backoff: 1 second, doubling to a 60 second cap
-- restart circuit breaker: 5 restarts per minute
-- shutdown: SIGTERM, then SIGKILL after 5 seconds
-
-`Manager.Status()` returns one status record per sidecar with `name`, `state`,
-`pid`, `last_health_at`, `restart_count`, and `last_error`. The agent service is
-responsible for mapping those snapshots into its public status response.
+`Status` contains the public sidecar state fields (`name`, `state`, `pid`,
+`last_health_at`, `restart_count`, and `last_error`). `ToProtoStatuses` maps
+those snapshots into the agent's `StatusResponse.sidecars` field.

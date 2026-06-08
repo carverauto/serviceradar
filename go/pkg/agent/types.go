@@ -69,7 +69,6 @@ type sidecarStatusProvider interface {
 
 type sidecarLifecycleManager interface {
 	sidecarStatusProvider
-	Start(context.Context) error
 	StartAttach(context.Context) error
 	Stop(context.Context) error
 	Mode() (started, attach bool)

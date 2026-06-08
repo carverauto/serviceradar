@@ -101,7 +101,12 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)
-	capabilities := agentCapabilitiesForStatusWithBannerGrab(cfg, sidecars, sweepBannerGrab.Status == capabilityStatusAvailable)
+	capabilities := getAgentCapabilitiesForSidecarsWithRDPPath(
+		cfg,
+		sidecars,
+		sweepBannerGrab.Status == capabilityStatusAvailable,
+		p.remoteAccessRDPAdapterPath(),
+	)
 	capabilities = append(capabilities, addonCapabilities(addonStatuses)...)
 
 	resp := buildAgentCapabilityStatusResponse(
@@ -254,9 +259,23 @@ func getAgentCapabilitiesForSidecars(
 	sidecars []*proto.SidecarStatus,
 	sweepBannerGrabAvailable bool,
 ) []string {
+	return getAgentCapabilitiesForSidecarsWithRDPPath(
+		cfg,
+		sidecars,
+		sweepBannerGrabAvailable,
+		remoteAccessRDPAdapterPathFromConfig(cfg),
+	)
+}
+
+func getAgentCapabilitiesForSidecarsWithRDPPath(
+	cfg *ServerConfig,
+	sidecars []*proto.SidecarStatus,
+	sweepBannerGrabAvailable bool,
+	rdpAdapterPath string,
+) []string {
 	return agentCapabilities(agentCapabilityOptions{
 		enhancedBPF:                             remoteaccess.PlatformEnhancedRecordingAvailable(),
-		desktopRDP:                              remoteAccessRDPCapabilityEnabled(cfg),
+		desktopRDP:                              remoteAccessRDPCapabilityEnabledAtPath(cfg, rdpAdapterPath),
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
@@ -573,9 +592,21 @@ func containsCapability(capabilities []string, capability string) bool {
 }
 
 func remoteAccessRDPCapabilityEnabled(cfg *ServerConfig) bool {
+	return remoteAccessRDPCapabilityEnabledAtPath(cfg, remoteAccessRDPAdapterPathFromConfig(cfg))
+}
+
+func remoteAccessRDPCapabilityEnabledAtPath(cfg *ServerConfig, adapterPath string) bool {
 	if cfg == nil || cfg.RemoteAccessRDPEnabled == nil || !*cfg.RemoteAccessRDPEnabled {
 		return false
 	}
 
-	return remoteaccess.RDPAdapterReady(cfg.RemoteAccessRDPAdapterPath)
+	return remoteaccess.RDPAdapterReady(adapterPath)
+}
+
+func remoteAccessRDPAdapterPathFromConfig(cfg *ServerConfig) string {
+	if cfg == nil {
+		return ""
+	}
+
+	return strings.TrimSpace(cfg.RemoteAccessRDPAdapterPath)
 }

@@ -1307,8 +1307,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert [addon] = config.addons
       assert addon.addon_id == package.addon_id
       assert addon.enabled == true
-      assert addon.delivery == :pushed_artifact
-      assert addon.supervision == :agent_sidecar
+      assert addon.delivery == :compiled_in
+      assert addon.supervision == :config_toggle
       # The operator-approved subset wins over the package's full manifest list.
       assert addon.capabilities == ["remoteaccess"]
       assert addon.binary_path == "/opt/sr/bin/sample-addon-#{unique_id}"
@@ -1447,7 +1447,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.target_arch == "amd64"
     end
 
-    test "artifact reference is empty when no artifact matches the agent arch", %{
+    test "pushed-artifact assignment is omitted when no artifact matches the agent arch", %{
       actor: actor,
       agent_uid: agent_uid,
       unique_id: unique_id
@@ -1468,12 +1468,10 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
-      assert [addon] = config.addons
-      assert addon.artifact_object_key in [nil, ""]
-      assert addon.target_arch in [nil, ""]
+      assert config.addons == []
     end
 
-    test "incomplete artifact entry (missing sha256) yields no artifact reference", %{
+    test "pushed-artifact assignment is omitted when the matching artifact is incomplete", %{
       actor: actor,
       agent_uid: agent_uid,
       unique_id: unique_id
@@ -1495,9 +1493,84 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
 
+      assert config.addons == []
+    end
+
+    test "assignment is omitted when the agent platform is outside package requirements", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "darwin", "arch" => "amd64"})
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{"platforms" => ["linux"]}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config.addons == []
+    end
+
+    test "assignment is omitted when the agent version is below the package base-agent floor", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.1.9"
+        })
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{"base_agent" => ">=1.2.0", "platforms" => ["linux"]}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config.addons == []
+    end
+
+    test "assignment is emitted when package platform and base-agent floor are satisfied", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0"
+        })
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["sample"],
+          approved_capabilities: ["sample"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{"base_agent" => ">=1.2.0", "platforms" => ["linux"]}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
       assert [addon] = config.addons
-      assert addon.artifact_object_key in [nil, ""]
-      assert addon.artifact_sha256 in [nil, ""]
+      assert addon.addon_id == package.addon_id
     end
 
     test "netprobe systemd-service assignment compiles to a systemd_service addon the agent attaches to",
@@ -1565,8 +1638,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     capabilities = Keyword.get(opts, :capabilities, [])
     approved = Keyword.get(opts, :approved_capabilities, [])
     config_schema = Keyword.get(opts, :config_schema, %{})
-    delivery = Keyword.get(opts, :delivery, :pushed_artifact)
-    supervision = Keyword.get(opts, :supervision, :agent_sidecar)
+    delivery = Keyword.get(opts, :delivery, :compiled_in)
+    supervision = Keyword.get(opts, :supervision, :config_toggle)
     artifacts = Keyword.get(opts, :artifacts, %{})
     addon_id = Keyword.get(opts, :addon_id, "sample-addon-#{unique_id}")
     binary = Keyword.get(opts, :binary, "sample-addon-#{unique_id}")
@@ -1612,17 +1685,20 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     |> Ash.create()
   end
 
-  defp create_connected_agent(actor, agent_uid, metadata \\ %{}) do
+  defp create_connected_agent(actor, agent_uid, metadata \\ %{}, attrs \\ %{}) do
     Agent
     |> Ash.Changeset.for_create(
       :register_connected,
-      %{
-        uid: agent_uid,
-        name: "Config Test Agent #{agent_uid}",
-        host: "127.0.0.1",
-        port: 50_051,
-        metadata: metadata
-      },
+      Map.merge(
+        %{
+          uid: agent_uid,
+          name: "Config Test Agent #{agent_uid}",
+          host: "127.0.0.1",
+          port: 50_051,
+          metadata: metadata
+        },
+        attrs
+      ),
       actor: actor
     )
     |> Ash.create()

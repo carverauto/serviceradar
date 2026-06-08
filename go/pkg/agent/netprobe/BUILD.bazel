@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "netprobe",
     srcs = [
+        "attach_manager.go",
         "client.go",
         "config.go",
         "framing.go",
@@ -25,6 +26,7 @@ go_library(
 go_test(
     name = "netprobe_test",
     srcs = [
+        "attach_manager_test.go",
         "client_test.go",
         "config_test.go",
         "framing_test.go",

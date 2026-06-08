@@ -1,10 +1,9 @@
 #!/usr/bin/env bash
 # Verify-before-release for native add-on OCI artifacts (issue 3425,
 # add-native-addon-build-signing §2.4). Adapted from verify-wasm-plugin-publish.sh:
-# checks artifactType, the bundle + upload-signature layers and the ed25519
-# upload-signature, and the Cosign signature — and additionally verifies every
-# per-arch pushed-artifact tarball against its agent-release ed25519 signature
-# (the signature the agent itself checks on fetch).
+# checks artifactType, the bundle layer, and the Cosign signature, and verifies
+# every per-arch pushed-artifact tarball against its agent-release ed25519
+# signature (the signature the agent itself checks on fetch).
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"

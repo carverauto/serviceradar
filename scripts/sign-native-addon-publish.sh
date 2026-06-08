@@ -3,9 +3,10 @@
 # add-native-addon-build-signing §2.1). Adapted from sign-wasm-plugin-publish.sh:
 # identical OCI/cosign mechanics (OCI 1.1 referrer signature + a legacy detached
 # signature, so the WASM-derived verify-then-mirror importer accepts it), only the
-# metadata source differs (//build/native_addons:all_metadata). The per-arch
-# agent-release ed25519 signatures and the bundle-level upload-signature are
-# produced at push time (build/native_addons/publish_addon.sh).
+# metadata source differs (//build/native_addons:all_metadata). Per-arch
+# agent-release ed25519 signatures are produced at push time
+# (build/native_addons/publish_addon.sh); the bundle is covered by the Cosign
+# signature over the OCI artifact.
 set -euo pipefail
 
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"

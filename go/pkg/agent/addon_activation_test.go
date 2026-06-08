@@ -782,14 +782,16 @@ func TestStageAddonArtifactTarballRejectsUnsafeEntries(t *testing.T) {
 }
 
 func TestEphemeralHelperRegistry(t *testing.T) {
+	const rdpHelperPath = "/staged/rdp/current/serviceradar-rdp-adapter"
+
 	pl := &PushLoop{logger: logger.NewTestLogger()}
 
 	if _, ok := pl.EphemeralHelperPath("rdp"); ok {
 		t.Fatal("expected empty ephemeral-helper registry")
 	}
 
-	pl.rememberEphemeralHelper("rdp", "/staged/rdp/current/serviceradar-rdp-adapter")
-	if path, ok := pl.EphemeralHelperPath("rdp"); !ok || path != "/staged/rdp/current/serviceradar-rdp-adapter" {
+	pl.rememberEphemeralHelper("rdp", rdpHelperPath)
+	if path, ok := pl.EphemeralHelperPath("rdp"); !ok || path != rdpHelperPath {
 		t.Fatalf("EphemeralHelperPath = %q,%v", path, ok)
 	}
 

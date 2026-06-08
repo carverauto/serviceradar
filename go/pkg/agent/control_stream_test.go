@@ -1020,6 +1020,10 @@ func TestRemoteAccessRDPCapabilityRequiresConfigAndHelper(t *testing.T) {
 			t.Fatalf("%s: remoteAccessRDPCapabilityEnabled = %v, want %v", tc.name, got, tc.want)
 		}
 	}
+
+	if !remoteAccessRDPCapabilityEnabledAtPath(&ServerConfig{RemoteAccessRDPEnabled: &enabled}, readyAdapterPath) {
+		t.Fatal("expected staged RDP helper path to satisfy RDP capability when config enables RDP")
+	}
 }
 
 func jsonConsoleFrame(t *testing.T, sessionID string, frameType string, payload any) *proto.ConsoleFrame {

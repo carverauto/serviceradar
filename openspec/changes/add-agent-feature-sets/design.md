@@ -6,10 +6,11 @@ hand:
   that depends on `serviceradar-agent`, runs as a root-owned `systemd` oneshot +
   timer, writes a spool the non-root agent reads, and is enabled via a typed
   `BumblebeeConfig` proto field plus a local `enabled` toggle.
-- **host-network-visibility / `netprobe`** (in flight): a Rust sidecar supervised
-  by `go/pkg/agent/sidecar/manager.go` over a Unix-domain socket with health
-  pings, restart backoff, and a circuit breaker — the capability that change calls
-  `agent-sidecar-runtime`.
+- **host-network-visibility / `netprobe`** (in flight): a Rust sidecar originally
+  supervised by a fixed-list agent sidecar manager over a Unix-domain socket. The
+  native add-on contract moves optional runtime ownership out of the base agent:
+  `agent-sidecar` add-ons use go-plugin, while netprobe is now a
+  `systemd-service` add-on with an attach-only status/config loop.
 - **remote-access**: ~8k LOC compiled into the agent (`go/pkg/agent/remoteaccess`),
   multiplexed onto the agent's mTLS/SPIFFE gateway control stream, enabled by
   config flags; its Rust `rdp-adapter` is the only out-of-process piece and already
@@ -321,9 +322,11 @@ experience.
 - The in-flight `agent-sidecar-runtime` (from `add-host-network-visibility-sidecar`)
   is refactored to become the go-plugin-backed implementation of the `agent-sidecar`
   supervision model. This change defines the selection/catalog/lifecycle contract
-  above it; the supervisor is generalized from a fixed boot-time sidecar list with
-  wholesale start/stop to per-add-on dynamic registration with independent
-  enable/disable, each backed by a go-plugin client.
+  above it; `go/pkg/agent/addon` manages one go-plugin client per assigned add-on
+  with dynamic registration and independent enable/disable. The old fixed-list
+  sidecar launcher has been removed; netprobe's non-go-plugin IPC is scoped to
+  `go/pkg/agent/netprobe.AttachManager`, which only attaches to the externally
+  supervised `systemd-service` add-on.
 - WASM plugins remain a separate, complementary system. The line: a WASM plugin is a
   sandboxed, portable module loaded into the agent's runtime; an add-on is a native
   binary/sidecar/timer that needs host execution, OS capabilities, or a language

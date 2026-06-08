@@ -22,14 +22,36 @@
     `config_schema` *reference* is required/validated.
 
 ## 2. Signing & discovery (capability: native-addon-builds)
-- [ ] 2.1 Reuse `scripts/cosign_common.sh` to Cosign-sign the OCI artifact (Rekor by
+- [x] 2.1 Reuse `scripts/cosign_common.sh` to Cosign-sign the OCI artifact (Rekor by
   default); add the native-addon media-type constant + distinct `COSIGN_KEY_REF`. (§2.2)
-- [ ] 2.2 Attach the ed25519 upload-signature with a native-addon key id; fail closed
+  - DONE: `scripts/sign-native-addon-publish.sh` signs the published native add-on
+    OCI artifact through `scripts/cosign_common.sh`; `.forgejo/workflows/native-addons.yml`
+    prepares the OpenBao signing environment and sets `COSIGN_KEY_REF=hashivault://cosign-release`.
+    The native bundle media types are declared in `build/native_addons/defs.bzl`, and
+    `scripts/verify-native-addon-publish.sh` verifies the Cosign signature before release.
+- [x] 2.2 Attach the ed25519 upload-signature with a native-addon key id; fail closed
   when signing keys are unset. (§2.3)
-- [ ] 2.3 Generate `serviceradar-native-addon-index.json` (per-arch digests), publish
+  - DONE differently: native add-ons do not carry a WASM-style bundle-level
+    upload-signature. `build/native_addons/publish_addon.sh` signs each per-arch
+    pushed-artifact tarball with the existing agent release ed25519 key via
+    `//build/native_addons:addon_artifact_signature_tool`, and fails closed when
+    `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY` is unset. The agent verifies the same
+    signature before activation.
+- [x] 2.3 Generate `serviceradar-native-addon-index.json` (per-arch digests), publish
   as a release asset, and assert presence in the release job. (§2.4)
-- [ ] 2.4 Add the verify-before-release job (digest + Cosign + upload-signature). (§2.5)
-- [ ] 2.5 Confirm no signing keys/secrets committed; only public trust material. (§2.6)
+  - DONE: `scripts/generate-native-addon-import-index.sh` emits the per-arch import
+    index; `.forgejo/workflows/native-addons.yml` uploads it as
+    `serviceradar-native-addon-index.json` and re-queries the release to assert that
+    the asset is present after upload.
+- [x] 2.4 Add the verify-before-release job (digest + Cosign + upload-signature). (§2.5)
+  - DONE: `.forgejo/workflows/native-addons.yml` runs
+    `scripts/verify-native-addon-publish.sh` after signing. The verifier checks the
+    OCI artifact type, bundle layer, Cosign signature, and every per-arch artifact
+    tarball's ed25519 signature.
+- [x] 2.5 Confirm no signing keys/secrets committed; only public trust material. (§2.6)
+  - DONE: workflow inputs reference Forgejo secrets / OpenBao (`COSIGN_KEY_REF`,
+    `SERVICERADAR_AGENT_RELEASE_PRIVATE_KEY`, registry credentials); the repository
+    stores only public verification material and tooling.
 
 ## 3. Build hygiene & isolation gates
 - [x] 3.1 Keep method dead-code elimination enabled with a `whydeadcode` guard; forbid

@@ -151,6 +151,7 @@ const (
 	minSweepResultsStreamTimeout   = 30 * time.Second
 	maxSweepResultsStreamTimeout   = 30 * time.Minute
 	sweepResultsTimeoutPerChunk    = time.Second
+	rdpAdapterAddonID              = "rdp"
 )
 
 func gatewayIDFromClient(gateway *agentgateway.GatewayClient) string {
@@ -182,7 +183,6 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	remoteConsoleManager := newRemoteConsoleManagerWithRoute(serverAgentID(server), gatewayIDFromClient(gateway), log)
 	remoteConsoleManager.sshOptions.KnownHostsPath = remoteAccessKnownHostsFile(server)
 	remoteConsoleManager.desktopGateway = desktopMediaGatewayFromClient(gateway)
-	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPath: remoteAccessRDPAdapterPath(server)}
 	remoteConsoleManager.opener = func(ctx context.Context, frame *proto.ConsoleFrame) (remoteConsolePTY, error) {
 		spec, err := decodeProxmoxConsoleOpenPayload(frame)
 		if err != nil {
@@ -200,7 +200,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		return pluginManager.OpenProxmoxConsoleStream(ctx, spec)
 	}
 
-	return &PushLoop{
+	pushLoop := &PushLoop{
 		server:                    server,
 		gateway:                   gateway,
 		interval:                  interval,
@@ -221,6 +221,9 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		remoteConsoleManager:      remoteConsoleManager,
 		readSystemdUnitStatus:     readSystemdUnitStatusDefault,
 	}
+	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
+
+	return pushLoop
 }
 
 func configurePluginCredentialBroker(server *Server, gateway *agentgateway.GatewayClient) {
@@ -285,6 +288,19 @@ func remoteAccessRDPAdapterPath(server *Server) string {
 	defer server.mu.RUnlock()
 
 	return strings.TrimSpace(server.config.RemoteAccessRDPAdapterPath)
+}
+
+func (p *PushLoop) remoteAccessRDPAdapterPath() string {
+	if p != nil {
+		if path, ok := p.EphemeralHelperPath(rdpAdapterAddonID); ok && strings.TrimSpace(path) != "" {
+			return path
+		}
+	}
+	if p == nil {
+		return ""
+	}
+
+	return remoteAccessRDPAdapterPath(p.server)
 }
 
 func remoteAccessKnownHostsFile(server *Server) string {

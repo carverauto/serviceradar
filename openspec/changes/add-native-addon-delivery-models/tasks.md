@@ -3,15 +3,15 @@
 > Implements the agent-side delivery/supervision models beyond agent-sidecar from
 > `add-agent-feature-sets`. Task numbers in parentheses map back to that change.
 
-> **In progress.** The agent-side delivery + supervision is implemented end to end:
+> **Complete.** The agent-side delivery + supervision is implemented end to end:
 > pushed-artifact fetch → verify → (gzip-tarball-extract or bare binary) → stage →
 > activate, explicit rollback, `agent-updater` file-capability application (setcap), and
 > all supervision models (config-toggle, agent-sidecar, systemd-service/timer,
 > ephemeral-helper), plus the LKG cache. The build side now produces the per-arch
 > pushed-artifact tarball and an `os-package` add-on template ships under
-> `build/packaging/addon-template/`. **Only remaining: the base-agent packaging carve
-> (1.1, breaking)** — and tarball *signing*, which is owned by
-> `add-native-addon-build-signing` (secret-blocked).
+> `build/packaging/addon-template/`. Base-agent packaging now contains only the
+> core agent runtime; optional helpers such as netprobe and RDP adapter ship through
+> native add-on artifacts.
 
 ## 0. Artifact reference plumbing (prerequisite)
 - [x] 0.1 Carry the per-arch artifact reference to the agent: `AddonAssignmentConfig`
@@ -21,9 +21,9 @@
   `package.artifacts` and emits the reference; it joins the config version hash.
 
 ## 1. Packaging boundary
-- [ ] 1.1 Carve the base `serviceradar-agent` package to the core agent only (no
+- [x] 1.1 Carve the base `serviceradar-agent` package to the core agent only (no
   optional capability binaries baked in via alternate targets). (3425 §3.1)
-  — In progress. **netprobe carved** (this is also migrate-netprobe §1.4): removed
+  — Done. **netprobe carved** (this is also migrate-netprobe §1.4): removed
   `//rust/netprobe` from the agent deb/rpm (`packages.bzl`) *and* both self-update
   release-runtime archives (`agent_release_runtime_files`,
   `agent_rdp_release_runtime_files` in `build/packaging/agent/BUILD.bazel`), dropped the
@@ -31,9 +31,10 @@
   agent package — netprobe now ships as the `netprobe_addon_bundle` pushed-artifact
   (capabilities applied to the staged binary by the root-owned `agent-updater`). The
   `//rust/netprobe` build target is retained (now consumed by the add-on bundle).
-  **Remaining:** `serviceradar-rdp-adapter` is still bundled in
-  `agent_rdp_release_runtime_files` — carve it when rdp-adapter/remote-access migrates
-  to its own (ephemeral-helper) add-on delivery.
+  **RDP adapter carved:** the RDP-flavored managed-agent runtime target and release
+  publisher path were removed; `serviceradar-rdp-adapter` now ships as the `rdp`
+  `pushed-artifact` / `ephemeral-helper` native add-on, and remote-access resolves the
+  staged helper path dynamically with the static config path as compatibility fallback.
 - [x] 1.2 Define the signed `pushed-artifact` tarball format and the optional
   `os-package` add-on template (depends on `serviceradar-agent`, dormant on
   install). (§3.2)
