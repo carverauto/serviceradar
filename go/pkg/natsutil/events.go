@@ -234,7 +234,14 @@ func ConnectWithEventPublisher(
 		return nil, nil, fmt.Errorf("failed to create JetStream context: %w", err)
 	}
 
-	subjects := []string{ocsfEventsSubject, "logs.>", "otel.traces.>", "otel.metrics.>"}
+	subjects := []string{
+		ocsfEventsSubject,
+		"logs.>",
+		"otel.traces.>",
+		"otel.metrics.>",
+		"pdns.ocsf",
+		"pdns.ocsf.>",
+	}
 
 	stream, err := js.Stream(ctx, streamName)
 	if err != nil {

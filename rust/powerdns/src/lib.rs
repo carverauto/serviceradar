@@ -342,6 +342,10 @@ fn map_message_to_ocsf(
         "severity": severity_name(severity_id),
         "status_id": status_id,
         "status": if status_id == 1 { "Success" } else { "Failure" },
+        "log_name": "pdns.ocsf",
+        "actor": {},
+        "device": {},
+        "observables": [],
         "query": dns_query(message),
         "src_endpoint": endpoint(message.from.as_deref(), message.from_port),
         "dst_endpoint": endpoint(message.to.as_deref(), message.to_port),
@@ -700,6 +704,10 @@ mod tests {
         assert_eq!(event["action_id"], 2);
         assert_eq!(event["disposition_id"], 2);
         assert_eq!(event["severity_id"], 3);
+        assert_eq!(event["log_name"], "pdns.ocsf");
+        assert_eq!(event["actor"], json!({}));
+        assert_eq!(event["device"], json!({}));
+        assert_eq!(event["observables"], json!([]));
     }
 
     #[test]

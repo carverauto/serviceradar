@@ -66,6 +66,8 @@ func (c *EventsConfig) Validate() error {
 			"logs.>",
 			"otel.traces.>",
 			"otel.metrics.>",
+			"pdns.ocsf",
+			"pdns.ocsf.>",
 		}
 	}
 
