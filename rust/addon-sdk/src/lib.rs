@@ -53,11 +53,21 @@ pub mod pb {
     tonic::include_proto!("serviceradar.agent.addon.v1");
 }
 
+use std::pin::Pin;
+
 use async_trait::async_trait;
+use tokio_stream::Stream;
 
 pub use server::serve;
 pub use server::serve_on_listener;
 pub use server::ServeError;
+
+/// Capability advertised by add-ons that support native telemetry streaming.
+pub const CAPABILITY_NATIVE_TELEMETRY_V1: &str = "native-telemetry:v1";
+
+/// Stream item type used by [`Addon::stream_telemetry`].
+pub type TelemetryStream =
+    Pin<Box<dyn Stream<Item = Result<pb::TelemetryBatch, tonic::Status>> + Send + 'static>>;
 
 /// Coarse health of an add-on, mirroring `HealthResponse.Status` in the proto
 /// and the Go `addon.HealthStatus` enum.
@@ -108,6 +118,66 @@ pub struct Health {
     pub degradation_reason: String,
 }
 
+/// Convenience builder for `TelemetryBatch` messages.
+#[derive(Debug, Clone, Default)]
+pub struct TelemetryBatchBuilder {
+    batch: pb::TelemetryBatch,
+}
+
+impl TelemetryBatchBuilder {
+    pub fn new(source_type: impl Into<String>, source_instance: impl Into<String>) -> Self {
+        Self {
+            batch: pb::TelemetryBatch {
+                source: Some(pb::TelemetrySource {
+                    source_type: source_type.into(),
+                    source_instance: source_instance.into(),
+                    metadata: Default::default(),
+                }),
+                records: Vec::new(),
+                counters: None,
+            },
+        }
+    }
+
+    pub fn source_metadata(mut self, key: impl Into<String>, value: impl Into<String>) -> Self {
+        if let Some(source) = &mut self.batch.source {
+            source.metadata.insert(key.into(), value.into());
+        }
+        self
+    }
+
+    pub fn counters(mut self, counters: pb::TelemetryCounters) -> Self {
+        self.batch.counters = Some(counters);
+        self
+    }
+
+    pub fn push_record(mut self, record: pb::TelemetryRecord) -> Self {
+        self.batch.records.push(record);
+        self
+    }
+
+    pub fn build(self) -> pb::TelemetryBatch {
+        self.batch
+    }
+}
+
+/// Builds one OCSF event telemetry record.
+pub fn ocsf_event_record(
+    event_id: impl Into<String>,
+    event_time_unix_nano: i64,
+    observed_time_unix_nano: i64,
+    payload: impl Into<Vec<u8>>,
+) -> pb::TelemetryRecord {
+    pb::TelemetryRecord {
+        event_id: event_id.into(),
+        observed_time_unix_nano,
+        event_time_unix_nano,
+        payload_kind: pb::TelemetryPayloadKind::OcsfEvent as i32,
+        payload: payload.into(),
+        metadata: Default::default(),
+    }
+}
+
 impl Default for Health {
     fn default() -> Self {
         Health {
@@ -136,4 +206,12 @@ pub trait Addon: Send + Sync + 'static {
     /// The readiness probe the agent polls; a non-healthy status carries a bounded
     /// degradation reason.
     async fn health(&self) -> anyhow::Result<Health>;
+
+    /// Optional native telemetry stream. Add-ons that advertise
+    /// [`CAPABILITY_NATIVE_TELEMETRY_V1`] should override this method and return
+    /// bounded telemetry batches. The default empty stream keeps legacy add-ons
+    /// source-compatible.
+    fn stream_telemetry(&self) -> TelemetryStream {
+        Box::pin(tokio_stream::empty())
+    }
 }

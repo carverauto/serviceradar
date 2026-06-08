@@ -36,6 +36,55 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+type TelemetryPayloadKind int32
+
+const (
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED TelemetryPayloadKind = 0
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT  TelemetryPayloadKind = 1
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG    TelemetryPayloadKind = 2
+)
+
+// Enum value maps for TelemetryPayloadKind.
+var (
+	TelemetryPayloadKind_name = map[int32]string{
+		0: "TELEMETRY_PAYLOAD_KIND_UNSPECIFIED",
+		1: "TELEMETRY_PAYLOAD_KIND_OCSF_EVENT",
+		2: "TELEMETRY_PAYLOAD_KIND_OTEL_LOG",
+	}
+	TelemetryPayloadKind_value = map[string]int32{
+		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED": 0,
+		"TELEMETRY_PAYLOAD_KIND_OCSF_EVENT":  1,
+		"TELEMETRY_PAYLOAD_KIND_OTEL_LOG":    2,
+	}
+)
+
+func (x TelemetryPayloadKind) Enum() *TelemetryPayloadKind {
+	p := new(TelemetryPayloadKind)
+	*p = x
+	return p
+}
+
+func (x TelemetryPayloadKind) String() string {
+	return protoimpl.X.EnumStringOf(x.Descriptor(), protoreflect.EnumNumber(x))
+}
+
+func (TelemetryPayloadKind) Descriptor() protoreflect.EnumDescriptor {
+	return file_agent_addon_v1_addon_proto_enumTypes[0].Descriptor()
+}
+
+func (TelemetryPayloadKind) Type() protoreflect.EnumType {
+	return &file_agent_addon_v1_addon_proto_enumTypes[0]
+}
+
+func (x TelemetryPayloadKind) Number() protoreflect.EnumNumber {
+	return protoreflect.EnumNumber(x)
+}
+
+// Deprecated: Use TelemetryPayloadKind.Descriptor instead.
+func (TelemetryPayloadKind) EnumDescriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{0}
+}
+
 type HealthResponse_Status int32
 
 const (
@@ -72,11 +121,11 @@ func (x HealthResponse_Status) String() string {
 }
 
 func (HealthResponse_Status) Descriptor() protoreflect.EnumDescriptor {
-	return file_agent_addon_v1_addon_proto_enumTypes[0].Descriptor()
+	return file_agent_addon_v1_addon_proto_enumTypes[1].Descriptor()
 }
 
 func (HealthResponse_Status) Type() protoreflect.EnumType {
-	return &file_agent_addon_v1_addon_proto_enumTypes[0]
+	return &file_agent_addon_v1_addon_proto_enumTypes[1]
 }
 
 func (x HealthResponse_Status) Number() protoreflect.EnumNumber {
@@ -391,6 +440,338 @@ func (x *HealthResponse) GetDegradationReason() string {
 	return ""
 }
 
+type StreamTelemetryRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// capability is the telemetry capability version requested by the agent, for
+	// example "native-telemetry:v1".
+	Capability    string `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamTelemetryRequest) Reset() {
+	*x = StreamTelemetryRequest{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamTelemetryRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamTelemetryRequest) ProtoMessage() {}
+
+func (x *StreamTelemetryRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamTelemetryRequest.ProtoReflect.Descriptor instead.
+func (*StreamTelemetryRequest) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *StreamTelemetryRequest) GetCapability() string {
+	if x != nil {
+		return x.Capability
+	}
+	return ""
+}
+
+type TelemetrySource struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// source_type identifies the producer family, for example "powerdns".
+	SourceType string `protobuf:"bytes,1,opt,name=source_type,json=sourceType,proto3" json:"source_type,omitempty"`
+	// source_instance identifies the local producer instance, for example
+	// "recursor" or a configured listener name.
+	SourceInstance string `protobuf:"bytes,2,opt,name=source_instance,json=sourceInstance,proto3" json:"source_instance,omitempty"`
+	// metadata carries bounded source-local labels. Gateway-attested identity is
+	// attached upstream and MUST NOT be trusted from this map.
+	Metadata      map[string]string `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetrySource) Reset() {
+	*x = TelemetrySource{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetrySource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetrySource) ProtoMessage() {}
+
+func (x *TelemetrySource) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetrySource.ProtoReflect.Descriptor instead.
+func (*TelemetrySource) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *TelemetrySource) GetSourceType() string {
+	if x != nil {
+		return x.SourceType
+	}
+	return ""
+}
+
+func (x *TelemetrySource) GetSourceInstance() string {
+	if x != nil {
+		return x.SourceInstance
+	}
+	return ""
+}
+
+func (x *TelemetrySource) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type TelemetryCounters struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Received      uint64                 `protobuf:"varint,1,opt,name=received,proto3" json:"received,omitempty"`
+	Filtered      uint64                 `protobuf:"varint,2,opt,name=filtered,proto3" json:"filtered,omitempty"`
+	Emitted       uint64                 `protobuf:"varint,3,opt,name=emitted,proto3" json:"emitted,omitempty"`
+	Dropped       uint64                 `protobuf:"varint,4,opt,name=dropped,proto3" json:"dropped,omitempty"`
+	QueueDepth    uint64                 `protobuf:"varint,5,opt,name=queue_depth,json=queueDepth,proto3" json:"queue_depth,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetryCounters) Reset() {
+	*x = TelemetryCounters{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetryCounters) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetryCounters) ProtoMessage() {}
+
+func (x *TelemetryCounters) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetryCounters.ProtoReflect.Descriptor instead.
+func (*TelemetryCounters) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *TelemetryCounters) GetReceived() uint64 {
+	if x != nil {
+		return x.Received
+	}
+	return 0
+}
+
+func (x *TelemetryCounters) GetFiltered() uint64 {
+	if x != nil {
+		return x.Filtered
+	}
+	return 0
+}
+
+func (x *TelemetryCounters) GetEmitted() uint64 {
+	if x != nil {
+		return x.Emitted
+	}
+	return 0
+}
+
+func (x *TelemetryCounters) GetDropped() uint64 {
+	if x != nil {
+		return x.Dropped
+	}
+	return 0
+}
+
+func (x *TelemetryCounters) GetQueueDepth() uint64 {
+	if x != nil {
+		return x.QueueDepth
+	}
+	return 0
+}
+
+type TelemetryRecord struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// event_id is a stable idempotency key for this record.
+	EventId              string               `protobuf:"bytes,1,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
+	ObservedTimeUnixNano int64                `protobuf:"varint,2,opt,name=observed_time_unix_nano,json=observedTimeUnixNano,proto3" json:"observed_time_unix_nano,omitempty"`
+	EventTimeUnixNano    int64                `protobuf:"varint,3,opt,name=event_time_unix_nano,json=eventTimeUnixNano,proto3" json:"event_time_unix_nano,omitempty"`
+	PayloadKind          TelemetryPayloadKind `protobuf:"varint,4,opt,name=payload_kind,json=payloadKind,proto3,enum=serviceradar.agent.addon.v1.TelemetryPayloadKind" json:"payload_kind,omitempty"`
+	Payload              []byte               `protobuf:"bytes,5,opt,name=payload,proto3" json:"payload,omitempty"`
+	Metadata             map[string]string    `protobuf:"bytes,6,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
+}
+
+func (x *TelemetryRecord) Reset() {
+	*x = TelemetryRecord{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetryRecord) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetryRecord) ProtoMessage() {}
+
+func (x *TelemetryRecord) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetryRecord.ProtoReflect.Descriptor instead.
+func (*TelemetryRecord) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *TelemetryRecord) GetEventId() string {
+	if x != nil {
+		return x.EventId
+	}
+	return ""
+}
+
+func (x *TelemetryRecord) GetObservedTimeUnixNano() int64 {
+	if x != nil {
+		return x.ObservedTimeUnixNano
+	}
+	return 0
+}
+
+func (x *TelemetryRecord) GetEventTimeUnixNano() int64 {
+	if x != nil {
+		return x.EventTimeUnixNano
+	}
+	return 0
+}
+
+func (x *TelemetryRecord) GetPayloadKind() TelemetryPayloadKind {
+	if x != nil {
+		return x.PayloadKind
+	}
+	return TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED
+}
+
+func (x *TelemetryRecord) GetPayload() []byte {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *TelemetryRecord) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type TelemetryBatch struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Source        *TelemetrySource       `protobuf:"bytes,1,opt,name=source,proto3" json:"source,omitempty"`
+	Records       []*TelemetryRecord     `protobuf:"bytes,2,rep,name=records,proto3" json:"records,omitempty"`
+	Counters      *TelemetryCounters     `protobuf:"bytes,3,opt,name=counters,proto3" json:"counters,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *TelemetryBatch) Reset() {
+	*x = TelemetryBatch{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *TelemetryBatch) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*TelemetryBatch) ProtoMessage() {}
+
+func (x *TelemetryBatch) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use TelemetryBatch.ProtoReflect.Descriptor instead.
+func (*TelemetryBatch) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *TelemetryBatch) GetSource() *TelemetrySource {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *TelemetryBatch) GetRecords() []*TelemetryRecord {
+	if x != nil {
+		return x.Records
+	}
+	return nil
+}
+
+func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
+	if x != nil {
+		return x.Counters
+	}
+	return nil
+}
+
 var File_agent_addon_v1_addon_proto protoreflect.FileDescriptor
 
 const file_agent_addon_v1_addon_proto_rawDesc = "" +
@@ -418,11 +799,49 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\x12STATUS_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eSTATUS_HEALTHY\x10\x01\x12\x13\n" +
 	"\x0fSTATUS_DEGRADED\x10\x02\x12\x14\n" +
-	"\x10STATUS_UNHEALTHY\x10\x032\xba\x02\n" +
+	"\x10STATUS_UNHEALTHY\x10\x03\"8\n" +
+	"\x16StreamTelemetryRequest\x12\x1e\n" +
+	"\n" +
+	"capability\x18\x01 \x01(\tR\n" +
+	"capability\"\xf0\x01\n" +
+	"\x0fTelemetrySource\x12\x1f\n" +
+	"\vsource_type\x18\x01 \x01(\tR\n" +
+	"sourceType\x12'\n" +
+	"\x0fsource_instance\x18\x02 \x01(\tR\x0esourceInstance\x12V\n" +
+	"\bmetadata\x18\x03 \x03(\v2:.serviceradar.agent.addon.v1.TelemetrySource.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa0\x01\n" +
+	"\x11TelemetryCounters\x12\x1a\n" +
+	"\breceived\x18\x01 \x01(\x04R\breceived\x12\x1a\n" +
+	"\bfiltered\x18\x02 \x01(\x04R\bfiltered\x12\x18\n" +
+	"\aemitted\x18\x03 \x01(\x04R\aemitted\x12\x18\n" +
+	"\adropped\x18\x04 \x01(\x04R\adropped\x12\x1f\n" +
+	"\vqueue_depth\x18\x05 \x01(\x04R\n" +
+	"queueDepth\"\x99\x03\n" +
+	"\x0fTelemetryRecord\x12\x19\n" +
+	"\bevent_id\x18\x01 \x01(\tR\aeventId\x125\n" +
+	"\x17observed_time_unix_nano\x18\x02 \x01(\x03R\x14observedTimeUnixNano\x12/\n" +
+	"\x14event_time_unix_nano\x18\x03 \x01(\x03R\x11eventTimeUnixNano\x12T\n" +
+	"\fpayload_kind\x18\x04 \x01(\x0e21.serviceradar.agent.addon.v1.TelemetryPayloadKindR\vpayloadKind\x12\x18\n" +
+	"\apayload\x18\x05 \x01(\fR\apayload\x12V\n" +
+	"\bmetadata\x18\x06 \x03(\v2:.serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xea\x01\n" +
+	"\x0eTelemetryBatch\x12D\n" +
+	"\x06source\x18\x01 \x01(\v2,.serviceradar.agent.addon.v1.TelemetrySourceR\x06source\x12F\n" +
+	"\arecords\x18\x02 \x03(\v2,.serviceradar.agent.addon.v1.TelemetryRecordR\arecords\x12J\n" +
+	"\bcounters\x18\x03 \x01(\v2..serviceradar.agent.addon.v1.TelemetryCountersR\bcounters*\x8a\x01\n" +
+	"\x14TelemetryPayloadKind\x12&\n" +
+	"\"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x12%\n" +
+	"!TELEMETRY_PAYLOAD_KIND_OCSF_EVENT\x10\x01\x12#\n" +
+	"\x1fTELEMETRY_PAYLOAD_KIND_OTEL_LOG\x10\x022\xb1\x03\n" +
 	"\fAddonService\x12[\n" +
 	"\x04Info\x12(.serviceradar.agent.addon.v1.InfoRequest\x1a).serviceradar.agent.addon.v1.InfoResponse\x12j\n" +
 	"\tConfigure\x12-.serviceradar.agent.addon.v1.ConfigureRequest\x1a..serviceradar.agent.addon.v1.ConfigureResponse\x12a\n" +
-	"\x06Health\x12*.serviceradar.agent.addon.v1.HealthRequest\x1a+.serviceradar.agent.addon.v1.HealthResponseBAZ?github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpbb\x06proto3"
+	"\x06Health\x12*.serviceradar.agent.addon.v1.HealthRequest\x1a+.serviceradar.agent.addon.v1.HealthResponse\x12u\n" +
+	"\x0fStreamTelemetry\x123.serviceradar.agent.addon.v1.StreamTelemetryRequest\x1a+.serviceradar.agent.addon.v1.TelemetryBatch0\x01BAZ?github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpbb\x06proto3"
 
 var (
 	file_agent_addon_v1_addon_proto_rawDescOnce sync.Once
@@ -436,30 +855,46 @@ func file_agent_addon_v1_addon_proto_rawDescGZIP() []byte {
 	return file_agent_addon_v1_addon_proto_rawDescData
 }
 
-var file_agent_addon_v1_addon_proto_enumTypes = make([]protoimpl.EnumInfo, 1)
-var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_agent_addon_v1_addon_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
+var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
 var file_agent_addon_v1_addon_proto_goTypes = []any{
-	(HealthResponse_Status)(0), // 0: serviceradar.agent.addon.v1.HealthResponse.Status
-	(*InfoRequest)(nil),        // 1: serviceradar.agent.addon.v1.InfoRequest
-	(*InfoResponse)(nil),       // 2: serviceradar.agent.addon.v1.InfoResponse
-	(*ConfigureRequest)(nil),   // 3: serviceradar.agent.addon.v1.ConfigureRequest
-	(*ConfigureResponse)(nil),  // 4: serviceradar.agent.addon.v1.ConfigureResponse
-	(*HealthRequest)(nil),      // 5: serviceradar.agent.addon.v1.HealthRequest
-	(*HealthResponse)(nil),     // 6: serviceradar.agent.addon.v1.HealthResponse
+	(TelemetryPayloadKind)(0),      // 0: serviceradar.agent.addon.v1.TelemetryPayloadKind
+	(HealthResponse_Status)(0),     // 1: serviceradar.agent.addon.v1.HealthResponse.Status
+	(*InfoRequest)(nil),            // 2: serviceradar.agent.addon.v1.InfoRequest
+	(*InfoResponse)(nil),           // 3: serviceradar.agent.addon.v1.InfoResponse
+	(*ConfigureRequest)(nil),       // 4: serviceradar.agent.addon.v1.ConfigureRequest
+	(*ConfigureResponse)(nil),      // 5: serviceradar.agent.addon.v1.ConfigureResponse
+	(*HealthRequest)(nil),          // 6: serviceradar.agent.addon.v1.HealthRequest
+	(*HealthResponse)(nil),         // 7: serviceradar.agent.addon.v1.HealthResponse
+	(*StreamTelemetryRequest)(nil), // 8: serviceradar.agent.addon.v1.StreamTelemetryRequest
+	(*TelemetrySource)(nil),        // 9: serviceradar.agent.addon.v1.TelemetrySource
+	(*TelemetryCounters)(nil),      // 10: serviceradar.agent.addon.v1.TelemetryCounters
+	(*TelemetryRecord)(nil),        // 11: serviceradar.agent.addon.v1.TelemetryRecord
+	(*TelemetryBatch)(nil),         // 12: serviceradar.agent.addon.v1.TelemetryBatch
+	nil,                            // 13: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	nil,                            // 14: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
 }
 var file_agent_addon_v1_addon_proto_depIdxs = []int32{
-	0, // 0: serviceradar.agent.addon.v1.HealthResponse.status:type_name -> serviceradar.agent.addon.v1.HealthResponse.Status
-	1, // 1: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
-	3, // 2: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
-	5, // 3: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
-	2, // 4: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
-	4, // 5: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
-	6, // 6: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
-	4, // [4:7] is the sub-list for method output_type
-	1, // [1:4] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	1,  // 0: serviceradar.agent.addon.v1.HealthResponse.status:type_name -> serviceradar.agent.addon.v1.HealthResponse.Status
+	13, // 1: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	0,  // 2: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
+	14, // 3: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	9,  // 4: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
+	11, // 5: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
+	10, // 6: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
+	2,  // 7: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
+	4,  // 8: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
+	6,  // 9: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
+	8,  // 10: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
+	3,  // 11: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
+	5,  // 12: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
+	7,  // 13: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
+	12, // 14: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
+	11, // [11:15] is the sub-list for method output_type
+	7,  // [7:11] is the sub-list for method input_type
+	7,  // [7:7] is the sub-list for extension type_name
+	7,  // [7:7] is the sub-list for extension extendee
+	0,  // [0:7] is the sub-list for field type_name
 }
 
 func init() { file_agent_addon_v1_addon_proto_init() }
@@ -472,8 +907,8 @@ func file_agent_addon_v1_addon_proto_init() {
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_addon_v1_addon_proto_rawDesc), len(file_agent_addon_v1_addon_proto_rawDesc)),
-			NumEnums:      1,
-			NumMessages:   6,
+			NumEnums:      2,
+			NumMessages:   13,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

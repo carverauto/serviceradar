@@ -441,6 +441,7 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 	sentWorkloadIdentity := p.pushWorkloadIdentity(ctx)
 	sentPluginResults := p.pushPluginResults(ctx)
 	sentPluginTelemetry := p.pushPluginTelemetry(ctx)
+	sentAddonTelemetry := p.pushAddonTelemetry(ctx)
 
 	if len(statuses) == 0 &&
 		!sentSysmonMetrics &&
@@ -455,7 +456,8 @@ func (p *PushLoop) pushStatus(ctx context.Context) {
 		!sentFlowAttribution &&
 		!sentWorkloadIdentity &&
 		!sentPluginResults &&
-		!sentPluginTelemetry {
+		!sentPluginTelemetry &&
+		!sentAddonTelemetry {
 		p.logger.Debug().Msg("No statuses to push")
 	}
 }

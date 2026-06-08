@@ -34,9 +34,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AddonService_Info_FullMethodName      = "/serviceradar.agent.addon.v1.AddonService/Info"
-	AddonService_Configure_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/Configure"
-	AddonService_Health_FullMethodName    = "/serviceradar.agent.addon.v1.AddonService/Health"
+	AddonService_Info_FullMethodName            = "/serviceradar.agent.addon.v1.AddonService/Info"
+	AddonService_Configure_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/Configure"
+	AddonService_Health_FullMethodName          = "/serviceradar.agent.addon.v1.AddonService/Health"
+	AddonService_StreamTelemetry_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamTelemetry"
 )
 
 // AddonServiceClient is the client API for AddonService service.
@@ -61,6 +62,11 @@ type AddonServiceClient interface {
 	// doubles as the go-plugin health signal and carries a bounded degradation
 	// reason so the agent can report an add-on as degraded rather than absent.
 	Health(ctx context.Context, in *HealthRequest, opts ...grpc.CallOption) (*HealthResponse, error)
+	// StreamTelemetry is an optional add-on-to-agent telemetry stream. The agent
+	// only calls this RPC for add-ons that advertise the native-telemetry:v1
+	// capability in InfoResponse.capabilities. Add-ons that do not produce
+	// telemetry may leave the stream empty.
+	StreamTelemetry(ctx context.Context, in *StreamTelemetryRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TelemetryBatch], error)
 }
 
 type addonServiceClient struct {
@@ -101,6 +107,25 @@ func (c *addonServiceClient) Health(ctx context.Context, in *HealthRequest, opts
 	return out, nil
 }
 
+func (c *addonServiceClient) StreamTelemetry(ctx context.Context, in *StreamTelemetryRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TelemetryBatch], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AddonService_ServiceDesc.Streams[0], AddonService_StreamTelemetry_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamTelemetryRequest, TelemetryBatch]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamTelemetryClient = grpc.ServerStreamingClient[TelemetryBatch]
+
 // AddonServiceServer is the server API for AddonService service.
 // All implementations must embed UnimplementedAddonServiceServer
 // for forward compatibility.
@@ -123,6 +148,11 @@ type AddonServiceServer interface {
 	// doubles as the go-plugin health signal and carries a bounded degradation
 	// reason so the agent can report an add-on as degraded rather than absent.
 	Health(context.Context, *HealthRequest) (*HealthResponse, error)
+	// StreamTelemetry is an optional add-on-to-agent telemetry stream. The agent
+	// only calls this RPC for add-ons that advertise the native-telemetry:v1
+	// capability in InfoResponse.capabilities. Add-ons that do not produce
+	// telemetry may leave the stream empty.
+	StreamTelemetry(*StreamTelemetryRequest, grpc.ServerStreamingServer[TelemetryBatch]) error
 	mustEmbedUnimplementedAddonServiceServer()
 }
 
@@ -141,6 +171,9 @@ func (UnimplementedAddonServiceServer) Configure(context.Context, *ConfigureRequ
 }
 func (UnimplementedAddonServiceServer) Health(context.Context, *HealthRequest) (*HealthResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method Health not implemented")
+}
+func (UnimplementedAddonServiceServer) StreamTelemetry(*StreamTelemetryRequest, grpc.ServerStreamingServer[TelemetryBatch]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamTelemetry not implemented")
 }
 func (UnimplementedAddonServiceServer) mustEmbedUnimplementedAddonServiceServer() {}
 func (UnimplementedAddonServiceServer) testEmbeddedByValue()                      {}
@@ -217,6 +250,17 @@ func _AddonService_Health_Handler(srv interface{}, ctx context.Context, dec func
 	return interceptor(ctx, in, info, handler)
 }
 
+func _AddonService_StreamTelemetry_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamTelemetryRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AddonServiceServer).StreamTelemetry(m, &grpc.GenericServerStream[StreamTelemetryRequest, TelemetryBatch]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamTelemetryServer = grpc.ServerStreamingServer[TelemetryBatch]
+
 // AddonService_ServiceDesc is the grpc.ServiceDesc for AddonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -237,6 +281,12 @@ var AddonService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _AddonService_Health_Handler,
 		},
 	},
-	Streams:  []grpc.StreamDesc{},
+	Streams: []grpc.StreamDesc{
+		{
+			StreamName:    "StreamTelemetry",
+			Handler:       _AddonService_StreamTelemetry_Handler,
+			ServerStreams: true,
+		},
+	},
 	Metadata: "agent/addon/v1/addon.proto",
 }

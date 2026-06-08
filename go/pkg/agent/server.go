@@ -298,8 +298,13 @@ func (s *Server) initNetprobeSidecarStatus() {
 // initAddonManager creates the native add-on (feature set) manager that supervises
 // add-ons delivered via agent configuration as go-plugin subprocesses.
 func (s *Server) initAddonManager() {
+	if s.addonTelemetry == nil {
+		s.addonTelemetry = newAddonTelemetryBuffer(defaultAddonTelemetryQueueSize)
+	}
+
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
-		Logger: s.logger.WithComponent("agent.addon"),
+		TelemetryHandler: s.handleAddonTelemetry,
+		Logger:           s.logger.WithComponent("agent.addon"),
 	})
 }
 

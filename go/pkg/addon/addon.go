@@ -43,6 +43,10 @@ const (
 	// add-on binaries as plugins (not a security boundary; AutoMTLS provides that).
 	magicCookieKey   = "SERVICERADAR_ADDON_PLUGIN"
 	magicCookieValue = "serviceradar-addon-v1"
+
+	// CapabilityNativeTelemetryV1 marks add-ons that can stream telemetry batches
+	// to the local agent over AddonService.StreamTelemetry.
+	CapabilityNativeTelemetryV1 = "native-telemetry:v1"
 )
 
 // Handshake is the go-plugin handshake shared by the agent and every add-on.
@@ -66,6 +70,24 @@ type Addon interface {
 	// a bounded degradation reason.
 	Health(ctx context.Context) (Health, error)
 }
+
+// TelemetrySource is implemented by add-ons that can produce native telemetry.
+// Add-ons advertise this support with CapabilityNativeTelemetryV1 in Info.
+type TelemetrySource interface {
+	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
+}
+
+// TelemetryClient is implemented by client-side adapters that can drain a
+// remote add-on's telemetry stream.
+type TelemetryClient interface {
+	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
+}
+
+type TelemetryBatch = addonpb.TelemetryBatch
+type TelemetryRecord = addonpb.TelemetryRecord
+type TelemetrySourceInfo = addonpb.TelemetrySource
+type TelemetryCounters = addonpb.TelemetryCounters
+type TelemetryPayloadKind = addonpb.TelemetryPayloadKind
 
 // Info describes a running add-on.
 type Info struct {

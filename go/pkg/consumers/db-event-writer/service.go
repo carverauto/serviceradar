@@ -435,6 +435,8 @@ func consumerFilterSubjects(subject string) []string {
 		// JetStream consumer filter so those derived subjects are actually
 		// delivered to the db-event-writer without overlapping filters.
 		return []string{"otel.metrics", "otel.metrics.>"}
+	case "pdns.ocsf":
+		return []string{"pdns.ocsf", "pdns.ocsf.>"}
 	default:
 		return []string{subject}
 	}

@@ -43,7 +43,9 @@ defmodule ServiceRadar.EventWriter.Config do
   """
 
   alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
+  alias ServiceRadar.EventWriter.Processors.PowerDNS
 
   require Logger
 
@@ -136,7 +138,15 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "EVENTS",
         stream_name: "events",
         subject: "events.>",
-        processor: ServiceRadar.EventWriter.Processors.Events,
+        processor: Events,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
+        name: "PDNS_OCSF",
+        stream_name: "events",
+        subject: "pdns.ocsf",
+        processor: PowerDNS,
         batch_size: 100,
         batch_timeout: 1_000
       },

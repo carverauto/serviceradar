@@ -40,6 +40,12 @@ service AddonService {
   // doubles as the go-plugin health signal and carries a bounded degradation
   // reason so the agent can report an add-on as degraded rather than absent.
   rpc Health(HealthRequest) returns (HealthResponse);
+
+  // StreamTelemetry is an optional add-on-to-agent telemetry stream. The agent
+  // only calls this RPC for add-ons that advertise the native-telemetry:v1
+  // capability in InfoResponse.capabilities. Add-ons that do not produce
+  // telemetry may leave the stream empty.
+  rpc StreamTelemetry(StreamTelemetryRequest) returns (stream TelemetryBatch);
 }
 
 message InfoRequest {}
@@ -80,4 +86,51 @@ message HealthResponse {
   // degradation_reason is a bounded explanation when status is not HEALTHY
   // (e.g. "CAP_BPF not granted").
   string degradation_reason = 3;
+}
+
+message StreamTelemetryRequest {
+  // capability is the telemetry capability version requested by the agent, for
+  // example "native-telemetry:v1".
+  string capability = 1;
+}
+
+enum TelemetryPayloadKind {
+  TELEMETRY_PAYLOAD_KIND_UNSPECIFIED = 0;
+  TELEMETRY_PAYLOAD_KIND_OCSF_EVENT = 1;
+  TELEMETRY_PAYLOAD_KIND_OTEL_LOG = 2;
+}
+
+message TelemetrySource {
+  // source_type identifies the producer family, for example "powerdns".
+  string source_type = 1;
+  // source_instance identifies the local producer instance, for example
+  // "recursor" or a configured listener name.
+  string source_instance = 2;
+  // metadata carries bounded source-local labels. Gateway-attested identity is
+  // attached upstream and MUST NOT be trusted from this map.
+  map<string, string> metadata = 3;
+}
+
+message TelemetryCounters {
+  uint64 received = 1;
+  uint64 filtered = 2;
+  uint64 emitted = 3;
+  uint64 dropped = 4;
+  uint64 queue_depth = 5;
+}
+
+message TelemetryRecord {
+  // event_id is a stable idempotency key for this record.
+  string event_id = 1;
+  int64 observed_time_unix_nano = 2;
+  int64 event_time_unix_nano = 3;
+  TelemetryPayloadKind payload_kind = 4;
+  bytes payload = 5;
+  map<string, string> metadata = 6;
+}
+
+message TelemetryBatch {
+  TelemetrySource source = 1;
+  repeated TelemetryRecord records = 2;
+  TelemetryCounters counters = 3;
 }

@@ -11,6 +11,7 @@ members = [
     "rust/log-collector",
     "rust/netprobe",
     "rust/workload-identity",
+    "rust/powerdns",
     "rust/netprobe/ebpf",
     "rust/consumers/zen",
     "rust/rperf-client",

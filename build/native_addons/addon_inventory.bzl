@@ -93,6 +93,26 @@ ADDON_BUNDLES = [
         "pushed_artifact_tarball": True,
     },
     {
+        # PowerDNS protobuf telemetry add-on. Runs as an unprivileged go-plugin
+        # agent-sidecar on DNS hosts, receives localhost PowerDNS protobuf frames,
+        # and emits native-telemetry:v1 OCSF DNS Activity batches through the
+        # authenticated agent path.
+        "name": "powerdns_addon_bundle",
+        "addon_id": "powerdns",
+        "repository_name": "serviceradar-addon-powerdns",
+        "language": "rust",
+        "binary": "//rust/powerdns:serviceradar-powerdns-addon",
+        "binary_name": "serviceradar-powerdns-addon",
+        "platforms": [
+            ("linux", "amd64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/powerdns:addon.yaml"),
+            ("config.schema.json", "//addons/powerdns:config.schema.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
+    {
         # Workload identity collector add-on. Runs as a standalone ServiceRadar
         # host component that owns CRI/container runtime metadata discovery. Netprobe
         # is a later consumer of the upstream identity state, not the collector owner.
