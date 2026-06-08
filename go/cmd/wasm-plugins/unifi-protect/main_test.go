@@ -261,6 +261,17 @@ func TestMapProtectWSEventMotion(t *testing.T) {
 	if event.LogProvider != "unifi-protect-camera" {
 		t.Fatalf("unexpected log provider %q", event.LogProvider)
 	}
+	ref := event.Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
+	if ref[signalSchemaMetadataSchemaID] != protectSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", ref[signalSchemaMetadataSchemaID], protectSignalSchemaID)
+	}
+	if ref[signalSchemaMetadataDisplayContract] != protectSignalSchemaDisplayContractPath {
+		t.Fatalf(
+			"display contract = %#v, want %q",
+			ref[signalSchemaMetadataDisplayContract],
+			protectSignalSchemaDisplayContractPath,
+		)
+	}
 }
 
 func TestMapProtectWSEventInvalidJSON(t *testing.T) {

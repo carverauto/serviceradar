@@ -207,6 +207,96 @@
       "title": "Config schema reference",
       "description": "Relative path (within the bundle) to the JSON-Schema the control plane validates add-on configuration against.",
       "minLength": 1
+    },
+    "signal_schemas": {
+      "type": "array",
+      "title": "Telemetry signal schema references",
+      "description": "Declarative log/event payload schemas and display contracts shipped with this add-on package. Required for add-ons that emit logs or events.",
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "version",
+          "signal_type",
+          "payload_kind",
+          "payload_schema",
+          "display_contract",
+          "display_contract_id",
+          "display_contract_version"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Signal schema identifier",
+            "description": "Stable reverse-DNS-style signal schema id.",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          },
+          "version": {
+            "type": "string",
+            "title": "Signal schema version",
+            "description": "Semantic version of the producer payload schema.",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "signal_type": {
+            "type": "string",
+            "title": "Signal type",
+            "enum": ["event", "log"]
+          },
+          "payload_kind": {
+            "type": "string",
+            "title": "Payload kind",
+            "description": "Canonical platform payload shape described by this schema.",
+            "enum": ["ocsf_event", "otel_log"]
+          },
+          "payload_schema": {
+            "type": "string",
+            "title": "Payload JSON Schema path",
+            "description": "Relative JSON file path inside the add-on bundle.",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.json$"
+          },
+          "display_contract": {
+            "type": "string",
+            "title": "Display contract path",
+            "description": "Relative JSON file path inside the add-on bundle.",
+            "minLength": 1,
+            "maxLength": 240,
+            "pattern": "^[A-Za-z0-9_-][A-Za-z0-9_.-]*(?:/[A-Za-z0-9_-][A-Za-z0-9_.-]*)*\\.json$"
+          },
+          "display_contract_id": {
+            "type": "string",
+            "title": "Display contract identifier",
+            "minLength": 1,
+            "maxLength": 160,
+            "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+          },
+          "display_contract_version": {
+            "type": "string",
+            "title": "Display contract version",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "ocsf_schema_version": {
+            "type": "string",
+            "title": "OCSF schema version",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "class_uid": {
+            "type": "integer",
+            "title": "OCSF class UID",
+            "minimum": 1
+          },
+          "type_uid": {
+            "type": "integer",
+            "title": "OCSF type UID",
+            "minimum": 1
+          }
+        }
+      }
     }
   }
 }

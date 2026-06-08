@@ -1214,6 +1214,7 @@ func mapProtectWSEvent(data []byte) *sdk.OCSFEvent {
 		event.Unmapped = map[string]interface{}{}
 	}
 	event.Unmapped["protect_ws_payload"] = payload
+	attachProtectSignalSchemaRef(&event)
 
 	if obj, ok := eventObject(payload); ok {
 		device := map[string]any{}

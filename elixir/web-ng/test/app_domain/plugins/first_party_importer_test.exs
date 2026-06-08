@@ -416,7 +416,9 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporterTest do
               {~c"plugin.yaml", @manifest_yaml},
               {~c"plugin.wasm", @wasm},
               {~c"config.schema.json", Jason.encode!(%{"type" => "object"})},
-              {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})}
+              {~c"display_contract.json", Jason.encode!(%{"schema_version" => 1})},
+              {~c"display/event_log_activity.display.json", Jason.encode!(%{"widgets" => []})},
+              {~c"schemas/ocsf_event_log_activity.schema.json", Jason.encode!(%{"type" => "object"})}
             ])
 
           payload = File.read!(path)

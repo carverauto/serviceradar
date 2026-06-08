@@ -62,7 +62,10 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
         String.contains?(url, "/api/v1/repos/carverauto/serviceradar/releases?per_page=") ->
           releases =
             if Process.get(:first_party_duplicate_releases) do
-              [PackagesTest.first_party_release("v1.0.2"), PackagesTest.first_party_release("v1.0.1")]
+              [
+                PackagesTest.first_party_release("v1.0.2"),
+                PackagesTest.first_party_release("v1.0.1")
+              ]
             else
               [PackagesTest.first_party_release()]
             end
@@ -76,7 +79,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_release("v1.0.2")}}
 
         String.contains?(url, "/download/v1.0.2/serviceradar-wasm-plugin-index.json") ->
-          {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_index("v1.0.2"))}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: Jason.encode!(PackagesTest.first_party_index("v1.0.2"))
+           }}
 
         String.ends_with?(url, "/serviceradar-wasm-plugin-index.json") ->
           {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_index())}}
@@ -88,10 +95,18 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
           {:ok, %Req.Response{status: 200, body: PackagesTest.first_party_bundle()}}
 
         String.ends_with?(url, "/first-party-dedupe-v1.0.2.upload-signature.json") ->
-          {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_upload_signature("v1.0.2"))}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: Jason.encode!(PackagesTest.first_party_upload_signature("v1.0.2"))
+           }}
 
         String.ends_with?(url, "/first-party-dedupe.upload-signature.json") ->
-          {:ok, %Req.Response{status: 200, body: Jason.encode!(PackagesTest.first_party_upload_signature())}}
+          {:ok,
+           %Req.Response{
+             status: 200,
+             body: Jason.encode!(PackagesTest.first_party_upload_signature())
+           }}
 
         true ->
           {:ok, %Req.Response{status: 404, body: ""}}
@@ -102,7 +117,10 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   setup do
     original = Application.get_env(:serviceradar_web_ng, :plugin_storage)
     original_policy = Application.get_env(:serviceradar_web_ng, :plugin_verification)
-    original_import_client = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
+    original_import_client =
+      Application.get_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
+
     tmp = Path.join(System.tmp_dir!(), "sr-plugin-storage-#{System.unique_integer([:positive])}")
     store_name = :"sr_plugin_packages_test_#{System.unique_integer([:positive])}"
     {public_key, private_key} = :crypto.generate_key(:eddsa, :ed25519)
@@ -121,7 +139,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       trusted_upload_signing_keys: %{"packages-test" => Base.encode64(public_key)}
     )
 
-    Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, FirstPartyPackagesClient)
+    Application.put_env(
+      :serviceradar_web_ng,
+      :first_party_plugin_import_http_client,
+      FirstPartyPackagesClient
+    )
 
     Process.put(:first_party_private_key, private_key)
     Process.put(:first_party_package_bundle, nil)
@@ -146,7 +168,11 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
       if is_nil(original_import_client) do
         Application.delete_env(:serviceradar_web_ng, :first_party_plugin_import_http_client)
       else
-        Application.put_env(:serviceradar_web_ng, :first_party_plugin_import_http_client, original_import_client)
+        Application.put_env(
+          :serviceradar_web_ng,
+          :first_party_plugin_import_http_client,
+          original_import_client
+        )
       end
     end)
 
@@ -188,6 +214,43 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
              )
 
     assert package.wasm_object_key in [nil, ""]
+  end
+
+  test "create stores normalized signal schemas from manifest metadata" do
+    _plugin = create_plugin()
+    scope = Scope.for_user(admin_user_fixture())
+
+    signal_schema = %{
+      "id" => "com.carverauto.unifi.event",
+      "version" => "1.0.0",
+      "signal_type" => "event",
+      "payload_kind" => "ocsf_event",
+      "payload_schema" => "schemas/unifi_event.schema.json",
+      "display_contract" => "display/unifi_event.display.json",
+      "display_contract_id" => "com.carverauto.unifi.event.display",
+      "display_contract_version" => "1.0.0"
+    }
+
+    manifest = Map.put(@manifest, "signal_schemas", [signal_schema])
+
+    assert {:ok, package} =
+             Packages.create(
+               %{
+                 plugin_id: "unifi-protect-camera",
+                 name: "UniFi Protect Camera",
+                 version: "0.1.0",
+                 entrypoint: "run_check",
+                 outputs: "serviceradar.plugin_result.v1",
+                 manifest: manifest,
+                 config_schema: %{},
+                 signature: %{}
+               },
+               scope: scope
+             )
+
+    assert [stored_schema] = package.signal_schemas
+    assert stored_schema["id"] == "com.carverauto.unifi.event"
+    assert stored_schema["display_contract"] == "display/unifi_event.display.json"
   end
 
   test "upload_blob_file writes to the canonical object key even if the package was poisoned" do
@@ -272,7 +335,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
 
     assert {:ok, %{imported: 1, failed: []}} = Packages.sync_first_party_plugins(opts)
 
-    assert [%PluginPackage{} = package] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+    assert [%PluginPackage{} = package] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
     assert package.id == existing.id
     assert package.source_type == :first_party
     assert package.source_release_tag == "v1.0.1"
@@ -289,7 +354,9 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
     assert {:ok, %{discovered: 2, import_ready: 1, imported: 1, failed: []}} =
              Packages.sync_first_party_plugins(opts)
 
-    assert [%PluginPackage{} = package] = Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+    assert [%PluginPackage{} = package] =
+             Packages.list(%{"plugin_id" => "first-party-dedupe"}, actor: system_actor())
+
     assert package.source_release_tag == "v1.0.2"
     assert package.source_bundle_digest == Storage.sha256(first_party_bundle("v1.0.2"))
     assert package.content_hash == Storage.sha256(first_party_wasm("v1.0.2"))
@@ -410,9 +477,14 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   def first_party_bundle(tag \\ "v1.0.1") do
     cache_key = {:first_party_package_bundle, tag}
 
-    case Process.get(cache_key) || if(tag == "v1.0.1", do: Process.get(:first_party_package_bundle)) do
+    case Process.get(cache_key) ||
+           if(tag == "v1.0.1", do: Process.get(:first_party_package_bundle)) do
       nil ->
-        path = Path.join(System.tmp_dir!(), "first-party-dedupe-#{System.unique_integer([:positive])}.zip")
+        path =
+          Path.join(
+            System.tmp_dir!(),
+            "first-party-dedupe-#{System.unique_integer([:positive])}.zip"
+          )
 
         try do
           {:ok, _zip} =
@@ -440,7 +512,8 @@ defmodule ServiceRadarWebNG.Plugins.PackagesTest do
   def first_party_upload_signature(tag \\ "v1.0.1") do
     cache_key = {:first_party_package_signature, tag}
 
-    case Process.get(cache_key) || if(tag == "v1.0.1", do: Process.get(:first_party_package_signature)) do
+    case Process.get(cache_key) ||
+           if(tag == "v1.0.1", do: Process.get(:first_party_package_signature)) do
       nil ->
         signature =
           @first_party_manifest

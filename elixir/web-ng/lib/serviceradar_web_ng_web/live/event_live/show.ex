@@ -2,9 +2,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Observability.SignalDisplayComponents
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadarWebNG.Observability.SignalDisplay
 
   require Ash.Query
 
@@ -15,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
      |> assign(:page_title, "Event Details")
      |> assign(:event_id, nil)
      |> assign(:event, nil)
+     |> assign(:signal_display, nil)
      |> assign(:related, %{log_id: nil, alert: nil})
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false})}
@@ -47,11 +50,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
       end
 
     related = build_related(event, socket.assigns.current_scope)
+    signal_display = build_signal_display(event)
 
     {:noreply,
      socket
      |> assign(:event_id, event_id)
      |> assign(:event, event)
+     |> assign(:signal_display, signal_display)
      |> assign(:related, related)
      |> assign(:error, error)}
   end
@@ -79,6 +84,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
+          <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
           <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
           <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
           <.related_links related={@related} />
@@ -89,7 +95,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :related, :map, required: true
+  attr(:related, :map, required: true)
 
   defp related_links(assigns) do
     log_id = Map.get(assigns.related, :log_id)
@@ -120,7 +126,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :event, :map, required: true
+  attr(:event, :map, required: true)
 
   defp event_summary(assigns) do
     source = event_source(assigns.event)
@@ -174,7 +180,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :event, :map, required: true
+  attr(:event, :map, required: true)
 
   defp falco_runtime_summary(assigns) do
     diagnostics = falco_diagnostics(assigns.event)
@@ -235,9 +241,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, default: nil
-  attr :mono, :boolean, default: false
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:mono, :boolean, default: false)
 
   defp diagnostic_fact(assigns) do
     ~H"""
@@ -256,7 +262,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :event, :map, required: true
+  attr(:event, :map, required: true)
 
   defp waf_finding_summary(assigns) do
     assigns =
@@ -290,9 +296,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :label, :string, required: true
-  attr :value, :any, default: nil
-  attr :mono, :boolean, default: false
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:mono, :boolean, default: false)
 
   defp waf_fact(assigns) do
     ~H"""
@@ -311,7 +317,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :event, :map, required: true
+  attr(:event, :map, required: true)
 
   defp event_details(assigns) do
     # Fields already shown in summary
@@ -352,7 +358,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   # Render values inline (not in pre blocks)
-  attr :value, :any, default: nil
+  attr(:value, :any, default: nil)
 
   defp inline_value(%{value: nil} = assigns) do
     ~H|<span class="text-base-content/40 text-sm">—</span>|
@@ -402,7 +408,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   # CloudEvents field ordering
-  attr :value, :any, default: nil
+  attr(:value, :any, default: nil)
 
   defp format_value(%{value: nil} = assigns) do
     ~H|<span class="text-base-content/40">—</span>|
@@ -459,7 +465,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
     """
   end
 
-  attr :value, :any, default: nil
+  attr(:value, :any, default: nil)
 
   defp severity_badge(assigns) do
     variant = severity_variant(assigns.value)
@@ -490,6 +496,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp normalize_severity(nil), do: ""
   defp normalize_severity(v) when is_binary(v), do: v |> String.trim() |> String.downcase()
   defp normalize_severity(v), do: v |> to_string() |> normalize_severity()
+
+  defp build_signal_display(event) when is_map(event) do
+    case SignalDisplay.render_record(event) do
+      {:ok, widgets} -> widgets
+      :error -> nil
+    end
+  end
+
+  defp build_signal_display(_event), do: nil
 
   defp format_timestamp(event) do
     ts =
@@ -631,6 +646,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp meaningful_payload(_payload), do: %{}
 
   defp meaningful_map?(map) when is_map(map), do: Enum.any?(map, fn {_key, value} -> not blank?(value) end)
+
   defp meaningful_map?(_map), do: false
 
   defp waf_src_ip(event) do
@@ -671,7 +687,9 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp display_diagnostic_value(value) when is_map(value) do
-    Enum.map_join(value, ", ", fn {key, item} -> "#{field_label(to_string(key))}: #{display_diagnostic_value(item)}" end)
+    Enum.map_join(value, ", ", fn {key, item} ->
+      "#{field_label(to_string(key))}: #{display_diagnostic_value(item)}"
+    end)
   end
 
   defp container_display(container) when is_map(container) do

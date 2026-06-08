@@ -130,7 +130,19 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
         "exec" => %{
           "binary" => "serviceradar-netprobe",
           "install_path" => "/usr/local/lib/serviceradar/bin"
-        }
+        },
+        "signal_schemas" => [
+          %{
+            "id" => "com.carverauto.netprobe.flow",
+            "version" => "1.0.0",
+            "signal_type" => "event",
+            "payload_kind" => "ocsf_event",
+            "payload_schema" => "schemas/flow.schema.json",
+            "display_contract" => "display/flow.display.json",
+            "display_contract_id" => "com.carverauto.netprobe.flow.display",
+            "display_contract_version" => "1.0.0"
+          }
+        ]
       }
     end
 
@@ -156,6 +168,9 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert attrs.binary == "serviceradar-netprobe"
       assert attrs.install_path == "/usr/local/lib/serviceradar/bin"
       assert attrs.capabilities == ["host-network-visibility"]
+      assert [signal_schema] = attrs.signal_schemas
+      assert signal_schema["id"] == "com.carverauto.netprobe.flow"
+      assert signal_schema["display_contract"] == "display/flow.display.json"
       assert attrs.artifacts == artifacts
 
       assert attrs.requires["os_capabilities"] == [

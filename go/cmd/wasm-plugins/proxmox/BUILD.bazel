@@ -3,9 +3,11 @@ package(default_visibility = ["//visibility:public"])
 exports_files([
     "config.console.schema.json",
     "config.schema.json",
+    "display/resource_event.display.json",
     "main.go",
     "plugin.console.yaml",
     "plugin.yaml",
+    "schemas/ocsf_event_log_activity.schema.json",
 ])
 
 filegroup(

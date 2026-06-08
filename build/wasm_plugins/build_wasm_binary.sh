@@ -3,6 +3,10 @@ set -euo pipefail
 
 tinygo_bin=""
 go_bin=""
+go_darwin_arm64_bin=""
+go_darwin_amd64_bin=""
+go_linux_arm64_bin=""
+go_linux_amd64_bin=""
 tinygo_darwin_arm64_bin=""
 tinygo_darwin_amd64_bin=""
 tinygo_linux_arm64_bin=""
@@ -19,6 +23,22 @@ while [[ $# -gt 0 ]]; do
       ;;
     --go-bin)
       go_bin="$2"
+      shift 2
+      ;;
+    --go-darwin-arm64)
+      go_darwin_arm64_bin="$2"
+      shift 2
+      ;;
+    --go-darwin-amd64)
+      go_darwin_amd64_bin="$2"
+      shift 2
+      ;;
+    --go-linux-arm64)
+      go_linux_arm64_bin="$2"
+      shift 2
+      ;;
+    --go-linux-amd64)
+      go_linux_amd64_bin="$2"
       shift 2
       ;;
     --tinygo-darwin-arm64)
@@ -99,6 +119,27 @@ preferred_tinygo_for_host() {
   esac
 }
 
+preferred_go_for_host() {
+  local os arch
+  os="$(uname -s)"
+  arch="$(uname -m)"
+
+  case "${os}/${arch}" in
+    Darwin/arm64)
+      printf '%s\n' "${go_darwin_arm64_bin}"
+      ;;
+    Darwin/x86_64)
+      printf '%s\n' "${go_darwin_amd64_bin}"
+      ;;
+    Linux/aarch64|Linux/arm64)
+      printf '%s\n' "${go_linux_arm64_bin}"
+      ;;
+    Linux/x86_64|Linux/amd64)
+      printf '%s\n' "${go_linux_amd64_bin}"
+      ;;
+  esac
+}
+
 resolved_tinygo="$(resolve_relative_candidate "${tinygo_bin}")"
 if [[ -n "${resolved_tinygo}" ]]; then
   tinygo_bin="${resolved_tinygo}"
@@ -107,6 +148,11 @@ else
   if [[ -n "${resolved_tinygo}" ]]; then
     tinygo_bin="${resolved_tinygo}"
   fi
+fi
+
+resolved_go_bin="$(resolve_relative_candidate "$(preferred_go_for_host)")"
+if [[ -n "${resolved_go_bin}" ]]; then
+  go_bin="${resolved_go_bin}"
 fi
 
 resolved_go_bin="$(resolve_relative_candidate "${go_bin}")"
@@ -152,6 +198,7 @@ if [[ -z "${tinygo_bin}" || ! -x "${tinygo_bin}" ]]; then
   echo "error: unable to resolve a runnable tinygo binary" >&2
   exit 1
 fi
+export TINYGOROOT="${TINYGOROOT:-$(cd "$(dirname "${tinygo_bin}")/.." && pwd)}"
 
 plugin_dir="$(cd "$(dirname "${main_go}")" && pwd)"
 out="$(cd "$(dirname "${out}")" && pwd)/$(basename "${out}")"

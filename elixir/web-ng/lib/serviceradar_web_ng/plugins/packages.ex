@@ -344,6 +344,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
 
     with {:ok, manifest_struct} <- Manifest.from_map(manifest),
          {:ok, _plugin} <- ensure_plugin(manifest_struct, attrs, ash_opts) do
+      signal_schemas =
+        Map.get(attrs, :signal_schemas) ||
+          Map.get(attrs, "signal_schemas") ||
+          manifest_struct.signal_schemas ||
+          []
+
       attrs =
         attrs
         |> Map.put_new(:plugin_id, manifest_struct.id)
@@ -354,6 +360,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:runtime, manifest_struct.runtime)
         |> Map.put_new(:outputs, manifest_struct.outputs)
         |> Map.put_new(:display_contract, display_contract)
+        |> Map.put_new(:signal_schemas, signal_schemas)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -394,6 +401,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
+      |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
       |> Map.put(:source_type, :github)
       |> Map.put(:source_commit, import.source_commit)
       |> Map.put(:signature, import.signature)
@@ -423,6 +431,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put(:manifest, import.manifest)
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
+      |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
       |> Map.put(:source_type, :first_party)
       |> Map.put(:source_repo_url, import.source_repo_url)
       |> Map.put(:source_release_tag, import.source_release_tag)

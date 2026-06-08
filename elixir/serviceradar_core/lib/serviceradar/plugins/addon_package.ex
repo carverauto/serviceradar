@@ -27,6 +27,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     :install_path,
     :capabilities,
     :config_schema,
+    :signal_schemas,
     :artifacts,
     :requires,
     :source_type,
@@ -200,6 +201,13 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       public? true
       default %{}
       description "JSON Schema (config.schema.json) for the add-on configuration"
+    end
+
+    attribute :signal_schemas, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+      description "Package-owned log/event signal schemas and display contract references"
     end
 
     attribute :artifacts, :map do

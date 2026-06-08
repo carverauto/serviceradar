@@ -31,6 +31,19 @@ defmodule ServiceRadar.StatusHandler do
   @workload_identity_source "workload-identity"
   @addon_source_prefix "addon:"
   @addon_ocsf_subject "pdns.ocsf"
+  @signal_schema_metadata_keys %{
+    producer_id: "serviceradar.signal_schema.producer_id",
+    producer_version: "serviceradar.signal_schema.producer_version",
+    schema_id: "serviceradar.signal_schema.schema_id",
+    schema_version: "serviceradar.signal_schema.schema_version",
+    display_contract_id: "serviceradar.signal_schema.display_contract_id",
+    display_contract_version: "serviceradar.signal_schema.display_contract_version",
+    display_contract: "serviceradar.signal_schema.display_contract",
+    signal_type: "serviceradar.signal_schema.signal_type",
+    payload_kind: "serviceradar.signal_schema.payload_kind"
+  }
+  @signal_schema_ref_max_length 160
+  @signal_schema_path_max_length 240
 
   @telemetry_batch_received [
     :serviceradar,
@@ -274,6 +287,7 @@ defmodule ServiceRadar.StatusHandler do
   defp enrich_ocsf_event(event, record, batch, metadata) when is_map(event) do
     source = batch.source
     existing_metadata = map_value(event["metadata"])
+    signal_schema = signal_schema_ref(record.metadata)
 
     ocsf_metadata =
       existing_metadata
@@ -290,11 +304,92 @@ defmodule ServiceRadar.StatusHandler do
         "observed_time_unix_nano" => record.observed_time_unix_nano,
         "event_time_unix_nano" => record.event_time_unix_nano
       })
+      |> maybe_put_signal_schema(signal_schema)
 
     {:ok, Map.put(event, "metadata", ocsf_metadata)}
   end
 
   defp enrich_ocsf_event(_event, _record, _batch, _metadata), do: {:error, :invalid_ocsf_event}
+
+  defp signal_schema_ref(metadata) when is_map(metadata) do
+    ref = %{
+      "producer_id" => metadata_value(metadata, :producer_id),
+      "producer_version" => metadata_value(metadata, :producer_version),
+      "schema_id" => metadata_value(metadata, :schema_id),
+      "schema_version" => metadata_value(metadata, :schema_version),
+      "display_contract_id" => metadata_value(metadata, :display_contract_id),
+      "display_contract_version" => metadata_value(metadata, :display_contract_version),
+      "display_contract" => metadata_value(metadata, :display_contract),
+      "signal_type" => metadata_value(metadata, :signal_type),
+      "payload_kind" => metadata_value(metadata, :payload_kind)
+    }
+
+    if valid_signal_schema_ref?(ref) do
+      ref
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+    end
+  end
+
+  defp signal_schema_ref(_metadata), do: nil
+
+  defp metadata_value(metadata, key) do
+    metadata_key = Map.fetch!(@signal_schema_metadata_keys, key)
+
+    case Map.get(metadata, metadata_key) do
+      value when is_binary(value) ->
+        value = String.trim(value)
+        if value == "", do: nil, else: value
+
+      _ ->
+        nil
+    end
+  end
+
+  defp valid_signal_schema_ref?(ref) do
+    ref_id?(ref["schema_id"]) and semver?(ref["schema_version"]) and
+      ref_id?(ref["display_contract_id"]) and semver?(ref["display_contract_version"]) and
+      optional_ref_id?(ref["producer_id"]) and optional_semver?(ref["producer_version"]) and
+      optional_bundle_path?(ref["display_contract"]) and ref["signal_type"] in ["event", "log"] and
+      ref["payload_kind"] in ["ocsf_event", "otel_log"]
+  end
+
+  defp ref_id?(value)
+       when is_binary(value) and byte_size(value) <= @signal_schema_ref_max_length do
+    Regex.match?(~r/^[a-z0-9][a-z0-9_.-]*$/, value)
+  end
+
+  defp ref_id?(_value), do: false
+
+  defp optional_ref_id?(nil), do: true
+  defp optional_ref_id?(value), do: ref_id?(value)
+
+  defp semver?(value) when is_binary(value) do
+    case Version.parse(value) do
+      {:ok, _version} -> true
+      :error -> false
+    end
+  end
+
+  defp semver?(_value), do: false
+
+  defp optional_semver?(nil), do: true
+  defp optional_semver?(value), do: semver?(value)
+
+  defp optional_bundle_path?(nil), do: true
+
+  defp optional_bundle_path?(value)
+       when is_binary(value) and byte_size(value) <= @signal_schema_path_max_length do
+    not String.starts_with?(value, "/") and String.ends_with?(value, ".json") and
+      not Enum.any?(String.split(value, "/"), &(&1 == ".."))
+  end
+
+  defp optional_bundle_path?(_value), do: false
+
+  defp maybe_put_signal_schema(metadata, nil), do: metadata
+
+  defp maybe_put_signal_schema(metadata, signal_schema),
+    do: update_in(metadata, ["service_radar"], &Map.put(&1, "signal_schema", signal_schema))
 
   defp map_value(value) when is_map(value), do: value
   defp map_value(_), do: %{}

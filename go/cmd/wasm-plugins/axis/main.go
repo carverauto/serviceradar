@@ -477,6 +477,7 @@ func mapAxisWSEvent(data []byte) *sdk.OCSFEvent {
 		event.Unmapped = map[string]interface{}{}
 	}
 	event.Unmapped["axis_ws_payload"] = payload
+	attachAxisSignalSchemaRef(&event)
 	return &event
 }
 

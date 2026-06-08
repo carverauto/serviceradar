@@ -29,8 +29,11 @@ package sdk
 
 import (
 	"github.com/carverauto/serviceradar/go/pkg/addon"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	goplugin "github.com/hashicorp/go-plugin"
 )
+
+type SignalSchemaRef = addon.SignalSchemaRef
 
 // Serve runs the add-on as a go-plugin gRPC server. It blocks until the agent
 // terminates the plugin. AutoMTLS is driven by the agent-side client; the server
@@ -41,4 +44,10 @@ func Serve(impl addon.Addon) {
 		Plugins:         addon.ServerPluginSet(impl),
 		GRPCServer:      goplugin.DefaultGRPCServer,
 	})
+}
+
+// AttachSignalSchemaRef stores a bounded signal schema/display reference on a
+// telemetry record's metadata map.
+func AttachSignalSchemaRef(record *addonpb.TelemetryRecord, ref SignalSchemaRef) *addonpb.TelemetryRecord {
+	return addon.AttachSignalSchemaRef(record, ref)
 }

@@ -54,7 +54,22 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
           "severity_id" => 1,
           "severity" => "Informational",
           "message" => "AXIS event: tns1:VideoSource/Motion",
-          "metadata" => %{"source" => "axis"},
+          "metadata" => %{
+            "source" => "axis",
+            "service_radar" => %{
+              "signal_schema" => %{
+                "producer_id" => "axis-camera",
+                "producer_version" => "0.1.0",
+                "schema_id" => "com.carverauto.axis_camera.event_log",
+                "schema_version" => "1.0.0",
+                "display_contract_id" => "com.carverauto.axis_camera.event_log.display",
+                "display_contract_version" => "1.0.0",
+                "display_contract" => "display/event_log_activity.display.json",
+                "signal_type" => "event",
+                "payload_kind" => "ocsf_event"
+              }
+            }
+          },
           "unmapped" => %{
             "axis_ws_payload" => %{
               "params" => %{
@@ -85,6 +100,13 @@ defmodule ServiceRadar.Camera.EventIngestorTest do
     assert attrs.metadata["camera_stream_profile_ids"] == ["profile-main-1", "profile-sub-1"]
     assert attrs.metadata["assigned_agent_id"] == "agent-camera-1"
     assert attrs.metadata["assigned_gateway_id"] == "gateway-camera-1"
+
+    assert attrs.metadata["service_radar"]["signal_schema"]["schema_id"] ==
+             "com.carverauto.axis_camera.event_log"
+
+    assert attrs.metadata["service_radar"]["signal_schema"]["display_contract"] ==
+             "display/event_log_activity.display.json"
+
     assert attrs.unmapped["camera_source_id"] == "camera-source-1"
     assert attrs.unmapped["camera_device_uid"] == "device-camera-1"
     assert attrs.log_provider == "axis-camera"

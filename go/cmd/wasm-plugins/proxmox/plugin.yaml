@@ -19,3 +19,15 @@ resources:
   requested_memory_mb: 64
   requested_cpu_ms: 10000
   max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.proxmox.resource_event
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_event_log_activity.schema.json
+    display_contract: display/resource_event.display.json
+    display_contract_id: com.carverauto.proxmox.resource_event.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801

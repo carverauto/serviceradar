@@ -1,0 +1,48 @@
+{
+  "id": "com.carverauto.powerdns.dns_activity.display",
+  "version": "1.0.0",
+  "schema_id": "com.carverauto.powerdns.dns_activity",
+  "schema_version": "1.0.0",
+  "widgets": [
+    {
+      "type": "summary",
+      "title": "query.hostname",
+      "message": "message",
+      "source": "log_provider",
+      "severity": "severity"
+    },
+    {
+      "type": "badges",
+      "fields": [
+        {"label": "Activity", "path": "activity_name", "tone": "info"},
+        {"label": "Status", "path": "status", "tone": "status"},
+        {"label": "Severity", "path": "severity", "tone": "severity"}
+      ]
+    },
+    {
+      "type": "facts",
+      "fields": [
+        {"label": "Domain", "path": "query.hostname"},
+        {"label": "Query Type", "path": "query.type"},
+        {"label": "Source IP", "path": "src_endpoint.ip"},
+        {"label": "Source Port", "path": "src_endpoint.port"},
+        {"label": "Destination IP", "path": "dst_endpoint.ip"},
+        {"label": "Policy Name", "path": "unmapped.applied_policy"},
+        {"label": "Policy Kind", "path": "unmapped.applied_policy_kind"},
+        {"label": "Policy Trigger", "path": "unmapped.applied_policy_trigger"}
+      ]
+    },
+    {
+      "type": "timeline",
+      "fields": [
+        {"label": "Event Time", "path": "time"},
+        {"label": "Observed", "path": "metadata.service_radar.observed_time_unix_nano"}
+      ]
+    },
+    {
+      "type": "json_section",
+      "title": "PowerDNS Details",
+      "paths": ["query", "unmapped", "metadata.service_radar"]
+    }
+  ]
+}

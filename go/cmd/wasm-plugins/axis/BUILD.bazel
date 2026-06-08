@@ -4,9 +4,11 @@ exports_files([
     "EXTRACTION_MANIFEST.md",
     "config.schema.json",
     "config.stream.schema.json",
+    "display/event_log_activity.display.json",
     "main.go",
     "plugin.stream.yaml",
     "plugin.yaml",
+    "schemas/ocsf_event_log_activity.schema.json",
 ])
 
 filegroup(

@@ -28,6 +28,17 @@ func TestMapAxisWSEvent(t *testing.T) {
 	if evt.Unmapped == nil {
 		t.Fatalf("expected unmapped payload")
 	}
+	ref := evt.Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
+	if ref[signalSchemaMetadataSchemaID] != axisSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", ref[signalSchemaMetadataSchemaID], axisSignalSchemaID)
+	}
+	if ref[signalSchemaMetadataDisplayContract] != axisSignalSchemaDisplayContractPath {
+		t.Fatalf(
+			"display contract = %#v, want %q",
+			ref[signalSchemaMetadataDisplayContract],
+			axisSignalSchemaDisplayContractPath,
+		)
+	}
 }
 
 func TestBuildCameraDescriptors(t *testing.T) {

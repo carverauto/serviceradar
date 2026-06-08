@@ -12,6 +12,7 @@ Plugins and add-ons that emit logs or events should bring their own bounded, dec
 - Preserve schema/display references through agent, gateway, core, NATS, db-event-writer, and storage, using gateway-attested tenant/partition/agent identity for provenance.
 - Add a generic web-ng log/event detail renderer that resolves the referenced display contract, renders server-owned widgets from declarative field mappings, and falls back to the generic/raw JSON view when a contract is missing or unsupported.
 - Ship the PowerDNS add-on with a DNS Activity event schema/display contract as the first reference implementation, replacing PowerDNS-specific event-detail code paths.
+- Update existing first-party native add-ons and Wasm plugins that emit OCSF events or OTEL logs so their package manifests declare signal schemas/display contracts and emitted records carry matching references.
 
 ## Impact
 - Affected specs: `plugin-results-ui`, `observability-signals`, `ingestion-routing`
@@ -21,3 +22,4 @@ Plugins and add-ons that emit logs or events should bring their own bounded, dec
   - `go/pkg/agent`, `elixir/serviceradar_agent_gateway`, `elixir/serviceradar_core`, `go/pkg/consumers/db-event-writer`
   - `elixir/web-ng` event/log detail rendering and SRQL/catalog fallback behavior
   - `addons/powerdns` package files and tests
+  - Existing first-party add-ons and Wasm plugins that emit events/logs

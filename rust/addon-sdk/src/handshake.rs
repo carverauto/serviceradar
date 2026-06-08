@@ -93,7 +93,8 @@ pub fn check_magic_cookie() -> Result<(), HandshakeError> {
 /// The human-friendly message go-plugin prints when a plugin binary is run
 /// directly (magic cookie missing). Emitted by the reference binary so operators
 /// running the add-on by hand get the same UX as a Go add-on.
-pub const DIRECT_EXECUTION_MESSAGE: &str = "This binary is a plugin. These are not meant to be executed directly.\n\
+pub const DIRECT_EXECUTION_MESSAGE: &str =
+    "This binary is a plugin. These are not meant to be executed directly.\n\
 Please execute the program that consumes these plugins, which will\n\
 load any plugins automatically\n";
 
@@ -184,7 +185,8 @@ fn chown_group(path: &Path, gid: u32) -> Result<(), std::io::Error> {
 // mean "unchanged" (it casts to -1 as uid_t).
 extern "C" {
     #[link_name = "chown"]
-    fn libc_chown(path: *const std::os::raw::c_char, owner: u32, group: u32) -> std::os::raw::c_int;
+    fn libc_chown(path: *const std::os::raw::c_char, owner: u32, group: u32)
+        -> std::os::raw::c_int;
 }
 
 /// Builds the handshake line the host parses (`client.go` `dialer`/`parseConn`).
@@ -204,7 +206,10 @@ pub fn build_handshake_line(socket_path: &Path, server_cert: &str) -> String {
         PROTOCOL_GRPC,
         server_cert,
     );
-    if std::env::var(ENV_MULTIPLEX_GRPC).map(|v| !v.is_empty()).unwrap_or(false) {
+    if std::env::var(ENV_MULTIPLEX_GRPC)
+        .map(|v| !v.is_empty())
+        .unwrap_or(false)
+    {
         // go-plugin appends `|true` to advertise broker multiplexing support.
         line.push_str("|true");
     }

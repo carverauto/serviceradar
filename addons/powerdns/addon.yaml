@@ -38,3 +38,15 @@ exec:
   install_path: /usr/local/lib/serviceradar/bin
 
 config_schema: config.schema.json
+
+signal_schemas:
+  - id: com.carverauto.powerdns.dns_activity
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/dns_activity.schema.json
+    display_contract: display/dns_activity.display.json
+    display_contract_id: com.carverauto.powerdns.dns_activity.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 4003

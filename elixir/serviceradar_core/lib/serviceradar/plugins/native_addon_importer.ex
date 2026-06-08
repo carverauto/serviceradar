@@ -239,6 +239,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          install_path: string_value(exec, "install_path") || "/usr/local/lib/serviceradar/bin",
          capabilities: List.wrap(Map.get(manifest, "capabilities", [])),
          config_schema: Keyword.get(opts, :config_schema, %{}),
+         signal_schemas: List.wrap(Map.get(manifest, "signal_schemas", [])),
          artifacts: artifacts,
          requires: requires,
          source_type: :first_party,

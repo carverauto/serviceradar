@@ -214,7 +214,20 @@ defmodule ServiceRadar.StatusHandlerTest do
               observed_time_unix_nano: 1_812_456_000_000_000_000,
               event_time_unix_nano: 1_812_456_000_000_000_000,
               payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
-              payload: ocsf_event
+              payload: ocsf_event,
+              metadata: %{
+                "serviceradar.signal_schema.producer_id" => "powerdns",
+                "serviceradar.signal_schema.producer_version" => "0.1.0",
+                "serviceradar.signal_schema.schema_id" => "com.carverauto.powerdns.dns_activity",
+                "serviceradar.signal_schema.schema_version" => "1.0.0",
+                "serviceradar.signal_schema.display_contract_id" =>
+                  "com.carverauto.powerdns.dns_activity.display",
+                "serviceradar.signal_schema.display_contract_version" => "1.0.0",
+                "serviceradar.signal_schema.display_contract" =>
+                  "display/dns_activity.display.json",
+                "serviceradar.signal_schema.signal_type" => "event",
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
             },
             %TelemetryRecord{
               event_id: "ignored-otel",
@@ -246,7 +259,72 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert decoded["metadata"]["service_radar"]["partition_id"] == "prod-east"
       assert decoded["metadata"]["service_radar"]["source_ip"] == "192.0.2.55"
       assert decoded["metadata"]["service_radar"]["source_instance"] == "ns03"
+
+      assert decoded["metadata"]["service_radar"]["signal_schema"] == %{
+               "producer_id" => "powerdns",
+               "producer_version" => "0.1.0",
+               "schema_id" => "com.carverauto.powerdns.dns_activity",
+               "schema_version" => "1.0.0",
+               "display_contract_id" => "com.carverauto.powerdns.dns_activity.display",
+               "display_contract_version" => "1.0.0",
+               "display_contract" => "display/dns_activity.display.json",
+               "signal_type" => "event",
+               "payload_kind" => "ocsf_event"
+             }
+
       refute_receive {:published, "pdns.ocsf", _payload}
+    end
+
+    test "strips malformed signal schema references from otherwise valid OCSF records" do
+      ocsf_event =
+        Jason.encode!(%{
+          "id" => "4cc2b0d9-2f02-437c-83ec-df0d53ebdb48",
+          "time" => "2026-06-08T12:00:00Z",
+          "class_uid" => 4003,
+          "category_uid" => 4,
+          "type_uid" => 400_302,
+          "activity_id" => 2,
+          "severity_id" => 3
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "powerdns", source_instance: "ns03"},
+          records: [
+            %TelemetryRecord{
+              event_id: "pdns-event-2",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ocsf_event,
+              metadata: %{
+                "serviceradar.signal_schema.schema_id" => "../bad",
+                "serviceradar.signal_schema.schema_version" => "not-semver",
+                "serviceradar.signal_schema.display_contract_id" => "bad.display",
+                "serviceradar.signal_schema.display_contract_version" => "1.0.0",
+                "serviceradar.signal_schema.signal_type" => "event",
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:powerdns",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "ns03",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, "pdns.ocsf", payload}
+      assert {:ok, decoded} = Jason.decode(payload)
+      refute Map.has_key?(decoded["metadata"]["service_radar"], "signal_schema")
     end
 
     test "ignores malformed add-on telemetry messages without crashing" do

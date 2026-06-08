@@ -7,7 +7,10 @@ WASM_BUILD_TARGETS = [
     },
     {
         "name": "axis_camera",
-        "srcs": ["//go/cmd/wasm-plugins/axis:srcs"],
+        "srcs": [
+            "//go/cmd/wasm-plugins/axis:srcs",
+            "//go/cmd/wasm-plugins/axis/internal/axisref:srcs",
+        ],
         "main_go": "//go/cmd/wasm-plugins/axis:main.go",
         "tags": [],
     },
@@ -71,6 +74,8 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/axis:plugin.yaml"),
             ("plugin.wasm", ":axis_camera_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/axis:config.schema.json"),
+            ("schemas/ocsf_event_log_activity.schema.json", "//go/cmd/wasm-plugins/axis:schemas/ocsf_event_log_activity.schema.json"),
+            ("display/event_log_activity.display.json", "//go/cmd/wasm-plugins/axis:display/event_log_activity.display.json"),
         ],
     },
     {
@@ -93,6 +98,8 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/unifi-protect:plugin.yaml"),
             ("plugin.wasm", ":unifi_protect_camera_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/unifi-protect:config.schema.json"),
+            ("schemas/ocsf_event_log_activity.schema.json", "//go/cmd/wasm-plugins/unifi-protect:schemas/ocsf_event_log_activity.schema.json"),
+            ("display/camera_event.display.json", "//go/cmd/wasm-plugins/unifi-protect:display/camera_event.display.json"),
         ],
     },
     {
@@ -168,6 +175,8 @@ WASM_PLUGIN_BUNDLES = [
             ("plugin.yaml", "//go/cmd/wasm-plugins/proxmox:plugin.yaml"),
             ("plugin.wasm", ":proxmox_inventory_wasm"),
             ("config.schema.json", "//go/cmd/wasm-plugins/proxmox:config.schema.json"),
+            ("schemas/ocsf_event_log_activity.schema.json", "//go/cmd/wasm-plugins/proxmox:schemas/ocsf_event_log_activity.schema.json"),
+            ("display/resource_event.display.json", "//go/cmd/wasm-plugins/proxmox:display/resource_event.display.json"),
         ],
     },
     {

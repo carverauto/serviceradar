@@ -65,6 +65,20 @@ pub use server::ServeError;
 /// Capability advertised by add-ons that support native telemetry streaming.
 pub const CAPABILITY_NATIVE_TELEMETRY_V1: &str = "native-telemetry:v1";
 
+pub const SIGNAL_SCHEMA_METADATA_PRODUCER_ID: &str = "serviceradar.signal_schema.producer_id";
+pub const SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION: &str =
+    "serviceradar.signal_schema.producer_version";
+pub const SIGNAL_SCHEMA_METADATA_SCHEMA_ID: &str = "serviceradar.signal_schema.schema_id";
+pub const SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION: &str = "serviceradar.signal_schema.schema_version";
+pub const SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID: &str =
+    "serviceradar.signal_schema.display_contract_id";
+pub const SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION: &str =
+    "serviceradar.signal_schema.display_contract_version";
+pub const SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT: &str =
+    "serviceradar.signal_schema.display_contract";
+pub const SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE: &str = "serviceradar.signal_schema.signal_type";
+pub const SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND: &str = "serviceradar.signal_schema.payload_kind";
+
 /// Stream item type used by [`Addon::stream_telemetry`].
 pub type TelemetryStream =
     Pin<Box<dyn Stream<Item = Result<pb::TelemetryBatch, tonic::Status>> + Send + 'static>>;
@@ -178,6 +192,83 @@ pub fn ocsf_event_record(
     }
 }
 
+/// Bounded display/schema reference attached to package telemetry records.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SignalSchemaRef {
+    pub producer_id: String,
+    pub producer_version: String,
+    pub schema_id: String,
+    pub schema_version: String,
+    pub display_contract_id: String,
+    pub display_contract_version: String,
+    pub display_contract: String,
+    pub signal_type: String,
+    pub payload_kind: String,
+}
+
+/// Stores a signal schema reference on a telemetry record's metadata map.
+pub fn attach_signal_schema_ref(
+    mut record: pb::TelemetryRecord,
+    signal_schema: &SignalSchemaRef,
+) -> pb::TelemetryRecord {
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_PRODUCER_ID,
+        &signal_schema.producer_id,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION,
+        &signal_schema.producer_version,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_SCHEMA_ID,
+        &signal_schema.schema_id,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION,
+        &signal_schema.schema_version,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID,
+        &signal_schema.display_contract_id,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION,
+        &signal_schema.display_contract_version,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT,
+        &signal_schema.display_contract,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE,
+        &signal_schema.signal_type,
+    );
+    insert_if_present(
+        &mut record.metadata,
+        SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND,
+        &signal_schema.payload_kind,
+    );
+    record
+}
+
+fn insert_if_present(
+    metadata: &mut std::collections::HashMap<String, String>,
+    key: &str,
+    value: &str,
+) {
+    if !value.is_empty() {
+        metadata.insert(key.to_owned(), value.to_owned());
+    }
+}
+
 impl Default for Health {
     fn default() -> Self {
         Health {
@@ -213,5 +304,38 @@ pub trait Addon: Send + Sync + 'static {
     /// source-compatible.
     fn stream_telemetry(&self) -> TelemetryStream {
         Box::pin(tokio_stream::empty())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn attach_signal_schema_ref_populates_record_metadata() {
+        let record = pb::TelemetryRecord::default();
+        let record = attach_signal_schema_ref(
+            record,
+            &SignalSchemaRef {
+                producer_id: "powerdns".to_owned(),
+                producer_version: "0.1.0".to_owned(),
+                schema_id: "com.carverauto.powerdns.dns_activity".to_owned(),
+                schema_version: "1.0.0".to_owned(),
+                display_contract_id: "com.carverauto.powerdns.dns_activity.display".to_owned(),
+                display_contract_version: "1.0.0".to_owned(),
+                display_contract: "display/dns_activity.display.json".to_owned(),
+                signal_type: "event".to_owned(),
+                payload_kind: "ocsf_event".to_owned(),
+            },
+        );
+
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_SCHEMA_ID),
+            Some(&"com.carverauto.powerdns.dns_activity".to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT),
+            Some(&"display/dns_activity.display.json".to_owned())
+        );
     }
 }

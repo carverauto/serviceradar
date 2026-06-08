@@ -18,7 +18,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 
-  action_fallback ServiceRadarWebNGWeb.Api.FallbackController
+  action_fallback(ServiceRadarWebNGWeb.Api.FallbackController)
 
   def index(conn, params) do
     with :ok <- require_authenticated(conn),
@@ -118,6 +118,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
 
               {:error, reason} ->
                 Logger.error("plugin blob API upload failed package_id=#{id} error=#{inspect(reason)}")
+
                 {:error, reason}
             end
           after
@@ -288,6 +289,7 @@ defmodule ServiceRadarWebNGWeb.Api.PluginPackageController do
       manifest: package.manifest,
       config_schema: package.config_schema,
       display_contract: package.display_contract,
+      signal_schemas: package.signal_schemas,
       wasm_object_key: package.wasm_object_key,
       content_hash: package.content_hash,
       signature: package.signature,

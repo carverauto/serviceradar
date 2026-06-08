@@ -60,6 +60,7 @@ func (r *pluginResult) EmitEvent(severity sdk.Severity, summary, key string) {
 	}
 
 	event := sdk.NewOCSFEventLogActivity(summary, severity)
+	attachProxmoxSignalSchemaRef(&event)
 	if key != "" {
 		if event.Unmapped == nil {
 			event.Unmapped = map[string]any{}

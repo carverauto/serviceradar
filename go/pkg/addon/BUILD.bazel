@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "addon.go",
         "grpc.go",
+        "signal_schema.go",
     ],
     importpath = "github.com/carverauto/serviceradar/go/pkg/addon",
     visibility = ["//visibility:public"],

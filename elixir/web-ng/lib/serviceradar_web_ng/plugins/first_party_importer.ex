@@ -296,13 +296,18 @@ defmodule ServiceRadarWebNG.Plugins.FirstPartyImporter do
         is_nil(normalized_name) ->
           {:halt, {:error, :invalid_bundle_path}}
 
-        normalized_name in ["plugin.yaml", "plugin.wasm", "config.schema.json", "display_contract.json"] ->
+        allowed_bundle_entry?(normalized_name) ->
           {:cont, {:ok, Map.put(acc, normalized_name, payload)}}
 
         true ->
           {:halt, {:error, :unexpected_bundle_entry}}
       end
     end)
+  end
+
+  defp allowed_bundle_entry?(name) do
+    name in ["plugin.yaml", "plugin.wasm", "config.schema.json", "display_contract.json"] or
+      String.starts_with?(name, "display/") or String.starts_with?(name, "schemas/")
   end
 
   defp normalize_zip_name(name) when is_list(name), do: name |> to_string() |> normalize_zip_name()
