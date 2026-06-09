@@ -41,6 +41,8 @@ type icmpCheckConfig struct {
 	Enabled  bool
 }
 
+const kubernetesAgentID = "k8s-agent"
+
 type icmpCheckResult struct {
 	CheckID        string  `json:"check_id"`
 	CheckName      string  `json:"check_name"`
@@ -290,6 +292,13 @@ func (p *PushLoop) applyBumblebeeConfig(
 				Str("sha256", result.SHA256).
 				Msg("Staged Bumblebee catalog assignment")
 		}
+	}
+
+	if !cfg.Enabled && strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping disabled Bumblebee runtime profile for Kubernetes agent")
+		return true
 	}
 
 	if changed, err := bumblebee.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
