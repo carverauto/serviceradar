@@ -29,7 +29,10 @@ import (
 	"github.com/tetratelabs/wazero/api"
 )
 
-const pluginTelemetryMaxRecords = 256
+const (
+	pluginTelemetryMaxRecords = 256
+	unknownTelemetrySource    = "unknown"
+)
 
 var (
 	errPluginTelemetryMissingRecords = errors.New("plugin telemetry missing records")
@@ -118,7 +121,7 @@ func decodePluginTelemetry(payload []byte, assignment *pluginAssignment) (Plugin
 	}
 	sourceInstance := strings.TrimSpace(batch.Source.SourceInstance)
 	if sourceInstance == "" {
-		sourceInstance = firstNonEmptyPluginTelemetry(assignment.AssignmentID, assignment.PluginID, "unknown")
+		sourceInstance = firstNonEmptyPluginTelemetry(assignment.AssignmentID, assignment.PluginID, unknownTelemetrySource)
 	}
 
 	out := &addonpb.TelemetryBatch{
@@ -218,6 +221,9 @@ func telemetryPayloadKindFromInt(value int64) (addonpb.TelemetryPayloadKind, err
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG, nil
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED:
+		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
+			fmt.Errorf("%w: unsupported payload_kind", errPluginTelemetryInvalidPayload)
 	default:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
 			fmt.Errorf("%w: unsupported payload_kind", errPluginTelemetryInvalidPayload)

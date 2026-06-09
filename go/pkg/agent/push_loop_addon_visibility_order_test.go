@@ -25,7 +25,6 @@ import (
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
-	"github.com/carverauto/serviceradar/go/pkg/agent/sidecar"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	"github.com/rs/zerolog"
@@ -73,7 +72,7 @@ func TestApplyAddonAssignmentsSkipsKubernetesAgent(t *testing.T) {
 	}
 }
 
-func TestApplyConfigResponseAppliesLocalAddonsBeforeVisibilityFailure(t *testing.T) {
+func TestApplyConfigResponseAppliesLocalAddonsWithVisibilityConfig(t *testing.T) {
 	dir := t.TempDir()
 	override := `{
 	  "addons": [
@@ -94,23 +93,7 @@ func TestApplyConfigResponseAppliesLocalAddonsBeforeVisibilityFailure(t *testing
 	}
 
 	netprobeSidecar := agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()})
-	sidecarManager, err := sidecar.NewManager(sidecar.Config{
-		RuntimeDir:     filepath.Join(dir, "run"),
-		ConfigDir:      filepath.Join(dir, "cfg"),
-		HealthInterval: time.Hour,
-		ClientFactory: sidecar.ClientFactory(func(context.Context, string) (sidecar.Client, error) {
-			return nil, errNoExternalNetprobe
-		}),
-		Logger: zerolog.Nop(),
-	}, netprobeSidecar)
-	if err != nil {
-		t.Fatalf("NewManager: %v", err)
-	}
-	defer func() {
-		stopCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = sidecarManager.Stop(stopCtx)
-	}()
+	sidecarManager := &recordingSidecarLifecycleManager{started: true, attach: true}
 
 	addons := &recordingAddonManager{}
 	pl := NewPushLoop(&Server{
@@ -122,21 +105,22 @@ func TestApplyConfigResponseAppliesLocalAddonsBeforeVisibilityFailure(t *testing
 	}, nil, 30*time.Second, logger.NewTestLogger())
 	pl.setConfigVersion("old-version")
 
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	ok := pl.applyConfigResponse(ctx, &proto.AgentConfigResponse{
+	ok := pl.applyConfigResponse(context.Background(), &proto.AgentConfigResponse{
 		ConfigVersion:    "new-version",
 		VisibilityConfig: &proto.VisibilityConfig{Enabled: true},
 	}, "poll")
 
-	if ok {
-		t.Fatal("applyConfigResponse() = true, want false when visibility apply fails")
+	if !ok {
+		t.Fatal("applyConfigResponse() = false, want true")
 	}
-	if got := pl.getConfigVersion(); got != "old-version" {
-		t.Fatalf("config version = %q, want old-version", got)
+	if got := pl.getConfigVersion(); got != "new-version" {
+		t.Fatalf("config version = %q, want new-version", got)
 	}
 	if len(addons.applied) != 1 {
 		t.Fatalf("applied add-on specs = %d, want 1", len(addons.applied))
+	}
+	if !sidecarManager.stopped {
+		t.Fatal("expected visibility config without a netprobe assignment to stop the attach manager")
 	}
 	if got := addons.applied[0].ID; got != "powerdns" {
 		t.Fatalf("applied add-on ID = %q, want powerdns", got)

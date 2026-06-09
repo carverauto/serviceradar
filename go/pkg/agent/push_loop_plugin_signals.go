@@ -141,7 +141,7 @@ func pluginSignalTelemetrySource(signal PluginSignalTelemetry) string {
 		clean = strings.TrimSpace(signal.PluginID)
 	}
 	if clean == "" {
-		clean = "unknown"
+		clean = unknownTelemetrySource
 	}
 	return fmt.Sprintf("%s%s", pluginSignalTelemetrySourcePrefix, clean)
 }
