@@ -66,10 +66,7 @@ impl Default for Config {
         Self {
             enabled: true,
             listen_addr: DEFAULT_LISTEN_ADDR.to_owned(),
-            source_instance: std::env::var("HOSTNAME")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| DEFAULT_SOURCE_INSTANCE.to_owned()),
+            source_instance: DEFAULT_SOURCE_INSTANCE.to_owned(),
             rpz_only: true,
             batch_queue_size: DEFAULT_BATCH_QUEUE_SIZE,
         }
