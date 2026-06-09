@@ -40,7 +40,7 @@ pub mod dnsmessage {
 }
 
 const ADDON_ID: &str = "powerdns";
-const ADDON_VERSION: &str = "0.1.0";
+const ADDON_VERSION: &str = "0.1.1";
 const SOURCE_TYPE: &str = "powerdns";
 const DNS_ACTIVITY_SCHEMA_ID: &str = "com.carverauto.powerdns.dns_activity";
 const DNS_ACTIVITY_SCHEMA_VERSION: &str = "1.0.0";
@@ -66,10 +66,7 @@ impl Default for Config {
         Self {
             enabled: true,
             listen_addr: DEFAULT_LISTEN_ADDR.to_owned(),
-            source_instance: std::env::var("HOSTNAME")
-                .ok()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| DEFAULT_SOURCE_INSTANCE.to_owned()),
+            source_instance: DEFAULT_SOURCE_INSTANCE.to_owned(),
             rpz_only: true,
             batch_queue_size: DEFAULT_BATCH_QUEUE_SIZE,
         }

@@ -413,3 +413,65 @@ cosign_init_verify_args() {
 
   return 0
 }
+
+cosign_log_has_tlog_conflict() {
+  local log_file="$1"
+
+  grep -q 'createLogEntryConflict' "${log_file}" \
+    && grep -qi 'equivalent entry already exists' "${log_file}"
+}
+
+cosign_verify_existing_signature() {
+  local ref="$1"
+
+  if ! cosign_init_verify_args; then
+    echo "warning: cannot verify existing cosign signature for ${ref}; no verification identity configured" >&2
+    return 1
+  fi
+
+  cosign verify \
+    --experimental-oci11 \
+    "${COSIGN_VERIFY_ARGS[@]}" \
+    "${ref}" >/dev/null
+}
+
+cosign_sign_ref() {
+  local ref="$1"
+  local tlog_upload="$2"
+
+  cosign sign \
+    --yes \
+    --tlog-upload="${tlog_upload}" \
+    --registry-referrers-mode="${COSIGN_REFERRERS_MODE:-oci-1-1}" \
+    "${COSIGN_SIGN_ARGS[@]}" \
+    "${ref}"
+}
+
+cosign_sign_ref_idempotent() {
+  local ref="$1"
+  local stderr_file
+  local status
+
+  stderr_file="$(mktemp)"
+  cosign_register_temp_file "${stderr_file}"
+
+  if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2> >(tee "${stderr_file}" >&2); then
+    return 0
+  else
+    status=$?
+  fi
+
+  if cosign_log_has_tlog_conflict "${stderr_file}"; then
+    echo "warning: transparency log already contains an equivalent entry for ${ref}; verifying existing signature" >&2
+    if cosign_verify_existing_signature "${ref}"; then
+      return 0
+    fi
+
+    echo "warning: existing registry signature was not valid for ${ref}; retrying without transparency log upload" >&2
+    if cosign_sign_ref "${ref}" false && cosign_verify_existing_signature "${ref}"; then
+      return 0
+    fi
+  fi
+
+  return "${status}"
+}

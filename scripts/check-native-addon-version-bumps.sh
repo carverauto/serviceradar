@@ -86,9 +86,11 @@ addon_ids() {
 sample
 rust-sample
 netprobe
+powerdns
 workload-identity
 bumblebee
 endpoint-inventory
+rdp
 EOF
 }
 
@@ -97,9 +99,11 @@ manifest_path() {
     sample) echo "addons/sample-addon/addon.yaml" ;;
     rust-sample) echo "addons/rust-sample-addon/addon.yaml" ;;
     netprobe) echo "addons/netprobe/addon.yaml" ;;
+    powerdns) echo "addons/powerdns/addon.yaml" ;;
     workload-identity) echo "addons/workload-identity/addon.yaml" ;;
     bumblebee) echo "addons/bumblebee-scan/addon.yaml" ;;
     endpoint-inventory) echo "addons/endpoint-inventory/addon.yaml" ;;
+    rdp) echo "addons/rdp-adapter/addon.yaml" ;;
     *) return 1 ;;
   esac
 }
@@ -108,7 +112,9 @@ cargo_version_path() {
   case "$1" in
     rust-sample) echo "rust/addon-sdk/Cargo.toml" ;;
     netprobe) echo "rust/netprobe/Cargo.toml" ;;
+    powerdns) echo "rust/powerdns/Cargo.toml" ;;
     workload-identity) echo "rust/workload-identity/Cargo.toml" ;;
+    rdp) echo "rust/rdp-adapter/Cargo.toml" ;;
     *) return 1 ;;
   esac
 }
@@ -146,6 +152,11 @@ path_belongs_to_addon() {
         addons/netprobe/*|rust/netprobe/*) return 0 ;;
       esac
       ;;
+    powerdns)
+      case "${path}" in
+        addons/powerdns/*|rust/powerdns/*) return 0 ;;
+      esac
+      ;;
     workload-identity)
       case "${path}" in
         addons/workload-identity/*|rust/workload-identity/*) return 0 ;;
@@ -159,6 +170,11 @@ path_belongs_to_addon() {
     endpoint-inventory)
       case "${path}" in
         addons/endpoint-inventory/*|go/cmd/endpoint-inventory/*) return 0 ;;
+      esac
+      ;;
+    rdp)
+      case "${path}" in
+        addons/rdp-adapter/*|rust/rdp-adapter/*) return 0 ;;
       esac
       ;;
   esac

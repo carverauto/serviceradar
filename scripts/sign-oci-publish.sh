@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# shellcheck source=scripts/cosign_common.sh
 source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cosign_common.sh"
 trap cosign_cleanup_temp_files EXIT
 
@@ -229,7 +230,7 @@ attach_legacy_signature() {
   local ref="$1"
   local repo="${ref%@*}"
   local digest="${ref##*@}"
-  local repo_path="${repo#${REGISTRY_HOST}/}"
+  local repo_path="${repo#"${REGISTRY_HOST}"/}"
   local signature_ref signature_tag
   local payload_file
   local signature_file
@@ -349,13 +350,7 @@ PY3
 
   ref="${repository}@${digest}"
   echo "signing ${ref}"
-  cosign sign \
-    --yes \
-    --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
-    --registry-referrers-mode="${COSIGN_REFERRERS_MODE}" \
-    "${COSIGN_SIGN_ARGS[@]}" \
-    "${ref}"
-
+  cosign_sign_ref_idempotent "${ref}"
   attach_legacy_signature "${ref}"
 done
 

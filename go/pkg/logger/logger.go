@@ -40,10 +40,12 @@ type LoggerInstance struct {
 var instance *LoggerInstance
 
 //nolint:gochecknoglobals // singleton pattern for logger initialization
-var (
-	initOnce sync.Once
-	initMu   sync.Mutex
-)
+var initMu sync.Mutex
+
+//nolint:gochecknoinits // zerolog's process-wide time format must be set before lazy logger use.
+func init() {
+	zerolog.TimeFieldFormat = time.RFC3339
+}
 
 type Config struct {
 	Level      string     `json:"level" yaml:"level"`
@@ -55,10 +57,6 @@ type Config struct {
 
 // initDefaults initializes the default logger instance
 func initDefaults() {
-	initOnce.Do(func() {
-		zerolog.TimeFieldFormat = time.RFC3339
-	})
-
 	initMu.Lock()
 	defer initMu.Unlock()
 	if instance == nil {
