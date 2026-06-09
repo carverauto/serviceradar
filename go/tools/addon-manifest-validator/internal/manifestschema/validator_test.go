@@ -88,6 +88,42 @@ func TestRepoSampleManifestIsValid(t *testing.T) {
 	}
 }
 
+func TestSignalSchemasValidate(t *testing.T) {
+	manifest := `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+signal_schemas:
+  - id: com.carverauto.sample.dns_activity
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/dns_activity.schema.json
+    display_contract: display/dns_activity.display.json
+    display_contract_id: com.carverauto.sample.dns_activity.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 4003
+    type_uid: 400301
+`
+
+	res, err := manifestschema.ValidateYAML([]byte(manifest))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("expected manifest with signal_schemas to pass, got %d errors: %v", len(res.Errors), res.Errors)
+	}
+}
+
 // TestEmbeddedSchemaMatchesCanonical guards against the embedded copy drifting
 // away from the canonical schema published under addons/.
 func TestEmbeddedSchemaMatchesCanonical(t *testing.T) {
@@ -220,6 +256,80 @@ exec: {binary: b, install_path: /opt/b}
 config_schema: config.schema.json
 `,
 			wantSubstrs: []string{"version", "pattern"},
+		},
+		{
+			name: "signal schema missing display contract",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+signal_schemas:
+  - id: com.carverauto.sample.dns_activity
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/dns_activity.schema.json
+    display_contract_id: com.carverauto.sample.dns_activity.display
+    display_contract_version: 1.0.0
+`,
+			wantSubstrs: []string{"signal_schemas[0]", "display_contract", "required"},
+		},
+		{
+			name: "signal schema rejects unsupported signal type",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+signal_schemas:
+  - id: com.carverauto.sample.dns_activity
+    version: 1.0.0
+    signal_type: metric
+    payload_kind: ocsf_event
+    payload_schema: schemas/dns_activity.schema.json
+    display_contract: display/dns_activity.display.json
+    display_contract_id: com.carverauto.sample.dns_activity.display
+    display_contract_version: 1.0.0
+`,
+			wantSubstrs: []string{"signal_type", "allowed values"},
+		},
+		{
+			name: "signal schema rejects unsafe bundle path",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+signal_schemas:
+  - id: com.carverauto.sample.dns_activity
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: ../dns_activity.schema.json
+    display_contract: display/dns_activity.display.json
+    display_contract_id: com.carverauto.sample.dns_activity.display
+    display_contract_version: 1.0.0
+`,
+			wantSubstrs: []string{"payload_schema", "not"},
 		},
 	}
 

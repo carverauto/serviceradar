@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 func TestBuildRTSPURL(t *testing.T) {
@@ -27,6 +27,17 @@ func TestMapAxisWSEvent(t *testing.T) {
 	}
 	if evt.Unmapped == nil {
 		t.Fatalf("expected unmapped payload")
+	}
+	record := sdk.NewOCSFTelemetryRecord(*evt).WithSignalSchemaRef(axisSignalSchemaRef())
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataSchemaID] != axisSignalSchemaID {
+		t.Fatalf("schema metadata = %#v, want schema id %q", record.Metadata, axisSignalSchemaID)
+	}
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataDisplayContract] != axisSignalSchemaDisplayContractPath {
+		t.Fatalf(
+			"display contract metadata = %#v, want %q",
+			record.Metadata,
+			axisSignalSchemaDisplayContractPath,
+		)
 	}
 }
 

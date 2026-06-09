@@ -7,6 +7,14 @@ _TINYGO_SHA256 = {
     "linux_arm64": "4720693b333826569d5c1ed746a735c4d1983719c95af5bdd4d9dfeaa755e933",
 }
 
+_GO_VERSION = "1.25.5"
+_GO_SHA256 = {
+    "darwin_amd64": "b69d51bce599e5381a94ce15263ae644ec84667a5ce23d58dc2e63e2c12a9f56",
+    "darwin_arm64": "bed8ebe824e3d3b27e8471d1307f803fc6ab8e1d0eb7a4ae196979bd9b801dd3",
+    "linux_amd64": "9e9b755d63b36acf30c12a9a3fc379243714c1c6d3dd72861da637f336ebb35b",
+    "linux_arm64": "b00b694903d126c588c378e72d3545549935d3982635ba3f7a964c9fa23fe3b9",
+}
+
 
 def _normalize_os(os_name):
     os_name = os_name.lower()
@@ -29,14 +37,29 @@ def _normalize_arch(arch):
 def _tinygo_host_repository_impl(ctx):
     os_name = _normalize_os(ctx.os.name)
     arch = _normalize_arch(ctx.os.arch)
-    platform = "{}_{}".format(os_name, arch)
+    host_platform = "{}_{}".format(os_name, arch)
     version = ctx.attr.version
 
-    filename = "tinygo{}.{}-{}.tar.gz".format(version, os_name, arch)
-    ctx.download_and_extract(
-        url = "https://github.com/tinygo-org/tinygo/releases/download/v{}/{}".format(version, filename),
-        sha256 = _TINYGO_SHA256[platform],
-    )
+    for platform, sha256 in _TINYGO_SHA256.items():
+        platform_os, platform_arch = platform.split("_")
+        filename = "tinygo{}.{}-{}.tar.gz".format(version, platform_os, platform_arch)
+        ctx.download_and_extract(
+            output = platform,
+            url = "https://github.com/tinygo-org/tinygo/releases/download/v{}/{}".format(version, filename),
+            sha256 = sha256,
+        )
+
+    for platform, sha256 in _GO_SHA256.items():
+        platform_os, platform_arch = platform.split("_")
+        filename = "go{}.{}-{}.tar.gz".format(_GO_VERSION, platform_os, platform_arch)
+        ctx.download_and_extract(
+            output = "go_{}".format(platform),
+            url = "https://dl.google.com/go/{}".format(filename),
+            sha256 = sha256,
+        )
+
+    host_tinygo_path = "{}/tinygo/bin/tinygo".format(host_platform)
+    host_go_path = "go_{}/go/bin/go".format(host_platform)
     ctx.file(
         "BUILD.bazel",
         """
@@ -44,9 +67,59 @@ package(default_visibility = ["//visibility:public"])
 
 filegroup(
     name = "tinygo_bin",
-    srcs = ["tinygo/bin/tinygo"],
+    srcs = ["{host_tinygo_path}"],
 )
-""",
+
+filegroup(
+    name = "go_bin",
+    srcs = ["{host_go_path}"],
+)
+
+filegroup(
+    name = "tinygo_darwin_amd64_bin",
+    srcs = ["darwin_amd64/tinygo/bin/tinygo"],
+)
+
+filegroup(
+    name = "tinygo_darwin_arm64_bin",
+    srcs = ["darwin_arm64/tinygo/bin/tinygo"],
+)
+
+filegroup(
+    name = "tinygo_linux_amd64_bin",
+    srcs = ["linux_amd64/tinygo/bin/tinygo"],
+)
+
+filegroup(
+    name = "tinygo_linux_arm64_bin",
+    srcs = ["linux_arm64/tinygo/bin/tinygo"],
+)
+
+filegroup(
+    name = "go_darwin_amd64_bin",
+    srcs = ["go_darwin_amd64/go/bin/go"],
+)
+
+filegroup(
+    name = "go_darwin_arm64_bin",
+    srcs = ["go_darwin_arm64/go/bin/go"],
+)
+
+filegroup(
+    name = "go_linux_amd64_bin",
+    srcs = ["go_linux_amd64/go/bin/go"],
+)
+
+filegroup(
+    name = "go_linux_arm64_bin",
+    srcs = ["go_linux_arm64/go/bin/go"],
+)
+
+filegroup(
+    name = "files",
+    srcs = glob(["**"]),
+)
+""".format(host_go_path = host_go_path, host_tinygo_path = host_tinygo_path),
     )
 
 

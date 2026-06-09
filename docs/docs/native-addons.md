@@ -20,6 +20,8 @@ the first-party add-on runbooks:
   metadata collector for Kubernetes, containerd, Docker, and Docker Compose hosts.
 - [PowerDNS Telemetry](#powerdns-telemetry-add-on) covers `serviceradar-powerdns-addon`,
   including RPZ-hit DNS Activity events from PowerDNS Recursor protobuf logging.
+- [Telemetry Display Contracts](./telemetry-display-contracts.md) covers the
+  schema-driven log/event display contracts used by add-ons and plugins.
 
 ## Documentation map
 
@@ -31,6 +33,7 @@ Native add-on documentation is split by job-to-be-done:
 | Roll out NetFlow-to-process attribution and host flow evidence | [Host Network Visibility](./netprobe.md) | **Observability > Attributed Flows** |
 | Add pod, namespace, image, Docker, and Compose context to host evidence | [Workload Identity](./workload-identity.md) | Agent detail, flow details, attributed flows |
 | Ingest PowerDNS RPZ policy hits as OCSF DNS Activity events | [PowerDNS Telemetry](#powerdns-telemetry-add-on) | Universal event search / SRQL `in:events` |
+| Render add-on and plugin logs/events without producer-specific UI code | [Telemetry Display Contracts](./telemetry-display-contracts.md) | Event and log detail views |
 | Roll the base `serviceradar-agent` binary | [Agent Release Management](./agent-release-management.md) | **Settings > Agents > Releases** |
 | Configure NetFlow exporters and understand central flow ingest | [NetFlow Ingest Guide](./netflow.md) | **Observability > NetFlows** |
 
@@ -95,7 +98,7 @@ ServiceRadar currently ships these native add-ons:
 
 | Add-on | Binary / unit | Primary capability | Typical target |
 | --- | --- | --- | --- |
-| `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution | Linux hosts and Kubernetes workers |
+| `netprobe` | `serviceradar-netprobe.service` | Host network visibility and NetFlow-to-process attribution | Linux hosts and Kubernetes worker-node agents |
 | `workload-identity` | `serviceradar-workload-identity.service` | Container, pod, namespace, image, and runtime metadata | Kubernetes workers, Docker hosts, and Docker Compose hosts |
 | `powerdns` | `serviceradar-powerdns-addon` | PowerDNS Recursor protobuf ingest and RPZ-to-OCSF DNS Activity mapping | DNS resolver hosts running ServiceRadar Agent |
 
@@ -103,6 +106,28 @@ Native add-ons are assigned from **Settings > Agents > Add-ons**, not from the b
 agent release page. The base agent release catalog only rolls the `serviceradar-agent`
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
+
+### Kubernetes agent boundary
+
+Do not run native add-on packages on the in-cluster `k8s-agent`. That agent exists
+for Kubernetes integration work inside the demo or cluster deployment, where the pod
+filesystem and security context are not suitable for host-level add-on activation,
+systemd units, scanner state directories, or local sidecar process ownership.
+
+Deploy host add-ons on agents installed on the hosts that own the capability:
+
+- Run `netprobe` and `workload-identity` on Kubernetes worker-node agents, not on
+  the in-cluster `k8s-agent` pod.
+- Run Bumblebee exposure scanning on approved workstation, server, or developer
+  endpoint agents that can own the scanner state directory and timer.
+- Run `powerdns` on DNS resolver hosts where PowerDNS Recursor can connect to the
+  add-on's localhost listener.
+
+If the control plane compiles disabled host capability profiles or add-on
+assignments for `k8s-agent`, the agent acknowledges and skips those local write and
+activation paths. This prevents read-only pod filesystem failures from blocking the
+agent's config-version update. Treat such skips as a targeting signal: move the
+assignment to the host agent that should actually run the capability.
 
 ## PowerDNS telemetry add-on
 
@@ -277,6 +302,10 @@ Each add-on's manifest package lives under `addons/<id>/`:
   `requires`, `exec`, `config_schema` pointer). Mirrors `plugin.yaml`.
 - `config.schema.json` - JSON Schema (draft 2020-12) for operator config; the control
   plane validates `AddonAssignment.params` against it before persisting.
+- `signal_schemas` entries in `addon.yaml` - required when the add-on emits logs or
+  events. Each entry references a payload JSON Schema and a display contract JSON file
+  stored in the package bundle. See
+  [Telemetry Display Contracts](./telemetry-display-contracts.md).
 - `BUILD.bazel`, `README.md`.
 
 Implementation sources live elsewhere (`go/cmd/serviceradar-<id>-addon/` for Go,
@@ -298,13 +327,15 @@ Use **Settings > Agents > Add-ons** to review and target native add-ons:
 
 1. Open a staged add-on package and review the manifest identity, declared
    capabilities, delivery and supervision model, supported artifacts, verification
-   result, release tag, OCI reference, and digest.
+   result, release tag, OCI reference, digest, and any `signal_schemas` display
+   contracts for emitted logs or events.
 2. Approve the package only after narrowing the granted capabilities to the minimum
    set needed. Denied or revoked packages are not assignable.
 3. Target an approved add-on to a single agent or to a cohort. The cohort selector
    supports the current connected cohort and a custom list of agent IDs. The
    compatibility preview shows selected, compatible, unsupported, and unresolved
    targets before the assignment is created. Unsupported architectures are skipped.
+   Do not target in-cluster `k8s-agent` identities for host-level native add-ons.
 4. Check the agent detail page after rollout. The **Add-on Drift** card reconciles
    assigned, installed, and active state, and calls out assigned-but-not-installed,
    assigned-but-not-active, unhealthy, unassigned observed add-ons, and architecture
@@ -339,10 +370,12 @@ versions. The expected release path is:
 1. Update the add-on manifest under `addons/<id>/addon.yaml` and the implementation
    version in the source package.
 2. Build signed per-platform add-on bundles through `build/native_addons/`.
-3. Publish the add-on discovery index and artifact metadata with the release.
-4. Import the package into ServiceRadar as `staged`.
-5. Review and approve the package in **Settings > Agents > Add-ons**.
-6. Assign the approved package to agents or cohorts.
+3. Include payload schemas and display contracts for every emitted log or event in
+   the bundle and list them in `signal_schemas`.
+4. Publish the add-on discovery index and artifact metadata with the release.
+5. Import the package into ServiceRadar as `staged`.
+6. Review and approve the package in **Settings > Agents > Add-ons**.
+7. Assign the approved package to agents or cohorts.
 
 Every change to an add-on payload, config schema, manifest requirements, systemd unit,
 or runtime behavior must bump that add-on's manifest version. The release build has a

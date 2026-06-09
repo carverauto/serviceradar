@@ -14,6 +14,8 @@ import (
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const unknownStatus = "UNKNOWN"
@@ -81,6 +83,94 @@ func TestNormalizeResources(t *testing.T) {
 
 	if res.RequestedMemoryMB != 0 || res.RequestedCPUMS != 0 || res.MaxOpenConnections != 0 {
 		t.Fatalf("expected negative resource values to be clamped to 0, got %#v", res)
+	}
+}
+
+func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
+	assignment := &pluginAssignment{
+		AssignmentID: "assign-1",
+		PluginID:     "axis",
+		Name:         "Axis Camera",
+	}
+
+	signal, err := decodePluginTelemetry([]byte(`{
+		"source": {
+			"source_type": "axis-camera",
+			"source_instance": "front-door",
+			"metadata": {"controller": "cam-1"}
+		},
+		"records": [{
+			"event_id": "event-1",
+			"payload_kind": "ocsf_event",
+			"payload": {"id":"event-1","class_uid":1008},
+			"metadata": {"serviceradar.signal_schema.schema_id": "com.carverauto.axis_camera.event_log"}
+		}]
+	}`), assignment)
+	if err != nil {
+		t.Fatalf("decodePluginTelemetry() error = %v", err)
+	}
+
+	if signal.AssignmentID != "assign-1" || signal.PluginID != "axis" || signal.PluginName != "Axis Camera" {
+		t.Fatalf("unexpected signal identity: %#v", signal)
+	}
+	if signal.Batch.GetSource().GetSourceType() != "axis-camera" {
+		t.Fatalf("source_type = %q, want axis-camera", signal.Batch.GetSource().GetSourceType())
+	}
+	if got := signal.Batch.GetSource().GetMetadata()["controller"]; got != "cam-1" {
+		t.Fatalf("source metadata controller = %q, want cam-1", got)
+	}
+	if len(signal.Batch.GetRecords()) != 1 {
+		t.Fatalf("records len = %d, want 1", len(signal.Batch.GetRecords()))
+	}
+
+	record := signal.Batch.GetRecords()[0]
+	if record.GetPayloadKind() != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT {
+		t.Fatalf("payload_kind = %v, want OCSF_EVENT", record.GetPayloadKind())
+	}
+	if !json.Valid(record.GetPayload()) {
+		t.Fatalf("payload is not JSON: %s", string(record.GetPayload()))
+	}
+	if record.GetObservedTimeUnixNano() == 0 || record.GetEventTimeUnixNano() == 0 {
+		t.Fatalf("timestamps should be defaulted: %#v", record)
+	}
+}
+
+func TestBuildPluginSignalGatewayStatusWrapsTelemetryBatch(t *testing.T) {
+	signal := PluginSignalTelemetry{
+		AssignmentID: "assign-1",
+		PluginID:     "axis",
+		Batch: &addonpb.TelemetryBatch{
+			Source: &addonpb.TelemetrySource{SourceType: "axis-camera", SourceInstance: "front-door"},
+			Records: []*addonpb.TelemetryRecord{
+				{
+					EventId:     "event-1",
+					PayloadKind: addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+					Payload:     []byte(`{"id":"event-1"}`),
+				},
+			},
+		},
+	}
+
+	status, size, err := buildPluginSignalGatewayStatus(signal, "agent-1", "gateway-1", "default", "kv")
+	if err != nil {
+		t.Fatalf("buildPluginSignalGatewayStatus() error = %v", err)
+	}
+	if size == 0 {
+		t.Fatal("expected non-empty telemetry message")
+	}
+	if status.GetServiceName() != pluginSignalTelemetryServiceName {
+		t.Fatalf("service_name = %q, want %q", status.GetServiceName(), pluginSignalTelemetryServiceName)
+	}
+	if status.GetSource() != "plugin:assign-1" {
+		t.Fatalf("source = %q, want plugin:assign-1", status.GetSource())
+	}
+
+	var decoded addonpb.TelemetryBatch
+	if err := gproto.Unmarshal(status.GetMessage(), &decoded); err != nil {
+		t.Fatalf("unmarshal telemetry batch: %v", err)
+	}
+	if decoded.GetRecords()[0].GetEventId() != "event-1" {
+		t.Fatalf("decoded event_id = %q, want event-1", decoded.GetRecords()[0].GetEventId())
 	}
 }
 

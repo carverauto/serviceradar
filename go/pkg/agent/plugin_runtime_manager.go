@@ -105,6 +105,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		runners:          make(map[string]*pluginRunner),
 		streams:          make(map[string]*pluginAssignment),
 		results:          make(chan PluginResult, 1024),
+		signals:          make(chan PluginSignalTelemetry, 1024),
 		states:           make(map[string]*assignmentState),
 		stateNow:         time.Now,
 	}
@@ -687,6 +688,36 @@ func (m *PluginManager) enqueueResult(result PluginResult) {
 		m.logger.Warn().
 			Str("assignment_id", result.AssignmentID).
 			Msg("Plugin result dropped due to backpressure")
+	}
+}
+
+// DrainSignals returns up to max pending plugin-emitted telemetry batches.
+func (m *PluginManager) DrainSignals(max int) []PluginSignalTelemetry {
+	if m == nil || max <= 0 {
+		return nil
+	}
+
+	signals := make([]PluginSignalTelemetry, 0, max)
+	for i := 0; i < max; i++ {
+		select {
+		case signal := <-m.signals:
+			signals = append(signals, signal)
+		default:
+			return signals
+		}
+	}
+
+	return signals
+}
+
+func (m *PluginManager) enqueueSignal(signal PluginSignalTelemetry) {
+	select {
+	case m.signals <- signal:
+	default:
+		m.logger.Warn().
+			Str("assignment_id", signal.AssignmentID).
+			Str("plugin_id", signal.PluginID).
+			Msg("Plugin telemetry dropped due to backpressure")
 	}
 }
 

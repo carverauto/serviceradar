@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 	"github.com/gorilla/websocket"
 )
 
@@ -260,6 +260,17 @@ func TestMapProtectWSEventMotion(t *testing.T) {
 	}
 	if event.LogProvider != "unifi-protect-camera" {
 		t.Fatalf("unexpected log provider %q", event.LogProvider)
+	}
+	record := sdk.NewOCSFTelemetryRecord(*event).WithSignalSchemaRef(protectSignalSchemaRef())
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataSchemaID] != protectSignalSchemaID {
+		t.Fatalf("schema metadata = %#v, want schema id %q", record.Metadata, protectSignalSchemaID)
+	}
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataDisplayContract] != protectSignalSchemaDisplayContractPath {
+		t.Fatalf(
+			"display contract metadata = %#v, want %q",
+			record.Metadata,
+			protectSignalSchemaDisplayContractPath,
+		)
 	}
 }
 

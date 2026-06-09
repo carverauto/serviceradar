@@ -218,8 +218,18 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	p.server.mu.RLock()
 	manager := p.server.addonManager
 	configDir := p.server.configDir
+	serverConfig := p.server.config
 	p.server.mu.RUnlock()
 	if manager == nil {
+		return true
+	}
+	if serverConfig != nil && strings.EqualFold(strings.TrimSpace(serverConfig.AgentID), kubernetesAgentID) {
+		if len(assignments) > 0 {
+			p.logger.Info().
+				Int("addons", len(assignments)).
+				Str("agent_id", serverConfig.AgentID).
+				Msg("Skipping native add-on assignments for Kubernetes agent")
+		}
 		return true
 	}
 

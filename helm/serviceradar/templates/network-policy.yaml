@@ -24,6 +24,9 @@
 {{- $bmpCollectorExternal := default (dict) $ingress.bmpCollectorExternal -}}
 {{- $bmpCollectorExternalEnabled := default true $bmpCollectorExternal.enabled -}}
 {{- $bmpCollectorExternalCIDRs := default (list "0.0.0.0/0") $bmpCollectorExternal.allowedCIDRs -}}
+{{- $gobgpExternal := default (dict) $ingress.gobgpExternal -}}
+{{- $gobgpExternalEnabled := default true $gobgpExternal.enabled -}}
+{{- $gobgpExternalCIDRs := default (list "0.0.0.0/0") $gobgpExternal.allowedCIDRs -}}
 {{- $cnpgOperator := default (dict) $ingress.cnpgOperator -}}
 {{- $cnpgOperatorEnabled := default false $cnpgOperator.enabled -}}
 {{- $cnpgOperatorNamespace := default "cnpg-system" $cnpgOperator.namespace -}}
@@ -83,6 +86,10 @@
 {{- end -}}
 {{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
 {{- $hasLogCollectorTcpExternalPorts := gt (len $logCollectorTcpExternalPorts) 0 -}}
+{{- $gobgp := default (dict) .Values.gobgp -}}
+{{- $gobgpEnabled := default false $gobgp.enabled -}}
+{{- $gobgpBgp := default (dict) $gobgp.bgp -}}
+{{- $gobgpBgpListenPort := default 179 $gobgpBgp.listenPort -}}
 {{- $trapd := default (dict) .Values.trapd -}}
 {{- $trapdExternalService := default (dict) $trapd.externalService -}}
 {{- $trapdExternalServiceEnabled := default false $trapdExternalService.enabled -}}
@@ -105,6 +112,7 @@
   {{- $bmpCollectorExternalPorts = append $bmpCollectorExternalPorts (dict "protocol" (default "TCP" $bmpCollectorBmpPort.protocol) "port" (default 11019 $bmpCollectorBmpPort.port)) -}}
 {{- end -}}
 {{- $hasBmpCollectorExternalPorts := gt (len $bmpCollectorExternalPorts) 0 -}}
+{{- $hasGobgpExternalCIDRs := gt (len $gobgpExternalCIDRs) 0 -}}
 {{- $cnpg := default (dict) .Values.cnpg -}}
 {{- $cnpgEnabled := true -}}
 {{- if hasKey $cnpg "enabled" -}}
@@ -404,6 +412,30 @@ spec:
             cidr: {{ $cidr | quote }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $bmpCollectorExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $gobgpEnabled $gobgpExternalEnabled $hasGobgpExternalCIDRs }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-gobgp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-gobgp
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $gobgpExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+        - protocol: TCP
+          port: {{ $gobgpBgpListenPort }}
 {{- end }}
 {{- end }}
 {{- if and $cnpgEnabled $cnpgOperatorEnabled }}

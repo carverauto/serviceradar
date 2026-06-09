@@ -1,6 +1,8 @@
 exports_files([
     "addon.yaml",
     "config.schema.json",
+    "display/dns_activity.display.json",
+    "schemas/dns_activity.schema.json",
 ])
 
 filegroup(
@@ -8,6 +10,8 @@ filegroup(
     srcs = [
         "addon.yaml",
         "config.schema.json",
+        "display/dns_activity.display.json",
+        "schemas/dns_activity.schema.json",
     ],
     visibility = ["//visibility:public"],
 )

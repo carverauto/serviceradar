@@ -151,7 +151,7 @@ func buildAddonTelemetryGatewayStatus(
 func addonTelemetrySource(addonID string) string {
 	clean := strings.TrimSpace(addonID)
 	if clean == "" {
-		clean = "unknown"
+		clean = unknownTelemetrySource
 	}
 	return fmt.Sprintf("%s%s", addonTelemetrySourcePrefix, clean)
 }

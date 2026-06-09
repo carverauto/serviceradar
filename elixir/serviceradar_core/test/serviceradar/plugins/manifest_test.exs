@@ -39,6 +39,59 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert manifest.schema_version == 1
   end
 
+  test "signal schema declarations parse and normalize" do
+    signal_schema = %{
+      "id" => "com.carverauto.sample.dns_activity",
+      "version" => "1.0.0",
+      "signal_type" => "event",
+      "payload_kind" => "ocsf_event",
+      "payload_schema" => "schemas/dns_activity.schema.json",
+      "display_contract" => "display/dns_activity.display.json",
+      "display_contract_id" => "com.carverauto.sample.dns_activity.display",
+      "display_contract_version" => "1.0.0",
+      "ocsf_schema_version" => "1.5.0",
+      "class_uid" => 4003,
+      "type_uid" => 400_301
+    }
+
+    manifest = Map.put(@valid_manifest, "signal_schemas", [signal_schema])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [parsed_schema] = parsed.signal_schemas
+    assert parsed_schema["id"] == "com.carverauto.sample.dns_activity"
+    assert parsed_schema["payload_kind"] == "ocsf_event"
+    assert parsed_schema["display_contract"] == "display/dns_activity.display.json"
+    assert parsed_schema["class_uid"] == 4003
+  end
+
+  test "signal schema declarations reject unsafe contract shapes" do
+    manifest =
+      Map.put(@valid_manifest, "signal_schemas", [
+        %{
+          "id" => "Bad.Schema",
+          "version" => "not-semver",
+          "signal_type" => "metric",
+          "payload_kind" => "unknown",
+          "payload_schema" => "../dns_activity.schema.json",
+          "display_contract" => "/display/dns_activity.display.json",
+          "display_contract_id" => "com.carverauto.sample.display",
+          "display_contract_version" => "1.0.0",
+          "html" => "<script></script>"
+        }
+      ])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+    joined = Enum.join(errors, "\n")
+
+    assert joined =~ "signal_schemas[1].id must use lowercase"
+    assert joined =~ "signal_schemas[1].version must be a valid semver string"
+    assert joined =~ "signal_schemas[1].signal_type must be one of"
+    assert joined =~ "signal_schemas[1].payload_kind must be one of"
+    assert joined =~ "signal_schemas[1].payload_schema must not traverse directories"
+    assert joined =~ "signal_schemas[1].display_contract must be a relative bundle path"
+    assert joined =~ "signal_schemas[1].html is not allowed"
+  end
+
   test "northbound action descriptors parse and normalize" do
     manifest =
       Map.put(@valid_manifest, "actions", [

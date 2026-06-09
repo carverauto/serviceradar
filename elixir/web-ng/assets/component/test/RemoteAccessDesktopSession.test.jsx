@@ -2,7 +2,7 @@ import React from "react"
 import {renderToStaticMarkup} from "react-dom/server"
 import {describe, expect, it} from "vitest"
 
-import {Component as RemoteAccessDesktopSession} from "./RemoteAccessDesktopSession.jsx"
+import {Component as RemoteAccessDesktopSession} from "../src/RemoteAccessDesktopSession.jsx"
 
 const sensitiveValue = "must-not-render"
 

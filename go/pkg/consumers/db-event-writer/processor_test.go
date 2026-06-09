@@ -5,6 +5,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	collectlogsv1 "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
+	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
+	"google.golang.org/protobuf/proto"
 )
 
 func TestGetTableForSubject_MultiStreamRouting(t *testing.T) {
@@ -128,6 +134,97 @@ func TestParseJSONLogsCharCodeBody(t *testing.T) {
 	}
 	if rows[0].ServiceName != "core-elx" {
 		t.Fatalf("unexpected service name: %q", rows[0].ServiceName)
+	}
+}
+
+func TestParseJSONLogsPreservesSignalSchemaAttributes(t *testing.T) {
+	payload := []byte(`{
+		"body":"PowerDNS RPZ block",
+		"attributes":{
+			"service_radar":{
+				"signal_schema":{
+					"producer_id":"powerdns",
+					"producer_version":"0.1.0",
+					"schema_id":"com.carverauto.powerdns.dns_activity",
+					"schema_version":"1.0.0"
+				}
+			}
+		}
+	}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.otel.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	var attributes map[string]any
+	if err := json.Unmarshal([]byte(rows[0].Attributes), &attributes); err != nil {
+		t.Fatalf("expected attributes JSON to decode: %v", err)
+	}
+
+	serviceRadar, ok := attributes["service_radar"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected service_radar metadata to be preserved, got %s", rows[0].Attributes)
+	}
+
+	signalSchema, ok := serviceRadar["signal_schema"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected signal_schema metadata to be preserved, got %s", rows[0].Attributes)
+	}
+
+	if got := signalSchema["schema_id"]; got != "com.carverauto.powerdns.dns_activity" {
+		t.Fatalf("unexpected schema_id: %v", got)
+	}
+}
+
+func TestParseOTELLogsPreservesFlattenedSignalSchemaAttributes(t *testing.T) {
+	req := &collectlogsv1.ExportLogsServiceRequest{
+		ResourceLogs: []*logsv1.ResourceLogs{
+			{
+				Resource: &resourcev1.Resource{
+					Attributes: []*commonv1.KeyValue{
+						stringKeyValue("service.name", "test-addon"),
+					},
+				},
+				ScopeLogs: []*logsv1.ScopeLogs{
+					{
+						LogRecords: []*logsv1.LogRecord{
+							{
+								Body: &commonv1.AnyValue{
+									Value: &commonv1.AnyValue_StringValue{StringValue: "schema-backed log"},
+								},
+								Attributes: []*commonv1.KeyValue{
+									stringKeyValue("service_radar.signal_schema.producer_id", "test-addon"),
+									stringKeyValue("service_radar.signal_schema.producer_version", "0.1.0"),
+									stringKeyValue("service_radar.signal_schema.schema_id", "com.carverauto.test.log"),
+									stringKeyValue("service_radar.signal_schema.schema_version", "1.0.0"),
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal OTEL logs request: %v", err)
+	}
+
+	rows, err := parseOTELLogs(payload, "logs.otel.processed")
+	if err != nil {
+		t.Fatalf("expected OTEL log parse to succeed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	if !strings.Contains(rows[0].Attributes, "service_radar.signal_schema.schema_id=com.carverauto.test.log") {
+		t.Fatalf("expected flattened signal schema attributes to be preserved, got %s", rows[0].Attributes)
 	}
 }
 
@@ -267,7 +364,22 @@ func TestParseOCSFEvent(t *testing.T) {
 		"type_uid":100800,
 		"activity_id":1,
 		"severity_id":2,
-		"message":"test event"
+		"message":"test event",
+		"metadata":{
+			"service_radar":{
+				"signal_schema":{
+					"producer_id":"powerdns",
+					"producer_version":"0.1.0",
+					"schema_id":"com.carverauto.powerdns.dns_activity",
+					"schema_version":"1.0.0",
+					"display_contract_id":"com.carverauto.powerdns.dns_activity.display",
+					"display_contract_version":"1.0.0",
+					"display_contract":"display/dns_activity.display.json",
+					"signal_type":"event",
+					"payload_kind":"ocsf_event"
+				}
+			}
+		}
 	}`)
 
 	row, err := parseOCSFEvent(payload)
@@ -287,7 +399,21 @@ func TestParseOCSFEvent(t *testing.T) {
 		t.Fatalf("unexpected class_uid: %d", row.ClassUID)
 	}
 
-	assertRawJSON(t, row.Metadata, `{}`)
+	assertRawJSON(t, row.Metadata, `{
+		"service_radar":{
+			"signal_schema":{
+				"producer_id":"powerdns",
+				"producer_version":"0.1.0",
+				"schema_id":"com.carverauto.powerdns.dns_activity",
+				"schema_version":"1.0.0",
+				"display_contract_id":"com.carverauto.powerdns.dns_activity.display",
+				"display_contract_version":"1.0.0",
+				"display_contract":"display/dns_activity.display.json",
+				"signal_type":"event",
+				"payload_kind":"ocsf_event"
+			}
+		}
+	}`)
 	assertRawJSON(t, row.Observables, `[]`)
 	assertRawJSON(t, row.Actor, `{}`)
 	assertRawJSON(t, row.Device, `{}`)
@@ -297,6 +423,15 @@ func TestParseOCSFEvent(t *testing.T) {
 
 	if !row.CreatedAt.Before(time.Now().Add(1 * time.Minute)) {
 		t.Fatalf("expected created_at to be near now")
+	}
+}
+
+func stringKeyValue(key, value string) *commonv1.KeyValue {
+	return &commonv1.KeyValue{
+		Key: key,
+		Value: &commonv1.AnyValue{
+			Value: &commonv1.AnyValue_StringValue{StringValue: value},
+		},
 	}
 }
 

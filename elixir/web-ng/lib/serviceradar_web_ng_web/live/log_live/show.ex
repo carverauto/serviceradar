@@ -2,9 +2,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
+  import ServiceRadarWebNGWeb.Observability.SignalDisplayComponents
   import ServiceRadarWebNGWeb.UIComponents
 
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadarWebNG.Observability.SignalDisplay
   alias ServiceRadarWebNGWeb.Components.PromotionRuleBuilder
 
   @impl true
@@ -14,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      |> assign(:page_title, "Log Details")
      |> assign(:log_id, nil)
      |> assign(:log, nil)
+     |> assign(:signal_display, nil)
      |> assign(:error, nil)
      |> assign(:srql, %{enabled: false})
      |> assign(:show_rule_builder, false)}
@@ -55,6 +58,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
      socket
      |> assign(:log_id, log_id)
      |> assign(:log, log)
+     |> assign(:signal_display, build_signal_display(log))
      |> assign(:error, error)}
   end
 
@@ -111,6 +115,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
 
         <div :if={is_map(@log)} class="space-y-4">
           <.log_summary log={@log} />
+          <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
           <.log_body log={@log} />
           <.log_details log={@log} />
         </div>
@@ -132,6 +137,15 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   defp can_create_rules?(%{user: _} = scope), do: ServiceRadarWebNG.RBAC.can?(scope, "observability.rules.create")
 
   defp can_create_rules?(_), do: false
+
+  defp build_signal_display(log) when is_map(log) do
+    case SignalDisplay.render_record(log) do
+      {:ok, widgets} -> widgets
+      :error -> nil
+    end
+  end
+
+  defp build_signal_display(_log), do: nil
 
   defp augment_log(%{} = log, scope) do
     attributes = parse_attributes(Map.get(log, "attributes")) || %{}
@@ -538,10 +552,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   # Parse formats like: attributes={"error":"nats: no heartbeat"},resource={"service.name":"foo"}
   # or simpler: key=value,key2=value2
   defp parse_key_value_format(value) do
-    # Match pattern: word={...} or word=value
-    # This regex captures: key followed by = and either {json} or plain value until next key= or end
+    # Match pattern: key={...} or key=value. OTEL attribute keys commonly
+    # contain dots, such as `service_radar.signal_schema.producer_id`.
     result =
-      ~r/(\w+)=(\{[^}]*\}|[^,]+?)(?=,\w+=|$)/
+      ~r/([\w.-]+)=(\{[^}]*\}|[^,]+?)(?=,[\w.-]+=|$)/
       |> Regex.scan(value)
       |> Enum.reduce(%{}, fn
         [_full, key, json_value], acc when binary_part(json_value, 0, 1) == "{" ->

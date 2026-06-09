@@ -73,6 +73,11 @@ It observes the node kernel and host interfaces. Workload, pod, namespace, and i
 metadata are provided by the separate [Workload Identity](./workload-identity.md)
 add-on and are joined upstream.
 
+Do not assign `netprobe` to the in-cluster `k8s-agent` pod. That identity does not
+own the worker kernel, systemd, BPF filesystem, host interfaces, or netprobe
+bootstrap config path. Target the ServiceRadar agent installed on each worker node
+instead.
+
 The base agent reports desired and observed add-on state to ServiceRadar, but it does
 not supervise `netprobe` as a child process. The expected host shape is:
 
@@ -238,6 +243,11 @@ sudo journalctl -u serviceradar-netprobe.service -n 200 --no-pager
 Common causes are unsupported architecture, failed artifact verification, missing BPF
 capabilities, an interface allowlist that does not match host interfaces, or a blocked
 gateway connection.
+
+If the assignment targets `k8s-agent`, move it to the worker-node agent. The
+in-cluster Kubernetes agent intentionally skips host-level netprobe activation and
+visibility bootstrap writes so pod filesystem constraints do not block normal config
+updates.
 
 ### No attributed flows
 

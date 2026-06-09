@@ -25,7 +25,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     :actions,
     :source,
     :schema_version,
-    :display_contract
+    :display_contract,
+    :signal_schemas
   ]
 
   @type t :: %__MODULE__{
@@ -42,7 +43,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           actions: [map()],
           source: map(),
           schema_version: pos_integer() | nil,
-          display_contract: map()
+          display_contract: map(),
+          signal_schemas: [map()]
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
@@ -55,6 +57,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     "get_config",
     "log",
     "submit_result",
+    "emit_telemetry",
     "http_request",
     "websocket_connect",
     "websocket_send",
@@ -68,7 +71,24 @@ defmodule ServiceRadar.Plugins.Manifest do
     "tcp_close",
     "udp_sendto"
   ]
+  @allowed_signal_types ["event", "log"]
+  @allowed_signal_payload_kinds ["ocsf_event", "otel_log"]
+  @allowed_signal_schema_keys ~w(
+    id
+    version
+    signal_type
+    payload_kind
+    payload_schema
+    display_contract
+    display_contract_id
+    display_contract_version
+    ocsf_schema_version
+    class_uid
+    type_uid
+  )
   @max_yaml_bytes 262_144
+  @max_signal_ref_length 160
+  @max_signal_path_length 240
 
   @doc """
   Parse and validate a plugin manifest from YAML.
@@ -130,6 +150,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     source = normalize_map(fetch(map, :source)) || %{}
     display_contract = normalize_map(fetch(map, :display_contract)) || %{}
     errors = display_contract_errors(display_contract) ++ errors
+    {signal_schemas, errors} = validate_signal_schemas(fetch(map, :signal_schemas), errors)
 
     if errors == [] do
       schema_version = schema_version || 1
@@ -149,7 +170,8 @@ defmodule ServiceRadar.Plugins.Manifest do
          actions: actions,
          source: source,
          schema_version: schema_version,
-         display_contract: display_contract
+         display_contract: display_contract,
+         signal_schemas: signal_schemas
        }}
     else
       {:error, Enum.reverse(errors)}
@@ -193,12 +215,230 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   def validate_display_contract(_), do: {:error, ["display contract must be a JSON object"]}
 
+  @doc """
+  Validate optional log/event signal schema declarations bundled with the package.
+  """
+  @spec validate_signal_schemas([map()] | nil) :: :ok | {:error, [String.t()]}
+  def validate_signal_schemas(nil), do: :ok
+
+  def validate_signal_schemas(signal_schemas) do
+    case validate_signal_schemas(signal_schemas, []) do
+      {_normalized, []} -> :ok
+      {_normalized, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
   defp display_contract_errors(display_contract) do
     case validate_display_contract(display_contract) do
       :ok -> []
       {:error, errs} -> errs
     end
   end
+
+  defp validate_signal_schemas(nil, errors), do: {[], errors}
+
+  defp validate_signal_schemas(signal_schemas, errors) when is_list(signal_schemas) do
+    signal_schemas
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {schema, index}, {acc, errors} ->
+      case validate_signal_schema(schema, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, schema_errors} -> {acc, schema_errors ++ errors}
+      end
+    end)
+    |> then(fn {schemas, errors} -> {Enum.reverse(schemas), errors} end)
+  end
+
+  defp validate_signal_schemas(_signal_schemas, errors),
+    do: {[], ["signal_schemas must be a list" | errors]}
+
+  defp validate_signal_schema(schema, index) when is_map(schema) do
+    schema = normalize_map(schema) || %{}
+
+    errors = unknown_signal_schema_key_errors(schema, index)
+
+    {id, errors} = required_signal_string(schema, :id, index, errors)
+    {version, errors} = required_signal_string(schema, :version, index, errors)
+    {signal_type, errors} = required_signal_string(schema, :signal_type, index, errors)
+    {payload_kind, errors} = required_signal_string(schema, :payload_kind, index, errors)
+    {payload_schema, errors} = required_signal_string(schema, :payload_schema, index, errors)
+    {display_contract, errors} = required_signal_string(schema, :display_contract, index, errors)
+
+    {display_contract_id, errors} =
+      required_signal_string(schema, :display_contract_id, index, errors)
+
+    {display_contract_version, errors} =
+      required_signal_string(schema, :display_contract_version, index, errors)
+
+    errors =
+      errors
+      |> validate_signal_id(id, "id", index)
+      |> validate_signal_semver(version, "version", index)
+      |> validate_signal_enum(signal_type, "signal_type", @allowed_signal_types, index)
+      |> validate_signal_enum(
+        payload_kind,
+        "payload_kind",
+        @allowed_signal_payload_kinds,
+        index
+      )
+      |> validate_signal_path(payload_schema, "payload_schema", index)
+      |> validate_signal_path(display_contract, "display_contract", index)
+      |> validate_signal_id(display_contract_id, "display_contract_id", index)
+      |> validate_signal_semver(display_contract_version, "display_contract_version", index)
+
+    {ocsf_schema_version, errors} =
+      optional_signal_string(schema, :ocsf_schema_version, index, errors)
+
+    errors = validate_signal_semver(errors, ocsf_schema_version, "ocsf_schema_version", index)
+
+    {class_uid, errors} = optional_signal_positive_int(schema, :class_uid, index, errors)
+    {type_uid, errors} = optional_signal_positive_int(schema, :type_uid, index, errors)
+
+    if errors == [] do
+      {:ok,
+       %{
+         "id" => id,
+         "version" => version,
+         "signal_type" => signal_type,
+         "payload_kind" => payload_kind,
+         "payload_schema" => payload_schema,
+         "display_contract" => display_contract,
+         "display_contract_id" => display_contract_id,
+         "display_contract_version" => display_contract_version
+       }
+       |> maybe_put_string("ocsf_schema_version", ocsf_schema_version)
+       |> maybe_put_int("class_uid", class_uid)
+       |> maybe_put_int("type_uid", type_uid)}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_signal_schema(_schema, index),
+    do: {:error, ["signal_schemas[#{index}] must be a map"]}
+
+  defp unknown_signal_schema_key_errors(schema, index) do
+    schema
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_signal_schema_keys))
+    |> Enum.map(&"signal_schemas[#{index}].#{&1} is not allowed")
+  end
+
+  defp required_signal_string(schema, key, index, errors) do
+    case normalize_string(fetch(schema, key)) do
+      nil ->
+        {nil, ["signal_schemas[#{index}].#{key} must be a non-empty string" | errors]}
+
+      "" ->
+        {nil, ["signal_schemas[#{index}].#{key} must be a non-empty string" | errors]}
+
+      value ->
+        {value, errors}
+    end
+  end
+
+  defp optional_signal_string(schema, key, index, errors) do
+    case fetch(schema, key) do
+      nil ->
+        {nil, errors}
+
+      value ->
+        case normalize_string(value) do
+          nil ->
+            {nil, ["signal_schemas[#{index}].#{key} must be a non-empty string" | errors]}
+
+          "" ->
+            {nil, ["signal_schemas[#{index}].#{key} must be a non-empty string" | errors]}
+
+          normalized ->
+            {normalized, errors}
+        end
+    end
+  end
+
+  defp optional_signal_positive_int(schema, key, index, errors) do
+    case fetch(schema, key) do
+      nil ->
+        {nil, errors}
+
+      value ->
+        case normalize_int(value) do
+          int when is_integer(int) and int > 0 ->
+            {int, errors}
+
+          _ ->
+            {nil, ["signal_schemas[#{index}].#{key} must be a positive integer" | errors]}
+        end
+    end
+  end
+
+  defp validate_signal_id(errors, nil, _field, _index), do: errors
+
+  defp validate_signal_id(errors, value, field, index) do
+    cond do
+      String.length(value) > @max_signal_ref_length ->
+        ["signal_schemas[#{index}].#{field} exceeds maximum length" | errors]
+
+      Regex.match?(~r/^[a-z0-9][a-z0-9_.-]*$/, value) ->
+        errors
+
+      true ->
+        [
+          "signal_schemas[#{index}].#{field} must use lowercase letters, numbers, dots, underscores, or hyphens"
+          | errors
+        ]
+    end
+  end
+
+  defp validate_signal_semver(errors, nil, _field, _index), do: errors
+
+  defp validate_signal_semver(errors, value, field, index) do
+    case Version.parse(value) do
+      {:ok, _version} -> errors
+      :error -> ["signal_schemas[#{index}].#{field} must be a valid semver string" | errors]
+    end
+  end
+
+  defp validate_signal_enum(errors, nil, _field, _allowed, _index), do: errors
+
+  defp validate_signal_enum(errors, value, field, allowed, index) do
+    if value in allowed do
+      errors
+    else
+      [
+        "signal_schemas[#{index}].#{field} must be one of: #{Enum.join(allowed, ", ")}"
+        | errors
+      ]
+    end
+  end
+
+  defp validate_signal_path(errors, nil, _field, _index), do: errors
+
+  defp validate_signal_path(errors, value, field, index) do
+    cond do
+      String.length(value) > @max_signal_path_length ->
+        ["signal_schemas[#{index}].#{field} exceeds maximum length" | errors]
+
+      String.starts_with?(value, "/") ->
+        ["signal_schemas[#{index}].#{field} must be a relative bundle path" | errors]
+
+      value |> String.split("/") |> Enum.any?(&(&1 == "..")) ->
+        ["signal_schemas[#{index}].#{field} must not traverse directories" | errors]
+
+      not String.ends_with?(value, ".json") ->
+        ["signal_schemas[#{index}].#{field} must reference a JSON file" | errors]
+
+      true ->
+        errors
+    end
+  end
+
+  defp maybe_put_string(map, _key, nil), do: map
+  defp maybe_put_string(map, key, value), do: Map.put(map, key, value)
+
+  defp maybe_put_int(map, _key, nil), do: map
+  defp maybe_put_int(map, key, value), do: Map.put(map, key, value)
 
   defp parse_yaml(yaml) do
     case YamlElixir.read_from_string(yaml) do

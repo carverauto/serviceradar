@@ -191,6 +191,13 @@ networkPolicy:
       namespace: monitoring
       cnpgMetricsPort: 9187
       pgbouncerMetricsPort: 9127
+    gobgpExternal:
+      enabled: true
+      allowedCIDRs:
+        - "192.168.10.1/32"
+        - "10.0.2.1/32"
+        - "10.0.2.0/24"
+        - "192.168.6.0/24"
   egress:
     allowDNS: true
     allowKubeAPIServer: true
@@ -370,6 +377,24 @@ gobgp:
     repository: docker.io/osrg/gobgp
     tag: latest
     pullPolicy: IfNotPresent
+  bgp:
+    localAsn: 401642
+    routerId: "10.42.68.126"
+    listenPort: 179
+  service:
+    bgp:
+      enabled: false
+      port: 179
+  nodeSelector:
+    kubernetes.io/hostname: k8s-cp3-worker1
+  podAnnotations:
+    cni.projectcalico.org/ipAddrs: '["10.42.68.126"]'
+  peers:
+    - name: tonka01
+      ip: "10.0.2.1"
+      peer_asn: 401642
+      description: "tonka01"
+      passiveMode: true
 
 core:
   replicas: 3

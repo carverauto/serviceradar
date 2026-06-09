@@ -20,8 +20,8 @@ use std::sync::Arc;
 
 use addon_sdk::pb;
 use addon_sdk::{
-    ocsf_event_record, Addon, ConfigureResult, Health, HealthStatus, Info, TelemetryBatchBuilder,
-    TelemetryStream, CAPABILITY_NATIVE_TELEMETRY_V1,
+    attach_signal_schema_ref, ocsf_event_record, Addon, ConfigureResult, Health, HealthStatus,
+    Info, SignalSchemaRef, TelemetryBatchBuilder, TelemetryStream, CAPABILITY_NATIVE_TELEMETRY_V1,
 };
 use anyhow::{Context, Result};
 use async_trait::async_trait;
@@ -42,6 +42,11 @@ pub mod dnsmessage {
 const ADDON_ID: &str = "powerdns";
 const ADDON_VERSION: &str = "0.1.0";
 const SOURCE_TYPE: &str = "powerdns";
+const DNS_ACTIVITY_SCHEMA_ID: &str = "com.carverauto.powerdns.dns_activity";
+const DNS_ACTIVITY_SCHEMA_VERSION: &str = "1.0.0";
+const DNS_ACTIVITY_DISPLAY_CONTRACT_ID: &str = "com.carverauto.powerdns.dns_activity.display";
+const DNS_ACTIVITY_DISPLAY_CONTRACT_VERSION: &str = "1.0.0";
+const DNS_ACTIVITY_DISPLAY_CONTRACT_PATH: &str = "display/dns_activity.display.json";
 const DEFAULT_LISTEN_ADDR: &str = "127.0.0.1:6000";
 const DEFAULT_SOURCE_INSTANCE: &str = "powerdns";
 const DEFAULT_BATCH_QUEUE_SIZE: usize = 1024;
@@ -306,8 +311,20 @@ fn map_message_to_record(
         .to_owned();
     let payload = serde_json::to_vec(&event).ok()?;
 
-    let mut record =
-        ocsf_event_record(event_id, event_time_unix_nano, now_unix_nano_i64(), payload);
+    let mut record = attach_signal_schema_ref(
+        ocsf_event_record(event_id, event_time_unix_nano, now_unix_nano_i64(), payload),
+        &SignalSchemaRef {
+            producer_id: ADDON_ID.to_owned(),
+            producer_version: ADDON_VERSION.to_owned(),
+            schema_id: DNS_ACTIVITY_SCHEMA_ID.to_owned(),
+            schema_version: DNS_ACTIVITY_SCHEMA_VERSION.to_owned(),
+            display_contract_id: DNS_ACTIVITY_DISPLAY_CONTRACT_ID.to_owned(),
+            display_contract_version: DNS_ACTIVITY_DISPLAY_CONTRACT_VERSION.to_owned(),
+            display_contract: DNS_ACTIVITY_DISPLAY_CONTRACT_PATH.to_owned(),
+            signal_type: "event".to_owned(),
+            payload_kind: "ocsf_event".to_owned(),
+        },
+    );
     record.metadata.insert(
         "dns_id".to_owned(),
         message.id.unwrap_or_default().to_string(),
@@ -708,6 +725,13 @@ fn policy_kind_name(value: i32) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use addon_sdk::{
+        SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT, SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID,
+        SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION, SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND,
+        SIGNAL_SCHEMA_METADATA_PRODUCER_ID, SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION,
+        SIGNAL_SCHEMA_METADATA_SCHEMA_ID, SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION,
+        SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE,
+    };
 
     #[test]
     fn rpz_response_maps_to_ocsf_dns_activity() {
@@ -760,6 +784,47 @@ mod tests {
         assert_eq!(event["actor"], json!({}));
         assert_eq!(event["device"], json!({"name": "powerdns"}));
         assert_eq!(event["observables"], json!([]));
+
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_PRODUCER_ID),
+            Some(&ADDON_ID.to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION),
+            Some(&ADDON_VERSION.to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_SCHEMA_ID),
+            Some(&DNS_ACTIVITY_SCHEMA_ID.to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_SCHEMA_VERSION),
+            Some(&DNS_ACTIVITY_SCHEMA_VERSION.to_owned())
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_ID),
+            Some(&DNS_ACTIVITY_DISPLAY_CONTRACT_ID.to_owned())
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT_VERSION),
+            Some(&DNS_ACTIVITY_DISPLAY_CONTRACT_VERSION.to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT),
+            Some(&DNS_ACTIVITY_DISPLAY_CONTRACT_PATH.to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE),
+            Some(&"event".to_owned())
+        );
+        assert_eq!(
+            record.metadata.get(SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND),
+            Some(&"ocsf_event".to_owned())
+        );
     }
 
     #[test]

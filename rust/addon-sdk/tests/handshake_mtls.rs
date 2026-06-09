@@ -172,7 +172,8 @@ async fn server_completes_automtls_handshake_and_serves_rpcs() {
 
     let server_mtls = tls::build_server_mtls(&client_cert_pem).expect("build server mtls");
     let server_cert_b64 = server_mtls.server_cert_b64.clone();
-    let server_cert_der = tls::decode_server_cert_b64(&server_cert_b64).expect("decode server cert");
+    let server_cert_der =
+        tls::decode_server_cert_b64(&server_cert_b64).expect("decode server cert");
 
     // 2. Bind a Unix socket and assert the handshake line is well-formed
     //    (CORE|APP|unix|addr|grpc|cert).
@@ -231,7 +232,11 @@ async fn server_completes_automtls_handshake_and_serves_rpcs() {
 
     let mut client = AddonServiceClient::new(channel);
 
-    let info = client.info(InfoRequest {}).await.expect("Info").into_inner();
+    let info = client
+        .info(InfoRequest {})
+        .await
+        .expect("Info")
+        .into_inner();
     assert_eq!(info.id, "rust-sample");
     assert_eq!(info.version, "9.9.9");
     assert_eq!(info.capabilities, vec!["rust-sample".to_string()]);

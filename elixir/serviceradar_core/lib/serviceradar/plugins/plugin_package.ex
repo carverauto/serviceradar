@@ -24,6 +24,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :manifest,
     :config_schema,
     :display_contract,
+    :signal_schemas,
     :wasm_object_key,
     :content_hash,
     :signature,
@@ -195,6 +196,13 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       allow_nil? false
       public? true
       default %{}
+    end
+
+    attribute :signal_schemas, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+      description "Package-owned log/event signal schemas and display contract references"
     end
 
     attribute :wasm_object_key, :string do

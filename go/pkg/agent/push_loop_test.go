@@ -576,6 +576,35 @@ func TestApplyBumblebeeConfigStagesCatalogAndWritesRuntimeProfile(t *testing.T) 
 	}
 }
 
+func TestApplyBumblebeeConfigSkipsDisabledRuntimeProfileForKubernetesAgent(t *testing.T) {
+	dir := t.TempDir()
+	profilePath := filepath.Join(dir, "profile", "runtime.json")
+
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: kubernetesAgentID,
+				Bumblebee: &BumblebeeStatusConfig{
+					CatalogPath: filepath.Join(dir, "catalog", "current"),
+					ProfilePath: profilePath,
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	ok := pl.applyBumblebeeConfig(context.Background(), &proto.BumblebeeConfig{
+		Enabled: false,
+	}, nil)
+	if !ok {
+		t.Fatal("expected disabled Kubernetes Bumblebee config application to succeed")
+	}
+	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no runtime profile to be written, stat err=%v", err)
+	}
+}
+
 func TestEvaluateStatusPushHeartbeat(t *testing.T) {
 	pl := NewPushLoop(nil, nil, 30*time.Second, logger.NewTestLogger())
 	statuses := []*proto.GatewayServiceStatus{

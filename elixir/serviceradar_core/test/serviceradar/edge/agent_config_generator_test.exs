@@ -183,6 +183,24 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       refute other_config.bumblebee_config.enabled
     end
 
+    test "does not enable bumblebee on k8s-agent even when explicitly opted in", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      create_active_bumblebee_snapshot!(actor, unique_id)
+
+      create_bumblebee_config_instance!(actor, "k8s-agent", %{
+        "enabled" => true,
+        "scan_profile" => "kubernetes"
+      })
+
+      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
+      payload = Jason.decode!(config.config_json)
+
+      assert payload["bumblebee"] == %{"enabled" => false}
+      refute config.bumblebee_config.enabled
+    end
+
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
       {:ok, _agent} = create_connected_agent(actor, agent_uid)
 
@@ -1571,6 +1589,28 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       assert [addon] = config.addons
       assert addon.addon_id == package.addon_id
+    end
+
+    test "bumblebee add-on assignment is omitted for k8s-agent", %{
+      actor: actor,
+      unique_id: unique_id
+    } do
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          addon_id: "bumblebee",
+          binary: "serviceradar-bumblebee",
+          capabilities: ["inventory"],
+          approved_capabilities: ["inventory"],
+          delivery: :compiled_in,
+          supervision: :config_toggle,
+          requires: %{"base_agent" => ">=1.2.0", "platforms" => ["linux"]}
+        )
+
+      {:ok, _assignment} = assign_addon(actor, "k8s-agent", package)
+
+      {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
+
+      assert config.addons == []
     end
 
     test "netprobe systemd-service assignment compiles to a systemd_service addon the agent attaches to",

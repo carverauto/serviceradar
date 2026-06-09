@@ -1,7 +1,7 @@
 import React, {useEffect, useId, useRef} from "react"
 import {applySrqlMarkers, createSrqlEditor, ensureSrqlLanguage} from "../../js/lib/srql/monaco_srql.js"
 
-export default function SrqlEditor({value, onChange, completions = [], disabled = false, error = null, compact = false, rich = false}) {
+export function Component({value, onChange, completions = [], disabled = false, error = null, compact = false, rich = false}) {
   const listId = useId()
   const containerRef = useRef(null)
   const editorRef = useRef(null)
@@ -100,3 +100,5 @@ export default function SrqlEditor({value, onChange, completions = [], disabled 
     />
   )
 }
+
+export default Component

@@ -179,3 +179,31 @@ func TestApplyEndpointInventoryConfigWritesRuntimeProfile(t *testing.T) {
 		t.Fatalf("retry attempts = %#v, want 3", profile.UploadRetryMaxAttempts)
 	}
 }
+
+func TestApplyEndpointInventoryConfigSkipsDisabledRuntimeProfileForKubernetesAgent(t *testing.T) {
+	dir := t.TempDir()
+	profilePath := filepath.Join(dir, "profile", "runtime.json")
+
+	pl := &PushLoop{
+		server: &Server{
+			config: &ServerConfig{
+				AgentID: kubernetesAgentID,
+				EndpointInventory: &EndpointInventoryStatusConfig{
+					ProfilePath: profilePath,
+					TmpDir:      filepath.Join(dir, "tmp"),
+				},
+			},
+		},
+		logger: logger.NewTestLogger(),
+	}
+
+	ok := pl.applyEndpointInventoryConfig(context.Background(), &monitoringpb.EndpointInventoryConfig{
+		Enabled: false,
+	}, nil)
+	if !ok {
+		t.Fatal("expected disabled Kubernetes endpoint inventory config application to succeed")
+	}
+	if _, err := os.Stat(profilePath); !os.IsNotExist(err) {
+		t.Fatalf("expected no runtime profile to be written, stat err=%v", err)
+	}
+}

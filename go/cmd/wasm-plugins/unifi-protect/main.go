@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 type Config struct {
@@ -262,9 +262,7 @@ func run_check() {
 			WithMetric("unifi_protect_event_total", float64(len(resultEvents)), "count", nil).
 			WithLabel("controller_host", cfg.Host).
 			WithLabel("camera_scheme", client.BaseURL[:strings.Index(client.BaseURL, "://")])
-		for _, event := range resultEvents {
-			result.WithOCSFEvent(event)
-		}
+		emitProtectTelemetry(resultEvents, cfg.Host)
 
 		return result, nil
 	})

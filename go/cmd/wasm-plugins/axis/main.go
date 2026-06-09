@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 
 	"github.com/carverauto/serviceradar/contrib/plugins/go/axis/internal/axisref"
 )
@@ -222,9 +222,7 @@ func run_check() {
 		if model := firstNonEmpty(details.DeviceInfo, "ProdNbr", "ProductFullName", "Brand"); model != "" {
 			result.WithLabel("camera_model", model)
 		}
-		for _, evt := range resultEvents {
-			result.WithOCSFEvent(evt)
-		}
+		emitAxisTelemetry(resultEvents, cfg.Host)
 
 		return result, nil
 	})

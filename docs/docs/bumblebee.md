@@ -61,6 +61,11 @@ sudo apt install serviceradar-bumblebee-scan
 sudo dnf install serviceradar-bumblebee-scan
 ```
 
+Do not assign Bumblebee scanning to the in-cluster `k8s-agent` pod. Bumblebee needs
+a host that can own `/var/lib/serviceradar/bumblebee`, run the scanner timer, and
+read the intended local roots. Target workstation, server, or developer endpoint
+agents instead.
+
 Set the scanner config to enabled and use the reporting agent ID:
 
 ```json

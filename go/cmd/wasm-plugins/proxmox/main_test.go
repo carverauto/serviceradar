@@ -220,16 +220,28 @@ func TestEmitResourceEventsAddsOCSFEvents(t *testing.T) {
 		},
 	}})
 
-	if len(result.Events) < 5 {
-		t.Fatalf("expected resource events, got %#v", result.Events)
+	if len(result.TelemetryEvents) < 5 {
+		t.Fatalf("expected resource telemetry events, got %#v", result.TelemetryEvents)
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
 		t.Fatalf("result JSON should be valid: %v", err)
 	}
-	if events, ok := payload["events"].([]any); !ok || len(events) != len(result.Events) {
-		t.Fatalf("expected serialized events, got %#v", payload["events"])
+	if _, ok := payload["events"]; ok {
+		t.Fatalf("expected result payload to omit first-class telemetry events, got %#v", payload["events"])
+	}
+
+	record := sdk.NewOCSFTelemetryRecord(result.TelemetryEvents[0]).WithSignalSchemaRef(proxmoxSignalSchemaRef())
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataSchemaID] != proxmoxSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", record.Metadata, proxmoxSignalSchemaID)
+	}
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataDisplayContract] != proxmoxSignalSchemaDisplayContractPath {
+		t.Fatalf(
+			"display contract metadata = %#v, want %q",
+			record.Metadata,
+			proxmoxSignalSchemaDisplayContractPath,
+		)
 	}
 }
 

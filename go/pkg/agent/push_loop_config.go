@@ -41,6 +41,8 @@ type icmpCheckConfig struct {
 	Enabled  bool
 }
 
+const kubernetesAgentID = "k8s-agent"
+
 type icmpCheckResult struct {
 	CheckID        string  `json:"check_id"`
 	CheckName      string  `json:"check_name"`
@@ -292,6 +294,13 @@ func (p *PushLoop) applyBumblebeeConfig(
 		}
 	}
 
+	if !cfg.Enabled && strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping disabled Bumblebee runtime profile for Kubernetes agent")
+		return true
+	}
+
 	if changed, err := bumblebee.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
 		p.logger.Warn().
 			Err(err).
@@ -339,6 +348,13 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 	if serverConfig != nil && serverConfig.EndpointInventory != nil {
 		profilePath = serverConfig.EndpointInventory.effectiveProfilePath()
 		tmpDir = serverConfig.EndpointInventory.effectiveTmpDir()
+	}
+
+	if !cfg.Enabled && strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping disabled endpoint inventory runtime profile for Kubernetes agent")
+		return true
 	}
 
 	if changed, err := endpointinventory.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
@@ -424,10 +440,27 @@ func (p *PushLoop) applyVisibilityConfig(
 	}
 
 	p.server.mu.RLock()
+	serverConfig := p.server.config
 	netprobeSidecar := p.server.netprobeSidecar
 	sidecarManager := p.server.sidecarManager
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
+	agentID := ""
+	if serverConfig != nil {
+		agentID = serverConfig.AgentID
+	}
+	if strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		if sidecarManager != nil {
+			p.stopNetprobeManager(ctx, sidecarManager, "Kubernetes agent visibility disabled")
+		}
+		if netprobeSidecar != nil {
+			netprobeSidecar.SetDesiredConfig(ctx, nil)
+		}
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping netprobe visibility config for Kubernetes agent")
+		return true
+	}
 	if netprobeSidecar == nil || sidecarManager == nil {
 		return true
 	}

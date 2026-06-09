@@ -9,6 +9,7 @@ capabilities:
   - get_config
   - log
   - submit_result
+  - emit_telemetry
   - http_request
   - websocket_connect
   - websocket_recv
@@ -25,3 +26,15 @@ resources:
   requested_memory_mb: 64
   requested_cpu_ms: 2000
   max_open_connections: 2
+signal_schemas:
+  - id: com.carverauto.unifi_protect.camera_event
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/ocsf_event_log_activity.schema.json
+    display_contract: display/camera_event.display.json
+    display_contract_id: com.carverauto.unifi_protect.camera_event.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.5.0
+    class_uid: 1008
+    type_uid: 100801

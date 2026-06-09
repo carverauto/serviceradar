@@ -1,5 +1,14 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
+filegroup(
+    name = "srcs",
+    srcs = ["vapix_parsers.go"],
+    visibility = [
+        "//build/wasm_plugins:__pkg__",
+        "//go/cmd/wasm-plugins/axis:__pkg__",
+    ],
+)
+
 go_library(
     name = "axisref",
     srcs = ["vapix_parsers.go"],

@@ -134,7 +134,7 @@ type pluginResult struct {
 	Details         string                `json:"details,omitempty"`
 	Metrics         []pluginMetric        `json:"metrics,omitempty"`
 	Labels          map[string]string     `json:"labels,omitempty"`
-	Events          []sdk.OCSFEvent       `json:"events,omitempty"`
+	TelemetryEvents []sdk.OCSFEvent       `json:"-"`
 	DeviceDiscovery []sdk.DeviceDiscovery `json:"device_discovery,omitempty"`
 	ObservedAt      string                `json:"observed_at,omitempty"`
 	SchemaVersion   int                   `json:"schema_version,omitempty"`
