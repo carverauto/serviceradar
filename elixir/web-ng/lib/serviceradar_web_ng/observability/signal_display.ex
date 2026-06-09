@@ -3,21 +3,35 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   Resolves and renders package-owned signal display contracts into safe view data.
   """
 
-  @powerdns_contract_path Path.expand(
-                            "../../../../../addons/powerdns/display/dns_activity.display.json",
-                            __DIR__
+  @contract_roots [
+    File.cwd!(),
+    Path.expand("../..", File.cwd!()),
+    Path.expand("../../../../../", __DIR__)
+  ]
+  @resolve_contract_path fn relative_path, roots ->
+    Enum.find_value(roots, fn root ->
+      path = Path.expand(relative_path, root)
+
+      if File.exists?(path), do: path
+    end) ||
+      raise File.Error, reason: :enoent, action: "read file", path: relative_path
+  end
+
+  @powerdns_contract_path @resolve_contract_path.(
+                            "addons/powerdns/display/dns_activity.display.json",
+                            @contract_roots
                           )
-  @axis_contract_path Path.expand(
-                        "../../../../../go/cmd/wasm-plugins/axis/display/event_log_activity.display.json",
-                        __DIR__
+  @axis_contract_path @resolve_contract_path.(
+                        "go/cmd/wasm-plugins/axis/display/event_log_activity.display.json",
+                        @contract_roots
                       )
-  @protect_contract_path Path.expand(
-                           "../../../../../go/cmd/wasm-plugins/unifi-protect/display/camera_event.display.json",
-                           __DIR__
+  @protect_contract_path @resolve_contract_path.(
+                           "go/cmd/wasm-plugins/unifi-protect/display/camera_event.display.json",
+                           @contract_roots
                          )
-  @proxmox_contract_path Path.expand(
-                           "../../../../../go/cmd/wasm-plugins/proxmox/display/resource_event.display.json",
-                           __DIR__
+  @proxmox_contract_path @resolve_contract_path.(
+                           "go/cmd/wasm-plugins/proxmox/display/resource_event.display.json",
+                           @contract_roots
                          )
   @external_resource @powerdns_contract_path
   @external_resource @axis_contract_path

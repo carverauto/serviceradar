@@ -450,7 +450,7 @@ function GaugeChart({rows, fields, panel, trend}) {
   )
 }
 
-export default function DashboardPanelChart({
+export function Component({
   panel = {},
   rows = [],
   fields = [],
@@ -469,3 +469,5 @@ export default function DashboardPanelChart({
     </div>
   )
 }
+
+export default Component

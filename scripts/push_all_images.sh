@@ -15,6 +15,19 @@ bazel_bin_dir=""
 darwin_crane=""
 darwin_jq=""
 
+resolve_bazel_info_path() {
+  local key="$1"
+  local output
+
+  if ! output="$("${BAZEL_BIN}" info "${key}" 2>&1)"; then
+    printf '%s\n' "${output}" >&2
+    echo "error: unable to resolve bazel info ${key}" >&2
+    exit 1
+  fi
+
+  printf '%s\n' "${output}" | awk '/^\// { path = $0 } END { print path }'
+}
+
 usage() {
   cat <<'EOF'
 Usage: ./scripts/push_all_images.sh [--tag <tag>] [--dry-run] [-- <oci_push args>...]
@@ -64,7 +77,7 @@ done
 
 cd "${REPO_ROOT}"
 
-bazel_bin_dir="$("${BAZEL_BIN}" info bazel-bin 2>/dev/null | tail -n1)"
+bazel_bin_dir="$(resolve_bazel_info_path bazel-bin)"
 
 if [[ -z "${bazel_bin_dir}" || ! -d "${bazel_bin_dir}" ]]; then
   echo "error: unable to resolve bazel-bin" >&2
@@ -94,7 +107,7 @@ resolve_darwin_tools() {
     "@@aspect_bazel_lib++toolchains+jq_${repo_suffix}//:jq" >/dev/null
 
   local output_base
-  output_base="$("${BAZEL_BIN}" info output_base 2>/dev/null | tail -n1)"
+  output_base="$(resolve_bazel_info_path output_base)"
 
   darwin_crane="${output_base}/external/rules_oci++oci+oci_crane_${repo_suffix}/crane"
   darwin_jq="${output_base}/external/aspect_bazel_lib++toolchains+jq_${repo_suffix}/jq"

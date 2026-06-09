@@ -298,7 +298,7 @@ function stopAndRun(event, callback) {
   callback()
 }
 
-export default function DashboardBuilderCanvas({
+export function Component({
   panels = [],
   visualOptions = [],
   selectedId = "",
@@ -544,3 +544,5 @@ export default function DashboardBuilderCanvas({
     </div>
   )
 }
+
+export default Component
