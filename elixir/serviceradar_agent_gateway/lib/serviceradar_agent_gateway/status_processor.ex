@@ -261,7 +261,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp should_buffer?(status), do: results_router_source?(status)
 
   defp results_router_source?(status) do
-    status[:source] in [
+    source = status[:source]
+
+    source in [
       "results",
       :results,
       "sysmon-metrics",
@@ -270,8 +272,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :plugin_result,
       "workload-identity",
       :workload_identity
-    ]
+    ] or package_telemetry_source?(source)
   end
+
+  defp package_telemetry_source?(source) when is_binary(source), do: String.starts_with?(source, ["addon:", "plugin:"])
+
+  defp package_telemetry_source?(_source), do: false
 
   defp emit_forward_metrics(result, status, from_buffer, started_at) do
     if should_buffer?(status) do

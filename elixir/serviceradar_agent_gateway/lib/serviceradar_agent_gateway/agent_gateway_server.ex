@@ -424,8 +424,21 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         source
       )
 
+    log_package_telemetry_status(status)
     forward_service_status(service, status)
   end
+
+  defp log_package_telemetry_status(%{source: source} = status) when is_binary(source) do
+    if String.starts_with?(source, ["addon:", "plugin:"]) do
+      Logger.info(
+        "Forwarding package telemetry status: agent=#{status.agent_id} source=#{source} " <>
+          "service_type=#{status.service_type} service=#{status.service_name} " <>
+          "message_bytes=#{message_size(status.message)}"
+      )
+    end
+  end
+
+  defp log_package_telemetry_status(_status), do: :ok
 
   defp normalize_partition(partition) when is_binary(partition) do
     partition = String.trim(partition)

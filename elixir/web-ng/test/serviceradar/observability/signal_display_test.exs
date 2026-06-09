@@ -29,6 +29,69 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplayTest do
     assert summary.title == "suspicious.example"
   end
 
+  test "renders current PowerDNS producer version" do
+    event =
+      put_in(
+        @event,
+        ["metadata", "service_radar", "signal_schema", "producer_version"],
+        "0.1.1"
+      )
+
+    assert {:ok, [%{type: :summary} = summary | _]} = SignalDisplay.render_record(event)
+    assert summary.title == "suspicious.example"
+  end
+
+  test "infers PowerDNS contract for legacy OCSF rows without signal schema" do
+    event = %{
+      "class_uid" => 4003,
+      "log_name" => "pdns.ocsf",
+      "log_provider" => "ns03",
+      "message" => "PowerDNS RPZ NXDOMAIN match for srtest-1780956565.log.felo.ai via hagezi-pro",
+      "severity" => "Medium",
+      "query" => %{
+        "hostname" => "srtest-1780956565.log.felo.ai",
+        "type" => 1
+      },
+      "connection_info" => %{"protocol_name" => "UDP"},
+      "src_endpoint" => %{"ip" => "127.0.0.1", "port" => 40_859},
+      "dst_endpoint" => %{"ip" => "127.0.0.1", "port" => 53},
+      "firewall_rule" => %{
+        "category" => "QNAME",
+        "condition" => "*.log.felo.ai.",
+        "match_details" => [%{"value" => "srtest-1780956565.log.felo.ai"}],
+        "name" => "hagezi-pro",
+        "type" => "NXDOMAIN"
+      },
+      "metadata" => %{
+        "service_radar" => %{
+          "addon_id" => "powerdns",
+          "agent_id" => "ns03-pdns",
+          "source_instance" => "ns03",
+          "source_type" => "powerdns"
+        }
+      },
+      "rcode" => "NXDOMAIN",
+      "unmapped" => %{"server_identity" => "ns03"}
+    }
+
+    assert {:ok, widgets} = SignalDisplay.render_record(event)
+    assert [%{type: :summary} = summary | _] = widgets
+    assert summary.title == "srtest-1780956565.log.felo.ai"
+
+    fact_fields =
+      widgets
+      |> Enum.find(&(&1.type == :facts))
+      |> Map.fetch!(:fields)
+
+    assert %{value: "hagezi-pro"} = Enum.find(fact_fields, &(&1.label == "Policy Name"))
+    assert %{value: "NXDOMAIN"} = Enum.find(fact_fields, &(&1.label == "Policy Kind"))
+
+    assert %{value: "srtest-1780956565.log.felo.ai"} =
+             Enum.find(fact_fields, &(&1.label == "Policy Match"))
+
+    assert %{value: "ns03"} = Enum.find(fact_fields, &(&1.label == "Server Identity"))
+  end
+
   test "resolves and renders built-in Wasm plugin contract" do
     event = %{
       "message" => "AXIS event: tns1:Device/IO/VirtualInput",

@@ -86,4 +86,32 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.service_name == "endpoint_inventory"
     assert forwarded.service_type == "endpoint_inventory"
   end
+
+  test "buffers add-on telemetry when core status handler is unavailable" do
+    status = %{
+      service_name: "addon-telemetry",
+      service_type: "native-addon",
+      source: "addon:powerdns",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: "telemetry-batch"
+    }
+
+    assert :ok = StatusProcessor.process(status)
+  end
+
+  test "returns forwarding error for unbuffered status when core status handler is unavailable" do
+    status = %{
+      service_name: "agent",
+      service_type: "agent",
+      source: "status",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: "status"
+    }
+
+    assert {:error, :not_available} = StatusProcessor.process(status)
+  end
 end

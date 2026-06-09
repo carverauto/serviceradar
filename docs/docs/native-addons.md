@@ -162,17 +162,19 @@ partition, and source IP envelope; core-elx overwrites any add-on-supplied
 ### PowerDNS Recursor config
 
 For Recursor releases with Lua protobuf logging, configure a localhost receiver with
-responses enabled and tagged-only output:
+response logging enabled:
 
 ```lua
-protobufServer("127.0.0.1:6000", { logResponses = true, taggedOnly = true })
+protobufServer("127.0.0.1:6000", { logResponses = true, taggedOnly = false })
 ```
 
 For Recursor 5.1.0 and newer YAML configuration, use the equivalent
-`logging.protobuf_servers` entry with `logResponses=true` and `taggedOnly=true`.
-`taggedOnly=true` is the source-side volume control: RPZ policy/tagged answers are
-sent, while the full query firehose is not. Keep the add-on's `rpz_only` config at
-its default `true` unless full DNS query/response logging has been capacity-tested.
+`logging.protobuf_servers` entry with `logResponses=true` and `taggedOnly=false`.
+Keep the add-on's `rpz_only` config at its default `true`; that is the source-side
+volume control for ServiceRadar because the add-on drops non-policy responses before
+emitting telemetry. Use `taggedOnly=true` only when the deployment owns and has
+verified a separate Recursor tagging path, because RPZ verdicts are not guaranteed
+to appear on the protobuf stream otherwise.
 
 Use `setProtobufMasks()` when client-IP anonymization is required by the deployment.
 `outgoingProtobufServer` is not needed for RPZ hit logging because the policy verdict
