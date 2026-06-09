@@ -350,6 +350,13 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 		tmpDir = serverConfig.EndpointInventory.effectiveTmpDir()
 	}
 
+	if !cfg.Enabled && strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping disabled endpoint inventory runtime profile for Kubernetes agent")
+		return true
+	}
+
 	if changed, err := endpointinventory.WriteRuntimeProfile(profilePath, tmpDir, cfg.runtimeProfile(agentID)); err != nil {
 		p.logger.Warn().
 			Err(err).
