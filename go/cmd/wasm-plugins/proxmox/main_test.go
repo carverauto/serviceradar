@@ -232,17 +232,17 @@ func TestEmitResourceEventsAddsOCSFEvents(t *testing.T) {
 		t.Fatalf("expected serialized events, got %#v", payload["events"])
 	}
 	ref := result.Events[0].Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if ref[signalSchemaMetadataSchemaID] != proxmoxSignalSchemaID {
-		t.Fatalf("schema id = %#v, want %q", ref[signalSchemaMetadataSchemaID], proxmoxSignalSchemaID)
+	if ref[sdk.SignalSchemaMetadataSchemaID] != proxmoxSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", ref[sdk.SignalSchemaMetadataSchemaID], proxmoxSignalSchemaID)
 	}
 	events := payload["events"].([]any)
 	event := events[0].(map[string]any)
 	metadata := event["metadata"].(map[string]any)
 	serializedRef := metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if serializedRef[signalSchemaMetadataDisplayContract] != proxmoxSignalSchemaDisplayContractPath {
+	if serializedRef[sdk.SignalSchemaMetadataDisplayContract] != proxmoxSignalSchemaDisplayContractPath {
 		t.Fatalf(
 			"serialized display contract = %#v, want %q",
-			serializedRef[signalSchemaMetadataDisplayContract],
+			serializedRef[sdk.SignalSchemaMetadataDisplayContract],
 			proxmoxSignalSchemaDisplayContractPath,
 		)
 	}

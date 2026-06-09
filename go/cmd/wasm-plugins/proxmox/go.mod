@@ -3,7 +3,7 @@ module github.com/carverauto/serviceradar/contrib/plugins/go/proxmox
 go 1.25.0
 
 require (
-	code.carverauto.dev/carverauto/serviceradar-sdk-go v0.2.1-0.20260501203535-0b5ff3654e17
+	code.carverauto.dev/carverauto/serviceradar-sdk-go v0.2.1-0.20260609040135-0c54267c220c
 	github.com/tidwall/gjson v1.18.0
 	golang.org/x/crypto v0.50.0
 )

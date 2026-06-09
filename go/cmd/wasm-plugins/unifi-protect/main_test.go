@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 	"github.com/gorilla/websocket"
 )
 
@@ -262,13 +262,13 @@ func TestMapProtectWSEventMotion(t *testing.T) {
 		t.Fatalf("unexpected log provider %q", event.LogProvider)
 	}
 	ref := event.Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if ref[signalSchemaMetadataSchemaID] != protectSignalSchemaID {
-		t.Fatalf("schema id = %#v, want %q", ref[signalSchemaMetadataSchemaID], protectSignalSchemaID)
+	if ref[sdk.SignalSchemaMetadataSchemaID] != protectSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", ref[sdk.SignalSchemaMetadataSchemaID], protectSignalSchemaID)
 	}
-	if ref[signalSchemaMetadataDisplayContract] != protectSignalSchemaDisplayContractPath {
+	if ref[sdk.SignalSchemaMetadataDisplayContract] != protectSignalSchemaDisplayContractPath {
 		t.Fatalf(
 			"display contract = %#v, want %q",
-			ref[signalSchemaMetadataDisplayContract],
+			ref[sdk.SignalSchemaMetadataDisplayContract],
 			protectSignalSchemaDisplayContractPath,
 		)
 	}

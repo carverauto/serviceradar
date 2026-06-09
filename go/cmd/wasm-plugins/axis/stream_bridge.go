@@ -3,7 +3,7 @@ package main
 import (
 	"time"
 
-	"github.com/carverauto/serviceradar-sdk-go/sdk"
+	"code.carverauto.dev/carverauto/serviceradar-sdk-go/sdk"
 )
 
 type RelayConfig = sdk.CameraRelayConfig
