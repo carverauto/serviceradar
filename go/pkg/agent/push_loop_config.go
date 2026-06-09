@@ -440,10 +440,27 @@ func (p *PushLoop) applyVisibilityConfig(
 	}
 
 	p.server.mu.RLock()
+	serverConfig := p.server.config
 	netprobeSidecar := p.server.netprobeSidecar
 	sidecarManager := p.server.sidecarManager
 	sidecarStatus := p.server.sidecarStatus
 	p.server.mu.RUnlock()
+	agentID := ""
+	if serverConfig != nil {
+		agentID = serverConfig.AgentID
+	}
+	if strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {
+		if sidecarManager != nil {
+			p.stopNetprobeManager(ctx, sidecarManager, "Kubernetes agent visibility disabled")
+		}
+		if netprobeSidecar != nil {
+			netprobeSidecar.SetDesiredConfig(ctx, nil)
+		}
+		p.logger.Info().
+			Str("agent_id", agentID).
+			Msg("Skipping netprobe visibility config for Kubernetes agent")
+		return true
+	}
 	if netprobeSidecar == nil || sidecarManager == nil {
 		return true
 	}

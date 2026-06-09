@@ -19,6 +19,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -31,6 +32,34 @@ import (
 )
 
 var errNoExternalNetprobe = errors.New("no external netprobe in test")
+
+type recordingSidecarLifecycleManager struct {
+	statuses []sidecar.Status
+	started  bool
+	attach   bool
+	stopped  bool
+}
+
+func (m *recordingSidecarLifecycleManager) Status() []sidecar.Status {
+	return m.statuses
+}
+
+func (m *recordingSidecarLifecycleManager) StartAttach(context.Context) error {
+	m.started = true
+	m.attach = true
+	return nil
+}
+
+func (m *recordingSidecarLifecycleManager) Stop(context.Context) error {
+	m.started = false
+	m.attach = false
+	m.stopped = true
+	return nil
+}
+
+func (m *recordingSidecarLifecycleManager) Mode() (started, attach bool) {
+	return m.started, m.attach
+}
 
 func TestNetprobeSystemdAssignmentPresent(t *testing.T) {
 	tests := []struct {
@@ -66,6 +95,40 @@ func TestNetprobeSystemdAssignmentPresent(t *testing.T) {
 				t.Fatalf("netprobeSystemdAssignmentPresent = %v, want %v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestApplyVisibilityConfigSkipsKubernetesAgent(t *testing.T) {
+	dir := t.TempDir()
+	configPath := filepath.Join(dir, "sidecars", "netprobe.json")
+	manager := &recordingSidecarLifecycleManager{
+		started: true,
+		attach:  true,
+		statuses: []sidecar.Status{{
+			Name:       agentnetprobe.DefaultSidecarName,
+			ConfigPath: configPath,
+		}},
+	}
+	netprobeSidecar := agentnetprobe.NewSidecar(agentnetprobe.SidecarConfig{Logger: zerolog.Nop()})
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{
+			AgentID: kubernetesAgentID,
+		},
+		netprobeSidecar: netprobeSidecar,
+		sidecarManager:  manager,
+		sidecarStatus:   manager,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+
+	if !pl.applyVisibilityConfig(context.Background(), &proto.VisibilityConfig{Enabled: true}, []*proto.AddonAssignmentConfig{
+		{AddonId: "netprobe", Enabled: true, Supervision: "systemd_service"},
+	}) {
+		t.Fatal("applyVisibilityConfig() = false, want true for Kubernetes agent")
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Fatalf("expected no netprobe bootstrap config to be written, stat err=%v", err)
+	}
+	if !manager.stopped {
+		t.Fatal("expected Kubernetes visibility apply to stop existing netprobe manager state")
 	}
 }
 
