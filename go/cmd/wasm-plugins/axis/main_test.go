@@ -28,14 +28,14 @@ func TestMapAxisWSEvent(t *testing.T) {
 	if evt.Unmapped == nil {
 		t.Fatalf("expected unmapped payload")
 	}
-	ref := evt.Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if ref[sdk.SignalSchemaMetadataSchemaID] != axisSignalSchemaID {
-		t.Fatalf("schema id = %#v, want %q", ref[sdk.SignalSchemaMetadataSchemaID], axisSignalSchemaID)
+	record := sdk.NewOCSFTelemetryRecord(*evt).WithSignalSchemaRef(axisSignalSchemaRef())
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataSchemaID] != axisSignalSchemaID {
+		t.Fatalf("schema metadata = %#v, want schema id %q", record.Metadata, axisSignalSchemaID)
 	}
-	if ref[sdk.SignalSchemaMetadataDisplayContract] != axisSignalSchemaDisplayContractPath {
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataDisplayContract] != axisSignalSchemaDisplayContractPath {
 		t.Fatalf(
-			"display contract = %#v, want %q",
-			ref[sdk.SignalSchemaMetadataDisplayContract],
+			"display contract metadata = %#v, want %q",
+			record.Metadata,
 			axisSignalSchemaDisplayContractPath,
 		)
 	}

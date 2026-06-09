@@ -220,29 +220,26 @@ func TestEmitResourceEventsAddsOCSFEvents(t *testing.T) {
 		},
 	}})
 
-	if len(result.Events) < 5 {
-		t.Fatalf("expected resource events, got %#v", result.Events)
+	if len(result.TelemetryEvents) < 5 {
+		t.Fatalf("expected resource telemetry events, got %#v", result.TelemetryEvents)
 	}
 
 	var payload map[string]any
 	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
 		t.Fatalf("result JSON should be valid: %v", err)
 	}
-	if events, ok := payload["events"].([]any); !ok || len(events) != len(result.Events) {
-		t.Fatalf("expected serialized events, got %#v", payload["events"])
+	if _, ok := payload["events"]; ok {
+		t.Fatalf("expected result payload to omit first-class telemetry events, got %#v", payload["events"])
 	}
-	ref := result.Events[0].Metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if ref[sdk.SignalSchemaMetadataSchemaID] != proxmoxSignalSchemaID {
-		t.Fatalf("schema id = %#v, want %q", ref[sdk.SignalSchemaMetadataSchemaID], proxmoxSignalSchemaID)
+
+	record := sdk.NewOCSFTelemetryRecord(result.TelemetryEvents[0]).WithSignalSchemaRef(proxmoxSignalSchemaRef())
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataSchemaID] != proxmoxSignalSchemaID {
+		t.Fatalf("schema id = %#v, want %q", record.Metadata, proxmoxSignalSchemaID)
 	}
-	events := payload["events"].([]any)
-	event := events[0].(map[string]any)
-	metadata := event["metadata"].(map[string]any)
-	serializedRef := metadata["service_radar"].(map[string]any)["signal_schema"].(map[string]any)
-	if serializedRef[sdk.SignalSchemaMetadataDisplayContract] != proxmoxSignalSchemaDisplayContractPath {
+	if record.Metadata["serviceradar.signal_schema."+sdk.SignalSchemaMetadataDisplayContract] != proxmoxSignalSchemaDisplayContractPath {
 		t.Fatalf(
-			"serialized display contract = %#v, want %q",
-			serializedRef[sdk.SignalSchemaMetadataDisplayContract],
+			"display contract metadata = %#v, want %q",
+			record.Metadata,
 			proxmoxSignalSchemaDisplayContractPath,
 		)
 	}

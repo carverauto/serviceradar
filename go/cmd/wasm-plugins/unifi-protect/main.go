@@ -262,9 +262,7 @@ func run_check() {
 			WithMetric("unifi_protect_event_total", float64(len(resultEvents)), "count", nil).
 			WithLabel("controller_host", cfg.Host).
 			WithLabel("camera_scheme", client.BaseURL[:strings.Index(client.BaseURL, "://")])
-		for _, event := range resultEvents {
-			result.WithOCSFEvent(event)
-		}
+		emitProtectTelemetry(resultEvents, cfg.Host)
 
 		return result, nil
 	})
@@ -1214,7 +1212,6 @@ func mapProtectWSEvent(data []byte) *sdk.OCSFEvent {
 		event.Unmapped = map[string]interface{}{}
 	}
 	event.Unmapped["protect_ws_payload"] = payload
-	attachProtectSignalSchemaRef(&event)
 
 	if obj, ok := eventObject(payload); ok {
 		device := map[string]any{}

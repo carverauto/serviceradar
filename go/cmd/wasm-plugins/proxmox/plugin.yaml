@@ -9,6 +9,7 @@ capabilities:
   - get_config
   - log
   - submit_result
+  - emit_telemetry
   - http_request
 permissions:
   allowed_domains:

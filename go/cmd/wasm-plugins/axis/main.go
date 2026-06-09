@@ -222,9 +222,7 @@ func run_check() {
 		if model := firstNonEmpty(details.DeviceInfo, "ProdNbr", "ProductFullName", "Brand"); model != "" {
 			result.WithLabel("camera_model", model)
 		}
-		for _, evt := range resultEvents {
-			result.WithOCSFEvent(evt)
-		}
+		emitAxisTelemetry(resultEvents, cfg.Host)
 
 		return result, nil
 	})
@@ -477,7 +475,6 @@ func mapAxisWSEvent(data []byte) *sdk.OCSFEvent {
 		event.Unmapped = map[string]interface{}{}
 	}
 	event.Unmapped["axis_ws_payload"] = payload
-	attachAxisSignalSchemaRef(&event)
 	return &event
 }
 

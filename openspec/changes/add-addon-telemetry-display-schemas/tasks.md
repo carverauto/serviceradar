@@ -39,3 +39,4 @@
 - [x] 7.1 Add a first-class Wasm `emit_telemetry` host capability for plugin log/event batches.
 - [x] 7.2 Forward plugin telemetry through agent/gateway/core without coupling it to `submit_result`.
 - [x] 7.3 Add SDK helpers and docs for first-class plugin telemetry emission.
+- [x] 7.4 Migrate first-party Wasm OCSF emitters to `emit_telemetry` and declare the required plugin capability.

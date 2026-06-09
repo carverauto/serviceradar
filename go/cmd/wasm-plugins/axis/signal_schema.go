@@ -12,8 +12,8 @@ const (
 	axisSignalSchemaDisplayContractPath    = "display/event_log_activity.display.json"
 )
 
-func attachAxisSignalSchemaRef(event *sdk.OCSFEvent) {
-	sdk.AttachSignalSchemaRef(event, sdk.SignalSchemaRef{
+func axisSignalSchemaRef() sdk.SignalSchemaRef {
+	return sdk.SignalSchemaRef{
 		ProducerID:             axisSignalSchemaProducerID,
 		ProducerVersion:        axisSignalSchemaProducerVersion,
 		SchemaID:               axisSignalSchemaID,
@@ -23,5 +23,28 @@ func attachAxisSignalSchemaRef(event *sdk.OCSFEvent) {
 		DisplayContract:        axisSignalSchemaDisplayContractPath,
 		SignalType:             sdk.SignalSchemaSignalTypeEvent,
 		PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
+	}
+}
+
+func emitAxisTelemetry(events []sdk.OCSFEvent, sourceInstance string) {
+	if len(events) == 0 {
+		return
+	}
+
+	ref := axisSignalSchemaRef()
+	records := make([]sdk.TelemetryRecord, 0, len(events))
+	for _, event := range events {
+		records = append(records, sdk.NewOCSFTelemetryRecord(event).WithSignalSchemaRef(ref))
+	}
+
+	err := sdk.EmitTelemetry(sdk.TelemetryBatch{
+		Source: sdk.TelemetrySource{
+			SourceType:     axisSignalSchemaProducerID,
+			SourceInstance: sourceInstance,
+		},
+		Records: records,
 	})
+	if err != nil {
+		sdk.Log.Warn("failed to emit axis telemetry: " + err.Error())
+	}
 }

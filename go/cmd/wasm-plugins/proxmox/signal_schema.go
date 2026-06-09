@@ -12,8 +12,8 @@ const (
 	proxmoxSignalSchemaDisplayContractPath    = "display/resource_event.display.json"
 )
 
-func attachProxmoxSignalSchemaRef(event *sdk.OCSFEvent) {
-	sdk.AttachSignalSchemaRef(event, sdk.SignalSchemaRef{
+func proxmoxSignalSchemaRef() sdk.SignalSchemaRef {
+	return sdk.SignalSchemaRef{
 		ProducerID:             proxmoxSignalSchemaProducerID,
 		ProducerVersion:        proxmoxSignalSchemaProducerVersion,
 		SchemaID:               proxmoxSignalSchemaID,
@@ -23,5 +23,28 @@ func attachProxmoxSignalSchemaRef(event *sdk.OCSFEvent) {
 		DisplayContract:        proxmoxSignalSchemaDisplayContractPath,
 		SignalType:             sdk.SignalSchemaSignalTypeEvent,
 		PayloadKind:            sdk.SignalSchemaPayloadKindOCSFEvent,
+	}
+}
+
+func emitProxmoxTelemetry(events []sdk.OCSFEvent, sourceInstance string) {
+	if len(events) == 0 {
+		return
+	}
+
+	ref := proxmoxSignalSchemaRef()
+	records := make([]sdk.TelemetryRecord, 0, len(events))
+	for _, event := range events {
+		records = append(records, sdk.NewOCSFTelemetryRecord(event).WithSignalSchemaRef(ref))
+	}
+
+	err := sdk.EmitTelemetry(sdk.TelemetryBatch{
+		Source: sdk.TelemetrySource{
+			SourceType:     proxmoxSignalSchemaProducerID,
+			SourceInstance: sourceInstance,
+		},
+		Records: records,
 	})
+	if err != nil {
+		sdk.Log.Warn("failed to emit proxmox telemetry: " + err.Error())
+	}
 }

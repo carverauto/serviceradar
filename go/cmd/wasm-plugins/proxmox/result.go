@@ -60,14 +60,13 @@ func (r *pluginResult) EmitEvent(severity sdk.Severity, summary, key string) {
 	}
 
 	event := sdk.NewOCSFEventLogActivity(summary, severity)
-	attachProxmoxSignalSchemaRef(&event)
 	if key != "" {
 		if event.Unmapped == nil {
 			event.Unmapped = map[string]any{}
 		}
 		event.Unmapped["condition_key"] = key
 	}
-	r.Events = append(r.Events, event)
+	r.TelemetryEvents = append(r.TelemetryEvents, event)
 }
 
 func (r *pluginResult) AddDeviceDiscovery(discovery sdk.DeviceDiscovery) {
@@ -90,6 +89,7 @@ func submitPluginResult(result *pluginResult) error {
 	if result.ObservedAt == "" {
 		result.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	}
+	emitProxmoxTelemetry(result.TelemetryEvents, pluginID)
 
 	return sdk.SubmitResult(result.JSON())
 }
@@ -130,10 +130,6 @@ func (r *pluginResult) JSON() []byte {
 			b.WriteString(strconv.Quote(r.Labels[key]))
 		}
 		b.WriteByte('}')
-	}
-	if len(r.Events) > 0 {
-		b.WriteString(`,"events":`)
-		appendEventsJSON(&b, r.Events)
 	}
 	if len(r.DeviceDiscovery) > 0 {
 		b.WriteString(`,"device_discovery":`)
