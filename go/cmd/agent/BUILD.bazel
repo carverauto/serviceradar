@@ -27,6 +27,7 @@ go_binary(
     visibility = ["//visibility:public"],
     x_defs = {
         "github.com/carverauto/serviceradar/go/pkg/agent.ReleaseSigningPublicKey": "{STABLE_AGENT_RELEASE_PUBLIC_KEY}",
+        "github.com/carverauto/serviceradar/go/pkg/agent.Version": FULL_VERSION,
         "github.com/carverauto/serviceradar/go/cmd/agent.Version": FULL_VERSION,
     },
 )

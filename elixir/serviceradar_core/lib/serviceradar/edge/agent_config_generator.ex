@@ -52,6 +52,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Default intervals
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
+  @kubernetes_agent_id "k8s-agent"
+  @bumblebee_addon_id "bumblebee"
 
   @type check_config :: %{
           check_id: String.t(),
@@ -379,6 +381,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
       |> Enum.filter(&approved_addon_package?/1)
+      |> Enum.reject(&excluded_addon_assignment?(agent_id, &1))
       |> Enum.uniq_by(&logical_addon_id/1)
 
     case assignments do
@@ -431,6 +434,10 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     do: addon_id
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
+
+  defp excluded_addon_assignment?(agent_id, assignment) do
+    kubernetes_agent?(agent_id) and logical_addon_id(assignment) == @bumblebee_addon_id
+  end
 
   defp build_deliverable_addon_assignment_config(%AddonAssignment{} = assignment, profile) do
     package = assignment.addon_package
@@ -1644,6 +1651,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp load_bumblebee_config(agent_id) do
+    if kubernetes_agent?(agent_id) do
+      disabled_bumblebee_config()
+    else
+      load_bumblebee_config_for_supported_agent(agent_id)
+    end
+  end
+
+  defp load_bumblebee_config_for_supported_agent(agent_id) do
     partition = get_agent_partition(agent_id)
     actor = SystemActor.system(:bumblebee_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
@@ -1714,6 +1729,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp disabled_bumblebee_config, do: %{"enabled" => false}
+
+  defp kubernetes_agent?(agent_id), do: String.trim(to_string(agent_id)) == @kubernetes_agent_id
 
   defp load_endpoint_inventory_config(agent_id) do
     partition = get_agent_partition(agent_id)
