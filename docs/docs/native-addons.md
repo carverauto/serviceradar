@@ -107,6 +107,13 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
+When first-party native add-on sync is enabled, ServiceRadar imports every
+import-ready add-on found in the official release index as a staged package, similar
+to first-party Wasm plugin import. Helm is not an add-on catalog allowlist; operators
+use the Add-ons UI to review, approve, and assign the staged packages they want.
+`autoApproveAddonIds` is an optional deployment policy for trusted packages that
+should move from staged to approved automatically, not a visibility gate.
+
 ### Kubernetes agent boundary
 
 Do not run native add-on packages on the in-cluster `k8s-agent`. That agent exists
@@ -373,7 +380,8 @@ versions. The expected release path is:
 3. Include payload schemas and display contracts for every emitted log or event in
    the bundle and list them in `signal_schemas`.
 4. Publish the add-on discovery index and artifact metadata with the release.
-5. Import the package into ServiceRadar as `staged`.
+5. Import the package into ServiceRadar as `staged`. Automatic first-party sync
+   imports every import-ready add-on in the official release index.
 6. Review and approve the package in **Settings > Agents > Add-ons**.
 7. Assign the approved package to agents or cohorts.
 

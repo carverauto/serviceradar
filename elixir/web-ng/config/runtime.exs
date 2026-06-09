@@ -810,11 +810,6 @@ native_addon_import_overrides =
     to_int
   )
   |> maybe_put_env.(
-    :addon_ids,
-    System.get_env("SERVICERADAR_NATIVE_ADDON_IDS"),
-    to_csv_list
-  )
-  |> maybe_put_env.(
     :auto_approve_addon_ids,
     System.get_env("SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS"),
     to_csv_list

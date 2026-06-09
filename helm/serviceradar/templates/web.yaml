@@ -412,8 +412,6 @@ spec:
           value: {{ default 10 $webNgNativeAddonImport.syncReleaseLimit | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_SYNC_INTERVAL_SECONDS
           value: {{ default 3600 $webNgNativeAddonImport.syncIntervalSeconds | quote }}
-        - name: SERVICERADAR_NATIVE_ADDON_IDS
-          value: {{ join "," (default (list "netprobe") $webNgNativeAddonImport.addonIds) | quote }}
         - name: SERVICERADAR_NATIVE_ADDON_AUTO_APPROVE_IDS
           value: {{ join "," (default (list) $webNgNativeAddonImport.autoApproveAddonIds) | quote }}
         {{- if $pluginStorage.enabled }}

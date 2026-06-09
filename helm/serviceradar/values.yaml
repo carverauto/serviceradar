@@ -762,9 +762,8 @@ webNg:
     autoSyncEnabled: false
     syncReleaseLimit: 10
     syncIntervalSeconds: 3600
-    addonIds:
-      - netprobe
-      - workload-identity
+    # Official native add-ons discovered in the release index are imported as
+    # staged packages. Approval and assignment remain operator-controlled.
     autoApproveAddonIds: []
   host: ""
   publicUrl: ""

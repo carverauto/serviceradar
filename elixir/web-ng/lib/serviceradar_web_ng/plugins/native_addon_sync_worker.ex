@@ -74,7 +74,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     repo_url = repo_url(args)
     limit = release_limit(args)
     release_tag = optional_arg(args, "release_tag")
-    addon_ids = configured_addon_ids(args)
+    addon_ids = requested_addon_ids(args)
     auto_approve_addon_ids = configured_auto_approve_addon_ids()
     discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
 
@@ -206,10 +206,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
     optional_arg(args, "repo_url") || Keyword.get(config(), :repo_url)
   end
 
-  defp configured_addon_ids(args) do
+  defp requested_addon_ids(args) do
     args
     |> optional_arg("addon_ids")
-    |> normalize_string_list(Keyword.get(config(), :addon_ids, []))
+    |> normalize_string_list([])
   end
 
   defp configured_auto_approve_addon_ids do

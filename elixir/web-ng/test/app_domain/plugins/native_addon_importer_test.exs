@@ -173,14 +173,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporterTest do
     assert addon.import_ready? == true
   end
 
-  test "sync worker imports and approves configured native add-ons", %{private_key: private_key} do
+  test "sync worker imports every discovered native add-on and only auto-approves configured ids", %{
+    private_key: private_key
+  } do
     install_fixtures(private_key)
 
     Application.put_env(:serviceradar_web_ng, :native_addon_import,
       repo_url: @repo_url,
       index_asset_name: @index_asset_name,
       auto_sync_enabled: false,
-      addon_ids: ["sample-addon"],
+      addon_ids: ["not-a-catalog-gate"],
       auto_approve_addon_ids: ["sample-addon"],
       sync_release_limit: 10,
       sync_interval_seconds: 3_600

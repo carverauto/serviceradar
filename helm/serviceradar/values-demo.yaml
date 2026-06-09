@@ -305,9 +305,6 @@ webNg:
     autoSyncEnabled: true
     syncReleaseLimit: 20
     syncIntervalSeconds: 1800
-    addonIds:
-      - netprobe
-      - workload-identity
     autoApproveAddonIds:
       - netprobe
       - workload-identity
