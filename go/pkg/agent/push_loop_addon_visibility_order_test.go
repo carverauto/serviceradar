@@ -48,6 +48,31 @@ func (m *recordingAddonManager) Stop(context.Context) error {
 	return nil
 }
 
+func TestApplyAddonAssignmentsSkipsKubernetesAgent(t *testing.T) {
+	addons := &recordingAddonManager{}
+	pl := NewPushLoop(&Server{
+		config: &ServerConfig{
+			AgentID: kubernetesAgentID,
+		},
+		addonManager: addons,
+	}, nil, 30*time.Second, logger.NewTestLogger())
+
+	ok := pl.applyAddonAssignments(context.Background(), []*proto.AddonAssignmentConfig{
+		{
+			AddonId:     "netprobe",
+			Enabled:     true,
+			Delivery:    addonDeliveryPushedArtifact,
+			Supervision: addonSupervisionAgentSidecar,
+		},
+	})
+	if !ok {
+		t.Fatal("expected Kubernetes add-on assignments to be acknowledged")
+	}
+	if len(addons.applied) != 0 {
+		t.Fatalf("expected no add-on manager apply for Kubernetes agent, got %#v", addons.applied)
+	}
+}
+
 func TestApplyConfigResponseAppliesLocalAddonsBeforeVisibilityFailure(t *testing.T) {
 	dir := t.TempDir()
 	override := `{
