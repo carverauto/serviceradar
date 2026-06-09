@@ -105,6 +105,7 @@ const sidebars: SidebarsConfig = {
       items: [
         {type: 'doc', id: 'sdks', label: 'SDKs & Plugin Development'},
         {type: 'doc', id: 'wasm-plugins', label: 'Wasm Plugins'},
+        {type: 'doc', id: 'telemetry-display-contracts', label: 'Telemetry Display Contracts'},
         {type: 'doc', id: 'dashboard-sdk', label: 'Dashboard SDK'},
         {type: 'doc', id: 'fieldsurvey-sidekick', label: 'FieldSurvey Sidekick'},
       ],

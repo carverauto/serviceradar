@@ -28,11 +28,18 @@ Each plugin package is made up of:
 
 - `plugin.yaml` — the manifest (plugin identity, capabilities, permissions, resource requests)
 - `plugin.wasm` — the compiled Wasm binary
-- optional sidecars such as a config JSON Schema or display contract
+- optional sidecars such as a config JSON Schema, result display contract, or
+  log/event signal display contracts
 
 The control plane stores the manifest and config schema in the database and stores the Wasm binary in the configured package storage backend.
 
 The exact manifest fields, the supported config JSON Schema subset, and the `serviceradar.plugin_result.v1` result schema are documented in full on the [developer portal](https://developer.serviceradar.cloud).
+
+Plugins that emit OCSF events or OTEL-style logs must also declare
+`signal_schemas` in `plugin.yaml`. Each signal schema points at a payload JSON Schema
+and a declarative display contract shipped with the same package version. See
+[Telemetry Display Contracts](./telemetry-display-contracts.md) for the operator
+review model and fallback behavior.
 
 ## Capability and Permission Model
 
@@ -147,4 +154,6 @@ When raw payload archival is enabled in Threat Intel settings, core stores decod
 - Keep per-agent engine limits conservative and override down in assignments if needed.
 - Use the **Settings -> Agent capacity** view to confirm headroom before assignments.
 - Store plugin source details in the manifest `source` section for auditability.
+- Review `signal_schemas` for plugins that emit events or logs; missing contracts
+  force the UI back to generic JSON rendering.
 - Plugin result payloads should use canonical statuses `OK`, `WARNING`, `CRITICAL`, or `UNKNOWN`. The agent maps common failure aliases (`failed`, `fail`, `error`) to `CRITICAL` so a failed execution is visible as unhealthy.
