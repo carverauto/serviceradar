@@ -992,10 +992,10 @@ if config_env() == :prod do
 
   # Oban configuration
   object_store_retention_enabled =
-    System.get_env("OBJECT_STORE_RETENTION_ENABLED", "false") in ~w(true 1 yes)
+    System.get_env("OBJECT_STORE_RETENTION_ENABLED", "true") in ~w(true 1 yes)
 
   object_store_retention_dry_run =
-    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "true") in ~w(true 1 yes)
+    System.get_env("OBJECT_STORE_RETENTION_DRY_RUN", "false") in ~w(true 1 yes)
 
   object_store_retention_cron =
     System.get_env("OBJECT_STORE_RETENTION_CRON", "0 3 * * *")
@@ -1052,7 +1052,7 @@ if config_env() == :prod do
     enabled?: object_store_retention_enabled,
     dry_run?: object_store_retention_dry_run,
     agent_release_keep_latest:
-      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "5"),
+      String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
     datasvc_timeout_ms:
       String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 

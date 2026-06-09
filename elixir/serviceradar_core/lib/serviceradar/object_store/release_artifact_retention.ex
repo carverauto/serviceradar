@@ -18,6 +18,7 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
   @prefix "agent-releases/"
   @terminal_target_statuses [:healthy, :failed, :rolled_back, :canceled]
   @active_rollout_statuses [:active, :paused]
+  @epoch ~U[1970-01-01 00:00:00Z]
 
   @type summary :: %{
           scanned: non_neg_integer(),
@@ -32,7 +33,7 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
   @spec run(keyword()) :: {:ok, summary()} | {:error, term()}
   def run(opts \\ []) do
     dry_run? = Keyword.get(opts, :dry_run?, config(:dry_run?, true))
-    keep_latest = Keyword.get(opts, :keep_latest, config(:agent_release_keep_latest, 5))
+    keep_latest = Keyword.get(opts, :keep_latest, config(:agent_release_keep_latest, 1))
     timeout = Keyword.get(opts, :timeout, config(:datasvc_timeout_ms, 30_000))
     actor = SystemActor.system(:object_store_retention)
 
@@ -106,15 +107,23 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
   defp read_releases(actor) do
     AgentRelease
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.sort(published_at: :desc, inserted_at: :desc)
+    |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc, published_at: :desc)
     |> Ash.read(actor: actor)
   end
 
+  @doc """
+  Returns the release IDs protected by the local import/update retention window.
+  """
+  @spec retained_release_ids([AgentRelease.t()], integer()) :: MapSet.t()
+  def retained_release_ids(releases, keep_latest) do
+    releases
+    |> sort_by_import_time()
+    |> Enum.take(max(keep_latest, 0))
+    |> MapSet.new(& &1.id)
+  end
+
   defp protected_release_ids(releases, keep_latest, actor) do
-    newest =
-      releases
-      |> Enum.take(max(keep_latest, 0))
-      |> MapSet.new(& &1.id)
+    newest = retained_release_ids(releases, keep_latest)
 
     with {:ok, rollout_ids} <- active_rollout_release_ids(actor),
          {:ok, target_ids} <- active_target_release_ids(actor) do
@@ -233,6 +242,40 @@ defmodule ServiceRadar.ObjectStore.ReleaseArtifactRetention do
   defp object_key(%Proto.ObjectInfo{metadata: %Proto.ObjectMetadata{key: key}}), do: key
   defp object_key(%{metadata: %{key: key}}), do: key
   defp object_key(%{key: key}), do: key
+
+  defp sort_by_import_time(releases) do
+    Enum.sort(releases, fn left, right ->
+      compare_release_import_time(left, right)
+    end)
+  end
+
+  defp compare_release_import_time(left, right) do
+    left_key = release_import_key(left)
+    right_key = release_import_key(right)
+
+    case compare_datetime_keys(left_key, right_key) do
+      :gt -> true
+      :lt -> false
+      :eq -> to_string(left.id) <= to_string(right.id)
+    end
+  end
+
+  defp release_import_key(%AgentRelease{} = release) do
+    [
+      release.updated_at || @epoch,
+      release.inserted_at || @epoch,
+      release.published_at || @epoch
+    ]
+  end
+
+  defp compare_datetime_keys([], []), do: :eq
+
+  defp compare_datetime_keys([left | left_rest], [right | right_rest]) do
+    case DateTime.compare(left, right) do
+      :eq -> compare_datetime_keys(left_rest, right_rest)
+      order -> order
+    end
+  end
 
   defp config(key, default) do
     :serviceradar_core

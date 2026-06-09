@@ -502,11 +502,11 @@ zen:
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
-  # Demo stores little real KV/object data; keep reserved capacity small so the
-  # rest of JetStream can also run at 3 replicas.
+  # Keep KV small, but leave enough object-store headroom for one retained
+  # agent release plus a replacement import before retention runs.
   bucketMaxBytes: 536870912
-  objectMaxBytes: 268435456
-  objectStoreBytes: 536870912
+  objectMaxBytes: 536870912
+  objectStoreBytes: 2147483648
   data:
     # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false
@@ -658,7 +658,7 @@ certs:
 objectStoreRetention:
   enabled: true
   dryRun: false
-  agentReleaseKeepLatest: 5
+  agentReleaseKeepLatest: 1
   pluginOrphanGraceSeconds: 604800
   datasvcTimeoutMs: 30000
   webNgMaintenanceQueueLimit: 1

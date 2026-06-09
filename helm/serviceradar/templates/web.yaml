@@ -40,6 +40,10 @@
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
+{{- $objectStoreRetentionEnabled := true -}}
+{{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
+{{- $objectStoreRetentionDryRun := false -}}
+{{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
 {{- $agentReleasePublicKey := default "" $webNg.agentReleasePublicKey -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $secrets := default "serviceradar-secrets" .Values.secrets.existingSecretName -}}
@@ -440,14 +444,14 @@ spec:
         {{- end }}
         {{- end }}
         - name: OBJECT_STORE_RETENTION_ENABLED
-          value: {{ default false $objectStoreRetention.enabled | quote }}
+          value: {{ $objectStoreRetentionEnabled | quote }}
         - name: OBJECT_STORE_RETENTION_DRY_RUN
-          value: {{ default true $objectStoreRetention.dryRun | quote }}
+          value: {{ $objectStoreRetentionDryRun | quote }}
         - name: OBJECT_STORE_RETENTION_CRON
           value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
         - name: OBJECT_STORE_RETENTION_PLUGIN_ORPHAN_GRACE_SECONDS
           value: {{ default 604800 $objectStoreRetention.pluginOrphanGraceSeconds | quote }}
-        {{- if $objectStoreRetention.enabled }}
+        {{- if $objectStoreRetentionEnabled }}
         - name: OBAN_MAINTENANCE_QUEUE_LIMIT
           value: {{ default 1 $objectStoreRetention.webNgMaintenanceQueueLimit | quote }}
         {{- end }}

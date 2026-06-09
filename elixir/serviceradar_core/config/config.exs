@@ -93,9 +93,9 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
   }
 
 config :serviceradar_core, :object_store_retention,
-  enabled?: false,
-  dry_run?: true,
-  agent_release_keep_latest: 5,
+  enabled?: true,
+  dry_run?: false,
+  agent_release_keep_latest: 1,
   datasvc_timeout_ms: 30_000
 
 # Plugin blob storage download configuration (used to generate signed download URLs)

@@ -9,23 +9,25 @@ ServiceRadar stores durable internal artifacts in NATS JetStream Object Store. T
 - `agent-releases/<version>/...` for mirrored agent release artifacts stored through datasvc
 - `plugins/<plugin_id>/<version>/<package_id>.wasm` for uploaded Wasm plugin packages when plugin storage uses the JetStream backend
 
-Retention is disabled by default and runs in dry-run mode when enabled unless configured otherwise.
+Retention is enabled by default. Agent release cleanup keeps one locally imported
+release by default, plus any release referenced by active or paused rollouts and
+non-terminal rollout targets.
 
 ## Helm Configuration
 
 ```yaml
 objectStoreRetention:
   enabled: true
-  dryRun: true
+  dryRun: false
   cron: "0 3 * * *"
-  agentReleaseKeepLatest: 5
+  agentReleaseKeepLatest: 1
   pluginOrphanGraceSeconds: 604800
   datasvcTimeoutMs: 30000
 ```
 
 `cron` controls the Oban cron schedule for cleanup. The default is once daily at 03:00.
 
-`agentReleaseKeepLatest` controls how many published agent releases are always retained. The retention planner also protects release artifacts referenced by active or paused rollouts and non-terminal rollout targets.
+`agentReleaseKeepLatest` controls how many locally imported agent releases are always retained. The default is `1`, so importing an older release effectively replaces the previous unreferenced import in datasvc object storage. The retention planner also protects release artifacts referenced by active or paused rollouts and non-terminal rollout targets.
 
 `pluginOrphanGraceSeconds` controls how old inactive plugin blobs must be before they are eligible for deletion. Staged and approved packages are protected, as are packages referenced by assignments or target policies.
 
@@ -44,11 +46,11 @@ ServiceRadar.ObjectStore.RetentionWorker.enqueue_manual(dry_run?: true)
 ServiceRadarWebNG.Plugins.BlobRetentionWorker.enqueue_manual(dry_run?: true)
 ```
 
-For an initial production pass, keep `dryRun: true` and inspect the summary logs:
+To preview cleanup before deleting anything, temporarily set `dryRun: true` and inspect the summary logs:
 
 ```text
 ObjectStoreRetention: release artifact cleanup completed scanned=... protected=... eligible=... deleted=0 dry_run=true
 PluginBlobRetention: cleanup completed scanned=... protected=... eligible=... deleted=0 dry_run=true
 ```
 
-Set `dryRun: false` only after the eligible counts look correct.
+Set `dryRun: false` again after the eligible counts look correct.
