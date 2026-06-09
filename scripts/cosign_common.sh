@@ -421,6 +421,16 @@ cosign_log_has_tlog_conflict() {
     && grep -qi 'equivalent entry already exists' "${log_file}"
 }
 
+cosign_log_has_transient_tlog_error() {
+  local log_file="$1"
+  local retryable_pattern
+
+  retryable_pattern='(giving up after|timeout|timed out|temporary|temporarily|connection reset|connection refused|TLS handshake timeout|EOF|429|502|503|504)'
+
+  grep -Eqi "rekor.*${retryable_pattern}" "${log_file}" \
+    || grep -Eqi "api/v1/log/entries.*${retryable_pattern}" "${log_file}"
+}
+
 cosign_verify_existing_signature() {
   local ref="$1"
 
@@ -450,28 +460,44 @@ cosign_sign_ref() {
 cosign_sign_ref_idempotent() {
   local ref="$1"
   local stderr_file
-  local status
+  local status=1
+  local attempt=1
+  local max_attempts="${COSIGN_SIGN_MAX_ATTEMPTS:-4}"
+  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-10}"
 
   stderr_file="$(mktemp)"
   cosign_register_temp_file "${stderr_file}"
 
-  if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2> >(tee "${stderr_file}" >&2); then
-    return 0
-  else
-    status=$?
-  fi
+  while ((attempt <= max_attempts)); do
+    : >"${stderr_file}"
 
-  if cosign_log_has_tlog_conflict "${stderr_file}"; then
-    echo "warning: transparency log already contains an equivalent entry for ${ref}; verifying existing signature" >&2
-    if cosign_verify_existing_signature "${ref}"; then
+    if cosign_sign_ref "${ref}" "${COSIGN_TLOG_UPLOAD:-true}" 2> >(tee "${stderr_file}" >&2); then
       return 0
+    else
+      status=$?
     fi
 
-    echo "warning: existing registry signature was not valid for ${ref}; retrying without transparency log upload" >&2
-    if cosign_sign_ref "${ref}" false && cosign_verify_existing_signature "${ref}"; then
-      return 0
+    if cosign_log_has_tlog_conflict "${stderr_file}"; then
+      echo "warning: transparency log already contains an equivalent entry for ${ref}; verifying existing signature" >&2
+      if cosign_verify_existing_signature "${ref}"; then
+        return 0
+      fi
+
+      echo "warning: existing registry signature was not valid for ${ref}; retrying without transparency log upload" >&2
+      if cosign_sign_ref "${ref}" false && cosign_verify_existing_signature "${ref}"; then
+        return 0
+      fi
     fi
-  fi
+
+    if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
+      echo "warning: transient transparency-log signing failure for ${ref}; retrying attempt $((attempt + 1))/${max_attempts} after ${retry_delay}s" >&2
+      sleep "${retry_delay}"
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    break
+  done
 
   return "${status}"
 }
