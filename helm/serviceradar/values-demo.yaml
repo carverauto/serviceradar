@@ -395,6 +395,11 @@ gobgp:
       peer_asn: 401642
       description: "tonka01"
       passiveMode: true
+    - name: k8s-cp3-worker1
+      ip: "10.0.2.11"
+      peer_asn: 401642
+      description: "k8s-cp3-worker1"
+      passiveMode: true
 
 core:
   replicas: 3

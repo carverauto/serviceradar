@@ -50,6 +50,8 @@ metadata:
     app.kubernetes.io/part-of: serviceradar
 spec:
   replicas: 1
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: serviceradar-gobgp
