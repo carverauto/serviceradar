@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   """
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
   require Ash.Query
 
@@ -30,6 +31,35 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
 
   @spec list_approved(keyword()) :: [AddonPackage.t()]
   def list_approved(opts \\ []), do: list(%{status: :approved}, opts)
+
+  @spec sync_first_party_addons(keyword()) :: {:ok, map()} | {:error, term()}
+  def sync_first_party_addons(opts \\ []) do
+    repo_url = Keyword.get(opts, :repo_url)
+    limit = Keyword.get(opts, :limit, 10)
+    release_tag = Keyword.get(opts, :release_tag)
+
+    discovery_attrs = maybe_put(%{}, :repo_url, repo_url)
+
+    with {:ok, addons} <- NativeAddonImporter.list_recent_addons(discovery_attrs, limit) do
+      results =
+        addons
+        |> maybe_filter_release_tag(release_tag)
+        |> Enum.filter(&Map.get(&1, :import_ready?))
+        |> dedupe_first_party_addon_versions()
+        |> Enum.map(fn addon ->
+          import_attrs = %{
+            repo_url: addon.repo_url,
+            release_tag: addon.release_tag,
+            addon_id: addon.addon_id,
+            version: addon.version
+          }
+
+          {addon, NativeAddonImporter.import(import_attrs)}
+        end)
+
+      {:ok, sync_summary(addons, results)}
+    end
+  end
 
   @spec approve(String.t(), map(), keyword()) :: {:ok, AddonPackage.t()} | {:error, term()}
   def approve(id, attrs, opts \\ [])
@@ -96,6 +126,50 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^id)
     |> Ash.read_one(ash_opts(scope, nil))
+  end
+
+  defp maybe_filter_release_tag(addons, release_tag) when is_binary(release_tag) and release_tag != "" do
+    Enum.filter(addons, &(&1.release_tag == release_tag))
+  end
+
+  defp maybe_filter_release_tag(addons, _release_tag), do: addons
+
+  defp dedupe_first_party_addon_versions(addons) do
+    addons
+    |> Enum.reduce({MapSet.new(), []}, fn addon, {seen, acc} ->
+      key = {addon.addon_id, addon.version}
+
+      if MapSet.member?(seen, key) do
+        {seen, acc}
+      else
+        {MapSet.put(seen, key), [addon | acc]}
+      end
+    end)
+    |> elem(1)
+    |> Enum.reverse()
+  end
+
+  defp sync_summary(discovered, results) do
+    imported = Enum.count(results, fn {_addon, result} -> match?({:ok, _package}, result) end)
+
+    failed =
+      results
+      |> Enum.filter(fn {_addon, result} -> match?({:error, _reason}, result) end)
+      |> Enum.map(fn {addon, {:error, reason}} ->
+        %{
+          addon_id: addon.addon_id,
+          version: addon.version,
+          release_tag: addon.release_tag,
+          error: reason
+        }
+      end)
+
+    %{
+      discovered: length(discovered),
+      import_ready: length(results),
+      imported: imported,
+      failed: failed
+    }
   end
 
   defp ash_opts(scope, actor) when not is_nil(scope) do

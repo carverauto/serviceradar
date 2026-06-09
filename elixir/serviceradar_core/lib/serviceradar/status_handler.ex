@@ -222,16 +222,19 @@ defmodule ServiceRadar.StatusHandler do
     agent_id = status[:agent_id]
     message = status[:message]
 
+    metadata = %{
+      producer_type: producer_type,
+      producer_id: producer_id,
+      partition_id: partition_id,
+      agent_id: agent_id,
+      gateway_id: status[:gateway_id],
+      source_ip: status[:source_ip]
+    }
+
     case decode_addon_telemetry_batch(message) do
       {:ok, %TelemetryBatch{records: records} = batch} ->
-        publish_package_telemetry_records(records || [], batch, %{
-          producer_type: producer_type,
-          producer_id: producer_id,
-          partition_id: partition_id,
-          agent_id: agent_id,
-          gateway_id: status[:gateway_id],
-          source_ip: status[:source_ip]
-        })
+        log_package_telemetry_batch(records || [], metadata)
+        publish_package_telemetry_records(records || [], batch, metadata)
 
       :error ->
         Logger.warning(
@@ -258,6 +261,15 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp decode_addon_telemetry_batch(_), do: :error
+
+  defp log_package_telemetry_batch(records, metadata) do
+    Logger.info(
+      "StatusHandler decoded package telemetry: producer_type=#{metadata.producer_type} " <>
+        "producer_id=#{metadata.producer_id} agent_id=#{metadata.agent_id} " <>
+        "records=#{length(records)} ocsf_records=#{Enum.count(records, &ocsf_record?/1)} " <>
+        "otel_log_records=#{Enum.count(records, &otel_log_record?/1)}"
+    )
+  end
 
   defp publish_package_telemetry_records(records, batch, metadata) do
     Enum.each(records, fn %TelemetryRecord{} = record ->

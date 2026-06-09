@@ -131,7 +131,7 @@ jobs:
           fi
 
       - name: Run hermetic native add-on gate fixtures
-        run: bazel test --config=remote //build/native_addons:build_gates_test
+        run: bazel test --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc //build/native_addons:build_gates_test
 
       - name: Run native add-on build gates
         env:
@@ -158,7 +158,7 @@ jobs:
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
           SIGN_BRANCH_CATALOG: ${{ github.event.inputs.sign_branch_catalog || 'false' }}
-          BAZEL_BUILD_FLAGS: --config=remote_push --stamp
+          BAZEL_BUILD_FLAGS: --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc --stamp
           OPENBAO_ADDR: http://openbao-active.openbao-system.svc.cluster.local:8200
           OPENBAO_K8S_ROLE: forgejo-signing-runner
           COSIGN_KEY_REF: hashivault://cosign-release
@@ -205,7 +205,7 @@ jobs:
       - name: Generate import index
         env:
           EXTRA_TAG: ${{ github.event.inputs.tag || (github.ref_type == 'tag' && github.ref_name) || '' }}
-          BAZEL_BUILD_FLAGS: --config=remote_push --stamp
+          BAZEL_BUILD_FLAGS: --config=el9 --@com_google_protobuf//bazel/toolchains:allow_nonstandard_protoc --stamp
         run: |
           set -euo pipefail
           tag="${EXTRA_TAG:-sha-${GITHUB_SHA}}"

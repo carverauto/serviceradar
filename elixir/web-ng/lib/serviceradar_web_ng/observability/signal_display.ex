@@ -37,8 +37,16 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   @external_resource @axis_contract_path
   @external_resource @protect_contract_path
   @external_resource @proxmox_contract_path
+  @powerdns_signal_schema_ref %{
+    "producer_id" => "powerdns",
+    "producer_version" => "0.1.1",
+    "schema_id" => "com.carverauto.powerdns.dns_activity",
+    "schema_version" => "1.0.0"
+  }
   @built_in_contracts %{
     {"powerdns", "0.1.0", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
+      @powerdns_contract_path |> File.read!() |> Jason.decode!(),
+    {"powerdns", "0.1.1", "com.carverauto.powerdns.dns_activity", "1.0.0"} =>
       @powerdns_contract_path |> File.read!() |> Jason.decode!(),
     {"axis-camera", "0.1.0", "com.carverauto.axis_camera.event_log", "1.0.0"} =>
       @axis_contract_path |> File.read!() |> Jason.decode!(),
@@ -99,7 +107,13 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     |> Keyword.get(:contracts, %{})
   end
 
-  defp built_in_contract(key), do: Map.get(@built_in_contracts, key)
+  defp built_in_contract({producer_id, _producer_version, schema_id, schema_version} = key) do
+    Map.get(@built_in_contracts, key) ||
+      Enum.find_value(@built_in_contracts, fn
+        {{^producer_id, _known_producer_version, ^schema_id, ^schema_version}, contract} -> contract
+        _entry -> nil
+      end)
+  end
 
   defp contract_key(signal_schema) do
     {
@@ -114,7 +128,8 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     get_in(record, ["metadata", "service_radar", "signal_schema"]) ||
       get_in(record, ["metadata", :service_radar, :signal_schema]) ||
       signal_schema_ref_from_attributes(Map.get(record, "attributes")) ||
-      signal_schema_ref_from_attributes(Map.get(record, "resource_attributes"))
+      signal_schema_ref_from_attributes(Map.get(record, "resource_attributes")) ||
+      inferred_signal_schema_ref(record)
   end
 
   defp signal_schema_ref_from_attributes(%{} = attributes) do
@@ -142,6 +157,56 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
 
     if map_size(schema_ref) == 0, do: nil, else: schema_ref
   end
+
+  defp inferred_signal_schema_ref(record) do
+    service_radar = service_radar_metadata(record)
+
+    if powerdns_dns_activity?(record, service_radar) do
+      @powerdns_signal_schema_ref
+    end
+  end
+
+  defp service_radar_metadata(record) do
+    metadata = Map.get(record, "metadata") || Map.get(record, :metadata) || %{}
+
+    Map.get(metadata, "service_radar") ||
+      Map.get(metadata, :service_radar) ||
+      %{}
+  end
+
+  defp powerdns_dns_activity?(record, service_radar) do
+    source_type = map_value(service_radar, "source_type")
+    addon_id = map_value(service_radar, "addon_id")
+    log_name = map_value(record, "log_name")
+
+    powerdns_source? = addon_id == "powerdns" or source_type == "powerdns" or log_name == "pdns.ocsf"
+
+    powerdns_source? and
+      (integer_value(map_value(record, "class_uid")) == 4003 or log_name == "pdns.ocsf")
+  end
+
+  defp map_value(map, key) when is_map(map) do
+    Map.get(map, key) || atom_key_value(map, key)
+  end
+
+  defp map_value(_map, _key), do: nil
+
+  defp atom_key_value(map, "source_type"), do: Map.get(map, :source_type)
+  defp atom_key_value(map, "addon_id"), do: Map.get(map, :addon_id)
+  defp atom_key_value(map, "log_name"), do: Map.get(map, :log_name)
+  defp atom_key_value(map, "class_uid"), do: Map.get(map, :class_uid)
+  defp atom_key_value(_map, _key), do: nil
+
+  defp integer_value(value) when is_integer(value), do: value
+
+  defp integer_value(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> integer
+      _ -> nil
+    end
+  end
+
+  defp integer_value(_value), do: nil
 
   defp render_widget(record, %{"type" => "summary"} = widget) do
     [

@@ -431,6 +431,38 @@ cosign_log_has_transient_tlog_error() {
     || grep -Eqi "api/v1/log/entries.*${retryable_pattern}" "${log_file}"
 }
 
+cosign_supports_signing_config() {
+  cosign sign --help 2>/dev/null | grep -q -- '--signing-config' \
+    && cosign signing-config create --help >/dev/null 2>&1
+}
+
+cosign_no_tlog_signing_config() {
+  local signing_config_file
+
+  signing_config_file="$(mktemp)"
+  if ! cosign signing-config create --out "${signing_config_file}" >/dev/null; then
+    rm -f "${signing_config_file}"
+    return 1
+  fi
+
+  cosign_register_temp_file "${signing_config_file}"
+  printf '%s\n' "${signing_config_file}"
+}
+
+cosign_init_tlog_args() {
+  local tlog_upload="$1"
+  local signing_config_file
+  declare -g -a COSIGN_TLOG_ARGS=()
+
+  if [[ "${tlog_upload}" == "false" ]] && cosign_supports_signing_config; then
+    signing_config_file="$(cosign_no_tlog_signing_config)"
+    COSIGN_TLOG_ARGS+=(--signing-config "${signing_config_file}")
+    return 0
+  fi
+
+  COSIGN_TLOG_ARGS+=(--tlog-upload="${tlog_upload}")
+}
+
 cosign_verify_existing_signature() {
   local ref="$1"
 
@@ -449,12 +481,81 @@ cosign_sign_ref() {
   local ref="$1"
   local tlog_upload="$2"
 
+  cosign_init_tlog_args "${tlog_upload}"
+
   cosign sign \
     --yes \
-    --tlog-upload="${tlog_upload}" \
+    "${COSIGN_TLOG_ARGS[@]}" \
     --registry-referrers-mode="${COSIGN_REFERRERS_MODE:-oci-1-1}" \
     "${COSIGN_SIGN_ARGS[@]}" \
     "${ref}"
+}
+
+cosign_sign_blob_to_files() {
+  local payload_file="$1"
+  local bundle_file="$2"
+  local signature_file="$3"
+  local stdout_file="$4"
+  local requested_tlog_upload="${5:-true}"
+  local stderr_file
+  local status=1
+  local attempt=1
+  local max_attempts="${COSIGN_SIGN_MAX_ATTEMPTS:-4}"
+  local retry_delay="${COSIGN_SIGN_RETRY_DELAY_SECONDS:-10}"
+
+  stderr_file="$(mktemp)"
+  cosign_register_temp_file "${stderr_file}"
+
+  while ((attempt <= max_attempts)); do
+    : >"${stderr_file}"
+    : >"${signature_file}"
+    : >"${bundle_file}"
+    : >"${stdout_file}"
+
+    cosign_init_tlog_args "${requested_tlog_upload}"
+    if cosign sign-blob \
+      --yes \
+      "${COSIGN_TLOG_ARGS[@]}" \
+      "${COSIGN_SIGN_ARGS[@]}" \
+      --bundle "${bundle_file}" \
+      --output-signature "${signature_file}" \
+      "${payload_file}" >"${stdout_file}" 2> >(tee "${stderr_file}" >&2); then
+      return 0
+    else
+      status=$?
+    fi
+
+    if [[ "${requested_tlog_upload}" != "false" ]] && cosign_log_has_tlog_conflict "${stderr_file}"; then
+      echo "warning: transparency log already contains an equivalent blob entry; retrying without transparency log upload" >&2
+      : >"${stderr_file}"
+      : >"${signature_file}"
+      : >"${bundle_file}"
+      : >"${stdout_file}"
+      cosign_init_tlog_args false
+      if cosign sign-blob \
+        --yes \
+        "${COSIGN_TLOG_ARGS[@]}" \
+        "${COSIGN_SIGN_ARGS[@]}" \
+        --bundle "${bundle_file}" \
+        --output-signature "${signature_file}" \
+        "${payload_file}" >"${stdout_file}" 2> >(tee "${stderr_file}" >&2); then
+        return 0
+      else
+        status=$?
+      fi
+    fi
+
+    if ((attempt < max_attempts)) && cosign_log_has_transient_tlog_error "${stderr_file}"; then
+      echo "warning: transient transparency-log blob signing failure; retrying attempt $((attempt + 1))/${max_attempts} after ${retry_delay}s" >&2
+      sleep "${retry_delay}"
+      attempt=$((attempt + 1))
+      continue
+    fi
+
+    break
+  done
+
+  return "${status}"
 }
 
 cosign_sign_ref_idempotent() {

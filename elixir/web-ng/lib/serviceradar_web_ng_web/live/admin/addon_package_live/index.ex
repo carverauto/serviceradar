@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Plugins.AddonAssignments
   alias ServiceRadarWebNG.Plugins.AddonPackages
+  alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.RBAC
 
   require Ash.Query
@@ -40,13 +41,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:current_path, nil)
        |> assign(:addons_base_path, "/settings/agents/addons")
        |> assign(:packages, list_addon_packages(scope))
+       |> assign(:first_party_catalog, [])
+       |> assign(:first_party_catalog_all, [])
+       |> assign(:first_party_catalog_error, nil)
+       |> assign(:first_party_catalog_status, nil)
+       |> assign(:first_party_release_options, [])
+       |> assign(:first_party_release_tag, nil)
+       |> assign(:first_party_repo_url, first_party_repo_url())
        |> assign(:agents, list_agents(scope))
        |> assign(:cohort_options, @cohort_options)
        |> assign(:show_details_modal, false)
        |> assign(:selected_package, nil)
        |> assign(:assignments, [])
        |> assign(:assignment_preview, empty_assignment_preview())
-       |> assign(:assignment_form, default_assignment_form())}
+       |> assign(:assignment_form, default_assignment_form())
+       |> tap(fn _socket -> if connected?(socket), do: send(self(), :load_first_party_addon_catalog) end)}
     else
       {:ok,
        socket
@@ -91,8 +100,77 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   @impl true
+  def handle_info(:load_first_party_addon_catalog, socket) do
+    {:noreply, load_first_party_catalog(socket)}
+  end
+
+  @impl true
   def handle_event("refresh", _params, socket) do
     {:noreply, assign(socket, :packages, list_addon_packages(socket.assigns.current_scope))}
+  end
+
+  def handle_event("sync_first_party_catalog", _params, socket) do
+    {:noreply, load_first_party_catalog(socket)}
+  end
+
+  def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
+    {:noreply, assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+  end
+
+  def handle_event("import_first_party_catalog", _params, %{assigns: %{can_review_addons: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to import add-ons.")}
+  end
+
+  def handle_event("import_first_party_catalog", _params, socket) do
+    case AddonPackages.sync_first_party_addons(
+           repo_url: socket.assigns.first_party_repo_url,
+           release_tag: socket.assigns.first_party_release_tag,
+           limit: first_party_sync_limit()
+         ) do
+      {:ok, summary} ->
+        message =
+          "Imported #{summary.imported} first-party add-on package(s) from #{socket.assigns.first_party_release_tag || "the selected release"}"
+
+        {:noreply,
+         socket
+         |> put_flash(:info, message)
+         |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
+  end
+
+  def handle_event("import_first_party_addon", _params, %{assigns: %{can_review_addons: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to import add-ons.")}
+  end
+
+  def handle_event("import_first_party_addon", params, socket) do
+    attrs = %{
+      repo_url: socket.assigns.first_party_repo_url,
+      release_tag: params["release_tag"],
+      addon_id: params["addon_id"],
+      version: params["version"]
+    }
+
+    case NativeAddonImporter.import(attrs) do
+      {:ok, package} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
+         |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+         |> load_first_party_catalog()}
+
+      {:error, reason} ->
+        {:noreply,
+         socket
+         |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+         |> load_first_party_catalog()}
+    end
   end
 
   def handle_event("view_package", %{"id" => id}, socket) do
@@ -251,6 +329,106 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
             <.icon name="hero-arrow-path" class="size-4" /> Refresh
           </.ui_button>
         </div>
+
+        <.ui_panel>
+          <:header>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div class="text-sm font-semibold">First-party catalog</div>
+                <p class="text-xs text-base-content/60">
+                  Signed native add-ons discovered from {@first_party_repo_url}.
+                </p>
+              </div>
+              <div class="flex flex-wrap items-center gap-2">
+                <form :if={@first_party_release_options != []} phx-change="select_first_party_release">
+                  <select name="release_tag" class="select select-bordered select-sm">
+                    <%= for release_tag <- @first_party_release_options do %>
+                      <option value={release_tag} selected={release_tag == @first_party_release_tag}>
+                        {release_tag}
+                      </option>
+                    <% end %>
+                  </select>
+                </form>
+                <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
+                  <.icon name="hero-arrow-path" class="size-4" /> Sync
+                </.ui_button>
+                <.ui_button
+                  :if={@can_review_addons}
+                  variant="primary"
+                  size="sm"
+                  disabled={@first_party_catalog == []}
+                  phx-click="import_first_party_catalog"
+                >
+                  <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+                </.ui_button>
+              </div>
+            </div>
+          </:header>
+
+          <%= if @first_party_catalog_error do %>
+            <div class="rounded-lg border border-error/30 bg-error/5 px-4 py-3 text-sm text-error">
+              {@first_party_catalog_error}
+            </div>
+          <% end %>
+
+          <%= if @first_party_catalog_status do %>
+            <div class="mb-3 text-xs text-base-content/60">
+              {@first_party_catalog_status}
+            </div>
+          <% end %>
+
+          <%= cond do %>
+            <% @first_party_catalog == [] and is_nil(@first_party_catalog_error) -> %>
+              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
+                <div class="text-sm font-semibold text-base-content">
+                  No first-party add-ons found
+                </div>
+                <p class="mt-1 text-xs text-base-content/60">
+                  Sync the first-party catalog to discover signed add-ons from Forgejo releases.
+                </p>
+              </div>
+            <% @first_party_catalog != [] -> %>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                      <th>Add-on</th>
+                      <th>Version</th>
+                      <th>Release</th>
+                      <th>Platforms</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for addon <- @first_party_catalog do %>
+                      <tr class="hover:bg-base-200/30">
+                        <td>
+                          <div class="font-medium">{addon.name}</div>
+                          <div class="text-xs text-base-content/60 font-mono">{addon.addon_id}</div>
+                        </td>
+                        <td class="text-xs">{addon.version}</td>
+                        <td class="text-xs font-mono">{addon.release_tag}</td>
+                        <td class="text-xs">{catalog_platforms(addon)}</td>
+                        <td class="text-right">
+                          <.ui_button
+                            :if={@can_review_addons}
+                            variant="ghost"
+                            size="sm"
+                            phx-click="import_first_party_addon"
+                            phx-value-addon_id={addon.addon_id}
+                            phx-value-version={addon.version}
+                            phx-value-release_tag={addon.release_tag}
+                          >
+                            Import
+                          </.ui_button>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+              </div>
+          <% end %>
+        </.ui_panel>
 
         <.ui_panel>
           <:header>
@@ -715,6 +893,88 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp list_addon_packages(scope), do: AddonPackages.list(%{}, scope: scope)
+
+  defp load_first_party_catalog(socket) do
+    case NativeAddonImporter.list_recent_addons(
+           %{"repo_url" => socket.assigns.first_party_repo_url},
+           first_party_sync_limit()
+         ) do
+      {:ok, addons} ->
+        socket
+        |> assign(:first_party_catalog_error, nil)
+        |> assign_first_party_catalog_view(addons, socket.assigns[:first_party_release_tag])
+        |> assign(:first_party_catalog_status, first_party_catalog_status(addons))
+
+      {:error, reason} ->
+        socket
+        |> assign(:first_party_catalog, [])
+        |> assign(:first_party_catalog_all, [])
+        |> assign(:first_party_release_options, [])
+        |> assign(:first_party_release_tag, nil)
+        |> assign(:first_party_catalog_error, format_error(reason))
+        |> assign(:first_party_catalog_status, nil)
+    end
+  end
+
+  defp assign_first_party_catalog_view(socket, addons, requested_release_tag) do
+    release_options = first_party_release_options(addons)
+    selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
+    visible_addons = filter_first_party_addons(addons, selected_release_tag)
+
+    socket
+    |> assign(:first_party_catalog_all, addons)
+    |> assign(:first_party_release_options, release_options)
+    |> assign(:first_party_release_tag, selected_release_tag)
+    |> assign(:first_party_catalog, visible_addons)
+  end
+
+  defp first_party_release_options(addons) do
+    addons
+    |> Enum.map(& &1.release_tag)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp selected_first_party_release([], _requested), do: nil
+
+  defp selected_first_party_release(release_options, requested) do
+    if requested in release_options do
+      requested
+    else
+      List.first(release_options)
+    end
+  end
+
+  defp filter_first_party_addons(addons, nil), do: addons
+
+  defp filter_first_party_addons(addons, release_tag) do
+    Enum.filter(addons, &(&1.release_tag == release_tag))
+  end
+
+  defp first_party_catalog_status(addons) do
+    import_ready = Enum.count(addons, &Map.get(&1, :import_ready?))
+    releases = addons |> first_party_release_options() |> length()
+
+    "Loaded #{length(addons)} first-party add-on entry(s), #{import_ready} import-ready, from #{releases} indexed release(s)."
+  end
+
+  defp first_party_repo_url do
+    config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
+    Keyword.get(config, :repo_url, "https://code.carverauto.dev/carverauto/serviceradar")
+  end
+
+  defp first_party_sync_limit do
+    config = Application.get_env(:serviceradar_web_ng, :native_addon_import, [])
+    Keyword.get(config, :sync_release_limit, 10)
+  end
+
+  defp catalog_platforms(addon) do
+    addon
+    |> Map.get(:artifacts, [])
+    |> Enum.map(fn artifact -> "#{artifact["os"]}/#{artifact["arch"]}" end)
+    |> Enum.uniq()
+    |> Enum.join(", ")
+  end
 
   defp list_assignments_for_package(package_id, scope) do
     AddonAssignments.list(%{addon_package_id: package_id}, scope: scope)

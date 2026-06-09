@@ -7,6 +7,7 @@ package(default_visibility = ["//visibility:public"])
 
 exports_files([
     "assemble_addon_bundle.py",
+    "binary_portability_test.sh",
     "binary-size-baseline.json",
     "binary_size_test.sh",
     "dependency_isolation_test.sh",
@@ -130,9 +131,27 @@ sh_test(
     target_compatible_with = ["@platforms//os:linux"],
 )
 
+sh_test(
+    name = "binary_portability_test",
+    timeout = "long",
+    srcs = ["binary_portability_test.sh"],
+    args = ["$(locations :all_tarballs)"],
+    data = [
+        "runfile_path.sh",
+        ":all_tarballs",
+    ],
+    env = {
+        # Native add-on artifacts are expected to run on the same baseline as
+        # EL9/RHEL-compatible release packages.
+        "MAX_GLIBC_VERSION": "2.34",
+    },
+    target_compatible_with = ["@platforms//os:linux"],
+)
+
 test_suite(
     name = "build_gates_test",
     tests = [
+        ":binary_portability_test",
         ":binary_size_test",
         ":dependency_isolation_test",
         ":inventory_consistency_test",

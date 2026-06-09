@@ -6,7 +6,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
   alias ServiceRadar.Plugins.MapUtils
 
   @allowed_formats ~w(uri email password)
-  @allowed_root_keys ~w(type title description properties required additionalProperties)
+  @allowed_root_keys ~w($schema type title description properties required additionalProperties)
   @allowed_property_keys ~w(
     type title description default enum minimum maximum minLength maxLength pattern format items
     properties required additionalProperties secretRef
@@ -55,7 +55,7 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
     if map_size(schema) == 0 do
       :ok
     else
-      resolved = ExJsonSchema.Schema.resolve(schema)
+      resolved = schema |> validation_schema() |> ExJsonSchema.Schema.resolve()
 
       case ExJsonSchema.Validator.validate(resolved, params) do
         :ok -> :ok
@@ -92,6 +92,8 @@ defmodule ServiceRadar.Plugins.ConfigSchema do
         end
     end
   end
+
+  defp validation_schema(%{} = schema), do: Map.delete(schema, "$schema")
 
   defp runtime_injected_property?(%{} = property) do
     Map.get(property, "x-serviceradar-ui-hidden") == true and

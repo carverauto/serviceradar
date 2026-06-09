@@ -107,6 +107,13 @@ agent release page. The base agent release catalog only rolls the `serviceradar-
 runtime. Add-on packages have their own package state, approval, version, artifact
 digest, and target assignment lifecycle.
 
+When first-party native add-on sync is enabled, ServiceRadar imports every
+import-ready add-on found in the official release index as a staged package, similar
+to first-party Wasm plugin import. Helm is not an add-on catalog allowlist; operators
+use the Add-ons UI to review, approve, and assign the staged packages they want.
+`autoApproveAddonIds` is an optional deployment policy for trusted packages that
+should move from staged to approved automatically, not a visibility gate.
+
 ### Kubernetes agent boundary
 
 Do not run native add-on packages on the in-cluster `k8s-agent`. That agent exists
@@ -155,17 +162,19 @@ partition, and source IP envelope; core-elx overwrites any add-on-supplied
 ### PowerDNS Recursor config
 
 For Recursor releases with Lua protobuf logging, configure a localhost receiver with
-responses enabled and tagged-only output:
+response logging enabled:
 
 ```lua
-protobufServer("127.0.0.1:6000", { logResponses = true, taggedOnly = true })
+protobufServer("127.0.0.1:6000", { logResponses = true, taggedOnly = false })
 ```
 
 For Recursor 5.1.0 and newer YAML configuration, use the equivalent
-`logging.protobuf_servers` entry with `logResponses=true` and `taggedOnly=true`.
-`taggedOnly=true` is the source-side volume control: RPZ policy/tagged answers are
-sent, while the full query firehose is not. Keep the add-on's `rpz_only` config at
-its default `true` unless full DNS query/response logging has been capacity-tested.
+`logging.protobuf_servers` entry with `logResponses=true` and `taggedOnly=false`.
+Keep the add-on's `rpz_only` config at its default `true`; that is the source-side
+volume control for ServiceRadar because the add-on drops non-policy responses before
+emitting telemetry. Use `taggedOnly=true` only when the deployment owns and has
+verified a separate Recursor tagging path, because RPZ verdicts are not guaranteed
+to appear on the protobuf stream otherwise.
 
 Use `setProtobufMasks()` when client-IP anonymization is required by the deployment.
 `outgoingProtobufServer` is not needed for RPZ hit logging because the policy verdict
@@ -373,7 +382,8 @@ versions. The expected release path is:
 3. Include payload schemas and display contracts for every emitted log or event in
    the bundle and list them in `signal_schemas`.
 4. Publish the add-on discovery index and artifact metadata with the release.
-5. Import the package into ServiceRadar as `staged`.
+5. Import the package into ServiceRadar as `staged`. Automatic first-party sync
+   imports every import-ready add-on in the official release index.
 6. Review and approve the package in **Settings > Agents > Add-ons**.
 7. Assign the approved package to agents or cohorts.
 
