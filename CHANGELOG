@@ -1,3 +1,23 @@
+# ServiceRadar v1.2.98
+
+Add-on telemetry display contracts, PowerDNS native telemetry, and first-class
+Wasm plugin event emission.
+
+## Whats New
+
+**1.2.98**
+- Added signal schema and display schema metadata to native add-on and Wasm
+  plugin packages, including manifest validation, importer support, docs, and
+  UI rendering for event/log detail pages.
+- Added the PowerDNS native telemetry add-on for protobuf log ingestion and OCSF
+  DNS Activity output, with packaged schema/display contracts and release
+  import support.
+- Added a first-class Wasm plugin telemetry emission path and migrated the Axis,
+  Proxmox, and UniFi Protect plugins onto SDK-backed signal schema helpers.
+- Kept `k8s-agent` focused on cluster visibility by skipping bumblebee/native
+  add-on assignment and endpoint inventory profile writes there, while adding
+  demo GoBGP BMP peering and Wasm rollout packaging support.
+
 # ServiceRadar v1.2.97
 
 Topology God View reliability, camera controls, and LiveView cleanup.
