@@ -1,3 +1,26 @@
+# ServiceRadar v1.2.99
+
+Official native add-on discovery, PowerDNS event display fixes, and hardened
+release signing/build reruns.
+
+## Whats New
+
+**1.2.99**
+- Made first-party native add-ons discovered from the official package index
+  available for assignment without Helm allow-list gating, matching the Wasm
+  plugin operator flow.
+- Fixed PowerDNS event detail rendering by recognizing current display contract
+  metadata, inferring the contract for older `pdns.ocsf` rows, and displaying
+  the actual OCSF firewall rule, response, endpoint, and server identity fields.
+- Added gateway/core telemetry handoff visibility and buffered package telemetry
+  forwarding for native add-ons and plugins during transient core availability
+  gaps.
+- Hardened native add-on release builds with EL9 portability checks, protobuf
+  toolchain allowances, config schema version handling, and PowerDNS add-on
+  version bumps.
+- Made OCI, Wasm, and native add-on signing reruns tolerate existing Rekor
+  transparency-log entries and retry transient signing failures.
+
 # ServiceRadar v1.2.98
 
 Add-on telemetry display contracts, PowerDNS native telemetry, and first-class
