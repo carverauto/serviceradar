@@ -12,6 +12,10 @@
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
+{{- $objectStoreRetentionEnabled := true -}}
+{{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
+{{- $objectStoreRetentionDryRun := false -}}
+{{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
@@ -295,13 +299,13 @@ spec:
           value: {{ $pluginStorage.downloadTtlSeconds | quote }}
         {{- end }}
         - name: OBJECT_STORE_RETENTION_ENABLED
-          value: {{ default false $objectStoreRetention.enabled | quote }}
+          value: {{ $objectStoreRetentionEnabled | quote }}
         - name: OBJECT_STORE_RETENTION_DRY_RUN
-          value: {{ default true $objectStoreRetention.dryRun | quote }}
+          value: {{ $objectStoreRetentionDryRun | quote }}
         - name: OBJECT_STORE_RETENTION_CRON
           value: {{ default "0 3 * * *" $objectStoreRetention.cron | quote }}
         - name: OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST
-          value: {{ default 5 $objectStoreRetention.agentReleaseKeepLatest | quote }}
+          value: {{ default 1 $objectStoreRetention.agentReleaseKeepLatest | quote }}
         - name: OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS
           value: {{ default 30000 $objectStoreRetention.datasvcTimeoutMs | quote }}
         - name: SYNC_INGESTOR_ASYNC

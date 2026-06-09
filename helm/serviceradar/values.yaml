@@ -825,10 +825,10 @@ webNg:
     jetstreamReplicas: 3
 
 objectStoreRetention:
-  enabled: false
-  dryRun: true
+  enabled: true
+  dryRun: false
   cron: "0 3 * * *"
-  agentReleaseKeepLatest: 5
+  agentReleaseKeepLatest: 1
   pluginOrphanGraceSeconds: 604800
   datasvcTimeoutMs: 30000
   webNgMaintenanceQueueLimit: 1

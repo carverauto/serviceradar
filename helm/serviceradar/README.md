@@ -206,6 +206,9 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `5368709120` |
 | `datasvc.objectMaxBytes` | Max bytes for `OBJ_serviceradar-objects` metadata stream | `536870912` |
 | `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `2147483648` |
+| `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
+| `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
+| `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
 | `zen.streamReplicas` | Replica count for zen's shared `events` stream reconciliation | `1` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `1` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
@@ -216,7 +219,7 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `bmpCollector.config.streamReplicas` | Replica count for the dedicated `ARANCINI_CAUSAL` stream | `1` |
 | `bmpCollector.config.streamMaxBytes` | Max bytes for the dedicated BMP stream | `10737418240` |
 
-In `demo`, the shared `events` path runs at `3` replicas with smaller reserved caps so JetStream placement fits within the account budget. Datasvc KV/object streams are also reduced from the generic defaults because demo stores very little real data. `bmpCollector` runs with `3` pods in demo, but its dedicated stream is still intentionally left at `1` replica until that stream budget is sized separately.
+In `demo`, the shared `events` path runs at `3` replicas with smaller reserved caps so JetStream placement fits within the account budget. Datasvc keeps the KV stream small while leaving object-store headroom for one retained agent release plus a replacement import before retention runs. `bmpCollector` runs with `3` pods in demo, but its dedicated stream is still intentionally left at `1` replica until that stream budget is sized separately.
 
 ### Notes
 
