@@ -571,11 +571,14 @@ gobgp:
   bgp:
     localAsn: 401642
     routerId: "204.209.51.59"
+    listenPort: 179
   bmp:
     address: "serviceradar-bmp-collector"
     port: 11019
   # By default we reuse faker BGP peers to keep topology aligned.
   peers: []
+  podAnnotations: {}
+  nodeSelector: {}
   resources:
     limits:
       cpu: "500m"
@@ -586,6 +589,16 @@ gobgp:
   service:
     type: ClusterIP
     annotations: {}
+    bgp:
+      enabled: false
+      port: 179
+  externalService:
+    enabled: false
+    type: LoadBalancer
+    annotations: {}
+    loadBalancerIP: ""
+    externalTrafficPolicy: Local
+    port: 179
 coreClient:
   address: "" # auto-derived to serviceradar-core.<namespace>.svc.cluster.local:50052
   secMode: mtls
@@ -1487,6 +1500,13 @@ networkPolicy:
       # BMP collectors receive external router sessions. Keep this separate
       # from namespace-wide ingress so TCP/11019 exposure is scoped only to
       # the BMP collector pods.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    gobgpExternal:
+      # GoBGP receives BGP sessions from routers. Keep this
+      # separate from namespace-wide ingress so TCP/179 exposure is scoped
+      # only to the GoBGP pod.
       enabled: true
       allowedCIDRs:
         - "0.0.0.0/0"
