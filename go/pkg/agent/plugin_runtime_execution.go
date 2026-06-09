@@ -69,6 +69,9 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 		WithFunc(e.hostSubmitResult).
 		Export("submit_result")
 	builder.NewFunctionBuilder().
+		WithFunc(e.hostEmitTelemetry).
+		Export("emit_telemetry")
+	builder.NewFunctionBuilder().
 		WithFunc(e.hostCameraMediaOpen).
 		Export("camera_media_open")
 	builder.NewFunctionBuilder().

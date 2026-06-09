@@ -41,6 +41,7 @@ const (
 const (
 	pluginCapabilityCameraMediaStream = "camera_media_stream"
 	pluginCapabilityProxmoxConsole    = "proxmox_console_stream"
+	pluginCapabilityEmitTelemetry     = "emit_telemetry"
 )
 
 const (
@@ -116,6 +117,7 @@ type PluginManager struct {
 	runners map[string]*pluginRunner
 	streams map[string]*pluginAssignment
 	results chan PluginResult
+	signals chan PluginSignalTelemetry
 
 	stateMu  sync.Mutex
 	states   map[string]*assignmentState

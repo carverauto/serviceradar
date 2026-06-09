@@ -15,6 +15,15 @@ Logs and events emitted by package-backed plugins or native add-ons SHALL preser
 - **THEN** the stored log SHALL include the signal schema reference in bounded ServiceRadar metadata
 - **AND** the reference SHALL be retrievable by the log detail UI
 
+### Requirement: Wasm plugins emit first-class telemetry
+Wasm plugins that declare the telemetry capability SHALL be able to emit OCSF events and OTEL-style logs through a dedicated host function without coupling those signals to `serviceradar.plugin_result.v1`.
+
+#### Scenario: Plugin emits telemetry outside check result
+- **GIVEN** a Wasm plugin package declares the telemetry host capability
+- **WHEN** the plugin emits an OCSF event telemetry batch
+- **THEN** the agent SHALL forward the batch as plugin telemetry
+- **AND** core SHALL publish the event to the generic event ingestion stream with agent-attested provenance
+
 ### Requirement: Signal schemas describe presentation without changing canonical payloads
 Signal schemas and display contracts SHALL describe the producer payload and presentation mapping without replacing canonical OCSF or OTEL storage semantics. OCSF events SHALL remain valid OCSF payloads, and OTEL logs SHALL preserve OTEL log fields.
 

@@ -57,6 +57,7 @@ defmodule ServiceRadar.Plugins.Manifest do
     "get_config",
     "log",
     "submit_result",
+    "emit_telemetry",
     "http_request",
     "websocket_connect",
     "websocket_send",

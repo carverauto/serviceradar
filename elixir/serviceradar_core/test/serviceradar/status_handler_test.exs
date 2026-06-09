@@ -327,6 +327,122 @@ defmodule ServiceRadar.StatusHandlerTest do
       refute Map.has_key?(decoded["metadata"]["service_radar"], "signal_schema")
     end
 
+    test "publishes OCSF plugin telemetry records to the generic event stream" do
+      ocsf_event =
+        Jason.encode!(%{
+          "id" => "4cc2b0d9-2f02-437c-83ec-df0d53ebdb49",
+          "time" => "2026-06-08T12:00:00Z",
+          "class_uid" => 1008,
+          "category_uid" => 1,
+          "type_uid" => 100_802,
+          "activity_id" => 2,
+          "severity_id" => 3
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "axis-camera", source_instance: "front-door"},
+          records: [
+            %TelemetryRecord{
+              event_id: "axis-event-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: ocsf_event,
+              metadata: %{
+                "serviceradar.signal_schema.producer_id" => "axis",
+                "serviceradar.signal_schema.producer_version" => "0.1.0",
+                "serviceradar.signal_schema.schema_id" => "com.carverauto.axis_camera.event_log",
+                "serviceradar.signal_schema.schema_version" => "1.0.0",
+                "serviceradar.signal_schema.display_contract_id" =>
+                  "com.carverauto.axis_camera.event_log.display",
+                "serviceradar.signal_schema.display_contract_version" => "1.0.0",
+                "serviceradar.signal_schema.display_contract" =>
+                  "display/event_log_activity.display.json",
+                "serviceradar.signal_schema.signal_type" => "event",
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "plugin:axis-assignment",
+        service_type: "plugin",
+        service_name: "plugin-telemetry",
+        agent_id: "agent-a",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, "events.ocsf.processed", payload}
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["metadata"]["service_radar"]["plugin_id"] == "axis-assignment"
+      assert decoded["metadata"]["service_radar"]["agent_id"] == "agent-a"
+      assert decoded["metadata"]["service_radar"]["source_type"] == "axis-camera"
+
+      assert decoded["metadata"]["service_radar"]["signal_schema"]["schema_id"] ==
+               "com.carverauto.axis_camera.event_log"
+    end
+
+    test "publishes OTEL plugin telemetry records to the plugin log stream" do
+      log =
+        Jason.encode!(%{
+          "timestamp" => "2026-06-08T12:00:00Z",
+          "severity_text" => "INFO",
+          "body" => "camera event received",
+          "attributes" => %{"existing" => "kept"}
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "axis-camera", source_instance: "front-door"},
+          records: [
+            %TelemetryRecord{
+              event_id: "axis-log-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTEL_LOG,
+              payload: log,
+              metadata: %{
+                "serviceradar.signal_schema.producer_id" => "axis",
+                "serviceradar.signal_schema.producer_version" => "0.1.0",
+                "serviceradar.signal_schema.schema_id" => "com.carverauto.axis_camera.log",
+                "serviceradar.signal_schema.schema_version" => "1.0.0",
+                "serviceradar.signal_schema.display_contract_id" =>
+                  "com.carverauto.axis_camera.log.display",
+                "serviceradar.signal_schema.display_contract_version" => "1.0.0",
+                "serviceradar.signal_schema.signal_type" => "log",
+                "serviceradar.signal_schema.payload_kind" => "otel_log"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "plugin:axis-assignment",
+        service_type: "plugin",
+        service_name: "plugin-telemetry",
+        agent_id: "agent-a",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, "logs.otel.plugin", payload}
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["attributes"]["existing"] == "kept"
+      assert decoded["attributes"]["service_radar"]["plugin_id"] == "axis-assignment"
+      assert decoded["attributes"]["service_radar"]["signal_schema"]["payload_kind"] == "otel_log"
+    end
+
     test "ignores malformed add-on telemetry messages without crashing" do
       status = %{
         source: "addon:powerdns",

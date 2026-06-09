@@ -41,11 +41,16 @@ and a declarative display contract shipped with the same package version. See
 [Telemetry Display Contracts](./telemetry-display-contracts.md) for the operator
 review model and fallback behavior.
 
+Use the `emit_telemetry` capability for first-class plugin events or logs that
+should be ingested independently of the check result. Check-scoped annotations can
+still use the `events` field in `serviceradar.plugin_result.v1`, but those events
+are coupled to `submit_result` and are not a streaming telemetry surface.
+
 ## Capability and Permission Model
 
 Capabilities and permissions are the core of the plugin security model. They are declared in the manifest and approved during import review. The agent enforces both the capability list and the permission allowlists on every host call.
 
-- **Capabilities** name the host functions a plugin is allowed to call — for example, retrieving its config, emitting logs, submitting a result, making HTTP requests, or opening TCP/UDP connections. A plugin cannot call a host function it did not declare.
+- **Capabilities** name the host functions a plugin is allowed to call — for example, retrieving its config, writing agent runtime logs, emitting first-class telemetry, submitting a result, making HTTP requests, or opening TCP/UDP connections. A plugin cannot call a host function it did not declare.
 - **Permissions** are the allowlists that scope those capabilities — for example, the set of HTTP hostnames, CIDR networks, and ports a plugin may reach. Network access is denied by default and only widened by explicit allowlist entries.
 
 Because capabilities and permissions are visible in the manifest, reviewers can see a plugin's full blast radius before approving it. Always confirm them during import review, especially for plugins assigned to customer edge agents or networks that can reach sensitive systems.

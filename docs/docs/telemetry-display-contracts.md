@@ -85,9 +85,12 @@ serviceradar.signal_schema.signal_type
 serviceradar.signal_schema.payload_kind
 ```
 
-Wasm plugins attach the equivalent schema-reference object in the emitted
-observability payload. In storage, OCSF events preserve the reference in bounded
-ServiceRadar metadata under `metadata.service_radar.signal_schema` when available.
+Wasm plugins should prefer the first-class `emit_telemetry` host capability for
+package-backed logs and events. The Go SDK's telemetry helpers attach the same
+bounded schema reference on each telemetry record before the agent forwards the
+batch through the gateway. In storage, OCSF events preserve the reference under
+`metadata.service_radar.signal_schema`; OTEL-style logs preserve it under
+`attributes.service_radar.signal_schema`.
 
 Malformed schema references do not select a different tenant, route, NATS subject,
 database table, RBAC path, or severity. The ingestion path strips or ignores invalid

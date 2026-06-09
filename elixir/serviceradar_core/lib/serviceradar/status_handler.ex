@@ -30,7 +30,11 @@ defmodule ServiceRadar.StatusHandler do
   @flow_attribution_source "flow-attribution"
   @workload_identity_source "workload-identity"
   @addon_source_prefix "addon:"
+  @plugin_source_prefix "plugin:"
   @addon_ocsf_subject "pdns.ocsf"
+  @addon_otel_log_subject "logs.otel.addon"
+  @plugin_ocsf_subject "events.ocsf.processed"
+  @plugin_otel_log_subject "logs.otel.plugin"
   @signal_schema_metadata_keys %{
     producer_id: "serviceradar.signal_schema.producer_id",
     producer_version: "serviceradar.signal_schema.producer_version",
@@ -138,7 +142,11 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(%{source: @addon_source_prefix <> addon_id} = status, _opts) do
-    handle_addon_telemetry(status, addon_id)
+    handle_package_telemetry(status, :addon, addon_id)
+  end
+
+  defp process(%{source: @plugin_source_prefix <> plugin_id} = status, _opts) do
+    handle_package_telemetry(status, :plugin, plugin_id)
   end
 
   defp process(%{service_name: service_name} = status, _opts)
@@ -209,15 +217,16 @@ defmodule ServiceRadar.StatusHandler do
 
   defp decode_batch(_), do: :error
 
-  defp handle_addon_telemetry(status, addon_id) do
+  defp handle_package_telemetry(status, producer_type, producer_id) do
     partition_id = status[:partition] || "default"
     agent_id = status[:agent_id]
     message = status[:message]
 
     case decode_addon_telemetry_batch(message) do
       {:ok, %TelemetryBatch{records: records} = batch} ->
-        publish_addon_ocsf_records(records || [], batch, %{
-          addon_id: addon_id,
+        publish_package_telemetry_records(records || [], batch, %{
+          producer_type: producer_type,
+          producer_id: producer_id,
           partition_id: partition_id,
           agent_id: agent_id,
           gateway_id: status[:gateway_id],
@@ -229,7 +238,8 @@ defmodule ServiceRadar.StatusHandler do
           "StatusHandler: failed to decode add-on TelemetryBatch",
           partition_id: partition_id,
           agent_id: agent_id,
-          addon_id: addon_id,
+          producer_type: producer_type,
+          producer_id: producer_id,
           message_size: byte_size_or_nil(message)
         )
 
@@ -249,28 +259,64 @@ defmodule ServiceRadar.StatusHandler do
 
   defp decode_addon_telemetry_batch(_), do: :error
 
-  defp publish_addon_ocsf_records(records, batch, metadata) do
-    records
-    |> Enum.filter(&ocsf_record?/1)
-    |> Enum.each(fn %TelemetryRecord{payload: payload} = record ->
-      with {:ok, event} <- decode_ocsf_payload(payload),
-           {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
-           {:ok, json} <- Jason.encode(enriched),
-           :ok <- publish(addon_telemetry_publisher(), @addon_ocsf_subject, json) do
-        :ok
-      else
-        {:error, reason} ->
-          Logger.warning(
-            "StatusHandler: failed to publish add-on OCSF telemetry",
-            reason: inspect(reason),
-            addon_id: metadata.addon_id,
-            partition_id: metadata.partition_id,
-            agent_id: metadata.agent_id
-          )
-      end
+  defp publish_package_telemetry_records(records, batch, metadata) do
+    Enum.each(records, fn %TelemetryRecord{} = record ->
+      publish_package_telemetry_record(record, batch, metadata)
     end)
 
     :ok
+  end
+
+  defp publish_package_telemetry_record(%TelemetryRecord{} = record, batch, metadata) do
+    cond do
+      ocsf_record?(record) ->
+        publish_ocsf_telemetry_record(record, batch, metadata)
+
+      otel_log_record?(record) ->
+        publish_otel_log_telemetry_record(record, batch, metadata)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp publish_ocsf_telemetry_record(%TelemetryRecord{payload: payload} = record, batch, metadata) do
+    with {:ok, event} <- decode_json_payload(payload),
+         {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
+         {:ok, json} <- Jason.encode(enriched),
+         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata), json) do
+      :ok
+    else
+      {:error, reason} ->
+        log_package_telemetry_publish_failure("OCSF", reason, metadata)
+    end
+  end
+
+  defp publish_otel_log_telemetry_record(
+         %TelemetryRecord{payload: payload} = record,
+         batch,
+         metadata
+       ) do
+    with {:ok, log} <- decode_json_payload(payload),
+         {:ok, enriched} <- enrich_otel_log(log, record, batch, metadata),
+         {:ok, json} <- Jason.encode(enriched),
+         :ok <- publish(addon_telemetry_publisher(), otel_log_subject(metadata), json) do
+      :ok
+    else
+      {:error, reason} ->
+        log_package_telemetry_publish_failure("OTEL log", reason, metadata)
+    end
+  end
+
+  defp log_package_telemetry_publish_failure(signal_type, reason, metadata) do
+    Logger.warning(
+      "StatusHandler: failed to publish package #{signal_type} telemetry",
+      reason: inspect(reason),
+      producer_type: metadata.producer_type,
+      producer_id: metadata.producer_id,
+      partition_id: metadata.partition_id,
+      agent_id: metadata.agent_id
+    )
   end
 
   defp ocsf_record?(%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT}), do: true
@@ -278,38 +324,79 @@ defmodule ServiceRadar.StatusHandler do
 
   defp ocsf_record?(_), do: false
 
-  defp decode_ocsf_payload(payload) when is_binary(payload) and byte_size(payload) > 0 do
+  defp otel_log_record?(%TelemetryRecord{payload_kind: :TELEMETRY_PAYLOAD_KIND_OTEL_LOG}),
+    do: true
+
+  defp otel_log_record?(%TelemetryRecord{payload_kind: 2}), do: true
+
+  defp otel_log_record?(_), do: false
+
+  defp decode_json_payload(payload) when is_binary(payload) and byte_size(payload) > 0 do
     Jason.decode(payload)
   end
 
-  defp decode_ocsf_payload(_), do: {:error, :empty_payload}
+  defp decode_json_payload(_), do: {:error, :empty_payload}
 
   defp enrich_ocsf_event(event, record, batch, metadata) when is_map(event) do
-    source = batch.source
     existing_metadata = map_value(event["metadata"])
     signal_schema = signal_schema_ref(record.metadata)
 
     ocsf_metadata =
       existing_metadata
       |> Map.put_new("product", %{"name" => "ServiceRadar"})
-      |> Map.put("service_radar", %{
-        "addon_id" => metadata.addon_id,
-        "agent_id" => metadata.agent_id,
-        "gateway_id" => metadata.gateway_id,
-        "partition_id" => metadata.partition_id,
-        "source_ip" => metadata.source_ip,
-        "source_type" => source && source.source_type,
-        "source_instance" => source && source.source_instance,
-        "event_id" => record.event_id,
-        "observed_time_unix_nano" => record.observed_time_unix_nano,
-        "event_time_unix_nano" => record.event_time_unix_nano
-      })
+      |> Map.put("service_radar", service_radar_metadata(record, batch, metadata))
       |> maybe_put_signal_schema(signal_schema)
 
     {:ok, Map.put(event, "metadata", ocsf_metadata)}
   end
 
   defp enrich_ocsf_event(_event, _record, _batch, _metadata), do: {:error, :invalid_ocsf_event}
+
+  defp enrich_otel_log(log, record, batch, metadata) when is_map(log) do
+    signal_schema = signal_schema_ref(record.metadata)
+
+    service_radar =
+      record
+      |> service_radar_metadata(batch, metadata)
+      |> maybe_put_flat_signal_schema(signal_schema)
+
+    attributes =
+      log
+      |> Map.get("attributes", %{})
+      |> map_value()
+      |> Map.put("service_radar", service_radar)
+
+    {:ok, Map.put(log, "attributes", attributes)}
+  end
+
+  defp enrich_otel_log(_log, _record, _batch, _metadata), do: {:error, :invalid_otel_log}
+
+  defp service_radar_metadata(record, batch, metadata) do
+    source = batch.source
+
+    base = %{
+      "agent_id" => metadata.agent_id,
+      "gateway_id" => metadata.gateway_id,
+      "partition_id" => metadata.partition_id,
+      "source_ip" => metadata.source_ip,
+      "source_type" => source && source.source_type,
+      "source_instance" => source && source.source_instance,
+      "event_id" => record.event_id,
+      "observed_time_unix_nano" => record.observed_time_unix_nano,
+      "event_time_unix_nano" => record.event_time_unix_nano
+    }
+
+    case metadata.producer_type do
+      :plugin -> Map.put(base, "plugin_id", metadata.producer_id)
+      _ -> Map.put(base, "addon_id", metadata.producer_id)
+    end
+  end
+
+  defp ocsf_subject(%{producer_type: :plugin}), do: @plugin_ocsf_subject
+  defp ocsf_subject(_metadata), do: @addon_ocsf_subject
+
+  defp otel_log_subject(%{producer_type: :plugin}), do: @plugin_otel_log_subject
+  defp otel_log_subject(_metadata), do: @addon_otel_log_subject
 
   defp signal_schema_ref(metadata) when is_map(metadata) do
     ref = %{
@@ -390,6 +477,11 @@ defmodule ServiceRadar.StatusHandler do
 
   defp maybe_put_signal_schema(metadata, signal_schema),
     do: update_in(metadata, ["service_radar"], &Map.put(&1, "signal_schema", signal_schema))
+
+  defp maybe_put_flat_signal_schema(metadata, nil), do: metadata
+
+  defp maybe_put_flat_signal_schema(metadata, signal_schema),
+    do: Map.put(metadata, "signal_schema", signal_schema)
 
   defp map_value(value) when is_map(value), do: value
   defp map_value(_), do: %{}

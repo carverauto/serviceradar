@@ -34,3 +34,8 @@
 - [x] 6.3 Run web-ng event/log renderer tests.
 - [x] 6.4 Run `openspec validate add-addon-telemetry-display-schemas --strict`.
 - [x] 6.5 Run targeted PowerDNS/RPZ add-on telemetry validation.
+
+## 7. Wasm Plugin Telemetry
+- [x] 7.1 Add a first-class Wasm `emit_telemetry` host capability for plugin log/event batches.
+- [x] 7.2 Forward plugin telemetry through agent/gateway/core without coupling it to `submit_result`.
+- [x] 7.3 Add SDK helpers and docs for first-class plugin telemetry emission.
