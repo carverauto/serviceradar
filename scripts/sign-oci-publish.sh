@@ -256,13 +256,12 @@ attach_legacy_signature() {
   # using a local sign-blob bundle, which works even when cosign does not
   # reliably populate the detached signature file or stdout on this version.
   cosign generate "${ref}" >"${payload_file}"
-  cosign sign-blob \
-    --yes \
-    --tlog-upload="${COSIGN_TLOG_UPLOAD}" \
-    "${COSIGN_SIGN_ARGS[@]}" \
-    --bundle "${bundle_file}" \
-    --output-signature "${signature_file}" \
-    "${payload_file}" >"${stdout_file}"
+  cosign_sign_blob_to_files \
+    "${payload_file}" \
+    "${bundle_file}" \
+    "${signature_file}" \
+    "${stdout_file}" \
+    "${COSIGN_TLOG_UPLOAD}"
 
   if ! extract_detached_signature "${signature_file}" "${stdout_file}" "${bundle_file}" >"${extracted_signature_file}"; then
     echo "error: detached cosign signature was empty for ${ref}" >&2
