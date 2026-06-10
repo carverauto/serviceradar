@@ -1,0 +1,312 @@
+defmodule ServiceRadar.Edge.AgentConfigCredentialDeliveryTest do
+  @moduledoc """
+  DB-backed coverage for credential-broker grant materialization at agent
+  config delivery time (tasks 3.2/3.3, refactor-device-identity-reconciliation).
+
+  A policy plugin assignment whose embedded broker grant has expired must be
+  delivered with (a) a freshly re-minted grant payload, (b) the resolved
+  `api_token` runtime material, and (c) a `credential_secret_resolution_audits`
+  row per resolution — while keeping the config version hash stable so polling
+  agents are not relaunched every generation.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Credentials.CredentialBrokerGrant
+  alias ServiceRadar.Credentials.CredentialSecretResolutionAudit
+  alias ServiceRadar.Credentials.NetworkCredentialSecret
+  alias ServiceRadar.Edge.AgentConfigGenerator
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.Plugin
+  alias ServiceRadar.Plugins.PluginAssignment
+  alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.SecretRefs
+
+  @moduletag :integration
+
+  @api_token_payload "root@pam!sr-inventory=abc123-secret"
+
+  setup_all do
+    ServiceRadar.TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    unique_id = :erlang.unique_integer([:positive])
+
+    admin = %{
+      id: Ash.UUID.generate(),
+      email: "credential-delivery-test@serviceradar.local",
+      role: :admin
+    }
+
+    system = SystemActor.system(:credential_delivery_test)
+    agent_uid = "cred-delivery-agent-#{unique_id}"
+
+    {:ok, admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id}
+  end
+
+  test "expired policy broker grant is re-minted, resolved to api_token, and audited",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    package = create_approved_plugin_package!(admin, unique_id)
+    secret = create_proxmox_secret!(admin, unique_id)
+    stale_grant = issue_expired_grant!(system, secret, agent_uid)
+    stale_payload = CredentialBrokerGrant.to_payload(stale_grant)
+
+    assert {:ok, stale_expiry, _offset} = DateTime.from_iso8601(stale_payload["expires_at"])
+    assert DateTime.before?(stale_expiry, DateTime.utc_now())
+
+    {:ok, _assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :policy,
+          source_key: "policy-key-#{unique_id}",
+          policy_id: "network-credential-rule:rule-#{unique_id}",
+          enabled: true,
+          interval_seconds: 300,
+          timeout_seconds: 30,
+          params: %{
+            "schema" => "serviceradar.plugin_inputs.v1",
+            "policy_id" => "network-credential-rule:rule-#{unique_id}",
+            "policy_version" => 1,
+            "agent_id" => agent_uid,
+            "generated_at" => DateTime.to_iso8601(DateTime.utc_now()),
+            "inputs" => [
+              %{
+                "name" => "targets",
+                "entity" => "devices",
+                "query" => "in:devices vendor:proxmox",
+                "chunk_index" => 0,
+                "chunk_total" => 1,
+                "chunk_hash" => String.duplicate("a", 64),
+                "items" => [%{"ip" => "10.0.2.4", "hostname" => "pve01"}]
+              }
+            ],
+            "template" => %{
+              "credential_broker" => stale_payload,
+              "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id)),
+              "timeout_ms" => 30_000
+            }
+          }
+        },
+        actor: admin
+      )
+      |> Ash.create()
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+    assert [plugin] = config.plugins
+    template = plugin.params["template"]
+
+    # (a) the plugin receives usable api_token material, not just a ref
+    assert template["api_token"] == @api_token_payload
+    refute Map.has_key?(template, "_secret_material")
+
+    # (b) the delivered grant payload was re-minted: never expired material
+    delivered = template["credential_broker"]
+    assert delivered["grant_id"] != to_string(stale_grant.id)
+    assert {:ok, delivered_expiry, _offset} = DateTime.from_iso8601(delivered["expires_at"])
+    assert DateTime.after?(delivered_expiry, DateTime.utc_now())
+    assert delivered["credential_secret_ref"] == stale_payload["credential_secret_ref"]
+
+    # (c) the resolution wrote an audit row tied to the re-minted grant
+    assert {:ok, audits} =
+             CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
+
+    assert [audit | _] = audits
+    assert audit.outcome == :success
+    assert audit.grant_id == delivered["grant_id"]
+    assert audit.consumer_kind == :plugin
+    assert audit.agent_id == agent_uid
+    assert audit.resolution_location == :agent
+
+    # Refresh-on-expiry must not destabilize the config version: each
+    # generation re-mints a short-TTL grant, and the rotating payload is
+    # excluded from the version hash (like download tokens).
+    {:ok, config2} = AgentConfigGenerator.generate_config(agent_uid)
+    assert config.config_version == config2.config_version
+
+    delivered2 =
+      config2.plugins |> hd() |> Map.fetch!(:params) |> get_in(["template", "credential_broker"])
+
+    assert delivered2["grant_id"] != to_string(stale_grant.id)
+
+    # one audit row per resolution
+    assert {:ok, audits_after} =
+             CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
+
+    assert length(audits_after) > length(audits) - 1
+    assert length(audits_after) >= 2
+  end
+
+  test "fresh policy broker grant is reused and still resolves with an audit row",
+       %{admin: admin, system: system, agent_uid: agent_uid, unique_id: unique_id} do
+    {:ok, _agent} = create_connected_agent(admin, agent_uid)
+    package = create_approved_plugin_package!(admin, unique_id)
+    secret = create_proxmox_secret!(admin, unique_id)
+
+    {:ok, grant} =
+      %{
+        secret_id: secret.id,
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: "proxmox-inventory-#{unique_id}",
+        purpose: "inventory_enrichment",
+        agent_id: agent_uid,
+        resolution_location: :agent,
+        ttl_seconds: 3_600
+      }
+      |> CredentialBrokerGrant.issue_attrs()
+      |> CredentialBrokerGrant.issue_grant(actor: system)
+
+    {:ok, _assignment} =
+      PluginAssignment
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          agent_uid: agent_uid,
+          plugin_package_id: package.id,
+          source: :policy,
+          source_key: "policy-key-fresh-#{unique_id}",
+          policy_id: "network-credential-rule:rule-fresh-#{unique_id}",
+          enabled: true,
+          params: %{
+            "credential_broker" => CredentialBrokerGrant.to_payload(grant),
+            "api_token_secret_ref" => SecretRefs.network_credential_ref(to_string(secret.id))
+          }
+        },
+        actor: admin
+      )
+      |> Ash.create()
+
+    {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+    assert [plugin] = config.plugins
+    assert plugin.params["api_token"] == @api_token_payload
+    # fresh grant is reused as-is
+    assert plugin.params["credential_broker"]["grant_id"] == to_string(grant.id)
+
+    assert {:ok, [audit | _]} =
+             CredentialSecretResolutionAudit.list_for_secret(secret.id, actor: system)
+
+    assert audit.outcome == :success
+    assert audit.grant_id == to_string(grant.id)
+  end
+
+  defp create_connected_agent(actor, agent_uid) do
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_uid,
+        name: "Credential Delivery Agent #{agent_uid}",
+        host: "127.0.0.1",
+        port: 50_051,
+        metadata: %{}
+      },
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
+  defp create_proxmox_secret!(actor, unique_id) do
+    {:ok, secret} =
+      NetworkCredentialSecret.create_secret(
+        %{
+          name: "proxmox-inventory-secret-#{unique_id}",
+          provider: "proxmox",
+          credential_kind: :api_token,
+          secret_payload: @api_token_payload
+        },
+        actor: actor
+      )
+
+    secret
+  end
+
+  defp issue_expired_grant!(system, secret, agent_uid) do
+    {:ok, grant} =
+      %{
+        secret_id: secret.id,
+        grant_type: "proxmox_api_token",
+        consumer_kind: :plugin,
+        consumer_id: "proxmox-inventory",
+        purpose: "inventory_enrichment",
+        agent_id: agent_uid,
+        resolution_location: :agent,
+        ttl_seconds: 300,
+        expires_at: DateTime.add(DateTime.utc_now(), -3600, :second)
+      }
+      |> CredentialBrokerGrant.issue_attrs()
+      |> CredentialBrokerGrant.issue_grant(actor: system)
+
+    grant
+  end
+
+  defp create_approved_plugin_package!(actor, unique_id) do
+    plugin_id = "proxmox-inventory-#{unique_id}"
+
+    {:ok, _plugin} =
+      Plugin
+      |> Ash.Changeset.for_create(
+        :create,
+        %{plugin_id: plugin_id, name: "Proxmox Inventory #{unique_id}"},
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      PluginPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          plugin_id: plugin_id,
+          name: "Proxmox Inventory #{unique_id}",
+          version: "1.0.0",
+          entrypoint: "run_check",
+          outputs: "serviceradar.plugin_result.v1",
+          manifest: %{
+            "id" => plugin_id,
+            "name" => "Proxmox Inventory #{unique_id}",
+            "version" => "1.0.0",
+            "entrypoint" => "run_check",
+            "capabilities" => ["http_request", "submit_result"],
+            "outputs" => "serviceradar.plugin_result.v1",
+            "resources" => %{
+              "requested_memory_mb" => 64,
+              "requested_cpu_ms" => 1000
+            }
+          },
+          config_schema: %{},
+          display_contract: %{},
+          content_hash: "sha256:#{unique_id}",
+          signature: %{},
+          source_type: :upload
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(
+        :update,
+        %{wasm_object_key: "plugins/#{unique_id}/plugin.wasm"},
+        actor: actor
+      )
+      |> Ash.update()
+
+    {:ok, package} =
+      package
+      |> Ash.Changeset.for_update(:approve, %{approved_by: "test"}, actor: actor)
+      |> Ash.update()
+
+    package
+  end
+end

@@ -1,0 +1,194 @@
+defmodule ServiceRadar.Inventory.Identity.Reassignments do
+  @moduledoc """
+  Bulk reassignment of device-linked records (identifiers, service
+  checks, alerts, agents, alias states, interfaces) to a canonical
+  device during merges.
+  """
+
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.ServiceCheck
+
+  require Ash.Query
+  require Logger
+
+  def reassign_device_identifiers(from_id, to_id, actor) do
+    bulk_reassign(
+      DeviceIdentifier,
+      :reassign_device,
+      :device_id,
+      from_id,
+      %{device_id: to_id},
+      actor
+    )
+  end
+
+  def reassign_service_checks(from_id, to_id, actor) do
+    bulk_reassign(
+      ServiceCheck,
+      :reassign_device,
+      :device_uid,
+      from_id,
+      %{device_uid: to_id},
+      actor
+    )
+  end
+
+  def reassign_alerts(from_id, to_id, actor) do
+    bulk_reassign(Alert, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
+  end
+
+  def reassign_agents(from_id, to_id, actor) do
+    bulk_reassign(Agent, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
+  end
+
+  @doc """
+  Repoint per-agent availability rows to the canonical device. A row whose
+  (device, agent) pair already exists on the survivor is dropped instead of
+  violating the unique identity.
+  """
+  def reassign_availability(from_id, to_id, actor) do
+    case DeviceAgentAvailability.list_by_device(from_id, actor: actor) do
+      {:ok, rows} ->
+        Enum.reduce_while(rows, :ok, fn row, :ok ->
+          case DeviceAgentAvailability.get_by_device_agent(to_id, row.agent_id, actor: actor) do
+            {:ok, %DeviceAgentAvailability{}} ->
+              case Ash.destroy(row, actor: actor) do
+                :ok -> {:cont, :ok}
+                {:error, error} -> {:halt, {:error, error}}
+              end
+
+            _ ->
+              row
+              |> Ash.Changeset.for_update(:reassign_device, %{device_uid: to_id})
+              |> Ash.update(actor: actor)
+              |> case do
+                {:ok, _} -> {:cont, :ok}
+                {:error, error} -> {:halt, {:error, error}}
+              end
+          end
+        end)
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  def reassign_alias_states(from_id, to_id, actor) do
+    bulk_reassign(
+      DeviceAliasState,
+      :reassign_device,
+      :device_id,
+      from_id,
+      %{device_id: to_id},
+      actor
+    )
+  end
+
+  def reassign_interfaces(from_id, to_id, actor) do
+    query =
+      Interface
+      |> Ash.Query.filter(device_id == ^from_id)
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, records} ->
+        interface_uids = records |> Enum.map(& &1.interface_uid) |> Enum.uniq()
+        timestamps = records |> Enum.map(& &1.timestamp) |> Enum.uniq()
+
+        with {:ok, existing_keys} <-
+               fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+          {to_update, to_delete} =
+            Enum.split_with(records, fn record ->
+              not existing_interface_key?(existing_keys, record)
+            end)
+
+          with :ok <- bulk_update_interfaces(to_update, to_id, actor) do
+            bulk_delete_interfaces(to_delete, actor)
+          end
+        end
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp fetch_existing_interface_keys(_to_id, [], _timestamps, _actor), do: {:ok, []}
+  defp fetch_existing_interface_keys(_to_id, _uids, [], _actor), do: {:ok, []}
+
+  defp fetch_existing_interface_keys(to_id, interface_uids, timestamps, actor) do
+    existing_query =
+      Interface
+      |> Ash.Query.filter(
+        device_id == ^to_id and interface_uid in ^interface_uids and timestamp in ^timestamps
+      )
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+
+    case Ash.read(existing_query, actor: actor) do
+      {:ok, existing} ->
+        existing
+        |> Enum.map(&{&1.timestamp, &1.interface_uid})
+        |> then(&{:ok, &1})
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp bulk_update_interfaces([], _to_id, _actor), do: :ok
+
+  defp bulk_update_interfaces(records, to_id, actor) do
+    records
+    |> Ash.bulk_update(:reassign_device, %{device_id: to_id}, actor: actor)
+    |> normalize_bulk_result()
+  end
+
+  defp bulk_delete_interfaces([], _actor), do: :ok
+
+  defp bulk_delete_interfaces(records, actor) do
+    records
+    |> Ash.bulk_destroy(:destroy, %{}, actor: actor)
+    |> normalize_bulk_result()
+  end
+
+  defp bulk_reassign(resource, action, filter_field, filter_value, attrs, actor) do
+    base_query = Ash.Query.for_read(resource, :read, %{}, actor: actor)
+
+    query =
+      case filter_field do
+        :device_id -> Ash.Query.filter(base_query, device_id == ^filter_value)
+        :device_uid -> Ash.Query.filter(base_query, device_uid == ^filter_value)
+      end
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, records} ->
+        records
+        |> Ash.bulk_update(action, attrs, actor: actor)
+        |> normalize_bulk_result()
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp normalize_bulk_result(result) do
+    case result do
+      %Ash.BulkResult{status: :success} -> :ok
+      %Ash.BulkResult{} = bulk_result -> {:error, bulk_result}
+    end
+  end
+
+  defp existing_interface_key?(existing_keys, record) when is_list(existing_keys) do
+    Enum.member?(existing_keys, {record.timestamp, record.interface_uid})
+  end
+end

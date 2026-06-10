@@ -22,6 +22,13 @@ func fetchTargetInventory(cfg Config, target Target) (proxmoxInventory, error) {
 		inventory.Version = &version
 	}
 
+	// Identity contract: the enrichment ingestor derives the versioned
+	// integration identity ("proxmox:v2:<cluster>:<kind>:<vmid>" /
+	// "proxmox:v2:<cluster>:node:<node>") from the cluster-status entry of
+	// type "cluster" (name), node names, and guest type+vmid. Keep those
+	// fields populated, and keep the "cluster_status" warning on failure:
+	// the ingestor uses it to distinguish "standalone node" (node-scoped
+	// identity) from "cluster membership unknown" (no v2 identity minted).
 	cluster, err := fetchClusterStatus(cfg, target, token)
 	if err != nil {
 		inventory.Warnings["cluster_status"] = sanitizeError(err)

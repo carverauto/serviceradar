@@ -690,44 +690,6 @@ fn json_path_string(value: &Value, path: &[&str]) -> Option<String> {
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
-#[diesel(table_name = crate::schema::device_updates, check_for_backend(diesel::pg::Pg))]
-pub struct DeviceUpdateRow {
-    pub observed_at: DateTime<Utc>,
-    pub agent_id: String,
-    pub gateway_id: String,
-    pub partition: String,
-    pub device_id: String,
-    pub discovery_source: String,
-    pub ip: Option<String>,
-    pub mac: Option<String>,
-    pub hostname: Option<String>,
-    pub available: Option<bool>,
-    pub metadata: Option<DbJson>,
-    pub created_at: DateTime<Utc>,
-}
-
-impl DeviceUpdateRow {
-    pub fn into_json(self) -> serde_json::Value {
-        serde_json::json!({
-            "observed_at": self.observed_at,
-            "agent_id": self.agent_id,
-            "gateway_id": self.gateway_id,
-            "partition": self.partition,
-            "uid": self.device_id,
-            "discovery_source": self.discovery_source,
-            "ip": self.ip,
-            "mac": self.mac,
-            "hostname": self.hostname,
-            "available": self.available,
-            "metadata": self
-                .metadata
-                .map_or(serde_json::json!({}), serde_json::Value::from),
-            "created_at": self.created_at,
-        })
-    }
-}
-
-#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::logs, check_for_backend(diesel::pg::Pg))]
 pub struct LogRow {
     pub timestamp: DateTime<Utc>,

@@ -294,7 +294,7 @@ func (m *PluginManager) loadWasm(ctx context.Context, assignment *pluginAssignme
 		}
 	}
 
-	if assignment.DownloadURL != "" {
+	if downloadURL, _ := assignment.downloadCredentials(); downloadURL != "" {
 		data, err := m.downloadWasm(ctx, assignment)
 		if err != nil {
 			return nil, err
@@ -399,7 +399,8 @@ func assignmentStateContentHash(assignment *pluginAssignment) string {
 }
 
 func (m *PluginManager) prefetchAssignment(assignment *pluginAssignment) {
-	if assignment == nil || assignment.DownloadURL == "" {
+	downloadURL, _ := assignment.downloadCredentials()
+	if assignment == nil || downloadURL == "" {
 		return
 	}
 
@@ -444,21 +445,22 @@ func (m *PluginManager) persistCache(path string, data []byte) {
 }
 
 func (m *PluginManager) downloadWasm(ctx context.Context, assignment *pluginAssignment) ([]byte, error) {
-	if assignment == nil || strings.TrimSpace(assignment.DownloadURL) == "" {
+	downloadURL, downloadToken := assignment.downloadCredentials()
+	if assignment == nil || strings.TrimSpace(downloadURL) == "" {
 		return nil, errDownloadFailed
 	}
 
 	method := http.MethodGet
-	if assignment != nil && assignment.DownloadToken != "" {
+	if downloadToken != "" {
 		method = http.MethodPost
 	}
 
-	req, err := http.NewRequestWithContext(ctx, method, assignment.DownloadURL, nil)
+	req, err := http.NewRequestWithContext(ctx, method, downloadURL, nil)
 	if err != nil {
 		return nil, err
 	}
-	if assignment != nil && assignment.DownloadToken != "" {
-		req.Header.Set("X-ServiceRadar-Plugin-Token", assignment.DownloadToken)
+	if downloadToken != "" {
+		req.Header.Set("X-ServiceRadar-Plugin-Token", downloadToken)
 	}
 
 	resp, err := m.httpClient.Do(req)

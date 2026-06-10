@@ -6,6 +6,27 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   existing plugin result pipeline. This ingestor deliberately performs no DDL
   and no customer-repository access; it only upserts rows into the schema owned
   by ServiceRadar migrations.
+
+  ## MAC normalization and integration ids
+
+  All MAC fields (observation rows, device inventory evidence, and the MAC
+  component of minted integration ids) are normalized through
+  `IdentityReconciler.normalize_mac/1` — uppercase, separator-free, validated
+  12-hex — the single canonical MAC form used across ingestors. Invalid or
+  blank MAC values are dropped (stored as `nil`) instead of being passed
+  through verbatim.
+
+  Minted integration ids use the format:
+
+      wifi_map:<kind>:<key>
+
+  where `<kind>` is `access_point` or `controller` and `<key>` prefers, in
+  order: explicit device uid, serial/chassis serial, first valid canonical
+  MAC, device name. The MAC component uses the canonical normalized form so
+  payload format variations (`aa:bb:…`, `AA-BB-…`) cannot rotate the id.
+  This replaced an earlier wifi-local lowercase-with-separators variant; no
+  legacy-format mapping is required because no `wifi_map:*` integration_id
+  rows (and no `integration_type=wifi_map` devices) exist in production.
   """
 
   alias ServiceRadar.EventWriter.FieldParser
@@ -600,7 +621,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
             context.collection_timestamp,
         name: name,
         hostname: string_value(row, ["hostname", "host", "ap_name", "apName"]),
-        mac: normalize_mac(string_value(row, ["mac", "wired_mac", "wiredMac"])),
+        mac:
+          IdentityReconciler.normalize_mac(string_value(row, ["mac", "wired_mac", "wiredMac"])),
         serial: string_value(row, ["serial", "serial_number", "serialNumber"]),
         ip: string_value(row, ["ip", "ip_address", "ipAddress"]),
         status: string_value(row, ["status"]),
@@ -646,9 +668,14 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
         name: name,
         hostname: string_value(row, ["hostname", "host", "expected_name", "expectedName"]),
         ip: string_value(row, ["ip", "ip_address", "ipAddress", "switch_ip", "switchIp"]),
-        mac: normalize_mac(string_value(row, ["mac", "mac_address", "macAddress"])),
+        mac:
+          IdentityReconciler.normalize_mac(
+            string_value(row, ["mac", "mac_address", "macAddress"])
+          ),
         base_mac:
-          normalize_mac(string_value(row, ["base_mac", "baseMac", "hw_base_mac", "hwBaseMac"])),
+          IdentityReconciler.normalize_mac(
+            string_value(row, ["base_mac", "baseMac", "hw_base_mac", "hwBaseMac"])
+          ),
         serial:
           string_value(row, [
             "serial",
@@ -903,7 +930,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
         "device_id" => device_id,
         "ip" => nil,
         "mac" =>
-          normalize_mac(
+          IdentityReconciler.normalize_mac(
             string_value(row, [
               "mac",
               "mac_address",
@@ -1146,7 +1173,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
           "chassis_serial",
           "chassisSerial"
         ]),
-        normalize_mac(
+        IdentityReconciler.normalize_mac(
           string_value(row, [
             "mac",
             "mac_address",
@@ -1390,9 +1417,6 @@ defmodule ServiceRadar.WifiMap.BatchIngestor do
   defp first_present(values) do
     Enum.find(values, fn value -> not blank?(value) end)
   end
-
-  defp normalize_mac(nil), do: nil
-  defp normalize_mac(value), do: value |> String.trim() |> String.downcase()
 
   defp to_string_or_nil(nil), do: nil
   defp to_string_or_nil(value) when is_binary(value), do: String.trim(value)

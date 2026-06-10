@@ -1,0 +1,15 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library")
+
+go_library(
+    name = "syncsources",
+    srcs = [
+        "normalize.go",
+        "syncsources.go",
+    ],
+    importpath = "github.com/carverauto/serviceradar/go/pkg/agent/syncsources",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//go/pkg/logger",
+        "//go/pkg/models",
+    ],
+)

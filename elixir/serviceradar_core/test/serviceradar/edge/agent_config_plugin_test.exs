@@ -19,6 +19,65 @@ defmodule ServiceRadar.Edge.AgentConfigPluginTest do
     :ok
   end
 
+  describe "download token freshness epoch (task 3.3)" do
+    test "epoch is zero when no assignment carries a download token" do
+      assert AgentConfigGenerator.download_token_epoch([], []) == 0
+
+      assert AgentConfigGenerator.download_token_epoch(
+               [%{download_token: nil}],
+               [%{"download_token" => ""}]
+             ) == 0
+    end
+
+    test "epoch advances with time so configs re-version before token TTL elapses" do
+      plugins = [%{download_token: "tok"}]
+      epoch_seconds = AgentConfigGenerator.download_token_epoch_seconds()
+
+      now = 1_780_000_000
+      same_window = now + div(epoch_seconds, 4)
+      next_window = now + epoch_seconds
+
+      assert AgentConfigGenerator.download_token_epoch(plugins, [], now) ==
+               AgentConfigGenerator.download_token_epoch(plugins, [], same_window)
+
+      assert AgentConfigGenerator.download_token_epoch(plugins, [], next_window) >
+               AgentConfigGenerator.download_token_epoch(plugins, [], now)
+    end
+
+    test "epoch interval stays at half the signed token TTL, floored at 5 minutes" do
+      original = Application.get_env(:serviceradar_core, :plugin_storage)
+
+      on_exit(fn ->
+        if original do
+          Application.put_env(:serviceradar_core, :plugin_storage, original)
+        else
+          Application.delete_env(:serviceradar_core, :plugin_storage)
+        end
+      end)
+
+      Application.put_env(:serviceradar_core, :plugin_storage, download_ttl_seconds: 86_400)
+      assert AgentConfigGenerator.download_token_epoch_seconds() == 43_200
+
+      Application.put_env(:serviceradar_core, :plugin_storage, download_ttl_seconds: 60)
+      assert AgentConfigGenerator.download_token_epoch_seconds() == 300
+
+      Application.put_env(:serviceradar_core, :plugin_storage,
+        download_ttl_seconds: 86_400,
+        download_token_epoch_seconds: 600
+      )
+
+      assert AgentConfigGenerator.download_token_epoch_seconds() == 600
+    end
+
+    test "addon download tokens also enroll the config in the freshness epoch" do
+      assert AgentConfigGenerator.download_token_epoch(
+               [],
+               [%{download_token: "tok"}],
+               1_780_000_000
+             ) > 0
+    end
+  end
+
   test "plugin config preserves github metadata on agent assignments" do
     assignment = %{
       assignment_id: "assign-1",

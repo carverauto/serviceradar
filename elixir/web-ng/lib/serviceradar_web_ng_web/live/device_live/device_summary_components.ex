@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+
   attr(:device_row, :map, default: nil)
   attr(:device_deleted, :boolean, default: false)
   attr(:editing, :boolean, default: false)
@@ -298,49 +300,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSummaryComponents do
     end
   end
 
-  defp agent_device?(row) when is_map(row) do
-    row
-    |> linked_agent_list()
-    |> Enum.any?()
-  end
-
-  defp agent_device?(_), do: false
+  # Agent status comes from the ocsf_agents linkage resolved at load time
+  # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.
+  defp agent_device?(row), do: DeviceStateData.agent?(row)
 
   defp agent_label(row) do
-    row
-    |> linked_agent_list()
-    |> List.first()
-    |> case do
-      %{} = agent ->
-        agent_value(agent, "name") || agent_value(agent, "uid") || agent_value(agent, "agent_id") ||
-          "Agent"
-
-      value when is_binary(value) and value != "" ->
-        value
-
-      _ ->
-        "Agent"
+    case DeviceStateData.agent_labels(row) do
+      [label | _rest] -> label
+      _ -> "Agent"
     end
-  end
-
-  defp linked_agent_list(row) when is_map(row) do
-    row
-    |> agent_list()
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp linked_agent_list(_), do: []
-
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
-
-  defp agent_value(map, key) when is_map(map) and is_binary(key) do
-    Map.get(map, key) || agent_atom_value(map, key)
-  end
-
-  defp agent_atom_value(map, key) do
-    Map.get(map, String.to_existing_atom(key))
-  rescue
-    ArgumentError -> nil
   end
 end

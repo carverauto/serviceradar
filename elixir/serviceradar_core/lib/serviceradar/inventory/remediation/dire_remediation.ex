@@ -1,0 +1,116 @@
+defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
+  @moduledoc """
+  Orchestrator for the operator-invoked DIRE production data remediation
+  (OpenSpec refactor-device-identity-reconciliation tasks 4.1-4.4), driven
+  by `mix serviceradar.dire_remediation`.
+
+  Idempotent, dry-run by default, and safe to ship dormant: nothing runs
+  unless an operator invokes the mix task, and nothing writes unless
+  `mode: :execute` is passed. Execute mode writes an NDJSON rollback
+  manifest of every row touched (ids only).
+
+  Step order (each independently runnable via `steps:`):
+
+    1. `blob-purge`   — extract first-MAC fallbacks, purge invalid mac rows (4.1)
+    2. `test-debris`  — delete 2026-04-25 test artifacts + reip devices (4.2)
+    3. `agent-links`  — rebuild agent->device links from ocsf_agents ground
+       truth, fix stranded identifiers/poisoned aliases/ip literal (4.3)
+    4. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
+  """
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Inventory.Remediation.AgentLinks
+  alias ServiceRadar.Inventory.Remediation.BlobPurge
+  alias ServiceRadar.Inventory.Remediation.Manifest
+  alias ServiceRadar.Inventory.Remediation.ProxmoxDups
+  alias ServiceRadar.Inventory.Remediation.TestDebris
+
+  require Logger
+
+  @step_order ["blob-purge", "test-debris", "agent-links", "proxmox-dups"]
+
+  @doc "Ordered list of known step names."
+  @spec steps() :: [String.t()]
+  def steps, do: @step_order
+
+  @doc """
+  Run the remediation.
+
+  Options:
+
+    * `:mode` — `:dry_run` (default) or `:execute`
+    * `:steps` — subset of `#{inspect(@step_order)}` (or `["all"]`, default)
+    * `:manifest_path` — rollback manifest path (execute mode only; default
+      `dire_remediation_<ts>.ndjson` under the system tmp dir)
+    * `:batch_size` — blob purge batch size (default 50_000)
+    * `:actor` — Ash actor (default `SystemActor.system(:dire_remediation)`)
+    * step-specific options: `:debris_date`, `:debris_null_patterns`,
+      `:debris_sim_patterns`, `:debris_device_agent_prefix`,
+      `:debris_hostnames`, `:agent_uids`, `:agent_statuses`, `:ip_literal`,
+      `:proxmox_source`, `:hostname_denylist`
+
+  Returns `{:ok, %{mode: mode, manifest_path: path | nil, reports: %{step => report}}}`.
+  """
+  @spec run(keyword()) :: {:ok, map()} | {:error, term()}
+  def run(opts \\ []) do
+    mode = Keyword.get(opts, :mode, :dry_run)
+    actor = Keyword.get(opts, :actor) || SystemActor.system(:dire_remediation)
+
+    with {:ok, steps} <- resolve_steps(Keyword.get(opts, :steps, ["all"])) do
+      {manifest, manifest_path} = maybe_open_manifest(mode, opts, steps)
+
+      try do
+        reports =
+          Enum.reduce(steps, %{}, fn step, reports ->
+            Logger.info("DireRemediation: running step #{step} (#{mode})")
+            Map.put(reports, step, run_step(step, mode, opts, manifest, actor))
+          end)
+
+        {:ok, %{mode: mode, manifest_path: manifest_path, reports: reports}}
+      after
+        Manifest.close(manifest)
+      end
+    end
+  end
+
+  defp resolve_steps(steps) when is_list(steps) do
+    steps = Enum.map(steps, &to_string/1)
+
+    cond do
+      steps == [] or "all" in steps ->
+        {:ok, @step_order}
+
+      Enum.all?(steps, &(&1 in @step_order)) ->
+        {:ok, Enum.filter(@step_order, &(&1 in steps))}
+
+      true ->
+        {:error, {:unknown_steps, steps -- @step_order}}
+    end
+  end
+
+  defp maybe_open_manifest(:dry_run, _opts, _steps), do: {nil, nil}
+
+  defp maybe_open_manifest(:execute, opts, steps) do
+    path = Keyword.get(opts, :manifest_path) || default_manifest_path()
+    manifest = Manifest.open(path, %{mode: "execute", steps: steps})
+    {manifest, path}
+  end
+
+  defp default_manifest_path do
+    timestamp = Calendar.strftime(DateTime.utc_now(), "%Y%m%d%H%M%S")
+
+    Path.join(System.tmp_dir!(), "dire_remediation_#{timestamp}.ndjson")
+  end
+
+  defp run_step("blob-purge", mode, opts, manifest, actor),
+    do: BlobPurge.run(mode, opts, manifest, actor)
+
+  defp run_step("test-debris", mode, opts, manifest, actor),
+    do: TestDebris.run(mode, opts, manifest, actor)
+
+  defp run_step("agent-links", mode, opts, manifest, actor),
+    do: AgentLinks.run(mode, opts, manifest, actor)
+
+  defp run_step("proxmox-dups", mode, opts, manifest, actor),
+    do: ProxmoxDups.run(mode, opts, manifest, actor)
+end

@@ -146,7 +146,15 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 
 	configHash := buildPluginConfigHash(limits, assignments)
 	if m.configUnchanged(configHash) {
-		m.logger.Debug().Str("config_hash", configHash).Msg("Plugin config unchanged; skipping apply")
+		// The fingerprint deliberately excludes the gateway-signed artifact
+		// download request: the token is short-TTL and re-minted by the
+		// control plane on every config generation. Adopt the fresh
+		// credentials in place so a later cache miss (eviction, restart)
+		// does not retry the download with a stale token (401), without
+		// restarting runners (task 3.3, refactor-device-identity-reconciliation).
+		m.refreshDownloadCredentials(assignments)
+		m.logger.Debug().Str("config_hash", configHash).Msg("Plugin config unchanged; refreshed download credentials only")
+
 		return
 	}
 
@@ -187,6 +195,46 @@ func (m *PluginManager) ApplyConfig(cfg *proto.PluginConfig) {
 	}
 
 	m.setConfigHash(configHash)
+}
+
+// refreshDownloadCredentials copies the freshly minted artifact download
+// URL/token from incoming assignments onto the currently held assignments
+// (scheduled runners and streaming registrations) keyed by assignment ID.
+func (m *PluginManager) refreshDownloadCredentials(incoming []*pluginAssignment) {
+	if m == nil || len(incoming) == 0 {
+		return
+	}
+
+	byID := make(map[string]*pluginAssignment, len(incoming))
+	for _, assignment := range incoming {
+		if assignment == nil || assignment.AssignmentID == "" {
+			continue
+		}
+		byID[assignment.AssignmentID] = assignment
+	}
+
+	m.mu.Lock()
+	current := make([]*pluginAssignment, 0, len(m.runners)+len(m.streams))
+	for _, runner := range m.runners {
+		if runner != nil && runner.assignment != nil {
+			current = append(current, runner.assignment)
+		}
+	}
+	for _, assignment := range m.streams {
+		if assignment != nil {
+			current = append(current, assignment)
+		}
+	}
+	m.mu.Unlock()
+
+	for _, assignment := range current {
+		fresh, ok := byID[assignment.AssignmentID]
+		if !ok {
+			continue
+		}
+		downloadURL, downloadToken := fresh.downloadCredentials()
+		assignment.setDownloadCredentials(downloadURL, downloadToken)
+	}
 }
 
 func (m *PluginManager) setLimits(limits pluginEngineLimits) {
@@ -378,6 +426,8 @@ func (m *PluginManager) assignmentDebugSnapshot(
 		firstSeenAt = state.firstSeen.UTC().Format(time.RFC3339Nano)
 	}
 
+	downloadURL, downloadToken := assignment.downloadCredentials()
+
 	return PluginEngineAssignmentSnapshot{
 		AssignmentID:         assignment.AssignmentID,
 		PluginID:             assignment.PluginID,
@@ -393,8 +443,8 @@ func (m *PluginManager) assignmentDebugSnapshot(
 		TimeoutSeconds:       int64(assignment.Timeout.Seconds()),
 		WasmObject:           assignment.WasmObject,
 		ContentHash:          assignment.ContentHash,
-		DownloadHost:         downloadURLHost(assignment.DownloadURL),
-		DownloadTokenPresent: assignment.DownloadToken != "",
+		DownloadHost:         downloadURLHost(downloadURL),
+		DownloadTokenPresent: downloadToken != "",
 		Ready:                state.ready,
 		FirstSeenAt:          firstSeenAt,
 	}

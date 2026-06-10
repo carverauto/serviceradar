@@ -13,6 +13,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
@@ -464,6 +465,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       })
 
     srql_response = %{"results" => results, "viz" => viz}
+
+    # Resolve the agent linkage once (platform.ocsf_agents device_uid) and tag
+    # the device rows so render-time badge predicates never re-query. Panels
+    # above are built from the untagged SRQL response, so the virtual keys do
+    # not leak into table panels.
+    results = DeviceStateData.tag_agent_device(results, uid)
 
     device_row =
       results

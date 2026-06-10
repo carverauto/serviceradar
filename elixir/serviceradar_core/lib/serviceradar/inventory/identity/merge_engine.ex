@@ -1,0 +1,473 @@
+defmodule ServiceRadar.Inventory.Identity.MergeEngine do
+  @moduledoc """
+  Device merge/unmerge execution with stability guards.
+
+  Guards applied to every automatic merge: distinct agent identities
+  veto the merge; a per-pair cooldown (merge-audit history, either
+  direction) breaks oscillation loops. Merges are transactional and
+  audited; unmerge reverses an incorrect merge from the audit trail.
+  """
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceAgentAvailability
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.AliasGuard
+  alias ServiceRadar.Inventory.Identity.EndpointInventoryMoves
+  alias ServiceRadar.Inventory.Identity.MergePolicy
+  alias ServiceRadar.Inventory.Identity.Reassignments
+  alias ServiceRadar.Inventory.Interface
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Monitoring.Alert
+  alias ServiceRadar.Monitoring.ServiceCheck
+
+  require Ash.Query
+  require Logger
+
+  def merge_conflicting_devices(canonical_id, device_ids, matches, actor) do
+    details = %{
+      identifiers:
+        Enum.map(matches, fn {id_type, %{value: value, device_id: device_id}} ->
+          %{type: id_type, value: value, device_id: device_id}
+        end)
+    }
+
+    if MergePolicy.merge_allowed_for_matches?(matches) do
+      device_ids
+      |> Enum.reject(&(&1 == canonical_id))
+      |> Enum.each(fn from_id ->
+        _ =
+          merge_devices(from_id, canonical_id,
+            actor: actor,
+            reason: "identifier_conflict",
+            details: details
+          )
+      end)
+    else
+      blocked_reason = MergePolicy.blocked_merge_reason(matches)
+
+      Logger.warning(
+        "Blocked merge: shared identifiers are not eligible for auto-merge. " <>
+          "Devices: #{inspect(device_ids)}, " <>
+          "identifiers: #{inspect(details.identifiers)}"
+      )
+
+      MergePolicy.emit_blocked_merge_telemetry(blocked_reason, device_ids, details.identifiers)
+    end
+  end
+
+  @doc """
+  Merge a duplicate device into a canonical device and reassign related records.
+  """
+  @spec merge_devices(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def merge_devices(from_device_id, to_device_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_merge))
+    reason = Keyword.get(opts, :reason, "identity_resolution")
+    details = Keyword.get(opts, :details, %{})
+
+    cond do
+      from_device_id == to_device_id ->
+        :ok
+
+      merge_guard_blocked = merge_guard_violation(from_device_id, to_device_id, reason, actor) ->
+        emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
+
+        Logger.warning(
+          "Blocked merge #{from_device_id} -> #{to_device_id} " <>
+            "(reason: #{reason}, guard: #{merge_guard_blocked})"
+        )
+
+        {:error, {:merge_blocked, merge_guard_blocked}}
+
+      true ->
+        do_merge_devices(from_device_id, to_device_id, reason, details, actor)
+    end
+  end
+
+  # Guards that apply to every automatic merge path (ingest-time, alias,
+  # scheduled backfill). Manual/administrative merges bypass them.
+  defp merge_guard_violation(from_device_id, to_device_id, reason, actor) do
+    cond do
+      manual_override_merge_reason?(reason) or reason == "unmerge" ->
+        nil
+
+      AliasGuard.distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
+        :distinct_agent_identity
+
+      recent_pair_merge?(from_device_id, to_device_id, actor) ->
+        :merge_cooldown
+
+      true ->
+        nil
+    end
+  end
+
+  # Oscillation breaker: a pair that already merged (in either direction)
+  # within the cooldown window is ping-ponging — re-merging would feed the
+  # loop, so block and alert instead.
+  defp recent_pair_merge?(device_a, device_b, actor) do
+    window_seconds = merge_cooldown_seconds()
+    cutoff = DateTime.add(DateTime.utc_now(), -window_seconds, :second)
+    query_opts = if actor, do: [actor: actor], else: []
+
+    MergeAudit
+    |> Ash.Query.filter(
+      ((from_device_id == ^device_a and to_device_id == ^device_b) or
+         (from_device_id == ^device_b and to_device_id == ^device_a)) and
+        created_at > ^cutoff
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, [_ | _]} -> true
+      _ -> false
+    end
+  rescue
+    e ->
+      Logger.warning("Merge cooldown lookup failed: #{inspect(e)}")
+      false
+  end
+
+  defp merge_cooldown_seconds do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:merge_cooldown_seconds, 86_400)
+  end
+
+  defp emit_merge_guard_telemetry(guard, reason, from_device_id, to_device_id) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
+      %{count: 1},
+      %{
+        guard: guard,
+        reason: reason,
+        from_device_id: from_device_id,
+        to_device_id: to_device_id
+      }
+    )
+  end
+
+  defp do_merge_devices(from_device_id, to_device_id, reason, details, actor) do
+    resources = [
+      Device,
+      DeviceIdentifier,
+      Interface,
+      MergeAudit,
+      ServiceCheck,
+      Alert,
+      Agent,
+      DeviceAgentAvailability,
+      DeviceAliasState
+    ]
+
+    resources
+    |> Ash.transaction(fn ->
+      with {:ok, %Device{} = from_device} <-
+             Device.get_by_uid(from_device_id, false, actor: actor),
+           {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
+           :ok <- Reassignments.reassign_device_identifiers(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_service_checks(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_alerts(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_agents(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_availability(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_alias_states(from_device_id, to_device_id, actor),
+           :ok <- Reassignments.reassign_interfaces(from_device_id, to_device_id, actor),
+           :ok <-
+             EndpointInventoryMoves.reconcile_endpoint_inventory_device_identity(
+               from_device_id,
+               to_device_id
+             ),
+           {:ok, _merge} <-
+             MergeAudit.record(
+               %{
+                 from_device_id: from_device_id,
+                 to_device_id: to_device_id,
+                 reason: reason,
+                 source: "identity_reconciler",
+                 details: details
+               },
+               actor: actor
+             ),
+           {:ok, _} <- tombstone_merged_device(from_device, actor) do
+        :ok
+      end
+    end)
+    |> case do
+      {:ok, :ok} ->
+        emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
+        :ok
+
+      {:ok, other} ->
+        emit_merge_failed_telemetry(reason, from_device_id, to_device_id, other)
+        other
+
+      {:error, _} = error ->
+        emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
+        error
+    end
+  end
+
+  defp emit_merge_executed_telemetry(reason, from_device_id, to_device_id) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :executed],
+      %{count: 1},
+      %{
+        reason: reason,
+        manual_override: manual_override_merge_reason?(reason),
+        from_device_id: from_device_id,
+        to_device_id: to_device_id
+      }
+    )
+  end
+
+  defp emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :failed],
+      %{count: 1},
+      %{
+        reason: reason,
+        manual_override: manual_override_merge_reason?(reason),
+        from_device_id: from_device_id,
+        to_device_id: to_device_id,
+        error: inspect(error)
+      }
+    )
+  end
+
+  defp manual_override_merge_reason?(reason) when is_binary(reason) do
+    String.starts_with?(reason, "manual")
+  end
+
+  defp manual_override_merge_reason?(_), do: false
+
+  defp tombstone_merged_device(%Device{} = device, actor) do
+    device
+    |> Ash.Changeset.for_update(:soft_delete, %{
+      deleted_reason: "merged",
+      deleted_by: "identity_reconciler"
+    })
+    |> Ash.update(actor: actor)
+  end
+
+  @doc """
+  Reverse an incorrect merge by recreating the from-device and reassigning
+  its original identifiers back.
+
+  Uses the `merge_audit` trail to identify what was merged.
+  Records an unmerge audit entry for traceability.
+  """
+  @spec unmerge_device(String.t(), keyword()) :: :ok | {:error, term()}
+  def unmerge_device(from_device_id, opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:device_unmerge))
+
+    # Find the merge audit entry for this from_device_id
+    case MergeAudit.get_merged_to(from_device_id, actor: actor) do
+      {:ok, [audit | _]} ->
+        do_unmerge(from_device_id, audit.to_device_id, audit, actor)
+
+      {:ok, []} ->
+        {:error, :no_merge_audit_found}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp do_unmerge(from_device_id, to_device_id, audit, actor) do
+    resources = [Device, DeviceIdentifier, MergeAudit]
+
+    resources
+    |> Ash.transaction(fn ->
+      # Recreate the from-device
+      with {:ok, _device} <- recreate_device(from_device_id, audit, actor),
+           :ok <- reassign_original_identifiers(from_device_id, to_device_id, audit, actor),
+           {:ok, _} <-
+             MergeAudit.record(
+               %{
+                 from_device_id: to_device_id,
+                 to_device_id: from_device_id,
+                 reason: "unmerge",
+                 source: "identity_reconciler",
+                 details: %{
+                   original_merge_event_id: audit.event_id,
+                   original_merge_reason: audit.reason,
+                   unmerged_by: "admin"
+                 }
+               },
+               actor: actor
+             ) do
+        Logger.info(
+          "Unmerged device #{from_device_id} from #{to_device_id} " <>
+            "(original merge: #{audit.event_id})"
+        )
+
+        :ok
+      end
+    end)
+    |> case do
+      {:ok, :ok} -> :ok
+      {:ok, other} -> other
+      {:error, _} = error -> error
+    end
+  end
+
+  defp recreate_device(from_device_id, audit, actor) do
+    details = audit.details || %{}
+    ip = details["from_device_ip"] || details[:from_device_ip]
+    hostname = details["from_device_hostname"] || details[:from_device_hostname]
+
+    # The merge soft-deleted the from-device, so its row still exists —
+    # restore it in place instead of inserting a duplicate uid. The original
+    # IP is only reclaimed when no live device holds it (the survivor
+    # usually does; unique-active-IP would reject the restore otherwise).
+    case Device.get_by_uid(from_device_id, true, actor: actor) do
+      {:ok, %Device{deleted_at: %_{}}} ->
+        # Atomic updates on tombstoned rows raise StaleRecord (the update
+        # query is built from the primary read, which filters deleted rows);
+        # bulk_update over an include_deleted query restores in place.
+        restore_result =
+          Device
+          |> Ash.Query.for_read(:read, %{include_deleted: true})
+          |> Ash.Query.filter(uid == ^from_device_id)
+          |> Ash.bulk_update(:restore, %{},
+            actor: actor,
+            return_records?: true,
+            return_errors?: true,
+            strategy: [:atomic, :stream]
+          )
+
+        case restore_result do
+          %Ash.BulkResult{status: :success, records: [restored | _]} ->
+            restore_device_attributes(restored, ip, hostname, actor)
+
+          %Ash.BulkResult{status: :success} ->
+            Device.get_by_uid(from_device_id, false, actor: actor)
+
+          %Ash.BulkResult{errors: errors} ->
+            {:error, errors}
+        end
+
+      {:ok, %Device{} = live} ->
+        {:ok, live}
+
+      _ ->
+        attrs = %{uid: from_device_id}
+        attrs = if ip && ip_unclaimed?(ip, actor), do: Map.put(attrs, :ip, ip), else: attrs
+        attrs = if hostname, do: Map.put(attrs, :hostname, hostname), else: attrs
+
+        Device
+        |> Ash.Changeset.for_create(:create, attrs)
+        |> Ash.create(actor: actor)
+    end
+  end
+
+  defp restore_device_attributes(device, ip, hostname, actor) do
+    attrs = %{}
+    attrs = if ip && ip_unclaimed?(ip, actor), do: Map.put(attrs, :ip, ip), else: attrs
+    attrs = if hostname, do: Map.put(attrs, :hostname, hostname), else: attrs
+
+    if attrs == %{} do
+      {:ok, device}
+    else
+      device
+      |> Ash.Changeset.for_update(:update, attrs)
+      |> Ash.update(actor: actor)
+    end
+  end
+
+  defp ip_unclaimed?(ip, actor) do
+    case Device.get_by_ip(ip, false, actor: actor) do
+      {:ok, devices} when is_list(devices) -> devices == []
+      {:ok, %Device{}} -> false
+      _ -> true
+    end
+  rescue
+    _ -> true
+  end
+
+  # Reassign identifiers that were originally on the from-device back to it.
+  # Uses the merge audit details to identify which identifiers to reassign.
+  defp reassign_original_identifiers(from_device_id, to_device_id, audit, actor) do
+    details = audit.details || %{}
+    original_identifiers = details["identifiers"] || details[:identifiers] || []
+    original_identifier_keys = original_identifier_keys(original_identifiers)
+
+    # Find identifiers on the to-device that match the original merge's identifiers
+    case DeviceIdentifier
+         |> Ash.Query.for_read(:by_device, %{device_id: to_device_id})
+         |> Ash.read(actor: actor) do
+      {:ok, current_identifiers} ->
+        identifiers_to_reassign =
+          Enum.filter(
+            current_identifiers,
+            &identifier_in_original_set?(&1, original_identifier_keys)
+          )
+
+        Enum.each(identifiers_to_reassign, fn identifier ->
+          identifier
+          |> Ash.Changeset.for_update(:reassign_device, %{device_id: from_device_id})
+          |> Ash.update(actor: actor)
+        end)
+
+        :ok
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  defp original_identifier_keys(original_identifiers) do
+    original_identifiers
+    |> Enum.map(&extract_original_identifier_key/1)
+    |> Enum.reject(&is_nil/1)
+    |> MapSet.new()
+  end
+
+  defp extract_original_identifier_key(original) when is_map(original) do
+    orig_type =
+      original["type"] || original[:type] || original["identifier_type"] ||
+        original[:identifier_type]
+
+    orig_value =
+      original["value"] || original[:value] || original["identifier_value"] ||
+        original[:identifier_value]
+
+    if is_nil(orig_type) or is_nil(orig_value) do
+      nil
+    else
+      {to_string(orig_type), orig_value}
+    end
+  end
+
+  defp extract_original_identifier_key(_original), do: nil
+
+  defp identifier_in_original_set?(identifier, original_identifier_keys) do
+    key = {to_string(identifier.identifier_type), identifier.identifier_value}
+    MapSet.member?(original_identifier_keys, key)
+  end
+
+  @doc """
+  Record a device merge in the audit trail.
+  """
+  @spec record_merge(String.t(), String.t(), String.t(), keyword()) ::
+          {:ok, term()} | {:error, term()}
+  def record_merge(from_device_id, to_device_id, reason, opts \\ []) do
+    actor = Keyword.get(opts, :actor)
+    confidence_score = Keyword.get(opts, :confidence_score)
+    details = Keyword.get(opts, :details, %{})
+    query_opts = if actor, do: [actor: actor], else: []
+
+    MergeAudit
+    |> Ash.Changeset.for_create(:record, %{
+      from_device_id: from_device_id,
+      to_device_id: to_device_id,
+      reason: reason,
+      confidence_score: confidence_score,
+      source: "identity_reconciler",
+      details: details
+    })
+    |> Ash.create(query_opts)
+  end
+end

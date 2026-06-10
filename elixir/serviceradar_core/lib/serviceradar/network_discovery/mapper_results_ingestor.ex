@@ -453,40 +453,36 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          metadata,
          actor
        ) do
-    ids = %{
-      agent_id: nil,
-      armis_id: nil,
-      integration_id: nil,
-      netbox_id: nil,
-      mac: nil,
-      ip: candidate_ip,
-      partition: partition
-    }
-
-    uid = IdentityReconciler.generate_deterministic_device_id(ids)
-
-    attrs = %{
-      uid: uid,
-      ip: candidate_ip,
-      discovery_sources: ["mapper", "sighting"],
-      metadata:
-        metadata
-        |> Map.put("identity_state", "provisional")
-        |> Map.put("identity_source", "mapper_topology_sighting")
-        |> Map.put("candidate_from_device_id", source_device_id)
-    }
-
-    case Device
-         |> Ash.Changeset.for_create(:create, attrs)
-         |> Ash.create(actor: actor) do
-      {:ok, _device} ->
+    with {:ok, uid} <- resolve_device_uid_via_dire(candidate_ip, partition, [], actor) do
+      if device_exists?(uid, actor) do
+        # DIRE resolved the sighting onto an existing device (identifier,
+        # alias, or merge-audit canonical hit) — reuse it, never duplicate.
         {:ok, uid}
+      else
+        attrs = %{
+          uid: uid,
+          ip: candidate_ip,
+          discovery_sources: ["mapper", "sighting"],
+          metadata:
+            metadata
+            |> Map.put("identity_state", "provisional")
+            |> Map.put("identity_source", "mapper_topology_sighting")
+            |> Map.put("candidate_from_device_id", source_device_id)
+        }
 
-      {:error, %Invalid{errors: errors}} ->
-        recover_existing_device_uid(uid, candidate_ip, errors, actor)
+        case Device
+             |> Ash.Changeset.for_create(:create, attrs)
+             |> Ash.create(actor: actor) do
+          {:ok, _device} ->
+            {:ok, uid}
 
-      {:error, reason} ->
-        {:error, reason}
+          {:error, %Invalid{errors: errors}} ->
+            recover_existing_device_uid(uid, candidate_ip, errors, actor)
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+      end
     end
   end
 
@@ -892,42 +888,40 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   end
 
   defp create_candidate_device_for_ip(ip, partition, source_device_id, actor) do
-    ids = %{
-      agent_id: nil,
-      armis_id: nil,
-      integration_id: nil,
-      netbox_id: nil,
-      mac: nil,
-      ip: ip,
-      partition: partition
-    }
-
-    uid = IdentityReconciler.generate_deterministic_device_id(ids)
-
-    attrs = %{
-      uid: uid,
-      ip: ip,
-      discovery_sources: ["mapper"],
-      metadata: %{
-        "identity_state" => "provisional",
-        "identity_source" => "mapper_client_ip_candidate_seed",
-        "candidate_from_device_id" => source_device_id
-      }
-    }
-
-    case Device
-         |> Ash.Changeset.for_create(:create, attrs)
-         |> Ash.create(actor: actor) do
-      {:ok, _device} ->
-        Logger.info("Mapper created candidate device #{uid} for filtered IP #{ip}")
+    with {:ok, uid} <- resolve_device_uid_via_dire(ip, partition, [], actor) do
+      if device_exists?(uid, actor) do
+        # DIRE resolved the candidate IP onto an existing device — reuse it.
         {:ok, uid}
+      else
+        attrs = %{
+          uid: uid,
+          ip: ip,
+          discovery_sources: ["mapper"],
+          metadata: %{
+            "identity_state" => "provisional",
+            "identity_source" => "mapper_client_ip_candidate_seed",
+            "candidate_from_device_id" => source_device_id
+          }
+        }
 
-      {:error, %Invalid{errors: errors}} ->
-        recover_existing_device_uid(uid, ip, errors, actor)
+        case Device
+             |> Ash.Changeset.for_create(:create, attrs)
+             |> Ash.create(actor: actor) do
+          {:ok, _device} ->
+            Logger.info("Mapper created candidate device #{uid} for filtered IP #{ip}")
+            {:ok, uid}
 
-      {:error, reason} ->
-        Logger.warning("Failed to create mapper candidate device for #{ip}: #{inspect(reason)}")
-        {:error, reason}
+          {:error, %Invalid{errors: errors}} ->
+            recover_existing_device_uid(uid, ip, errors, actor)
+
+          {:error, reason} ->
+            Logger.warning(
+              "Failed to create mapper candidate device for #{ip}: #{inspect(reason)}"
+            )
+
+            {:error, reason}
+        end
+      end
     end
   end
 
@@ -1018,24 +1012,50 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
   defp create_device_for_ip(device_ip, records, ip_to_uid, actor) do
     # Get partition from the first record matching this IP
     partition = partition_for_device_ip(device_ip, records)
-    primary_mac = derive_primary_identity_mac(device_ip, records)
 
-    # Derive a stable mapper identity seed:
-    # - prefer a deterministic primary MAC from physical/aggregate interfaces
-    # - fallback to IP-only when no trustworthy MAC exists
-    ids = %{
-      agent_id: nil,
-      armis_id: nil,
-      integration_id: nil,
-      netbox_id: nil,
-      mac: primary_mac,
-      ip: device_ip,
-      partition: partition
-    }
+    # MAC evidence comes from physical/aggregate interfaces only (deterministic
+    # order). The polling agent's `agent_id` on these records names the agent
+    # that performed the poll, never the polled device, and is deliberately
+    # excluded from identity resolution and registration (Polling Agent
+    # Exclusion).
+    identity_macs = derive_identity_macs(device_ip, records)
+    primary_mac = List.first(identity_macs)
 
-    # Generate deterministic sr: UUID via DIRE
-    device_uid = IdentityReconciler.generate_deterministic_device_id(ids)
+    # The UID decision belongs to DIRE: resolution consults identifier rows,
+    # alias states, and the merge-audit canonical mapping before falling back
+    # to the deterministic seed (primary MAC when present, otherwise IP-only).
+    with {:ok, device_uid} <-
+           resolve_device_uid_via_dire(device_ip, partition, identity_macs, actor) do
+      if device_exists?(device_uid, actor) do
+        # DIRE resolved onto an existing device (e.g. a MAC already registered
+        # for another IP) — reuse it instead of creating a duplicate.
+        register_mapper_mac_identifiers(device_uid, identity_macs, device_ip, partition, actor)
+        {:ok, device_uid}
+      else
+        create_resolved_device_for_ip(
+          device_uid,
+          device_ip,
+          identity_macs,
+          primary_mac,
+          partition,
+          records,
+          ip_to_uid,
+          actor
+        )
+      end
+    end
+  end
 
+  defp create_resolved_device_for_ip(
+         device_uid,
+         device_ip,
+         identity_macs,
+         primary_mac,
+         partition,
+         records,
+         ip_to_uid,
+         actor
+       ) do
     # If this IP appears as an interface address on another device, set management_device_id
     management_device_id = find_management_device_uid(device_ip, records, ip_to_uid)
 
@@ -1062,6 +1082,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
          |> Ash.create(actor: actor) do
       {:ok, _device} ->
         Logger.info("Mapper created device #{device_uid} for IP #{device_ip}")
+        register_mapper_mac_identifiers(device_uid, identity_macs, device_ip, partition, actor)
 
         if management_device_id,
           do: TopologyGraph.upsert_managed_by(device_uid, management_device_id)
@@ -1069,11 +1090,84 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
         {:ok, device_uid}
 
       {:error, %Invalid{errors: errors}} ->
-        recover_existing_device_uid(device_uid, device_ip, errors, actor)
+        with {:ok, recovered_uid} <-
+               recover_existing_device_uid(device_uid, device_ip, errors, actor) do
+          register_mapper_mac_identifiers(
+            recovered_uid,
+            identity_macs,
+            device_ip,
+            partition,
+            actor
+          )
+
+          {:ok, recovered_uid}
+        end
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # All mapper device creation routes through DIRE: the reconciler decides the
+  # UID by consulting strong identifiers, confirmed IP aliases, and the
+  # merge-audit canonical mapping (so merged-away devices are never
+  # resurrected) before falling back to the deterministic `sr:` uid. The
+  # update never carries the polling agent's identity.
+  defp resolve_device_uid_via_dire(ip, partition, mac_evidence, actor) do
+    update = %{
+      device_id: nil,
+      ip: ip,
+      mac: List.first(mac_evidence),
+      mac_addresses: mac_evidence,
+      partition: partition,
+      metadata: %{}
+    }
+
+    case IdentityReconciler.resolve_device_id(update, actor: actor) do
+      {:ok, uid} when is_binary(uid) and uid != "" ->
+        {:ok, uid}
+
+      {:ok, other} ->
+        {:error, {:unresolved_device_uid, other}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Register the mapper's interface MAC evidence for the resolved device
+  # through DIRE so subsequent updates carrying any of these MACs resolve to
+  # the same device. Confidence is derived per-MAC (IEEE local bit) inside the
+  # reconciler. The polling agent's `agent_id` is never registered for the
+  # polled device (Polling Agent Exclusion).
+  defp register_mapper_mac_identifiers(_device_uid, [], _ip, _partition, _actor), do: :ok
+
+  defp register_mapper_mac_identifiers(device_uid, macs, ip, partition, actor) do
+    ids =
+      IdentityReconciler.extract_strong_identifiers(%{
+        device_id: nil,
+        ip: ip,
+        mac: List.first(macs),
+        mac_addresses: macs,
+        partition: partition,
+        metadata: %{}
+      })
+
+    case IdentityReconciler.register_identifiers(device_uid, ids, actor: actor) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Mapper identifier registration failed for #{device_uid}: #{inspect(reason)}"
+        )
+
+        :ok
+    end
+  rescue
+    e ->
+      Logger.warning("Mapper identifier registration raised for #{device_uid}: #{inspect(e)}")
+      :ok
   end
 
   defp find_device_uid_by_alias(device_ip, partition, actor) do
@@ -1228,7 +1322,11 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     _ -> false
   end
 
-  defp derive_primary_identity_mac(device_ip, records) do
+  # Deterministically ordered MAC evidence for a polled device: physical and
+  # aggregate interfaces only (loopback/virtual/bridge/tunnel interfaces are
+  # not identity evidence). The sorted-first entry is the primary identity
+  # seed, matching the historical deterministic-uid derivation.
+  defp derive_identity_macs(device_ip, records) do
     records
     |> Enum.filter(&(&1.device_ip == device_ip))
     |> Enum.filter(&primary_identity_interface?/1)
@@ -1236,7 +1334,6 @@ defmodule ServiceRadar.NetworkDiscovery.MapperResultsIngestor do
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
     |> Enum.sort()
-    |> List.first()
   end
 
   defp primary_identity_interface?(record) do

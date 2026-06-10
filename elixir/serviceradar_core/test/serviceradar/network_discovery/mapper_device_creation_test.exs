@@ -305,18 +305,21 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     assert Enum.any?(new_aliases, &(&1.device_id == device_after_old.uid))
   end
 
-  test "mapper interface ingestion does not register interface MACs as device identifiers", %{
-    actor: actor
-  } do
+  test "mapper device creation registers interface MAC evidence through DIRE without the polling agent identity",
+       %{
+         actor: actor
+       } do
     uniq = System.unique_integer([:positive, :monotonic])
     ip = unique_test_ip(198, 51, 100, uniq)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-    mac = "0C:EA:14:32:D2:77"
+    mac = unique_global_test_mac(uniq)
     normalized_mac = IdentityReconciler.normalize_mac(mac)
+    polling_agent_id = "agent-mapper-poller-#{uniq}"
 
     payload =
       Jason.encode!([
         %{
+          "agent_id" => polling_agent_id,
           "device_id" => "default:#{ip}",
           "partition" => "default",
           "device_ip" => ip,
@@ -329,6 +332,12 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
 
     assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
 
+    devices = wait_for_devices_by_ip(actor, ip)
+    assert length(devices) == 1
+    device = hd(devices)
+
+    # The interface MAC is registered as identity evidence for the polled
+    # device, with confidence derived from the IEEE local bit.
     query =
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :mac,
@@ -336,7 +345,92 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
         partition: "default"
       })
 
-    assert {:ok, []} = Ash.read(query, actor: actor)
+    assert {:ok, [identifier | _]} = Ash.read(query, actor: actor)
+    assert identifier.device_id == device.uid
+    assert identifier.confidence == :strong
+
+    # Polling Agent Exclusion: the agent that performed the poll must never
+    # be registered as an identifier of the polled device.
+    {:ok, device_identifiers} =
+      DeviceIdentifier
+      |> Ash.Query.for_read(:by_device, %{device_id: device.uid})
+      |> Ash.read(actor: actor)
+
+    refute Enum.any?(device_identifiers, &(&1.identifier_type == :agent_id))
+
+    refute Enum.any?(
+             device_identifiers,
+             &(to_string(&1.identifier_value) == polling_agent_id)
+           )
+  end
+
+  test "mapper resolves to existing device when interface MAC matches a registered identifier",
+       %{
+         actor: actor
+       } do
+    uniq = System.unique_integer([:positive, :monotonic])
+    existing_uid = "sr:" <> Ecto.UUID.generate()
+    existing_ip = unique_test_ip(10, 30, uniq)
+    new_ip = unique_test_ip(10, 31, uniq + 1)
+    mac = unique_global_test_mac(uniq)
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
+    ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+
+    # Existing device with a non-deterministic uid: only the identifier row
+    # (not uid derivation) can resolve the mapper update onto it.
+    {:ok, _existing} =
+      Device
+      |> Ash.Changeset.for_create(:create, %{uid: existing_uid, ip: existing_ip})
+      |> Ash.create(actor: actor)
+
+    assert :ok =
+             IdentityReconciler.register_identifiers(
+               existing_uid,
+               %{
+                 agent_id: nil,
+                 armis_id: nil,
+                 integration_id: nil,
+                 netbox_id: nil,
+                 mac: normalized_mac,
+                 macs: [normalized_mac],
+                 legacy_mac: nil,
+                 ip: existing_ip,
+                 partition: "default"
+               },
+               actor: actor
+             )
+
+    payload =
+      Jason.encode!([
+        %{
+          "device_id" => "default:#{new_ip}",
+          "partition" => "default",
+          "device_ip" => new_ip,
+          "if_index" => 1,
+          "if_name" => "eth0",
+          "if_phys_address" => mac,
+          "timestamp" => ts
+        }
+      ])
+
+    assert :ok = MapperResultsIngestor.ingest_interfaces(payload, %{})
+
+    # No new device: DIRE resolves the MAC identifier to the existing device.
+    {:ok, new_devices} =
+      Device
+      |> Ash.Query.for_read(:by_ip, %{ip: new_ip})
+      |> Ash.read(actor: actor)
+
+    assert new_devices == []
+
+    {:ok, interfaces} =
+      Interface
+      |> Ash.Query.filter(device_id == ^existing_uid)
+      |> Ash.read(actor: actor)
+
+    assert Enum.any?(interfaces, fn interface ->
+             IdentityReconciler.normalize_mac(interface.if_phys_address) == normalized_mac
+           end)
   end
 
   test "mapper reuses stale IP alias mapping and does not create duplicate device", %{
@@ -462,6 +556,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
     mgmt_ip = unique_test_ip(198, 18, 10, uniq)
     lan_alias = unique_test_ip(10, 0, 0, uniq + 1)
     vlan_alias = unique_test_ip(10, 0, 1, uniq + 2)
+    shared_bridge_mac = unique_global_test_mac(uniq)
     ts = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
     payload =
@@ -472,7 +567,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => mgmt_ip,
           "if_index" => 1,
           "if_name" => "br0",
-          "if_phys_address" => "0C:EA:14:32:D2:7F",
+          "if_phys_address" => shared_bridge_mac,
           "ip_addresses" => [lan_alias],
           "timestamp" => ts
         },
@@ -482,7 +577,7 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
           "device_ip" => mgmt_ip,
           "if_index" => 2,
           "if_name" => "br100",
-          "if_phys_address" => "0C:EA:14:32:D2:7F",
+          "if_phys_address" => shared_bridge_mac,
           "ip_addresses" => [vlan_alias],
           "timestamp" => ts
         }
@@ -606,6 +701,19 @@ defmodule ServiceRadar.NetworkDiscovery.MapperDeviceCreationTest do
       :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
 
     Enum.map_join([b1, b2, b3, b4, b5, b6], ":", &Base.encode16(<<&1>>, case: :upper))
+  end
+
+  # Globally-unique unicast MAC (multicast + locally-administered bits of the
+  # first octet cleared) so DIRE registers it with :strong confidence.
+  defp unique_global_test_mac(seed) do
+    <<b1, b2, b3, b4, b5, b6, _::binary>> =
+      :crypto.hash(:sha256, "#{seed}:#{Ecto.UUID.generate()}")
+
+    Enum.map_join(
+      [Bitwise.band(b1, 0xFC), b2, b3, b4, b5, b6],
+      ":",
+      &Base.encode16(<<&1>>, case: :upper)
+    )
   end
 
   defp wait_for_aliases(actor, type, value, predicate, attempts \\ 60)

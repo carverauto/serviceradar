@@ -60,6 +60,104 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestorTest do
     assert update["metadata"]["latitude"] == 10.0000
   end
 
+  describe "integration_id minting" do
+    defp ingest_device(device) do
+      parent = self()
+
+      payload = %{
+        "device_discovery" => [
+          %{
+            "schema" => "serviceradar.device_discovery.v1",
+            "source" => "test-source",
+            "devices" => [device]
+          }
+        ]
+      }
+
+      assert :ok =
+               DeviceDiscoveryIngestor.ingest(payload, %{partition: "local"},
+                 actor: :actor,
+                 device_sync: fn updates, context ->
+                   send(parent, {:device_sync, updates, context})
+                   :ok
+                 end
+               )
+
+      assert_receive {:device_sync, [update], %{actor: :actor}}
+      update
+    end
+
+    test "prefers serial over every other key" do
+      update =
+        ingest_device(%{
+          "type" => "camera",
+          "serial" => "SER123",
+          "uuid" => "9c3f9f2a-0000-4000-8000-000000000001",
+          "hostname" => "cam-01",
+          "mac" => "00:00:5e:00:53:01",
+          "ip" => "10.0.0.5"
+        })
+
+      assert update["metadata"]["integration_id"] == "test-source:camera:SER123"
+    end
+
+    test "prefers stable hardware id over hostname and MAC when serial is absent" do
+      update =
+        ingest_device(%{
+          "type" => "camera",
+          "uuid" => "9c3f9f2a-0000-4000-8000-000000000001",
+          "hostname" => "cam-01",
+          "mac" => "00:00:5e:00:53:01",
+          "ip" => "10.0.0.5"
+        })
+
+      assert update["metadata"]["integration_id"] ==
+               "test-source:camera:9c3f9f2a-0000-4000-8000-000000000001"
+    end
+
+    test "prefers hostname over MAC so rotating MACs cannot rotate the id" do
+      update =
+        ingest_device(%{
+          "type" => "camera",
+          "hostname" => "cam-01",
+          "mac" => "00:00:5e:00:53:01",
+          "ip" => "10.0.0.5"
+        })
+
+      assert update["metadata"]["integration_id"] == "test-source:camera:cam-01"
+
+      rotated =
+        ingest_device(%{
+          "type" => "camera",
+          "hostname" => "cam-01",
+          "mac" => "de:ad:be:ef:00:01",
+          "ip" => "10.0.0.5"
+        })
+
+      assert rotated["metadata"]["integration_id"] == update["metadata"]["integration_id"]
+    end
+
+    test "uses the first valid normalized MAC when MAC is the only key" do
+      update = ingest_device(%{"type" => "camera", "mac" => "00:00:5e:00:53:01"})
+
+      assert update["metadata"]["integration_id"] == "test-source:camera:00005E005301"
+
+      # Format variations and multi-value blobs cannot rotate the id.
+      for mac <- ["00-00-5E-00-53-01", "0000.5e00.5301", "00:00:5e:00:53:01,de:ad:be:ef:00:01"] do
+        variant = ingest_device(%{"type" => "camera", "mac" => mac})
+
+        assert variant["metadata"]["integration_id"] == update["metadata"]["integration_id"],
+               "MAC variant #{inspect(mac)} rotated the integration_id"
+      end
+    end
+
+    test "mints no integration_id from an invalid MAC" do
+      update = ingest_device(%{"type" => "camera", "mac" => "not-a-mac", "ip" => "10.0.0.9"})
+
+      refute Map.has_key?(update["metadata"], "integration_id")
+    end
+  end
+
   test "ignores plugin results without device discovery envelopes" do
     parent = self()
 

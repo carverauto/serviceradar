@@ -1,0 +1,506 @@
+defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
+  @moduledoc """
+  DB-backed coverage for `mix serviceradar.dire_remediation` (DIRE tasks
+  4.1-4.4): miniature versions of each live pathology are seeded, the
+  dry-run is asserted to count them without mutating, and execute mode is
+  asserted to remediate them idempotently.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias Ecto.Adapters.SQL
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.MergeAudit
+  alias ServiceRadar.Inventory.Remediation.DireRemediation
+  alias ServiceRadar.Repo
+  alias ServiceRadar.TestSupport
+
+  require Ash.Query
+
+  @moduletag :integration
+
+  setup_all do
+    TestSupport.start_core!()
+    :ok
+  end
+
+  setup do
+    {:ok, actor: SystemActor.system(:dire_remediation_test)}
+  end
+
+  # ---------------------------------------------------------------------------
+  # blob-purge (4.1)
+  # ---------------------------------------------------------------------------
+
+  test "blob-purge: dry run counts the pathology without mutating", %{actor: actor} do
+    {:ok, device} = create_device(actor)
+    blob_old = "#{unique_mac()},#{unique_mac()}"
+    blob_new = "#{unique_mac()},#{unique_mac()}"
+    {:ok, old_row} = seed_mac(actor, device.uid, blob_old)
+    {:ok, _new_row} = seed_mac(actor, device.uid, blob_new)
+    age_identifier(old_row.id, ~U[2026-01-01 00:00:00Z])
+
+    assert {:ok, %{mode: :dry_run, manifest_path: nil, reports: %{"blob-purge" => report}}} =
+             DireRemediation.run(steps: ["blob-purge"], actor: actor)
+
+    assert report.deleted_rows == 0
+    assert report.extracted_macs == 0
+    assert report.invalid_mac_rows >= 2
+    assert report.blob_only_devices >= 1
+    assert report.would_delete_rows == report.invalid_mac_rows
+
+    values = device |> mac_identifiers(actor) |> Enum.map(& &1.identifier_value)
+    assert Enum.sort(values) == Enum.sort([blob_old, blob_new])
+  end
+
+  test "blob-purge: execute extracts first MAC of the most recent blob, then purges",
+       %{actor: actor} do
+    # Pathology 1: device whose ONLY mac identifiers are blobs.
+    {:ok, blob_device} = create_device(actor)
+    first_of_new = unique_mac()
+    blob_old = "#{unique_mac()},#{unique_mac()}"
+    blob_new = "#{first_of_new},#{unique_mac()}"
+    {:ok, old_row} = seed_mac(actor, blob_device.uid, blob_old)
+    {:ok, _} = seed_mac(actor, blob_device.uid, blob_new)
+    age_identifier(old_row.id, ~U[2026-01-01 00:00:00Z])
+
+    # Pathology 2: device with a blob AND a valid row — no extraction needed.
+    {:ok, mixed_device} = create_device(actor)
+    valid_mac = unique_mac()
+    {:ok, _} = seed_mac(actor, mixed_device.uid, valid_mac)
+    {:ok, _} = seed_mac(actor, mixed_device.uid, "#{unique_mac()},#{unique_mac()}")
+
+    manifest_path = manifest_path("blob")
+
+    assert {:ok, %{mode: :execute, reports: %{"blob-purge" => report}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["blob-purge"],
+               actor: actor,
+               manifest_path: manifest_path,
+               batch_size: 10
+             )
+
+    assert report.deleted_rows >= 3
+    assert report.extracted_macs >= 1
+
+    # Blob-only device: exactly one valid extracted identifier remains.
+    assert [extracted] = mac_identifiers(blob_device, actor)
+    assert extracted.identifier_value == first_of_new
+    assert extracted.source == "remediation"
+    assert extracted.confidence == IdentityReconciler.mac_confidence(first_of_new)
+
+    # Mixed device: the valid row survives, the blob is gone, nothing extracted.
+    assert [survivor] = mac_identifiers(mixed_device, actor)
+    assert survivor.identifier_value == valid_mac
+    refute survivor.source == "remediation"
+
+    assert_manifest_records(manifest_path, "blob-purge", "delete_invalid_mac_rows")
+
+    # Idempotent: a second run finds nothing to do for these devices.
+    assert {:ok, %{reports: %{"blob-purge" => second}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["blob-purge"],
+               actor: actor,
+               manifest_path: manifest_path("blob2")
+             )
+
+    assert second.deleted_rows == 0
+    assert [_] = mac_identifiers(blob_device, actor)
+  end
+
+  # ---------------------------------------------------------------------------
+  # test-debris (4.2)
+  # ---------------------------------------------------------------------------
+
+  test "test-debris: dry run lists debris, execute removes it (and only it)",
+       %{actor: actor} do
+    seed = test_seed()
+    debris_uid = "test-agent-#{seed}"
+    sim_uid = "agent-active-ip-conflict-#{seed}"
+    keeper_uid = "test-agent-keeper-#{seed}"
+
+    {:ok, sim_device} = create_device(actor)
+    {:ok, _} = create_agent(actor, debris_uid, %{})
+    {:ok, _} = create_agent(actor, sim_uid, %{device_uid: sim_device.uid})
+    {:ok, _} = create_agent(actor, keeper_uid, %{})
+    make_debris!(debris_uid)
+    make_debris!(sim_uid)
+
+    {:ok, reip_device} =
+      create_device(actor, %{hostname: "k8s-pod-b", agent_id: "agent-reip-#{seed}"})
+
+    {:ok, _} = seed_mac(actor, reip_device.uid, unique_mac())
+
+    {:ok, _alias_state} =
+      seed_alias(actor, reip_device.uid, "10.93.#{:rand.uniform(250)}.#{:rand.uniform(250)}")
+
+    assert {:ok, %{reports: %{"test-debris" => dry}}} =
+             DireRemediation.run(steps: ["test-debris"], actor: actor)
+
+    assert debris_uid in dry.debris_agent_uids
+    assert sim_uid in dry.debris_agent_uids
+    refute keeper_uid in dry.debris_agent_uids
+    assert reip_device.uid in dry.debris_device_uids
+    assert dry.would_delete_identifiers >= 1
+    assert dry.would_delete_alias_states >= 1
+
+    # Dry run mutated nothing.
+    assert {:ok, _} = Agent.get_by_uid(debris_uid, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(reip_device.uid, false, actor: actor)
+
+    assert {:ok, %{reports: %{"test-debris" => report}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["test-debris"],
+               actor: actor,
+               manifest_path: manifest_path("debris")
+             )
+
+    assert report.deleted_agents >= 2
+    assert report.soft_deleted_devices >= 1
+
+    assert {:error, _} = Agent.get_by_uid(debris_uid, actor: actor)
+    assert {:error, _} = Agent.get_by_uid(sim_uid, actor: actor)
+    assert {:ok, _} = Agent.get_by_uid(keeper_uid, actor: actor)
+
+    # reip device tombstoned with its identifiers/aliases gone; the sim
+    # agent's (non-debris) device is untouched.
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "dire_remediation_test_debris"}} =
+             Device.get_by_uid(reip_device.uid, true, actor: actor)
+
+    assert mac_identifiers(reip_device, actor) == []
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(sim_device.uid, false, actor: actor)
+  end
+
+  # ---------------------------------------------------------------------------
+  # agent-links (4.3)
+  # ---------------------------------------------------------------------------
+
+  test "agent-links: rebuilds per-host devices from ocsf_agents ground truth",
+       %{actor: actor} do
+    seed = test_seed()
+    host_a = "remtest-w1-#{seed}"
+    host_b = "remtest-w2-#{seed}"
+    host_c = "remtest-w3-#{seed}"
+    octet = :rand.uniform(250)
+    ip_a = "10.94.#{octet}.1"
+    ip_b = "10.94.#{octet}.2"
+    ip_c = "10.94.#{octet}.3"
+    agent_a = "rem-agent-a-#{seed}"
+    agent_b = "rem-agent-b-#{seed}"
+    agent_c = "rem-agent-c-#{seed}"
+
+    # The chimera: host A's device; host B's device was merged into it.
+    {:ok, chimera} = create_device(actor, %{hostname: host_a, ip: ip_a, agent_id: agent_a})
+    {:ok, dev_b} = create_device(actor, %{hostname: host_b, ip: ip_b, agent_id: agent_b})
+
+    assert :ok =
+             IdentityReconciler.merge_devices(dev_b.uid, chimera.uid,
+               actor: actor,
+               reason: "manual_test_seed"
+             )
+
+    # All three connected agents point at the chimera.
+    {:ok, _} = create_agent(actor, agent_a, %{host: host_a, ip: ip_a, device_uid: chimera.uid})
+    {:ok, _} = create_agent(actor, agent_b, %{host: host_b, ip: ip_b, device_uid: chimera.uid})
+    {:ok, _} = create_agent(actor, agent_c, %{host: host_c, ip: ip_c, device_uid: chimera.uid})
+
+    # Stranded agent_id identifier + poisoned alias for host B on the chimera.
+    {:ok, _} = seed_agent_identifier(actor, agent_b, chimera.uid)
+    {:ok, alias_state} = seed_alias(actor, chimera.uid, ip_b)
+
+    # Corrupted ip literal (scoped to this test via a unique literal).
+    literal = "agent-lit-#{seed}"
+    {:ok, literal_device} = create_device(actor, %{hostname: "remtest-lit-#{seed}", ip: literal})
+
+    run_opts = [
+      steps: ["agent-links"],
+      actor: actor,
+      agent_uids: [agent_a, agent_b, agent_c],
+      ip_literal: literal
+    ]
+
+    assert {:ok, %{reports: %{"agent-links" => dry}}} = DireRemediation.run(run_opts)
+
+    plans = Map.new(dry.plans, &{&1.agent_uid, &1})
+    assert plans[agent_a].action == :keep
+    assert plans[agent_a].target_device_uid == chimera.uid
+    assert plans[agent_b].action == :restore
+    assert plans[agent_b].target_device_uid == dev_b.uid
+    assert plans[agent_c].action == :create
+    assert dry.ip_literal_devices == [literal_device.uid]
+    assert dry.alias_states_to_stale >= 1
+
+    # Dry run mutated nothing.
+    assert {:ok, %Agent{device_uid: device_uid}} = Agent.get_by_uid(agent_b, actor: actor)
+    assert device_uid == chimera.uid
+
+    assert {:ok, %Device{deleted_at: %DateTime{}}} =
+             Device.get_by_uid(dev_b.uid, true, actor: actor)
+
+    assert {:ok, %{reports: %{"agent-links" => report}}} =
+             DireRemediation.run([
+               {:mode, :execute},
+               {:manifest_path, manifest_path("links")} | run_opts
+             ])
+
+    assert report.errors == 0
+    assert report.ip_literal_fixed == 1
+
+    # Agent A keeps the (rightfully owned) chimera.
+    assert {:ok, %Agent{device_uid: agent_a_device}} = Agent.get_by_uid(agent_a, actor: actor)
+    assert agent_a_device == chimera.uid
+
+    # Agent B was repointed at its restored per-host device.
+    assert {:ok, %Agent{device_uid: agent_b_device}} = Agent.get_by_uid(agent_b, actor: actor)
+    assert agent_b_device == dev_b.uid
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(dev_b.uid, false, actor: actor)
+
+    # Agent B's identifier moved off the chimera onto the restored device.
+    assert [identifier] = agent_identifiers(actor, agent_b)
+    assert identifier.device_id == dev_b.uid
+
+    # Agent C got a freshly created per-host device.
+    assert {:ok, %Agent{device_uid: agent_c_device}} = Agent.get_by_uid(agent_c, actor: actor)
+    assert agent_c_device != chimera.uid
+    assert {:ok, %Device{} = created} = Device.get_by_uid(agent_c_device, false, actor: actor)
+    assert created.hostname == host_c
+    assert created.agent_id == agent_c
+
+    # Poisoned alias is stale; relocation audit (reason "unmerge") exists.
+    assert {:ok, %DeviceAliasState{state: :stale}} =
+             Ash.get(DeviceAliasState, alias_state.id, actor: actor)
+
+    assert {:ok, audits} = MergeAudit.get_by_device(dev_b.uid, actor: actor)
+
+    assert Enum.any?(
+             audits,
+             &(&1.reason == "unmerge" and &1.from_device_id == chimera.uid and
+                 &1.to_device_id == dev_b.uid)
+           )
+
+    assert {:ok, %Device{ip: nil}} = Device.get_by_uid(literal_device.uid, false, actor: actor)
+
+    # Idempotent: everything is a keep on the second pass.
+    assert {:ok, %{reports: %{"agent-links" => second}}} = DireRemediation.run(run_opts)
+    assert second.keep == 3
+    assert second.identifier_moves == 0
+    assert second.alias_states_to_stale == 0
+  end
+
+  # ---------------------------------------------------------------------------
+  # proxmox-dups (4.4)
+  # ---------------------------------------------------------------------------
+
+  test "proxmox-dups: merges duplicate hostname groups into the canonical device",
+       %{actor: actor} do
+    seed = test_seed()
+    hostname = "remtest-pmx-#{seed}"
+
+    {:ok, older} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["proxmox"],
+        last_seen_time: ~U[2026-05-09 02:21:03Z]
+      })
+
+    {:ok, newer} =
+      create_device(actor, %{
+        hostname: hostname,
+        discovery_sources: ["proxmox"],
+        last_seen_time: DateTime.utc_now()
+      })
+
+    assert {:ok, %{reports: %{"proxmox-dups" => dry}}} =
+             DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
+
+    assert %{from: from, to: to} =
+             Enum.find(dry.merge_plan, &(&1.hostname == hostname))
+
+    assert from == older.uid
+    assert to == newer.uid
+
+    # Dry run mutated nothing.
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(older.uid, false, actor: actor)
+
+    assert {:ok, %{reports: %{"proxmox-dups" => report}}} =
+             DireRemediation.run(
+               mode: :execute,
+               steps: ["proxmox-dups"],
+               actor: actor,
+               manifest_path: manifest_path("pmx")
+             )
+
+    assert report.merged >= 1
+
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "merged"}} =
+             Device.get_by_uid(older.uid, true, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(newer.uid, false, actor: actor)
+
+    assert {:ok, audits} = MergeAudit.get_by_device(older.uid, actor: actor)
+
+    assert Enum.any?(
+             audits,
+             &(&1.reason == "manual_remediation" and &1.to_device_id == newer.uid)
+           )
+
+    # Idempotent: the group is gone on the second pass.
+    assert {:ok, %{reports: %{"proxmox-dups" => second}}} =
+             DireRemediation.run(steps: ["proxmox-dups"], actor: actor)
+
+    refute Enum.any?(second.merge_plan, &(&1.hostname == hostname))
+  end
+
+  # ---------------------------------------------------------------------------
+  # helpers
+  # ---------------------------------------------------------------------------
+
+  defp create_device(actor, attrs \\ %{}) do
+    Device
+    |> Ash.Changeset.for_create(
+      :create,
+      Map.merge(
+        %{
+          uid: "sr:" <> Ecto.UUID.generate(),
+          hostname: "dire-rem-test-#{test_seed()}",
+          ip: "10.92.#{:rand.uniform(250)}.#{:rand.uniform(250)}"
+        },
+        attrs
+      )
+    )
+    |> Ash.create(actor: actor)
+  end
+
+  # Run-unique seed: the scratch DB persists data across test runs, so
+  # per-VM monotonic integers would collide with previous runs' rows.
+  defp test_seed, do: :rand.uniform(1_000_000_000)
+
+  defp create_agent(actor, agent_uid, attrs) do
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      Map.merge(
+        %{
+          uid: agent_uid,
+          name: agent_uid,
+          host: "dire-rem-host-#{agent_uid}",
+          port: 50_051
+        },
+        attrs
+      ),
+      actor: actor
+    )
+    |> Ash.create()
+  end
+
+  defp seed_mac(actor, device_uid, value) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:upsert, %{
+      device_id: device_uid,
+      identifier_type: :mac,
+      identifier_value: value,
+      partition: "default",
+      confidence: :strong,
+      source: "test_seed"
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp seed_agent_identifier(actor, agent_uid, device_uid) do
+    DeviceIdentifier
+    |> Ash.Changeset.for_create(:upsert, %{
+      device_id: device_uid,
+      identifier_type: :agent_id,
+      identifier_value: agent_uid,
+      partition: "default",
+      confidence: :strong,
+      source: "test_seed"
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp seed_alias(actor, device_uid, ip) do
+    DeviceAliasState
+    |> Ash.Changeset.for_create(:detect, %{
+      device_id: device_uid,
+      alias_type: :ip,
+      alias_value: ip
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp mac_identifiers(%Device{uid: uid}, actor) do
+    DeviceIdentifier
+    |> Ash.Query.filter(identifier_type == :mac and device_id == ^uid)
+    |> Ash.read!(actor: actor)
+  end
+
+  defp agent_identifiers(actor, agent_uid) do
+    DeviceIdentifier
+    |> Ash.Query.filter(identifier_type == :agent_id and identifier_value == ^agent_uid)
+    |> Ash.read!(actor: actor)
+  end
+
+  defp age_identifier(id, %DateTime{} = last_seen) do
+    %{num_rows: 1} =
+      SQL.query!(
+        Repo,
+        "UPDATE platform.device_identifiers SET last_seen = $1 WHERE id = $2",
+        [last_seen, id]
+      )
+
+    :ok
+  end
+
+  defp make_debris!(agent_uid) do
+    %{num_rows: 1} =
+      SQL.query!(
+        Repo,
+        "UPDATE platform.ocsf_agents SET created_time = $1, status = 'unavailable' WHERE uid = $2",
+        [~U[2026-04-25 02:19:22Z], agent_uid]
+      )
+
+    :ok
+  end
+
+  # Unique, valid, universally-administered MAC (first octet 00).
+  defp unique_mac do
+    suffix =
+      0xFFFFFFFFFF
+      |> :rand.uniform()
+      |> Integer.to_string(16)
+      |> String.pad_leading(10, "0")
+
+    "00" <> suffix
+  end
+
+  defp manifest_path(tag) do
+    Path.join(
+      System.tmp_dir!(),
+      "dire_remediation_test_#{tag}_#{System.unique_integer([:positive])}.ndjson"
+    )
+  end
+
+  defp assert_manifest_records(path, step, action) do
+    assert File.exists?(path)
+
+    entries =
+      path
+      |> File.stream!()
+      |> Enum.map(&Jason.decode!/1)
+
+    assert Enum.any?(entries, &(&1["step"] == step and &1["action"] == action))
+  end
+end

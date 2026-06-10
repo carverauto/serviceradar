@@ -382,7 +382,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         :plugin_storage,
         public_url: "https://demo.serviceradar.cloud",
         signing_secret: String.duplicate("s", 32),
-        download_ttl_seconds: 60
+        download_ttl_seconds: 60,
+        # Pin the freshness epoch so the two generations below cannot straddle
+        # an epoch boundary (the epoch intentionally re-versions configs so
+        # agents pick up fresh download tokens before TTL expiry).
+        download_token_epoch_seconds: 999_999_999
       )
 
       on_exit(fn ->

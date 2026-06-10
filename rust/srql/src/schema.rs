@@ -603,25 +603,6 @@ diesel::table! {
 }
 
 diesel::table! {
-    use diesel::sql_types::*;
-
-    device_updates (observed_at, device_id) {
-        observed_at -> Timestamptz,
-        agent_id -> Text,
-        gateway_id -> Text,
-        partition -> Text,
-        device_id -> Text,
-        discovery_source -> Text,
-        ip -> Nullable<Text>,
-        mac -> Nullable<Text>,
-        hostname -> Nullable<Text>,
-        available -> Nullable<Bool>,
-        metadata -> Nullable<Jsonb>,
-        created_at -> Timestamptz,
-    }
-}
-
-diesel::table! {
     use diesel::pg::sql_types::Array;
     use diesel::sql_types::*;
 

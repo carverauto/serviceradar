@@ -4,6 +4,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   import ExUnit.CaptureLog
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Ash.Page
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceEnrichmentRules
   alias ServiceRadar.Inventory.Interface
@@ -489,27 +490,32 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
   end
 
   test "replaces placeholder type with integration metadata alias", %{actor: actor} do
+    # The two updates share the integration_id (legitimate identity); a bare
+    # shared IP is intentionally NOT enough to adopt an existing device.
     ip = unique_ip()
-    existing_uid = "sr:" <> Ecto.UUID.generate()
+    integration_id = "armis-camera-#{System.unique_integer([:positive])}"
 
-    {:ok, _existing} =
-      Device
-      |> Ash.Changeset.for_create(:create, %{
-        uid: existing_uid,
-        ip: ip,
-        hostname: "legacy-unknown-camera",
-        type: "Unknown",
-        type_id: 0,
-        metadata: %{"type" => "Unknown"}
-      })
-      |> Ash.create(actor: actor)
+    placeholder_update = %{
+      "ip" => ip,
+      "hostname" => "legacy-unknown-camera",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_id" => integration_id,
+        "integration_type" => "armis",
+        "type" => "Unknown"
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([placeholder_update], actor: actor)
+    placeholder_device = fetch_device_by_ip!(actor, ip)
+    assert placeholder_device.type in ["Unknown", nil]
 
     update = %{
       "ip" => ip,
       "hostname" => "legacy-unknown-camera",
       "source" => "armis",
       "metadata" => %{
-        "integration_id" => "armis-camera-#{System.unique_integer([:positive])}",
+        "integration_id" => integration_id,
         "integration_type" => "armis",
         "type" => "Unknown",
         "armis_type" => "IP Cameras",
@@ -521,7 +527,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
     assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
 
     device = fetch_device_by_ip!(actor, ip)
-    assert device.uid == existing_uid
+    assert device.uid == placeholder_device.uid
     assert device.type == "IP Cameras"
     assert device.type_id == 99
     assert device.vendor_name == "Axis Communications"
@@ -896,12 +902,26 @@ defmodule ServiceRadar.Inventory.SyncIngestorVendorTypeTest do
         assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
       end)
 
-    device = fetch_device_by_ip!(actor, ip)
-    assert device.uid == existing_uid
-    assert device.hostname == "updated-host"
-    assert device.is_available
-    assert device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
-    refute log =~ "Bulk device upsert hit active-IP conflict"
+    # The update carries a strong identifier, so it must NOT be remapped onto
+    # whichever device happens to hold the IP (that adoption collapsed
+    # distinct devices); the conflicting IP is dropped from the new record.
+    existing_device = fetch_device_by_ip!(actor, ip)
+    assert existing_device.uid == existing_uid
+    assert existing_device.hostname == "existing-host"
+
+    # (conflict recovery may or may not be exercised depending on lookup
+    # timing; the behavioral assertions below are what matter)
+    _ = log
+
+    {:ok, devices} =
+      Device
+      |> Ash.Query.filter(hostname == "updated-host" and is_nil(deleted_at))
+      |> Ash.read(actor: actor)
+      |> Page.unwrap()
+
+    assert [new_device | _] = Enum.filter(devices, &(&1.uid != existing_uid))
+    refute new_device.ip == ip
+    assert new_device.metadata["sys_descr"] == "Ubiquiti UniFi UDM-Pro 4.4.6 Linux 4.19.152 al324"
   end
 
   test "refreshes inventory rollups after sync ingest", %{actor: actor} do

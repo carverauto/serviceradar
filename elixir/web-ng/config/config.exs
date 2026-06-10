@@ -119,6 +119,12 @@ config :serviceradar_core, :plugin_storage,
   jetstream_replicas: 1,
   jetstream_storage: :file
 
+# Web-ng joins the cluster for Horde registry reads (cluster/gateway/agent
+# views) but must never host distributed processes — agent sessions placed
+# here would pull agent-config compilation (SweepCompiler etc.) and other
+# core-elx work onto the web tier.
+config :serviceradar_core, host_distributed_processes: false
+
 # Also register domains for serviceradar_core OTP app (domains are defined there)
 config :serviceradar_core,
   ash_domains: [

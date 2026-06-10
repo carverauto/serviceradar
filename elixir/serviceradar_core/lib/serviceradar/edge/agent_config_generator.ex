@@ -41,6 +41,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Monitoring.ServiceCheck
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
   alias ServiceRadar.Plugins.SecretRefs
@@ -720,8 +721,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp resolve_plugin_params(config_schema, params, %PluginAssignment{} = assignment) do
     params = normalize_map(params)
     config_schema = maybe_add_policy_credential_secret_fields(config_schema, params, assignment)
+    {params, resolve_opts} = materialize_credential_broker_grant(params, assignment)
 
-    case SecretRefs.resolve_runtime_params(config_schema, params) do
+    case SecretRefs.resolve_runtime_params(config_schema, params, resolve_opts) do
       {:ok, resolved} ->
         resolved
 
@@ -733,6 +735,39 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         SecretRefs.public_params(params)
     end
   end
+
+  # Task 3.2 (refactor-device-identity-reconciliation): policy assignments carry
+  # a short-TTL credential-broker grant payload minted at reconcile time.
+  # Scheduled WASM plugin runs never call the broker themselves, so config
+  # delivery must (a) never embed an already-expired grant payload — re-mint on
+  # expiry — and (b) resolve the granted secret to runtime material (e.g.
+  # `api_token`) with an audit row per resolution.
+  defp materialize_credential_broker_grant(params, %PluginAssignment{source: source} = assignment)
+       when source in [:policy, "policy"] do
+    if policy_credential_broker_assignment?(params) do
+      case CredentialBrokerDelivery.refresh_embedded_grant(params,
+             agent_id: assignment.agent_uid,
+             consumer_id: logical_plugin_id(assignment)
+           ) do
+        {refreshed_params, nil} ->
+          {refreshed_params, []}
+
+        {refreshed_params, grant} ->
+          {refreshed_params,
+           [
+             grant: grant,
+             broker_opts:
+               CredentialBrokerDelivery.broker_resolution_opts(grant,
+                 agent_id: assignment.agent_uid
+               )
+           ]}
+      end
+    else
+      {params, []}
+    end
+  end
+
+  defp materialize_credential_broker_grant(params, _assignment), do: {params, []}
 
   defp maybe_add_policy_credential_secret_fields(config_schema, params, %PluginAssignment{
          source: :policy
@@ -1278,11 +1313,64 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       endpoint_inventory: stable_config_fragment(endpoint_inventory_config),
       plugins: sorted_plugins,
       plugin_engine_limits: plugin_engine_limits,
-      addons: sorted_addons
+      addons: sorted_addons,
+      download_token_epoch: download_token_epoch(plugin_assignments, addon_assignments)
     }
 
     "v" <> Compiler.content_hash(version_payload)
   end
+
+  # Task 3.3 (refactor-device-identity-reconciliation): artifact download
+  # tokens are HMAC-signed with a bounded TTL and minted fresh on every config
+  # generation, but agents only *apply* them when the config version changes —
+  # `not_modified` polls never refresh the token an agent is holding. Folding a
+  # coarse time epoch into the version hash whenever any assignment carries a
+  # signed download request guarantees the config re-versions (and the agent
+  # receives a freshly minted token) well before the previous token's TTL
+  # elapses. The epoch is half the token TTL, floored at 5 minutes.
+  @doc false
+  @spec download_token_epoch([map()], [map()], non_neg_integer() | nil) :: non_neg_integer()
+  def download_token_epoch(plugin_assignments, addon_assignments, now_seconds \\ nil) do
+    has_download_token? =
+      Enum.any?(List.wrap(plugin_assignments), &assignment_download_token?/1) or
+        Enum.any?(List.wrap(addon_assignments), &assignment_download_token?/1)
+
+    if has_download_token? do
+      now_seconds = now_seconds || System.os_time(:second)
+      div(now_seconds, download_token_epoch_seconds())
+    else
+      0
+    end
+  end
+
+  @doc false
+  @spec download_token_epoch_seconds() :: pos_integer()
+  def download_token_epoch_seconds do
+    configured =
+      :serviceradar_core
+      |> Application.get_env(:plugin_storage, [])
+      |> plugin_storage_epoch_override()
+
+    case configured do
+      seconds when is_integer(seconds) and seconds > 0 ->
+        seconds
+
+      _ ->
+        max(div(StorageToken.download_ttl_seconds(), 2), 300)
+    end
+  end
+
+  defp plugin_storage_epoch_override(config) when is_list(config),
+    do: Keyword.get(config, :download_token_epoch_seconds)
+
+  defp plugin_storage_epoch_override(_config), do: nil
+
+  defp assignment_download_token?(assignment) when is_map(assignment) do
+    token = Map.get(assignment, :download_token) || Map.get(assignment, "download_token")
+    is_binary(token) and token != ""
+  end
+
+  defp assignment_download_token?(_assignment), do: false
 
   # Strip the per-poll gateway download fields before hashing: download_token is a
   # freshly-minted (rotating) signed token each generation and download_url, while
@@ -1319,9 +1407,46 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> Map.delete("download_url")
     |> Map.delete(:download_token)
     |> Map.delete("download_token")
+    |> stable_assignment_params()
   end
 
   defp stable_plugin_assignment(assignment), do: assignment
+
+  # The delivered `credential_broker` grant payload rotates whenever the
+  # embedded grant is re-minted on expiry (task 3.2), which can happen on every
+  # generation for short-TTL grants. Like download_token above, it must not
+  # perturb the config version hash or polling agents would refetch (and
+  # relaunch plugins) perpetually. The stable inputs that should re-version the
+  # config — the secret ref, targets, template fields — remain hashed.
+  defp stable_assignment_params(assignment) do
+    case Map.get(assignment, :params) || Map.get(assignment, "params") do
+      params when is_map(params) ->
+        stable_params = strip_credential_broker_payload(params)
+
+        assignment
+        |> Map.replace(:params, stable_params)
+        |> Map.replace("params", stable_params)
+
+      _ ->
+        assignment
+    end
+  end
+
+  defp strip_credential_broker_payload(params) do
+    params = Map.drop(params, [:credential_broker, "credential_broker"])
+
+    case Map.get(params, "template") || Map.get(params, :template) do
+      template when is_map(template) ->
+        stable_template = Map.drop(template, [:credential_broker, "credential_broker"])
+
+        params
+        |> Map.replace("template", stable_template)
+        |> Map.replace(:template, stable_template)
+
+      _ ->
+        params
+    end
+  end
 
   @doc """
   Converts plugin assignments to proto-compatible structs.

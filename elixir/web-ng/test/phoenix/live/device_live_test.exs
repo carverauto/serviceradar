@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DeviceLive.Show
+  alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
   setup %{conn: conn} do
@@ -206,6 +207,72 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert agent_html =~ agent_hostname
     assert agent_row = table_row_for(agent_html, agent_hostname)
     assert agent_row =~ "hero-bolt"
+  end
+
+  test "device details header shows the Agent pill only for registered agent devices", %{
+    conn: conn
+  } do
+    unique = System.unique_integer([:positive])
+    plain_uid = "test-show-plain-#{unique}"
+    plain_hostname = "show-plain-host-#{unique}"
+    agent_uid = "test-show-agent-#{unique}"
+    agent_hostname = "show-agent-host-#{unique}"
+    agent_name = "Show Agent #{unique}"
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: plain_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: plain_hostname,
+        # A populated collector agent_id must NOT mark the device as an agent
+        # host; only the ocsf_agents device_uid linkage counts.
+        agent_id: "collector-agent-#{unique}",
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      },
+      %{
+        uid: agent_uid,
+        type_id: 1,
+        type: "Server",
+        hostname: agent_hostname,
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    Repo.insert_all("ocsf_agents", [
+      %{
+        uid: "show-agent-#{unique}",
+        name: agent_name,
+        type_id: 0,
+        device_uid: agent_uid,
+        host: agent_hostname,
+        capabilities: ["icmp"],
+        status: "connected",
+        is_healthy: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z],
+        created_time: ~U[2100-01-01 00:00:00Z],
+        modified_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    {:ok, agent_view, _html} = live(conn, ~p"/devices/#{agent_uid}")
+    agent_html = render_until(agent_view, "device-agent-pill", 5_000)
+
+    assert agent_html =~ agent_hostname
+    assert agent_html =~ ~s(data-testid="device-agent-pill")
+    # The summary identity card surfaces the registered agent label.
+    assert agent_html =~ agent_name
+
+    {:ok, plain_view, _html} = live(conn, ~p"/devices/#{plain_uid}")
+    plain_html = render_until(plain_view, plain_hostname, 5_000)
+
+    assert plain_html =~ plain_hostname
+    refute plain_html =~ ~s(data-testid="device-agent-pill")
   end
 
   test "navigates to the device details page after adding a device", %{conn: conn} do
@@ -1154,9 +1221,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "process listeners tab renders agent-host local process snapshots" do
     html =
-      render_component(&Show.process_listeners_tab_content/1,
+      render_component(&VisibilityComponents.process_listeners_tab_content/1,
         device_row: %{
-          "agent_list" => [%{"uid" => "agent-1", "name" => "agent-1"}],
+          "agent_device" => true,
+          "agent_labels" => ["agent-1"],
           "metadata" => %{
             "local_processes" =>
               Jason.encode!(%{
@@ -1189,7 +1257,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "postgres"
     assert html =~ "4242"
     assert html =~ "26/26"
-    assert html =~ "container-abc"
+    # Container ids render truncated to 12 chars (process_listener_container/1).
+    assert html =~ "container-ab"
     assert html =~ "--config=redacted"
   end
 

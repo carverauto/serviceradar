@@ -6,8 +6,33 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
   `serviceradar.plugin_result.v1` payload. This module translates those records
   into the existing SyncIngestor update contract so discovered devices reconcile
   into `platform.ocsf_devices` and device identifiers.
+
+  ## Integration id format
+
+  When a record does not carry an explicit `integration_id`, one is minted as:
+
+      <source>:<kind>:<key>
+
+  where `<source>` is the discovery envelope source (fallback `"plugin"`),
+  `<kind>` is the device type/kind/role (fallback `"device"`), and `<key>` is
+  the most stable available identity component, preferred in this order:
+
+  1. serial number (`serial`/`serial_number`/`serialNumber`)
+  2. stable hardware id (`hardware_id`, `hw_id`, `machine_id`, `chassis_id`,
+     `chassis_serial`, `asset_tag`, `uuid`, `hardware_uuid` and camelCase
+     variants)
+  3. hostname (`hostname`/`name`/`host`)
+  4. MAC address — only when no other key exists. The MAC component is the
+     first valid MAC normalized via `IdentityReconciler.normalize_mac/1`
+     (uppercase, separator-free, 12 hex chars) so payload format variations
+     (`aa:bb…`, `AA-BB…`, multi-value blobs) cannot rotate the id.
+
+  A MAC is never used as the id component when a more stable key exists:
+  rotating/randomized MACs would otherwise rotate the `integration_id` and
+  mint a new duplicate device per rotation.
   """
 
+  alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
 
   require Logger
@@ -160,6 +185,9 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
       prefixed_identifier(envelope, device)
   end
 
+  # Key preference: serial > stable hardware id > hostname > normalized MAC.
+  # MAC is the last resort because rotating/randomized MACs must not rotate
+  # the integration_id (see moduledoc).
   defp prefixed_identifier(envelope, device) do
     source = string_value(envelope, ["source"]) || "plugin"
     kind = string_value(device, ["type", "kind", "role"]) || "device"
@@ -167,11 +195,34 @@ defmodule ServiceRadar.Inventory.DeviceDiscoveryIngestor do
     value =
       first_present([
         string_value(device, ["serial", "serial_number", "serialNumber"]),
-        string_value(device, ["mac", "mac_address", "macAddress"]),
-        string_value(device, ["hostname", "name", "host"])
+        stable_hardware_id(device),
+        string_value(device, ["hostname", "name", "host"]),
+        IdentityReconciler.normalize_mac(
+          string_value(device, ["mac", "mac_address", "macAddress"])
+        )
       ])
 
     if present?(value), do: "#{source}:#{kind}:#{value}"
+  end
+
+  defp stable_hardware_id(device) do
+    string_value(device, [
+      "hardware_id",
+      "hardwareId",
+      "hw_id",
+      "hwId",
+      "machine_id",
+      "machineId",
+      "chassis_id",
+      "chassisId",
+      "chassis_serial",
+      "chassisSerial",
+      "asset_tag",
+      "assetTag",
+      "uuid",
+      "hardware_uuid",
+      "hardwareUuid"
+    ])
   end
 
   defp device_tags(device) do

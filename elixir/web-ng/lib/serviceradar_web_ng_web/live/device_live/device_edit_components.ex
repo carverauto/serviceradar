@@ -3,6 +3,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+
   attr(:device_row, :map, default: nil)
   attr(:device_form, :any, required: true)
   attr(:device_snmp_credential, :any, default: nil)
@@ -385,22 +387,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents do
 
   defp truthy?(value), do: value in [true, "true", "on", "1", 1]
 
-  defp agent_device?(row) when is_map(row) do
-    row
-    |> linked_agent_list()
-    |> Enum.any?()
-  end
-
-  defp agent_device?(_), do: false
-
-  defp linked_agent_list(row) when is_map(row) do
-    row
-    |> agent_list()
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp linked_agent_list(_), do: []
-
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  # Agent status comes from the ocsf_agents linkage resolved at load time
+  # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.
+  defp agent_device?(row), do: DeviceStateData.agent?(row)
 end
