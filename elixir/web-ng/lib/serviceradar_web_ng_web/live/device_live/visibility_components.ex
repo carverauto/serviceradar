@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   use ServiceRadarWebNGWeb, :html
 
   alias ServiceRadarWebNG.RBAC
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
 
   @dpi_protocols [
     {"http1", "HTTP/1"},
@@ -1208,24 +1209,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   defp can_view_active_fingerprint?(scope), do: RBAC.can?(scope, "networks.sweeps.banner_grab")
 
-  defp agent_device?(row) when is_map(row) do
-    row
-    |> linked_agent_list()
-    |> Enum.any?()
-  end
-
-  defp agent_device?(_), do: false
-
-  defp linked_agent_list(row) when is_map(row) do
-    row
-    |> agent_list()
-    |> List.wrap()
-    |> Enum.filter(&is_map/1)
-  end
-
-  defp linked_agent_list(_), do: []
-
-  defp agent_list(row) when is_map(row), do: Map.get(row, "agent_list") || Map.get(row, :agent_list) || []
+  # Agent status comes from the ocsf_agents linkage resolved at load time
+  # (DeviceStateData.tag_agent_device/2); the OCSF agent_list column is dead.
+  defp agent_device?(row), do: DeviceStateData.agent?(row)
 
   defp default_display(nil), do: "—"
   defp default_display(""), do: "—"

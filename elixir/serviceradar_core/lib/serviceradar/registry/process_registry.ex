@@ -22,20 +22,42 @@ defmodule ServiceRadar.ProcessRegistry do
 
   @doc """
   Child specs for the supervision tree.
+
+  Every node joins the Horde registry (cluster-wide process lookups for the
+  UI and gateways), but only process-host nodes start the Horde
+  DynamicSupervisor: `members: :auto` makes every supervisor member a
+  placement target, and web-ng must never host distributed agent processes
+  (they pull agent-config compilation and other core-elx work onto the web
+  tier). Configure with:
+
+      config :serviceradar_core, host_distributed_processes: false
   """
   def child_specs do
-    [
+    registry =
       {Horde.Registry,
        name: @registry_name,
        keys: :unique,
        members: :auto,
-       delta_crdt_options: [sync_interval: 100]},
-      {Horde.DynamicSupervisor,
-       name: @supervisor_name,
-       strategy: :one_for_one,
-       members: :auto,
        delta_crdt_options: [sync_interval: 100]}
-    ]
+
+    if host_distributed_processes?() do
+      [
+        registry,
+        {Horde.DynamicSupervisor,
+         name: @supervisor_name,
+         strategy: :one_for_one,
+         members: :auto,
+         delta_crdt_options: [sync_interval: 100]}
+      ]
+    else
+      [registry]
+    end
+  end
+
+  @doc "Whether this node hosts Horde-distributed processes (default true)."
+  @spec host_distributed_processes?() :: boolean()
+  def host_distributed_processes? do
+    Application.get_env(:serviceradar_core, :host_distributed_processes, true)
   end
 
   @doc """
@@ -59,7 +81,11 @@ defmodule ServiceRadar.ProcessRegistry do
   """
   @spec start_child(Supervisor.child_spec()) :: {:ok, pid()} | {:error, term()}
   def start_child(child_spec) do
-    Horde.DynamicSupervisor.start_child(@supervisor_name, child_spec)
+    if host_distributed_processes?() do
+      Horde.DynamicSupervisor.start_child(@supervisor_name, child_spec)
+    else
+      {:error, :not_a_process_host}
+    end
   end
 
   @doc """

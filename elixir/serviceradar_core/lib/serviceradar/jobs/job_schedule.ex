@@ -28,6 +28,8 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshOban]
 
+  alias ServiceRadar.Policies.Checks.ActorIsNil
+
   @identity_reconciliation_job_key "device_identity_reconciliation"
   @identity_reconciliation_cron "*/5 * * * *"
   @schedule_fields [:cron, :timezone, :args, :enabled, :unique_period_seconds]
@@ -159,6 +161,20 @@ defmodule ServiceRadar.Jobs.JobSchedule do
     import ServiceRadar.Policies
 
     system_bypass()
+
+    # The AshOban cron scheduler/worker read this resource with NO actor
+    # (cron-inserted scheduler jobs carry no stored actor). PR #2713
+    # (a78c5645, 2026-02-06) restricted reads to viewer+, which silently
+    # filtered the scheduler's nil-actor read to zero rows: the scheduler
+    # kept completing while enqueueing nothing, and identity reconciliation
+    # never ran again (ng_job_schedules.last_enqueued_at froze at the
+    # deploy). Scope a nil-actor bypass to the scheduler's read action only,
+    # mirroring the nil-actor allowance the same PR kept for system manage
+    # actions below.
+    bypass action(:identity_reconciliation) do
+      authorize_if ActorIsNil
+    end
+
     read_viewer_plus()
 
     # Operators and admins can create and update
@@ -166,7 +182,7 @@ defmodule ServiceRadar.Jobs.JobSchedule do
       authorize_if actor_attribute_equals(:role, :operator)
       authorize_if actor_attribute_equals(:role, :admin)
       # Allow system operations (no actor)
-      authorize_if ServiceRadar.Policies.Checks.ActorIsNil
+      authorize_if ActorIsNil
     end
   end
 

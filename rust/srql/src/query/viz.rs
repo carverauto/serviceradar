@@ -1263,35 +1263,6 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: Some("name".to_string()),
             }],
         },
-        Entity::DeviceUpdates => VizMeta {
-            columns: vec![
-                col(
-                    "observed_at",
-                    ColumnType::Timestamptz,
-                    Some(ColumnSemantic::Time),
-                ),
-                col("device_id", ColumnType::Text, Some(ColumnSemantic::Id)),
-                col("agent_id", ColumnType::Text, Some(ColumnSemantic::Id)),
-                col("gateway_id", ColumnType::Text, Some(ColumnSemantic::Id)),
-                col("discovery_source", ColumnType::Text, None),
-                col("ip", ColumnType::Text, None),
-                col("mac", ColumnType::Text, None),
-                col("hostname", ColumnType::Text, None),
-                col("available", ColumnType::Bool, None),
-                col("metadata", ColumnType::Jsonb, None),
-                col(
-                    "created_at",
-                    ColumnType::Timestamptz,
-                    Some(ColumnSemantic::Time),
-                ),
-            ],
-            suggestions: vec![VizSuggestion {
-                kind: VizKind::Table,
-                x: None,
-                y: None,
-                series: None,
-            }],
-        },
         Entity::Alerts => VizMeta {
             columns: vec![
                 col("id", ColumnType::Text, Some(ColumnSemantic::Id)),

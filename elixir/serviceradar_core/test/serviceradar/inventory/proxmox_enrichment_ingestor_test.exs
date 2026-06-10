@@ -51,8 +51,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert host_a.cpu_ratio == 0.25
     assert host_a.metadata["ip"] == "10.10.0.11"
     assert host_a.metadata["cluster_node"]["ip"] == "10.10.0.11"
+    assert host_a.metadata["integration_id"] == "proxmox:v2:lab:node:pve-a"
     assert host_b.device_uid == "proxmox:pve:pve-b"
     assert host_b.metadata["ip"] == "10.10.0.12"
+    assert host_b.metadata["integration_id"] == "proxmox:v2:lab:node:pve-b"
 
     assert [guest] = records.guests
     assert guest.provider_ref == "proxmox:guest:pve-a:qemu:100"
@@ -60,6 +62,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     assert guest.device_uid == "proxmox:qemu:100"
     assert guest.guest_type == "vm"
     assert guest.vmid == 100
+    assert guest.metadata["integration_id"] == "proxmox:v2:lab:vm:100"
 
     assert [datastore] = records.datastores
     assert datastore.provider_ref == "proxmox:datastore:pve-a:local-zfs"
@@ -86,7 +89,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
         flunk("missing guest NIC record")
 
     assert guest_nic.host_provider_ref == "proxmox:node:pve-a"
-    assert guest_nic.mac_address == "00:11:22:33:44:55"
+    # Canonical separator-free 12-hex MAC (IdentityReconciler.normalize_mac)
+    assert guest_nic.mac_address == "001122334455"
     assert guest_nic.ip_addresses == ["192.168.2.50/24"]
     assert guest_nic.address == "192.168.2.50"
     assert guest_nic.bridge_ports == "vmbr0"
@@ -137,6 +141,97 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     guest = find_record!(records.guests, "proxmox:guest:pve-a:qemu:100")
     assert guest.status == "running"
     assert guest.observed_at == fresh_at
+  end
+
+  test "uses the node name as v2 scope for standalone (non-clustered) nodes" do
+    parent = self()
+
+    details =
+      put_in(details_fixture(), ["targets", Access.at(0), "cluster"], [
+        %{"type" => "node", "name" => "pve-a", "ip" => "10.10.0.11", "online" => 1}
+      ])
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload_with_details(details, @observed_at), %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    assert records.clusters == []
+
+    host_a = find_record!(records.hosts, "proxmox:node:pve-a")
+    assert host_a.metadata["integration_id"] == "proxmox:v2:pve-a:node:pve-a"
+
+    guest = find_record!(records.guests, "proxmox:guest:pve-a:qemu:100")
+    assert guest.metadata["integration_id"] == "proxmox:v2:pve-a:vm:100"
+  end
+
+  test "does not mint v2 ids when the cluster status fetch failed" do
+    parent = self()
+
+    details =
+      details_fixture()
+      |> put_in(["targets", Access.at(0), "cluster"], [])
+      |> put_in(
+        ["targets", Access.at(0), "warnings"],
+        %{"cluster_status" => "503 service unavailable"}
+      )
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload_with_details(details, @observed_at), %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    host_a = find_record!(records.hosts, "proxmox:node:pve-a")
+    refute Map.has_key?(host_a.metadata, "integration_id")
+
+    guest = find_record!(records.guests, "proxmox:guest:pve-a:qemu:100")
+    refute Map.has_key?(guest.metadata, "integration_id")
+  end
+
+  test "drops invalid guest NIC MACs instead of emitting malformed values" do
+    parent = self()
+
+    details =
+      put_in(
+        details_fixture(),
+        ["targets", Access.at(0), "guests", Access.at(0), "interfaces", Access.at(0)],
+        %{
+          "name" => "eth0",
+          "mac_address" => "not-a-mac",
+          "ip_addresses" => ["192.168.2.50/24"],
+          "source" => "config"
+        }
+      )
+
+    assert :ok =
+             ProxmoxEnrichmentIngestor.ingest(payload_with_details(details, @observed_at), %{},
+               persist: fn records ->
+                 send(parent, {:records, records})
+                 :ok
+               end
+             )
+
+    assert_receive {:records, records}
+
+    guest_nic =
+      Enum.find(
+        records.network_interfaces,
+        &(&1.guest_provider_ref == "proxmox:guest:pve-a:qemu:100")
+      ) ||
+        flunk("missing guest NIC record")
+
+    assert guest_nic.mac_address == nil
+    assert guest_nic.ip_addresses == ["192.168.2.50/24"]
   end
 
   defp details_fixture do

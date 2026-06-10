@@ -189,7 +189,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
                     [:source_id, :collection_timestamp, :name], _}
 
     assert ap.site_code == "ZZA"
-    assert ap.mac == "00:00:5e:00:53:01"
+    assert ap.mac == "00005E005301"
     assert String.starts_with?(ap.device_uid, "sr:")
 
     assert_receive {:bulk_upsert, :wifi_controller_observations, [controller],
@@ -197,7 +197,7 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
 
     assert controller.site_code == "ZZA"
     assert String.starts_with?(controller.device_uid, "sr:")
-    assert controller.base_mac == "00:00:5e:00:53:02"
+    assert controller.base_mac == "00005E005302"
     assert controller.aos_version == "8.10.0.21"
 
     assert_receive {:bulk_upsert, :wifi_radius_group_observations, [radius],
@@ -301,8 +301,8 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
     assert_receive {:bulk_upsert, :wifi_controller_observations, [controller]}
     assert controller.name == "SITE01-MDF001-WLC001"
     assert controller.site_code == "ZZA"
-    assert controller.mac == "00:00:5e:00:53:02"
-    assert controller.base_mac == "00:00:5e:00:53:02"
+    assert controller.mac == "00005E005302"
+    assert controller.base_mac == "00005E005302"
     assert controller.serial == "SN0000000002"
     assert controller.aos_version == "8.10.0.21"
 
@@ -314,7 +314,100 @@ defmodule ServiceRadar.WifiMap.BatchIngestorTest do
 
     assert_receive {:device_sync, [device_update]}
     assert device_update["metadata"]["serial_number"] == "SN0000000002"
-    assert device_update["mac"] == "00:00:5e:00:53:02"
+    assert device_update["mac"] == "00005E005302"
+
+    # Serial outranks MAC in the minted integration id.
+    assert device_update["metadata"]["integration_id"] == "wifi_map:controller:SN0000000002"
+  end
+
+  test "MAC format variants mint byte-identical integration ids and device ids" do
+    parent = self()
+
+    ingest_ap = fn mac, tag ->
+      payload = %{
+        "schema" => "serviceradar.wifi_map.batch.v1",
+        "collection_timestamp" => "2026-04-30T12:34:56Z",
+        "source" => %{"name" => "customer-wifi-map"},
+        "search_index" => [
+          %{
+            "kind" => "ap",
+            "iata" => "ZZA",
+            "name" => "SITE01-MDF001-WAP001",
+            "mac" => mac,
+            "status" => "Up"
+          }
+        ]
+      }
+
+      assert :ok =
+               BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+                 source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+                 batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+                 bulk_upsert: fn _rows, _table, _conflict, _replace, _context -> :ok end,
+                 device_sync: fn updates, _context ->
+                   send(parent, {tag, updates})
+                   :ok
+                 end
+               )
+    end
+
+    ingest_ap.("00:00:5e:00:53:01", :lowercase_colons)
+    ingest_ap.("00-00-5E-00-53-01", :uppercase_dashes)
+
+    assert_receive {:lowercase_colons, [first]}
+    assert_receive {:uppercase_dashes, [second]}
+
+    assert first["metadata"]["integration_id"] == "wifi_map:access_point:00005E005301"
+    assert second["metadata"]["integration_id"] == first["metadata"]["integration_id"]
+    assert String.starts_with?(first["device_id"], "sr:")
+    assert second["device_id"] == first["device_id"]
+    assert first["mac"] == "00005E005301"
+    assert second["mac"] == "00005E005301"
+  end
+
+  test "invalid MACs are dropped and integration id falls through to the device name" do
+    parent = self()
+
+    payload = %{
+      "schema" => "serviceradar.wifi_map.batch.v1",
+      "collection_timestamp" => "2026-04-30T12:34:56Z",
+      "source" => %{"name" => "customer-wifi-map"},
+      "search_index" => [
+        %{
+          "kind" => "ap",
+          "iata" => "ZZA",
+          "name" => "SITE01-MDF001-WAP002",
+          "mac" => "not-a-mac",
+          "status" => "Up"
+        }
+      ]
+    }
+
+    assert :ok =
+             BatchIngestor.ingest(payload, %{service_name: "wifi-map-plugin"},
+               source_upsert: fn _attrs, _context -> {:ok, @source_id} end,
+               batch_upsert: fn _attrs, _context -> {:ok, @batch_id} end,
+               bulk_upsert: fn rows, table, _conflict, _replace, _context ->
+                 if table == :wifi_access_point_observations and rows != [] do
+                   send(parent, {:ap_rows, rows})
+                 end
+
+                 :ok
+               end,
+               device_sync: fn updates, _context ->
+                 send(parent, {:device_sync, updates})
+                 :ok
+               end
+             )
+
+    assert_receive {:ap_rows, [ap]}
+    assert ap.mac == nil
+
+    assert_receive {:device_sync, [update]}
+    assert update["mac"] == nil
+
+    assert update["metadata"]["integration_id"] ==
+             "wifi_map:access_point:SITE01-MDF001-WAP002"
   end
 
   test "derives site-level RADIUS rows from site seed data when raw rows are absent" do

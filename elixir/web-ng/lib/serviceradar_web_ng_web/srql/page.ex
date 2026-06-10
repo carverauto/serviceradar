@@ -791,7 +791,6 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
          "events",
          "bmp_events",
          "logs",
-         "device_updates",
          "otel_metrics",
          "timeseries_metrics",
          "snmp_metrics",

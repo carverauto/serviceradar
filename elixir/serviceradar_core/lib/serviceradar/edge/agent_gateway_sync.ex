@@ -142,7 +142,20 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   with a device in the inventory.
 
   The device identity is resolved using DIRE (Device Identity and Reconciliation Engine)
-  based on the agent's hostname and source IP.
+  based on the agent's identifiers, hostname and source IP.
+
+  Host evidence (task 6.1, `refactor-device-identity-reconciliation`): in
+  addition to the `agent_id` identifier, enrollment registers the agent host's
+  own interface MACs whenever the hello attrs carry them (`:host_macs`,
+  `:mac_addresses` or `:macs`, top-level or under `:metadata`; list or
+  delimited string). Values are normalized/validated through
+  `IdentityReconciler.normalize_mac_list/1`, so malformed entries and
+  multi-MAC blobs can never become identifiers. Producers MUST only put the
+  agent host's own interface MACs in these fields (never neighbour/sweep
+  observations). Hostname (normalized) and machine-id are NOT identifier
+  types today; they are surfaced in the device-update metadata
+  (`"hostname_normalized"`, `"machine_id"`) so DIRE-side bridging can use
+  them as corroborating evidence.
   """
   @spec ensure_device_for_agent(String.t(), map()) ::
           {:ok, String.t()} | {:error, term()}
@@ -182,6 +195,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     # subsequent enrollments (even from different IPs) to this device
     ids = IdentityReconciler.extract_strong_identifiers(device_update)
     IdentityReconciler.register_identifiers(device_uid, ids, actor: actor)
+    IdentityReconciler.repair_agent_identifier(agent_id, device_uid, actor)
 
     # Link the agent to the device
     link_agent_to_device(agent_id, device_uid, actor)
@@ -194,19 +208,75 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     apply(IdentityReconciler, :resolve_device_id, [device_update, [actor: actor]])
   end
 
-  defp build_device_update_from_agent(agent_id, attrs) do
+  @doc false
+  # Public for unit testing only; not part of the gateway RPC surface.
+  def build_device_update_from_agent(agent_id, attrs) do
+    hostname = Map.get(attrs, :hostname)
+
+    metadata =
+      %{
+        "agent_id" => agent_id,
+        "hostname" => hostname,
+        "os" => Map.get(attrs, :os),
+        "arch" => Map.get(attrs, :arch)
+      }
+      |> maybe_put("hostname_normalized", normalize_hostname(hostname))
+      |> maybe_put("machine_id", agent_machine_id(attrs))
+
     %{
       device_id: nil,
       ip: agent_source_ip(attrs),
       mac: nil,
+      mac_addresses: agent_host_macs(attrs),
       partition: Map.get(attrs, :partition, "default"),
-      metadata: %{
-        "agent_id" => agent_id,
-        "hostname" => Map.get(attrs, :hostname),
-        "os" => Map.get(attrs, :os),
-        "arch" => Map.get(attrs, :arch)
-      }
+      metadata: metadata
     }
+  end
+
+  # Host-evidence MAC fields accepted from the gateway hello attrs. By
+  # contract these carry ONLY the agent host's own interface MACs
+  # (observer-excluded); they must never contain neighbour or sweep-observed
+  # MACs. Each value may be a list or a delimited string; everything is
+  # normalized and validated via IdentityReconciler.normalize_mac_list/1.
+  @host_mac_attr_keys [:host_macs, "host_macs", :mac_addresses, "mac_addresses", :macs, "macs"]
+
+  defp agent_host_macs(attrs) do
+    metadata = agent_attrs_metadata(attrs)
+
+    @host_mac_attr_keys
+    |> Enum.flat_map(fn key ->
+      collect_mac_values(Map.get(attrs, key)) ++ collect_mac_values(Map.get(metadata, key))
+    end)
+    |> Enum.uniq()
+  end
+
+  defp collect_mac_values(value) when is_list(value),
+    do: Enum.flat_map(value, &IdentityReconciler.normalize_mac_list/1)
+
+  defp collect_mac_values(value) when is_binary(value),
+    do: IdentityReconciler.normalize_mac_list(value)
+
+  defp collect_mac_values(_value), do: []
+
+  defp agent_machine_id(attrs) do
+    metadata = agent_attrs_metadata(attrs)
+
+    Enum.find_value(
+      [
+        Map.get(attrs, :machine_id),
+        Map.get(attrs, "machine_id"),
+        Map.get(metadata, :machine_id),
+        Map.get(metadata, "machine_id")
+      ],
+      &normalize_optional_string/1
+    )
+  end
+
+  defp agent_attrs_metadata(attrs) do
+    case Map.get(attrs, :metadata) || Map.get(attrs, "metadata") do
+      %{} = metadata -> metadata
+      _ -> %{}
+    end
   end
 
   defp upsert_device_for_agent(device_uid, agent_id, attrs, actor) do

@@ -5,6 +5,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
 
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.IntegrationIdentity
 
   require Logger
 
@@ -116,6 +117,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       version = get_in(target, ["version", "version"])
       cluster = cluster_record(target, version, observed_at)
       cluster_ref = cluster && cluster.provider_ref
+      cluster_scope = cluster_scope(target, cluster)
 
       acc =
         if cluster do
@@ -127,11 +129,37 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       target
       |> list_value("nodes")
       |> Enum.reduce(acc, fn node, acc ->
-        add_node_records(acc, target, node, cluster_ref, version, observed_at)
+        add_node_records(acc, target, node, cluster_ref, cluster_scope, version, observed_at)
       end)
-      |> add_guest_records(target, observed_at)
+      |> add_guest_records(target, cluster_scope, observed_at)
     end)
   end
+
+  # The v2 integration identity is cluster-scoped. Standalone (non-clustered)
+  # nodes use the node name as the scope. When the cluster status fetch failed
+  # we cannot tell those cases apart, so no v2 id is minted at all (the
+  # provider_ref fallback applies) rather than risking a node-scoped id for a
+  # clustered guest.
+  defp cluster_scope(target, cluster) do
+    cluster_name = cluster && cluster.name
+
+    %{
+      name: cluster_name,
+      known?: not is_nil(cluster_name) or not cluster_status_failed?(target)
+    }
+  end
+
+  defp cluster_status_failed?(target) do
+    target
+    |> map_value("warnings")
+    |> Kernel.||(%{})
+    |> string_value("cluster_status")
+    |> present?()
+  end
+
+  defp scope_for(%{name: name}, _node_name) when is_binary(name) and name != "", do: name
+  defp scope_for(%{known?: true}, node_name), do: node_name
+  defp scope_for(_cluster_scope, _node_name), do: nil
 
   defp put_record(records, key, record), do: Map.update!(records, key, &[record | &1])
 
@@ -156,7 +184,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end
   end
 
-  defp add_node_records(records, target, node, cluster_ref, version, observed_at) do
+  defp add_node_records(records, target, node, cluster_ref, cluster_scope, version, observed_at) do
     node_name = string_value(node, "node")
 
     if blank?(node_name) do
@@ -165,6 +193,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
       host_ref = "proxmox:node:#{node_name}"
       device_uid = device_uid_for_node(target, node_name)
       cluster_node = cluster_node_for(target, node_name)
+
+      integration_id =
+        IntegrationIdentity.proxmox_node_id(scope_for(cluster_scope, node_name), node_name)
 
       host = %{
         provider: @provider,
@@ -178,7 +209,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         memory_used_bytes: integer_value(node, "mem"),
         memory_total_bytes: integer_value(node, "maxmem"),
         uptime_seconds: integer_value(node, "uptime"),
-        metadata: node_metadata(node, cluster_node),
+        metadata:
+          node
+          |> node_metadata(cluster_node)
+          |> maybe_put_metadata("integration_id", integration_id),
         observed_at: observed_at
       }
 
@@ -191,7 +225,7 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     end
   end
 
-  defp add_guest_records(records, target, observed_at) do
+  defp add_guest_records(records, target, cluster_scope, observed_at) do
     target
     |> list_value("guests")
     |> Enum.reduce(records, fn guest, acc ->
@@ -203,6 +237,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
         acc
       else
         provider_ref = "proxmox:guest:#{node}:#{guest_type}:#{vmid}"
+
+        integration_id =
+          IntegrationIdentity.proxmox_guest_id(scope_for(cluster_scope, node), guest_type, vmid)
 
         record = %{
           provider: @provider,
@@ -220,7 +257,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           disk_total_bytes: integer_value(guest, "maxdisk"),
           uptime_seconds: integer_value(guest, "uptime"),
           metadata:
-            sanitize_metadata(Map.take(guest, ["id", "config", "runtime_status", "filesystems"])),
+            guest
+            |> Map.take(["id", "config", "runtime_status", "filesystems"])
+            |> sanitize_metadata()
+            |> maybe_put_metadata("integration_id", integration_id),
           observed_at: observed_at
         }
 
@@ -250,7 +290,10 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     |> Enum.with_index()
     |> Enum.reduce(records, fn {iface, index}, acc ->
       name = string_value(iface, "name") || string_value(iface, "config_key") || "net#{index}"
-      mac_address = normalize_mac_display(string_value(iface, "mac_address"))
+
+      # Separator-free 12-hex via IdentityReconciler.normalize_mac, matching
+      # the canonical MAC format used by the rest of the identity pipeline.
+      mac_address = normalize_mac_identifier(string_value(iface, "mac_address"))
       ip_addresses = normalized_ip_addresses(iface)
 
       if blank?(name) and blank?(mac_address) and ip_addresses == [] do
@@ -587,17 +630,6 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp stringify_scalar(value) when is_integer(value), do: Integer.to_string(value)
   defp stringify_scalar(value) when is_float(value), do: Float.to_string(value)
   defp stringify_scalar(_value), do: ""
-
-  defp normalize_mac_display(value) do
-    case normalize_mac_identifier(value) do
-      <<a::binary-size(2), b::binary-size(2), c::binary-size(2), d::binary-size(2),
-        e::binary-size(2), f::binary-size(2)>> ->
-        Enum.join([a, b, c, d, e, f], ":")
-
-      _ ->
-        nil
-    end
-  end
 
   defp normalize_mac_identifier(value) when is_binary(value) do
     case IdentityReconciler.normalize_mac(value) do

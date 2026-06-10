@@ -112,7 +112,12 @@ defmodule ServiceRadar.Plugins.StorageToken do
 
   def download_request(_package_id, _object_key, _url_path), do: nil
 
-  defp download_ttl_seconds do
+  @doc """
+  Effective TTL (seconds) applied to signed download tokens. Public so config
+  generation can re-version agent configs before delivered tokens expire.
+  """
+  @spec download_ttl_seconds() :: pos_integer()
+  def download_ttl_seconds do
     config()
     |> Keyword.get(:download_ttl_seconds, @default_download_ttl_seconds)
     |> normalize_int(@default_download_ttl_seconds)

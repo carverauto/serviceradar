@@ -55,6 +55,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         mtr_state_trigger_worker_child(),
         mtr_consensus_worker_child(),
         topology_state_scheduler_child(),
+        identity_maintenance_scheduler_child(),
         plugin_target_policy_scheduler_child(),
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
@@ -253,6 +254,16 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp topology_state_scheduler_child do
     if enabled?("TOPOLOGY_STATE_SCHEDULER_ENABLED", :topology_state_scheduler_enabled, true) do
       ServiceRadar.NetworkDiscovery.TopologyStateScheduler
+    end
+  end
+
+  defp identity_maintenance_scheduler_child do
+    if enabled?(
+         "IDENTITY_MAINTENANCE_SCHEDULER_ENABLED",
+         :identity_maintenance_scheduler_enabled,
+         true
+       ) do
+      ServiceRadar.Inventory.IdentityMaintenanceScheduler
     end
   end
 

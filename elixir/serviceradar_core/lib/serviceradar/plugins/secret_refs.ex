@@ -59,19 +59,34 @@ defmodule ServiceRadar.Plugins.SecretRefs do
 
   def public_params(_params), do: %{}
 
-  @spec resolve_runtime_params(map(), map()) :: {:ok, map()} | {:error, [String.t()]}
-  def resolve_runtime_params(schema, params) when is_map(schema) and is_map(params) do
+  @doc """
+  Resolves stored secret references into runtime params.
+
+  Options:
+
+    * `:grant` — a credential broker grant (struct or map). Network credential
+      references whose secret matches the grant resolve through
+      `SecretBroker.resolve_with_grant/2`, which permits external-reference
+      secrets and validates grant scope/expiry.
+    * `:broker_opts` — extra options forwarded to the broker call (e.g.
+      `audit?: true`, `:actor`, `:agent_id`); applies to both grant-backed and
+      grant-less resolution so each resolution can be audited.
+  """
+  @spec resolve_runtime_params(map(), map(), keyword()) :: {:ok, map()} | {:error, [String.t()]}
+  def resolve_runtime_params(schema, params, opts \\ [])
+
+  def resolve_runtime_params(schema, params, opts) when is_map(schema) and is_map(params) do
     params = stringify_keys(params)
 
-    with {:ok, resolved} <- resolve_direct_runtime_params(schema, params) do
-      maybe_resolve_template_runtime(schema, resolved, params)
+    with {:ok, resolved} <- resolve_direct_runtime_params(schema, params, opts) do
+      maybe_resolve_template_runtime(schema, resolved, params, opts)
     end
   end
 
-  def resolve_runtime_params(_schema, params) when is_map(params),
+  def resolve_runtime_params(_schema, params, _opts) when is_map(params),
     do: {:ok, public_params(params)}
 
-  def resolve_runtime_params(_schema, _params), do: {:ok, %{}}
+  def resolve_runtime_params(_schema, _params, _opts), do: {:ok, %{}}
 
   @spec validate_secret_linkage(map(), map()) :: :ok | {:error, [String.t()]}
   def validate_secret_linkage(schema, params) when is_map(schema) and is_map(params) do
@@ -192,9 +207,9 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  defp resolve_secret_field(acc, field, material) do
+  defp resolve_secret_field(acc, field, material, opts) do
     with ref when not is_nil(ref) <- secret_ref_value(acc, field),
-         {:ok, secret} <- resolve_secret_ref(material, ref, field) do
+         {:ok, secret} <- resolve_secret_ref(material, ref, field, opts) do
       {:ok, Map.put(acc, runtime_field_name(field), secret)}
     else
       nil -> {:ok, acc}
@@ -202,9 +217,9 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  defp resolve_secret_ref(material, ref, field) do
+  defp resolve_secret_ref(material, ref, field, opts) do
     if network_credential_ref?(ref) do
-      resolve_network_credential_ref(ref, field)
+      resolve_network_credential_ref(ref, field, opts)
     else
       with {:ok, encrypted} <- fetch_secret_material(material, ref, field) do
         decrypt_secret_material(encrypted, field)
@@ -226,21 +241,66 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  defp resolve_network_credential_ref(ref, field) do
+  defp resolve_network_credential_ref(ref, field, opts) do
     with {:ok, secret_id} <- network_credential_ref_id(ref),
-         {:ok, %{secret: secret, value: payload}} <-
-           SecretBroker.resolve_network_credential_secret(secret_id,
-             allow_external_resolution?: false,
-             consumer_kind: :plugin,
-             resolution_location: :agent
-           ),
+         {:ok, %{secret: secret, value: payload}} <- broker_resolve(secret_id, opts),
          true <- payload != "" do
       {:ok, format_network_credential_payload(secret, payload)}
     else
-      {:error, reason} -> {:error, "#{field} #{reason}"}
+      {:error, reason} -> {:error, "#{field} #{format_broker_error(reason)}"}
       _ -> {:error, "#{field} referenced network credential has no secret payload"}
     end
   end
+
+  defp broker_resolve(secret_id, opts) do
+    broker_opts = Keyword.get(opts, :broker_opts, [])
+
+    case grant_for_secret(Keyword.get(opts, :grant), secret_id) do
+      nil ->
+        SecretBroker.resolve_network_credential_secret(
+          secret_id,
+          Keyword.merge(
+            [
+              allow_external_resolution?: false,
+              consumer_kind: :plugin,
+              resolution_location: :agent
+            ],
+            broker_opts
+          )
+        )
+
+      grant ->
+        SecretBroker.resolve_with_grant(grant, broker_opts)
+    end
+  end
+
+  # Only route through the grant when it actually covers the referenced secret;
+  # otherwise fall back to the historical grant-less resolution path.
+  defp grant_for_secret(nil, _secret_id), do: nil
+
+  defp grant_for_secret(grant, secret_id) when is_map(grant) do
+    grant_secret_id =
+      grant_value(grant, :secret_id) || grant_ref_secret_id(grant_value(grant, :secret_ref))
+
+    if to_string(grant_secret_id || "") == secret_id, do: grant
+  end
+
+  defp grant_for_secret(_grant, _secret_id), do: nil
+
+  defp grant_value(grant, key), do: Map.get(grant, key) || Map.get(grant, to_string(key))
+
+  defp grant_ref_secret_id(ref) when is_binary(ref) do
+    case network_credential_ref_id(ref) do
+      {:ok, secret_id} -> secret_id
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp grant_ref_secret_id(_ref), do: nil
+
+  defp format_broker_error(reason) when is_binary(reason), do: reason
+  defp format_broker_error(reason) when is_atom(reason), do: to_string(reason)
+  defp format_broker_error(reason), do: inspect(reason)
 
   defp format_network_credential_payload(secret, payload) do
     if proxmox_api_token_secret?(secret) do
@@ -392,12 +452,12 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end
   end
 
-  defp resolve_direct_runtime_params(schema, params) do
+  defp resolve_direct_runtime_params(schema, params, opts) do
     material = secret_material(params)
 
     Enum.reduce_while(secret_ref_fields(schema), {:ok, public_params(params)}, fn field,
                                                                                   {:ok, acc} ->
-      case resolve_secret_field(acc, field, material) do
+      case resolve_secret_field(acc, field, material, opts) do
         {:ok, resolved} ->
           {:cont, {:ok, resolved}}
 
@@ -407,11 +467,11 @@ defmodule ServiceRadar.Plugins.SecretRefs do
     end)
   end
 
-  defp maybe_resolve_template_runtime(schema, resolved, params) do
+  defp maybe_resolve_template_runtime(schema, resolved, params, opts) do
     template = Map.get(params, "template")
 
     if plugin_inputs_payload?(params) and is_map(template) do
-      case resolve_direct_runtime_params(schema, stringify_keys(template)) do
+      case resolve_direct_runtime_params(schema, stringify_keys(template), opts) do
         {:ok, runtime_template} -> {:ok, Map.put(resolved, "template", runtime_template)}
         {:error, _} = error -> error
       end

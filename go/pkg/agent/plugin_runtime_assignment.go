@@ -25,6 +25,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/hashutil"
@@ -33,24 +34,60 @@ import (
 )
 
 type pluginAssignment struct {
-	AssignmentID  string
-	PluginID      string
-	PackageID     string
-	Version       string
-	Name          string
-	Entrypoint    string
-	Runtime       string
-	Outputs       string
-	Capabilities  map[string]bool
-	ParamsJSON    []byte
-	Permissions   pluginPermissions
-	Resources     pluginResources
-	Interval      time.Duration
-	Timeout       time.Duration
-	WasmObject    string
-	ContentHash   string
+	AssignmentID string
+	PluginID     string
+	PackageID    string
+	Version      string
+	Name         string
+	Entrypoint   string
+	Runtime      string
+	Outputs      string
+	Capabilities map[string]bool
+	ParamsJSON   []byte
+	Permissions  pluginPermissions
+	Resources    pluginResources
+	Interval     time.Duration
+	Timeout      time.Duration
+	WasmObject   string
+	ContentHash  string
+	// DownloadURL/DownloadToken are the gateway-signed artifact download
+	// request. The token is short-lived and re-minted by the control plane on
+	// every config generation, so it can be refreshed in place (see
+	// setDownloadCredentials) without restarting runners. Access through the
+	// accessors below once the assignment is shared with runner goroutines.
 	DownloadURL   string
 	DownloadToken string
+
+	downloadMu sync.RWMutex
+}
+
+// downloadCredentials returns the current artifact download URL and signed
+// token. Safe for concurrent use with setDownloadCredentials.
+func (a *pluginAssignment) downloadCredentials() (downloadURL, downloadToken string) {
+	if a == nil {
+		return "", ""
+	}
+
+	a.downloadMu.RLock()
+	defer a.downloadMu.RUnlock()
+
+	return a.DownloadURL, a.DownloadToken
+}
+
+// setDownloadCredentials refreshes the artifact download request in place.
+// Empty URLs are ignored so a degraded control plane cannot wipe a previously
+// valid download location; tokens always follow the supplied URL so freshly
+// minted (rotating) tokens replace stale ones.
+func (a *pluginAssignment) setDownloadCredentials(downloadURL, downloadToken string) {
+	if a == nil || strings.TrimSpace(downloadURL) == "" {
+		return
+	}
+
+	a.downloadMu.Lock()
+	defer a.downloadMu.Unlock()
+
+	a.DownloadURL = downloadURL
+	a.DownloadToken = downloadToken
 }
 
 func (a *pluginAssignment) isStreaming() bool {

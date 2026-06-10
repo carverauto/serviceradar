@@ -1,0 +1,170 @@
+defmodule ServiceRadar.Inventory.Sync.Lookups do
+  @moduledoc """
+  Bulk identity lookups for sync batches (identifier map, IP map, alias map)
+  and per-update cached resolution.
+  """
+
+  import Ecto.Query
+
+  alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.IdentityReconciler
+  alias ServiceRadar.Inventory.Sync.SourcePolicy
+  alias ServiceRadar.Repo
+
+  require Logger
+
+  # Extract all identifiers from all updates for bulk lookup
+  def extract_all_identifiers(updates) do
+    updates
+    |> Enum.flat_map(fn update ->
+      ids = SourcePolicy.effective_identifiers(update)
+      partition = ids.partition
+      include_agent? = SourcePolicy.include_agent_identifier?(update, ids)
+      include_mac? = SourcePolicy.include_mac_identifier?(update)
+
+      mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
+
+      integration_values =
+        ServiceRadar.Inventory.Identity.Ids.get_identifier_values(:integration_id, ids)
+
+      []
+      |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
+      |> then(fn acc ->
+        Enum.reduce(integration_values, acc, &maybe_add_id(&2, :integration_id, &1, partition))
+      end)
+      |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)
+      |> then(fn acc ->
+        Enum.reduce(mac_values, acc, &maybe_add_id(&2, :mac, &1, partition))
+      end)
+    end)
+    |> Enum.uniq()
+  end
+
+  defp maybe_add_id(acc, _type, nil, _partition), do: acc
+  defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
+  defp maybe_add_id_if(acc, false, _type, _value, _partition), do: acc
+
+  defp maybe_add_id_if(acc, true, type, value, partition),
+    do: maybe_add_id(acc, type, value, partition)
+
+  # Bulk lookup device identifiers - single query for all identifiers
+  # DB connection's search_path determines the schema
+  def bulk_lookup_identifiers([]), do: %{}
+
+  def bulk_lookup_identifiers(identifiers) do
+    # Build OR conditions for all identifiers
+    conditions =
+      Enum.map(identifiers, fn {type, value, partition} ->
+        dynamic(
+          [di],
+          di.identifier_type == ^to_string(type) and
+            di.identifier_value == ^value and
+            di.partition == ^partition
+        )
+      end)
+
+    combined_condition =
+      Enum.reduce(conditions, fn cond, acc ->
+        dynamic([di], ^acc or ^cond)
+      end)
+
+    query =
+      from(di in DeviceIdentifier,
+        where: ^combined_condition,
+        select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
+      )
+
+    query
+    |> Repo.all()
+    |> Enum.reduce(%{}, fn {type, value, partition, device_id}, acc ->
+      type_atom =
+        case type do
+          type when is_binary(type) -> String.to_atom(type)
+          type when is_atom(type) -> type
+          _ -> nil
+        end
+
+      if type_atom == nil do
+        acc
+      else
+        key = {type_atom, value, partition}
+        Map.put(acc, key, device_id)
+      end
+    end)
+  rescue
+    e ->
+      Logger.warning("Bulk identifier lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  # Bulk lookup devices by IP
+  # DB connection's search_path determines the schema
+  def bulk_lookup_by_ip([]), do: %{}
+
+  def bulk_lookup_by_ip(updates) do
+    ips = extract_ips(updates)
+
+    case ips do
+      [] ->
+        %{}
+
+      _ ->
+        alias_map = lookup_alias_device_ids_by_ip(ips)
+        direct_map = lookup_devices_by_ip(ips, alias_map)
+        Map.merge(direct_map, alias_map)
+    end
+  rescue
+    e ->
+      Logger.warning("Bulk IP lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  defp extract_ips(updates) do
+    updates
+    |> Enum.map(& &1.ip)
+    |> Enum.filter(&(&1 not in [nil, ""]))
+    |> Enum.uniq()
+  end
+
+  defp lookup_devices_by_ip(ips, alias_map) do
+    remaining_ips = ips -- Map.keys(alias_map)
+
+    case remaining_ips do
+      [] ->
+        %{}
+
+      _ ->
+        query =
+          from(d in Device,
+            where: d.ip in ^remaining_ips,
+            select: {d.ip, d.uid}
+          )
+
+        query
+        |> Repo.all()
+        |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+        |> Map.new()
+    end
+  end
+
+  def lookup_alias_device_ids_by_ip(ips) do
+    query =
+      from(a in DeviceAliasState,
+        where:
+          a.alias_type == :ip and a.alias_value in ^ips and
+            a.state in [:confirmed, :updated],
+        select: {a.alias_value, a.device_id}
+      )
+
+    query
+    |> Repo.all()
+    |> Enum.filter(fn {_ip, uid} -> IdentityReconciler.serviceradar_uuid?(uid) end)
+    |> Map.new()
+  rescue
+    e ->
+      Logger.warning("Bulk IP alias lookup failed: #{inspect(e)}")
+      %{}
+  end
+end

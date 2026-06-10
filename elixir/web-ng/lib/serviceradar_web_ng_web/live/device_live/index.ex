@@ -16,12 +16,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DevicePubSub
-  alias ServiceRadar.Repo
   alias ServiceRadarWebNG.Devices.ManualDeviceCreator
   alias ServiceRadarWebNG.Northbound.ActionForm, as: NorthboundActionForm
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNG.RuntimeLimits
   alias ServiceRadarWebNG.TenantUsage
+  alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
 
@@ -850,38 +850,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Index do
   end
 
   defp load_agent_device_uids(devices, _scope) do
-    device_uids =
-      devices
-      |> Enum.filter(&is_map/1)
-      |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
-      |> Enum.filter(&present_text?/1)
-      |> Enum.uniq()
-
-    if device_uids == [] do
-      MapSet.new()
-    else
-      case Repo.query(
-             """
-             SELECT DISTINCT device_uid
-             FROM platform.ocsf_agents
-             WHERE device_uid = ANY($1::text[])
-             """,
-             [device_uids]
-           ) do
-        {:ok, %{rows: rows}} ->
-          rows
-          |> Enum.map(fn [device_uid] -> device_uid end)
-          |> Enum.filter(&present_text?/1)
-          |> MapSet.new()
-
-        _ ->
-          MapSet.new()
-      end
-    end
-  rescue
-    reason ->
-      Logger.warning("Failed to load agent device markers: #{inspect(reason)}")
-      MapSet.new()
+    devices
+    |> Enum.filter(&is_map/1)
+    |> Enum.map(&(Map.get(&1, "uid") || Map.get(&1, "id")))
+    |> DeviceStateData.agent_device_uids()
   end
 
   defp load_availability_source_agent_options(scope) do

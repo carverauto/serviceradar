@@ -22,7 +22,10 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
     {:ok, actor: actor}
   end
 
-  test "IP fallback reuses existing device even with strong identifiers", %{actor: actor} do
+  test "IP fallback does not override strong identifiers", %{actor: actor} do
+    # Per device-identity-reconciliation spec ("Single Canonical Resolution
+    # Path"): an update carrying a strong identifier must never be assigned
+    # a device via IP fallback — that adoption collapsed distinct devices.
     ip = unique_ip()
     {:ok, device} = create_device(actor, ip, "existing-device")
 
@@ -30,6 +33,22 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerIpDedupTest do
       device_id: nil,
       ip: ip,
       mac: "AA:BB:CC:DD:EE:FF",
+      partition: "default",
+      metadata: %{}
+    }
+
+    assert {:ok, resolved_id} = IdentityReconciler.resolve_device_id(update, actor: actor)
+    refute resolved_id == device.uid
+  end
+
+  test "IP fallback reuses existing device for weak updates", %{actor: actor} do
+    ip = unique_ip()
+    {:ok, device} = create_device(actor, ip, "existing-weak-device")
+
+    update = %{
+      device_id: nil,
+      ip: ip,
+      mac: nil,
       partition: "default",
       metadata: %{}
     }

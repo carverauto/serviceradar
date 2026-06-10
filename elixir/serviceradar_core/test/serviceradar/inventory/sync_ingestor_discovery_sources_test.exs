@@ -91,10 +91,11 @@ defmodule ServiceRadar.Inventory.SyncIngestorDiscoverySourcesTest do
       ip = "10.0.4.#{unique_octet()}"
       mac = unique_mac()
 
-      # First discovery from armis
+      # First discovery from armis (shares the MAC with the netbox record —
+      # a bare shared IP is intentionally NOT merge evidence)
       armis_update = %{
         "ip" => ip,
-        "mac" => unique_mac(),
+        "mac" => mac,
         "hostname" => "multi-source-device",
         "source" => "armis",
         "metadata" => %{"armis_device_id" => armis_id}

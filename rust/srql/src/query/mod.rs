@@ -130,7 +130,6 @@ mod cpu_metrics;
 mod dashboard_service_views;
 mod dashboards;
 mod device_graph;
-mod device_updates;
 mod devices;
 mod disk_metrics;
 mod downsample;
@@ -228,7 +227,6 @@ impl QueryEngine {
                 }
                 Entity::EndpointPackages => endpoint_packages::execute(&mut conn, &plan).await?,
                 Entity::Devices => devices::execute(&mut conn, &plan).await?,
-                Entity::DeviceUpdates => device_updates::execute(&mut conn, &plan).await?,
                 Entity::DeviceGraph => device_graph::execute(&mut conn, &plan).await?,
                 Entity::GraphCypher => {
                     graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
@@ -789,7 +787,6 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::EndpointPackageCatalog => endpoint_package_catalog::to_sql_and_params(&plan)?,
             Entity::EndpointPackages => endpoint_packages::to_sql_and_params(&plan)?,
             Entity::Devices => devices::to_sql_and_params(&plan)?,
-            Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
             Entity::Events

@@ -14,7 +14,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents do
       |> Enum.map(&to_string/1)
       |> Enum.uniq()
 
-    # Exclude metadata and fields already shown in the header card
+    # Exclude metadata, fields already shown in the header card, and the
+    # virtual agent-linkage keys injected by DeviceStateData.tag_agent_device/2
     excluded = [
       "metadata",
       "hostname",
@@ -23,7 +24,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DevicePropertiesComponents do
       "last_seen",
       "os_info",
       "version_info",
-      "device_id"
+      "device_id",
+      "agent_device",
+      "agent_labels"
     ]
 
     keys = Enum.reject(keys, &(&1 in excluded))

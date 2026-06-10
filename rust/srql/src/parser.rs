@@ -11,7 +11,6 @@ use serde::Serialize;
 pub enum Entity {
     Agents,
     Devices,
-    DeviceUpdates,
     Interfaces,
     DeviceGraph,
     GraphCypher,
@@ -408,7 +407,6 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "devices" | "device" | "device_inventory" => Ok(Entity::Devices),
         "device_graph" | "devicegraph" | "graph" => Ok(Entity::DeviceGraph),
         "graph_cypher" | "graphcypher" | "cypher" => Ok(Entity::GraphCypher),
-        "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
         "security_findings" | "security_finding" | "findings" | "finding" => {

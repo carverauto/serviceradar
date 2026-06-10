@@ -63,6 +63,11 @@ defmodule ServiceRadar.Inventory.DeviceAgentAvailability do
       accept @update_fields
     end
 
+    update :reassign_device do
+      description "Repoint the row to a canonical device (used during merges)"
+      accept [:device_uid]
+    end
+
     read :by_device do
       argument :device_uid, :string, allow_nil?: false
 

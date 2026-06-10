@@ -68,6 +68,74 @@ defmodule ServiceRadar.Edge.AgentGatewaySyncTest do
       assert "sysmon" in device.discovery_sources
     end
 
+    test "registers host interface MACs as identifiers at enrollment", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      mac_suffix =
+        unique_id
+        |> rem(0x1000000)
+        |> Integer.to_string(16)
+        |> String.pad_leading(6, "0")
+        |> String.upcase()
+
+      mac = "001A2B" <> mac_suffix
+
+      attrs = %{
+        hostname: "host-evidence-#{agent_id}",
+        os: "linux",
+        arch: "amd64",
+        partition: "default",
+        source_ip: "10.91.#{rem(unique_id, 200)}.#{rem(unique_id, 250) + 1}",
+        capabilities: ["sysmon"],
+        host_macs: [
+          mac
+          |> String.codepoints()
+          |> Enum.chunk_every(2)
+          |> Enum.map_join(":", &Enum.join/1)
+        ]
+      }
+
+      assert {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+      {:ok, identifiers} =
+        DeviceIdentifier
+        |> Ash.Query.filter(device_id == ^device_uid)
+        |> Ash.read(actor: actor)
+
+      by_type = Enum.group_by(identifiers, & &1.identifier_type, & &1.identifier_value)
+
+      assert by_type[:agent_id] == [agent_id]
+      assert by_type[:mac] == [mac]
+      refute Enum.any?(identifiers, &String.contains?(&1.identifier_value, ","))
+    end
+
+    test "enrollment without MACs registers only the agent_id identifier", %{
+      agent_id: agent_id,
+      actor: actor,
+      unique_id: unique_id
+    } do
+      attrs = %{
+        hostname: "no-mac-host-#{agent_id}",
+        os: "linux",
+        arch: "amd64",
+        partition: "default",
+        source_ip: "10.92.#{rem(unique_id, 200)}.#{rem(unique_id, 250) + 1}",
+        capabilities: ["sysmon"]
+      }
+
+      assert {:ok, device_uid} = AgentGatewaySync.ensure_device_for_agent(agent_id, attrs)
+
+      {:ok, identifiers} =
+        DeviceIdentifier
+        |> Ash.Query.filter(device_id == ^device_uid)
+        |> Ash.read(actor: actor)
+
+      assert Enum.map(identifiers, &{&1.identifier_type, &1.identifier_value}) ==
+               [{:agent_id, agent_id}]
+    end
+
     test "updates existing device on subsequent enrollment", %{
       agent_id: agent_id,
       actor: actor

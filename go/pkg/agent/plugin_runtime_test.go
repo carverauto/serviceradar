@@ -234,6 +234,94 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 	}
 }
 
+func TestPluginManagerApplyConfigRefreshesDownloadTokenWithoutRestart(t *testing.T) {
+	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
+	defer mgr.Stop()
+
+	assignmentConfig := func(token string) *proto.PluginConfig {
+		return &proto.PluginConfig{
+			Assignments: []*proto.PluginAssignmentConfig{
+				{
+					AssignmentId:  "scheduled-1",
+					PluginId:      "proxmox-inventory",
+					Entrypoint:    "run_check",
+					Enabled:       true,
+					IntervalSec:   3600,
+					TimeoutSec:    5,
+					Capabilities:  []string{"submit_result"},
+					DownloadUrl:   "https://plugins.example/download/pkg-1",
+					DownloadToken: token,
+				},
+				{
+					AssignmentId:  "streaming-1",
+					PluginId:      "camera-streamer",
+					Entrypoint:    "stream_camera",
+					Enabled:       true,
+					IntervalSec:   3600,
+					TimeoutSec:    5,
+					Capabilities:  []string{pluginCapabilityCameraMediaStream},
+					DownloadUrl:   "https://plugins.example/download/pkg-2",
+					DownloadToken: token,
+				},
+			},
+		}
+	}
+
+	mgr.ApplyConfig(assignmentConfig("token-old"))
+
+	mgr.mu.RLock()
+	originalRunner := mgr.runners["scheduled-1"]
+	mgr.mu.RUnlock()
+	if originalRunner == nil {
+		t.Fatal("expected scheduled runner after first apply")
+	}
+
+	// Same fingerprint, freshly minted token: must be adopted in place
+	// without restarting the runner (download tokens rotate every config
+	// generation and are excluded from the fingerprint).
+	mgr.ApplyConfig(assignmentConfig("token-new"))
+
+	mgr.mu.RLock()
+	currentRunner := mgr.runners["scheduled-1"]
+	streamAssignment := mgr.streams["streaming-1"]
+	mgr.mu.RUnlock()
+
+	if currentRunner != originalRunner {
+		t.Fatal("expected runner to survive a download-token-only refresh")
+	}
+
+	if _, token := currentRunner.assignment.downloadCredentials(); token != "token-new" {
+		t.Fatalf("runner download token = %q, want token-new", token)
+	}
+	if streamAssignment == nil {
+		t.Fatal("expected streaming assignment after apply")
+	}
+	if _, token := streamAssignment.downloadCredentials(); token != "token-new" {
+		t.Fatalf("stream download token = %q, want token-new", token)
+	}
+}
+
+func TestPluginAssignmentSetDownloadCredentialsIgnoresEmptyURL(t *testing.T) {
+	assignment := &pluginAssignment{
+		AssignmentID:  "a-1",
+		DownloadURL:   "https://plugins.example/download/pkg-1",
+		DownloadToken: "token-old",
+	}
+
+	assignment.setDownloadCredentials("", "token-new")
+
+	downloadURL, token := assignment.downloadCredentials()
+	if downloadURL != "https://plugins.example/download/pkg-1" || token != "token-old" {
+		t.Fatalf("empty URL must not overwrite credentials, got url=%q token=%q", downloadURL, token)
+	}
+
+	assignment.setDownloadCredentials("https://plugins.example/download/pkg-1", "token-new")
+
+	if _, token := assignment.downloadCredentials(); token != "token-new" {
+		t.Fatalf("download token = %q, want token-new", token)
+	}
+}
+
 func TestPluginManagerStreamingAssignmentSnapshot(t *testing.T) {
 	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
 	defer mgr.Stop()

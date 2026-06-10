@@ -57,6 +57,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           <span class="font-mono text-xs">{@device_uid}</span>
           <span
             :if={@agent_device}
+            data-testid="device-agent-pill"
             class="inline-flex items-center gap-1 rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-semibold text-accent"
           >
             <.icon name="hero-bolt" class="size-3" /> Agent

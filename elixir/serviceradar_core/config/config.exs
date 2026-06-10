@@ -52,12 +52,29 @@ config :serviceradar_core, Oban,
   ],
   peer: Oban.Peers.Database
 
+# Agent-to-device link repair (periodic; see AgentLinkRepairWorker)
+config :serviceradar_core, ServiceRadar.Inventory.AgentLinkRepairWorker,
+  enabled: true,
+  batch_size: 100,
+  reschedule_seconds: 900
+
 config :serviceradar_core, ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker,
   enabled: false,
   timeout_ms: 30_000,
   reschedule_seconds: 86_400,
   failure_reschedule_seconds: 3_600,
   max_entries: 250_000
+
+# Unseen-identifier TTL garbage collection (daily; see DeviceIdentifierGcWorker)
+config :serviceradar_core, ServiceRadar.Inventory.DeviceIdentifierGcWorker,
+  enabled: true,
+  ttl_days: 90,
+  batch_size: 5_000,
+  max_batches: 200,
+  reschedule_seconds: 86_400
+
+# ng_job_schedules staleness alerting (see ScheduleHealthWorker)
+config :serviceradar_core, ServiceRadar.Jobs.ScheduleHealthWorker, reschedule_seconds: 900
 
 # Mailer configuration
 config :serviceradar_core, ServiceRadar.Mailer, adapter: Swoosh.Adapters.Local
@@ -206,16 +223,14 @@ config :spark,
     ],
     # Settings → Audit → History allow-list. Sets which AshPaperTrail-
     # enabled resources surface on the cross-resource history page.
+    # Import environment specific config
+    # The module defaults to the full list of AshPaperTrail-enabled
+    # resources; uncomment + edit to scope tighter or to exclude a
+
     "Ash.Domain": [
       section_order: [:resources, :policies, :authorization, :domain, :execution]
     ]
   ]
-
-# Import environment specific config
-# The module defaults to the full list of AshPaperTrail-enabled
-# resources; uncomment + edit to scope tighter or to exclude a
-
-config :swoosh, :api_client, false
 
 # Disable Swoosh API client (not needed for Local adapter)
 # high-write-volume resource (e.g. PlaybookRun during a busy
@@ -227,5 +242,6 @@ config :swoosh, :api_client, false
 #     ServiceRadar.Credentials.NetworkCredentialRule,
 #     ServiceRadar.Security.AuthLockout
 #   ]
+config :swoosh, :api_client, false
 
 import_config "#{config_env()}.exs"

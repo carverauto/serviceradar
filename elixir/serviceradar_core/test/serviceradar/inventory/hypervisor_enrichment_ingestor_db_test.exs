@@ -116,6 +116,248 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestorDbTest do
              ).rows
   end
 
+  test "resolves hosts to existing devices by case-insensitive hostname", %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    provider = "proxmox"
+    host_ref = "#{provider}:node:pve-case-#{suffix}"
+    existing_uid = "sr:existing-host-case-#{suffix}"
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: existing_uid,
+          type: "Server",
+          type_id: 1,
+          name: "PVE-Case-#{suffix}",
+          hostname: "PVE-Case-#{suffix}",
+          discovery_sources: ["mapper"],
+          is_managed: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "hosts" => [
+          %{
+            "provider_ref" => host_ref,
+            "name" => "pve-case-#{suffix}",
+            "status" => "online",
+            "metadata" => %{"ip" => "10.61.#{rem(suffix, 200)}.11"}
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+
+    assert [[^existing_uid]] =
+             Repo.query!(
+               """
+               SELECT device_uid
+               FROM platform.virtualization_hosts
+               WHERE provider = $1 AND provider_ref = $2
+               """,
+               [provider, host_ref]
+             ).rows
+  end
+
+  test "resolves hosts to existing devices by host NIC MAC identity", %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    provider = "testhv"
+    host_ref = "#{provider}:node:esx-mac-#{suffix}"
+    existing_uid = "sr:existing-host-mac-#{suffix}"
+    mac = "02:00:00:66:#{rem(suffix, 90) + 10}:31"
+    normalized_mac = IdentityReconciler.normalize_mac(mac)
+
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: existing_uid,
+          type: "Server",
+          type_id: 1,
+          name: "esx-host-mac-#{suffix}",
+          hostname: "esx-host-mac-#{suffix}.lab.example",
+          discovery_sources: ["mapper"],
+          is_managed: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: existing_uid,
+          identifier_type: :mac,
+          identifier_value: normalized_mac,
+          partition: "default",
+          source: "mapper"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "hosts" => [
+          %{
+            # Name intentionally does not match the existing device: only the
+            # NIC MAC ties the host to it.
+            "provider_ref" => host_ref,
+            "name" => "esx-mac-#{suffix}",
+            "status" => "online",
+            "metadata" => %{}
+          }
+        ],
+        "network_interfaces" => [
+          %{
+            "provider_ref" => "#{provider}:nic:esx-mac-#{suffix}:vmnic0",
+            "host_provider_ref" => host_ref,
+            "name" => "vmnic0",
+            "mac_address" => mac,
+            "address" => "10.62.#{rem(suffix, 200)}.11",
+            "source" => "host_config"
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+
+    assert [[^existing_uid]] =
+             Repo.query!(
+               """
+               SELECT device_uid
+               FROM platform.virtualization_hosts
+               WHERE provider = $1 AND provider_ref = $2
+               """,
+               [provider, host_ref]
+             ).rows
+
+    # No parallel placeholder device was minted for the host.
+    assert [[^existing_uid, ^host_ref]] =
+             Repo.query!(
+               """
+               SELECT device_id, identifier_value
+               FROM platform.device_identifiers
+               WHERE identifier_type = 'integration_id' AND identifier_value = $1
+               """,
+               [host_ref]
+             ).rows
+  end
+
+  test "bridges legacy proxmox integration ids to the v2 identity", %{actor: actor} do
+    suffix = System.unique_integer([:positive])
+    provider = "proxmox"
+    cluster = "farm-#{suffix}"
+    node = "pve-legacy-#{suffix}"
+    guest_name = "legacy-guest-#{suffix}"
+    guest_ref = "#{provider}:guest:#{node}:qemu:132"
+    v2_id = "proxmox:v2:#{cluster}:vm:132"
+    legacy_id = "proxmox:vm:#{guest_name}"
+    existing_uid = "sr:legacy-proxmox-guest-#{suffix}"
+
+    # The device hostname intentionally differs from the payload guest name:
+    # only the legacy integration_id bridge can tie the records together.
+    {:ok, _device} =
+      Device
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          uid: existing_uid,
+          type: "Virtual",
+          type_id: 6,
+          name: "renamed-#{guest_name}",
+          hostname: "renamed-#{guest_name}",
+          discovery_sources: ["sync"],
+          is_managed: false
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    # Gen-1 name-keyed identifier written by the old connector generation.
+    {:ok, _identifier} =
+      DeviceIdentifier
+      |> Ash.Changeset.for_create(
+        :register,
+        %{
+          device_id: existing_uid,
+          identifier_type: :integration_id,
+          identifier_value: legacy_id,
+          partition: "default",
+          source: "sync"
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    payload = %{
+      "details" => %{
+        "schema" => "serviceradar.hypervisor_enrichment.v1",
+        "provider" => provider,
+        "guests" => [
+          %{
+            "provider_ref" => guest_ref,
+            "host_provider_ref" => "#{provider}:node:#{node}",
+            "name" => guest_name,
+            "guest_type" => "vm",
+            "vmid" => 132,
+            "status" => "running",
+            "metadata" => %{"integration_id" => v2_id}
+          }
+        ]
+      }
+    }
+
+    assert :ok = HypervisorEnrichmentIngestor.ingest(payload, %{}, actor: actor)
+
+    # The guest links to the existing device instead of forking a duplicate.
+    assert [[^existing_uid]] =
+             Repo.query!(
+               """
+               SELECT device_uid
+               FROM platform.virtualization_guests
+               WHERE provider = $1 AND provider_ref = $2
+               """,
+               [provider, guest_ref]
+             ).rows
+
+    # The stable v2 identifier was registered on the same device, so future
+    # lookups no longer depend on the legacy bridge.
+    assert [[^existing_uid]] =
+             Repo.query!(
+               """
+               SELECT device_id
+               FROM platform.device_identifiers
+               WHERE identifier_type = 'integration_id' AND identifier_value = $1
+               """,
+               [v2_id]
+             ).rows
+
+    assert [[^existing_uid]] =
+             Repo.query!(
+               """
+               SELECT device_id
+               FROM platform.device_identifiers
+               WHERE identifier_type = 'integration_id' AND identifier_value = $1
+               """,
+               [legacy_id]
+             ).rows
+  end
+
   test "does not let virtual guests claim an agent-managed host UID", %{actor: actor} do
     suffix = System.unique_integer([:positive])
     provider = "proxmox"
