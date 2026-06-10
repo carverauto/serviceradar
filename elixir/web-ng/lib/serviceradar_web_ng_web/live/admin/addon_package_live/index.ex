@@ -29,6 +29,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     {"Custom Agent IDs", "custom"}
   ]
 
+  @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
+  @inert_sample_addon_ids MapSet.new(["sample", "rust-sample"])
+
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
@@ -1098,34 +1101,42 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp assign_first_party_catalog_view(socket, addons, requested_release_tag) do
     packages = socket.assigns[:packages] || []
-    release_options = combined_release_options(addons, packages)
+    visible_addons = visible_first_party_addons(addons)
+    visible_packages = visible_addon_packages(packages)
+    release_options = combined_release_options(visible_addons, visible_packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
-    visible_addons = filter_first_party_addons(addons, selected_release_tag)
+    visible_release_addons = filter_first_party_addons(visible_addons, selected_release_tag)
 
     socket
     |> assign(:first_party_catalog_all, addons)
     |> assign(:first_party_release_options, release_options)
     |> assign(:first_party_release_tag, selected_release_tag)
-    |> assign(:first_party_catalog, visible_addons)
+    |> assign(:first_party_catalog, visible_release_addons)
     |> assign(:first_party_catalog_status, first_party_catalog_status(addons, packages))
   end
 
   defp first_party_release_options(addons) do
     addons
+    |> visible_first_party_addons()
     |> Enum.map(& &1.release_tag)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&official_release_tag?/1)
     |> Enum.uniq()
   end
 
   defp package_release_options(packages) do
     packages
+    |> visible_addon_packages()
     |> Enum.map(& &1.source_release_tag)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.filter(&official_release_tag?/1)
     |> Enum.uniq()
   end
 
   defp combined_release_options(addons, packages) do
-    Enum.uniq(first_party_release_options(addons) ++ package_release_options(packages))
+    addons
+    |> first_party_release_options()
+    |> Kernel.++(package_release_options(packages))
+    |> Enum.uniq()
+    |> Enum.sort_by(&release_sort_key/1, :desc)
   end
 
   defp selected_first_party_release([], _requested), do: nil
@@ -1138,17 +1149,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
-  defp filter_first_party_addons(addons, nil), do: addons
+  defp filter_first_party_addons(_addons, nil), do: []
 
   defp filter_first_party_addons(addons, release_tag) do
-    Enum.filter(addons, &(&1.release_tag == release_tag))
+    addons
+    |> visible_first_party_addons()
+    |> Enum.filter(&(&1.release_tag == release_tag))
   end
 
   defp first_party_catalog_status(addons, packages) do
-    import_ready = Enum.count(addons, &Map.get(&1, :import_ready?))
-    releases = addons |> combined_release_options(packages) |> length()
+    visible_addons = visible_first_party_addons(addons)
+    visible_packages = visible_addon_packages(packages)
+    import_ready = Enum.count(visible_addons, &Map.get(&1, :import_ready?))
+    releases = visible_addons |> combined_release_options(visible_packages) |> length()
 
-    "Loaded #{length(addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(packages)} imported package(s), from #{releases} release(s)."
+    "Loaded #{length(visible_addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(visible_packages)} imported package(s), from #{releases} release(s)."
   end
 
   defp first_party_repo_url do
@@ -1170,6 +1185,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp combined_catalog_rows(first_party_addons, packages, release_tag) do
+    first_party_addons = visible_first_party_addons(first_party_addons)
+    packages = visible_addon_packages(packages)
     package_by_key = Map.new(packages, &{package_catalog_key(&1), &1})
 
     first_party_rows =
@@ -1214,8 +1231,38 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     {package.addon_id, package.version, package.source_release_tag}
   end
 
-  defp package_matches_release?(_package, nil), do: true
+  defp package_matches_release?(_package, nil), do: false
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
+
+  defp visible_first_party_addons(addons) do
+    Enum.reject(addons, &inert_sample_addon_id?(&1.addon_id))
+  end
+
+  defp visible_addon_packages(packages) do
+    Enum.reject(packages, &inert_sample_addon_id?(&1.addon_id))
+  end
+
+  defp inert_sample_addon_id?(addon_id) when is_binary(addon_id) do
+    MapSet.member?(@inert_sample_addon_ids, addon_id)
+  end
+
+  defp inert_sample_addon_id?(_addon_id), do: false
+
+  defp official_release_tag?(release_tag) when is_binary(release_tag) do
+    Regex.match?(@official_release_tag_regex, release_tag)
+  end
+
+  defp official_release_tag?(_release_tag), do: false
+
+  defp release_sort_key(release_tag) do
+    case Regex.named_captures(@official_release_tag_regex, release_tag) do
+      %{"major" => major, "minor" => minor, "patch" => patch} ->
+        {String.to_integer(major), String.to_integer(minor), String.to_integer(patch)}
+
+      _ ->
+        {-1, -1, -1}
+    end
+  end
 
   defp package_platforms(package) do
     package.artifacts

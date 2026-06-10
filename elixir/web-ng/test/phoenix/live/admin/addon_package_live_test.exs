@@ -20,13 +20,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     actor: actor
   } do
     unique = System.unique_integer([:positive])
+    release_major = 10_000 + rem(unique, 100_000)
+    older_release = "v#{release_major}.0.0"
+    newer_release = "v#{release_major}.1.0"
 
     _older =
       create_addon_package!(actor, %{
         addon_id: "latest-only-addon-#{unique}",
         name: "Latest Only Add-on #{unique}",
         version: "0.1.0",
-        source_release_tag: "v1.0.0-test-#{unique}",
+        source_release_tag: older_release,
         status: :approved,
         approved_capabilities: ["addon.run"]
       })
@@ -36,7 +39,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
         addon_id: "latest-only-addon-#{unique}",
         name: "Latest Only Add-on #{unique}",
         version: "0.2.0",
-        source_release_tag: "v1.1.0-test-#{unique}",
+        source_release_tag: newer_release,
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    _non_release =
+      create_addon_package!(actor, %{
+        addon_id: "non-release-addon-#{unique}",
+        name: "Non Release Add-on #{unique}",
+        version: "0.3.0",
+        source_release_tag: "netprobe-0.2.20-demo-#{unique}",
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    _sample =
+      create_addon_package!(actor, %{
+        addon_id: "rust-sample",
+        name: "Rust Sample Add-on #{unique}",
+        version: "0.4.0",
+        source_release_tag: newer_release,
         status: :approved,
         approved_capabilities: ["addon.run"]
       })
@@ -48,11 +71,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert html =~ newer.id
     assert html =~ "0.2.0"
     refute html =~ "0.1.0"
+    refute html =~ "netprobe-0.2.20-demo-#{unique}"
+    refute html =~ "Non Release Add-on #{unique}"
+    refute html =~ "Rust Sample Add-on #{unique}"
 
     html =
       lv
       |> element("#select-addon-release-form")
-      |> render_change(%{"release_tag" => "v1.0.0-test-#{unique}"})
+      |> render_change(%{"release_tag" => older_release})
 
     assert html =~ "0.1.0"
     refute html =~ "0.2.0"

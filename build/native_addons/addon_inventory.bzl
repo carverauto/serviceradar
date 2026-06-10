@@ -16,48 +16,6 @@ Each entry's "language" selects how the per-arch binary is produced:
 
 ADDON_BUNDLES = [
     {
-        "name": "sample_addon_bundle",
-        "addon_id": "sample",
-        "repository_name": "serviceradar-addon-sample",
-        "language": "go",
-        "binary": "//go/cmd/serviceradar-sample-addon:serviceradar-sample-addon",
-        "binary_name": "serviceradar-sample-addon",
-        "platforms": [
-            ("linux", "amd64"),
-            ("linux", "arm64"),
-        ],
-        "manifest_entries": [
-            ("addon.yaml", "//addons/sample-addon:addon.yaml"),
-            ("config.schema.json", "//addons/sample-addon:config.schema.json"),
-        ],
-        # Also emit the per-arch pushed-artifact gzip tarball (binary + manifest +
-        # config schema) the agent fetches/verifies/extracts. unit_entries would add
-        # systemd units here for a systemd-supervised add-on (e.g. netprobe).
-        "pushed_artifact_tarball": True,
-    },
-    {
-        # Rust reference add-on (issue 3425). Proves the framework's polyglot
-        # claim: a Rust binary built with rust/addon-sdk, supervised by the same
-        # agent go-plugin client and packaged/signed identically to the Go
-        # sample. The manifest's id/capabilities/binary match the values the
-        # binary reports from its own Info() RPC.
-        "name": "rust_sample_addon_bundle",
-        "addon_id": "rust-sample",
-        "repository_name": "serviceradar-addon-rust-sample",
-        "language": "rust",
-        "binary": "//rust/addon-sdk:serviceradar-rust-sample-addon",
-        "binary_name": "serviceradar-rust-sample-addon",
-        "platforms": [
-            ("linux", "amd64"),
-            ("linux", "arm64"),
-        ],
-        "manifest_entries": [
-            ("addon.yaml", "//addons/rust-sample-addon:addon.yaml"),
-            ("config.schema.json", "//addons/rust-sample-addon:config.schema.json"),
-        ],
-        "pushed_artifact_tarball": True,
-    },
-    {
         # netprobe host-network-visibility add-on (migrate-netprobe-to-native-addon).
         # Carved out of the base serviceradar-agent package: the //rust/netprobe
         # binary is now packaged here as a signed per-arch pushed-artifact bundle
