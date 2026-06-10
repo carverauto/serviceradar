@@ -136,10 +136,11 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     Device
     |> Ash.Query.for_read(:read, %{include_deleted: false})
     |> Ash.Query.filter(expr(hostname == ^hostname or name == ^hostname))
-    |> Ash.Query.limit(2)
+    |> Ash.Query.sort(is_active: :desc, last_seen_time: :desc, modified_time: :desc, uid: :asc)
+    |> Ash.Query.limit(1)
     |> then(fn query -> bounded_lookup(fn -> Ash.read(query, actor: actor) end) end)
     |> case do
-      {:ok, [%Device{uid: uid}]} -> uid
+      {:ok, [%Device{uid: uid} | _]} -> uid
       _ -> nil
     end
   end

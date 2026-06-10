@@ -530,6 +530,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
             ip in ^candidates.ips or
             agent_id in ^candidates.agent_ids
         )
+        |> Ash.Query.sort(is_active: :desc, last_seen_time: :desc, modified_time: :desc, uid: :asc)
         |> Ash.read(scope: scope)
         |> case do
           {:ok, %{results: devices}} -> devices
@@ -671,7 +672,8 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
         case Map.get(acc, candidate) do
           nil -> Map.put(acc, candidate, device)
           %Device{uid: uid} when uid == device.uid -> acc
-          _ -> Map.put(acc, candidate, :ambiguous)
+          %Device{} -> acc
+          :ambiguous -> acc
         end
     end
   end
