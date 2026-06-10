@@ -141,10 +141,10 @@ function dashboardHtml(host) {
 
 function bindActions(element, api) {
   const queries = {
-    findings: "in:security_findings time:last_30d sort:time:desc limit:100",
-    scans: "in:scan_activity time:last_30d sort:time:desc limit:80",
-    dns: "in:dns_activity time:last_30d sort:time:desc limit:80",
-    vulnerabilities: "in:security_findings class_uid:2002 time:last_30d sort:time:desc limit:80",
+    findings: "in:security_findings sort:time:desc limit:100",
+    scans: "in:scan_activity sort:time:desc limit:80",
+    dns: "in:dns_activity sort:time:desc limit:80",
+    vulnerabilities: "in:security_findings class_uid:2002 sort:time:desc limit:80",
   }
 
   for (const button of element.querySelectorAll("[data-srql]")) {

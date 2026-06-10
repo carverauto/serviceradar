@@ -35,19 +35,19 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     with {:ok, findings_preview} <-
            Dashboards.preview_authored_query(
              scope,
-             "in:security_findings time:last_30d sort:time:desc limit:#{@finding_limit}",
+             "in:security_findings sort:time:desc limit:#{@finding_limit}",
              limit: @finding_limit
            ),
          {:ok, scans_preview} <-
            Dashboards.preview_authored_query(
              scope,
-             "in:scan_activity time:last_30d sort:time:desc limit:#{@scan_limit}",
+             "in:scan_activity sort:time:desc limit:#{@scan_limit}",
              limit: @scan_limit
            ),
          {:ok, dns_preview} <-
            Dashboards.preview_authored_query(
              scope,
-             "in:dns_activity time:last_30d sort:time:desc limit:#{@dns_activity_limit}",
+             "in:dns_activity sort:time:desc limit:#{@dns_activity_limit}",
              limit: @dns_activity_limit
            ) do
       findings = Map.get(findings_preview, :rows, [])
@@ -103,7 +103,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
                 </.link>
                 <.link
                   navigate={
-                    ~p"/observability?#{%{tab: "events", q: "in:security_findings time:last_30d sort:time:desc"}}"
+                    ~p"/observability?#{%{tab: "events", q: "in:security_findings sort:time:desc"}}"
                   }
                   class="btn btn-sm btn-outline border-white/20 text-slate-100 hover:border-info hover:bg-info hover:text-info-content"
                 >
@@ -141,7 +141,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
             <div class="flex items-center justify-between gap-3">
               <div>
                 <h2 class="text-base font-semibold">Finding Severity</h2>
-                <p class="text-xs text-slate-400">Active OCSF findings over the last 30 days</p>
+                <p class="text-xs text-slate-400">Latest OCSF findings from security add-ons</p>
               </div>
             </div>
             <.severity_bars severity_counts={@summary.severity_counts} total={@summary.finding_count} />

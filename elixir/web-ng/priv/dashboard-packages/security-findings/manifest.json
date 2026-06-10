@@ -11,7 +11,7 @@
   "data_frames": [
     {
       "id": "findings_recent",
-      "query": "in:security_findings time:last_30d sort:time:desc limit:100",
+      "query": "in:security_findings sort:time:desc limit:100",
       "encoding": "json_rows",
       "limit": 100,
       "required": true,
@@ -30,7 +30,7 @@
     },
     {
       "id": "scan_activity_recent",
-      "query": "in:scan_activity time:last_30d sort:time:desc limit:80",
+      "query": "in:scan_activity sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
       "required": true,
@@ -48,7 +48,7 @@
     },
     {
       "id": "dns_activity_recent",
-      "query": "in:dns_activity time:last_30d sort:time:desc limit:80",
+      "query": "in:dns_activity sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
       "required": true,
@@ -66,7 +66,7 @@
     },
     {
       "id": "vulnerability_findings",
-      "query": "in:security_findings class_uid:2002 time:last_30d sort:time:desc limit:80",
+      "query": "in:security_findings class_uid:2002 sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
       "required": false,
@@ -86,7 +86,7 @@
       "defaultWindow": {
         "type": "string",
         "title": "Default time window",
-        "default": "last_30d"
+        "default": "latest"
       }
     }
   },
