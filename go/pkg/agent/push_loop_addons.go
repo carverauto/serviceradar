@@ -21,7 +21,6 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
-	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/proto"
@@ -143,9 +142,9 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	p.server.mu.RUnlock()
 
 	// When the control plane supplied a gateway download_url, fetch the artifact over
-	// HTTPS through the gateway/web-ng addon-blob endpoint (mirroring WASM plugins)
-	// instead of touching the object store directly. External agents (no kv_address,
-	// hence no objectStore) rely on this path. Verification (sha256 + ed25519
+	// HTTPS through the agent-gateway artifact endpoint instead of touching the object
+	// store directly. External agents (no kv_address, hence no objectStore) rely on
+	// this path. Verification (sha256 + ed25519
 	// signature) is applied to the fetched bytes regardless of which path produced them.
 	httpClient := p.gatewayAddonHTTPClient(a)
 
@@ -184,26 +183,32 @@ func (p *PushLoop) stageAndCapability(ctx context.Context, a *proto.AddonAssignm
 	return resolved, nil
 }
 
-// gatewayAddonHTTPClient returns the HTTPS client used to fetch a pushed-artifact
-// add-on through the web-ng addon-blob endpoint, or nil when the assignment has no
-// gateway download_url (the direct object-store path is used instead).
-//
-// Add-on blob URLs are public web/API URLs protected by short-lived download tokens.
-// They are not the mTLS agent-gateway artifact transport used for self-updates, so
-// use the platform trust store and let TLS verify the URL hostname normally.
+// gatewayAddonHTTPClient returns the mTLS HTTPS client used to fetch a pushed-artifact
+// add-on through the agent-gateway artifact endpoint, or nil when the assignment has
+// no gateway download_url (the direct object-store path is used instead).
 func (p *PushLoop) gatewayAddonHTTPClient(a *proto.AddonAssignmentConfig) *http.Client {
 	if strings.TrimSpace(a.GetDownloadUrl()) == "" {
 		return nil
 	}
 
-	return addonArtifactHTTPClient()
+	return p.gatewayArtifactDownloadHTTPClient(a.GetDownloadUrl())
 }
 
-func addonArtifactHTTPClient() *http.Client {
-	return &http.Client{
-		Timeout:       5 * time.Minute,
-		CheckRedirect: validateReleaseRedirect,
+func (p *PushLoop) gatewayArtifactDownloadHTTPClient(downloadURL string) *http.Client {
+	if strings.TrimSpace(downloadURL) == "" {
+		return nil
 	}
+	if p == nil || p.server == nil || p.server.config == nil {
+		return defaultGatewayArtifactHTTPClient()
+	}
+
+	client, err := gatewayArtifactHTTPClient(p.server.config.GatewaySecurity)
+	if err != nil {
+		p.logger.Warn().Err(err).Msg("Falling back to platform TLS for gateway artifact download")
+		return defaultGatewayArtifactHTTPClient()
+	}
+
+	return client
 }
 
 // applyAddonAssignments reconciles the agent's native add-ons to the assignments

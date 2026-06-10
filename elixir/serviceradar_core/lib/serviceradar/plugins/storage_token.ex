@@ -10,20 +10,49 @@ defmodule ServiceRadar.Plugins.StorageToken do
   @spec download_request(String.t(), String.t() | nil) ::
           %{url: String.t(), token: String.t()} | nil
   def download_request(package_id, object_key) do
-    download_request(package_id, object_key, "/api/plugin-packages/#{package_id}/blob/download")
+    download_request(package_id, object_key, "/artifacts/plugins/#{package_id}/blob/download")
   end
 
   @doc """
   Mints a signed download request for a native add-on package artifact. Mirrors
   `download_request/2` exactly (same HMAC-signed token mechanism, same secret,
-  same TTL) but points the URL at the gateway-proxied addon-blob endpoint so
-  agents fetch add-on artifacts over HTTPS like WASM plugins.
+  same TTL) but points the URL at the agent-gateway artifact endpoint so agents
+  fetch add-on artifacts over HTTPS like WASM plugins.
   """
   @spec download_addon_request(String.t(), String.t() | nil) ::
           %{url: String.t(), token: String.t()} | nil
   def download_addon_request(package_id, object_key) do
-    download_request(package_id, object_key, "/api/addon-packages/#{package_id}/blob/download")
+    download_request(package_id, object_key, "/artifacts/addons/#{package_id}/blob/download")
   end
+
+  @spec download_bumblebee_catalog_request(String.t() | nil) ::
+          %{url: String.t(), token: String.t()} | nil
+  def download_bumblebee_catalog_request(object_key) do
+    download_request(
+      "bumblebee-catalog",
+      object_key,
+      "/artifacts/bumblebee/catalog/download"
+    )
+  end
+
+  @spec verify_token(atom(), String.t()) ::
+          {:ok, %{id: String.t(), key: String.t()}} | {:error, atom()}
+  def verify_token(expected_action, token) when is_binary(token) do
+    with [payload_b64, sig_b64] <- String.split(token, ".", parts: 2),
+         {:ok, payload_json} <- Base.url_decode64(payload_b64, padding: false),
+         {:ok, payload} <- Jason.decode(payload_json),
+         {:ok, signature} <- Base.url_decode64(sig_b64, padding: false),
+         true <- secure_compare(signature, sign(payload_json)),
+         %{"id" => id, "key" => key, "exp" => exp, "act" => action} <- payload,
+         true <- action == Atom.to_string(expected_action),
+         true <- exp > DateTime.to_unix(DateTime.utc_now()) do
+      {:ok, %{id: id, key: key}}
+    else
+      _ -> {:error, :invalid_token}
+    end
+  end
+
+  def verify_token(_action, _token), do: {:error, :invalid_token}
 
   # Shared implementation: only the URL path differs between plugin and addon blobs;
   # the signed-token payload (id/key/exp/act=download) and secret are identical.
@@ -60,7 +89,7 @@ defmodule ServiceRadar.Plugins.StorageToken do
         }
 
         payload_json = Jason.encode!(payload)
-        signature = :crypto.mac(:hmac, :sha256, secret, payload_json)
+        signature = sign(payload_json)
 
         token =
           Base.url_encode64(payload_json, padding: false) <>
@@ -93,6 +122,14 @@ defmodule ServiceRadar.Plugins.StorageToken do
     |> Keyword.get(:signing_secret)
     |> normalize_string()
   end
+
+  defp sign(payload_json), do: :crypto.mac(:hmac, :sha256, signing_secret() || "", payload_json)
+
+  defp secure_compare(left, right) when byte_size(left) == byte_size(right) do
+    Plug.Crypto.secure_compare(left, right)
+  end
+
+  defp secure_compare(_left, _right), do: false
 
   defp config do
     Application.get_env(:serviceradar_core, :plugin_storage, [])

@@ -1,0 +1,205 @@
+defmodule ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents do
+  @moduledoc false
+
+  use ServiceRadarWebNGWeb, :html
+
+  attr(:postures, :list, default: [])
+  attr(:findings, :list, default: [])
+  attr(:error, :string, default: nil)
+  attr(:has_exposure, :boolean, default: false)
+
+  def bumblebee_section(assigns) do
+    assigns =
+      assigns
+      |> assign(:latest_posture, List.first(assigns.postures || []))
+      |> assign(:finding_count, length(assigns.findings || []))
+
+    ~H"""
+    <section
+      :if={@has_exposure or is_binary(@error)}
+      class="rounded-lg border border-base-300 bg-base-100 shadow-sm"
+    >
+      <div class="flex flex-col gap-3 border-b border-base-300 px-4 py-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <h2 class="text-sm font-semibold text-base-content">Bumblebee Exposure</h2>
+          <p class="text-xs text-base-content/60">
+            {@finding_count} active finding rows | {length(@postures || [])} scanner postures
+          </p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <span class={["badge badge-sm", state_badge_class(field(@latest_posture, :state))]}>
+            {empty_dash(field(@latest_posture, :state))}
+          </span>
+          <span class={[
+            "badge badge-sm",
+            severity_badge_class(field(@latest_posture, :highest_severity))
+          ]}>
+            {severity_label(field(@latest_posture, :highest_severity))}
+          </span>
+        </div>
+      </div>
+
+      <div :if={is_binary(@error)} class="px-4 py-3 text-sm text-error">
+        {@error}
+      </div>
+
+      <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-3">
+            <.summary_stat label="Risk Score" value={field(@latest_posture, :risk_score) || 0} />
+            <.summary_stat
+              label="Active Findings"
+              value={field(@latest_posture, :active_finding_count) || @finding_count}
+            />
+            <.summary_stat label="Coverage" value={field(@latest_posture, :coverage_state)} />
+            <.summary_stat
+              label="Last Scan"
+              value={format_timestamp(field(@latest_posture, :last_scan_at))}
+            />
+          </div>
+
+          <div class="overflow-hidden rounded border border-base-300">
+            <table class="table table-sm">
+              <tbody>
+                <.posture_row label="Agent" value={field(@latest_posture, :agent_id)} mono />
+                <.posture_row label="Run" value={field(@latest_posture, :run_id)} mono />
+                <.posture_row
+                  label="Catalog"
+                  value={field(@latest_posture, :catalog_snapshot_ref)}
+                  mono
+                />
+                <.posture_row label="Scanner" value={field(@latest_posture, :scanner_version)} />
+                <.posture_row label="Roots Scanned" value={root_summary(@latest_posture)} />
+                <.posture_row
+                  label="Root Covered"
+                  value={bool_display(field(@latest_posture, :root_covered))}
+                />
+              </tbody>
+            </table>
+          </div>
+
+          <div :if={skipped_roots(@latest_posture) != []} class="rounded border border-base-300 p-3">
+            <h3 class="mb-2 text-xs font-semibold uppercase text-base-content/60">Skipped Roots</h3>
+            <div class="space-y-1">
+              <div :for={root <- skipped_roots(@latest_posture)} class="text-xs">
+                <span class="font-mono">{field(root, :path)}</span>
+                <span class="text-base-content/60">{field(root, :reason)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="overflow-hidden rounded border border-base-300">
+          <table class="table table-sm">
+            <thead>
+              <tr>
+                <th>Finding</th>
+                <th>Package</th>
+                <th>Severity</th>
+                <th>Last Seen</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr :if={@findings == []}>
+                <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
+                  No active Bumblebee findings.
+                </td>
+              </tr>
+              <tr :for={finding <- @findings}>
+                <td class="max-w-56 truncate font-mono text-xs">
+                  {field(finding, :catalog_id) || field(finding, :finding_id)}
+                </td>
+                <td>
+                  <div class="font-medium">{empty_dash(field(finding, :package_name))}</div>
+                  <div class="font-mono text-xs text-base-content/60">
+                    {empty_dash(field(finding, :package_version))}
+                  </div>
+                </td>
+                <td>
+                  <span class={["badge badge-sm", severity_badge_class(field(finding, :severity))]}>
+                    {severity_label(field(finding, :severity))}
+                  </span>
+                </td>
+                <td class="font-mono text-xs">{format_timestamp(field(finding, :last_seen_at))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+
+  defp summary_stat(assigns) do
+    ~H"""
+    <div class="rounded border border-base-300 bg-base-200/30 px-3 py-2">
+      <div class="text-[0.65rem] font-semibold uppercase text-base-content/50">{@label}</div>
+      <div class="mt-1 truncate text-sm font-semibold">{empty_dash(@value)}</div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:mono, :boolean, default: false)
+
+  defp posture_row(assigns) do
+    ~H"""
+    <tr>
+      <th class="w-32 text-xs text-base-content/60">{@label}</th>
+      <td class={["text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
+    </tr>
+    """
+  end
+
+  defp field(nil, _field), do: nil
+  defp field(%{} = row, field), do: Map.get(row, field) || Map.get(row, to_string(field))
+  defp field(row, field) when is_struct(row), do: Map.get(row, field)
+  defp field(_row, _field), do: nil
+
+  defp root_summary(nil), do: nil
+
+  defp root_summary(posture) do
+    scanned = field(posture, :scanned_root_count) || 0
+    attempted = field(posture, :attempted_root_count) || 0
+    skipped = field(posture, :skipped_root_count) || 0
+    "#{scanned}/#{attempted} scanned, #{skipped} skipped"
+  end
+
+  defp skipped_roots(nil), do: []
+  defp skipped_roots(posture), do: field(posture, :skipped_roots) || []
+
+  defp bool_display(true), do: "yes"
+  defp bool_display(false), do: "no"
+  defp bool_display(_), do: "-"
+
+  defp empty_dash(nil), do: "-"
+  defp empty_dash(""), do: "-"
+  defp empty_dash(value), do: to_string(value)
+
+  defp format_timestamp(nil), do: "-"
+  defp format_timestamp(%DateTime{} = dt), do: Calendar.strftime(dt, "%Y-%m-%d %H:%M UTC")
+  defp format_timestamp(value), do: to_string(value)
+
+  defp state_badge_class("scanned"), do: "badge-success"
+  defp state_badge_class("scan_failed"), do: "badge-error"
+  defp state_badge_class("not_scanned"), do: "badge-ghost"
+  defp state_badge_class(_), do: "badge-outline"
+
+  defp severity_badge_class(value) do
+    case value |> to_string() |> String.downcase() do
+      "critical" -> "badge-error"
+      "high" -> "badge-warning"
+      "medium" -> "badge-info"
+      "low" -> "badge-success"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp severity_label(nil), do: "Unknown"
+  defp severity_label(""), do: "Unknown"
+  defp severity_label(value), do: value |> to_string() |> String.capitalize()
+end

@@ -180,6 +180,7 @@ type agentCapabilityOptions struct {
 	hostNetworkVisibilityFingerprintEnabled bool
 	sweepBannerGrabAvailable                bool
 	bumblebee                               bool
+	endpointInventory                       bool
 }
 
 func getAgentCapabilities(cfg *ServerConfig) []string {
@@ -279,6 +280,7 @@ func getAgentCapabilitiesForSidecarsWithRDPPath(
 		hostNetworkVisibilityFingerprintEnabled: hasHealthyNetprobeSidecar(sidecars),
 		sweepBannerGrabAvailable:                sweepBannerGrabAvailable,
 		bumblebee:                               cfg != nil && cfg.Bumblebee != nil && cfg.Bumblebee.Enabled,
+		endpointInventory:                       cfg != nil && cfg.EndpointInventory != nil && cfg.EndpointInventory.Enabled,
 	})
 }
 
@@ -318,6 +320,9 @@ func agentCapabilities(options agentCapabilityOptions) []string {
 
 	if options.bumblebee {
 		capabilities = append(capabilities, "bumblebee")
+	}
+	if options.endpointInventory {
+		capabilities = append(capabilities, "endpoint-inventory")
 	}
 
 	if options.enhancedBPF {

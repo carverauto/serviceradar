@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
     only: [virtualization_guests?: 1]
 
   alias ServiceRadarWebNGWeb.DeviceLive.AvailabilityData
+  alias ServiceRadarWebNGWeb.DeviceLive.BumblebeeData
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceTaskData
   alias ServiceRadarWebNGWeb.DeviceLive.DiscoveryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
@@ -155,6 +156,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       Map.get(parallel_results, :northbound_history, {[], nil})
 
     endpoint_inventory = Map.get(parallel_results, :endpoint_inventory, %{})
+    bumblebee = Map.get(parallel_results, :bumblebee, %{})
 
     base_assigns = %{
       availability: Map.get(parallel_results, :availability, %{}),
@@ -166,6 +168,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
       endpoint_inventory_error: Map.get(endpoint_inventory, :error),
       has_software_inventory: Map.get(endpoint_inventory, :has_inventory, false),
+      bumblebee_postures: Map.get(bumblebee, :postures, []),
+      bumblebee_findings: Map.get(bumblebee, :findings, []),
+      bumblebee_error: Map.get(bumblebee, :error),
+      has_bumblebee_exposure: Map.get(bumblebee, :has_exposure, false),
       virtualization_summary: virtualization_summary,
       has_virtualization_guests: virtualization_guests?(virtualization_summary),
       sweep_results: Map.get(parallel_results, :sweep, []),
@@ -246,6 +252,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       end),
       DeviceTaskData.timed(slow_device_task_ms, :endpoint_inventory, fn ->
         EndpointInventoryData.load(scope, uid)
+      end),
+      DeviceTaskData.timed(slow_device_task_ms, :bumblebee, fn ->
+        BumblebeeData.load(scope, uid)
       end)
     ]
 

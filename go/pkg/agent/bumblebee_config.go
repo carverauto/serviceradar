@@ -151,8 +151,26 @@ func resolveGatewayBumblebeeConfig(
 	configJSON []byte,
 ) (*bumblebeeConfigPayload, error) {
 	if cfg := bumblebeeConfigFromProto(protoConfig); cfg != nil {
+		jsonCfg, err := parseGatewayBumblebeeConfig(configJSON)
+		if err != nil {
+			return nil, err
+		}
+		mergeBumblebeeCatalogDelivery(cfg, jsonCfg)
 		return cfg, nil
 	}
 
 	return parseGatewayBumblebeeConfig(configJSON)
+}
+
+func mergeBumblebeeCatalogDelivery(cfg, jsonCfg *bumblebeeConfigPayload) {
+	if cfg == nil || cfg.Catalog == nil || jsonCfg == nil || jsonCfg.Catalog == nil {
+		return
+	}
+
+	if cfg.Catalog.DownloadURL == "" {
+		cfg.Catalog.DownloadURL = jsonCfg.Catalog.DownloadURL
+	}
+	if cfg.Catalog.DownloadToken == "" {
+		cfg.Catalog.DownloadToken = jsonCfg.Catalog.DownloadToken
+	}
 }

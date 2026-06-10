@@ -14,6 +14,7 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Credentials.CredentialBrokerGrant
   alias ServiceRadar.Credentials.SecretBroker
+  alias ServiceRadar.Edge.AgentArtifactDelivery
   alias ServiceRadar.Edge.AgentReleaseManager
   alias ServiceRadar.Edge.AgentReleaseTarget
   alias ServiceRadar.Edge.OnboardingPackage
@@ -94,6 +95,28 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
           {:ok, map()} | {:error, term()}
   def resolve_release_artifact_download(target_id, command_id, caller_agent_id) do
     ReleaseArtifactDelivery.resolve_download(target_id, command_id, caller_agent_id)
+  end
+
+  @spec resolve_plugin_artifact_download(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_plugin_artifact_download(package_id, object_key, caller_agent_id) do
+    AgentArtifactDelivery.resolve_plugin_download(package_id, object_key, caller_agent_id)
+  end
+
+  @spec resolve_addon_artifact_download(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_addon_artifact_download(package_id, object_key, caller_agent_id) do
+    AgentArtifactDelivery.resolve_addon_download(package_id, object_key, caller_agent_id)
+  end
+
+  @spec resolve_bumblebee_catalog_download(String.t(), String.t(), String.t()) ::
+          {:ok, map()} | {:error, term()}
+  def resolve_bumblebee_catalog_download(token_id, object_key, caller_agent_id) do
+    AgentArtifactDelivery.resolve_bumblebee_catalog_download(
+      token_id,
+      object_key,
+      caller_agent_id
+    )
   end
 
   @spec resolve_credential_broker_grant(map()) :: {:ok, map()} | {:error, term()}

@@ -369,7 +369,7 @@ func TestPluginConfigFromConfigJSONFallback(t *testing.T) {
 					"wasm_object_key": "plugins/sample/1.0.0/package.wasm",
 					"content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 					"source_type": "first_party",
-					"download_url": "https://demo.serviceradar.cloud/api/plugin-packages/package-1/blob/download",
+					"download_url": "https://demo-gw.serviceradar.cloud:50053/artifacts/plugins/package-1/blob/download",
 					"download_token": "token"
 				}
 			]

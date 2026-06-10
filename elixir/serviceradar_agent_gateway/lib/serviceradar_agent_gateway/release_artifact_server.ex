@@ -5,14 +5,19 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   use Plug.Router
 
+  alias ServiceRadar.Plugins.StorageToken
   alias ServiceRadarAgentGateway.ComponentIdentityResolver
 
   require Logger
 
   @download_timeout 30_000
   @download_path "/artifacts/releases/download"
+  @plugin_download_path "/artifacts/plugins/:id/blob/download"
+  @addon_download_path "/artifacts/addons/:id/blob/download"
+  @bumblebee_catalog_download_path "/artifacts/bumblebee/catalog/download"
   @target_header "x-serviceradar-release-target-id"
   @command_header "x-serviceradar-release-command-id"
+  @plugin_token_header "x-serviceradar-plugin-token"
   @allowed_component_types [:agent]
 
   plug(:match)
@@ -55,6 +60,30 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
         Logger.warning("Release artifact download failed: #{inspect(reason)}")
         send_json_error(conn, 502, "release artifact download failed")
     end
+  end
+
+  get @plugin_download_path do
+    serve_token_artifact(conn, id, :resolve_plugin_artifact_download, "plugin artifact")
+  end
+
+  post @plugin_download_path do
+    serve_token_artifact(conn, id, :resolve_plugin_artifact_download, "plugin artifact")
+  end
+
+  get @addon_download_path do
+    serve_token_artifact(conn, id, :resolve_addon_artifact_download, "add-on artifact")
+  end
+
+  post @addon_download_path do
+    serve_token_artifact(conn, id, :resolve_addon_artifact_download, "add-on artifact")
+  end
+
+  get @bumblebee_catalog_download_path do
+    serve_token_artifact(conn, "bumblebee-catalog", :resolve_bumblebee_catalog_download, "bumblebee catalog")
+  end
+
+  post @bumblebee_catalog_download_path do
+    serve_token_artifact(conn, "bumblebee-catalog", :resolve_bumblebee_catalog_download, "bumblebee catalog")
   end
 
   match _ do
@@ -110,6 +139,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
 
   defp missing_header_reason(@target_header), do: :missing_target_id
   defp missing_header_reason(@command_header), do: :missing_command_id
+  defp missing_header_reason(@plugin_token_header), do: :missing_token
 
   defp send_json_error(conn, status, message) do
     body = Jason.encode!(%{"error" => message})
@@ -117,6 +147,47 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
     conn
     |> Plug.Conn.put_resp_content_type("application/json")
     |> send_resp(status, body)
+  end
+
+  defp serve_token_artifact(conn, expected_id, resolver, label) do
+    with {:ok, caller_identity} <- resolve_identity(conn),
+         :ok <- authorize_caller_identity(caller_identity),
+         {:ok, token} <- required_header(conn, @plugin_token_header),
+         {:ok, %{id: token_id, key: object_key}} <- StorageToken.verify_token(:download, token),
+         true <- token_id == expected_id,
+         {:ok, download} <-
+           resolve_token_download(conn, resolver, token_id, object_key, caller_identity),
+         {:ok, data} <- download_object(conn, download.object_key) do
+      conn
+      |> Plug.Conn.put_resp_content_type(download.content_type || "application/octet-stream")
+      |> Plug.Conn.put_resp_header(
+        "content-disposition",
+        ~s(attachment; filename="#{download.file_name || label}")
+      )
+      |> send_resp(200, data)
+    else
+      {:error, :missing_token} ->
+        send_json_error(conn, 401, "missing artifact download token")
+
+      {:error, :invalid_token} ->
+        send_json_error(conn, 401, "invalid artifact download token")
+
+      {:error, :unauthenticated} ->
+        send_json_error(conn, 401, "invalid client certificate")
+
+      {:error, :unauthorized} ->
+        send_json_error(conn, 403, "#{label} access denied")
+
+      false ->
+        send_json_error(conn, 403, "#{label} access denied")
+
+      {:error, %GRPC.RPCError{status: 5}} ->
+        send_json_error(conn, 404, "#{label} not found")
+
+      {:error, reason} ->
+        Logger.warning("#{label} download failed: #{inspect(reason)}")
+        send_json_error(conn, 502, "#{label} download failed")
+    end
   end
 
   defp core_rpc(function, args) do
@@ -157,6 +228,18 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
           command_id,
           caller_identity.component_id
         ])
+    end
+  end
+
+  defp resolve_token_download(conn, resolver, token_id, object_key, caller_identity) do
+    opts = conn.private[:release_artifact_server_opts] || []
+
+    case Keyword.get(opts, resolver) do
+      fun when is_function(fun, 3) ->
+        fun.(token_id, object_key, caller_identity.component_id)
+
+      _ ->
+        core_rpc(resolver, [token_id, object_key, caller_identity.component_id])
     end
   end
 

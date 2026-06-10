@@ -376,12 +376,13 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       AddonAssignment
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
-      |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
+      |> Ash.Query.sort(source: :asc, updated_at: :desc, inserted_at: :desc)
       |> Ash.Query.load(:addon_package)
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
       |> Enum.filter(&approved_addon_package?/1)
       |> Enum.reject(&excluded_addon_assignment?(agent_id, &1))
+      |> Enum.sort_by(&addon_assignment_precedence/1)
       |> Enum.uniq_by(&logical_addon_id/1)
 
     case assignments do
@@ -435,6 +436,14 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
+  defp addon_assignment_precedence(%AddonAssignment{source: :manual}), do: {0, 0}
+  defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata}) when is_map(metadata) do
+    {1, map_int(metadata, "priority", 100)}
+  end
+
+  defp addon_assignment_precedence(%AddonAssignment{source: :profile}), do: {1, 100}
+  defp addon_assignment_precedence(%AddonAssignment{}), do: {2, 100}
+
   defp excluded_addon_assignment?(agent_id, assignment) do
     kubernetes_agent?(agent_id) and logical_addon_id(assignment) == @bumblebee_addon_id
   end
@@ -452,8 +461,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     package = assignment.addon_package
 
     # Mint a gateway-proxied download request for the selected per-arch artifact so
-    # agents fetch it over HTTPS through the gateway/web-ng addon-blob endpoint
-    # (mirroring the WASM plugin path) instead of touching the object store directly.
+    # agents fetch it over HTTPS through the agent-gateway artifact endpoint instead
+    # of touching web-ng or object storage directly.
     # nil when no artifact is selected or the storage URL/secret is unconfigured; the
     # agent then falls back to its existing direct-store path.
     download_request = StorageToken.download_addon_request(package.id, artifact[:object_key])
@@ -1716,6 +1725,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp bumblebee_catalog_config(snapshot) do
+    download = StorageToken.download_bumblebee_catalog_request(snapshot.object_key)
+
     %{
       "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
       "snapshot_ref" => snapshot.snapshot_ref,
@@ -1726,7 +1737,17 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       "size_bytes" => snapshot.object_size_bytes,
       "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
     }
+    |> maybe_put_download_request(download)
   end
+
+  defp maybe_put_download_request(config, %{url: url, token: token})
+       when is_binary(url) and is_binary(token) do
+    config
+    |> Map.put("download_url", url)
+    |> Map.put("download_token", token)
+  end
+
+  defp maybe_put_download_request(config, _download), do: config
 
   defp disabled_bumblebee_config, do: %{"enabled" => false}
 

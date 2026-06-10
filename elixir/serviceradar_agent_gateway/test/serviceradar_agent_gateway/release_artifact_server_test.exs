@@ -4,6 +4,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
   import Plug.Conn
   import Plug.Test
 
+  alias ServiceRadar.Plugins.StorageToken
   alias ServiceRadarAgentGateway.ReleaseArtifactServer
 
   test "returns forbidden when core authorization rejects the download" do
@@ -55,6 +56,74 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
     assert get_resp_header(conn, "content-type") == ["application/octet-stream; charset=utf-8"]
   end
 
+  test "streams native add-on artifact data through token authorization" do
+    with_plugin_storage(fn ->
+      request = StorageToken.download_addon_request("package-123", "native-addons/pkg.tar.gz")
+
+      conn =
+        :post
+        |> conn("/artifacts/addons/package-123/blob/download")
+        |> put_req_header("x-serviceradar-plugin-token", request.token)
+        |> ReleaseArtifactServer.call(
+          ReleaseArtifactServer.init(
+            resolve_identity: fn _conn ->
+              {:ok, %{component_id: "agent-123", component_type: :agent}}
+            end,
+            resolve_addon_artifact_download: fn "package-123", "native-addons/pkg.tar.gz", "agent-123" ->
+              {:ok,
+               %{
+                 object_key: "native-addons/pkg.tar.gz",
+                 file_name: "pkg.tar.gz",
+                 content_type: "application/gzip"
+               }}
+            end,
+            download_object: fn "native-addons/pkg.tar.gz" ->
+              {:ok, "addon-body"}
+            end
+          )
+        )
+
+      assert conn.status == 200
+      assert conn.resp_body == "addon-body"
+      assert get_resp_header(conn, "content-type") == ["application/gzip; charset=utf-8"]
+    end)
+  end
+
+  test "streams Bumblebee catalog data through token authorization" do
+    with_plugin_storage(fn ->
+      request = StorageToken.download_bumblebee_catalog_request("bumblebee/catalogs/active/catalog.json")
+
+      conn =
+        :get
+        |> conn("/artifacts/bumblebee/catalog/download")
+        |> put_req_header("x-serviceradar-plugin-token", request.token)
+        |> ReleaseArtifactServer.call(
+          ReleaseArtifactServer.init(
+            resolve_identity: fn _conn ->
+              {:ok, %{component_id: "agent-123", component_type: :agent}}
+            end,
+            resolve_bumblebee_catalog_download: fn "bumblebee-catalog",
+                                                   "bumblebee/catalogs/active/catalog.json",
+                                                   "agent-123" ->
+              {:ok,
+               %{
+                 object_key: "bumblebee/catalogs/active/catalog.json",
+                 file_name: "bumblebee-catalog.json",
+                 content_type: "application/json"
+               }}
+            end,
+            download_object: fn "bumblebee/catalogs/active/catalog.json" ->
+              {:ok, ~s({"catalog":[]})}
+            end
+          )
+        )
+
+      assert conn.status == 200
+      assert conn.resp_body == ~s({"catalog":[]})
+      assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
+    end)
+  end
+
   test "rejects callers without an authenticated agent identity" do
     conn =
       :get
@@ -85,5 +154,25 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
 
     assert conn.status == 403
     assert conn.resp_body =~ "release artifact access denied"
+  end
+
+  defp with_plugin_storage(fun) do
+    original = Application.get_env(:serviceradar_core, :plugin_storage)
+
+    Application.put_env(:serviceradar_core, :plugin_storage,
+      public_url: "https://gateway.example:50053",
+      signing_secret: String.duplicate("s", 32),
+      download_ttl_seconds: 60
+    )
+
+    try do
+      fun.()
+    after
+      if original do
+        Application.put_env(:serviceradar_core, :plugin_storage, original)
+      else
+        Application.delete_env(:serviceradar_core, :plugin_storage)
+      end
+    end
   end
 end

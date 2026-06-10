@@ -10,6 +10,7 @@ defmodule ServiceRadarWebNG.Plugins do
 
   alias ServiceRadarWebNG.Plugins.AddonAssignments
   alias ServiceRadarWebNG.Plugins.AddonPackages
+  alias ServiceRadarWebNG.Plugins.AddonProfiles
   alias ServiceRadarWebNG.Plugins.Assignments
   alias ServiceRadarWebNG.Plugins.Packages
   alias ServiceRadarWebNG.Plugins.Registry
@@ -40,4 +41,8 @@ defmodule ServiceRadarWebNG.Plugins do
   defdelegate list_addon_assignments(filters \\ %{}, opts \\ []), to: AddonAssignments, as: :list
   defdelegate create_addon_assignment(attrs, opts \\ []), to: AddonAssignments, as: :create
   defdelegate delete_addon_assignment(id, opts \\ []), to: AddonAssignments, as: :delete
+  defdelegate list_addon_profiles(filters \\ %{}, opts \\ []), to: AddonProfiles, as: :list
+  defdelegate create_addon_profile(attrs, opts \\ []), to: AddonProfiles, as: :create
+  defdelegate preview_addon_profile(id, opts \\ []), to: AddonProfiles, as: :preview
+  defdelegate reconcile_addon_profile(id, opts \\ []), to: AddonProfiles, as: :reconcile
 end

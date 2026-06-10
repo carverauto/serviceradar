@@ -18,6 +18,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadarWebNG.Plugins.AddonAssignments
   alias ServiceRadarWebNG.Plugins.AddonPackages
+  alias ServiceRadarWebNG.Plugins.AddonProfiles
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
   alias ServiceRadarWebNG.RBAC
 
@@ -33,6 +34,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "plugins.view") do
+      packages = list_addon_packages(scope)
+      release_options = combined_release_options([], packages)
+
       {:ok,
        socket
        |> assign(:can_assign_addons, RBAC.can?(scope, "plugins.assign"))
@@ -40,21 +44,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:page_title, "Add-ons")
        |> assign(:current_path, nil)
        |> assign(:addons_base_path, "/settings/agents/addons")
-       |> assign(:packages, list_addon_packages(scope))
+       |> assign(:packages, packages)
        |> assign(:first_party_catalog, [])
        |> assign(:first_party_catalog_all, [])
        |> assign(:first_party_catalog_error, nil)
        |> assign(:first_party_catalog_status, nil)
-       |> assign(:first_party_release_options, [])
-       |> assign(:first_party_release_tag, nil)
+       |> assign(:first_party_release_options, release_options)
+       |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
        |> assign(:first_party_repo_url, first_party_repo_url())
        |> assign(:agents, list_agents(scope))
        |> assign(:cohort_options, @cohort_options)
        |> assign(:show_details_modal, false)
        |> assign(:selected_package, nil)
        |> assign(:assignments, [])
+       |> assign(:addon_profiles, [])
        |> assign(:assignment_preview, empty_assignment_preview())
        |> assign(:assignment_form, default_assignment_form())
+       |> assign(:profile_form, default_profile_form())
        |> tap(fn _socket -> if connected?(socket), do: send(self(), :load_first_party_addon_catalog) end)}
     else
       {:ok,
@@ -91,6 +97,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         |> assign(:assignment_form, default_assignment_form())
         |> assign(:assignment_preview, build_assignment_preview(default_assignment_form(), package, scope))
         |> assign(:assignments, list_assignments_for_package(package.id, scope))
+        |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+        |> assign(:profile_form, default_profile_form(package))
 
       _ ->
         socket
@@ -106,7 +114,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   @impl true
   def handle_event("refresh", _params, socket) do
-    {:noreply, assign(socket, :packages, list_addon_packages(socket.assigns.current_scope))}
+    packages = list_addon_packages(socket.assigns.current_scope)
+
+    {:noreply,
+     socket
+     |> assign(:packages, packages)
+     |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, socket.assigns.first_party_release_tag)}
   end
 
   def handle_event("sync_first_party_catalog", _params, socket) do
@@ -193,6 +206,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
      )}
   end
 
+  def handle_event("profile_change", %{"profile" => form}, socket) do
+    {:noreply, assign(socket, :profile_form, Map.merge(default_profile_form(socket.assigns.selected_package), form))}
+  end
+
   def handle_event("create_assignment", _params, %{assigns: %{can_assign_addons: false}} = socket) do
     {:noreply, put_flash(socket, :error, "You don't have permission to assign add-ons.")}
   end
@@ -228,6 +245,63 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
+  def handle_event("create_profile", _params, %{assigns: %{can_assign_addons: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign add-ons.")}
+  end
+
+  def handle_event("create_profile", %{"profile" => form}, socket) do
+    scope = socket.assigns.current_scope
+    package = socket.assigns.selected_package
+    form = Map.merge(default_profile_form(package), form)
+
+    with {:ok, params} <- parse_profile_params(form),
+         {:ok, priority} <- parse_positive_integer(Map.get(form, "priority"), 100),
+         {:ok, max_targets} <- parse_positive_integer(Map.get(form, "max_targets"), 10_000),
+         {:ok, attrs} <- profile_attrs(form, package, params, priority, max_targets) do
+      case AddonProfiles.create(attrs, scope: scope) do
+        {:ok, _profile} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Add-on profile created.")
+           |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+           |> assign(:profile_form, default_profile_form(package))}
+
+        {:error, error} ->
+          {:noreply, put_flash(socket, :error, "Failed to create profile: #{format_error(error)}")}
+      end
+    else
+      {:error, {:invalid_params, message}} ->
+        {:noreply, put_flash(socket, :error, "Invalid profile configuration: #{message}")}
+
+      {:error, :missing_query} ->
+        {:noreply, put_flash(socket, :error, "Enter an SRQL target query.")}
+
+      {:error, :invalid_integer} ->
+        {:noreply, put_flash(socket, :error, "Priority and max targets must be positive integers.")}
+    end
+  end
+
+  def handle_event("reconcile_profile", _params, %{assigns: %{can_assign_addons: false}} = socket) do
+    {:noreply, put_flash(socket, :error, "You don't have permission to assign add-ons.")}
+  end
+
+  def handle_event("reconcile_profile", %{"id" => id}, socket) do
+    scope = socket.assigns.current_scope
+    package = socket.assigns.selected_package
+
+    case AddonProfiles.reconcile(id, scope: scope) do
+      {:ok, summary} ->
+        {:noreply,
+         socket
+         |> put_flash(:info, profile_reconcile_message(summary))
+         |> assign(:addon_profiles, list_profiles_for_package(package.id, scope))
+         |> assign(:assignments, list_assignments_for_package(package.id, scope))}
+
+      {:error, error} ->
+        {:noreply, put_flash(socket, :error, "Profile reconcile failed: #{format_error(error)}")}
+    end
+  end
+
   def handle_event("approve_package", %{"id" => id, "review" => form}, socket) do
     scope = socket.assigns.current_scope
     package = socket.assigns.selected_package
@@ -252,6 +326,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
              socket
              |> put_flash(:info, "Add-on approved.")
              |> assign(:packages, list_addon_packages(scope))
+             |> assign_first_party_catalog_view(
+               socket.assigns.first_party_catalog_all,
+               socket.assigns.first_party_release_tag
+             )
              |> assign(:selected_package, updated)
              |> assign(:assignment_preview, build_assignment_preview(socket.assigns.assignment_form, updated, scope))}
 
@@ -273,6 +351,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
            socket
            |> put_flash(:info, "Add-on denied.")
            |> assign(:packages, list_addon_packages(scope))
+           |> assign_first_party_catalog_view(
+             socket.assigns.first_party_catalog_all,
+             socket.assigns.first_party_release_tag
+           )
            |> assign(:selected_package, updated)}
 
         {:error, error} ->
@@ -334,13 +416,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
           <:header>
             <div class="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <div class="text-sm font-semibold">First-party catalog</div>
+                <div class="text-sm font-semibold">Add-on catalog</div>
                 <p class="text-xs text-base-content/60">
-                  Signed native add-ons discovered from {@first_party_repo_url}.
+                  Signed first-party add-ons and imported packages by release.
                 </p>
               </div>
               <div class="flex flex-wrap items-center gap-2">
-                <form :if={@first_party_release_options != []} phx-change="select_first_party_release">
+                <form
+                  :if={@first_party_release_options != []}
+                  id="select-addon-release-form"
+                  phx-change="select_first_party_release"
+                >
                   <select name="release_tag" class="select select-bordered select-sm">
                     <%= for release_tag <- @first_party_release_options do %>
                       <option value={release_tag} selected={release_tag == @first_party_release_tag}>
@@ -377,17 +463,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
             </div>
           <% end %>
 
+          <% catalog_rows =
+            combined_catalog_rows(
+              @first_party_catalog,
+              @packages,
+              @first_party_release_tag
+            ) %>
+
           <%= cond do %>
-            <% @first_party_catalog == [] and is_nil(@first_party_catalog_error) -> %>
+            <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
               <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
                 <div class="text-sm font-semibold text-base-content">
-                  No first-party add-ons found
+                  No add-ons found for this release
                 </div>
                 <p class="mt-1 text-xs text-base-content/60">
-                  Sync the first-party catalog to discover signed add-ons from Forgejo releases.
+                  Choose another release or sync the first-party catalog.
                 </p>
               </div>
-            <% @first_party_catalog != [] -> %>
+            <% catalog_rows != [] -> %>
               <div class="overflow-x-auto">
                 <table class="table table-sm">
                   <thead>
@@ -396,28 +489,43 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       <th>Version</th>
                       <th>Release</th>
                       <th>Platforms</th>
+                      <th>Status</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    <%= for addon <- @first_party_catalog do %>
+                    <%= for row <- catalog_rows do %>
                       <tr class="hover:bg-base-200/30">
                         <td>
-                          <div class="font-medium">{addon.name}</div>
-                          <div class="text-xs text-base-content/60 font-mono">{addon.addon_id}</div>
+                          <div class="font-medium">{row.name}</div>
+                          <div class="text-xs text-base-content/60 font-mono">{row.addon_id}</div>
                         </td>
-                        <td class="text-xs">{addon.version}</td>
-                        <td class="text-xs font-mono">{addon.release_tag}</td>
-                        <td class="text-xs">{catalog_platforms(addon)}</td>
+                        <td class="text-xs">{row.version}</td>
+                        <td class="text-xs font-mono">{row.release_tag || "—"}</td>
+                        <td class="text-xs">{row.platforms}</td>
+                        <td>
+                          <span class={["badge badge-sm", catalog_row_status_badge(row)]}>
+                            {catalog_row_status(row)}
+                          </span>
+                        </td>
                         <td class="text-right">
                           <.ui_button
-                            :if={@can_review_addons}
+                            :if={row.package}
+                            variant="ghost"
+                            size="sm"
+                            phx-click="view_package"
+                            phx-value-id={row.package.id}
+                          >
+                            View
+                          </.ui_button>
+                          <.ui_button
+                            :if={is_nil(row.package) and @can_review_addons and row.import_ready}
                             variant="ghost"
                             size="sm"
                             phx-click="import_first_party_addon"
-                            phx-value-addon_id={addon.addon_id}
-                            phx-value-version={addon.version}
-                            phx-value-release_tag={addon.release_tag}
+                            phx-value-addon_id={row.addon_id}
+                            phx-value-version={row.version}
+                            phx-value-release_tag={row.release_tag}
                           >
                             Import
                           </.ui_button>
@@ -427,69 +535,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   </tbody>
                 </table>
               </div>
-          <% end %>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">Available add-ons</div>
-              <p class="text-xs text-base-content/60">
-                Staged packages need review before assignment; approved packages can be targeted.
-              </p>
-            </div>
-          </:header>
-
-          <%= if @packages == [] do %>
-            <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-              <div class="text-sm font-semibold text-base-content">No approved add-ons</div>
-              <p class="mt-1 text-xs text-base-content/60">
-                Approved add-on packages appear here once imported and reviewed.
-              </p>
-            </div>
-          <% else %>
-            <div class="overflow-x-auto">
-              <table class="table table-sm">
-                <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                    <th>Add-on</th>
-                    <th>Version</th>
-                    <th>Delivery</th>
-                    <th>Capabilities</th>
-                    <th>Status</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for package <- @packages do %>
-                    <tr class="hover:bg-base-200/30">
-                      <td>
-                        <div class="font-medium">{package.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">{package.addon_id}</div>
-                      </td>
-                      <td class="text-xs">{package.version}</td>
-                      <td class="text-xs">{package.delivery}</td>
-                      <td class="text-xs">{Enum.join(package.capabilities || [], ", ")}</td>
-                      <td>
-                        <span class={["badge badge-sm", package_status_badge(package.status)]}>
-                          {package.status}
-                        </span>
-                      </td>
-                      <td class="text-right">
-                        <.ui_button
-                          variant="ghost"
-                          size="sm"
-                          phx-click="view_package"
-                          phx-value-id={package.id}
-                        >
-                          View
-                        </.ui_button>
-                      </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
-            </div>
           <% end %>
         </.ui_panel>
 
@@ -677,6 +722,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       <li class="flex items-center justify-between gap-2 py-2">
                         <div class="text-xs font-mono">{assignment.agent_uid}</div>
                         <div class="flex items-center gap-2">
+                          <span class="badge badge-ghost badge-xs">
+                            {source_label(assignment.source)}
+                          </span>
                           <span class={[
                             "badge badge-sm",
                             if(assignment.enabled, do: "badge-success", else: "badge-ghost")
@@ -698,6 +746,125 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     <% end %>
                   </ul>
                 <% end %>
+              </div>
+
+              <div class="rounded-xl border border-base-200 p-4 space-y-3">
+                <div class="flex items-center justify-between gap-3">
+                  <div>
+                    <div class="text-sm font-semibold">Profiles</div>
+                    <p class="text-xs text-base-content/60">
+                      Assign this add-on from SRQL target queries.
+                    </p>
+                  </div>
+                </div>
+
+                <%= if @addon_profiles == [] do %>
+                  <p class="text-xs text-base-content/60">No profiles for this add-on package.</p>
+                <% else %>
+                  <ul class="divide-y divide-base-200">
+                    <%= for profile <- @addon_profiles do %>
+                      <li class="flex items-center justify-between gap-3 py-2">
+                        <div class="min-w-0">
+                          <div class="truncate text-xs font-semibold">{profile.name}</div>
+                          <div class="truncate font-mono text-[11px] text-base-content/60">
+                            {profile.target_query}
+                          </div>
+                          <div class="mt-1 flex flex-wrap gap-1">
+                            <span class="badge badge-ghost badge-xs">
+                              priority {profile.priority}
+                            </span>
+                            <span class={[
+                              "badge badge-xs",
+                              if(profile.enabled, do: "badge-success", else: "badge-ghost")
+                            ]}>
+                              {if profile.enabled, do: "enabled", else: "disabled"}
+                            </span>
+                            <span :if={profile.last_reconciled_at} class="badge badge-ghost badge-xs">
+                              reconciled
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          :if={@can_assign_addons}
+                          type="button"
+                          class="btn btn-ghost btn-xs"
+                          phx-click="reconcile_profile"
+                          phx-value-id={profile.id}
+                        >
+                          Reconcile
+                        </button>
+                      </li>
+                    <% end %>
+                  </ul>
+                <% end %>
+
+                <form
+                  id="create-addon-profile-form"
+                  phx-submit="create_profile"
+                  phx-change="profile_change"
+                  class="space-y-3"
+                >
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label class="label"><span class="label-text">Name</span></label>
+                      <input
+                        name="profile[name]"
+                        class="input input-bordered w-full"
+                        value={@profile_form["name"]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label"><span class="label-text">Priority</span></label>
+                      <input
+                        name="profile[priority]"
+                        class="input input-bordered w-full"
+                        value={@profile_form["priority"]}
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label class="label"><span class="label-text">SRQL Target Query</span></label>
+                    <input
+                      name="profile[target_query]"
+                      class="input input-bordered w-full font-mono text-xs"
+                      value={@profile_form["target_query"]}
+                      placeholder="in:devices hostname:%ns% include_inactive:true"
+                    />
+                  </div>
+                  <div class="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <label class="label"><span class="label-text">Max Targets</span></label>
+                      <input
+                        name="profile[max_targets]"
+                        class="input input-bordered w-full"
+                        value={@profile_form["max_targets"]}
+                      />
+                    </div>
+                    <div>
+                      <label class="label"><span class="label-text">Args (one per line)</span></label>
+                      <textarea
+                        name="profile[args]"
+                        class="textarea textarea-bordered w-full font-mono text-xs min-h-[42px]"
+                      ><%= @profile_form["args"] %></textarea>
+                    </div>
+                  </div>
+                  <div>
+                    <label class="label"><span class="label-text">Params (JSON)</span></label>
+                    <textarea
+                      name="profile[params]"
+                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[70px]"
+                    ><%= assignment_params_raw(@profile_form) %></textarea>
+                  </div>
+                  <div class="flex justify-end">
+                    <button
+                      type="submit"
+                      class="btn btn-primary btn-sm"
+                      disabled={@selected_package.status != :approved or not @can_assign_addons}
+                    >
+                      Create Profile
+                    </button>
+                  </div>
+                </form>
               </div>
 
               <div class="rounded-xl border border-base-200 p-4 space-y-3">
@@ -892,7 +1059,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     """
   end
 
-  defp list_addon_packages(scope), do: AddonPackages.list(%{}, scope: scope)
+  defp list_addon_packages(scope), do: AddonPackages.list(%{limit: 500}, scope: scope)
 
   defp load_first_party_catalog(socket) do
     case NativeAddonImporter.list_recent_addons(
@@ -903,21 +1070,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
         socket
         |> assign(:first_party_catalog_error, nil)
         |> assign_first_party_catalog_view(addons, socket.assigns[:first_party_release_tag])
-        |> assign(:first_party_catalog_status, first_party_catalog_status(addons))
 
       {:error, reason} ->
+        release_options = combined_release_options([], socket.assigns.packages)
+
         socket
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_all, [])
-        |> assign(:first_party_release_options, [])
-        |> assign(:first_party_release_tag, nil)
+        |> assign(:first_party_release_options, release_options)
+        |> assign(
+          :first_party_release_tag,
+          selected_first_party_release(release_options, socket.assigns[:first_party_release_tag])
+        )
         |> assign(:first_party_catalog_error, format_error(reason))
-        |> assign(:first_party_catalog_status, nil)
+        |> assign(:first_party_catalog_status, first_party_catalog_status([], socket.assigns.packages))
     end
   end
 
   defp assign_first_party_catalog_view(socket, addons, requested_release_tag) do
-    release_options = first_party_release_options(addons)
+    packages = socket.assigns[:packages] || []
+    release_options = combined_release_options(addons, packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
     visible_addons = filter_first_party_addons(addons, selected_release_tag)
 
@@ -926,6 +1098,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> assign(:first_party_release_options, release_options)
     |> assign(:first_party_release_tag, selected_release_tag)
     |> assign(:first_party_catalog, visible_addons)
+    |> assign(:first_party_catalog_status, first_party_catalog_status(addons, packages))
   end
 
   defp first_party_release_options(addons) do
@@ -933,6 +1106,17 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> Enum.map(& &1.release_tag)
     |> Enum.reject(&is_nil/1)
     |> Enum.uniq()
+  end
+
+  defp package_release_options(packages) do
+    packages
+    |> Enum.map(& &1.source_release_tag)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp combined_release_options(addons, packages) do
+    Enum.uniq(first_party_release_options(addons) ++ package_release_options(packages))
   end
 
   defp selected_first_party_release([], _requested), do: nil
@@ -951,11 +1135,11 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     Enum.filter(addons, &(&1.release_tag == release_tag))
   end
 
-  defp first_party_catalog_status(addons) do
+  defp first_party_catalog_status(addons, packages) do
     import_ready = Enum.count(addons, &Map.get(&1, :import_ready?))
-    releases = addons |> first_party_release_options() |> length()
+    releases = addons |> combined_release_options(packages) |> length()
 
-    "Loaded #{length(addons)} first-party add-on entry(s), #{import_ready} import-ready, from #{releases} indexed release(s)."
+    "Loaded #{length(addons)} first-party add-on entry(s), #{import_ready} import-ready, #{length(packages)} imported package(s), from #{releases} release(s)."
   end
 
   defp first_party_repo_url do
@@ -976,8 +1160,80 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     |> Enum.join(", ")
   end
 
+  defp combined_catalog_rows(first_party_addons, packages, release_tag) do
+    package_by_key = Map.new(packages, &{package_catalog_key(&1), &1})
+
+    first_party_rows =
+      Enum.map(first_party_addons, fn addon ->
+        package = Map.get(package_by_key, addon_catalog_key(addon))
+
+        %{
+          addon_id: addon.addon_id,
+          name: addon.name,
+          version: addon.version,
+          release_tag: addon.release_tag,
+          platforms: catalog_platforms(addon),
+          package: package,
+          import_ready: Map.get(addon, :import_ready?, false)
+        }
+      end)
+
+    first_party_keys = MapSet.new(first_party_addons, &addon_catalog_key/1)
+
+    package_rows =
+      packages
+      |> Enum.filter(&package_matches_release?(&1, release_tag))
+      |> Enum.reject(&(package_catalog_key(&1) in first_party_keys))
+      |> Enum.map(fn package ->
+        %{
+          addon_id: package.addon_id,
+          name: package.name,
+          version: package.version,
+          release_tag: package.source_release_tag,
+          platforms: package_platforms(package),
+          package: package,
+          import_ready: false
+        }
+      end)
+
+    Enum.sort_by(first_party_rows ++ package_rows, &catalog_row_sort_key/1)
+  end
+
+  defp addon_catalog_key(addon), do: {addon.addon_id, addon.version, addon.release_tag}
+
+  defp package_catalog_key(package) do
+    {package.addon_id, package.version, package.source_release_tag}
+  end
+
+  defp package_matches_release?(_package, nil), do: true
+  defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
+
+  defp package_platforms(package) do
+    package.artifacts
+    |> case do
+      artifacts when is_map(artifacts) -> Map.keys(artifacts)
+      _ -> []
+    end
+    |> Enum.sort()
+    |> Enum.join(", ")
+  end
+
+  defp catalog_row_sort_key(row) do
+    {row.name |> to_string() |> String.downcase(), row.addon_id, row.version}
+  end
+
+  defp catalog_row_status(%{package: nil}), do: "not imported"
+  defp catalog_row_status(%{package: package}), do: package.status
+
+  defp catalog_row_status_badge(%{package: nil}), do: "badge-ghost"
+  defp catalog_row_status_badge(%{package: package}), do: package_status_badge(package.status)
+
   defp list_assignments_for_package(package_id, scope) do
     AddonAssignments.list(%{addon_package_id: package_id}, scope: scope)
+  end
+
+  defp list_profiles_for_package(package_id, scope) do
+    AddonProfiles.list(%{addon_package_id: package_id}, scope: scope)
   end
 
   defp list_agents(scope) do
@@ -1018,6 +1274,24 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       "params_raw" => "",
       "args" => ""
     }
+  end
+
+  defp default_profile_form(package \\ nil)
+
+  defp default_profile_form(nil) do
+    %{
+      "name" => "",
+      "target_query" => "in:devices ",
+      "priority" => "100",
+      "max_targets" => "10000",
+      "params" => "{}",
+      "args" => ""
+    }
+  end
+
+  defp default_profile_form(package) do
+    base = default_profile_form(nil)
+    %{base | "name" => "#{package.name} profile"}
   end
 
   defp fetch_agent_uid(form) do
@@ -1062,6 +1336,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp assignment_success_message(1), do: "Add-on assigned to agent."
   defp assignment_success_message(count), do: "Add-on assigned to #{count} agents."
 
+  defp source_label(source) when is_atom(source), do: Atom.to_string(source)
+  defp source_label(source) when is_binary(source), do: source
+  defp source_label(_source), do: "unknown"
+
   defp parse_params(form, config_schema) do
     if config_schema_present?(config_schema) do
       structured = Map.get(form, "params")
@@ -1082,6 +1360,55 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       end
     end
   end
+
+  defp parse_profile_params(form) do
+    raw = Map.get(form, "params")
+
+    if is_binary(raw) and String.trim(raw) != "" do
+      parse_json_object(raw)
+    else
+      {:ok, %{}}
+    end
+  end
+
+  defp profile_attrs(form, package, params, priority, max_targets) do
+    target_query = String.trim(Map.get(form, "target_query") || "")
+
+    if target_query == "" do
+      {:error, :missing_query}
+    else
+      {:ok,
+       %{
+         name: present_text(Map.get(form, "name")) || "#{package.name} profile",
+         addon_package_id: package.id,
+         target_query: target_query,
+         params: params,
+         args: parse_args(Map.get(form, "args")),
+         priority: priority,
+         max_targets: max_targets,
+         enabled: true
+       }}
+    end
+  end
+
+  defp parse_positive_integer(value, default) do
+    value = if is_nil(value) or value == "", do: Integer.to_string(default), else: to_string(value)
+
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed > 0 -> {:ok, parsed}
+      _ -> {:error, :invalid_integer}
+    end
+  end
+
+  defp profile_reconcile_message(summary) when is_map(summary) do
+    desired = Map.get(summary, :desired_assignments) || Map.get(summary, "desired_assignments") || 0
+    upserted = Map.get(summary, :upserted) || Map.get(summary, "upserted") || 0
+    disabled = Map.get(summary, :disabled) || Map.get(summary, "disabled") || 0
+
+    "Profile reconciled: #{desired} desired, #{upserted} changed, #{disabled} disabled."
+  end
+
+  defp profile_reconcile_message(_summary), do: "Profile reconciled."
 
   defp parse_json_object(raw) do
     case Jason.decode(raw) do

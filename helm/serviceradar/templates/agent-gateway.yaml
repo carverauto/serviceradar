@@ -6,6 +6,12 @@
 {{- $coreVals := default (dict) .Values.core -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $clusterCoreNodeBasename := default $coreClusterNodeBasename $gateway.clusterCoreNodeBasename -}}
 {{- $datasvc := default (dict) $gateway.datasvc -}}
@@ -131,9 +137,9 @@ spec:
             secretKeyRef:
               name: {{ default "serviceradar-secrets" .Values.secrets.existingSecretName | quote }}
               key: plugin-storage-signing-secret
-        {{- if $webNgPublicUrl }}
+        {{- if $agentArtifactPublicUrl }}
         - name: PLUGIN_STORAGE_PUBLIC_URL
-          value: {{ $webNgPublicUrl | quote }}
+          value: {{ $agentArtifactPublicUrl | quote }}
         {{- end }}
         - name: KUBERNETES_SELECTOR
           value: {{ $clusterSelector | quote }}

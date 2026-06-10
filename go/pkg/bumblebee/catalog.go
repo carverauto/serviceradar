@@ -48,6 +48,8 @@ type CatalogAssignment struct {
 	ObjectKey      string `json:"object_key"`
 	SHA256         string `json:"sha256"`
 	SizeBytes      int64  `json:"size_bytes,omitempty"`
+	DownloadURL    string `json:"download_url,omitempty"`
+	DownloadToken  string `json:"download_token,omitempty"`
 }
 
 type CatalogStageResult struct {
@@ -84,13 +86,14 @@ func StageCatalogAssignment(
 		SHA256:      strings.ToLower(strings.TrimSpace(assignment.SHA256)),
 	}
 
-	if downloader == nil {
-		return result, ErrCatalogObjectStoreUnavailable
-	}
 	if strings.TrimSpace(assignment.ObjectKey) == "" ||
 		result.SnapshotRef == "" ||
 		result.SHA256 == "" {
 		return result, ErrCatalogAssignmentIncomplete
+	}
+
+	if downloader == nil {
+		return result, ErrCatalogObjectStoreUnavailable
 	}
 
 	data, err := downloader.DownloadObject(ctx, assignment.ObjectKey)

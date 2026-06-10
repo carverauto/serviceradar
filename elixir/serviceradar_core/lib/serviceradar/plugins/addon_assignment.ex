@@ -23,9 +23,14 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     :addon_package_id,
     :source,
     :source_key,
+    :addon_profile_id,
     :enabled,
     :params,
-    :args
+    :args,
+    :profile_reconcile_status,
+    :profile_reconcile_error,
+    :profile_last_reconciled_at,
+    :profile_metadata
   ]
 
   @create_fields [:agent_uid, :addon_package_id | @mutable_fields]
@@ -51,6 +56,18 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
     read :by_agent do
       argument :agent_uid, :string, allow_nil?: false
       filter expr(agent_uid == ^arg(:agent_uid))
+    end
+
+    read :by_profile do
+      argument :addon_profile_id, :uuid, allow_nil?: false
+      filter expr(source == :profile and addon_profile_id == ^arg(:addon_profile_id))
+    end
+
+    read :by_source_key do
+      argument :source, :atom, allow_nil?: false
+      argument :source_key, :string, allow_nil?: false
+      get? true
+      filter expr(source == ^arg(:source) and source_key == ^arg(:source_key))
     end
 
     create :create do
@@ -104,10 +121,15 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       allow_nil? false
       public? true
       default :manual
-      constraints one_of: [:manual, :policy]
+      constraints one_of: [:manual, :policy, :profile]
     end
 
     attribute :source_key, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :addon_profile_id, :uuid do
       allow_nil? true
       public? true
     end
@@ -130,6 +152,27 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       default []
     end
 
+    attribute :profile_reconcile_status, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :profile_reconcile_error, :string do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :profile_last_reconciled_at, :utc_datetime_usec do
+      allow_nil? true
+      public? true
+    end
+
+    attribute :profile_metadata, :map do
+      allow_nil? false
+      public? true
+      default %{}
+    end
+
     create_timestamp :inserted_at
     update_timestamp :updated_at
   end
@@ -140,6 +183,14 @@ defmodule ServiceRadar.Plugins.AddonAssignment do
       public? true
       destination_attribute :id
       source_attribute :addon_package_id
+      define_attribute? false
+    end
+
+    belongs_to :addon_profile, ServiceRadar.Plugins.AddonProfile do
+      allow_nil? true
+      public? true
+      destination_attribute :id
+      source_attribute :addon_profile_id
       define_attribute? false
     end
   end
