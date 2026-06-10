@@ -168,3 +168,59 @@ fn endpoint_inventory_scans_example_freshness_and_hash() {
     );
     assert_eq!(params.len(), 5);
 }
+
+#[test]
+fn security_findings_alias_filters_to_ocsf_findings_category() {
+    let query = "in:security_findings severity:High sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SecurityFindings));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build security findings SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"category_uid\" = 2"),
+        "expected security_findings to constrain OCSF Findings category, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"ocsf_events\".\"time\" desc"),
+        "expected time desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn scan_activity_alias_filters_to_ocsf_scan_activity_class() {
+    let query = "in:scan_activity status:Success sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::ScanActivity));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build scan activity SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 6007")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 6"),
+        "expected scan_activity to constrain OCSF Scan Activity class/category, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"ocsf_events\".\"time\" desc"),
+        "expected time desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn dns_activity_alias_filters_to_ocsf_dns_activity_class() {
+    let query = "in:dns_activity status:Success sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::DnsActivity));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build DNS activity SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 4003")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 4"),
+        "expected dns_activity to constrain OCSF DNS Activity class/category, got: {sql}"
+    );
+    assert!(
+        lower.contains("order by \"ocsf_events\".\"time\" desc"),
+        "expected time desc ordering, got: {sql}"
+    );
+}

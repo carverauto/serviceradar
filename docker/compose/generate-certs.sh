@@ -290,6 +290,8 @@ generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:r
 generate_cert "log-collector" "log-collector.serviceradar" "DNS:log-collector,DNS:log-collector.serviceradar,DNS:serviceradar-log-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "flow-collector" "flow-collector.serviceradar" "DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:serviceradar-flow-collector,DNS:localhost,IP:127.0.0.1"
 generate_cert "bmp-collector" "bmp-collector.serviceradar" "DNS:bmp-collector,DNS:bmp-collector.serviceradar,DNS:serviceradar-bmp-collector,DNS:localhost,IP:127.0.0.1"
+generate_cert "falcosidekick" "serviceradar-falcosidekick" "DNS:serviceradar-falcosidekick,DNS:falcosidekick,DNS:localhost,IP:127.0.0.1"
+generate_cert "trivy-sidecar" "serviceradar-trivy-sidecar" "DNS:serviceradar-trivy-sidecar,DNS:trivy-sidecar,DNS:localhost,IP:127.0.0.1"
 
 # Alias flow client cert names for collector defaults.
 if [ -f "$CERT_DIR/flow-collector.pem" ] && [ -f "$CERT_DIR/flow-collector-key.pem" ]; then

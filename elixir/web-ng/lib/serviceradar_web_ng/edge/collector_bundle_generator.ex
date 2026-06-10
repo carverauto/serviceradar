@@ -360,6 +360,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     subject_template =
       get_in(package.config_overrides, ["subject_template"]) || "falco.<priority>.<rule>"
 
+    agent_id_template =
+      get_in(package.config_overrides, ["agent_id_template"]) ||
+        ~s({{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }})
+
     otlp_endpoint =
       get_in(package.config_overrides, ["otlp_endpoint"]) ||
         "https://serviceradar-log-collector:4317"
@@ -384,6 +388,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
         checkcert: true
         subjecttemplate: "#{subject_template}"
         minimumpriority: "debug"
+      templatedfields:
+        serviceradar.agent_id: '#{agent_id_template}'
       tlsclient:
         cacertfile: /etc/serviceradar/certs/root.pem
       mutualtlsclient:
@@ -639,6 +645,15 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
     - `falcosidekick.yaml` - Helm values for Falcosidekick
     - `deploy.sh` - Automated deploy script (checks runtime secret + helm upgrade)
 
+    ## Device Correlation
+
+    The generated `falcosidekick.yaml` adds a `serviceradar.agent_id`
+    templated field from `k8s.node.name` using the `agent-<node-name>`
+    convention. ServiceRadar uses that agent ID to resolve promoted Falco
+    Detection Finding events back to inventory devices. If your agent IDs use a
+    different convention, edit `config.templatedfields.serviceradar.agent_id`
+    before deploying.
+
     ## Configure Falco to Forward Events
 
     Falco must have HTTP output enabled and pointed at Falcosidekick:
@@ -836,7 +851,8 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   # Extract NATS leaf URL from preloaded edge site, if available
-  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}})
+       when is_binary(url) and url != "" do
     url
   end
 

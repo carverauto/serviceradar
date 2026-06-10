@@ -166,15 +166,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       row = CausalSignals.parse_message(message)
 
       assert row
-      assert row.class_uid == 2004
+      assert row.class_uid == 2002
       assert row.category_uid == 2
-      assert row.type_uid == 200_401
+      assert row.type_uid == 200_201
       assert row.activity_id == 1
       assert row.severity_id == 5
       assert row.severity == "Critical"
       assert row.device == %{"uid" => "sr:test-device"}
       assert row.metadata["signal_type"] == "inventory"
       assert row.metadata["primary_domain"] == "security"
+      assert row.metadata["service_radar"]["source_type"] == "endpoint_inventory"
+      assert row.metadata["service_radar"]["addon_id"] == "endpoint-inventory"
+      assert row.metadata["service_radar"]["device_uid"] == "sr:test-device"
+      assert row.metadata["service_radar"]["ocsf_class"] == "vulnerability_finding"
       assert "security" in row.metadata["signal_domains"]
       assert "inventory" in row.metadata["signal_domains"]
       assert %{"type" => "cve", "id" => "CVE-2026-1234"} in row.metadata["grouped_contexts"]

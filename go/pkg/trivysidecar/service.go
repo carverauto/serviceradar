@@ -230,6 +230,10 @@ func (s *Service) enrichPodCorrelation(ctx context.Context, envelope *Envelope) 
 			correlation.NodeName = strings.TrimSpace(nodeName)
 		}
 	}
+
+	if correlation.AgentID == "" {
+		correlation.AgentID = inferAgentIDFromNode(correlation.NodeName)
+	}
 }
 
 func podsResourceGVR() schema.GroupVersionResource {

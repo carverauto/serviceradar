@@ -14,18 +14,23 @@ SRQL and dashboard query support SHALL expose bounded endpoint inventory fields 
 - **THEN** SRQL SHALL answer from maintained current-state, indexed, or aggregate-backed surfaces
 - **AND** it SHALL NOT require a broad unbounded aggregate scan from the LiveView render path.
 
-### Requirement: Bumblebee Dashboard Query Support
-SRQL and dashboard query support SHALL expose bounded Bumblebee posture and finding fields required by the first-party Bumblebee Exposure authored dashboard.
+### Requirement: Security Dashboard Query Support
+SRQL and dashboard query support SHALL expose bounded OCSF scan activity, security finding, and DNS Activity fields required by the first-party Security page and Security Findings / Bumblebee Exposure authored dashboard.
 
 #### Scenario: Dashboard queries Bumblebee posture
-- **GIVEN** Bumblebee posture state exists
+- **GIVEN** OCSF `Scan Activity` state exists for Bumblebee, Trivy, or endpoint package discovery
 - **WHEN** a dashboard panel queries scanner coverage, scan freshness, catalog snapshot, or risk contribution
-- **THEN** SRQL SHALL return bounded rows with agent/device identity, coverage state, last scan time, catalog identity, scanner version, active finding count, highest severity, and risk contribution.
+- **THEN** SRQL SHALL return bounded rows with source type, agent/device identity, activity, status, last scan time, scan duration, catalog identity where available, scanner version, detection count, skipped count, and ServiceRadar producer metadata.
 
-#### Scenario: Dashboard queries Bumblebee findings
-- **GIVEN** active Bumblebee findings exist
+#### Scenario: Dashboard queries OCSF security findings
+- **GIVEN** active OCSF security findings exist from Bumblebee, Falco, Trivy, or endpoint package discovery
 - **WHEN** a dashboard panel queries finding severity distribution, recent activity, or affected devices
-- **THEN** SRQL SHALL return bounded rows with severity, status, catalog ID, ecosystem, package identity, device identity, first seen, last seen, and event/device references when available.
+- **THEN** SRQL SHALL return bounded rows with source type, OCSF class, severity, status, catalog ID or rule ID where available, ecosystem/package identity where available, affected resource/device identity, first seen, last seen, and event/device references when available.
+
+#### Scenario: Dashboard queries DNS security activity
+- **GIVEN** OCSF DNS Activity exists from PowerDNS or another DNS policy producer
+- **WHEN** a Security page or dashboard panel queries DNS security activity
+- **THEN** SRQL SHALL return bounded rows with source type, DNS query identity, rule/policy metadata where available, DNS endpoints, activity, status, event time, and ServiceRadar producer metadata.
 
 ### Requirement: Dashboard Queries Preserve Authorization And Bounds
 SRQL-backed dashboard panels for product-authored dashboards SHALL preserve the same authorization, row-limit, and timeout bounds as user-authored dashboard panels.
@@ -40,4 +45,3 @@ SRQL-backed dashboard panels for product-authored dashboards SHALL preserve the 
 - **WHEN** the panel query executes
 - **THEN** the dashboard runtime or SRQL layer SHALL apply configured bounds
 - **AND** the panel SHALL report bounded or partial results when applicable.
-

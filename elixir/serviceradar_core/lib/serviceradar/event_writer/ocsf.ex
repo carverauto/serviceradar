@@ -8,7 +8,9 @@ defmodule ServiceRadar.EventWriter.OCSF do
   - Shared field builders for OCSF events
 
   ## OCSF Version
-  Based on OCSF v1.3.0 schema.
+  Common network and system activity helpers retain their historical defaults.
+  Security producer helpers target OCSF v1.9.0-dev until the next stable
+  schema release carries the same classes.
 
   ## Usage Strategy
   - Logs: Keep native OTEL format (observability data)
@@ -31,8 +33,14 @@ defmodule ServiceRadar.EventWriter.OCSF do
   @doc "System Activity category (category_uid: 1)"
   def category_system_activity, do: 1
 
+  @doc "Findings category (category_uid: 2)"
+  def category_findings, do: 2
+
   @doc "Network Activity category (category_uid: 4)"
   def category_network_activity, do: 4
+
+  @doc "Application Activity category (category_uid: 6)"
+  def category_application_activity, do: 6
 
   # =============================================================================
   # Class UIDs
@@ -41,6 +49,19 @@ defmodule ServiceRadar.EventWriter.OCSF do
   # System Activity classes
   @doc "Event Log Activity class (class_uid: 1008)"
   def class_event_log_activity, do: 1008
+
+  # Finding classes
+  @doc "Vulnerability Finding class (class_uid: 2002)"
+  def class_vulnerability_finding, do: 2002
+
+  @doc "Compliance Finding class (class_uid: 2003)"
+  def class_compliance_finding, do: 2003
+
+  @doc "Detection Finding class (class_uid: 2004)"
+  def class_detection_finding, do: 2004
+
+  @doc "Application Security Posture Finding class (class_uid: 2007)"
+  def class_application_security_posture_finding, do: 2007
 
   # Network Activity classes
   @doc "Network Activity class (class_uid: 4001)"
@@ -51,6 +72,9 @@ defmodule ServiceRadar.EventWriter.OCSF do
 
   @doc "DNS Activity class (class_uid: 4003)"
   def class_dns_activity, do: 4003
+
+  @doc "Scan Activity class (class_uid: 6007)"
+  def class_scan_activity, do: 6007
 
   # =============================================================================
   # Activity IDs - Event Log Activity (1008)
@@ -64,6 +88,17 @@ defmodule ServiceRadar.EventWriter.OCSF do
   def activity_log_update, do: 3
   @doc "Log Delete activity"
   def activity_log_delete, do: 4
+
+  # =============================================================================
+  # Activity IDs - Findings (200x)
+  # =============================================================================
+
+  @doc "Finding Create activity"
+  def activity_finding_create, do: 1
+  @doc "Finding Update activity"
+  def activity_finding_update, do: 2
+  @doc "Finding Close activity"
+  def activity_finding_close, do: 3
 
   # =============================================================================
   # Activity IDs - Network Activity (4001)
@@ -85,6 +120,31 @@ defmodule ServiceRadar.EventWriter.OCSF do
   def activity_network_listen, do: 7
   @doc "Network Scan (discovery)"
   def activity_network_scan, do: 99
+
+  # =============================================================================
+  # Activity IDs - Scan Activity (6007)
+  # =============================================================================
+
+  @doc "Scan started"
+  def activity_scan_started, do: 1
+  @doc "Scan completed"
+  def activity_scan_completed, do: 2
+  @doc "Scan cancelled"
+  def activity_scan_cancelled, do: 3
+  @doc "Scan duration violation"
+  def activity_scan_duration_violation, do: 4
+  @doc "Scan pause violation"
+  def activity_scan_pause_violation, do: 5
+  @doc "Scan error"
+  def activity_scan_error, do: 6
+  @doc "Scan paused"
+  def activity_scan_paused, do: 7
+  @doc "Scan resumed"
+  def activity_scan_resumed, do: 8
+  @doc "Scan restarted"
+  def activity_scan_restarted, do: 9
+  @doc "Scan delayed"
+  def activity_scan_delayed, do: 10
 
   # =============================================================================
   # Severity IDs
@@ -185,6 +245,26 @@ defmodule ServiceRadar.EventWriter.OCSF do
   def log_activity_name(3), do: "Update"
   def log_activity_name(4), do: "Delete"
   def log_activity_name(_), do: "Unknown"
+
+  @doc "Get activity name for OCSF finding classes"
+  def finding_activity_name(1), do: "Create"
+  def finding_activity_name(2), do: "Update"
+  def finding_activity_name(3), do: "Close"
+  def finding_activity_name(_), do: "Unknown"
+
+  @doc "Get activity name for Scan Activity class"
+  def scan_activity_name(1), do: "Started"
+  def scan_activity_name(2), do: "Completed"
+  def scan_activity_name(3), do: "Cancelled"
+  def scan_activity_name(4), do: "Duration Violation"
+  def scan_activity_name(5), do: "Pause Violation"
+  def scan_activity_name(6), do: "Error"
+  def scan_activity_name(7), do: "Paused"
+  def scan_activity_name(8), do: "Resumed"
+  def scan_activity_name(9), do: "Restarted"
+  def scan_activity_name(10), do: "Delayed"
+  def scan_activity_name(99), do: "Other"
+  def scan_activity_name(_), do: "Unknown"
 
   # =============================================================================
   # Shared Field Builders

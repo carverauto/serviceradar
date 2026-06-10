@@ -437,7 +437,9 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
   defp addon_assignment_precedence(%AddonAssignment{source: :manual}), do: {0, 0}
-  defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata}) when is_map(metadata) do
+
+  defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata})
+       when is_map(metadata) do
     {1, map_int(metadata, "priority", 100)}
   end
 
@@ -1684,6 +1686,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       profile_config
       |> Map.put("enabled", true)
       |> Map.put("agent_id", agent_id)
+      |> maybe_put_config_value("device_uid", device_uid)
       |> Map.put_new("scan_profile", "default")
       |> Map.put_new("root_discovery_mode", "all")
       |> Map.put_new("explicit_roots", [])
@@ -1727,17 +1730,19 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   defp bumblebee_catalog_config(snapshot) do
     download = StorageToken.download_bumblebee_catalog_request(snapshot.object_key)
 
-    %{
-      "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
-      "snapshot_ref" => snapshot.snapshot_ref,
-      "catalog_version" => snapshot.catalog_version,
-      "source_revision" => snapshot.source_revision,
-      "object_key" => snapshot.object_key,
-      "sha256" => snapshot.content_sha256,
-      "size_bytes" => snapshot.object_size_bytes,
-      "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
-    }
-    |> maybe_put_download_request(download)
+    maybe_put_download_request(
+      %{
+        "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
+        "snapshot_ref" => snapshot.snapshot_ref,
+        "catalog_version" => snapshot.catalog_version,
+        "source_revision" => snapshot.source_revision,
+        "object_key" => snapshot.object_key,
+        "sha256" => snapshot.content_sha256,
+        "size_bytes" => snapshot.object_size_bytes,
+        "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+      },
+      download
+    )
   end
 
   defp maybe_put_download_request(config, %{url: url, token: token})
@@ -1810,6 +1815,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       upload_retry_max: map_string(config, "upload_retry_max"),
       upload_retry_max_attempts: map_int(config, "upload_retry_max_attempts")
     }
+  end
+
+  defp maybe_put_config_value(config, _key, value) when value in [nil, ""], do: config
+
+  defp maybe_put_config_value(config, key, value) when is_map(config) and is_binary(key) do
+    Map.put(config, key, value)
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

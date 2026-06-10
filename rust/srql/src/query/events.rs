@@ -78,7 +78,9 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::Events => Ok(()),
+        Entity::Events | Entity::SecurityFindings | Entity::ScanActivity | Entity::DnsActivity => {
+            Ok(())
+        }
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by events query".into(),
         )),
@@ -87,6 +89,19 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 
 fn build_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
     let mut query = ocsf_events.into_boxed::<Pg>();
+
+    query = match plan.entity {
+        Entity::SecurityFindings => {
+            query.filter(sql::<Bool>("\"ocsf_events\".\"category_uid\" = 2"))
+        }
+        Entity::ScanActivity => query.filter(sql::<Bool>(
+            "\"ocsf_events\".\"class_uid\" = 6007 AND \"ocsf_events\".\"category_uid\" = 6",
+        )),
+        Entity::DnsActivity => query.filter(sql::<Bool>(
+            "\"ocsf_events\".\"class_uid\" = 4003 AND \"ocsf_events\".\"category_uid\" = 4",
+        )),
+        _ => query,
+    };
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_time.ge(*start).and(col_time.le(*end)));

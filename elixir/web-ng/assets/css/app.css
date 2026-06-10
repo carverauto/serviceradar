@@ -369,6 +369,12 @@
 
 /* This file is for your main application CSS */
 
+html,
+body {
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 .sr-ops-shell {
   --sr-primary: var(--color-primary);
   --sr-primary-glow: color-mix(in srgb, var(--color-primary) 42%, transparent);

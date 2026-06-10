@@ -56,25 +56,32 @@ The system SHALL ship a first-party Endpoint Inventory authored dashboard that v
 - **THEN** the dashboard SHALL show an explicit no-data state
 - **AND** it SHALL NOT imply that the fleet has no packages or no endpoint risk.
 
-### Requirement: Bumblebee Exposure Authored Dashboard
-The system SHALL ship a first-party Bumblebee Exposure authored dashboard that visualizes fleet scanner coverage and active developer endpoint exposure findings with polished summary, chart, and drill-down panels.
+### Requirement: Security Findings Authored Dashboard
+The system SHALL ship a first-party Security Findings / Bumblebee Exposure authored dashboard that visualizes fleet scanner coverage and active OCSF security findings with polished summary, chart, and drill-down panels.
 
 #### Scenario: Bumblebee dashboard summarizes exposure posture
-- **GIVEN** Bumblebee scan posture or finding data exists
+- **GIVEN** OCSF `Scan Activity` or OCSF security finding data exists from Bumblebee, Falco, Trivy, or endpoint package discovery
 - **WHEN** an authorized operator opens the Bumblebee Exposure dashboard
-- **THEN** the dashboard SHALL show scanner coverage, active finding count, highest severity distribution, high-risk devices, catalog snapshot adoption, partial coverage counts, and recent finding activity
+- **THEN** the dashboard SHALL show scanner coverage, active finding count, highest severity distribution, finding class distribution, high-risk devices, catalog snapshot adoption where applicable, partial coverage counts, and recent finding activity
 - **AND** the summary SHALL use visual treatments such as KPI cards, severity bars, charts, timelines, and status badges rather than only a raw table.
 
 #### Scenario: Bumblebee dashboard exposes active findings
-- **GIVEN** one or more active Bumblebee findings exist
+- **GIVEN** one or more active OCSF security findings exist
 - **WHEN** the Bumblebee Exposure dashboard renders
-- **THEN** it SHALL provide a drill-down panel listing affected device, severity, catalog ID, ecosystem, package identity, status, first seen, last seen, and a link or action to inspect the corresponding device or event when available.
+- **THEN** it SHALL provide a drill-down panel listing source, OCSF class, affected device/resource, severity, catalog or rule ID where available, ecosystem/package identity where available, status, first seen, last seen, and a link or action to inspect the corresponding device or event when available.
 
 #### Scenario: Bumblebee dashboard distinguishes unscanned from clean
 - **GIVEN** a deployment has agents without completed Bumblebee scans
 - **WHEN** the Bumblebee Exposure dashboard renders coverage
 - **THEN** it SHALL distinguish full clean scans, partial scans, stale scans, failed scans, and never-scanned agents
 - **AND** it SHALL NOT present never-scanned or partial-coverage agents as clean.
+
+#### Scenario: Dashboard separates scan activity from security findings
+- **GIVEN** both OCSF `Scan Activity` and OCSF `Findings` events exist
+- **WHEN** the Security Findings / Bumblebee Exposure dashboard renders
+- **THEN** scanner execution panels SHALL use scan activity data
+- **AND** security outcome panels SHALL use OCSF Findings data
+- **AND** the dashboard SHALL NOT count scanner failures as vulnerabilities or findings unless a producer emitted a corresponding OCSF Finding.
 
 ### Requirement: Product Dashboard Visual Quality
 Product-authored dashboards SHALL meet a visual quality baseline suitable for first-run operator workflows.
@@ -96,4 +103,3 @@ Product-authored dashboards SHALL meet a visual quality baseline suitable for fi
 - **WHEN** the dashboard renders
 - **THEN** the panel SHALL show a clear loading or error state with bounded detail
 - **AND** sibling panels SHALL continue rendering when possible.
-

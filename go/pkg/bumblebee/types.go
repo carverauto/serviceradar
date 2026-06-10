@@ -30,6 +30,7 @@ const (
 type Config struct {
 	Enabled            bool     `json:"enabled"`
 	AgentID            string   `json:"agent_id"`
+	DeviceUID          string   `json:"device_uid,omitempty"`
 	CatalogPath        string   `json:"catalog_path"`
 	CatalogSnapshotRef string   `json:"catalog_snapshot_ref"`
 	ProfilePath        string   `json:"profile_path"`
@@ -49,6 +50,7 @@ type Config struct {
 type ScanPayload struct {
 	SchemaVersion        string         `json:"schema_version"`
 	AgentID              string         `json:"agent_id"`
+	DeviceUID            string         `json:"device_uid,omitempty"`
 	RunID                string         `json:"run_id"`
 	ScannerVersion       string         `json:"scanner_version,omitempty"`
 	CatalogSnapshotRef   string         `json:"catalog_snapshot_ref,omitempty"`
@@ -94,6 +96,7 @@ type RootCandidate struct {
 type RuntimeProfile struct {
 	Enabled            *bool    `json:"enabled,omitempty"`
 	AgentID            string   `json:"agent_id,omitempty"`
+	DeviceUID          string   `json:"device_uid,omitempty"`
 	CatalogSnapshotRef string   `json:"catalog_snapshot_ref,omitempty"`
 	ScanTimeout        string   `json:"scan_timeout,omitempty"`
 	IncludeHomeRoots   *bool    `json:"include_home_roots,omitempty"`

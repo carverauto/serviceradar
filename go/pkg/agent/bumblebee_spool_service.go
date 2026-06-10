@@ -31,9 +31,27 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	"github.com/google/uuid"
 )
 
 const maxBumblebeeSpoolBytes = 16 * 1024 * 1024
+
+const (
+	ocsfSchemaVersionDev                    = "1.9.0-dev"
+	ocsfCategoryFindings                    = 2
+	ocsfCategoryApplicationActivity         = 6
+	ocsfClassApplicationSecurityPosture     = 2007
+	ocsfClassScanActivity                   = 6007
+	ocsfActivityFindingCreate               = 1
+	ocsfActivityScanCompleted               = 2
+	ocsfActivityScanError                   = 6
+	ocsfStatusSuccess                       = 1
+	ocsfStatusFailure                       = 2
+	bumblebeeFindingDisplayContractID       = "com.carverauto.bumblebee.finding.display"
+	bumblebeeScanActivityDisplayContractID  = "com.carverauto.bumblebee.scan_activity.display"
+	bumblebeeFindingDisplayContractVersion  = "1.0.0"
+	bumblebeeScanActivityDisplayContractVer = "1.0.0"
+)
 
 var errBumblebeeSpoolTooLarge = errors.New("bumblebee spool payload exceeds size budget")
 
@@ -110,8 +128,8 @@ func (s *BumblebeeSpoolService) AddonTelemetryBatch(status *proto.StatusResponse
 	s.lastTelemetryKey = key
 	s.telemetryMu.Unlock()
 
-	record := s.bumblebeeScanTelemetryRecord(payload)
-	if record == nil {
+	records := s.bumblebeeTelemetryRecords(payload)
+	if len(records) == 0 {
 		return "", nil
 	}
 
@@ -120,12 +138,25 @@ func (s *BumblebeeSpoolService) AddonTelemetryBatch(status *proto.StatusResponse
 			SourceType:     "bumblebee",
 			SourceInstance: bumblebeeFirstNonEmpty(payload.AgentID, s.agentID, "agent"),
 		},
-		Records: []*addonpb.TelemetryRecord{record},
+		Records: records,
 		Counters: &addonpb.TelemetryCounters{
-			Received: 1,
-			Emitted:  1,
+			Received: uint64(len(records)),
+			Emitted:  uint64(len(records)),
 		},
 	}
+}
+
+func (s *BumblebeeSpoolService) bumblebeeTelemetryRecords(payload bumblebee.ScanPayload) []*addonpb.TelemetryRecord {
+	records := make([]*addonpb.TelemetryRecord, 0, 1+len(payload.Findings))
+	if record := s.bumblebeeScanTelemetryRecord(payload); record != nil {
+		records = append(records, record)
+	}
+	for _, finding := range payload.Findings {
+		if record := s.bumblebeeFindingTelemetryRecord(payload, finding); record != nil {
+			records = append(records, record)
+		}
+	}
+	return records
 }
 
 func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.ScanPayload) *addonpb.TelemetryRecord {
@@ -135,13 +166,17 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 	}
 	eventTimeNano := eventTime.UnixNano()
 	observedTimeNano := time.Now().UTC().UnixNano()
+	eventID := bumblebeeDeterministicUUID("scan:" + payload.RunID)
+	activityID := bumblebeeScanActivityID(payload)
 
 	event := map[string]any{
-		"class_uid":     4001,
-		"category_uid":  1,
-		"type_uid":      400103,
-		"activity_id":   3,
-		"activity_name": "Update",
+		"id":            eventID,
+		"time":          eventTimeNano,
+		"class_uid":     ocsfClassScanActivity,
+		"category_uid":  ocsfCategoryApplicationActivity,
+		"type_uid":      ocsfTypeUID(ocsfClassScanActivity, activityID),
+		"activity_id":   activityID,
+		"activity_name": bumblebeeScanActivityName(activityID),
 		"severity_id":   bumblebeeSeverityID(payload),
 		"severity":      bumblebeeSeverityName(bumblebeeSeverityID(payload)),
 		"status_id":     bumblebeeStatusID(payload),
@@ -155,13 +190,17 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 				"name":        "ServiceRadar Bumblebee Add-on",
 				"vendor_name": "Carver Automation",
 			},
-			"version": "1.8.0",
+			"service_radar": bumblebeeServiceRadarMetadata(payload, "scan_activity"),
+			"version":       ocsfSchemaVersionDev,
 		},
-		"actor": map[string]any{},
-		"device": map[string]any{
-			"name": bumblebeeFirstNonEmpty(payload.AgentID, s.agentID, "agent"),
-		},
-		"unmapped": bumblebeeEventUnmapped(payload),
+		"actor":             map[string]any{},
+		"device":            bumblebeeDeviceObject(payload, s.agentID),
+		"scan":              bumblebeeScanObject(payload),
+		"end_time":          eventTimeNano,
+		"total":             payload.AttemptedRootCount,
+		"num_detections":    len(payload.Findings),
+		"num_skipped_items": payload.SkippedRootCount,
+		"unmapped":          bumblebeeEventUnmapped(payload),
 	}
 
 	data, err := json.Marshal(event)
@@ -170,7 +209,7 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 	}
 
 	return sraddon.AttachSignalSchemaRef(&addonpb.TelemetryRecord{
-		EventId:              "bumblebee-scan-" + payload.RunID,
+		EventId:              eventID,
 		ObservedTimeUnixNano: observedTimeNano,
 		EventTimeUnixNano:    eventTimeNano,
 		PayloadKind:          addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
@@ -178,10 +217,79 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 	}, sraddon.SignalSchemaRef{
 		ProducerID:             "bumblebee",
 		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
-		SchemaID:               "com.carverauto.bumblebee.scan",
+		SchemaID:               "ocsf.scan_activity",
 		SchemaVersion:          "1.0.0",
-		DisplayContractID:      "com.carverauto.bumblebee.scan.display",
-		DisplayContractVersion: "1.0.0",
+		DisplayContractID:      bumblebeeScanActivityDisplayContractID,
+		DisplayContractVersion: bumblebeeScanActivityDisplayContractVer,
+		SignalType:             "event",
+		PayloadKind:            "ocsf_event",
+	})
+}
+
+func (s *BumblebeeSpoolService) bumblebeeFindingTelemetryRecord(payload bumblebee.ScanPayload, finding bumblebee.Finding) *addonpb.TelemetryRecord {
+	eventTime := payload.LastScanAt
+	if eventTime.IsZero() {
+		eventTime = time.Now().UTC()
+	}
+	eventTimeNano := eventTime.UnixNano()
+	observedTimeNano := time.Now().UTC().UnixNano()
+	findingID := bumblebeeFirstNonEmpty(finding.FindingID, finding.ID, finding.CatalogID, finding.PackageName)
+	if strings.TrimSpace(findingID) == "" {
+		return nil
+	}
+	eventID := bumblebeeDeterministicUUID(strings.Join([]string{"finding", payload.RunID, findingID}, ":"))
+	severityID := bumblebeeFindingSeverityID(finding)
+
+	event := map[string]any{
+		"id":            eventID,
+		"time":          eventTimeNano,
+		"class_uid":     ocsfClassApplicationSecurityPosture,
+		"category_uid":  ocsfCategoryFindings,
+		"type_uid":      ocsfTypeUID(ocsfClassApplicationSecurityPosture, ocsfActivityFindingCreate),
+		"activity_id":   ocsfActivityFindingCreate,
+		"activity_name": "Create",
+		"severity_id":   severityID,
+		"severity":      bumblebeeSeverityName(severityID),
+		"status_id":     ocsfStatusSuccess,
+		"status":        "Active",
+		"status_code":   "bumblebee_finding_active",
+		"message":       bumblebeeFindingMessage(payload, finding),
+		"log_name":      "bumblebee.finding",
+		"log_provider":  bumblebeeFirstNonEmpty(payload.AgentID, s.agentID, "agent"),
+		"metadata": map[string]any{
+			"product": map[string]any{
+				"name":        "ServiceRadar Bumblebee Add-on",
+				"vendor_name": "Carver Automation",
+			},
+			"service_radar": bumblebeeServiceRadarMetadata(payload, "application_security_posture_finding"),
+			"version":       ocsfSchemaVersionDev,
+		},
+		"device":       bumblebeeDeviceObject(payload, s.agentID),
+		"finding_info": bumblebeeFindingInfo(finding, findingID),
+		"resources":    []any{bumblebeeFindingResource(finding)},
+		"evidences":    []any{bumblebeeFindingEvidence(finding)},
+		"observables":  bumblebeeFindingObservables(finding),
+		"unmapped":     bumblebeeFindingUnmapped(payload, finding),
+	}
+
+	data, err := json.Marshal(event)
+	if err != nil {
+		return nil
+	}
+
+	return sraddon.AttachSignalSchemaRef(&addonpb.TelemetryRecord{
+		EventId:              eventID,
+		ObservedTimeUnixNano: observedTimeNano,
+		EventTimeUnixNano:    eventTimeNano,
+		PayloadKind:          addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+		Payload:              data,
+	}, sraddon.SignalSchemaRef{
+		ProducerID:             "bumblebee",
+		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
+		SchemaID:               "ocsf.application_security_posture_finding",
+		SchemaVersion:          "1.0.0",
+		DisplayContractID:      bumblebeeFindingDisplayContractID,
+		DisplayContractVersion: bumblebeeFindingDisplayContractVersion,
 		SignalType:             "event",
 		PayloadKind:            "ocsf_event",
 	})
@@ -230,6 +338,49 @@ func ensureBumblebeeAgentID(data []byte, agentID string) []byte {
 	return updated
 }
 
+func ocsfTypeUID(classUID, activityID int) int {
+	return classUID*100 + activityID
+}
+
+func bumblebeeDeterministicUUID(seed string) string {
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte("serviceradar:bumblebee:"+seed)).String()
+}
+
+func bumblebeeScanActivityID(payload bumblebee.ScanPayload) int {
+	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
+		return ocsfActivityScanError
+	}
+
+	return ocsfActivityScanCompleted
+}
+
+func bumblebeeScanActivityName(activityID int) string {
+	switch activityID {
+	case ocsfActivityScanCompleted:
+		return "Completed"
+	case ocsfActivityScanError:
+		return "Error"
+	default:
+		return "Unknown"
+	}
+}
+
+func bumblebeeScanObject(payload bumblebee.ScanPayload) map[string]any {
+	var endTime any
+	if !payload.LastScanAt.IsZero() {
+		endTime = payload.LastScanAt.UnixNano()
+	}
+
+	return map[string]any{
+		"uid":        payload.RunID,
+		"name":       "Bumblebee exposure scan",
+		"type":       "software exposure",
+		"total":      payload.AttemptedRootCount,
+		"start_time": nil,
+		"end_time":   endTime,
+	}
+}
+
 func bumblebeeScanMessage(payload bumblebee.ScanPayload, fallbackAgentID string) string {
 	agentID := bumblebeeFirstNonEmpty(payload.AgentID, fallbackAgentID, "agent")
 	count := len(payload.Findings)
@@ -243,9 +394,97 @@ func bumblebeeScanMessage(payload bumblebee.ScanPayload, fallbackAgentID string)
 	return fmt.Sprintf("Bumblebee scan completed on %s: %d active exposure findings", agentID, count)
 }
 
+func bumblebeeFindingMessage(payload bumblebee.ScanPayload, finding bumblebee.Finding) string {
+	agentID := bumblebeeFirstNonEmpty(payload.AgentID, "agent")
+	packageID := bumblebeeFirstNonEmpty(finding.PackageName, finding.CatalogID, finding.FindingID, finding.ID, "package")
+	if finding.PackageVersion != "" {
+		packageID += "@" + finding.PackageVersion
+	}
+
+	return fmt.Sprintf("Bumblebee exposure finding on %s: %s", agentID, packageID)
+}
+
+func bumblebeeFindingInfo(finding bumblebee.Finding, findingID string) map[string]any {
+	return map[string]any{
+		"uid":        findingID,
+		"title":      bumblebeeFirstNonEmpty(finding.CatalogID, finding.PackageName, findingID),
+		"desc":       bumblebeeFirstNonEmpty(finding.Ecosystem, "Bumblebee application security posture finding"),
+		"created_at": nil,
+	}
+}
+
+func bumblebeeFindingResource(finding bumblebee.Finding) map[string]any {
+	return map[string]any{
+		"name":    finding.PackageName,
+		"type":    "package",
+		"version": finding.PackageVersion,
+		"details": map[string]any{
+			"ecosystem":  finding.Ecosystem,
+			"catalog_id": finding.CatalogID,
+		},
+	}
+}
+
+func bumblebeeFindingEvidence(finding bumblebee.Finding) map[string]any {
+	return map[string]any{
+		"desc":       "Bumblebee local package/root scan evidence",
+		"confidence": finding.Confidence,
+		"data":       finding.Evidence,
+	}
+}
+
+func bumblebeeFindingObservables(finding bumblebee.Finding) []any {
+	observables := make([]any, 0, 2)
+	if finding.PackageName != "" {
+		observables = append(observables, map[string]any{
+			"name":  "Package",
+			"type":  "Software Package",
+			"value": finding.PackageName,
+		})
+	}
+	if finding.CatalogID != "" {
+		observables = append(observables, map[string]any{
+			"name":  "Catalog Rule",
+			"type":  "Finding Rule",
+			"value": finding.CatalogID,
+		})
+	}
+
+	return observables
+}
+
+func bumblebeeServiceRadarMetadata(payload bumblebee.ScanPayload, ocsfClass string) map[string]any {
+	metadata := map[string]any{
+		"addon_id":    "bumblebee",
+		"agent_id":    bumblebeeFirstNonEmpty(payload.AgentID),
+		"source_type": "bumblebee",
+		"ocsf_class":  ocsfClass,
+		"run_id":      payload.RunID,
+	}
+	if strings.TrimSpace(payload.DeviceUID) != "" {
+		metadata["device_uid"] = strings.TrimSpace(payload.DeviceUID)
+	}
+	if strings.TrimSpace(payload.CatalogSnapshotRef) != "" {
+		metadata["catalog_snapshot_ref"] = strings.TrimSpace(payload.CatalogSnapshotRef)
+	}
+	return metadata
+}
+
+func bumblebeeDeviceObject(payload bumblebee.ScanPayload, fallbackAgentID string) map[string]any {
+	agentID := bumblebeeFirstNonEmpty(payload.AgentID, fallbackAgentID, "agent")
+	device := map[string]any{
+		"name": agentID,
+	}
+	if strings.TrimSpace(payload.DeviceUID) != "" {
+		device["uid"] = strings.TrimSpace(payload.DeviceUID)
+	}
+	return device
+}
+
 func bumblebeeEventUnmapped(payload bumblebee.ScanPayload) map[string]any {
 	return map[string]any{
 		"agent_id":              payload.AgentID,
+		"device_uid":            payload.DeviceUID,
 		"run_id":                payload.RunID,
 		"catalog_snapshot_ref":  payload.CatalogSnapshotRef,
 		"scanner_version":       payload.ScannerVersion,
@@ -261,16 +500,35 @@ func bumblebeeEventUnmapped(payload bumblebee.ScanPayload) map[string]any {
 	}
 }
 
+func bumblebeeFindingUnmapped(payload bumblebee.ScanPayload, finding bumblebee.Finding) map[string]any {
+	return map[string]any{
+		"agent_id":             payload.AgentID,
+		"device_uid":           payload.DeviceUID,
+		"run_id":               payload.RunID,
+		"catalog_snapshot_ref": payload.CatalogSnapshotRef,
+		"scanner_version":      payload.ScannerVersion,
+		"source_type":          "bumblebee",
+		"finding_id":           bumblebeeFirstNonEmpty(finding.FindingID, finding.ID),
+		"catalog_id":           finding.CatalogID,
+		"ecosystem":            finding.Ecosystem,
+		"package_name":         finding.PackageName,
+		"package_version":      finding.PackageVersion,
+		"risk_score":           finding.RiskScore,
+		"confidence":           finding.Confidence,
+		"metadata":             finding.Metadata,
+	}
+}
+
 func bumblebeeStatusID(payload bumblebee.ScanPayload) int {
 	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
-		return 2
+		return ocsfStatusFailure
 	}
 
-	return 1
+	return ocsfStatusSuccess
 }
 
 func bumblebeeStatusName(statusID int) string {
-	if statusID == 2 {
+	if statusID == ocsfStatusFailure {
 		return "Failure"
 	}
 
@@ -295,6 +553,21 @@ func bumblebeeSeverityID(payload bumblebee.ScanPayload) int {
 		if payload.CoverageState == "partial" {
 			return 2
 		}
+		return 1
+	}
+}
+
+func bumblebeeFindingSeverityID(finding bumblebee.Finding) int {
+	switch normalizedToken(finding.Severity, "") {
+	case "critical":
+		return 5
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	default:
 		return 1
 	}
 }

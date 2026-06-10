@@ -189,6 +189,10 @@ func TestProcessReportAddsPodIdentityToCorrelation(t *testing.T) {
 		t.Fatalf("expected nodeName=worker-1, got %q", envelope.Correlation.NodeName)
 	}
 
+	if envelope.Correlation.AgentID != "agent-worker-1" {
+		t.Fatalf("expected agent_id=agent-worker-1, got %q", envelope.Correlation.AgentID)
+	}
+
 	if envelope.Correlation.PodUID != "pod-uid-1" {
 		t.Fatalf("expected pod UID to be resolved, got %q", envelope.Correlation.PodUID)
 	}

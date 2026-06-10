@@ -30,6 +30,7 @@ type bumblebeeConfigEnvelope struct {
 type bumblebeeConfigPayload struct {
 	Enabled           bool                         `json:"enabled"`
 	AgentID           string                       `json:"agent_id,omitempty"`
+	DeviceUID         string                       `json:"device_uid,omitempty"`
 	ScanProfile       string                       `json:"scan_profile,omitempty"`
 	RootDiscoveryMode string                       `json:"root_discovery_mode,omitempty"`
 	ExplicitRoots     []string                     `json:"explicit_roots,omitempty"`
@@ -104,6 +105,7 @@ func (p *bumblebeeConfigPayload) runtimeProfile(agentID string) bumblebee.Runtim
 	profile := bumblebee.RuntimeProfile{
 		Enabled:       &enabled,
 		AgentID:       agentID,
+		DeviceUID:     p.DeviceUID,
 		ScanTimeout:   p.ScanTimeout,
 		ExplicitRoots: append([]string(nil), p.ExplicitRoots...),
 		ExcludeRoots:  append([]string(nil), p.ExcludeRoots...),
@@ -163,7 +165,15 @@ func resolveGatewayBumblebeeConfig(
 }
 
 func mergeBumblebeeCatalogDelivery(cfg, jsonCfg *bumblebeeConfigPayload) {
-	if cfg == nil || cfg.Catalog == nil || jsonCfg == nil || jsonCfg.Catalog == nil {
+	if cfg == nil || jsonCfg == nil {
+		return
+	}
+
+	if cfg.DeviceUID == "" {
+		cfg.DeviceUID = jsonCfg.DeviceUID
+	}
+
+	if cfg.Catalog == nil || jsonCfg.Catalog == nil {
 		return
 	}
 

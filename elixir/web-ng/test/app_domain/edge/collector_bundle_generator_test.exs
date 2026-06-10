@@ -41,6 +41,10 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGeneratorTest do
 
       assert values_yaml =~ "secretName: serviceradar-runtime-certs"
       assert values_yaml =~ "cacertfile: /etc/serviceradar/certs/root.pem"
+      assert values_yaml =~ "templatedfields:"
+
+      assert values_yaml =~
+               ~s(serviceradar.agent_id: '{{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }}')
 
       assert values_yaml =~
                "OTEL_EXPORTER_OTLP_METRICS_CERTIFICATE: /etc/serviceradar/certs/root.pem"

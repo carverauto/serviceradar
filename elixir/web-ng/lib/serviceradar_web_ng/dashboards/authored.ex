@@ -29,7 +29,9 @@ defmodule ServiceRadarWebNG.Dashboards.Authored do
                               "package",
                               "default",
                               "search",
-                              "service-availability-noc"
+                              "service-availability-noc",
+                              "security-findings",
+                              "endpoint-inventory"
                             ])
   @default_limit 50
   @max_limit 200

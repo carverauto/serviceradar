@@ -98,6 +98,9 @@ For detailed edge agent deployment, see the [Edge Agent Guide](../docs/docs/edge
 | `networkPolicy.calicoLogDenied.enabled` | Render Calico policy to log denied egress | `false` |
 | `networkPolicy.calicoLogDenied.selector` | Calico selector for matching pods | `app.kubernetes.io/part-of == 'serviceradar'` |
 | `networkPolicy.calicoLogDenied.order` | Calico policy order (lower is higher priority) | `1000` |
+| `cnpg.localDevAccess.enabled` | Render a CNPG primary ingress NetworkPolicy for local developer workstation access | `false` |
+| `cnpg.localDevAccess.policyName` | Name for the local developer CNPG ingress NetworkPolicy | `cnpg-allow-local-dev-postgres` |
+| `cnpg.localDevAccess.allowedCIDRs` | CIDRs allowed to connect directly to the CNPG primary on TCP/5432 | `[]` |
 | `podDisruptionBudgets.enabled` | Render PDBs for core, web-ng, datasvc, and agent-gateway | `true` |
 | `podDisruptionBudgets.minAvailable` | Minimum available pods for ServiceRadar PDBs | `1` |
 | `global.storage.encryptedStorageClassName` | StorageClass used by durable database/object-store PVCs when no service-specific class is set | `encrypted` |
