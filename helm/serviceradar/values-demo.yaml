@@ -289,10 +289,12 @@ webNg:
     events: 1
     sweeps: 1
     edge: 1
-    # Heavy integration jobs run on core; keeping this disabled avoids UI pod OOMs
-    # and orphaned executing Oban jobs when web-ng restarts.
+    # Heavy data jobs run on core only — web-ng is the UI tier. Keeping these at
+    # 0 avoids UI pod OOMs, orphaned executing Oban jobs on web-ng restart, and
+    # web-ng picking up core's :maintenance queue (the identity-reconciliation
+    # cron + enrichment/threat-intel refresh). core processes :maintenance.
     integrations: 0
-    maintenance: 1
+    maintenance: 0
     webMaintenance: 2
   godView:
     runtimeGraphRefreshMs: 30000
