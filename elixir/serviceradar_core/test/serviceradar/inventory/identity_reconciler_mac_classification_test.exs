@@ -99,7 +99,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
   describe "confidence-gated merge behavior" do
     test "locally-administered MAC registered with medium confidence", %{actor: actor} do
       {:ok, device} = create_device(actor, "test-la-mac")
-      la_mac = "0EAA#{mac_suffix()}#{mac_suffix()}"
+      la_mac = "0EAA#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
 
       ids = %{
         agent_id: nil,
@@ -127,7 +127,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
 
     test "globally-unique MAC registered with strong confidence", %{actor: actor} do
       {:ok, device} = create_device(actor, "test-gu-mac")
-      gu_mac = "00AA#{mac_suffix()}#{mac_suffix()}"
+      gu_mac = "00AA#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
 
       ids = %{
         agent_id: nil,
@@ -157,7 +157,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       {:ok, device_b} = create_device(actor, "la-mac-device-b")
 
       # Use a locally-administered MAC (bit 1 of 0x0E is set)
-      la_mac = "0E#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
+      la_mac = "0E#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
 
       # Register MAC for device A
       assert {:ok, _} = register_identifier(actor, device_a.uid, :mac, la_mac, :medium)
@@ -191,7 +191,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMacClassificationTest do
       {:ok, device_b} = create_device(actor, "gu-mac-device-b")
 
       # Use a globally-unique MAC (bit 1 of 0x00 is clear)
-      gu_mac = "00#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
+      gu_mac = "00#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}#{mac_suffix()}"
 
       # Register MAC for device A
       assert {:ok, _} = register_identifier(actor, device_a.uid, :mac, gu_mac, :strong)

@@ -121,3 +121,66 @@ func collectPrimaryIPSet(devices []ArmisDevice) map[string]struct{} {
 	}
 	return out
 }
+
+func TestGenerateMACCountIsDeterministic(t *testing.T) {
+	// Sample one index from each distribution bucket plus boundaries.
+	for _, idx := range []int{0, 7, 59, 60, 84, 85, 94, 95, 98, 99, 49999} {
+		require.Equal(t, generateMACCount(idx), generateMACCount(idx),
+			"MAC count must be stable across invocations (device index %d)", idx)
+	}
+}
+
+func TestGenerateMACAddressesIsDeterministic(t *testing.T) {
+	for _, seed := range []int{0, 1, 42, 1337, 49999} {
+		count := generateMACCount(seed)
+
+		first := generateMACAddresses(seed, count)
+		second := generateMACAddresses(seed, count)
+
+		require.Len(t, first, count)
+		require.Equal(t, first, second,
+			"same seed+count must produce identical MAC lists across invocations (seed %d)", seed)
+	}
+}
+
+func TestGenerateMACAddressesDiffersAcrossSeeds(t *testing.T) {
+	const count = 10
+
+	require.NotEqual(t, generateMACAddresses(1, count), generateMACAddresses(2, count),
+		"different seeds must produce different MAC lists")
+}
+
+func TestSaveLoadRoundTripPreservesMacAddresses(t *testing.T) {
+	originalTotal := totalDevices
+	originalConfig := config
+	originalGen := deviceGen
+	t.Cleanup(func() {
+		totalDevices = originalTotal
+		config = originalConfig
+		deviceGen = originalGen
+	})
+
+	totalDevices = 25
+	config = &Config{}
+	config.Storage.DataDir = t.TempDir()
+	config.Storage.DevicesFile = "fake_armis_devices.json"
+	config.Storage.PersistChanges = true
+
+	gen := NewDeviceGenerator()
+	deviceGen = gen
+	gen.allDevices = gen.generateAllDevices()
+	require.Len(t, gen.allDevices, totalDevices)
+	gen.saveToStorage()
+
+	reloaded := NewDeviceGenerator()
+	require.True(t, reloaded.loadFromStorage(), "expected persisted devices to load")
+	require.Len(t, reloaded.allDevices, totalDevices)
+
+	for i, original := range gen.allDevices {
+		got := reloaded.allDevices[i]
+		require.Equal(t, original.MacAddress, got.MacAddress, "device %d MacAddress mismatch", i)
+		require.NotEmpty(t, got.MacAddresses, "device %d MacAddresses must be rehydrated on load", i)
+		require.Equal(t, original.MacAddresses, got.MacAddresses,
+			"device %d MAC set must survive the save/load round trip", i)
+	}
+}

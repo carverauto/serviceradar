@@ -20,8 +20,32 @@ spec:
     spec:
       {{- include "serviceradar.topologySpread" . | nindent 6 }}
       {{- include "serviceradar.podSecurityContext" . | nindent 6 }}
-      {{- if .Values.faker.gobgp.enabled }}
       initContainers:
+      # local-path PVs are hostPath-backed, so kubelet never applies the pod
+      # fsGroup to the faker-data volume. Fix ownership explicitly so the faker
+      # (uid 1001) can read and replace device data, including files written by
+      # older images that ran as root.
+      - name: init-faker-data
+        image: busybox:1.36
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsUser: 0
+          runAsNonRoot: false
+          capabilities:
+            drop: ["ALL"]
+            add: ["CHOWN", "DAC_OVERRIDE", "FOWNER"]
+        command: ["/bin/sh", "-c"]
+        args:
+        - |
+          set -eu
+          chown -R 1001:1001 /var/lib/serviceradar/faker
+          chmod -R u+rwX,g+rwX /var/lib/serviceradar/faker
+        volumeMounts:
+        - name: faker-data
+          mountPath: /var/lib/serviceradar/faker
+      {{- if .Values.faker.gobgp.enabled }}
       - name: gobgp-binaries
         image: {{ .Values.faker.gobgp.image.repository }}:{{ .Values.faker.gobgp.image.tag }}
         imagePullPolicy: {{ .Values.faker.gobgp.image.pullPolicy | default "IfNotPresent" }}

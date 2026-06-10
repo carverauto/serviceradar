@@ -462,11 +462,15 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       include_agent? = include_agent_identifier?(update, ids)
       include_mac? = include_mac_identifier?(update)
 
+      mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
+
       []
       |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
       |> maybe_add_id(:integration_id, ids.integration_id, partition)
       |> maybe_add_id(:netbox_device_id, ids.netbox_id, partition)
-      |> maybe_add_id_if(include_mac?, :mac, ids.mac, partition)
+      |> then(fn acc ->
+        Enum.reduce(mac_values, acc, &maybe_add_id(&2, :mac, &1, partition))
+      end)
     end)
     |> Enum.uniq()
   end
@@ -615,7 +619,13 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
     lookup_cached(:agent_id, ids.agent_id, ids.partition, existing_mappings) ||
       lookup_cached(:integration_id, ids.integration_id, ids.partition, existing_mappings) ||
       lookup_cached(:netbox_device_id, ids.netbox_id, ids.partition, existing_mappings) ||
-      lookup_cached(:mac, ids.mac, ids.partition, existing_mappings)
+      cached_mac_device_id(ids, existing_mappings)
+  end
+
+  defp cached_mac_device_id(ids, existing_mappings) do
+    ids
+    |> IdentityReconciler.mac_lookup_values()
+    |> Enum.find_value(&lookup_cached(:mac, &1, ids.partition, existing_mappings))
   end
 
   defp existing_device_id(update, ids, ip_to_device) do
@@ -1053,9 +1063,42 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         ids.netbox_id,
         partition
       )
-      |> maybe_add_identifier_record_if(include_mac?, update, device_id, :mac, ids.mac, partition)
+      |> add_mac_identifier_records(include_mac?, update, device_id, ids, partition)
     end)
     |> Enum.uniq_by(fn r -> {r.identifier_type, r.identifier_value, r.partition} end)
+  end
+
+  # One record per atomic MAC, confidence derived from the IEEE local bit.
+  # The legacy blob value is lookup-only and never registered. Values are
+  # re-validated so malformed MACs can never become identifier rows.
+  defp add_mac_identifier_records(acc, false, _update, _device_id, _ids, _partition), do: acc
+
+  defp add_mac_identifier_records(acc, true, update, device_id, ids, partition) do
+    case_result =
+      case ids do
+        %{macs: list} when is_list(list) -> list
+        _ -> List.wrap(ids.mac)
+      end
+
+    macs =
+      case_result
+      |> Enum.flat_map(&IdentityReconciler.normalize_mac_list/1)
+      |> Enum.uniq()
+
+    Enum.reduce(macs, acc, fn mac, inner ->
+      [
+        %{
+          device_id: device_id,
+          identifier_type: :mac,
+          identifier_value: mac,
+          partition: partition,
+          confidence: IdentityReconciler.mac_confidence(mac),
+          source: "sync_ingestor",
+          metadata: build_identifier_metadata(update)
+        }
+        | inner
+      ]
+    end)
   end
 
   defp maybe_add_identifier_record(acc, _update, _device_id, _type, nil, _partition), do: acc
@@ -1295,10 +1338,14 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
       end)
 
     if !Enum.empty?(insert_records) do
+      # Ownership is intentionally NOT replaced on conflict: silently
+      # re-pointing an identifier's device_id collapsed distinct devices
+      # (500-per-batch integration_id pile-ups, agent identity theft).
+      # Identifier ownership changes only via audited merges/rebinds.
       Repo.insert_all(
         DeviceIdentifier,
         insert_records,
-        on_conflict: {:replace, [:device_id, :last_seen, :metadata]},
+        on_conflict: {:replace, [:last_seen, :metadata]},
         conflict_target: [:identifier_type, :identifier_value, :partition]
       )
     end
@@ -2297,6 +2344,24 @@ defmodule ServiceRadar.Inventory.SyncIngestor do
         )
 
         MapSet.put(merged_ips, ids.ip)
+
+      {:error, {:merge_blocked, :distinct_agent_identity}} ->
+        # The alias points at a device bound to a different agent — a bare IP
+        # sighting must never override agent identity. Stale the alias so it
+        # stops feeding merge attempts.
+        IdentityReconciler.invalidate_ip_alias(
+          ids.ip,
+          ids.partition,
+          alias_device_id,
+          device_id,
+          actor
+        )
+
+        MapSet.put(merged_ips, ids.ip)
+
+      {:error, {:merge_blocked, _guard}} ->
+        # Already logged and counted by the reconciler's merge guards.
+        merged_ips
 
       {:error, reason} ->
         if alias_not_found?(reason) do

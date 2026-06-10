@@ -69,6 +69,8 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
           integration_id: String.t() | nil,
           netbox_id: String.t() | nil,
           mac: String.t() | nil,
+          macs: [String.t()],
+          legacy_mac: String.t() | nil,
           ip: String.t() | nil,
           partition: String.t()
         }
@@ -115,10 +117,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   defp resolve_fallback_device_id(update, ids, actor) do
     cond do
       serviceradar_uuid?(update.device_id) ->
-        {:ok, update.device_id}
+        {:ok, follow_canonical_device_id(update.device_id, actor)}
 
       has_strong_identifier?(ids) ->
-        {:ok, generate_deterministic_device_id(ids)}
+        {:ok, follow_canonical_device_id(generate_deterministic_device_id(ids), actor)}
 
       true ->
         case lookup_by_ip(ids, actor) do
@@ -126,8 +128,54 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
             {:ok, device_id}
 
           _ ->
-            {:ok, generate_deterministic_device_id(ids)}
+            {:ok, follow_canonical_device_id(generate_deterministic_device_id(ids), actor)}
         end
+    end
+  end
+
+  @max_canonical_follow_depth 5
+
+  @doc """
+  Follow the merge-audit canonical mapping for a device ID.
+
+  A device that was merged away must never be resurrected by a later update
+  that re-derives its deterministic UID (or still carries the old `sr:` ID).
+  When the given device is tombstoned by a merge, resolution follows the
+  audit trail to the live canonical device. Live (or never-seen) IDs are
+  returned unchanged, so unmerged/recreated devices are respected.
+  """
+  @spec follow_canonical_device_id(String.t(), term()) :: String.t()
+  def follow_canonical_device_id(device_id, actor),
+    do: do_follow_canonical(device_id, actor, @max_canonical_follow_depth)
+
+  defp do_follow_canonical(device_id, _actor, 0), do: device_id
+
+  defp do_follow_canonical(device_id, actor, depth) do
+    with true <- serviceradar_uuid?(device_id),
+         {:ok, %Device{deleted_at: %_{}}} <- Device.get_by_uid(device_id, true, actor: actor),
+         canonical_id when is_binary(canonical_id) and canonical_id != device_id <-
+           latest_merge_target(device_id, actor) do
+      do_follow_canonical(canonical_id, actor, depth - 1)
+    else
+      _ -> device_id
+    end
+  rescue
+    e ->
+      Logger.warning("Canonical follow failed for #{device_id}: #{inspect(e)}")
+      device_id
+  end
+
+  defp latest_merge_target(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    MergeAudit
+    |> Ash.Query.filter(from_device_id == ^device_id)
+    |> Ash.Query.sort(created_at: :desc)
+    |> Ash.Query.limit(1)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, [%MergeAudit{to_device_id: to_device_id} | _]} -> to_device_id
+      _ -> nil
     end
   end
 
@@ -138,6 +186,10 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   def extract_strong_identifiers(update) do
     metadata = update[:metadata] || %{}
     partition = String.trim(update[:partition] || "default")
+    raw_mac = update[:mac]
+    macs = extract_mac_values(update, metadata)
+
+    emit_rejected_mac_telemetry(raw_mac, macs, update)
 
     %{
       # agent_id is typically carried in metadata for inventory updates, but some
@@ -146,11 +198,69 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
       armis_id: get_trimmed(metadata, "armis_device_id"),
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
-      mac: normalize_mac(update[:mac]),
+      mac: List.first(macs),
+      macs: macs,
+      legacy_mac: legacy_mac_blob(raw_mac),
       ip: String.trim(update[:ip] || ""),
       partition: partition
     }
   end
+
+  # Gather atomic MAC values from the primary mac field plus any multi-value
+  # list the producer supplied (top-level or metadata, list or delimited string).
+  defp extract_mac_values(update, metadata) do
+    extra =
+      get_mac_list_field(update[:mac_addresses]) ||
+        get_mac_list_field(update["mac_addresses"]) ||
+        get_mac_list_field(metadata["mac_addresses"]) ||
+        []
+
+    Enum.uniq(normalize_mac_list(update[:mac]) ++ extra)
+  end
+
+  defp get_mac_list_field(value) when is_list(value) do
+    value
+    |> Enum.flat_map(&normalize_mac_list/1)
+    |> Enum.uniq()
+  end
+
+  defp get_mac_list_field(value) when is_binary(value), do: normalize_mac_list(value)
+  defp get_mac_list_field(_), do: nil
+
+  # Legacy identifier rows were written as the whole separator-stripped field
+  # (including comma-joined multi-MAC blobs). Keep that value available as a
+  # lookup-only bridge so existing devices resolve until remediation purges
+  # the blob rows. Never registered as a new identifier.
+  defp legacy_mac_blob(raw_mac) when is_binary(raw_mac) do
+    blob =
+      raw_mac
+      |> String.trim()
+      |> String.upcase()
+      |> String.replace(":", "")
+      |> String.replace("-", "")
+      |> String.replace(".", "")
+
+    case blob do
+      "" -> nil
+      blob -> if String.contains?(blob, ","), do: blob
+    end
+  end
+
+  defp legacy_mac_blob(_), do: nil
+
+  defp emit_rejected_mac_telemetry(raw_mac, macs, update) when is_binary(raw_mac) do
+    if String.trim(raw_mac) != "" and macs == [] do
+      :telemetry.execute(
+        [:serviceradar, :identity_reconciler, :identifier, :rejected],
+        %{count: 1},
+        %{identifier_type: :mac, source: update[:source] || "unknown"}
+      )
+    end
+
+    :ok
+  end
+
+  defp emit_rejected_mac_telemetry(_raw_mac, _macs, _update), do: :ok
 
   defp get_agent_id_from_update(update) when is_map(update) do
     case update do
@@ -385,18 +495,125 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
            lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,
          false <- service_device_id?(alias_device_id) do
-      _ =
-        merge_devices(alias_device_id, device_id,
-          actor: actor,
-          reason: "ip_alias_conflict",
-          details: %{
-            source: "identity_reconciler",
-            alias_ip: ip
-          }
-        )
+      if distinct_agent_identity_conflict?(alias_device_id, device_id, actor) do
+        # A bare IP sighting must never override agent identity. The alias is
+        # pointing at a device that belongs to a different agent — invalidate
+        # it so it stops feeding merge attempts.
+        invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
+      else
+        _ =
+          merge_devices(alias_device_id, device_id,
+            actor: actor,
+            reason: "ip_alias_conflict",
+            details: %{
+              source: "identity_reconciler",
+              alias_ip: ip
+            }
+          )
+      end
     end
 
     :ok
+  end
+
+  @doc """
+  Check whether two devices hold distinct agent identities.
+
+  True when both devices are bound to agents (via `agent_id` identifier rows
+  or the device's `agent_id` attribute) and those agent sets are disjoint.
+  Such devices must never be merged by weak or medium evidence.
+  """
+  @spec distinct_agent_identity_conflict?(String.t(), String.t(), term()) :: boolean()
+  def distinct_agent_identity_conflict?(device_a, device_b, actor) do
+    agents_a = device_agent_identities(device_a, actor)
+    agents_b = device_agent_identities(device_b, actor)
+
+    agents_a != [] and agents_b != [] and
+      MapSet.disjoint?(MapSet.new(agents_a), MapSet.new(agents_b))
+  end
+
+  defp device_agent_identities(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    identifier_agents =
+      DeviceIdentifier
+      |> Ash.Query.filter(device_id == ^device_id and identifier_type == :agent_id)
+      |> Ash.read(query_opts)
+      |> case do
+        {:ok, identifiers} -> Enum.map(identifiers, & &1.identifier_value)
+        _ -> []
+      end
+
+    attribute_agent =
+      case Device.get_by_uid(device_id, true, actor: actor) do
+        {:ok, %Device{agent_id: agent_id}} when is_binary(agent_id) ->
+          case String.trim(agent_id) do
+            "" -> []
+            trimmed -> [trimmed]
+          end
+
+        _ ->
+          []
+      end
+
+    Enum.uniq(identifier_agents ++ attribute_agent)
+  rescue
+    e ->
+      Logger.warning("Failed to load agent identities for #{device_id}: #{inspect(e)}")
+      []
+  end
+
+  @doc """
+  Invalidate (mark stale) IP alias states that conflict with strong identity.
+
+  Used when an alias-driven merge is blocked because the alias points at a
+  device bound to a different agent; staling the alias removes it from
+  resolution so it stops feeding merge attempts.
+  """
+  @spec invalidate_ip_alias(String.t(), String.t() | nil, String.t(), String.t(), term()) :: :ok
+  def invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    query =
+      DeviceAliasState
+      |> Ash.Query.filter(
+        alias_type == :ip and alias_value == ^ip and device_id == ^alias_device_id and
+          state in [:detected, :confirmed, :updated]
+      )
+      |> maybe_filter_alias_partition(partition)
+
+    case Ash.read(query, query_opts) do
+      {:ok, alias_states} when alias_states != [] ->
+        Enum.each(alias_states, fn alias_state ->
+          alias_state
+          |> Ash.Changeset.for_update(:mark_stale, %{})
+          |> Ash.update(query_opts)
+          |> case do
+            {:ok, _} -> :ok
+            {:error, error} -> Logger.warning("Failed to stale alias: #{inspect(error)}")
+          end
+        end)
+
+        Logger.warning(
+          "Invalidated IP alias #{ip} on #{alias_device_id}: conflicts with agent identity " <>
+            "of #{device_id}"
+        )
+
+        :telemetry.execute(
+          [:serviceradar, :identity_reconciler, :alias, :invalidated],
+          %{count: length(alias_states)},
+          %{alias_ip: ip, alias_device_id: alias_device_id, device_id: device_id}
+        )
+
+      _ ->
+        :ok
+    end
+
+    :ok
+  rescue
+    e ->
+      Logger.warning("Failed to invalidate conflicting alias #{ip}: #{inspect(e)}")
+      :ok
   end
 
   defp maybe_filter_alias_partition(query, nil), do: query
@@ -503,7 +720,7 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
         ids_get(ids, :netbox_id),
         partition
       )
-      |> maybe_add_identifier(canonical_id, :mac, ids_get(ids, :mac), partition)
+      |> add_mac_identifiers(canonical_id, ids, partition)
 
     results =
       Enum.map(identifiers_to_register, fn params ->
@@ -823,15 +1040,53 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     partition = ids_get_partition(ids)
 
     Enum.reduce(@identifier_priority, %{}, fn id_type, acc ->
-      with id_value when not is_nil(id_value) <- get_identifier_value(ids, id_type),
-           {:ok, device_id} when is_binary(device_id) and device_id != "" <-
-             lookup_device_identifier(id_type, id_value, partition, actor),
-           true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
-        Map.put(acc, id_type, %{value: id_value, device_id: device_id})
-      else
-        _ -> acc
+      id_type
+      |> get_identifier_values(ids)
+      |> Enum.find_value(fn id_value ->
+        with {:ok, device_id} when is_binary(device_id) and device_id != "" <-
+               lookup_device_identifier(id_type, id_value, partition, actor),
+             true <- trusted_identifier_match?(id_type, id_value, device_id, actor) do
+          %{value: id_value, device_id: device_id}
+        else
+          _ -> nil
+        end
+      end)
+      |> case do
+        nil -> acc
+        match -> Map.put(acc, id_type, match)
       end
     end)
+  end
+
+  defp get_identifier_values(:mac, ids), do: mac_lookup_values(ids)
+
+  defp get_identifier_values(id_type, ids) do
+    case get_identifier_value(ids, id_type) do
+      nil -> []
+      value -> [value]
+    end
+  end
+
+  @doc """
+  All MAC values to use for identity lookups, in priority order.
+
+  Atomic MACs first; the legacy comma-joined blob value is tried last as a
+  lookup-only bridge to identifier rows written before validation existed
+  (those rows are purged by the remediation migration). The blob must never
+  be registered as a new identifier.
+  """
+  @spec mac_lookup_values(strong_identifiers()) :: [String.t()]
+  def mac_lookup_values(ids) do
+    macs =
+      case ids_get(ids, :macs) do
+        list when is_list(list) and list != [] -> list
+        _ -> List.wrap(ids_get(ids, :mac))
+      end
+
+    case ids_get(ids, :legacy_mac) do
+      blob when is_binary(blob) -> macs ++ [blob]
+      _ -> macs
+    end
   end
 
   defp trusted_identifier_match?(:agent_id, agent_id, device_id, actor) do
@@ -1271,60 +1526,139 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     reason = Keyword.get(opts, :reason, "identity_resolution")
     details = Keyword.get(opts, :details, %{})
 
-    if from_device_id == to_device_id do
-      :ok
-    else
-      resources = [
-        Device,
-        DeviceIdentifier,
-        Interface,
-        MergeAudit,
-        ServiceCheck,
-        Alert,
-        Agent,
-        DeviceAliasState
-      ]
+    cond do
+      from_device_id == to_device_id ->
+        :ok
 
-      resources
-      |> Ash.transaction(fn ->
-        with {:ok, %Device{} = from_device} <-
-               Device.get_by_uid(from_device_id, false, actor: actor),
-             {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
-             :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
-             :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
-             :ok <- reassign_alerts(from_device_id, to_device_id, actor),
-             :ok <- reassign_agents(from_device_id, to_device_id, actor),
-             :ok <- reassign_alias_states(from_device_id, to_device_id, actor),
-             :ok <- reassign_interfaces(from_device_id, to_device_id, actor),
-             :ok <- reconcile_endpoint_inventory_device_identity(from_device_id, to_device_id),
-             {:ok, _merge} <-
-               MergeAudit.record(
-                 %{
-                   from_device_id: from_device_id,
-                   to_device_id: to_device_id,
-                   reason: reason,
-                   source: "identity_reconciler",
-                   details: details
-                 },
-                 actor: actor
-               ),
-             {:ok, _} <- tombstone_merged_device(from_device, actor) do
-          :ok
-        end
-      end)
-      |> case do
-        {:ok, :ok} ->
-          emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
-          :ok
+      merge_guard_blocked = merge_guard_violation(from_device_id, to_device_id, reason, actor) ->
+        emit_merge_guard_telemetry(merge_guard_blocked, reason, from_device_id, to_device_id)
 
-        {:ok, other} ->
-          emit_merge_failed_telemetry(reason, from_device_id, to_device_id, other)
-          other
+        Logger.warning(
+          "Blocked merge #{from_device_id} -> #{to_device_id} " <>
+            "(reason: #{reason}, guard: #{merge_guard_blocked})"
+        )
 
-        {:error, _} = error ->
-          emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
-          error
+        {:error, {:merge_blocked, merge_guard_blocked}}
+
+      true ->
+        do_merge_devices(from_device_id, to_device_id, reason, details, actor)
+    end
+  end
+
+  # Guards that apply to every automatic merge path (ingest-time, alias,
+  # scheduled backfill). Manual/administrative merges bypass them.
+  defp merge_guard_violation(from_device_id, to_device_id, reason, actor) do
+    cond do
+      manual_override_merge_reason?(reason) or reason == "unmerge" ->
+        nil
+
+      distinct_agent_identity_conflict?(from_device_id, to_device_id, actor) ->
+        :distinct_agent_identity
+
+      recent_pair_merge?(from_device_id, to_device_id, actor) ->
+        :merge_cooldown
+
+      true ->
+        nil
+    end
+  end
+
+  # Oscillation breaker: a pair that already merged (in either direction)
+  # within the cooldown window is ping-ponging — re-merging would feed the
+  # loop, so block and alert instead.
+  defp recent_pair_merge?(device_a, device_b, actor) do
+    window_seconds = merge_cooldown_seconds()
+    cutoff = DateTime.add(DateTime.utc_now(), -window_seconds, :second)
+    query_opts = if actor, do: [actor: actor], else: []
+
+    MergeAudit
+    |> Ash.Query.filter(
+      ((from_device_id == ^device_a and to_device_id == ^device_b) or
+         (from_device_id == ^device_b and to_device_id == ^device_a)) and
+        created_at > ^cutoff
+    )
+    |> Ash.Query.limit(1)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, [_ | _]} -> true
+      _ -> false
+    end
+  rescue
+    e ->
+      Logger.warning("Merge cooldown lookup failed: #{inspect(e)}")
+      false
+  end
+
+  defp merge_cooldown_seconds do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:merge_cooldown_seconds, 86_400)
+  end
+
+  defp emit_merge_guard_telemetry(guard, reason, from_device_id, to_device_id) do
+    :telemetry.execute(
+      [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
+      %{count: 1},
+      %{
+        guard: guard,
+        reason: reason,
+        from_device_id: from_device_id,
+        to_device_id: to_device_id
+      }
+    )
+  end
+
+  defp do_merge_devices(from_device_id, to_device_id, reason, details, actor) do
+    resources = [
+      Device,
+      DeviceIdentifier,
+      Interface,
+      MergeAudit,
+      ServiceCheck,
+      Alert,
+      Agent,
+      DeviceAliasState
+    ]
+
+    resources
+    |> Ash.transaction(fn ->
+      with {:ok, %Device{} = from_device} <-
+             Device.get_by_uid(from_device_id, false, actor: actor),
+           {:ok, %Device{}} <- Device.get_by_uid(to_device_id, false, actor: actor),
+           :ok <- reassign_device_identifiers(from_device_id, to_device_id, actor),
+           :ok <- reassign_service_checks(from_device_id, to_device_id, actor),
+           :ok <- reassign_alerts(from_device_id, to_device_id, actor),
+           :ok <- reassign_agents(from_device_id, to_device_id, actor),
+           :ok <- reassign_alias_states(from_device_id, to_device_id, actor),
+           :ok <- reassign_interfaces(from_device_id, to_device_id, actor),
+           :ok <- reconcile_endpoint_inventory_device_identity(from_device_id, to_device_id),
+           {:ok, _merge} <-
+             MergeAudit.record(
+               %{
+                 from_device_id: from_device_id,
+                 to_device_id: to_device_id,
+                 reason: reason,
+                 source: "identity_reconciler",
+                 details: details
+               },
+               actor: actor
+             ),
+           {:ok, _} <- tombstone_merged_device(from_device, actor) do
+        :ok
       end
+    end)
+    |> case do
+      {:ok, :ok} ->
+        emit_merge_executed_telemetry(reason, from_device_id, to_device_id)
+        :ok
+
+      {:ok, other} ->
+        emit_merge_failed_telemetry(reason, from_device_id, to_device_id, other)
+        other
+
+      {:error, _} = error ->
+        emit_merge_failed_telemetry(reason, from_device_id, to_device_id, error)
+        error
     end
   end
 
@@ -1799,6 +2133,43 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
     ]
   end
 
+  # Register every atomic MAC carried by the update (never the legacy blob).
+  # Values are re-validated here so hand-built identifier maps cannot register
+  # malformed MACs. Write-time sanity cap; per-device lifecycle caps are
+  # enforced separately.
+  defp add_mac_identifiers(acc, device_id, ids, partition) do
+    case_result =
+      case ids_get(ids, :macs) do
+        list when is_list(list) -> list
+        _ -> List.wrap(ids_get(ids, :mac))
+      end
+
+    macs =
+      case_result
+      |> Enum.flat_map(&normalize_mac_list/1)
+      |> Enum.uniq()
+
+    {to_register, dropped} = Enum.split(macs, max_macs_per_update())
+
+    if dropped != [] do
+      :telemetry.execute(
+        [:serviceradar, :identity_reconciler, :identifier, :truncated],
+        %{count: length(dropped)},
+        %{identifier_type: :mac, device_id: device_id}
+      )
+    end
+
+    Enum.reduce(to_register, acc, fn mac, inner ->
+      maybe_add_identifier(inner, device_id, :mac, mac, partition)
+    end)
+  end
+
+  defp max_macs_per_update do
+    :serviceradar
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:max_macs_per_update, 32)
+  end
+
   @doc """
   Record a device merge in the audit trail.
   """
@@ -1839,21 +2210,57 @@ defmodule ServiceRadar.Inventory.IdentityReconciler do
   def service_device_id?(device_id), do: String.starts_with?(device_id, "serviceradar:")
 
   @doc """
-  Normalize a MAC address to uppercase without separators.
+  Normalize and validate a MAC address field.
+
+  The field may carry multiple delimited values (Armis emits comma-joined
+  MAC histories); the first valid MAC is returned. A valid MAC is exactly
+  12 hex characters after stripping `:`/`-`/`.` separators. Anything else
+  (malformed values, multi-MAC blobs with no valid entry) returns `nil` and
+  must never become an identifier.
   """
   @spec normalize_mac(String.t() | nil) :: String.t() | nil
   def normalize_mac(nil), do: nil
 
-  def normalize_mac(mac) do
+  def normalize_mac(mac) when is_binary(mac) do
+    mac
+    |> normalize_mac_list()
+    |> List.first()
+  end
+
+  def normalize_mac(_), do: nil
+
+  @mac_value_pattern ~r/^[0-9A-F]{12}$/
+
+  @doc """
+  Normalize a raw MAC field into a list of valid atomic MAC values.
+
+  Splits multi-value fields (comma/semicolon/whitespace delimited), strips
+  separators, uppercases, validates each entry to exactly 12 hex characters,
+  and dedupes preserving order. Invalid entries are dropped.
+  """
+  @spec normalize_mac_list(String.t() | nil) :: [String.t()]
+  def normalize_mac_list(nil), do: []
+
+  def normalize_mac_list(raw) when is_binary(raw) do
+    raw
+    |> String.split(~r/[,;\s]+/, trim: true)
+    |> Enum.map(&normalize_single_mac/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  def normalize_mac_list(_), do: []
+
+  defp normalize_single_mac(value) do
     normalized =
-      mac
+      value
       |> String.trim()
       |> String.upcase()
       |> String.replace(":", "")
       |> String.replace("-", "")
       |> String.replace(".", "")
 
-    if normalized == "", do: nil, else: normalized
+    if Regex.match?(@mac_value_pattern, normalized), do: normalized
   end
 
   @doc """

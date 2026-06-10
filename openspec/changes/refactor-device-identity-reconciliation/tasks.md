@@ -2,14 +2,14 @@
 
 ## 1. Stop the bleeding (identifier hygiene + merge guards) — ships first, no data change
 
-- [ ] 1.1 Split multi-value MAC fields in the Go agent Armis path: `primaryMAC()`/`addArmisTopLevelFields` emit atomic MACs (`go/pkg/agent/sync_runtime.go:1109,1213-1216`); update sync runtime tests.
-- [ ] 1.2 Harden `IdentityReconciler.normalize_mac` + `maybe_add_identifier`: split on comma, require exactly 12 hex chars post-normalization, reject otherwise with telemetry counter (`identity_reconciler.ex:1774-1786,1844-1859`).
-- [ ] 1.3 Derive MAC confidence from IEEE local bit in the sync identifier build path instead of hardcoded `:strong` (`sync_ingestor.ex:1062-1077`); route identifier writes through validation (no raw `insert_all` bypass of constraints).
-- [ ] 1.4 Add strong-identity guard to alias merges: `maybe_merge_ip_alias_device` (`identity_reconciler.ex:379-400`) and `attempt_alias_merge` (`sync_ingestor.ex:2284-2313`) must refuse to merge devices with distinct `agent_id` identifiers and invalidate the conflicting alias state (audited).
-- [ ] 1.5 Add per-pair merge cooldown + oscillation breaker using `merge_audit` pair history; blocked re-merges emit telemetry/alert.
-- [ ] 1.6 Make deterministic-UID and identifier resolution consult merge_audit canonical mapping before creating devices (no tombstone resurrection); stop embedding the volatile MAC list in deterministic UID input (`identity_reconciler.ex:416-451`).
-- [ ] 1.7 Replace silent `device_id` replace-on-conflict in `bulk_upsert_identifiers` (`sync_ingestor.ex:1286-1305`) and `DeviceIdentifier` upsert (`device_identifier.ex:150-166`) with audited rebind operations.
-- [ ] 1.8 Fix demo faker: seed historical MAC generation deterministically per device (`go/cmd/faker/main.go:1408-1480`), fix PVC persistence permission failure (helm volume fsGroup/initContainer), verify `loadFromStorage` restores MAC sets across restarts.
+- [x] 1.1 Split multi-value MAC fields in the Go agent Armis path: `primaryMAC()`/`addArmisTopLevelFields` emit atomic MACs (`go/pkg/agent/sync_runtime.go:1109,1213-1216`); update sync runtime tests.
+- [x] 1.2 Harden `IdentityReconciler.normalize_mac` + `maybe_add_identifier`: split on comma, require exactly 12 hex chars post-normalization, reject otherwise with telemetry counter (`identity_reconciler.ex:1774-1786,1844-1859`).
+- [x] 1.3 Derive MAC confidence from IEEE local bit in the sync identifier build path instead of hardcoded `:strong` (`sync_ingestor.ex:1062-1077`); route identifier writes through validation (no raw `insert_all` bypass of constraints).
+- [x] 1.4 Add strong-identity guard to alias merges: `maybe_merge_ip_alias_device` (`identity_reconciler.ex:379-400`) and `attempt_alias_merge` (`sync_ingestor.ex:2284-2313`) must refuse to merge devices with distinct `agent_id` identifiers and invalidate the conflicting alias state (audited).
+- [x] 1.5 Add per-pair merge cooldown + oscillation breaker using `merge_audit` pair history; blocked re-merges emit telemetry/alert.
+- [x] 1.6 Make deterministic-UID and identifier resolution consult merge_audit canonical mapping before creating devices (no tombstone resurrection); stop embedding the volatile MAC list in deterministic UID input (`identity_reconciler.ex:416-451`).
+- [x] 1.7 Replace silent `device_id` replace-on-conflict in `bulk_upsert_identifiers` (`sync_ingestor.ex:1286-1305`) and `DeviceIdentifier` upsert (`device_identifier.ex:150-166`) with audited rebind operations.
+- [x] 1.8 Fix demo faker: seed historical MAC generation deterministically per device (`go/cmd/faker/main.go:1408-1480`), fix PVC persistence permission failure (helm volume fsGroup/initContainer), verify `loadFromStorage` restores MAC sets across restarts.
 - [ ] 1.9 Verify in demo: no new comma-blob identifiers, no new `ip_alias_conflict` oscillation audits for 48h.
 
 ## 2. Stable integration identity (before connector resume)
