@@ -58,7 +58,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       uid ->
         case bounded_lookup(fn -> Device.get_by_uid(uid, false, actor: actor) end) do
           {:ok, %Device{uid: resolved}} -> resolved
-          _ -> uid
+          _ -> nil
         end
     end
   end

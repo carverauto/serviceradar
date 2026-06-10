@@ -146,6 +146,44 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsTest do
       assert row.device[:hostname] == "worker-1"
     end
 
+    test "does not treat unknown Kubernetes resource uid as canonical device uid" do
+      payload = %{
+        "event_id" => "4aa6cadf-7244-49ff-ac99-7108e2921423",
+        "report_kind" => "VulnerabilityReport",
+        "cluster_id" => "demo-cluster",
+        "namespace" => "demo",
+        "name" => "nginx-123",
+        "uid" => "trivy-report-uid",
+        "observed_at" => "2026-03-03T18:40:00Z",
+        "summary" => %{"highCount" => 1},
+        "correlation" => %{
+          "device_uid" => "kubernetes-resource-uid",
+          "resource_kind" => "ReplicaSet",
+          "resource_name" => "nginx-rs",
+          "resource_namespace" => "demo",
+          "node_name" => "worker-1"
+        },
+        "report" => %{
+          "report" => %{
+            "scanner" => %{"name" => "Trivy", "version" => "0.60.0"},
+            "summary" => %{"highCount" => 1}
+          }
+        }
+      }
+
+      message = %{
+        data: Jason.encode!(payload),
+        metadata: %{subject: "trivy.report.vulnerability"}
+      }
+
+      row = TrivyReports.parse_message(message)
+
+      assert row.metadata["service_radar"]["device_hostname"] == "worker-1"
+      assert row.device[:uid] == "worker-1"
+      assert row.device[:hostname] == "worker-1"
+      refute row.metadata["service_radar"]["device_uid"] == "kubernetes-resource-uid"
+    end
+
     test "emits scan activity separately from finding outcomes" do
       payload = %{
         "event_id" => "7aa6cadf-7244-49ff-ac99-7108e2921423",
