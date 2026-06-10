@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
        |> assign(:first_party_catalog_status, nil)
        |> assign(:first_party_release_options, release_options)
        |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
+       |> assign(:first_party_release_selected?, false)
        |> assign(:first_party_repo_url, first_party_repo_url())
        |> assign(:agents, list_agents(scope))
        |> assign(:cohort_options, @cohort_options)
@@ -127,7 +128,10 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
-    {:noreply, assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+    {:noreply,
+     socket
+     |> assign(:first_party_release_selected?, true)
+     |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, release_tag)}
   end
 
   def handle_event("import_first_party_catalog", _params, %{assigns: %{can_review_addons: false}} = socket) do
@@ -1067,9 +1071,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
            first_party_sync_limit()
          ) do
       {:ok, addons} ->
+        requested_release_tag =
+          if socket.assigns[:first_party_release_selected?] do
+            socket.assigns[:first_party_release_tag]
+          end
+
         socket
         |> assign(:first_party_catalog_error, nil)
-        |> assign_first_party_catalog_view(addons, socket.assigns[:first_party_release_tag])
+        |> assign_first_party_catalog_view(addons, requested_release_tag)
 
       {:error, reason} ->
         release_options = combined_release_options([], socket.assigns.packages)
