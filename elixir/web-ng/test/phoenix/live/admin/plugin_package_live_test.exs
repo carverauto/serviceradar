@@ -164,7 +164,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   test "syncs the first-party plugin catalog", %{conn: conn} do
     {:ok, lv, html} = live(conn, ~p"/admin/plugins")
 
-    assert html =~ "First-party Repository Plugins"
+    assert html =~ "Plugin catalog"
     refute html =~ "Live First-party Plugin"
 
     html =
@@ -177,9 +177,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "import-ready"
   end
 
-  test "first-party catalog defaults to latest release and can select older releases", %{
+  test "plugin catalog defaults to latest official release and can select older releases", %{
     conn: conn
   } do
+    unique = System.unique_integer([:positive])
+    create_catalog_package!(system_actor(), "v2.0.0", "live-imported-plugin-#{unique}", "2.0.0")
+    create_catalog_package!(system_actor(), "sha-#{unique}", "non-release-plugin-#{unique}", "2.0.0")
+
     {:ok, lv, _html} = live(conn, ~p"/admin/plugins")
 
     html =
@@ -189,8 +193,11 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
 
     assert html =~ "Showing 1 first-party plugin entry(s) from release v2.0.0"
     assert html =~ "Live First-party Plugin"
+    assert html =~ "Live live-imported-plugin-#{unique}"
     assert html =~ "v2.0.0"
     refute html =~ "Old First-party Plugin"
+    refute html =~ "sha-#{unique}"
+    refute html =~ "non-release-plugin-#{unique}"
 
     html =
       lv
@@ -200,6 +207,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     assert html =~ "Old First-party Plugin"
     assert html =~ "v1.0.0"
     refute html =~ "Live First-party Plugin"
+    refute html =~ "Live live-imported-plugin-#{unique}"
   end
 
   test "first-party repository plugins are paginated ten at a time", %{conn: conn} do
@@ -229,28 +237,31 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
     refute html =~ "Catalog Plugin 01"
   end
 
-  test "installed plugin packages are paginated ten at a time", %{conn: conn, actor: actor} do
+  test "plugin catalog paginates imported package rows ten at a time", %{conn: conn, actor: actor} do
+    unique = System.unique_integer([:positive])
+
     for index <- 1..12 do
-      create_upload_package!(actor, index)
+      suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
+      create_catalog_package!(actor, "v9.0.0", "installed-plugin-#{unique}-#{suffix}", "1.0.#{index}")
     end
 
     {:ok, lv, html} = live(conn, ~p"/admin/plugins")
 
     assert html =~ "Showing 1-10 of 12"
-    assert html =~ "Installed Plugin 12"
-    assert html =~ "Installed Plugin 03"
-    refute html =~ "Installed Plugin 02"
-    refute html =~ "Installed Plugin 01"
+    assert html =~ "Live installed-plugin-#{unique}-01"
+    assert html =~ "Live installed-plugin-#{unique}-10"
+    refute html =~ "Live installed-plugin-#{unique}-11"
+    refute html =~ "Live installed-plugin-#{unique}-12"
 
     html =
       lv
-      |> element("#plugin-packages-next-page")
+      |> element("#first-party-catalog-next-page")
       |> render_click()
 
     assert html =~ "Showing 11-12 of 12"
-    assert html =~ "Installed Plugin 02"
-    assert html =~ "Installed Plugin 01"
-    refute html =~ "Installed Plugin 12"
+    assert html =~ "Live installed-plugin-#{unique}-11"
+    assert html =~ "Live installed-plugin-#{unique}-12"
+    refute html =~ "Live installed-plugin-#{unique}-01"
   end
 
   test "imports a first-party plugin from the catalog", %{conn: conn, actor: actor} do
@@ -682,36 +693,34 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLiveTest do
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_web_ng, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_web_ng, key, value)
 
-  defp create_upload_package!(actor, index) do
-    suffix = index |> Integer.to_string() |> String.pad_leading(2, "0")
-    plugin_id = "installed-plugin-#{suffix}-#{System.unique_integer([:positive])}"
+  defp create_catalog_package!(actor, release_tag, plugin_id, version) do
+    ensure_plugin!(actor, plugin_id)
 
-    manifest = %{
-      "id" => plugin_id,
-      "name" => "Installed Plugin #{suffix}",
-      "version" => "1.0.#{index}",
-      "entrypoint" => "run_check",
-      "runtime" => "wasi-preview1",
-      "outputs" => "serviceradar.plugin_result.v1",
-      "capabilities" => ["submit_result"],
-      "resources" => %{
-        "requested_memory_mb" => 32,
-        "requested_cpu_ms" => 100,
-        "max_open_connections" => 1
-      }
-    }
-
-    assert {:ok, package} =
-             Packages.create(
+    assert package =
+             PluginPackage
+             |> Ash.Changeset.for_create(
+               :create,
                %{
-                 manifest: manifest,
+                 plugin_id: plugin_id,
+                 name: "Live #{plugin_id}",
+                 version: version,
+                 entrypoint: "run_check",
+                 runtime: "wasi-preview1",
+                 outputs: "serviceradar.plugin_result.v1",
+                 manifest: package_manifest(plugin_id, version),
                  config_schema: %{},
+                 display_contract: %{},
                  signature: %{},
-                 source_type: :upload,
-                 content_hash: "sha256:#{plugin_id}"
+                 source_type: :first_party,
+                 source_release_tag: release_tag,
+                 source_oci_ref: "registry.carverauto.dev/serviceradar/wasm-plugin-#{plugin_id}:#{release_tag}",
+                 source_oci_digest: "sha256:#{plugin_id}-#{version}",
+                 source_bundle_digest: "sha256:bundle-#{plugin_id}-#{version}",
+                 content_hash: "sha256:#{plugin_id}-#{version}"
                },
                actor: actor
              )
+             |> Ash.create!()
 
     package
   end
