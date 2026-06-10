@@ -40,8 +40,11 @@ function dashboardHtml(host) {
   const scans = rows(frames.scan_activity_recent)
   const dns = rows(frames.dns_activity_recent)
   const vulnerabilities = rows(frames.vulnerability_findings)
+  const scannerSignals = scannerSignalRows(frames)
+  const scannerSignalEvents = scannerSignals.map((signal) => signal.row).filter(Boolean)
+  const signalSourceTotal = findings.length + scans.length + dns.length + scannerSignalEvents.length
   const deviceLinked = findings.filter((row) => canonicalDeviceUid(row)).length
-  const sourceCounts = countBy(findings.concat(scans, dns), sourceType)
+  const sourceCounts = countBy(findings.concat(scans, dns, scannerSignalEvents), sourceType)
   const severityCounts = countBy(findings, (row) => normalizedSeverity(row.severity))
   const classCounts = countBy(findings, classLabel)
   const highRisk = findings.filter((row) => ["Critical", "High"].includes(normalizedSeverity(row.severity))).length
@@ -54,6 +57,18 @@ function dashboardHtml(host) {
         ${metricCard("Scan activity", number(scans.length), "Falco, Trivy, Bumblebee, inventory runs", scans.length > 0 ? "ok" : "neutral")}
         ${metricCard("DNS security", number(dns.length), "PowerDNS DNS activity events", dns.length > 0 ? "warning" : "neutral")}
       </div>
+
+      <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 class="text-base font-semibold text-base-content">Scanner Signal Coverage</h2>
+            <p class="text-xs text-base-content/60">Latest source-scoped OCSF rows from each scanner and add-on</p>
+          </div>
+        </div>
+        <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          ${scannerSignals.map(scannerSignalCard).join("")}
+        </div>
+      </section>
 
       <div class="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
         <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
@@ -85,7 +100,7 @@ function dashboardHtml(host) {
         <section class="min-w-0 space-y-5">
           ${breakdownPanel("Severity", SEVERITY_ORDER.map((label) => [label, severityCounts.get(label) || 0]), findings.length)}
           ${breakdownPanel("OCSF Classes", Array.from(classCounts.entries()), findings.length)}
-          ${breakdownPanel("Signal Sources", Array.from(sourceCounts.entries()), findings.length + scans.length + dns.length)}
+          ${breakdownPanel("Signal Sources", Array.from(sourceCounts.entries()), signalSourceTotal)}
         </section>
       </div>
 
@@ -149,10 +164,57 @@ function bindActions(element, api) {
 
   for (const button of element.querySelectorAll("[data-srql]")) {
     button.addEventListener("click", () => {
-      const query = queries[button.dataset.srql]
+      const query = button.dataset.query || queries[button.dataset.srql]
       if (query) api.setSrqlQuery(query)
     })
   }
+}
+
+function scannerSignalRows(frames) {
+  return [
+    signal("Trivy findings", "Finding", "in:security_findings source:trivy sort:time:desc limit:1", frames.trivy_findings_latest),
+    signal("Trivy scan", "Scan Activity", "in:scan_activity source:trivy sort:time:desc limit:1", frames.trivy_scan_latest),
+    signal("Bumblebee finding", "Finding", "in:security_findings source:bumblebee sort:time:desc limit:1", frames.bumblebee_findings_latest),
+    signal("Bumblebee scan", "Scan Activity", "in:scan_activity source:bumblebee sort:time:desc limit:1", frames.bumblebee_scan_latest),
+    signal("Falco detection", "Finding", "in:security_findings source:falco sort:time:desc limit:1", frames.falco_findings_latest),
+    signal("Endpoint inventory", "Finding", "in:security_findings source:endpoint_inventory sort:time:desc limit:1", frames.endpoint_inventory_findings_latest),
+    signal("PowerDNS DNS", "DNS Activity", "in:dns_activity source:powerdns sort:time:desc limit:1", frames.powerdns_dns_latest),
+  ]
+}
+
+function signal(label, kind, query, frame) {
+  return {label, kind, query, row: rows(frame)[0] || null}
+}
+
+function scannerSignalCard(signal) {
+  const row = signal.row
+  const status = row ? "present" : "missing"
+  const tone = row ? "ok" : "neutral"
+
+  return `
+    <article class="min-w-0 rounded-lg border border-base-300 bg-base-100 p-3 shadow-sm">
+      <div class="flex items-start justify-between gap-2">
+        <div class="min-w-0">
+          <h3 class="truncate text-sm font-semibold text-base-content">${escapeHtml(signal.label)}</h3>
+          <p class="text-xs text-base-content/60">${escapeHtml(signal.kind)}</p>
+        </div>
+        <span class="badge badge-sm ${row ? "badge-success" : "badge-ghost"}">${status}</span>
+      </div>
+      ${
+        row
+          ? `<div class="mt-3 space-y-2 text-xs">
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Source</span>${sourceBadge(sourceType(row))}</div>
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Device</span><span class="max-w-40 truncate">${deviceLink(row)}</span></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Class</span><span>${escapeHtml(classLabel(row))}</span></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Time</span><span>${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
+              <p class="line-clamp-2 text-base-content">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
+            </div>`
+          : `<p class="mt-3 text-xs text-base-content/60">No row returned.</p>`
+      }
+      <button type="button" data-srql="source-signal" data-query="${escapeHtml(signal.query)}" class="btn btn-xs btn-ghost mt-3">Open SRQL</button>
+      <span class="sr-only">${tone}</span>
+    </article>
+  `
 }
 
 function findingRow(row) {

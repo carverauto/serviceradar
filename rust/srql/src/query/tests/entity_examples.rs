@@ -206,6 +206,24 @@ fn security_findings_source_device_uid_matches_service_radar_metadata() {
 }
 
 #[test]
+fn security_findings_source_matches_service_radar_source_metadata() {
+    let query = "in:security_findings source:bumblebee sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SecurityFindings));
+    let (sql, _) =
+        events::to_sql_and_params(&plan).expect("should build security findings source SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"category_uid\" = 2")
+            && lower.contains("metadata #>> '{service_radar,source_type}'")
+            && lower.contains("metadata #>> '{service_radar,addon_id}'")
+            && lower.contains("bumblebee"),
+        "expected source filter to include service_radar source metadata, got: {sql}"
+    );
+}
+
+#[test]
 fn logs_source_device_uid_matches_service_radar_attributes() {
     let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
     let plan = plan_for(query);
@@ -257,6 +275,23 @@ fn scan_activity_source_device_uid_matches_service_radar_metadata() {
 }
 
 #[test]
+fn scan_activity_source_matches_service_radar_source_metadata() {
+    let query = "in:scan_activity source:trivy sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::ScanActivity));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build scan activity source SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 6007")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 6")
+            && lower.contains("metadata #>> '{service_radar,source_type}'")
+            && lower.contains("trivy"),
+        "expected scan_activity source filter to include service_radar source metadata, got: {sql}"
+    );
+}
+
+#[test]
 fn dns_activity_alias_filters_to_ocsf_dns_activity_class() {
     let query = "in:dns_activity status:Success sort:time:desc limit:25";
     let plan = plan_for(query);
@@ -272,5 +307,22 @@ fn dns_activity_alias_filters_to_ocsf_dns_activity_class() {
     assert!(
         lower.contains("order by \"ocsf_events\".\"time\" desc"),
         "expected time desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn dns_activity_source_matches_log_provider_or_service_radar_source_metadata() {
+    let query = "in:dns_activity source:powerdns sort:time:desc limit:25";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::DnsActivity));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build dns activity source SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("\"ocsf_events\".\"class_uid\" = 4003")
+            && lower.contains("\"ocsf_events\".\"category_uid\" = 4")
+            && lower.contains("\"ocsf_events\".\"log_provider\" = 'powerdns'")
+            && lower.contains("metadata #>> '{service_radar,source_type}'"),
+        "expected dns_activity source filter to include log provider and service_radar source metadata, got: {sql}"
     );
 }

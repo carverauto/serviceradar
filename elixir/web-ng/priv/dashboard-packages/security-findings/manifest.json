@@ -69,7 +69,7 @@
       "query": "in:security_findings class_uid:2002 sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
-      "required": false,
+      "required": true,
       "fields": [
         "id",
         "time",
@@ -77,6 +77,125 @@
         "message",
         "source_device_uid",
         "metadata"
+      ]
+    },
+    {
+      "id": "trivy_findings_latest",
+      "query": "in:security_findings source:trivy sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "trivy_scan_latest",
+      "query": "in:scan_activity source:trivy sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "activity_name",
+        "status",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "bumblebee_findings_latest",
+      "query": "in:security_findings source:bumblebee sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "bumblebee_scan_latest",
+      "query": "in:scan_activity source:bumblebee sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "activity_name",
+        "status",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "falco_findings_latest",
+      "query": "in:security_findings source:falco sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "endpoint_inventory_findings_latest",
+      "query": "in:security_findings source:endpoint_inventory sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "class_uid",
+        "severity",
+        "message",
+        "source_device_uid",
+        "metadata",
+        "device"
+      ]
+    },
+    {
+      "id": "powerdns_dns_latest",
+      "query": "in:dns_activity source:powerdns sort:time:desc limit:1",
+      "encoding": "json_rows",
+      "limit": 1,
+      "required": true,
+      "fields": [
+        "id",
+        "time",
+        "severity",
+        "message",
+        "status",
+        "source_device_uid",
+        "metadata",
+        "device"
       ]
     }
   ],

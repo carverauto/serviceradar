@@ -10,6 +10,50 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   @finding_limit 100
   @scan_limit 80
   @dns_activity_limit 80
+  @source_signal_queries [
+    %{
+      label: "Trivy findings",
+      source: "trivy",
+      kind: "Finding",
+      query: "in:security_findings source:trivy sort:time:desc limit:1"
+    },
+    %{
+      label: "Trivy scan",
+      source: "trivy",
+      kind: "Scan Activity",
+      query: "in:scan_activity source:trivy sort:time:desc limit:1"
+    },
+    %{
+      label: "Bumblebee finding",
+      source: "bumblebee",
+      kind: "Finding",
+      query: "in:security_findings source:bumblebee sort:time:desc limit:1"
+    },
+    %{
+      label: "Bumblebee scan",
+      source: "bumblebee",
+      kind: "Scan Activity",
+      query: "in:scan_activity source:bumblebee sort:time:desc limit:1"
+    },
+    %{
+      label: "Falco detection",
+      source: "falco",
+      kind: "Finding",
+      query: "in:security_findings source:falco sort:time:desc limit:1"
+    },
+    %{
+      label: "Endpoint inventory",
+      source: "endpoint_inventory",
+      kind: "Finding",
+      query: "in:security_findings source:endpoint_inventory sort:time:desc limit:1"
+    },
+    %{
+      label: "PowerDNS DNS",
+      source: "powerdns",
+      kind: "DNS Activity",
+      query: "in:dns_activity source:powerdns sort:time:desc limit:1"
+    }
+  ]
 
   @impl true
   def mount(_params, _session, socket) do
@@ -21,6 +65,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       |> assign(:findings, [])
       |> assign(:scan_activity, [])
       |> assign(:dns_activity, [])
+      |> assign(:source_signals, [])
       |> assign(:summary, empty_summary())
 
     if connected?(socket), do: send(self(), :load_security)
@@ -53,10 +98,20 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       findings = Map.get(findings_preview, :rows, [])
       scan_activity = Map.get(scans_preview, :rows, [])
       dns_activity = Map.get(dns_preview, :rows, [])
-      device_index = security_device_index(findings ++ scan_activity ++ dns_activity, scope)
+      source_signals = source_signal_rows(scope)
+
+      source_signal_event_rows =
+        source_signals
+        |> Enum.map(& &1.row)
+        |> Enum.reject(&is_nil/1)
+
+      device_index =
+        security_device_index(findings ++ scan_activity ++ dns_activity ++ source_signal_event_rows, scope)
+
       findings = Enum.map(findings, &put_resolved_device(&1, device_index))
       scan_activity = Enum.map(scan_activity, &put_resolved_device(&1, device_index))
       dns_activity = Enum.map(dns_activity, &put_resolved_device(&1, device_index))
+      source_signals = Enum.map(source_signals, &put_resolved_source_signal(&1, device_index))
 
       {:noreply,
        socket
@@ -65,6 +120,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
        |> assign(:findings, findings)
        |> assign(:scan_activity, scan_activity)
        |> assign(:dns_activity, dns_activity)
+       |> assign(:source_signals, source_signals)
        |> assign(:summary, build_summary(findings, scan_activity, dns_activity))}
     else
       {:error, reason} ->
@@ -137,6 +193,20 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
         </div>
 
         <div :if={!@loading? && is_nil(@load_error)} class="grid gap-6 xl:grid-cols-[0.9fr_1.1fr]">
+          <section class="min-w-0 rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100 xl:col-span-2">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h2 class="text-base font-semibold">Scanner Signal Coverage</h2>
+                <p class="text-xs text-slate-400">
+                  Latest source-scoped OCSF rows from each scanner and add-on
+                </p>
+              </div>
+            </div>
+            <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <.source_signal_card :for={signal <- @source_signals} signal={signal} />
+            </div>
+          </section>
+
           <section class="min-w-0 rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100">
             <div class="flex items-center justify-between gap-3">
               <div>
@@ -237,6 +307,62 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     <div class="rounded-lg border border-white/10 bg-white/5 p-4">
       <div class="text-sm font-semibold">{@item.label}</div>
       <div class="mt-2 text-2xl font-semibold tabular-nums">{@item.count}</div>
+    </div>
+    """
+  end
+
+  attr :signal, :map, required: true
+
+  defp source_signal_card(assigns) do
+    ~H"""
+    <div class="min-w-0 rounded-lg border border-white/10 bg-white/5 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="truncate text-sm font-semibold">{@signal.label}</div>
+          <div class="mt-1 text-xs text-slate-400">{@signal.kind}</div>
+        </div>
+        <span class={["badge badge-sm", if(@signal.row, do: "badge-success", else: "badge-ghost")]}>
+          {if @signal.row, do: "present", else: "missing"}
+        </span>
+      </div>
+
+      <div :if={@signal.row} class="mt-3 space-y-2 text-xs text-slate-300">
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-slate-500">Source</span>
+          <span class="badge badge-ghost badge-sm">{source_label(@signal.row)}</span>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-slate-500">Device</span>
+          <span class="max-w-36 truncate font-mono text-[0.72rem]">
+            <.device_link row={@signal.row} />
+          </span>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-slate-500">Class</span>
+          <span>{class_label(value(@signal.row, "class_uid"))}</span>
+        </div>
+        <div class="flex items-center justify-between gap-3">
+          <span class="text-slate-500">Time</span>
+          <span>{short_time(event_time(@signal.row))}</span>
+        </div>
+        <div class="line-clamp-2 text-slate-200">
+          <.link
+            :if={value(@signal.row, "id")}
+            navigate={~p"/events/#{value(@signal.row, "id")}"}
+            class="link link-hover"
+          >
+            {value(@signal.row, "short_message") || value(@signal.row, "message") ||
+              value(@signal.row, "id")}
+          </.link>
+          <span :if={!value(@signal.row, "id")}>
+            {value(@signal.row, "short_message") || value(@signal.row, "message") || "-"}
+          </span>
+        </div>
+      </div>
+
+      <div :if={!@signal.row} class="mt-3 text-xs text-slate-500">
+        No row returned by <code>{@signal.query}</code>
+      </div>
     </div>
     """
   end
@@ -422,6 +548,24 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       severity_counts: severity_counts,
       class_counts: class_counts
     }
+  end
+
+  defp source_signal_rows(scope) do
+    Enum.map(@source_signal_queries, fn signal ->
+      row =
+        case Dashboards.preview_authored_query(scope, signal.query, limit: 1) do
+          {:ok, preview} -> preview |> Map.get(:rows, []) |> List.first()
+          {:error, _reason} -> nil
+        end
+
+      Map.put(signal, :row, row)
+    end)
+  end
+
+  defp put_resolved_source_signal(%{row: nil} = signal, _device_index), do: signal
+
+  defp put_resolved_source_signal(%{row: row} = signal, device_index) do
+    %{signal | row: put_resolved_device(row, device_index)}
   end
 
   defp empty_summary do

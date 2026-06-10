@@ -250,6 +250,9 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "status_detail" => {
             query = apply_text_filter!(query, filter, col_status_detail)?;
         }
+        "source" | "source_type" | "addon_id" => {
+            query = apply_metadata_source_filter(query, filter)?;
+        }
         "trace_id" => {
             query = apply_text_filter!(query, filter, col_trace_id)?;
         }
@@ -284,6 +287,70 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
     }
 
     Ok(query)
+}
+
+fn apply_metadata_source_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{} filter only supports equality and IN/NOT IN comparisons",
+                filter.field
+            )))
+        }
+    };
+
+    let mut clauses = Vec::new();
+
+    for value in values {
+        let literal = sql_string_literal(&value);
+
+        clauses.push(format!(
+            "\"ocsf_events\".\"log_provider\" = {literal} OR \
+             \"ocsf_events\".\"log_name\" = {literal} OR \
+             metadata #>> '{{service_radar,source_type}}' = {literal} OR \
+             metadata #>> '{{service_radar,addon_id}}' = {literal} OR \
+             metadata #>> '{{serviceradar,source_type}}' = {literal} OR \
+             metadata #>> '{{serviceradar,addon_id}}' = {literal} OR \
+             metadata ->> 'source' = {literal} OR \
+             unmapped ->> 'source_type' = {literal} OR \
+             unmapped ->> 'addon_id' = {literal}"
+        ));
+    }
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses
+        .into_iter()
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
 }
 
 fn apply_metadata_identity_filter<'a>(
@@ -507,8 +574,9 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
-        "device_id" | "uid" | "source_device_uid" | "purl" | "purl_canonical"
-        | "canonical_purl" | "cpe" | "cpes" | "cve" | "vulnerability_id" => Ok(()),
+        "device_id" | "uid" | "source_device_uid" | "source" | "source_type" | "addon_id"
+        | "purl" | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve"
+        | "vulnerability_id" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,
