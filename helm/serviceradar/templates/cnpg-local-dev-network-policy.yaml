@@ -1,0 +1,30 @@
+{{- $cnpg := default (dict) .Values.cnpg -}}
+{{- $localDevAccess := default (dict) $cnpg.localDevAccess -}}
+{{- $allowedCIDRs := default (list) $localDevAccess.allowedCIDRs -}}
+{{- if and (default true $cnpg.enabled) (default false $localDevAccess.enabled) (gt (len $allowedCIDRs) 0) }}
+{{- $clusterName := include "serviceradar.cnpgClusterName" . -}}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ default "cnpg-allow-local-dev-postgres" $localDevAccess.policyName }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/component: cnpg
+spec:
+  podSelector:
+    matchLabels:
+      cnpg.io/cluster: {{ $clusterName | quote }}
+      cnpg.io/instanceRole: primary
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        {{- range $cidr := $allowedCIDRs }}
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: 5432
+{{- end }}

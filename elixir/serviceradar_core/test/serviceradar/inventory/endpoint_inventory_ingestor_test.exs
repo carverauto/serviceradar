@@ -43,6 +43,14 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert first.current? == true
     assert first.package_count == 1
     assert current_scan(agent_id).scan_id == "scan-#{unique}"
+    assert scan_activity = endpoint_inventory_scan_activity("scan-#{unique}")
+    assert scan_activity.class_uid == 6007
+    assert scan_activity.category_uid == 6
+    assert scan_activity.activity_name == "Completed"
+    assert scan_activity.status == "Success"
+    assert scan_activity.metadata["service_radar"]["source_type"] == "endpoint_inventory"
+    assert scan_activity.metadata["service_radar"]["agent_id"] == agent_id
+    assert scan_activity.metadata["service_radar"]["device_uid"] == device.uid
     assert [package] = current_packages(agent_id)
     assert package.name == "nginx"
     assert package.package_manager == "dpkg"
@@ -892,6 +900,25 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           endpoint_package_ref: p.endpoint_package_ref,
           device_uid: p.device_uid
         }
+      ),
+      prefix: "platform"
+    )
+  end
+
+  defp endpoint_inventory_scan_activity(scan_id) do
+    Repo.one(
+      from(e in "ocsf_events",
+        where:
+          e.class_uid == 6007 and e.category_uid == 6 and
+            fragment("?->'service_radar'->>'scan_id' = ?", e.metadata, ^scan_id),
+        select: %{
+          class_uid: e.class_uid,
+          category_uid: e.category_uid,
+          activity_name: e.activity_name,
+          status: e.status,
+          metadata: e.metadata
+        },
+        limit: 1
       ),
       prefix: "platform"
     )

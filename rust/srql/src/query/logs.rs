@@ -33,6 +33,9 @@ type LogsQuery<'a> = BoxedSelectStatement<'a, <LogsTable as AsQuery>::SqlType, L
 
 const MAX_LIST_FILTER_VALUES: usize = 200;
 const LOG_DEVICE_IDENTITY_KEYS: &[&str] = &[
+    "service_radar.device_uid",
+    "service_radar.device.uid",
+    "service_radar.device_id",
     "serviceradar.device_id",
     "serviceradar.device.uid",
     "device_id",

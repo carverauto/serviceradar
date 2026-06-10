@@ -1,0 +1,99 @@
+[
+  {
+    "id": "findings_recent",
+    "query": "in:security_findings time:last_30d sort:time:desc limit:100",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de001",
+        "time": "2026-06-10T14:42:00Z",
+        "class_uid": 2002,
+        "severity": "High",
+        "message": "Trivy detected CVE-2026-0001 in openssl",
+        "source": "trivy",
+        "source_device_uid": "sr:device-alpha",
+        "metadata": {"service_radar": {"source_type": "trivy", "device_uid": "sr:device-alpha"}},
+        "device": {"name": "k8s-cp3-worker1"}
+      },
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de002",
+        "time": "2026-06-10T14:41:00Z",
+        "class_uid": 2004,
+        "severity": "Medium",
+        "message": "Falco detected unexpected outbound connection",
+        "source": "falco",
+        "source_device_uid": "sr:device-beta",
+        "metadata": {"service_radar": {"source_type": "falco", "device_uid": "sr:device-beta"}},
+        "device": {"name": "k8s-cp3-worker2"}
+      },
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de003",
+        "time": "2026-06-10T14:40:00Z",
+        "class_uid": 2007,
+        "severity": "Medium",
+        "message": "Bumblebee reported weak TLS configuration",
+        "source": "bumblebee",
+        "source_device_uid": "sr:device-gamma",
+        "metadata": {"service_radar": {"source_type": "bumblebee", "device_uid": "sr:device-gamma"}},
+        "device": {"name": "agent-sr-test-pve04"}
+      },
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de004",
+        "time": "2026-06-10T14:39:00Z",
+        "class_uid": 2002,
+        "severity": "Critical",
+        "message": "Endpoint inventory matched vulnerable nginx package",
+        "source": "endpoint_inventory",
+        "source_device_uid": "sr:device-delta",
+        "metadata": {"service_radar": {"source_type": "endpoint_inventory", "device_uid": "sr:device-delta"}},
+        "device": {"name": "ns03"}
+      }
+    ]
+  },
+  {
+    "id": "scan_activity_recent",
+    "query": "in:scan_activity time:last_30d sort:time:desc limit:80",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de101",
+        "time": "2026-06-10T14:42:10Z",
+        "activity_name": "Completed",
+        "status": "Success",
+        "message": "Bumblebee completed 24 checks with 3 findings",
+        "source": "bumblebee",
+        "source_device_uid": "sr:device-gamma",
+        "metadata": {"service_radar": {"source_type": "bumblebee", "device_uid": "sr:device-gamma"}},
+        "device": {"name": "agent-sr-test-pve04"}
+      }
+    ]
+  },
+  {
+    "id": "dns_activity_recent",
+    "query": "in:dns_activity time:last_30d sort:time:desc limit:80",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": [
+      {
+        "id": "7bd72cf4-8f72-4f0b-a30b-1f88783de201",
+        "time": "2026-06-10T14:41:32Z",
+        "severity": "Medium",
+        "status": "Success",
+        "message": "PowerDNS RPZ NXDOMAIN match for malware.example via hagezi-pro",
+        "source": "powerdns",
+        "source_device_uid": "sr:device-delta",
+        "metadata": {"service_radar": {"source_type": "powerdns", "device_uid": "sr:device-delta"}},
+        "device": {"name": "ns03"}
+      }
+    ]
+  },
+  {
+    "id": "vulnerability_findings",
+    "query": "in:security_findings class_uid:2002 time:last_30d sort:time:desc limit:80",
+    "encoding": "json_rows",
+    "status": "ok",
+    "results": []
+  }
+]

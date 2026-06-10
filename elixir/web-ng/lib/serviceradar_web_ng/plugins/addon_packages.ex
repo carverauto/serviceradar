@@ -32,6 +32,15 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   @spec list_approved(keyword()) :: [AddonPackage.t()]
   def list_approved(opts \\ []), do: list(%{status: :approved}, opts)
 
+  @spec list_latest_versions(map(), keyword()) :: [AddonPackage.t()]
+  def list_latest_versions(filters \\ %{}, opts \\ []) do
+    filters
+    |> Map.put_new(:limit, @max_limit)
+    |> list(opts)
+    |> latest_package_per_addon()
+    |> Enum.sort_by(&package_sort_key/1)
+  end
+
   @spec sync_first_party_addons(keyword()) :: {:ok, map()} | {:error, term()}
   def sync_first_party_addons(opts \\ []) do
     repo_url = Keyword.get(opts, :repo_url)
@@ -147,6 +156,54 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
     end)
     |> elem(1)
     |> Enum.reverse()
+  end
+
+  defp latest_package_per_addon(packages) do
+    packages
+    |> Enum.reduce(%{}, fn %AddonPackage{} = package, acc ->
+      Map.update(acc, package.addon_id, package, &newer_package(&1, package))
+    end)
+    |> Map.values()
+  end
+
+  defp newer_package(%AddonPackage{} = left, %AddonPackage{} = right) do
+    case compare_versions(left.version, right.version) do
+      :lt -> right
+      :gt -> left
+      :eq -> newer_by_timestamp(left, right)
+    end
+  end
+
+  defp compare_versions(left, right) when is_binary(left) and is_binary(right) do
+    Version.compare(left, right)
+  rescue
+    Version.InvalidVersionError ->
+      compare_fallback_versions(left, right)
+  end
+
+  defp compare_versions(left, right), do: compare_fallback_versions(to_string(left), to_string(right))
+
+  defp compare_fallback_versions(left, right) do
+    cond do
+      left < right -> :lt
+      left > right -> :gt
+      true -> :eq
+    end
+  end
+
+  defp newer_by_timestamp(%AddonPackage{} = left, %AddonPackage{} = right) do
+    case DateTime.compare(timestamp_sort_key(left), timestamp_sort_key(right)) do
+      :lt -> right
+      _ -> left
+    end
+  end
+
+  defp timestamp_sort_key(%AddonPackage{} = package) do
+    package.updated_at || package.imported_at || package.inserted_at || ~U[1970-01-01 00:00:00Z]
+  end
+
+  defp package_sort_key(%AddonPackage{} = package) do
+    {package.name |> to_string() |> String.downcase(), package.addon_id || ""}
   end
 
   defp sync_summary(discovered, results) do

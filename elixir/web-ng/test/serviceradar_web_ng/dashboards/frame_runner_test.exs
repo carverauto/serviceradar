@@ -11,6 +11,68 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     end
 
     def query("bad", _opts), do: {:error, :bad_query}
+
+    def query("in:security_findings", _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "id" => "finding-1",
+             "metadata" => %{"service_radar" => %{"source_type" => "falco"}},
+             "raw_data" =>
+               Jason.encode!(%{
+                 "output_fields" => %{"k8s.node.name" => "k8s-cp3-worker1"},
+                 "correlation" => %{"host_ip" => "10.0.2.11"}
+               })
+           }
+         ]
+       }}
+    end
+
+    def query("in:events falco-sidekick", _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "id" => "falco-1",
+             "raw_data" => %{
+               "custom_fields" => %{"serviceradar.agent_id" => "agent-k8s-cp3-worker1"},
+               "templated_fields" => %{"k8s.node.name" => "k8s-cp3-worker1"}
+             }
+           }
+         ]
+       }}
+    end
+
+    def query("in:events bumblebee", _opts) do
+      {:ok,
+       %{
+         "results" => [
+           %{
+             "id" => "bumblebee-1",
+             "raw_data" => %{
+               "metadata" => %{
+                 "service_radar" => %{
+                   "agent_id" => "agent-sr-test-pve04",
+                   "device_uid" => "sr:2a4f3940-be57-4a79-b4a5-2a1ea096d02f"
+                 }
+               },
+               "device" => %{"name" => "agent-sr-test-pve04"}
+             }
+           }
+         ]
+       }}
+    end
+  end
+
+  defmodule FakeDeviceResolver do
+    @moduledoc false
+
+    def resolve(%{hostname: "k8s-cp3-worker1", ip: "10.0.2.11"}) do
+      "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+    end
+
+    def resolve(_candidate), do: nil
   end
 
   defmodule FakeArrowSRQL do
@@ -90,6 +152,70 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
              %{"id" => "bad", "status" => "error", "error" => ":bad_query", "results" => []},
              %{"id" => "ok", "status" => "ok", "results" => [%{"id" => 1}]}
            ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
+  end
+
+  test "enriches event frames with resolved inventory device UIDs" do
+    frames = [
+      %{"id" => "findings", "query" => "in:security_findings", "encoding" => "json_rows", "limit" => 1}
+    ]
+
+    assert [
+             %{
+               "id" => "findings",
+               "status" => "ok",
+               "results" => [
+                 %{
+                   "id" => "finding-1",
+                   "resolved_device_uid" => "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+                 }
+               ]
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL, device_resolver: FakeDeviceResolver)
+  end
+
+  test "uses Falcosidekick custom and templated fields for device resolution" do
+    frames = [
+      %{"id" => "falco", "query" => "in:events falco-sidekick", "encoding" => "json_rows", "limit" => 1}
+    ]
+
+    resolver = fn
+      %{agent_id: "agent-k8s-cp3-worker1", hostname: "k8s-cp3-worker1"} ->
+        "sr:falco-node"
+
+      _candidate ->
+        nil
+    end
+
+    assert [
+             %{
+               "id" => "falco",
+               "status" => "ok",
+               "results" => [
+                 %{"id" => "falco-1", "resolved_device_uid" => "sr:falco-node"}
+               ]
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL, device_resolver: resolver)
+  end
+
+  test "uses map raw_data metadata from add-on events for device resolution" do
+    frames = [
+      %{"id" => "bumblebee", "query" => "in:events bumblebee", "encoding" => "json_rows", "limit" => 1}
+    ]
+
+    resolver = fn %{device_uid: device_uid} -> device_uid end
+
+    assert [
+             %{
+               "id" => "bumblebee",
+               "status" => "ok",
+               "results" => [
+                 %{
+                   "id" => "bumblebee-1",
+                   "resolved_device_uid" => "sr:2a4f3940-be57-4a79-b4a5-2a1ea096d02f"
+                 }
+               ]
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL, device_resolver: resolver)
   end
 
   test "preserves explicit optional frame metadata" do

@@ -67,6 +67,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	payload := &ScanPayload{
 		SchemaVersion:      SchemaVersion,
 		AgentID:            r.cfg.AgentID,
+		DeviceUID:          r.cfg.DeviceUID,
 		RunID:              runID,
 		CatalogSnapshotRef: catalogSnapshotRef,
 		State:              stateScanFailed,

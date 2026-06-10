@@ -655,6 +655,12 @@ cnpg:
   # Helm reuses existing secrets and does not rotate CNPG credentials on upgrade.
   # Delete/recreate cnpg-superuser or serviceradar-db-credentials to rotate.
   sslmode: verify-full
+  localDevAccess:
+    # Optional CNPG ingress NetworkPolicy for local developer workstations.
+    # Keep disabled by default; demo can opt in with explicit LAN CIDRs.
+    enabled: false
+    policyName: cnpg-allow-local-dev-postgres
+    allowedCIDRs: []
   pooler:
     # CNPG-managed PgBouncer pooler for web/core traffic.
     # Set enabled=false to route all workloads directly to CNPG.

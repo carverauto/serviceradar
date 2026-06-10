@@ -23,12 +23,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   @package_page_size 10
   @first_party_catalog_page_size 10
+  @official_release_tag_regex ~r/^v(?<major>\d+)\.(?<minor>\d+)\.(?<patch>\d+)$/
 
   @impl true
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
     if RBAC.can?(scope, "plugins.view") do
+      packages = list_packages(%{}, scope)
+      release_options = combined_release_options([], packages)
+
       socket =
         socket
         |> assign(:can_stage_plugins, RBAC.can?(scope, "plugins.stage"))
@@ -37,7 +41,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:page_title, "Plugins")
         |> assign(:current_path, nil)
         |> assign(:plugins_base_path, "/admin/plugins")
-        |> assign(:packages, list_packages(%{}, scope))
+        |> assign(:packages, packages)
         |> assign(:package_page, 1)
         |> assign(:package_page_size, @package_page_size)
         |> assign(:filter_status, nil)
@@ -48,8 +52,9 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_catalog_page_size, @first_party_catalog_page_size)
         |> assign(:first_party_catalog_error, nil)
         |> assign(:first_party_catalog_status, nil)
-        |> assign(:first_party_release_options, [])
-        |> assign(:first_party_release_tag, nil)
+        |> assign(:first_party_release_options, release_options)
+        |> assign(:first_party_release_tag, selected_first_party_release(release_options, nil))
+        |> assign(:first_party_release_selected?, false)
         |> assign(:first_party_repo_url, first_party_repo_url())
         |> assign(:show_create_modal, false)
         |> assign(:show_details_modal, false)
@@ -202,13 +207,15 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
 
   def handle_event("refresh", _params, socket) do
     scope = socket.assigns.current_scope
+    packages = list_packages(current_filters(socket), scope)
 
     {:noreply,
      socket
-     |> assign(:packages, list_packages(current_filters(socket), scope))
+     |> assign(:packages, packages)
      |> assign(:agents, list_agents(scope))
      |> assign_capacity(scope)
-     |> assign(:verification_policy, plugin_verification_policy())}
+     |> assign(:verification_policy, plugin_verification_policy())
+     |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, socket.assigns.first_party_release_tag)}
   end
 
   def handle_event("sync_first_party_catalog", _params, socket) do
@@ -216,7 +223,10 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   end
 
   def handle_event("select_first_party_release", %{"release_tag" => release_tag}, socket) do
-    {:noreply, assign_first_party_catalog_view(socket, socket.assigns.first_party_catalog_all, release_tag)}
+    {:noreply,
+     socket
+     |> assign(:first_party_release_selected?, true)
+     |> assign_first_party_catalog_view(socket.assigns.first_party_catalog_all, release_tag)}
   end
 
   def handle_event("first_party_catalog_page", %{"page" => page}, socket) do
@@ -926,6 +936,149 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         <.ui_panel>
           <:header>
             <div>
+              <div class="text-sm font-semibold">Plugin catalog</div>
+              <p class="text-xs text-base-content/60">
+                Signed Wasm plugins discovered from {@first_party_repo_url}, plus imported packages.
+              </p>
+            </div>
+            <div class="flex items-center gap-2">
+              <form
+                :if={@first_party_release_options != []}
+                id="select-plugin-release-form"
+                phx-change="select_first_party_release"
+                class="flex items-center gap-2"
+              >
+                <select name="release_tag" class="select select-sm select-bordered">
+                  <option
+                    :for={release_tag <- @first_party_release_options}
+                    value={release_tag}
+                    selected={release_tag == @first_party_release_tag}
+                  >
+                    {release_tag}
+                  </option>
+                </select>
+              </form>
+              <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
+                <.icon name="hero-arrow-path" class="size-4" /> Sync
+              </.ui_button>
+              <.ui_button
+                :if={@can_stage_plugins}
+                variant="primary"
+                size="sm"
+                disabled={@first_party_catalog == []}
+                phx-click="import_first_party_catalog"
+              >
+                <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
+              </.ui_button>
+            </div>
+          </:header>
+
+          <%= if @first_party_catalog_error do %>
+            <div class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error">
+              {@first_party_catalog_error}
+            </div>
+          <% end %>
+
+          <%= if @first_party_catalog_status do %>
+            <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-base-content/70">
+              {@first_party_catalog_status}
+            </div>
+          <% end %>
+
+          <% catalog_rows =
+            combined_catalog_rows(
+              @first_party_catalog,
+              @packages,
+              @first_party_release_tag
+            ) %>
+
+          <%= cond do %>
+            <% catalog_rows == [] and is_nil(@first_party_catalog_error) -> %>
+              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
+                <div class="text-sm font-semibold text-base-content">
+                  No plugins found for this release
+                </div>
+                <p class="mt-1 text-xs text-base-content/60">
+                  Choose another release or sync the first-party catalog.
+                </p>
+              </div>
+            <% catalog_rows != [] -> %>
+              <div class="overflow-x-auto">
+                <table class="table table-sm">
+                  <thead>
+                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
+                      <th>Plugin</th>
+                      <th>Version</th>
+                      <th>Release</th>
+                      <th>Status</th>
+                      <th>Updated</th>
+                      <th></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <%= for row <- paginated_items(
+                          catalog_rows,
+                          @first_party_catalog_page,
+                          @first_party_catalog_page_size
+                        ) do %>
+                      <tr class="hover:bg-base-200/30">
+                        <td>
+                          <div class="font-medium">{row.name}</div>
+                          <div class="text-xs text-base-content/60 font-mono">{row.plugin_id}</div>
+                        </td>
+                        <td class="text-xs">{row.version}</td>
+                        <td class="text-xs font-mono">{row.release_tag || "-"}</td>
+                        <td>
+                          <span class={["badge badge-sm", catalog_row_status_badge(row)]}>
+                            {catalog_row_status(row)}
+                          </span>
+                        </td>
+                        <td class="text-xs text-base-content/70">
+                          {format_datetime(catalog_row_updated_at(row))}
+                        </td>
+                        <td>
+                          <div class="flex gap-1">
+                            <.ui_button
+                              :if={row.package}
+                              variant="ghost"
+                              size="xs"
+                              navigate={plugins_show_path(@plugins_base_path, row.package.id)}
+                            >
+                              View
+                            </.ui_button>
+                            <.ui_button
+                              :if={is_nil(row.package) and @can_stage_plugins and row.import_ready}
+                              variant="ghost"
+                              size="xs"
+                              phx-click="import_first_party_plugin"
+                              phx-value-release-tag={row.release_tag}
+                              phx-value-plugin-id={row.plugin_id}
+                              phx-value-version={row.version}
+                            >
+                              Import
+                            </.ui_button>
+                          </div>
+                        </td>
+                      </tr>
+                    <% end %>
+                  </tbody>
+                </table>
+                <.pagination_controls
+                  id_prefix="first-party-catalog"
+                  event="first_party_catalog_page"
+                  page={@first_party_catalog_page}
+                  total_items={length(catalog_rows)}
+                  page_size={@first_party_catalog_page_size}
+                />
+              </div>
+            <% true -> %>
+              <div class="hidden"></div>
+          <% end %>
+        </.ui_panel>
+
+        <.ui_panel>
+          <:header>
+            <div>
               <div class="text-sm font-semibold">Capacity Snapshot</div>
               <p class="text-xs text-base-content/60">
                 Aggregate resource requests per agent based on current assignments.
@@ -1023,222 +1176,6 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
           <p class="mt-3 text-xs text-base-content/60">
             Adjust with environment variables and restart web-ng to apply changes.
           </p>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">Plugin Packages</div>
-              <p class="text-xs text-base-content/60">
-                {@packages |> length()} package(s)
-              </p>
-            </div>
-            <div class="flex gap-2">
-              <select name="status" class="select select-sm select-bordered" phx-change="filter">
-                <option value="">All Statuses</option>
-                <option value="staged" selected={@filter_status == "staged"}>Staged</option>
-                <option value="approved" selected={@filter_status == "approved"}>Approved</option>
-                <option value="denied" selected={@filter_status == "denied"}>Denied</option>
-                <option value="revoked" selected={@filter_status == "revoked"}>Revoked</option>
-              </select>
-              <select name="source_type" class="select select-sm select-bordered" phx-change="filter">
-                <option value="">All Sources</option>
-                <option value="upload" selected={@filter_source_type == "upload"}>Upload</option>
-                <option value="github" selected={@filter_source_type == "github"}>GitHub</option>
-                <option value="first_party" selected={@filter_source_type == "first_party"}>
-                  First-party
-                </option>
-              </select>
-            </div>
-          </:header>
-
-          <div class="overflow-x-auto">
-            <%= if @packages == [] do %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-8 text-center">
-                <div class="text-sm font-semibold text-base-content">No packages found</div>
-                <p class="mt-1 text-xs text-base-content/60">
-                  Stage a plugin package to begin the review workflow.
-                </p>
-              </div>
-            <% else %>
-              <table class="table table-sm">
-                <thead>
-                  <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                    <th>Plugin</th>
-                    <th>Version</th>
-                    <th>Status</th>
-                    <th>Source</th>
-                    <th>Updated</th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <%= for package <- paginated_items(@packages, @package_page, @package_page_size) do %>
-                    <tr class="hover:bg-base-200/30">
-                      <td>
-                        <div class="font-medium">{package.name}</div>
-                        <div class="text-xs text-base-content/60 font-mono">
-                          {package.plugin_id}
-                        </div>
-                      </td>
-                      <td class="text-xs">{package.version}</td>
-                      <td>
-                        <.status_badge status={package.status} />
-                      </td>
-                      <td>
-                        <.ui_badge variant="ghost" size="xs">
-                          {package.source_type}
-                        </.ui_badge>
-                      </td>
-                      <td class="text-xs text-base-content/70">
-                        {format_datetime(package.updated_at || package.inserted_at)}
-                      </td>
-                      <td>
-                        <div class="flex gap-1">
-                          <.ui_button
-                            variant="ghost"
-                            size="xs"
-                            navigate={plugins_show_path(@plugins_base_path, package.id)}
-                          >
-                            View
-                          </.ui_button>
-                        </div>
-                      </td>
-                    </tr>
-                  <% end %>
-                </tbody>
-              </table>
-              <.pagination_controls
-                id_prefix="plugin-packages"
-                event="package_page"
-                page={@package_page}
-                total_items={length(@packages)}
-                page_size={@package_page_size}
-              />
-            <% end %>
-          </div>
-        </.ui_panel>
-
-        <.ui_panel>
-          <:header>
-            <div>
-              <div class="text-sm font-semibold">First-party Repository Plugins</div>
-              <p class="text-xs text-base-content/60">
-                Signed Wasm plugins discovered from {@first_party_repo_url}.
-              </p>
-            </div>
-            <div class="flex items-center gap-2">
-              <form
-                :if={@first_party_release_options != []}
-                phx-change="select_first_party_release"
-                class="flex items-center gap-2"
-              >
-                <select name="release_tag" class="select select-sm select-bordered">
-                  <option
-                    :for={release_tag <- @first_party_release_options}
-                    value={release_tag}
-                    selected={release_tag == @first_party_release_tag}
-                  >
-                    {release_tag}
-                  </option>
-                </select>
-              </form>
-              <.ui_button variant="ghost" size="sm" phx-click="sync_first_party_catalog">
-                <.icon name="hero-arrow-path" class="size-4" /> Sync
-              </.ui_button>
-              <.ui_button
-                :if={@can_stage_plugins}
-                variant="primary"
-                size="sm"
-                disabled={@first_party_catalog == []}
-                phx-click="import_first_party_catalog"
-              >
-                <.icon name="hero-arrow-down-tray" class="size-4" /> Import All
-              </.ui_button>
-            </div>
-          </:header>
-
-          <%= if @first_party_catalog_error do %>
-            <div class="rounded-xl border border-error/30 bg-error/5 p-3 text-xs text-error">
-              {@first_party_catalog_error}
-            </div>
-          <% end %>
-
-          <%= if @first_party_catalog_status do %>
-            <div class="rounded-xl border border-warning/30 bg-warning/5 p-3 text-xs text-base-content/70">
-              {@first_party_catalog_status}
-            </div>
-          <% end %>
-
-          <%= cond do %>
-            <% @first_party_catalog == [] and is_nil(@first_party_catalog_error) -> %>
-              <div class="rounded-xl border border-dashed border-base-200 bg-base-100 p-6 text-center">
-                <div class="text-sm font-semibold text-base-content">
-                  No repository plugins loaded
-                </div>
-                <p class="mt-1 text-xs text-base-content/60">
-                  Sync the first-party catalog to discover signed plugins from Forgejo releases.
-                </p>
-              </div>
-            <% true -> %>
-              <div class="overflow-x-auto">
-                <table class="table table-sm">
-                  <thead>
-                    <tr class="text-xs uppercase tracking-wide text-base-content/60">
-                      <th>Plugin</th>
-                      <th>Version</th>
-                      <th>Release</th>
-                      <th>Artifact</th>
-                      <th></th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <%= for plugin <- paginated_items(
-                          @first_party_catalog,
-                          @first_party_catalog_page,
-                          @first_party_catalog_page_size
-                        ) do %>
-                      <tr class="hover:bg-base-200/30">
-                        <td>
-                          <div class="font-medium">{plugin.name}</div>
-                          <div class="text-xs text-base-content/60 font-mono">{plugin.plugin_id}</div>
-                        </td>
-                        <td class="text-xs">{plugin.version}</td>
-                        <td class="text-xs">{plugin.release_tag}</td>
-                        <td>
-                          <.ui_badge
-                            variant={if plugin.import_ready?, do: "success", else: "ghost"}
-                            size="xs"
-                          >
-                            {if plugin.import_ready?, do: "import-ready", else: "missing artifact"}
-                          </.ui_badge>
-                        </td>
-                        <td>
-                          <.ui_button
-                            :if={@can_stage_plugins and plugin.import_ready?}
-                            variant="ghost"
-                            size="xs"
-                            phx-click="import_first_party_plugin"
-                            phx-value-release-tag={plugin.release_tag}
-                            phx-value-plugin-id={plugin.plugin_id}
-                            phx-value-version={plugin.version}
-                          >
-                            Import
-                          </.ui_button>
-                        </td>
-                      </tr>
-                    <% end %>
-                  </tbody>
-                </table>
-                <.pagination_controls
-                  id_prefix="first-party-catalog"
-                  event="first_party_catalog_page"
-                  page={@first_party_catalog_page}
-                  total_items={length(@first_party_catalog)}
-                  page_size={@first_party_catalog_page_size}
-                />
-              </div>
-          <% end %>
         </.ui_panel>
       </.settings_shell>
 
@@ -2035,11 +1972,16 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
            first_party_sync_limit()
          ) do
       {:ok, summary} ->
+        requested_release_tag =
+          if socket.assigns[:first_party_release_selected?] do
+            socket.assigns[:first_party_release_tag]
+          end
+
         socket =
           assign_first_party_catalog_view(
             socket,
             summary.plugins,
-            socket.assigns[:first_party_release_tag]
+            requested_release_tag
           )
 
         socket
@@ -2054,15 +1996,22 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
         |> assign(:first_party_catalog, [])
         |> assign(:first_party_catalog_all, [])
         |> assign(:first_party_catalog_page, 1)
-        |> assign(:first_party_release_options, [])
-        |> assign(:first_party_release_tag, nil)
+        |> assign(:first_party_release_options, combined_release_options([], socket.assigns.packages))
+        |> assign(
+          :first_party_release_tag,
+          selected_first_party_release(
+            combined_release_options([], socket.assigns.packages),
+            socket.assigns[:first_party_release_tag]
+          )
+        )
         |> assign(:first_party_catalog_error, format_error(reason))
         |> assign(:first_party_catalog_status, nil)
     end
   end
 
   defp assign_first_party_catalog_view(socket, plugins, requested_release_tag) do
-    release_options = first_party_release_options(plugins)
+    packages = socket.assigns[:packages] || []
+    release_options = combined_release_options(plugins, packages)
     selected_release_tag = selected_first_party_release(release_options, requested_release_tag)
     visible_plugins = filter_first_party_plugins(plugins, selected_release_tag)
 
@@ -2077,8 +2026,23 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
   defp first_party_release_options(plugins) do
     plugins
     |> Enum.map(& &1.release_tag)
-    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.filter(&official_release_tag?/1)
     |> Enum.uniq()
+  end
+
+  defp package_release_options(packages) do
+    packages
+    |> Enum.map(& &1.source_release_tag)
+    |> Enum.filter(&official_release_tag?/1)
+    |> Enum.uniq()
+  end
+
+  defp combined_release_options(plugins, packages) do
+    plugins
+    |> first_party_release_options()
+    |> Kernel.++(package_release_options(packages))
+    |> Enum.uniq()
+    |> Enum.sort_by(&release_sort_key/1, :desc)
   end
 
   defp selected_first_party_release([], _requested), do: nil
@@ -2091,7 +2055,7 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     end
   end
 
-  defp filter_first_party_plugins(plugins, nil), do: plugins
+  defp filter_first_party_plugins(_plugins, nil), do: []
 
   defp filter_first_party_plugins(plugins, release_tag) do
     Enum.filter(plugins, &(&1.release_tag == release_tag))
@@ -2120,6 +2084,83 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
       [] -> "the selected release"
     end
   end
+
+  defp combined_catalog_rows(first_party_plugins, packages, release_tag) do
+    package_by_key = Map.new(packages, &{package_catalog_key(&1), &1})
+
+    first_party_rows =
+      Enum.map(first_party_plugins, fn plugin ->
+        package = Map.get(package_by_key, plugin_catalog_key(plugin))
+
+        %{
+          plugin_id: plugin.plugin_id,
+          name: plugin.name,
+          version: plugin.version,
+          release_tag: plugin.release_tag,
+          package: package,
+          import_ready: Map.get(plugin, :import_ready?, false)
+        }
+      end)
+
+    first_party_keys = MapSet.new(first_party_plugins, &plugin_catalog_key/1)
+
+    package_rows =
+      packages
+      |> Enum.filter(&package_matches_release?(&1, release_tag))
+      |> Enum.reject(&(package_catalog_key(&1) in first_party_keys))
+      |> Enum.map(fn package ->
+        %{
+          plugin_id: package.plugin_id,
+          name: package.name,
+          version: package.version,
+          release_tag: package.source_release_tag,
+          package: package,
+          import_ready: false
+        }
+      end)
+
+    Enum.sort_by(first_party_rows ++ package_rows, &catalog_row_sort_key/1)
+  end
+
+  defp plugin_catalog_key(plugin), do: {plugin.plugin_id, plugin.version, plugin.release_tag}
+
+  defp package_catalog_key(package) do
+    {package.plugin_id, package.version, package.source_release_tag}
+  end
+
+  defp package_matches_release?(_package, nil), do: false
+  defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
+
+  defp official_release_tag?(release_tag) when is_binary(release_tag) do
+    Regex.match?(@official_release_tag_regex, release_tag)
+  end
+
+  defp official_release_tag?(_release_tag), do: false
+
+  defp release_sort_key(release_tag) do
+    case Regex.named_captures(@official_release_tag_regex, release_tag) do
+      %{"major" => major, "minor" => minor, "patch" => patch} ->
+        {String.to_integer(major), String.to_integer(minor), String.to_integer(patch)}
+
+      _ ->
+        {-1, -1, -1}
+    end
+  end
+
+  defp catalog_row_sort_key(row) do
+    {row.name |> to_string() |> String.downcase(), row.plugin_id, row.version}
+  end
+
+  defp catalog_row_status(%{package: nil, import_ready: true}), do: "import-ready"
+  defp catalog_row_status(%{package: nil}), do: "missing artifact"
+  defp catalog_row_status(%{package: package}), do: package.status
+
+  defp catalog_row_status_badge(%{package: nil, import_ready: true}), do: "badge-success"
+  defp catalog_row_status_badge(%{package: nil}), do: "badge-ghost"
+  defp catalog_row_status_badge(%{package: package}), do: package_status_badge(package.status)
+
+  defp catalog_row_updated_at(%{package: nil}), do: nil
+  defp catalog_row_updated_at(%{package: package}), do: package.updated_at || package.inserted_at
 
   defp first_party_repo_url do
     config = Application.get_env(:serviceradar_web_ng, :first_party_plugin_import, [])
@@ -2951,6 +2992,13 @@ defmodule ServiceRadarWebNGWeb.Admin.PluginPackageLive.Index do
     <.ui_badge variant={@variant} size="xs">{@status_str}</.ui_badge>
     """
   end
+
+  defp package_status_badge(:approved), do: "badge-success"
+  defp package_status_badge("approved"), do: "badge-success"
+  defp package_status_badge(:staged), do: "badge-warning"
+  defp package_status_badge("staged"), do: "badge-warning"
+  defp package_status_badge(status) when status in [:denied, :revoked, "denied", "revoked"], do: "badge-error"
+  defp package_status_badge(_status), do: "badge-ghost"
 
   defp format_datetime(nil), do: "-"
 

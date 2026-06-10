@@ -16,7 +16,9 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment do
 
   @impl true
   def validate(changeset, _opts, _context) do
-    if changed_or_current(changeset, :enabled) == false do
+    source = changed_or_current(changeset, :source) || :manual
+
+    if changed_or_current(changeset, :enabled) == false or source != :manual do
       :ok
     else
       reject_duplicate_enabled_assignment(changeset)
@@ -73,7 +75,9 @@ defmodule ServiceRadar.Plugins.Validations.NoDuplicateEnabledAddonAssignment do
 
     AddonAssignment
     |> Ash.Query.for_read(:read)
-    |> Ash.Query.filter(agent_uid == ^agent_uid and addon_id == ^addon_id and enabled == true)
+    |> Ash.Query.filter(
+      agent_uid == ^agent_uid and addon_id == ^addon_id and enabled == true and source == :manual
+    )
     |> Ash.read(actor: actor)
   end
 

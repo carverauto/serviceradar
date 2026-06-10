@@ -10,7 +10,7 @@ defmodule ServiceRadar.Plugins.SRQLInputResolver do
   alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.ValueUtils
 
-  @supported_entities MapSet.new(["devices", "interfaces"])
+  @supported_entities MapSet.new(["agents", "devices", "interfaces"])
 
   @type input_definition :: %{
           required(:name) => String.t(),

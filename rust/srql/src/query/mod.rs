@@ -233,7 +233,10 @@ impl QueryEngine {
                 Entity::GraphCypher => {
                     graph_cypher::execute(&mut conn, &plan, &self.config.age_graph_name).await?
                 }
-                Entity::Events => events::execute(&mut conn, &plan).await?,
+                Entity::Events
+                | Entity::SecurityFindings
+                | Entity::ScanActivity
+                | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
                 Entity::FieldSurveySessions
                 | Entity::FieldSurveyRasters
@@ -789,7 +792,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::DeviceUpdates => device_updates::to_sql_and_params(&plan)?,
             Entity::DeviceGraph => device_graph::to_sql_and_params(&plan)?,
             Entity::GraphCypher => graph_cypher::to_sql_and_params(&plan, &config.age_graph_name)?,
-            Entity::Events => events::to_sql_and_params(&plan)?,
+            Entity::Events
+            | Entity::SecurityFindings
+            | Entity::ScanActivity
+            | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
             Entity::FieldSurveySessions
             | Entity::FieldSurveyRasters

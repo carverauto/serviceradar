@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.LogPubSub
@@ -139,7 +140,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp build_entry(payload, metadata, raw_data) do
     subject = normalize_subject(metadata[:subject])
-    output_fields = normalize_map(payload["output_fields"])
+    output_fields = falco_output_fields(payload)
 
     event_time = parse_event_time(payload["time"], output_fields)
     event_uuid = resolve_event_id(payload, subject, raw_data)
@@ -257,22 +258,35 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
          status_id: status_id,
          message: message
        }) do
+    device_hostname = falco_device_hostname(payload, output_fields)
+    agent_id = falco_agent_id(payload, output_fields, device_hostname)
+    device_uid = falco_device_uid(payload, output_fields, device_hostname)
+
     metadata =
       payload
       |> build_event_metadata(subject, output_fields)
-      |> Map.put("serviceradar", %{
+      |> Map.put("service_radar", %{
         "source_log_id" => log_uuid,
-        "promotion" => "falco_priority_auto"
+        "promotion" => "falco_priority_auto",
+        "source_type" => "falco",
+        "agent_id" => agent_id,
+        "device_uid" => device_uid,
+        "device_hostname" => device_hostname,
+        "node_name" => normalize_string(output_fields["k8s.node.name"]),
+        "container_id" => normalize_string(output_fields["container.id"]),
+        "container_name" => normalize_string(output_fields["container.name"]),
+        "pod_name" => normalize_string(output_fields["k8s.pod.name"]),
+        "namespace" => normalize_string(output_fields["k8s.ns.name"])
       })
 
     %{
       id: Ecto.UUID.dump!(event_uuid),
       time: event_time,
-      class_uid: OCSF.class_event_log_activity(),
-      category_uid: OCSF.category_system_activity(),
-      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), OCSF.activity_log_update()),
-      activity_id: OCSF.activity_log_update(),
-      activity_name: OCSF.log_activity_name(OCSF.activity_log_update()),
+      class_uid: OCSF.class_detection_finding(),
+      category_uid: OCSF.category_findings(),
+      type_uid: OCSF.type_uid(OCSF.class_detection_finding(), OCSF.activity_finding_create()),
+      activity_id: OCSF.activity_finding_create(),
+      activity_name: OCSF.finding_activity_name(OCSF.activity_finding_create()),
       severity_id: severity_id,
       severity: OCSF.severity_name(severity_id),
       message: message,
@@ -285,7 +299,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       trace_id: nil,
       span_id: nil,
       actor: build_actor(output_fields),
-      device: build_device(payload, output_fields),
+      device: build_device(payload, output_fields, device_uid),
       src_endpoint: %{},
       dst_endpoint: %{},
       log_name: subject,
@@ -405,8 +419,20 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       subject || "falco event"
   end
 
+  defp falco_output_fields(payload) do
+    payload["output_fields"]
+    |> normalize_map()
+    |> Map.merge(normalize_map(payload["custom_fields"]))
+    |> Map.merge(normalize_map(payload["templated_fields"]))
+  end
+
   defp build_event_metadata(payload, subject, output_fields) do
     %{
+      "version" => "1.9.0-dev",
+      "product" => %{
+        "name" => "Falco",
+        "vendor_name" => "The Falco Authors"
+      },
       "source" => "falco",
       "subject" => subject,
       "uuid" => normalize_string(payload["uuid"]),
@@ -441,20 +467,61 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     )
   end
 
-  defp build_device(payload, output_fields) do
-    hostname = normalize_string(payload["hostname"])
-
-    uid =
-      normalize_string(output_fields["container.id"]) ||
-        normalize_string(output_fields["k8s.pod.name"]) ||
-        hostname
+  defp build_device(payload, output_fields, device_uid) do
+    hostname = falco_device_hostname(payload, output_fields)
 
     name =
-      normalize_string(output_fields["container.name"]) ||
+      hostname ||
+        normalize_string(output_fields["container.name"]) ||
         normalize_string(output_fields["k8s.pod.name"])
 
-    OCSF.build_device(uid: uid, name: name, hostname: hostname)
+    OCSF.build_device(uid: device_uid || hostname, name: name, hostname: hostname)
   end
+
+  defp falco_device_hostname(payload, output_fields) do
+    normalize_string(payload["hostname"]) ||
+      normalize_string(output_fields["k8s.node.name"]) ||
+      normalize_string(output_fields["host.name"]) ||
+      normalize_string(output_fields["evt.hostname"])
+  end
+
+  defp falco_device_uid(payload, output_fields, hostname) do
+    explicit =
+      normalize_string(payload["device_uid"]) ||
+        normalize_string(payload["device_id"]) ||
+        normalize_string(output_fields["service_radar.device_uid"]) ||
+        normalize_string(output_fields["service_radar.device.uid"]) ||
+        normalize_string(output_fields["service_radar.device_id"]) ||
+        normalize_string(output_fields["serviceradar.device_uid"]) ||
+        normalize_string(output_fields["serviceradar.device.uid"]) ||
+        normalize_string(output_fields["device_uid"])
+
+    DeviceCorrelation.resolve(%{
+      device_uid: explicit,
+      agent_id: falco_agent_id(payload, output_fields, hostname),
+      hostname: hostname,
+      name: normalize_string(output_fields["k8s.node.name"]),
+      ip:
+        normalize_string(output_fields["service_radar.device_ip"]) ||
+          normalize_string(output_fields["service_radar.source_ip"]) ||
+          normalize_string(output_fields["serviceradar.device_ip"]) ||
+          normalize_string(output_fields["serviceradar.source_ip"]) ||
+          normalize_string(output_fields["host.ip"]) ||
+          normalize_string(output_fields["evt.host.ip"])
+    })
+  end
+
+  defp falco_agent_id(payload, output_fields, hostname) do
+    normalize_string(payload["agent_id"]) ||
+      normalize_string(output_fields["service_radar.agent_id"]) ||
+      normalize_string(output_fields["serviceradar.agent_id"]) ||
+      normalize_string(output_fields["agent_id"]) ||
+      inferred_agent_id(normalize_string(output_fields["k8s.node.name"]) || hostname)
+  end
+
+  defp inferred_agent_id(nil), do: nil
+  defp inferred_agent_id("agent-" <> _ = agent_id), do: agent_id
+  defp inferred_agent_id(hostname), do: "agent-#{hostname}"
 
   defp resolve_event_id(payload, subject, raw_data) do
     uuid = normalize_string(payload["uuid"])

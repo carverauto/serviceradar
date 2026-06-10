@@ -34,6 +34,8 @@ type OwnerRef struct {
 
 // Correlation contains normalized resource identifiers used by downstream processors.
 type Correlation struct {
+	AgentID           string `json:"agent_id,omitempty"`
+	DeviceUID         string `json:"device_uid,omitempty"`
 	ResourceKind      string `json:"resource_kind,omitempty"`
 	ResourceName      string `json:"resource_name,omitempty"`
 	ResourceNamespace string `json:"resource_namespace,omitempty"`
@@ -438,6 +440,8 @@ func BuildCorrelation(obj *unstructured.Unstructured, owner *OwnerRef) *Correlat
 	resourceNamespace := firstNonEmpty(labels[labelResourceNamespace], obj.GetNamespace())
 
 	correlation := &Correlation{
+		AgentID:           strings.TrimSpace(labels["serviceradar.agent_id"]),
+		DeviceUID:         strings.TrimSpace(labels["serviceradar.device_uid"]),
 		ResourceKind:      strings.TrimSpace(labels[labelResourceKind]),
 		ResourceName:      strings.TrimSpace(labels[labelResourceName]),
 		ResourceNamespace: strings.TrimSpace(resourceNamespace),
@@ -472,6 +476,8 @@ func isCorrelationEmpty(c *Correlation) bool {
 	}
 
 	return c.ResourceKind == "" &&
+		c.AgentID == "" &&
+		c.DeviceUID == "" &&
 		c.ResourceName == "" &&
 		c.ResourceNamespace == "" &&
 		c.ContainerName == "" &&
@@ -484,6 +490,19 @@ func isCorrelationEmpty(c *Correlation) bool {
 		c.PodIP == "" &&
 		c.HostIP == "" &&
 		c.NodeName == ""
+}
+
+func inferAgentIDFromNode(nodeName string) string {
+	nodeName = strings.TrimSpace(nodeName)
+	if nodeName == "" {
+		return ""
+	}
+
+	if strings.HasPrefix(nodeName, "agent-") {
+		return nodeName
+	}
+
+	return "agent-" + nodeName
 }
 
 func isKind(value, expected string) bool {

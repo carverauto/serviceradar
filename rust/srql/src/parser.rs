@@ -16,6 +16,9 @@ pub enum Entity {
     DeviceGraph,
     GraphCypher,
     Events,
+    SecurityFindings,
+    ScanActivity,
+    DnsActivity,
     BmpEvents,
     FieldSurveySessions,
     FieldSurveyRasters,
@@ -408,6 +411,15 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "device_updates" | "device_update" | "updates" => Ok(Entity::DeviceUpdates),
         "interfaces" | "interface" | "discovered_interfaces" => Ok(Entity::Interfaces),
         "events" | "activity" => Ok(Entity::Events),
+        "security_findings" | "security_finding" | "findings" | "finding" => {
+            Ok(Entity::SecurityFindings)
+        }
+        "scan_activity" | "scan_activities" | "security_scans" | "scanner_activity" => {
+            Ok(Entity::ScanActivity)
+        }
+        "dns_activity" | "dns_activities" | "dns_security_activity" | "powerdns" | "pdns" => {
+            Ok(Entity::DnsActivity)
+        }
         "bmp_events" | "bmp_event" | "bmp_routing_events" => Ok(Entity::BmpEvents),
         "field_survey_sessions" | "fieldsurvey_sessions" | "survey_sessions" => {
             Ok(Entity::FieldSurveySessions)
@@ -1061,6 +1073,40 @@ mod tests {
                 Entity::EndpointInventoryScans,
                 "entity alias {raw}"
             );
+        }
+    }
+
+    #[test]
+    fn parses_security_signal_entity_aliases() {
+        for raw in [
+            "security_findings",
+            "security_finding",
+            "findings",
+            "finding",
+        ] {
+            let ast = parse(&format!("in:{raw} severity:High limit:10")).unwrap();
+            assert_eq!(ast.entity, Entity::SecurityFindings, "entity alias {raw}");
+        }
+
+        for raw in [
+            "scan_activity",
+            "scan_activities",
+            "security_scans",
+            "scanner_activity",
+        ] {
+            let ast = parse(&format!("in:{raw} status:Success limit:10")).unwrap();
+            assert_eq!(ast.entity, Entity::ScanActivity, "entity alias {raw}");
+        }
+
+        for raw in [
+            "dns_activity",
+            "dns_activities",
+            "dns_security_activity",
+            "powerdns",
+            "pdns",
+        ] {
+            let ast = parse(&format!("in:{raw} status:Success limit:10")).unwrap();
+            assert_eq!(ast.entity, Entity::DnsActivity, "entity alias {raw}");
         }
     }
 

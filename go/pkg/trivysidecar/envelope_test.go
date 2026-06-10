@@ -47,6 +47,8 @@ func TestBuildEnvelopeIncludesOwnerAndSummary(t *testing.T) {
 		"trivy-operator.resource.name":      "nginx-pod-123",
 		"trivy-operator.resource.namespace": "demo",
 		"trivy-operator.container.name":     "nginx",
+		"serviceradar.agent_id":             "agent-k8s-cp3-worker1",
+		"serviceradar.device_uid":           "sr:9a6211a0-46d9-4986-988d-01e14d886e40",
 	})
 	obj.SetUID(types.UID("uid-1"))
 	obj.SetResourceVersion("17")
@@ -84,6 +86,56 @@ func TestBuildEnvelopeIncludesOwnerAndSummary(t *testing.T) {
 
 	if envelope.Correlation.ContainerName != "nginx" {
 		t.Fatalf("expected correlation container_name=nginx, got %q", envelope.Correlation.ContainerName)
+	}
+
+	if envelope.Correlation.AgentID != "agent-k8s-cp3-worker1" {
+		t.Fatalf("expected correlation agent_id to be preserved, got %q", envelope.Correlation.AgentID)
+	}
+
+	if envelope.Correlation.DeviceUID != "sr:9a6211a0-46d9-4986-988d-01e14d886e40" {
+		t.Fatalf("expected correlation device_uid to be preserved, got %q", envelope.Correlation.DeviceUID)
+	}
+}
+
+func TestBuildEnvelopeKeepsServiceRadarOnlyCorrelation(t *testing.T) {
+	t.Parallel()
+
+	obj := &unstructured.Unstructured{Object: map[string]any{
+		"apiVersion": "aquasecurity.github.io/v1alpha1",
+		"kind":       "ClusterVulnerabilityReport",
+		"report": map[string]any{
+			"summary": map[string]any{"highCount": int64(1)},
+		},
+	}}
+
+	obj.SetName("cluster-report")
+	obj.SetLabels(map[string]string{
+		"serviceradar.agent_id":   "agent-k8s-cp3-worker1",
+		"serviceradar.device_uid": "sr:9a6211a0-46d9-4986-988d-01e14d886e40",
+	})
+	obj.SetUID(types.UID("uid-service-radar-only"))
+	obj.SetResourceVersion("19")
+
+	envelope, err := BuildEnvelope(
+		"cluster-a",
+		ReportKind{Kind: "ClusterVulnerabilityReport", Resource: "clustervulnerabilityreports", SubjectSuffix: "vulnerability", Namespaced: false},
+		obj,
+		time.Date(2026, 3, 3, 9, 0, 0, 0, time.UTC),
+	)
+	if err != nil {
+		t.Fatalf("BuildEnvelope failed: %v", err)
+	}
+
+	if envelope.Correlation == nil {
+		t.Fatalf("expected ServiceRadar-only correlation to be captured")
+	}
+
+	if envelope.Correlation.AgentID != "agent-k8s-cp3-worker1" {
+		t.Fatalf("expected agent_id to be preserved, got %q", envelope.Correlation.AgentID)
+	}
+
+	if envelope.Correlation.DeviceUID != "sr:9a6211a0-46d9-4986-988d-01e14d886e40" {
+		t.Fatalf("expected device_uid to be preserved, got %q", envelope.Correlation.DeviceUID)
 	}
 }
 

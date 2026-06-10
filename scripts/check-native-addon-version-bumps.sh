@@ -83,8 +83,6 @@ module_lock_has_file_hash() {
 
 addon_ids() {
   cat <<'EOF'
-sample
-rust-sample
 netprobe
 powerdns
 workload-identity

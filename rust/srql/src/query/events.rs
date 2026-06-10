@@ -28,6 +28,49 @@ type EventsFromClause = FromClause<EventsTable>;
 type EventsQuery<'a> =
     BoxedSelectStatement<'a, <EventsTable as AsQuery>::SqlType, EventsFromClause, Pg>;
 
+const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
+    "service_radar.device_uid",
+    "service_radar.device.uid",
+    "service_radar.device_id",
+    "serviceradar.device_id",
+    "serviceradar.device.uid",
+    "device_id",
+    "device_uid",
+    "source_device_uid",
+    "target_device_uid",
+    "uid",
+    "id",
+];
+const EVENT_DEVICE_HOST_KEYS: &[&str] = &[
+    "service_radar.device_hostname",
+    "service_radar.source_instance",
+    "service_radar.node_name",
+    "service_radar.device_ip",
+    "service_radar.source_ip",
+    "hostname",
+    "host",
+    "host.name",
+    "k8s.node.name",
+    "source.host",
+    "source.hostname",
+    "source.ip",
+    "server_identity",
+    "ip",
+];
+const DEVICE_INVENTORY_ALIAS_EXPRESSIONS: &[&str] = &[
+    "d.uid",
+    "d.uid_alt",
+    "d.hostname",
+    "d.name",
+    "d.ip",
+    "d.agent_id",
+    "d.metadata->>'sys_name'",
+    "d.metadata->>'snmp_name'",
+    "d.metadata->>'controller_name'",
+    "d.metadata->>'unifi_device_id'",
+    "d.metadata->>'device_id'",
+];
+
 pub(super) async fn execute(
     conn: &mut AsyncPgConnection,
     plan: &QueryPlan,
@@ -78,7 +121,9 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
     match plan.entity {
-        Entity::Events => Ok(()),
+        Entity::Events | Entity::SecurityFindings | Entity::ScanActivity | Entity::DnsActivity => {
+            Ok(())
+        }
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by events query".into(),
         )),
@@ -87,6 +132,19 @@ fn ensure_entity(plan: &QueryPlan) -> Result<()> {
 
 fn build_query(plan: &QueryPlan) -> Result<EventsQuery<'static>> {
     let mut query = ocsf_events.into_boxed::<Pg>();
+
+    query = match plan.entity {
+        Entity::SecurityFindings => {
+            query.filter(sql::<Bool>("\"ocsf_events\".\"category_uid\" = 2"))
+        }
+        Entity::ScanActivity => query.filter(sql::<Bool>(
+            "\"ocsf_events\".\"class_uid\" = 6007 AND \"ocsf_events\".\"category_uid\" = 6",
+        )),
+        Entity::DnsActivity => query.filter(sql::<Bool>(
+            "\"ocsf_events\".\"class_uid\" = 4003 AND \"ocsf_events\".\"category_uid\" = 4",
+        )),
+        _ => query,
+    };
 
     if let Some(TimeRange { start, end }) = &plan.time_range {
         query = query.filter(col_time.ge(*start).and(col_time.le(*end)));
@@ -192,6 +250,9 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "status_detail" => {
             query = apply_text_filter!(query, filter, col_status_detail)?;
         }
+        "source" | "source_type" | "addon_id" => {
+            query = apply_metadata_source_filter(query, filter)?;
+        }
         "trace_id" => {
             query = apply_text_filter!(query, filter, col_trace_id)?;
         }
@@ -199,20 +260,7 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
             query = apply_text_filter!(query, filter, col_span_id)?;
         }
         "device_id" | "uid" | "source_device_uid" => {
-            query = apply_metadata_identity_filter(
-                query,
-                filter,
-                &[
-                    "serviceradar.device_id",
-                    "serviceradar.device.uid",
-                    "device_id",
-                    "device_uid",
-                    "source_device_uid",
-                    "target_device_uid",
-                    "uid",
-                    "id",
-                ],
-            )?;
+            query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
         }
         "purl" | "purl_canonical" | "canonical_purl" => {
             query = apply_json_coordinate_filter(
@@ -239,6 +287,70 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
     }
 
     Ok(query)
+}
+
+fn apply_metadata_source_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{} filter only supports equality and IN/NOT IN comparisons",
+                filter.field
+            )))
+        }
+    };
+
+    let mut clauses = Vec::new();
+
+    for value in values {
+        let literal = sql_string_literal(&value);
+
+        clauses.push(format!(
+            "\"ocsf_events\".\"log_provider\" = {literal} OR \
+             \"ocsf_events\".\"log_name\" = {literal} OR \
+             metadata #>> '{{service_radar,source_type}}' = {literal} OR \
+             metadata #>> '{{service_radar,addon_id}}' = {literal} OR \
+             metadata #>> '{{serviceradar,source_type}}' = {literal} OR \
+             metadata #>> '{{serviceradar,addon_id}}' = {literal} OR \
+             metadata ->> 'source' = {literal} OR \
+             unmapped ->> 'source_type' = {literal} OR \
+             unmapped ->> 'addon_id' = {literal}"
+        ));
+    }
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses
+        .into_iter()
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
 }
 
 fn apply_metadata_identity_filter<'a>(
@@ -285,6 +397,10 @@ fn apply_metadata_identity_filter<'a>(
                   observables::text ILIKE {pattern} ESCAPE '\\')"
             ));
         }
+
+        if keys == EVENT_DEVICE_IDENTITY_KEYS {
+            clauses.push(device_inventory_identity_clause(&value));
+        }
     }
 
     if clauses.is_empty() {
@@ -299,6 +415,63 @@ fn apply_metadata_identity_filter<'a>(
     };
 
     Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn device_inventory_identity_clause(value: &str) -> String {
+    let device_value = sql_string_literal(value);
+    let alias_values = DEVICE_INVENTORY_ALIAS_EXPRESSIONS
+        .iter()
+        .map(|expr| format!("({expr})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "EXISTS (\
+           SELECT 1 \
+           FROM platform.ocsf_devices AS d \
+           CROSS JOIN LATERAL (\
+             SELECT DISTINCT NULLIF(BTRIM(alias_value), '') AS alias_value \
+             FROM (VALUES {alias_values}) AS aliases(alias_value)\
+           ) AS device_alias \
+           WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
+             AND device_alias.alias_value IS NOT NULL \
+             AND ({})\
+         )",
+        device_alias_event_match_clause("device_alias.alias_value")
+    )
+}
+
+fn device_alias_event_match_clause(alias_expr: &str) -> String {
+    let escaped_alias = format!(
+        "replace(replace(replace({alias_expr}, E'\\\\', E'\\\\\\\\'), '%', E'\\\\%'), '_', E'\\\\_')"
+    );
+
+    let mut clauses = Vec::new();
+
+    for key in EVENT_DEVICE_HOST_KEYS
+        .iter()
+        .chain(EVENT_DEVICE_IDENTITY_KEYS.iter())
+    {
+        let key_pattern = escape_like_fragment(key);
+
+        for column in [
+            "device::text",
+            "metadata::text",
+            "unmapped::text",
+            "observables::text",
+            "src_endpoint::text",
+            "dst_endpoint::text",
+        ] {
+            clauses.push(format!(
+                "{column} ILIKE ('%\"{key_pattern}\"%\"' || {escaped_alias} || '\"%') ESCAPE '\\'"
+            ));
+            clauses.push(format!(
+                "{column} ILIKE ('%{key_pattern}=' || {escaped_alias} || '%') ESCAPE '\\'"
+            ));
+        }
+    }
+
+    clauses.join(" OR ")
 }
 
 fn apply_json_coordinate_filter<'a>(
@@ -401,8 +574,9 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         "activity_name" | "severity" | "message" | "short_message" | "log_name"
         | "log_provider" | "log_level" | "status" | "status_code" | "status_detail"
         | "trace_id" | "span_id" => collect_text_params(params, filter),
-        "device_id" | "uid" | "source_device_uid" | "purl" | "purl_canonical"
-        | "canonical_purl" | "cpe" | "cpes" | "cve" | "vulnerability_id" => Ok(()),
+        "device_id" | "uid" | "source_device_uid" | "source" | "source_type" | "addon_id"
+        | "purl" | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve"
+        | "vulnerability_id" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,

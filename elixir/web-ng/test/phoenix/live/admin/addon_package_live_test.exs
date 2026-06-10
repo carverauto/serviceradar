@@ -15,6 +15,75 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     %{conn: log_in_user(conn, user), actor: actor_for_user(user)}
   end
 
+  test "add-on catalog filters imported packages by release", %{
+    conn: conn,
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    release_major = 10_000 + rem(unique, 100_000)
+    older_release = "v#{release_major}.0.0"
+    newer_release = "v#{release_major}.1.0"
+
+    _older =
+      create_addon_package!(actor, %{
+        addon_id: "latest-only-addon-#{unique}",
+        name: "Latest Only Add-on #{unique}",
+        version: "0.1.0",
+        source_release_tag: older_release,
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    newer =
+      create_addon_package!(actor, %{
+        addon_id: "latest-only-addon-#{unique}",
+        name: "Latest Only Add-on #{unique}",
+        version: "0.2.0",
+        source_release_tag: newer_release,
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    _non_release =
+      create_addon_package!(actor, %{
+        addon_id: "non-release-addon-#{unique}",
+        name: "Non Release Add-on #{unique}",
+        version: "0.3.0",
+        source_release_tag: "netprobe-0.2.20-demo-#{unique}",
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    _sample =
+      create_addon_package!(actor, %{
+        addon_id: "rust-sample",
+        name: "Rust Sample Add-on #{unique}",
+        version: "0.4.0",
+        source_release_tag: newer_release,
+        status: :approved,
+        approved_capabilities: ["addon.run"]
+      })
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons")
+
+    assert html =~ "Add-on catalog"
+    refute html =~ "Available add-ons"
+    assert html =~ newer.id
+    assert html =~ "0.2.0"
+    refute html =~ "0.1.0"
+    refute html =~ "netprobe-0.2.20-demo-#{unique}"
+    refute html =~ "Non Release Add-on #{unique}"
+    refute html =~ "Rust Sample Add-on #{unique}"
+
+    html =
+      lv
+      |> element("#select-addon-release-form")
+      |> render_change(%{"release_tag" => older_release})
+
+    assert html =~ "0.1.0"
+    refute html =~ "0.2.0"
+  end
+
   test "approves a staged add-on package with narrowed capabilities", %{conn: conn, actor: actor} do
     package =
       create_addon_package!(actor, %{

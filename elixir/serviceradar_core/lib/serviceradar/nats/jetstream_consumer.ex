@@ -23,6 +23,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     with {:ok, subject} <- fetch_required(opts, :filter_subject),
          {:ok, consumer_name} <- fetch_required(opts, :consumer_name),
          {:ok, stream_name} <- resolve_stream_name(connection_ref, opts, subject),
+         :ok <- ensure_stream(connection_ref, stream_name, subject, opts),
          :ok <- create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
       {:ok, %{stream_name: stream_name, consumer_name: consumer_name}}
     end
@@ -75,6 +76,48 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
+  defp ensure_stream(connection_ref, stream_name, subject, opts) do
+    if Keyword.get(opts, :ensure_stream, true) == false do
+      :ok
+    else
+      create_stream(connection_ref, stream_name, subject, opts)
+    end
+  end
+
+  defp create_stream(connection_ref, stream_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+    topic = "#{js_api(domain)}.STREAM.CREATE.#{stream_name}"
+
+    payload =
+      %{
+        name: stream_name,
+        subjects: [subject],
+        retention: Keyword.get(opts, :stream_retention, "limits"),
+        storage: Keyword.get(opts, :stream_storage, "file"),
+        discard: Keyword.get(opts, :stream_discard, "old"),
+        num_replicas: Keyword.get(opts, :stream_replicas, 1),
+        max_bytes: Keyword.get(opts, :stream_max_bytes),
+        max_age: Keyword.get(opts, :stream_max_age)
+      }
+      |> compact_map()
+      |> Jason.encode!()
+
+    case Util.request(connection_ref, topic, payload) do
+      {:ok, _} ->
+        :ok
+
+      {:error, %{"description" => description} = err} when is_binary(description) ->
+        if stream_exists_error?(description) do
+          :ok
+        else
+          {:error, err}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
     domain = Keyword.get(opts, :domain)
     topic = "#{js_api(domain)}.CONSUMER.DURABLE.CREATE.#{stream_name}.#{consumer_name}"
@@ -116,6 +159,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp consumer_exists_error?(description) when is_binary(description) do
     String.contains?(description, "consumer name already") or
       String.contains?(description, "consumer already exists")
+  end
+
+  defp stream_exists_error?(description) when is_binary(description) do
+    String.contains?(description, "stream name already") or
+      String.contains?(description, "stream already exists") or
+      String.contains?(description, "stream name is already in use")
   end
 
   defp compact_map(map) do

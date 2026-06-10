@@ -24,8 +24,8 @@ defmodule ServiceRadar.EventWriter.Config do
           %{name: "EVENTS", subject: "events.>", processor: ServiceRadar.EventWriter.Processors.Events},
           %{
             name: "FALCO",
-            stream_name: "falco_events",
-            subject: "falco.>",
+            stream_name: "events",
+            subject: "falco.logs",
             processor: ServiceRadar.EventWriter.Processors.FalcoEvents
           },
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},

@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
@@ -94,9 +95,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       finding_count = upsert_finding_rows(finding_rows)
 
       promoted_rows =
-        entries
-        |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
-        |> Enum.map(& &1.event_row)
+        Enum.map(entries, & &1.scan_activity_row) ++
+          (entries
+           |> Enum.filter(fn entry -> promote_to_event?(entry.severity_id) end)
+           |> Enum.map(& &1.event_row))
 
       {event_count, inserted_events} = insert_event_rows(promoted_rows)
       alert_count = maybe_create_priority_alerts(inserted_events)
@@ -134,6 +136,19 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   end
 
   def parse_message(_), do: nil
+
+  @doc false
+  def parse_event_rows(%{data: _data, metadata: _metadata} = message) do
+    case parse_entry(message) do
+      %{event_row: event_row, scan_activity_row: scan_activity_row} ->
+        [scan_activity_row, event_row]
+
+      _ ->
+        []
+    end
+  end
+
+  def parse_event_rows(_), do: []
 
   defp parse_entry(%{data: data, metadata: metadata}) do
     with {:ok, payload} <- decode_payload(data),
@@ -209,6 +224,19 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         context: context
       })
 
+    scan_activity_row =
+      build_scan_activity_row(%{
+        event_uuid: event_uuid,
+        log_uuid: log_uuid,
+        payload: payload,
+        subject: subject,
+        raw_data: raw_data,
+        event_time: event_time,
+        message: message,
+        context: context,
+        severity: severity
+      })
+
     report_row =
       build_report_row(%{
         event_uuid: event_uuid,
@@ -232,6 +260,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
        log_row: log_row,
        report_row: report_row,
        finding_rows: finding_rows,
+       scan_activity_row: scan_activity_row,
        event_row: event_row,
        severity_id: severity_id
      }}
@@ -313,12 +342,26 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
          message: message,
          context: context
        }) do
+    agent_id = trivy_agent_id(context)
+    device_uid = trivy_device_uid(payload, context)
+
     metadata =
       payload
       |> build_event_metadata(subject, context)
-      |> Map.put("serviceradar", %{
+      |> Map.put("service_radar", %{
         "source_log_id" => log_uuid,
-        "promotion" => "trivy_priority_auto"
+        "promotion" => "trivy_priority_auto",
+        "source_type" => "trivy",
+        "agent_id" => agent_id,
+        "device_uid" => device_uid,
+        "device_hostname" => context["node_name"],
+        "device_ip" => context["host_ip"],
+        "pod_name" => context["pod_name"],
+        "pod_uid" => context["pod_uid"],
+        "pod_ip" => context["pod_ip"],
+        "namespace" => context["pod_namespace"] || context["resource_namespace"],
+        "resource_kind" => context["resource_kind"],
+        "resource_name" => context["resource_name"]
       })
 
     src_endpoint =
@@ -328,14 +371,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         %{}
       end
 
+    class_uid = trivy_finding_class_uid(payload, context)
+
     %{
       id: Ecto.UUID.dump!(event_uuid),
       time: event_time,
-      class_uid: OCSF.class_event_log_activity(),
-      category_uid: OCSF.category_system_activity(),
-      type_uid: OCSF.type_uid(OCSF.class_event_log_activity(), OCSF.activity_log_update()),
-      activity_id: OCSF.activity_log_update(),
-      activity_name: OCSF.log_activity_name(OCSF.activity_log_update()),
+      class_uid: class_uid,
+      category_uid: OCSF.category_findings(),
+      type_uid: OCSF.type_uid(class_uid, OCSF.activity_finding_create()),
+      activity_id: OCSF.activity_finding_create(),
+      activity_name: OCSF.finding_activity_name(OCSF.activity_finding_create()),
       severity_id: severity_id,
       severity: OCSF.severity_name(severity_id),
       message: message,
@@ -348,7 +393,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       trace_id: nil,
       span_id: nil,
       actor: build_actor(payload),
-      device: build_device(payload, context),
+      device: build_device(payload, context, device_uid),
       src_endpoint: src_endpoint,
       dst_endpoint: %{},
       log_name: subject,
@@ -356,6 +401,81 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       log_level: severity_text,
       log_version: "1.0",
       unmapped: payload,
+      raw_data: normalize_raw_data(raw_data),
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_scan_activity_row(%{
+         event_uuid: event_uuid,
+         log_uuid: log_uuid,
+         payload: payload,
+         subject: subject,
+         raw_data: raw_data,
+         event_time: event_time,
+         message: message,
+         context: context,
+         severity: severity
+       }) do
+    scan_uuid = deterministic_uuid("#{event_uuid}:trivy:scan_activity")
+    agent_id = trivy_agent_id(context)
+    device_uid = trivy_device_uid(payload, context)
+
+    metadata =
+      payload
+      |> build_event_metadata(subject, context)
+      |> Map.put("service_radar", %{
+        "source_log_id" => log_uuid,
+        "promotion" => "trivy_scan_activity",
+        "source_type" => "trivy",
+        "agent_id" => agent_id,
+        "device_uid" => device_uid,
+        "device_hostname" => context["node_name"],
+        "device_ip" => context["host_ip"],
+        "pod_name" => context["pod_name"],
+        "pod_uid" => context["pod_uid"],
+        "pod_ip" => context["pod_ip"],
+        "namespace" => context["pod_namespace"] || context["resource_namespace"],
+        "resource_kind" => context["resource_kind"],
+        "resource_name" => context["resource_name"],
+        "scan_id" => normalize_string(payload["event_id"]),
+        "ocsf_class" => "scan_activity"
+      })
+
+    activity_id = OCSF.activity_scan_completed()
+    class_uid = OCSF.class_scan_activity()
+
+    %{
+      id: Ecto.UUID.dump!(scan_uuid),
+      time: event_time,
+      class_uid: class_uid,
+      category_uid: OCSF.category_application_activity(),
+      type_uid: OCSF.type_uid(class_uid, activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.scan_activity_name(activity_id),
+      severity_id: OCSF.severity_informational(),
+      severity: OCSF.severity_name(OCSF.severity_informational()),
+      message: "Trivy scan completed: #{message}",
+      status_id: OCSF.status_success(),
+      status: OCSF.status_name(OCSF.status_success()),
+      status_code: "trivy_report_processed",
+      status_detail: nil,
+      metadata: metadata,
+      observables: build_observables(payload, context),
+      trace_id: nil,
+      span_id: nil,
+      actor: build_actor(payload),
+      device: build_device(payload, context, device_uid),
+      src_endpoint: %{},
+      dst_endpoint: %{},
+      log_name: subject,
+      log_provider: "trivy",
+      log_level: "INFO",
+      log_version: "1.0",
+      unmapped:
+        payload
+        |> Map.take(["event_id", "report_kind", "cluster_id", "namespace", "name", "uid"])
+        |> Map.put("findings_count", severity.findings_count),
       raw_data: normalize_raw_data(raw_data),
       created_at: DateTime.utc_now()
     }
@@ -552,13 +672,36 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp insert_log_rows(rows) do
     rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
-    {count, _} =
-      ServiceRadar.Repo.insert_all("logs", rows_for_insert,
-        on_conflict: :nothing,
-        returning: false
-      )
+    insert_all_count("logs", rows_for_insert,
+      on_conflict: :nothing,
+      returning: false
+    )
+  end
 
-    count
+  defp insert_all_count(_table, [], _opts), do: 0
+
+  defp insert_all_count(table, rows, opts) do
+    rows
+    |> Enum.chunk_every(500)
+    |> Enum.reduce(0, fn chunk, total ->
+      {count, _} =
+        ServiceRadar.Repo.insert_all(table, chunk, opts)
+
+      total + count
+    end)
+  end
+
+  defp insert_all_returning(_table, [], _opts), do: {0, []}
+
+  defp insert_all_returning(table, rows, opts) do
+    rows
+    |> Enum.chunk_every(500)
+    |> Enum.reduce({0, []}, fn chunk, {total_count, total_returned} ->
+      {count, returned} =
+        ServiceRadar.Repo.insert_all(table, chunk, opts)
+
+      {total_count + count, total_returned ++ returned}
+    end)
   end
 
   defp upsert_report_rows([]), do: 0
@@ -601,14 +744,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       :updated_at
     ]
 
-    {count, _} =
-      ServiceRadar.Repo.insert_all("trivy_reports", rows,
-        on_conflict: {:replace, updatable_columns},
-        conflict_target: [:event_uuid],
-        returning: false
-      )
-
-    count
+    insert_all_count("trivy_reports", rows,
+      on_conflict: {:replace, updatable_columns},
+      conflict_target: [:event_uuid],
+      returning: false
+    )
   end
 
   defp upsert_finding_rows([]), do: 0
@@ -641,14 +781,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       :updated_at
     ]
 
-    {count, _} =
-      ServiceRadar.Repo.insert_all("trivy_findings", rows,
-        on_conflict: {:replace, updatable_columns},
-        conflict_target: [:fingerprint],
-        returning: false
-      )
-
-    count
+    insert_all_count("trivy_findings", rows,
+      on_conflict: {:replace, updatable_columns},
+      conflict_target: [:fingerprint],
+      returning: false
+    )
   end
 
   defp dedupe_rows_by_conflict_key(rows, key_fun)
@@ -675,21 +812,82 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp insert_event_rows([]), do: {0, []}
 
   defp insert_event_rows(rows) do
-    {count, inserted} =
-      ServiceRadar.Repo.insert_all("ocsf_events", rows,
-        on_conflict: :nothing,
-        returning: [:id]
+    rows = dedupe_rows_by_conflict_key(rows, &Map.get(&1, :id))
+
+    {:ok, result} =
+      ServiceRadar.Repo.transaction(
+        fn ->
+          lock_trivy_event_rows()
+          delete_existing_trivy_event_rows(rows)
+
+          {count, inserted} =
+            insert_all_returning("ocsf_events", rows,
+              on_conflict: :nothing,
+              conflict_target: [:time, :id],
+              returning: [:time, :id]
+            )
+
+          inserted_keys =
+            MapSet.new(Enum.map(inserted, fn row -> ocsf_event_conflict_key(row) end))
+
+          inserted_rows =
+            rows
+            |> Enum.filter(&MapSet.member?(inserted_keys, ocsf_event_conflict_key(&1)))
+            |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
+
+          {count, inserted_rows}
+        end,
+        timeout: :infinity
       )
 
-    inserted_ids = MapSet.new(Enum.map(inserted, & &1.id))
-
-    inserted_rows =
-      rows
-      |> Enum.filter(&MapSet.member?(inserted_ids, &1.id))
-      |> dedupe_rows_by_conflict_key(&Map.get(&1, :id))
-
-    {count, inserted_rows}
+    result
   end
+
+  defp lock_trivy_event_rows do
+    ServiceRadar.Repo.query!(
+      "SELECT pg_advisory_xact_lock($1::bigint)",
+      [7_284_636_437_057_309_481]
+    )
+  end
+
+  defp ocsf_event_conflict_key(row) when is_map(row) do
+    {Map.get(row, :time), Map.get(row, :id)}
+  end
+
+  defp delete_existing_trivy_event_rows(rows) when is_list(rows) do
+    ids =
+      rows
+      |> Enum.map(&Map.get(&1, :id))
+      |> Enum.map(&uuid_param/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.uniq()
+
+    Enum.each(Enum.chunk_every(ids, 500), fn chunk ->
+      ServiceRadar.Repo.query!(
+        """
+        DELETE FROM platform.ocsf_events
+        WHERE id = ANY($1::uuid[])
+          AND COALESCE(
+            metadata->'service_radar'->>'source_type',
+            metadata->'serviceradar'->>'source_type',
+            log_provider
+          ) = 'trivy'
+        """,
+        [chunk]
+      )
+    end)
+  end
+
+  defp uuid_param(value) when is_binary(value) and byte_size(value) == 16, do: value
+
+  defp uuid_param(value) when is_binary(value) do
+    case Ecto.UUID.dump(value) do
+      {:ok, binary} -> binary
+      :error -> nil
+    end
+  end
+
+  defp uuid_param(_value), do: nil
 
   defp maybe_create_priority_alerts(events) do
     {created, attempted} =
@@ -874,6 +1072,11 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     report = normalize_map(payload["report"])
 
     %{
+      "version" => "1.9.0-dev",
+      "product" => %{
+        "name" => "Trivy",
+        "vendor_name" => "Aqua Security"
+      },
       "source" => "trivy",
       "subject" => subject,
       "event_id" => normalize_string(payload["event_id"]),
@@ -892,6 +1095,38 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
+  end
+
+  defp trivy_finding_class_uid(payload, context) do
+    kind =
+      payload
+      |> Map.get("report_kind")
+      |> normalize_string()
+      |> case do
+        nil -> ""
+        value -> String.downcase(value)
+      end
+
+    resource_kind =
+      context
+      |> Map.get("resource_kind")
+      |> normalize_string()
+      |> case do
+        nil -> ""
+        value -> String.downcase(value)
+      end
+
+    cond do
+      String.contains?(kind, "config") or String.contains?(kind, "rbac") ->
+        OCSF.class_compliance_finding()
+
+      String.contains?(kind, "infra") or String.contains?(kind, "exposed") or
+          String.contains?(resource_kind, "exposed") ->
+        OCSF.class_application_security_posture_finding()
+
+      true ->
+        OCSF.class_vulnerability_finding()
+    end
   end
 
   defp build_observables(payload, context) do
@@ -918,19 +1153,50 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     )
   end
 
-  defp build_device(payload, context) do
+  defp build_device(_payload, context, device_uid) do
+    hostname = context["node_name"]
+
     uid =
-      context["pod_uid"] ||
-        normalize_string(payload["uid"]) ||
+      device_uid ||
+        hostname ||
+        context["host_ip"] ||
         context["resource_name"]
 
     OCSF.build_device(
       uid: uid,
-      name: context["pod_name"] || context["resource_name"],
-      hostname: context["node_name"],
-      ip: context["pod_ip"]
+      name: hostname || context["resource_name"] || context["pod_name"],
+      hostname: hostname,
+      ip: context["host_ip"] || context["pod_ip"]
     )
   end
+
+  defp trivy_device_uid(payload, context) do
+    correlation = normalize_map(payload["correlation"])
+
+    explicit =
+      normalize_string(context["device_uid"]) ||
+        normalize_string(correlation["device_uid"]) ||
+        normalize_string(correlation["device_id"]) ||
+        normalize_string(payload["device_uid"]) ||
+        normalize_string(payload["device_id"])
+
+    DeviceCorrelation.resolve(%{
+      device_uid: explicit,
+      agent_id: trivy_agent_id(context),
+      hostname: context["node_name"],
+      name: context["resource_name"] || context["pod_name"],
+      ip: context["host_ip"] || context["pod_ip"],
+      partition: context["partition"]
+    })
+  end
+
+  defp trivy_agent_id(context) do
+    normalize_string(context["agent_id"]) || inferred_agent_id(context["node_name"])
+  end
+
+  defp inferred_agent_id(nil), do: nil
+  defp inferred_agent_id("agent-" <> _ = agent_id), do: agent_id
+  defp inferred_agent_id(hostname), do: "agent-#{hostname}"
 
   defp report_target(report_payload, context) do
     artifact = normalize_map(report_payload["artifact"])
@@ -1060,6 +1326,8 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       ])
 
     %{
+      "agent_id" => first_present([correlation["agent_id"], payload["agent_id"]]),
+      "device_uid" => first_present([correlation["device_uid"], payload["device_uid"]]),
       "resource_kind" => resource_kind,
       "resource_name" => resource_name,
       "resource_namespace" => resource_namespace,

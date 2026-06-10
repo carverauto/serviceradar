@@ -44,7 +44,7 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 			Sha256:         "deadbeef",
 			SizeBytes:      42,
 		},
-	}, []byte(`{"bumblebee":{"enabled":false}}`))
+	}, []byte(`{"bumblebee":{"enabled":false,"device_uid":"sr:device-1"}}`))
 	if err != nil {
 		t.Fatalf("resolve config: %v", err)
 	}
@@ -73,6 +73,9 @@ func TestResolveGatewayBumblebeeConfigPrefersTypedProto(t *testing.T) {
 	profile := cfg.runtimeProfile(bumblebeeConfigTestCanonicalAgentID)
 	if profile.AgentID != bumblebeeConfigTestCanonicalAgentID {
 		t.Fatalf("runtime profile agent = %q, want canonical", profile.AgentID)
+	}
+	if profile.DeviceUID != "sr:device-1" {
+		t.Fatalf("runtime profile device = %q, want sr:device-1", profile.DeviceUID)
 	}
 	if profile.IncludeHomeRoots == nil || !*profile.IncludeHomeRoots {
 		t.Fatalf("expected home roots enabled in profile: %#v", profile)

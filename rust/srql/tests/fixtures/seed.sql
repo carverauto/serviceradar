@@ -1274,9 +1274,9 @@ INSERT INTO ocsf_events (
     )
 SELECT base.now_ts - INTERVAL '2 minutes',
     '44444444-4444-4444-8444-444444444444'::uuid,
-    2004,
+    2002,
     2,
-    200401,
+    200201,
     1,
     'Create',
     5,

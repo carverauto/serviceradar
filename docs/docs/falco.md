@@ -18,7 +18,7 @@ Falcosidekick should use the dedicated shared cert files:
 ```
 ┌─────────┐     ┌───────────────┐     ┌──────────────────┐     ┌──────────────┐
 │  Falco   │────▶│ Falcosidekick │────▶│ NATS JetStream   │────▶│ ServiceRadar │
-│ DaemonSet│     │  (Helm)       │     │ falco.>           │     │  Pipeline    │
+│ DaemonSet│     │  (Helm)       │     │ events/falco.logs │     │  Pipeline    │
 └─────────┘     └───────────────┘     └──────────────────┘     └──────────────┘
                   │
                   └──▶ OTLP Metrics ──▶ ServiceRadar Log Collector
@@ -64,9 +64,15 @@ The examples below use `<namespace>` for the ServiceRadar namespace and
 `<release-name>` for the Falcosidekick Helm release. Substitute the values that
 match your environment.
 
-## Step 1: Create a Falcosidekick Collector Package
+## Kubernetes Setup With Helm
 
-### Via the UI
+Use this path when Falco and ServiceRadar run in Kubernetes. The ServiceRadar
+Helm chart generates the runtime certificates that Falcosidekick uses for NATS
+and OTLP mTLS.
+
+### Step 1: Create a Falcosidekick Collector Package
+
+#### Via the UI
 
 1. Navigate to **Settings > Edge Ops > Collectors**.
 2. Click **New Collector**.
@@ -75,7 +81,7 @@ match your environment.
 5. Click **Create Collector**.
 6. Download the bundle — it contains Helm values, a deploy script, and NATS credentials metadata.
 
-### Via the API
+#### Via the API
 
 ```bash
 curl -X POST https://your-instance.serviceradar.cloud/api/admin/collectors \
@@ -91,7 +97,28 @@ curl -X POST https://your-instance.serviceradar.cloud/api/admin/collectors \
   }'
 ```
 
-## Step 2: Deploy with the Bundle
+### Step 2: Verify The Shared Event Stream
+
+Falcosidekick publishes to `falco.logs`. ServiceRadar stores that subject in
+the shared `events` JetStream stream and the EventWriter consumes it from
+there. Confirm the stream includes `falco.logs` before sending test events:
+
+```bash
+kubectl -n <namespace> exec deploy/serviceradar-tools -- \
+  nats --context serviceradar stream info events
+```
+
+Do not create a separate `falco_events` stream for `falco.>`. That overlaps
+with the shared `events` stream in current ServiceRadar installs and prevents
+durable consumer setup.
+
+If `falco.logs` is missing from the stream subjects, update the ServiceRadar
+Helm release or collector bundle so the shared `events` stream is reconciled
+with the full subject set. Avoid one-off `stream edit --subjects` commands
+unless you pass the complete existing subject list, because that command can
+replace the stream subjects.
+
+### Step 3: Deploy With The Bundle
 
 Download and extract the bundle, then run the deploy script:
 
@@ -113,7 +140,7 @@ cd collector-package-*/
 ./deploy.sh
 ```
 
-### Bundle Contents
+#### Bundle Contents
 
 ```
 collector-package-<id>/
@@ -124,12 +151,12 @@ collector-package-<id>/
 └── README.md
 ```
 
-### What `deploy.sh` Does
+#### What `deploy.sh` Does
 
 1. Verifies the shared Kubernetes secret `serviceradar-runtime-certs` exists in the target namespace
 2. Runs `helm upgrade --install` with the generated `falcosidekick.yaml` values
 
-### Manual Deploy
+#### Manual Deploy
 
 If you prefer to deploy manually:
 
@@ -168,6 +195,7 @@ helm upgrade --install <release-name> falcosecurity/falcosidekick \
   --set config.nats.checkcert=true \
   --set-string config.nats.subjecttemplate='falco.<priority>.<rule>' \
   --set-string config.nats.minimumpriority=debug \
+  --set-string 'config.templatedfields.serviceradar\.agent_id={{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }}' \
   --set-string config.tlsclient.cacertfile=/etc/serviceradar/certs/root.pem \
   --set-string config.mutualtlsclient.cacertfile=/etc/serviceradar/certs/root.pem \
   --set-string config.mutualtlsclient.certfile=/etc/serviceradar/certs/falcosidekick.pem \
@@ -201,7 +229,30 @@ Important:
 - Use the service name `serviceradar-log-collector` — it matches the cert SANs
   in the ServiceRadar default certificates.
 
-## Step 3: Configure Falco to Forward Events
+### Device Correlation
+
+ServiceRadar promotes Falco events to OCSF Detection Finding events and ties
+them to inventory devices by checking these fields in order:
+
+1. `serviceradar.device_uid` or `device_uid` from Falcosidekick custom or templated fields.
+2. `serviceradar.agent_id` or `agent_id` from Falcosidekick custom or templated fields.
+3. Falco host, node, or host IP fields when they match exactly one inventory device.
+
+The generated collector bundle includes this default templated field:
+
+```yaml
+config:
+  templatedfields:
+    serviceradar.agent_id: '{{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }}'
+```
+
+That works when ServiceRadar agent IDs follow the `agent-<node-name>` convention.
+If your deployment uses a different naming convention, change the template or
+set a static `serviceradar.device_uid` only when the Falcosidekick instance is
+dedicated to one device. Do not rely on hostnames alone if duplicate or stale
+inventory devices can share a name.
+
+### Step 4: Configure Falco To Forward Events
 
 If Falco only writes to stdout/syslog, Falcosidekick will only receive `/test`
 traffic and no live Falco events. Falco must have HTTP + JSON output enabled and
@@ -225,17 +276,7 @@ As with Falcosidekick, the `falcosecurity/falco` chart is versioned
 independently — check the chart repo for the current version if you need to pin
 one.
 
-## Step 4: Optional — Create a JetStream Stream
-
-For dedicated retention and visibility of Falco events:
-
-```bash
-kubectl -n <namespace> exec deploy/serviceradar-tools -- \
-  nats --context serviceradar stream add falco_events \
-  --subjects 'falco.>' --storage file --retention limits --max-age 24h --defaults
-```
-
-## Step 5: Verify End-to-End
+### Step 5: Verify End-to-End
 
 ### Check Falcosidekick Logs
 
@@ -261,7 +302,7 @@ Expected: `200`
 
 ```bash
 kubectl -n <namespace> exec deploy/serviceradar-tools -- \
-  nats --context serviceradar sub 'falco.>'
+  nats --context serviceradar sub 'falco.logs'
 ```
 
 ### Verify Promoted OCSF Events (Warning+)
@@ -293,7 +334,7 @@ Execute into a pod to trigger Falco's `Terminal shell in container` rule:
 kubectl exec -it deployment/some-app -- /bin/sh
 ```
 
-You should see the event arrive on the `falco.>` subjects within seconds.
+You should see the event arrive on the `falco.logs` subject within seconds.
 
 ### Check OTLP Metrics
 
@@ -307,6 +348,78 @@ kubectl -n <namespace> exec deploy/serviceradar-tools -- \
 ```bash
 kubectl -n <namespace> logs deploy/serviceradar-log-collector --since=10m | \
   grep -E 'OTEL metrics export request|published raw OTLP metrics'
+```
+
+## Docker Compose Setup
+
+Use this path when the ServiceRadar control plane runs with `docker compose`.
+Falco still needs to run on the host or in a Kubernetes cluster that has
+kernel/runtime visibility; the Compose stack acts as the NATS/CNPG/UI sink.
+
+### Step 1: Start ServiceRadar With EventWriter Enabled
+
+```bash
+APP_TAG=sha-<release-sha> EVENT_WRITER_ENABLED=true docker compose up -d
+```
+
+Regenerate certs if your `cert-data` volume was created before Falcosidekick
+certs were available:
+
+```bash
+docker compose run --rm cert-generator
+docker compose up -d nats core-elx
+```
+
+### Step 2: Verify The Shared Falco Subject
+
+```bash
+docker compose exec tools nats --context serviceradar stream info events
+```
+
+### Step 3: Run Falcosidekick Against Compose
+
+Create `docker/compose/falcosidekick.compose.yaml`:
+
+```yaml
+config:
+  nats:
+    hostport: tls://nats:4222
+    mutualtls: true
+    checkcert: true
+    subjecttemplate: 'falco.logs'
+    minimumpriority: debug
+  templatedfields:
+    serviceradar.agent_id: '{{ with index . "k8s.node.name" }}agent-{{ . }}{{ end }}'
+  tlsclient:
+    cacertfile: /etc/serviceradar/certs/root.pem
+  mutualtlsclient:
+    cacertfile: /etc/serviceradar/certs/root.pem
+    certfile: /etc/serviceradar/certs/falcosidekick.pem
+    keyfile: /etc/serviceradar/certs/falcosidekick-key.pem
+```
+
+Run the sidecar on the Compose network:
+
+```bash
+docker run --rm --name falcosidekick \
+  --network serviceradar-net \
+  -p 2801:2801 \
+  -v serviceradar_cert-data:/etc/serviceradar/certs:ro \
+  -v "$PWD/docker/compose/falcosidekick.compose.yaml:/etc/falcosidekick/config.yaml:ro" \
+  falcosecurity/falcosidekick:latest \
+  -c /etc/falcosidekick/config.yaml
+```
+
+Point Falco at `http://127.0.0.1:2801/` if it runs on the Docker host, or at
+`http://falcosidekick:2801/` from another container on `serviceradar-net`.
+
+### Step 4: Verify Compose Ingestion
+
+```bash
+docker compose exec tools nats --context serviceradar stream info events
+docker compose exec tools nats --context serviceradar sub 'falco.logs'
+docker compose exec cnpg psql -U serviceradar -d serviceradar \
+  -c "SELECT time, severity, message FROM platform.ocsf_events WHERE log_provider = 'falco' ORDER BY time DESC LIMIT 20;"
 ```
 
 ## Troubleshooting
@@ -354,7 +467,7 @@ TLS gRPC listener.
 kubectl -n <namespace> get pods | grep falcosidekick
 kubectl -n falco get pods | grep '^falco-'
 kubectl -n <namespace> exec deploy/serviceradar-tools -- nats --context serviceradar stream ls
-kubectl -n <namespace> exec deploy/serviceradar-tools -- nats --context serviceradar stream info falco_events
+kubectl -n <namespace> exec deploy/serviceradar-tools -- nats --context serviceradar stream info events
 ```
 
 ## Helm Values Reference
@@ -365,7 +478,7 @@ The generated `falcosidekick.yaml` configures:
 |---------|-------------|
 | `config.nats.hostport` | NATS server URL |
 | `config.nats.mutualtls` | Enable mTLS authentication |
-| `config.nats.subjecttemplate` | Subject pattern (`falco.<priority>.<rule>`) |
+| `config.nats.subjecttemplate` | Subject pattern (`falco.logs`) |
 | `config.mutualtlsclient.*` | Client cert, key, and CA paths |
 | `config.otlp.metrics.*` | OTLP gRPC metrics export to log-collector |
 | `extraVolumes` / `extraVolumeMounts` | Mount the cert secret into the pod |

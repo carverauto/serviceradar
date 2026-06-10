@@ -230,6 +230,14 @@ defmodule ServiceRadarWebNGWeb.Layouts do
               </li>
               <li>
                 <.sidebar_link
+                  href={~p"/security"}
+                  label="Security"
+                  icon="hero-shield-check"
+                  active={@current_path && String.starts_with?(@current_path, "/security")}
+                />
+              </li>
+              <li>
+                <.sidebar_link
                   href={~p"/settings/cluster"}
                   label="Settings"
                   icon="hero-adjustments-horizontal"
@@ -313,6 +321,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       %{href: "/services", label: "Services", icon: "hero-bolt"},
       %{href: "/topology", label: "Topology", icon: "hero-share"},
       %{href: "/observability", label: "Observability", icon: "hero-presentation-chart-line"},
+      %{href: "/security", label: "Security", icon: "hero-shield-check"},
       %{href: "/cameras", label: "Cameras", icon: "hero-video-camera"},
       %{href: "/spatial", label: "FieldSurvey", icon: "hero-wifi"},
       %{href: "/settings/cluster", label: "Settings", icon: "hero-cog-6-tooth"}
@@ -501,6 +510,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp operations_page_title("/observability"), do: "Observability"
   defp operations_page_title("/observability/flows"), do: "Network Flows"
   defp operations_page_title("/observability/flows/attributed"), do: "Attributed Flows"
+  defp operations_page_title("/security"), do: "Security"
   defp operations_page_title("/spatial"), do: "FieldSurvey"
 
   defp operations_page_title(path) when is_binary(path) do
@@ -512,6 +522,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
       String.starts_with?(path, "/diagnostics") -> "Diagnostics"
       String.starts_with?(path, "/settings") -> "Settings"
       String.starts_with?(path, "/observability") -> "Observability"
+      String.starts_with?(path, "/security") -> "Security"
       true -> "ServiceRadar"
     end
   end
@@ -668,6 +679,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_label("alerts"), do: "Alerts"
   defp section_label("logs"), do: "Logs"
   defp section_label("observability"), do: "Observability"
+  defp section_label("security"), do: "Security"
   defp section_label("services"), do: "Services"
   defp section_label("netflows"), do: "Network Flows"
   defp section_label("admin"), do: "Settings"
@@ -686,6 +698,7 @@ defmodule ServiceRadarWebNGWeb.Layouts do
   defp section_icon("admin"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("settings"), do: "hero-adjustments-horizontal-micro"
   defp section_icon("observability"), do: "hero-presentation-chart-line-micro"
+  defp section_icon("security"), do: "hero-shield-check-micro"
   defp section_icon("services"), do: "hero-cog-6-tooth-micro"
   defp section_icon("netflows"), do: "hero-arrow-path-micro"
   defp section_icon(_), do: nil

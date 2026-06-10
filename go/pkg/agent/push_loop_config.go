@@ -270,17 +270,48 @@ func (p *PushLoop) applyBumblebeeConfig(
 	}
 
 	if cfg.Enabled {
+		statusCfg := &BumblebeeStatusConfig{
+			Enabled:     true,
+			CatalogPath: catalogPath,
+			ProfilePath: profilePath,
+			TmpDir:      tmpDir,
+		}
+		if serverConfig != nil && serverConfig.Bumblebee != nil {
+			statusCfg.SpoolPath = serverConfig.Bumblebee.SpoolPath
+		}
+		p.server.ensureBumblebeeSpoolService(statusCfg)
+
 		if cfg.Catalog == nil {
 			p.logger.Warn().Msg("Bumblebee config is enabled but has no catalog assignment")
 			return false
 		}
 
-		result, err := bumblebee.StageCatalogAssignment(ctx, objectStore, catalogPath, tmpDir, *cfg.Catalog)
+		downloader := objectStore
+		if strings.TrimSpace(cfg.Catalog.DownloadURL) != "" {
+			downloader = gatewayArtifactDownloader{
+				client:      p.gatewayArtifactDownloadHTTPClient(cfg.Catalog.DownloadURL),
+				downloadURL: cfg.Catalog.DownloadURL,
+				token:       cfg.Catalog.DownloadToken,
+				objectKey:   cfg.Catalog.ObjectKey,
+				maxBytes:    maxBumblebeeCatalogBytes,
+				statusErr:   errBumblebeeCatalogDownloadFailed,
+				tooLargeErr: errBumblebeeCatalogTooLarge,
+			}
+		}
+
+		result, err := bumblebee.StageCatalogAssignment(
+			ctx,
+			downloader,
+			catalogPath,
+			tmpDir,
+			*cfg.Catalog,
+		)
 		if err != nil {
 			p.logger.Warn().
 				Err(err).
 				Str("snapshot_ref", cfg.Catalog.SnapshotRef).
 				Str("object_key", cfg.Catalog.ObjectKey).
+				Str("download_url", cfg.Catalog.DownloadURL).
 				Msg("Failed to stage Bumblebee catalog assignment")
 			return false
 		}
@@ -348,6 +379,20 @@ func (p *PushLoop) applyEndpointInventoryConfig(
 	if serverConfig != nil && serverConfig.EndpointInventory != nil {
 		profilePath = serverConfig.EndpointInventory.effectiveProfilePath()
 		tmpDir = serverConfig.EndpointInventory.effectiveTmpDir()
+	}
+
+	if cfg.Enabled {
+		statusCfg := &EndpointInventoryStatusConfig{
+			Enabled:     true,
+			ProfilePath: profilePath,
+			TmpDir:      tmpDir,
+		}
+		if serverConfig != nil && serverConfig.EndpointInventory != nil {
+			statusCfg.ConfigPath = serverConfig.EndpointInventory.ConfigPath
+			statusCfg.SpoolPath = serverConfig.EndpointInventory.SpoolPath
+			statusCfg.CacheDir = serverConfig.EndpointInventory.CacheDir
+		}
+		p.server.ensureEndpointInventorySpoolService(statusCfg)
 	}
 
 	if !cfg.Enabled && strings.EqualFold(strings.TrimSpace(agentID), kubernetesAgentID) {

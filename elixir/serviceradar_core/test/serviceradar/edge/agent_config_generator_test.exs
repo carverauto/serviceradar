@@ -183,11 +183,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       refute other_config.bumblebee_config.enabled
     end
 
-    test "does not enable bumblebee on k8s-agent even when explicitly opted in", %{
+    test "enables bumblebee on k8s-agent when explicitly opted in", %{
       actor: actor,
       unique_id: unique_id
     } do
-      create_active_bumblebee_snapshot!(actor, unique_id)
+      snapshot = create_active_bumblebee_snapshot!(actor, unique_id)
 
       create_bumblebee_config_instance!(actor, "k8s-agent", %{
         "enabled" => true,
@@ -197,8 +197,11 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
       payload = Jason.decode!(config.config_json)
 
-      assert payload["bumblebee"] == %{"enabled" => false}
-      refute config.bumblebee_config.enabled
+      assert payload["bumblebee"]["enabled"] == true
+      assert payload["bumblebee"]["agent_id"] == "k8s-agent"
+      assert payload["bumblebee"]["scan_profile"] == "kubernetes"
+      assert payload["bumblebee"]["catalog"]["snapshot_ref"] == snapshot.snapshot_ref
+      assert config.bumblebee_config.enabled
     end
 
     test "excludes disabled checks", %{actor: actor, agent_uid: agent_uid, unique_id: unique_id} do
@@ -1591,10 +1594,15 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.addon_id == package.addon_id
     end
 
-    test "bumblebee add-on assignment is omitted for k8s-agent", %{
+    test "bumblebee add-on assignment is emitted for k8s-agent when compatible", %{
       actor: actor,
       unique_id: unique_id
     } do
+      {:ok, _agent} =
+        create_connected_agent(actor, "k8s-agent", %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0"
+        })
+
       {:ok, package} =
         create_approved_addon_package(actor, unique_id,
           addon_id: "bumblebee",
@@ -1610,7 +1618,8 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
       {:ok, config} = AgentConfigGenerator.generate_config("k8s-agent")
 
-      assert config.addons == []
+      assert [addon] = config.addons
+      assert addon.addon_id == "bumblebee"
     end
 
     test "netprobe systemd-service assignment compiles to a systemd_service addon the agent attaches to",

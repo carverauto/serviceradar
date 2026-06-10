@@ -733,6 +733,97 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::SecurityFindings => VizMeta {
+            columns: vec![
+                col(
+                    "event_timestamp",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col("class_uid", ColumnType::Int, None),
+                col("source", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("severity", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("short_message", ColumnType::Text, None),
+                col(
+                    "source_device_uid",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("metadata", ColumnType::Jsonb, None),
+                col("unmapped", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::ScanActivity => VizMeta {
+            columns: vec![
+                col(
+                    "event_timestamp",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "activity_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("source", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("severity", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("status_code", ColumnType::Text, None),
+                col("short_message", ColumnType::Text, None),
+                col(
+                    "source_device_uid",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("metadata", ColumnType::Jsonb, None),
+                col("unmapped", ColumnType::Jsonb, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
+        Entity::DnsActivity => VizMeta {
+            columns: vec![
+                col(
+                    "event_timestamp",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col("id", ColumnType::Text, Some(ColumnSemantic::Id)),
+                col(
+                    "activity_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Label),
+                ),
+                col("source", ColumnType::Text, Some(ColumnSemantic::Label)),
+                col("severity", ColumnType::Text, None),
+                col("status", ColumnType::Text, None),
+                col("short_message", ColumnType::Text, None),
+                col("src_endpoint", ColumnType::Jsonb, None),
+                col("dst_endpoint", ColumnType::Jsonb, None),
+                col("metadata", ColumnType::Jsonb, None),
+                col("unmapped", ColumnType::Jsonb, None),
+                col("raw_data", ColumnType::Text, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Table,
+                x: None,
+                y: None,
+                series: None,
+            }],
+        },
         Entity::BmpEvents => VizMeta {
             columns: vec![
                 col("time", ColumnType::Timestamptz, Some(ColumnSemantic::Time)),

@@ -418,11 +418,13 @@ defmodule ServiceRadarWebNG.Dashboards.AuthoredTest do
   end
 
   test "reserved dashboard slugs are rejected", %{scope: scope} do
-    assert {:error, {:reserved_dashboard_slug, "service-availability-noc"}} =
-             Dashboards.create_authored_dashboard(scope, %{
-               title: "Bad slug",
-               slug: "service-availability-noc"
-             })
+    for slug <- ["service-availability-noc", "security-findings", "endpoint-inventory"] do
+      assert {:error, {:reserved_dashboard_slug, ^slug}} =
+               Dashboards.create_authored_dashboard(scope, %{
+                 title: "Bad slug #{slug}",
+                 slug: slug
+               })
+    end
   end
 
   test "dashboard slugs must start with text and avoid route refs", %{scope: scope} do

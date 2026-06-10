@@ -423,6 +423,11 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				p.logger.Warn().Str("service", svc.Name()).Msg("Converted status is nil")
 				continue
 			}
+			if telemetry, ok := svc.(StatusAddonTelemetryProvider); ok {
+				if addonID, batch := telemetry.AddonTelemetryBatch(status); addonID != "" && batch != nil {
+					p.server.handleAddonTelemetry(addonID, batch)
+				}
+			}
 			statuses = append(statuses, converted)
 		}
 	}

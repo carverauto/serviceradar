@@ -41,6 +41,14 @@ natsCreds:
 
 cnpg:
   storageClass: local-path-big
+  localDevAccess:
+    enabled: true
+    # Allow local web-ng testing from the workstation LANs used for demo
+    # development. This gates only direct CNPG access on TCP/5432.
+    policyName: cnpg-allow-oracle-test-postgres
+    allowedCIDRs:
+      - "192.168.1.0/24"
+      - "192.168.2.0/24"
   # Demo runs ~6+ ServiceRadar deployments (web-ng, core-elx, datasvc,
   # db-event-writer, agent-gateway, etc.). Even with the pgBouncer Pooler
   # in front of the primary, the default 100-slot ceiling is too tight:

@@ -22,6 +22,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/config/kv"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/proto"
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 )
 
 //go:generate mockgen -destination=mock_agent.go -package=agent github.com/carverauto/serviceradar/go/pkg/agent Service,SweepStatusProvider,KVStore,ObjectStore
@@ -44,6 +45,12 @@ type SweepStatusProvider interface {
 type StatusRoutingProvider interface {
 	StatusServiceType() string
 	StatusSource() string
+}
+
+// StatusAddonTelemetryProvider lets native systemd-timer add-ons derive
+// first-class add-on telemetry from the same spooled status payload they report.
+type StatusAddonTelemetryProvider interface {
+	AddonTelemetryBatch(*proto.StatusResponse) (string, *addonpb.TelemetryBatch)
 }
 
 // SweepResultsProvider provides sweep results with sequence tracking.

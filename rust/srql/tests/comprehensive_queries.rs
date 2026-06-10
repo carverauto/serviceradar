@@ -102,11 +102,11 @@ async fn comprehensive_queries_match_fixtures() {
             })),
         },
         TestCase {
-            query: "in:events class_uid:2004 device_id:device-alpha canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* cve:CVE-2026-0001",
+            query: "in:security_findings class_uid:2002 device_id:device-alpha canonical_purl:pkg:deb/nginx@1.24.0-2ubuntu7 cpe:cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:* cve:CVE-2026-0001",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 let result = &body["results"][0];
-                assert_eq!(result["class_uid"], 2004);
+                assert_eq!(result["class_uid"], 2002);
                 assert_eq!(result["source_device_uid"], "device-alpha");
                 assert_eq!(result["metadata"]["primary_domain"], "security");
                 assert_eq!(

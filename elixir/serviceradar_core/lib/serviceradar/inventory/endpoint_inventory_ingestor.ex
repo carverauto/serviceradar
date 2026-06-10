@@ -3,9 +3,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   Ingests endpoint package/SBOM inventory reports from agent result payloads.
   """
 
+  import Bitwise
   import Ecto.Query
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.EndpointInventoryArtifactPersistence
   alias ServiceRadar.Inventory.EndpointInventoryFleetOrdinal
@@ -46,6 +48,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
              context = apply_hash_freshness(context, current)
              previous_packages = current_package_rows(context)
              scan_ref = upsert_scan(context, artifact)
+             insert_scan_activity_event(scan_ref, context)
              EndpointInventoryArtifactPersistence.replace(scan_ref, context, artifact)
              package_count = maybe_replace_packages(scan_ref, context)
 
@@ -302,6 +305,126 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   end
 
   defp maybe_replace_packages(scan_ref, context), do: replace_packages(scan_ref, context)
+
+  defp insert_scan_activity_event(scan_ref, context) do
+    event_time = context.last_scan_at || context.ingested_at || context.now
+    event_uuid = endpoint_inventory_scan_event_uuid(context)
+    activity_id = endpoint_inventory_scan_activity_id(context)
+    status_id = endpoint_inventory_scan_status_id(context)
+    severity_id = endpoint_inventory_scan_severity_id(context)
+    class_uid = OCSF.class_scan_activity()
+
+    row = %{
+      id: Ecto.UUID.dump!(event_uuid),
+      time: event_time,
+      class_uid: class_uid,
+      category_uid: OCSF.category_application_activity(),
+      type_uid: OCSF.type_uid(class_uid, activity_id),
+      activity_id: activity_id,
+      activity_name: OCSF.scan_activity_name(activity_id),
+      severity_id: severity_id,
+      severity: OCSF.severity_name(severity_id),
+      message: endpoint_inventory_scan_message(context),
+      status_id: status_id,
+      status: OCSF.status_name(status_id),
+      status_code: context.state,
+      status_detail: context.coverage_state,
+      metadata: endpoint_inventory_scan_activity_metadata(scan_ref, context),
+      observables: [],
+      trace_id: nil,
+      span_id: nil,
+      actor:
+        OCSF.build_actor(app_name: context.collector_name, app_ver: context.collector_version),
+      device: OCSF.build_device(uid: context.device_uid, name: context.agent_id),
+      src_endpoint: %{},
+      dst_endpoint: %{},
+      log_name: "endpoint_inventory.scan",
+      log_provider: "endpoint_inventory",
+      log_level: if(successful_scan?(context), do: "INFO", else: "WARN"),
+      log_version: Payload.string_value(context.payload, :schema_version),
+      unmapped: %{
+        "agent_id" => context.agent_id,
+        "device_uid" => context.device_uid,
+        "scan_id" => context.scan_id,
+        "state" => context.state,
+        "coverage_state" => context.coverage_state,
+        "package_count" => context.package_count
+      },
+      raw_data: normalize_scan_activity_raw_payload(context.payload),
+      created_at: DateTime.utc_now()
+    }
+
+    Repo.insert_all("ocsf_events", [row],
+      prefix: "platform",
+      on_conflict: :nothing,
+      conflict_target: [:time, :id],
+      returning: false
+    )
+
+    :ok
+  end
+
+  defp endpoint_inventory_scan_activity_id(context) do
+    if successful_scan?(context),
+      do: OCSF.activity_scan_completed(),
+      else: OCSF.activity_scan_error()
+  end
+
+  defp endpoint_inventory_scan_status_id(context) do
+    if successful_scan?(context), do: OCSF.status_success(), else: OCSF.status_failure()
+  end
+
+  defp endpoint_inventory_scan_severity_id(context) do
+    if successful_scan?(context), do: OCSF.severity_informational(), else: OCSF.severity_medium()
+  end
+
+  defp endpoint_inventory_scan_message(context) do
+    "Endpoint inventory scan #{context.state} on #{context.agent_id}: #{context.package_count} packages"
+  end
+
+  defp endpoint_inventory_scan_activity_metadata(scan_ref, context) do
+    %{
+      "version" => "1.9.0-dev",
+      "product" => %{
+        "name" => context.collector_name,
+        "vendor_name" => "Carver Automation",
+        "version" => context.collector_version
+      },
+      "source" => "endpoint_inventory",
+      "scan" => %{
+        "uid" => context.scan_id,
+        "name" => "Endpoint package inventory",
+        "total" => context.package_count,
+        "num_detections" => 0,
+        "num_skipped_items" => 0,
+        "start_time" => Payload.iso8601(context.last_scan_at),
+        "end_time" => Payload.iso8601(context.last_successful_scan_at || context.last_scan_at)
+      },
+      "service_radar" => %{
+        "source_type" => "endpoint_inventory",
+        "addon_id" => "endpoint-inventory",
+        "agent_id" => context.agent_id,
+        "device_uid" => context.device_uid,
+        "scan_id" => context.scan_id,
+        "scan_ref" => to_string(scan_ref),
+        "package_count" => context.package_count,
+        "coverage_state" => context.coverage_state,
+        "upload_reason" => context.upload_reason,
+        "ocsf_class" => "scan_activity"
+      }
+    }
+  end
+
+  defp endpoint_inventory_scan_event_uuid(context) do
+    [
+      "endpoint_inventory",
+      context.agent_id,
+      context.scan_id,
+      Payload.iso8601(context.last_scan_at)
+    ]
+    |> Enum.join(":")
+    |> deterministic_uuid()
+  end
 
   defp ensure_endpoint_packages([], _now), do: %{}
 
@@ -606,6 +729,28 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
   defp canonical_device_uid("sr:" <> _ = device_uid), do: device_uid
   defp canonical_device_uid(_device_uid), do: nil
+
+  defp normalize_scan_activity_raw_payload(payload) when is_map(payload) do
+    payload
+    |> Map.drop([:sbom, "sbom"])
+    |> Jason.encode()
+    |> case do
+      {:ok, encoded} -> encoded
+      {:error, _reason} -> inspect(payload)
+    end
+  end
+
+  defp normalize_scan_activity_raw_payload(payload), do: inspect(payload)
+
+  defp deterministic_uuid(key) do
+    <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
+    versioned_a3 = a3 |> band(0x0FFF) |> bor(0x4000)
+    versioned_a4 = a4 |> band(0x3FFF) |> bor(0x8000)
+
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([a1, a2, versioned_a3, versioned_a4, a5])
+    |> IO.iodata_to_binary()
+  end
 
   defp delete_scan_rows(table, scan_ref) do
     query = from(r in table, where: r.scan_ref == ^scan_ref)

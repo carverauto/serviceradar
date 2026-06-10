@@ -52,11 +52,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
 
       assert is_binary(row.id)
       assert byte_size(row.id) == 16
-      assert row.class_uid == 1008
-      assert row.category_uid == 1
-      assert row.activity_id == 3
-      assert row.type_uid == 100_803
-      assert row.activity_name == "Update"
+      assert row.class_uid == 2004
+      assert row.category_uid == 2
+      assert row.activity_id == 1
+      assert row.type_uid == 200_401
+      assert row.activity_name == "Create"
       assert row.severity_id == 3
       assert row.severity == "Medium"
       assert row.status_id == 2
@@ -69,6 +69,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.metadata["priority"] == payload["priority"]
       assert row.metadata["hostname"] == payload["hostname"]
       assert row.metadata["output_fields"]["container.id"] == "ec56370f8d11"
+      assert row.metadata["version"] == "1.9.0-dev"
+      assert row.metadata["product"]["name"] == "Falco"
+      assert row.metadata["service_radar"]["source_type"] == "falco"
+      assert row.metadata["service_radar"]["device_hostname"] == "k8s-cp2-worker2"
+      assert row.metadata["service_radar"]["container_id"] == "ec56370f8d11"
+      assert row.device[:uid] == "k8s-cp2-worker2"
+      assert row.device[:hostname] == "k8s-cp2-worker2"
       assert row.unmapped["uuid"] == payload["uuid"]
       assert %DateTime{} = row.time
       assert is_binary(row.raw_data)
@@ -90,6 +97,89 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.severity == "Low"
       assert row.status_id == 1
       assert row.status == "Success"
+    end
+
+    test "uses Kubernetes node output field as the device host when hostname is absent" do
+      payload = %{
+        "output" => "Falco event from a workload",
+        "priority" => "Warning",
+        "rule" => "Workload Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z",
+        "output_fields" => %{
+          "container.id" => "container-1",
+          "k8s.node.name" => "agent-k8s-cp3-worker1",
+          "k8s.pod.name" => "falco-test-pod"
+        }
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "falco.logs"}}
+
+      row = FalcoEvents.parse_message(message)
+
+      assert row.metadata["service_radar"]["device_hostname"] == "agent-k8s-cp3-worker1"
+      assert row.metadata["service_radar"]["node_name"] == "agent-k8s-cp3-worker1"
+      assert row.device[:uid] == "agent-k8s-cp3-worker1"
+      assert row.device[:hostname] == "agent-k8s-cp3-worker1"
+    end
+
+    test "preserves explicit canonical device uid while keeping Falco host metadata" do
+      payload = %{
+        "device_uid" => "sr:f19b8510-1419-45d3-8622-9d20fbb9af31",
+        "hostname" => "k8s-cp3-worker1",
+        "output" => "Falco event with ServiceRadar device correlation",
+        "priority" => "Warning",
+        "rule" => "Correlated Falco Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z",
+        "output_fields" => %{
+          "serviceradar.agent_id" => "agent-k8s-cp3-worker1",
+          "k8s.node.name" => "k8s-cp3-worker1",
+          "k8s.pod.name" => "falco-test-pod"
+        }
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "falco.logs"}}
+
+      row = FalcoEvents.parse_message(message)
+
+      assert row.metadata["service_radar"]["device_uid"] ==
+               "sr:f19b8510-1419-45d3-8622-9d20fbb9af31"
+
+      assert row.metadata["service_radar"]["device_hostname"] == "k8s-cp3-worker1"
+      assert row.metadata["service_radar"]["agent_id"] == "agent-k8s-cp3-worker1"
+      assert row.device[:uid] == "sr:f19b8510-1419-45d3-8622-9d20fbb9af31"
+      assert row.device[:hostname] == "k8s-cp3-worker1"
+    end
+
+    test "accepts ServiceRadar correlation fields injected by Falcosidekick custom fields" do
+      payload = %{
+        "custom_fields" => %{
+          "serviceradar.agent_id" => "agent-k8s-cp3-worker1",
+          "serviceradar.device_uid" => "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+        },
+        "hostname" => "k8s-cp3-worker1",
+        "output" => "Falco event with Sidekick custom fields",
+        "priority" => "Warning",
+        "rule" => "Sidekick Correlated Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z",
+        "output_fields" => %{
+          "k8s.node.name" => "k8s-cp3-worker1"
+        }
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "falco.logs"}}
+
+      row = FalcoEvents.parse_message(message)
+
+      assert row.metadata["service_radar"]["agent_id"] == "agent-k8s-cp3-worker1"
+
+      assert row.metadata["service_radar"]["device_uid"] ==
+               "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+
+      assert row.metadata["output_fields"]["serviceradar.device_uid"] ==
+               "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+
+      assert row.device[:uid] == "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+      assert row.device[:hostname] == "k8s-cp3-worker1"
     end
 
     test "uses normalized body when Zen-compacted payload omits output" do

@@ -11,6 +11,8 @@
 {{- $migrationsEnabled := default true $migrationVals.enabled -}}
 {{- $webNg := default (dict) .Values.webNg -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
 {{- $objectStoreRetentionEnabled := true -}}
 {{- if hasKey $objectStoreRetention "enabled" -}}{{- $objectStoreRetentionEnabled = get $objectStoreRetention "enabled" -}}{{- end -}}
@@ -18,6 +20,11 @@
 {{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
 {{- $coreClusterSelector := default "app=serviceradar-core" $coreVals.kubernetesSelector -}}
 {{- $coreClusterNodeBasename := default "serviceradar_core" $coreVals.kubernetesNodeBasename -}}
 {{- $database := default (dict) $coreVals.database -}}
@@ -290,9 +297,9 @@ spec:
             secretKeyRef:
               name: {{ $secrets | quote }}
               key: plugin-storage-signing-secret
-        {{- if $webNgPublicUrl }}
+        {{- if $agentArtifactPublicUrl }}
         - name: PLUGIN_STORAGE_PUBLIC_URL
-          value: {{ $webNgPublicUrl | quote }}
+          value: {{ $agentArtifactPublicUrl | quote }}
         {{- end }}
         {{- if $pluginStorage.downloadTtlSeconds }}
         - name: PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS

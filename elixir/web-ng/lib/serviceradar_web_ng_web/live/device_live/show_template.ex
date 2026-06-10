@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
 
   import ServiceRadarWebNGWeb.DeviceLive.AgentComponents
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
+  import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceEditComponents
   import ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents
@@ -221,6 +222,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 query_running={@endpoint_inventory_query_running}
                 force_refresh_running={@endpoint_inventory_force_refresh_running}
                 cohort_running={@endpoint_inventory_cohort_running}
+              />
+
+              <.bumblebee_section
+                :if={@has_bumblebee_exposure or is_binary(@bumblebee_error)}
+                postures={@bumblebee_postures}
+                findings={@bumblebee_findings}
+                error={@bumblebee_error}
+                has_exposure={@has_bumblebee_exposure}
               />
 
               <.virtualization_section

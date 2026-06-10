@@ -60,7 +60,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "ATTRIBUTED_FLOW" in stream_names
     end
 
-    test "routes raw Falco sidekick events from the shared events stream" do
+    test "routes raw Falco sidekick events from the dedicated Falco stream" do
       falco = Enum.find(Config.default_streams(), &(&1.name == "FALCO"))
 
       assert falco.stream_name == "events"

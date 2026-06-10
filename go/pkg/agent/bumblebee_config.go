@@ -30,6 +30,7 @@ type bumblebeeConfigEnvelope struct {
 type bumblebeeConfigPayload struct {
 	Enabled           bool                         `json:"enabled"`
 	AgentID           string                       `json:"agent_id,omitempty"`
+	DeviceUID         string                       `json:"device_uid,omitempty"`
 	ScanProfile       string                       `json:"scan_profile,omitempty"`
 	RootDiscoveryMode string                       `json:"root_discovery_mode,omitempty"`
 	ExplicitRoots     []string                     `json:"explicit_roots,omitempty"`
@@ -104,6 +105,7 @@ func (p *bumblebeeConfigPayload) runtimeProfile(agentID string) bumblebee.Runtim
 	profile := bumblebee.RuntimeProfile{
 		Enabled:       &enabled,
 		AgentID:       agentID,
+		DeviceUID:     p.DeviceUID,
 		ScanTimeout:   p.ScanTimeout,
 		ExplicitRoots: append([]string(nil), p.ExplicitRoots...),
 		ExcludeRoots:  append([]string(nil), p.ExcludeRoots...),
@@ -151,8 +153,34 @@ func resolveGatewayBumblebeeConfig(
 	configJSON []byte,
 ) (*bumblebeeConfigPayload, error) {
 	if cfg := bumblebeeConfigFromProto(protoConfig); cfg != nil {
+		jsonCfg, err := parseGatewayBumblebeeConfig(configJSON)
+		if err != nil {
+			return nil, err
+		}
+		mergeBumblebeeCatalogDelivery(cfg, jsonCfg)
 		return cfg, nil
 	}
 
 	return parseGatewayBumblebeeConfig(configJSON)
+}
+
+func mergeBumblebeeCatalogDelivery(cfg, jsonCfg *bumblebeeConfigPayload) {
+	if cfg == nil || jsonCfg == nil {
+		return
+	}
+
+	if cfg.DeviceUID == "" {
+		cfg.DeviceUID = jsonCfg.DeviceUID
+	}
+
+	if cfg.Catalog == nil || jsonCfg.Catalog == nil {
+		return
+	}
+
+	if cfg.Catalog.DownloadURL == "" {
+		cfg.Catalog.DownloadURL = jsonCfg.Catalog.DownloadURL
+	}
+	if cfg.Catalog.DownloadToken == "" {
+		cfg.Catalog.DownloadToken = jsonCfg.Catalog.DownloadToken
+	}
 }

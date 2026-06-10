@@ -159,9 +159,9 @@ func stageAddonArtifact(
 
 // stageAddonArtifactWithClient is stageAddonArtifact with an optional gateway HTTP
 // client. When the assignment carries a gateway download_url and httpClient is
-// non-nil, the artifact is fetched over HTTPS through the gateway/web-ng addon-blob
-// endpoint (mirroring the WASM plugin download path) instead of the direct object
-// store; the same sha256 + ed25519-signature verification is applied either way.
+// non-nil, the artifact is fetched over HTTPS through the agent-gateway artifact
+// endpoint instead of the direct object store; the same sha256 + ed25519-signature
+// verification is applied either way.
 // When download_url is empty it falls back to the direct object store (internal
 // agents with a kv_address).
 func stageAddonArtifactWithClient(
@@ -516,48 +516,22 @@ func fetchAddonArtifactBytes(
 	return data, nil
 }
 
-// downloadAddonArtifactHTTP fetches an add-on artifact from the gateway/web-ng addon-blob
+// downloadAddonArtifactHTTP fetches an add-on artifact from the agent-gateway artifact
 // endpoint over HTTPS, presenting the per-poll signed download token in the
 // X-ServiceRadar-Plugin-Token header (the same header the WASM plugin download uses). The
 // response body is bounded to the maximum add-on tarball size to guard against a hostile
 // or misbehaving endpoint. The returned bytes are unverified; the caller still checks the
 // sha256 and ed25519 signature.
 func downloadAddonArtifactHTTP(ctx context.Context, client *http.Client, downloadURL, token string) ([]byte, error) {
-	method := http.MethodGet
-	if strings.TrimSpace(token) != "" {
-		method = http.MethodPost
-	}
-
-	req, err := http.NewRequestWithContext(ctx, method, downloadURL, nil)
-	if err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(token) != "" {
-		req.Header.Set("X-ServiceRadar-Plugin-Token", token)
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d", ErrAddonArtifactDownloadFailed, resp.StatusCode)
-	}
-
-	// Cap at one byte over the total-extracted bound so an oversized response is rejected
-	// rather than buffered whole.
-	limited := io.LimitReader(resp.Body, maxAddonTarballBytes+1)
-	data, err := io.ReadAll(limited)
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(data)) > maxAddonTarballBytes {
-		return nil, fmt.Errorf("%w: addon artifact exceeds %d bytes", ErrAddonTarballTooLarge, maxAddonTarballBytes)
-	}
-
-	return data, nil
+	return downloadGatewayArtifactHTTP(
+		ctx,
+		client,
+		downloadURL,
+		token,
+		maxAddonTarballBytes,
+		ErrAddonArtifactDownloadFailed,
+		ErrAddonTarballTooLarge,
+	)
 }
 
 // verifyAddonArtifactSignature verifies an ed25519 signature over the artifact bytes

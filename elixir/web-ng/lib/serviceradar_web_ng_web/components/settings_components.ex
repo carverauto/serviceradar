@@ -559,6 +559,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       Enum.filter(
         [
           %{
+            label: "Plugins",
+            navigate: ~p"/settings/agents/plugins",
+            active:
+              String.starts_with?(path, "/settings/agents/plugins") or
+                String.starts_with?(path, "/admin/plugins"),
+            show: can_plugins
+          },
+          %{
             label: "Host Health",
             navigate: ~p"/settings/sysmon",
             active: String.starts_with?(path, "/settings/sysmon"),
@@ -577,14 +585,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
               String.starts_with?(path, "/settings/agents/deploy") or
                 String.starts_with?(path, "/admin/edge-packages"),
             show: can_edge
-          },
-          %{
-            label: "Plugins",
-            navigate: ~p"/settings/agents/plugins",
-            active:
-              String.starts_with?(path, "/settings/agents/plugins") or
-                String.starts_with?(path, "/admin/plugins"),
-            show: can_plugins
           },
           %{
             label: "Add-ons",
@@ -631,6 +631,14 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
     Enum.filter(
       [
         %{
+          label: "Plugins",
+          href: ~p"/settings/agents/plugins",
+          active:
+            String.starts_with?(path, "/settings/agents/plugins") or
+              String.starts_with?(path, "/admin/plugins"),
+          show: can_plugins
+        },
+        %{
           label: "Edge Sites",
           href: ~p"/admin/edge-sites",
           active: String.starts_with?(path, "/admin/edge-sites"),
@@ -662,14 +670,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           href: ~p"/settings/agents/endpoint-inventory",
           active: String.starts_with?(path, "/settings/agents/endpoint-inventory"),
           show: can_edge
-        },
-        %{
-          label: "Plugins",
-          href: ~p"/settings/agents/plugins",
-          active:
-            String.starts_with?(path, "/settings/agents/plugins") or
-              String.starts_with?(path, "/admin/plugins"),
-          show: can_plugins
         },
         %{
           label: "Add-ons",

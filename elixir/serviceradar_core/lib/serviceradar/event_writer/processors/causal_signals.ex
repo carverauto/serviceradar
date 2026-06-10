@@ -25,9 +25,9 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @schema_version "1.0"
   @max_grouped_contexts 32
   @routing_table "bmp_routing_events"
-  @ocsf_vulnerability_finding_class_uid 2004
+  @ocsf_vulnerability_finding_class_uid 2002
   @ocsf_findings_category_uid 2
-  @ocsf_vulnerability_finding_type_uid 200_401
+  @ocsf_vulnerability_finding_type_uid 200_201
   @ocsf_create_activity_id 1
 
   @impl true
@@ -936,8 +936,19 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp inventory_vulnerability_metadata(normalized, payload) do
+    device_uid = payload_device_uid(payload)
+    source_type = payload["provider"] || payload["source"] || "endpoint_inventory"
+
     normalized
     |> Map.put("primary_domain", "security")
+    |> Map.put("service_radar", %{
+      "source_type" => normalize_event_type(source_type),
+      "addon_id" => "endpoint-inventory",
+      "device_uid" => device_uid,
+      "agent_id" => payload["agent_id"] || payload["agentId"],
+      "source_instance" => payload["source_instance"] || payload["sourceInstance"],
+      "ocsf_class" => "vulnerability_finding"
+    })
     |> Map.put("vulnerability_finding", %{
       "cve" => vulnerability_id(payload),
       "cvss_score" => cvss_score(payload),

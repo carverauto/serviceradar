@@ -140,6 +140,9 @@ func ApplyRuntimeProfile(cfg *Config, profile RuntimeProfile) {
 	if strings.TrimSpace(profile.AgentID) != "" {
 		cfg.AgentID = strings.TrimSpace(profile.AgentID)
 	}
+	if strings.TrimSpace(profile.DeviceUID) != "" {
+		cfg.DeviceUID = strings.TrimSpace(profile.DeviceUID)
+	}
 	if strings.TrimSpace(profile.CatalogSnapshotRef) != "" {
 		cfg.CatalogSnapshotRef = strings.TrimSpace(profile.CatalogSnapshotRef)
 	}

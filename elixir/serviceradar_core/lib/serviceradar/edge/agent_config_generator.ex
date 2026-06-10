@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -52,8 +53,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Default intervals
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
-  @kubernetes_agent_id "k8s-agent"
-  @bumblebee_addon_id "bumblebee"
 
   @type check_config :: %{
           check_id: String.t(),
@@ -376,12 +375,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       AddonAssignment
       |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_id}, actor: actor)
       |> Ash.Query.filter(enabled == true)
-      |> Ash.Query.sort(updated_at: :desc, inserted_at: :desc)
+      |> Ash.Query.sort(source: :asc, updated_at: :desc, inserted_at: :desc)
       |> Ash.Query.load(:addon_package)
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
       |> Enum.filter(&approved_addon_package?/1)
-      |> Enum.reject(&excluded_addon_assignment?(agent_id, &1))
+      |> Enum.sort_by(&addon_assignment_precedence/1)
       |> Enum.uniq_by(&logical_addon_id/1)
 
     case assignments do
@@ -435,9 +434,15 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
-  defp excluded_addon_assignment?(agent_id, assignment) do
-    kubernetes_agent?(agent_id) and logical_addon_id(assignment) == @bumblebee_addon_id
+  defp addon_assignment_precedence(%AddonAssignment{source: :manual}), do: {0, 0}
+
+  defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata})
+       when is_map(metadata) do
+    {1, map_int(metadata, "priority", 100)}
   end
+
+  defp addon_assignment_precedence(%AddonAssignment{source: :profile}), do: {1, 100}
+  defp addon_assignment_precedence(%AddonAssignment{}), do: {2, 100}
 
   defp build_deliverable_addon_assignment_config(%AddonAssignment{} = assignment, profile) do
     package = assignment.addon_package
@@ -452,8 +457,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     package = assignment.addon_package
 
     # Mint a gateway-proxied download request for the selected per-arch artifact so
-    # agents fetch it over HTTPS through the gateway/web-ng addon-blob endpoint
-    # (mirroring the WASM plugin path) instead of touching the object store directly.
+    # agents fetch it over HTTPS through the agent-gateway artifact endpoint instead
+    # of touching web-ng or object storage directly.
     # nil when no artifact is selected or the storage URL/secret is unconfigured; the
     # agent then falls back to its existing direct-store path.
     download_request = StorageToken.download_addon_request(package.id, artifact[:object_key])
@@ -1651,14 +1656,6 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp load_bumblebee_config(agent_id) do
-    if kubernetes_agent?(agent_id) do
-      disabled_bumblebee_config()
-    else
-      load_bumblebee_config_for_supported_agent(agent_id)
-    end
-  end
-
-  defp load_bumblebee_config_for_supported_agent(agent_id) do
     partition = get_agent_partition(agent_id)
     actor = SystemActor.system(:bumblebee_config_loader)
     device_uid = resolve_agent_device_uid(agent_id, actor)
@@ -1675,6 +1672,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       profile_config
       |> Map.put("enabled", true)
       |> Map.put("agent_id", agent_id)
+      |> maybe_put_config_value("device_uid", device_uid)
       |> Map.put_new("scan_profile", "default")
       |> Map.put_new("root_discovery_mode", "all")
       |> Map.put_new("explicit_roots", [])
@@ -1685,21 +1683,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put_new("max_output_bytes", 33_554_432)
       |> Map.put_new("cadence", "6h")
       |> Map.put_new("findings_only", true)
-      |> Map.put("catalog", bumblebee_catalog_config(snapshot))
+      |> Map.put("catalog", catalog_assignment_config(snapshot))
     else
       {:error, :no_config_found} ->
         Logger.debug("No Bumblebee config found for agent #{agent_id}, using disabled config")
-        disabled_bumblebee_config()
+        disabled_feature_config()
 
       {:error, reason} ->
         Logger.warning(
           "Failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
         )
 
-        disabled_bumblebee_config()
+        disabled_feature_config()
 
       _ ->
-        disabled_bumblebee_config()
+        disabled_feature_config()
     end
   end
 
@@ -1715,22 +1713,42 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snapshot.object_size_bytes > 0
   end
 
-  defp bumblebee_catalog_config(snapshot) do
-    %{
-      "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
-      "snapshot_ref" => snapshot.snapshot_ref,
-      "catalog_version" => snapshot.catalog_version,
-      "source_revision" => snapshot.source_revision,
-      "object_key" => snapshot.object_key,
-      "sha256" => snapshot.content_sha256,
-      "size_bytes" => snapshot.object_size_bytes,
-      "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
-    }
+  defp catalog_assignment_config(snapshot) do
+    case AgentArtifacts.publish_catalog_assignment(%{
+           source_id: snapshot.source_id || snapshot.snapshot_ref,
+           snapshot_ref: snapshot.snapshot_ref,
+           catalog_version: snapshot.catalog_version,
+           source_revision: snapshot.source_revision,
+           object_key: snapshot.object_key,
+           sha256: snapshot.content_sha256,
+           size_bytes: snapshot.object_size_bytes,
+           promoted_at: snapshot.promoted_at,
+           metadata: %{
+             "snapshot_ref" => snapshot.snapshot_ref,
+             "catalog_version" => snapshot.catalog_version,
+             "source_revision" => snapshot.source_revision
+           }
+         }) do
+      {:ok, assignment} ->
+        assignment
+
+      {:error, reason} ->
+        Logger.warning("Failed to publish agent catalog artifact", reason: inspect(reason))
+
+        %{
+          "schema_version" => "serviceradar.catalog_assignment.v1",
+          "snapshot_ref" => snapshot.snapshot_ref,
+          "catalog_version" => snapshot.catalog_version,
+          "source_revision" => snapshot.source_revision,
+          "object_key" => snapshot.object_key,
+          "sha256" => snapshot.content_sha256,
+          "size_bytes" => snapshot.object_size_bytes,
+          "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+        }
+    end
   end
 
-  defp disabled_bumblebee_config, do: %{"enabled" => false}
-
-  defp kubernetes_agent?(agent_id), do: String.trim(to_string(agent_id)) == @kubernetes_agent_id
+  defp disabled_feature_config, do: %{"enabled" => false}
 
   defp load_endpoint_inventory_config(agent_id) do
     partition = get_agent_partition(agent_id)
@@ -1789,6 +1807,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       upload_retry_max: map_string(config, "upload_retry_max"),
       upload_retry_max_attempts: map_int(config, "upload_retry_max_attempts")
     }
+  end
+
+  defp maybe_put_config_value(config, _key, value) when value in [nil, ""], do: config
+
+  defp maybe_put_config_value(config, key, value) when is_map(config) and is_binary(key) do
+    Map.put(config, key, value)
   end
 
   defp present?(value), do: is_binary(value) and String.trim(value) != ""

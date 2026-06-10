@@ -11,6 +11,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
   import Ecto.Query, only: [from: 2]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.AgentCommandBus
   alias ServiceRadar.Inventory.BumblebeeCatalogArtifact
   alias ServiceRadar.Inventory.BumblebeeCatalogEntry
@@ -134,6 +135,7 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
              catalog_version,
              actor
            ) do
+      _ = publish_agent_catalog(promoted)
       _ = push_config.(:bumblebee)
       _ = BumblebeeCatalogRefreshEventWriter.write_success(source, promoted, actor: actor)
       {:ok, promoted}
@@ -195,6 +197,22 @@ defmodule ServiceRadar.Inventory.BumblebeeCatalogRefreshWorker do
 
   defp materialize_catalog(snapshot_ref, entries, metadata) do
     BumblebeeCatalogArtifact.materialize(snapshot_ref, entries, metadata)
+  end
+
+  defp publish_agent_catalog(%BumblebeeCatalogSnapshot{} = snapshot) do
+    source_id = snapshot.source_id || snapshot.snapshot_ref
+
+    AgentArtifacts.publish_catalog(%{
+      source_id: source_id,
+      object_key: snapshot.object_key,
+      file_name:
+        "catalog-#{safe_segment(snapshot.catalog_version || snapshot.snapshot_ref)}.json",
+      metadata: %{
+        "snapshot_ref" => snapshot.snapshot_ref,
+        "catalog_version" => snapshot.catalog_version,
+        "source_revision" => snapshot.source_revision
+      }
+    })
   end
 
   defp persist_snapshot(

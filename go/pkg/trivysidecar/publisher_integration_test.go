@@ -35,17 +35,13 @@ func TestNATSPublisherPublishesToJetStream(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	_, err = js.CreateStream(ctx, jetstream.StreamConfig{
-		Name:     "trivy_reports",
-		Subjects: []string{"trivy.report.>"},
-	})
-	if err != nil {
-		t.Fatalf("create stream: %v", err)
-	}
-
 	publisher, err := NewNATSPublisher(Config{
-		NATSHostPort:   srv.ClientURL(),
-		NATSStreamName: "trivy_reports",
+		NATSHostPort:         srv.ClientURL(),
+		NATSSubjectPrefix:    "trivy.report",
+		NATSStreamName:       "trivy_reports",
+		PublishTimeout:       time.Second,
+		PublishRetryDelay:    10 * time.Millisecond,
+		PublishRetryMaxDelay: 20 * time.Millisecond,
 	})
 	if err != nil {
 		t.Fatalf("new publisher: %v", err)
