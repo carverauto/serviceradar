@@ -1105,8 +1105,8 @@ func buildArmisMetadata(device armisDevice, queryLabel string) map[string]string
 	if len(device.IPv6Addresses) > 0 {
 		metadata["ipv6_addresses"] = strings.Join(device.IPv6Addresses, ",")
 	}
-	if len(device.MacAddresses) > 0 {
-		metadata["mac_addresses"] = strings.Join(device.MacAddresses, ",")
+	if macs := device.macAddressList(); len(macs) > 0 {
+		metadata["mac_addresses"] = strings.Join(macs, ",")
 	}
 	if len(device.SerialNumbers) > 0 {
 		metadata["serial_number"] = device.SerialNumbers[0]
@@ -1210,16 +1210,72 @@ func (d armisDevice) primaryIP() string {
 	return ""
 }
 
+// primaryMAC returns the first valid atomic MAC address from the device. The
+// Armis macAddress field can hold a comma-separated list of MACs, so it is
+// split and each entry validated; entries that are not a single MAC are
+// skipped. The returned value preserves the source formatting (separators are
+// normalized downstream).
 func (d armisDevice) primaryMAC() string {
-	if value := strings.TrimSpace(d.MacAddress); value != "" {
-		return value
+	for _, value := range strings.Split(d.MacAddress, ",") {
+		value = strings.TrimSpace(value)
+		if normalizeMACAddress(value) != "" {
+			return value
+		}
 	}
 	for _, value := range d.MacAddresses {
-		if value = strings.TrimSpace(value); value != "" {
+		value = strings.TrimSpace(value)
+		if normalizeMACAddress(value) != "" {
 			return value
 		}
 	}
 	return ""
+}
+
+// macAddressList returns every valid MAC address from the comma-separated
+// macAddress field and the mac_addresses list, normalized (uppercase,
+// separator-free) and deduplicated in first-seen order.
+func (d armisDevice) macAddressList() []string {
+	var macs []string
+	seen := make(map[string]struct{})
+	add := func(value string) {
+		normalized := normalizeMACAddress(value)
+		if normalized == "" {
+			return
+		}
+		if _, ok := seen[normalized]; ok {
+			return
+		}
+		seen[normalized] = struct{}{}
+		macs = append(macs, normalized)
+	}
+	for _, value := range strings.Split(d.MacAddress, ",") {
+		add(value)
+	}
+	for _, value := range d.MacAddresses {
+		add(value)
+	}
+	return macs
+}
+
+var macSeparatorReplacer = strings.NewReplacer(":", "", "-", "", ".", "")
+
+// normalizeMACAddress strips ':', '-', and '.' separators and uppercases the
+// value, returning "" unless the result is exactly 12 hexadecimal characters.
+func normalizeMACAddress(value string) string {
+	cleaned := macSeparatorReplacer.Replace(strings.TrimSpace(value))
+	if len(cleaned) != 12 {
+		return ""
+	}
+	for _, r := range cleaned {
+		switch {
+		case r >= '0' && r <= '9':
+		case r >= 'a' && r <= 'f':
+		case r >= 'A' && r <= 'F':
+		default:
+			return ""
+		}
+	}
+	return strings.ToUpper(cleaned)
 }
 
 func (d armisDevice) primaryName() string {

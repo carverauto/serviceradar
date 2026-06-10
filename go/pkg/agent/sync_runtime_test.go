@@ -126,7 +126,7 @@ func TestBuildArmisUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 		"device_type":      "PLC",
 		"category":         "OT",
 		"ipv4_addresses":   "10.0.0.2,10.0.0.3",
-		"mac_addresses":    "00:11:22:33:44:55",
+		"mac_addresses":    "001122334455",
 		"brand":            "Axis Communications",
 		"manufacturer":     "Axis Communications",
 		"model":            "P1375",

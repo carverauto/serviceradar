@@ -154,7 +154,11 @@ defmodule ServiceRadar.Inventory.DeviceIdentifier do
 
       upsert? true
       upsert_identity :unique_identifier
-      upsert_fields [:device_id, :last_seen, :confidence, :source, :verified, :metadata]
+      # Ownership (device_id) is intentionally NOT replaced on conflict:
+      # silent last-writer-wins repoints collapsed distinct devices. An
+      # identifier moves to another device only via audited merges or the
+      # explicit :reassign_device action.
+      upsert_fields [:last_seen, :confidence, :source, :verified, :metadata]
 
       change fn changeset, _context ->
         now = DateTime.utc_now()

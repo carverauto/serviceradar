@@ -28,6 +28,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"math/rand"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -83,6 +84,12 @@ const (
 	// MAC address generation constants
 	maxRetryAttempts = 3
 	maxByteValue     = 255
+
+	// Seed salts for deterministic per-device generation. MAC history must be
+	// stable across process restarts or every restart mints a brand-new
+	// identifier universe downstream (see refactor-device-identity-reconciliation).
+	macCountSeedSalt   = int64(0x5eed0001)
+	macHistorySeedSalt = int64(0x5eed0002)
 
 	// Random generation ranges
 	minRandomRange = 0
@@ -1386,30 +1393,38 @@ func generateMACCount(deviceIndex int) int {
 	// 1% of devices have 101-200 MACs (busy servers, switches, etc.)
 	mod := deviceIndex % percentageBase
 
+	// Deterministic per-device RNG: the MAC count must be stable across process
+	// restarts, otherwise each restart re-rolls every device's MAC history.
+	rng := rand.New(rand.NewSource(macCountSeedSalt + int64(deviceIndex))) //nolint:gosec // deterministic fake data by design
+
 	switch {
 	case mod < lowPercentThreshold:
 		// 60% - typical end user devices
-		return randInt(minMACsEndUser, maxMACsEndUser)
+		return seededRandInt(rng, minMACsEndUser, maxMACsEndUser)
 	case mod < midPercentThreshold:
 		// 25% - devices with multiple network interfaces
-		return randInt(minMACsMultiInterface, maxMACsMultiInterface)
+		return seededRandInt(rng, minMACsMultiInterface, maxMACsMultiInterface)
 	case mod < highPercentThreshold:
 		// 10% - servers or devices that change networks frequently
-		return randInt(minMACsServer, maxMACsServer)
+		return seededRandInt(rng, minMACsServer, maxMACsServer)
 	case mod < veryHighPercentThreshold:
 		// 4% - network infrastructure or very active devices
-		return randInt(minMACsInfra, maxMACsInfra)
+		return seededRandInt(rng, minMACsInfra, maxMACsInfra)
 	default:
 		// 1% - enterprise switches, routers, or servers with extensive history
-		return randInt(minMACsEnterprise, maxMACsEnterprise)
+		return seededRandInt(rng, minMACsEnterprise, maxMACsEnterprise)
 	}
 }
 
 // generateMACAddresses generates a list of unique MAC addresses for a device
-// This simulates Armis tracking every MAC address ever seen for an IP
+// This simulates Armis tracking every MAC address ever seen for an IP.
+// All randomness derives from a per-device seeded RNG so the same seed+count
+// always produces the same MAC list across process restarts.
 func generateMACAddresses(seed, count int) []string {
 	macs := make([]string, count)
 	macSet := make(map[string]bool) // Ensure uniqueness
+
+	rng := rand.New(rand.NewSource(macHistorySeedSalt + int64(seed))) //nolint:gosec // deterministic fake data by design
 
 	// Common OUI prefixes for realistic MAC addresses
 	ouiPrefixes := []string{
@@ -1452,18 +1467,18 @@ func generateMACAddresses(seed, count int) []string {
 					oui := ouiPrefixes[(seed+i)%len(ouiPrefixes)]
 					mac = fmt.Sprintf("%s:%02x:%02x:%02x",
 						oui,
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue))
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue))
 				} else {
 					// Fallback to fully random MAC
 					mac = fmt.Sprintf("%02x:%02x:%02x:%02x:%02x:%02x",
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue),
-						randInt(minRandomRange, maxByteValue))
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue),
+						seededRandInt(rng, minRandomRange, maxByteValue))
 				}
 			}
 
@@ -1483,7 +1498,7 @@ func generateMACAddresses(seed, count int) []string {
 					seed&byteMaxValue,
 					(i>>hexByteShift)&byteMaxValue,
 					i&byteMaxValue,
-					randInt(minRandomRange, maxByteValue),
+					seededRandInt(rng, minRandomRange, maxByteValue),
 					(seed+i+attempts)&byteMaxValue)
 				macs[i] = mac
 
@@ -1785,19 +1800,46 @@ func randInt(minVal, maxVal int) int {
 	return int(n.Int64()) + minVal
 }
 
+// seededRandInt generates an integer between minVal and maxVal (inclusive) from
+// a deterministic per-device RNG. Use it for device generation (anything that
+// must be identical across restarts); use randInt only for runtime churn.
+func seededRandInt(rng *rand.Rand, minVal, maxVal int) int {
+	if minVal >= maxVal {
+		return minVal
+	}
+
+	return rng.Intn(maxVal-minVal+1) + minVal
+}
+
+// rehydrateMacAddresses restores the internal MacAddresses slice from the
+// persisted comma-joined MacAddress field. MacAddresses is tagged `json:"-"`,
+// so it never survives serialization on its own.
+func rehydrateMacAddresses(devices []ArmisDevice) {
+	for i := range devices {
+		if len(devices[i].MacAddresses) == 0 && devices[i].MacAddress != "" {
+			devices[i].MacAddresses = strings.Split(devices[i].MacAddress, ",")
+		}
+	}
+}
+
 // loadFromStorage attempts to load device data from persistent storage
 func (dg *DeviceGenerator) loadFromStorage() bool {
 	storageFile := getStorageFilePath()
 
 	data, err := os.ReadFile(storageFile)
 	if err != nil {
-		log.Printf("No existing device data found at %s, will generate new data", storageFile)
+		if os.IsNotExist(err) {
+			log.Printf("No existing device data found at %s, will generate new data", storageFile)
+		} else {
+			log.Printf("ERROR: failed to read persisted device data from %s: %v; regenerating all devices", storageFile, err)
+		}
+
 		return false
 	}
 
 	var storedDevices []ArmisDevice
 	if err := json.Unmarshal(data, &storedDevices); err != nil {
-		log.Printf("Failed to parse stored device data: %v, will generate new data", err)
+		log.Printf("ERROR: failed to parse stored device data at %s: %v; regenerating all devices", storageFile, err)
 		return false
 	}
 
@@ -1805,6 +1847,11 @@ func (dg *DeviceGenerator) loadFromStorage() bool {
 		log.Printf("Stored device count (%d) doesn't match expected (%d), will generate new data", len(storedDevices), totalDevices)
 		return false
 	}
+
+	// MacAddresses is json:"-" and is not part of the wire format; rebuild it
+	// from the persisted comma-joined MacAddress string so the full MAC set
+	// survives restarts instead of being regenerated.
+	rehydrateMacAddresses(storedDevices)
 
 	dg.allDevices = storedDevices
 	dg.rebuildIPState()
@@ -1825,12 +1872,21 @@ func (dg *DeviceGenerator) saveToStorage() {
 
 	data, err := json.Marshal(devicesCopy)
 	if err != nil {
-		log.Printf("Failed to marshal device data for storage: %v", err)
+		log.Printf("ERROR: failed to marshal device data for storage: %v; device identities will NOT survive a restart", err)
 		return
 	}
 
-	if err := os.WriteFile(storageFile, data, deviceFilePermissions); err != nil {
-		log.Printf("Failed to write device data to storage: %v", err)
+	// Write to a temp file and rename into place: atomic, and replaces a stale
+	// file even if it is owned by another UID (rename only needs directory
+	// write permission, truncating an existing root-owned file does not work).
+	tmpFile := storageFile + ".tmp"
+	if err := os.WriteFile(tmpFile, data, deviceFilePermissions); err != nil {
+		log.Printf("ERROR: failed to write device data to %s: %v; device identities will NOT survive a restart", tmpFile, err)
+		return
+	}
+
+	if err := os.Rename(tmpFile, storageFile); err != nil {
+		log.Printf("ERROR: failed to move device data into place at %s: %v; device identities will NOT survive a restart", storageFile, err)
 		return
 	}
 

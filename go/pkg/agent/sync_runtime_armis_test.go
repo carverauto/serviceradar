@@ -776,6 +776,106 @@ func TestFilterArmisDevicesDropsBlacklistedCommaSeparatedIPs(t *testing.T) {
 	}
 }
 
+func TestArmisPrimaryMACSplitsMultiMACFieldToFirstValidMAC(t *testing.T) {
+	device := armisDevice{MacAddress: "001AA0B94040,001422F42A2A,70B3D59EDC93"}
+
+	if got := device.primaryMAC(); got != "001AA0B94040" {
+		t.Fatalf("primaryMAC = %q, want first MAC from comma-separated field", got)
+	}
+}
+
+func TestArmisPrimaryMACSkipsInvalidEntries(t *testing.T) {
+	device := armisDevice{MacAddress: " ,unknown,00:11:22:33:44:55:66, 00-1A-A0-B9-40-41 ,001422F42A2A"}
+
+	if got := device.primaryMAC(); got != "00-1A-A0-B9-40-41" {
+		t.Fatalf("primaryMAC = %q, want first valid MAC after skipping junk", got)
+	}
+}
+
+func TestArmisPrimaryMACGarbageOnlyFieldFallsBackToMACList(t *testing.T) {
+	device := armisDevice{
+		MacAddress:   "n/a, also not a mac",
+		MacAddresses: []string{"bogus", "00:1A:A0:B9:40:42"},
+	}
+
+	if got := device.primaryMAC(); got != "00:1A:A0:B9:40:42" {
+		t.Fatalf("primaryMAC = %q, want first valid MAC from mac_addresses list", got)
+	}
+}
+
+func TestArmisPrimaryMACPreservesSingleColonSeparatedMAC(t *testing.T) {
+	device := armisDevice{MacAddress: " 00:11:22:33:44:55 "}
+
+	if got := device.primaryMAC(); got != "00:11:22:33:44:55" {
+		t.Fatalf("primaryMAC = %q, want trimmed colon-separated MAC", got)
+	}
+}
+
+func TestArmisMACAddressListNormalizesAndDeduplicates(t *testing.T) {
+	device := armisDevice{
+		MacAddress:   "00:1a:a0:b9:40:40,garbage,001422F42A2A",
+		MacAddresses: []string{"00-1A-A0-B9-40-40", "70b3.d59e.dc93", ""},
+	}
+
+	got := device.macAddressList()
+	want := []string{"001AA0B94040", "001422F42A2A", "70B3D59EDC93"}
+	if len(got) != len(want) {
+		t.Fatalf("macAddressList = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("macAddressList[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestBuildArmisUpdateSplitsMultiMACField(t *testing.T) {
+	server := &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default"}}
+	runner := &syncSourceRunner{config: models.SourceConfig{Type: armisSourceType}}
+
+	update := buildArmisUpdate(server, runner, armisDevice{
+		DeviceID:   42,
+		IPAddress:  "10.0.0.2",
+		MacAddress: "junk,00:1A:A0:B9:40:40,001422F42A2A",
+	}, "managed")
+
+	if update["mac"] != "00:1A:A0:B9:40:40" {
+		t.Fatalf("update[mac] = %q, want first valid atomic MAC", update["mac"])
+	}
+
+	metadata, ok := update["metadata"].(map[string]string)
+	if !ok {
+		t.Fatalf("metadata has type %T, want map[string]string", update["metadata"])
+	}
+	if got := metadata["mac_addresses"]; got != "001AA0B94040,001422F42A2A" {
+		t.Fatalf("metadata[mac_addresses] = %q, want validated normalized MAC list", got)
+	}
+}
+
+func TestBuildArmisUpdateOmitsMACWhenFieldHasNoValidMAC(t *testing.T) {
+	server := &Server{config: &ServerConfig{AgentID: "agent-1", Partition: "default"}}
+	runner := &syncSourceRunner{config: models.SourceConfig{Type: armisSourceType}}
+
+	for name, device := range map[string]armisDevice{
+		"empty":        {DeviceID: 42, IPAddress: "10.0.0.2"},
+		"garbage-only": {DeviceID: 42, IPAddress: "10.0.0.2", MacAddress: "unknown, n/a ,00:11:22:33:44"},
+	} {
+		update := buildArmisUpdate(server, runner, device, "managed")
+
+		if mac, ok := update["mac"]; ok {
+			t.Fatalf("%s: update[mac] = %q, want key omitted", name, mac)
+		}
+
+		metadata, ok := update["metadata"].(map[string]string)
+		if !ok {
+			t.Fatalf("%s: metadata has type %T, want map[string]string", name, update["metadata"])
+		}
+		if value, ok := metadata["mac_addresses"]; ok {
+			t.Fatalf("%s: metadata[mac_addresses] = %q, want key omitted", name, value)
+		}
+	}
+}
+
 func TestConfiguredArmisQueriesDropsBlankQueries(t *testing.T) {
 	got := configuredArmisQueries([]models.QueryConfig{
 		{Label: "blank"},
