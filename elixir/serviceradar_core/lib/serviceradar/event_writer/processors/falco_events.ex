@@ -489,7 +489,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     explicit =
       normalize_string(payload["device_uid"]) ||
         normalize_string(payload["device_id"]) ||
+        normalize_string(output_fields["service_radar.device_uid"]) ||
+        normalize_string(output_fields["service_radar.device.uid"]) ||
+        normalize_string(output_fields["service_radar.device_id"]) ||
         normalize_string(output_fields["serviceradar.device_uid"]) ||
+        normalize_string(output_fields["serviceradar.device.uid"]) ||
         normalize_string(output_fields["device_uid"])
 
     DeviceCorrelation.resolve(%{
@@ -498,13 +502,18 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       hostname: hostname,
       name: normalize_string(output_fields["k8s.node.name"]),
       ip:
-        normalize_string(output_fields["host.ip"]) ||
+        normalize_string(output_fields["service_radar.device_ip"]) ||
+          normalize_string(output_fields["service_radar.source_ip"]) ||
+          normalize_string(output_fields["serviceradar.device_ip"]) ||
+          normalize_string(output_fields["serviceradar.source_ip"]) ||
+          normalize_string(output_fields["host.ip"]) ||
           normalize_string(output_fields["evt.host.ip"])
     })
   end
 
   defp falco_agent_id(payload, output_fields, hostname) do
     normalize_string(payload["agent_id"]) ||
+      normalize_string(output_fields["service_radar.agent_id"]) ||
       normalize_string(output_fields["serviceradar.agent_id"]) ||
       normalize_string(output_fields["agent_id"]) ||
       inferred_agent_id(normalize_string(output_fields["k8s.node.name"]) || hostname)

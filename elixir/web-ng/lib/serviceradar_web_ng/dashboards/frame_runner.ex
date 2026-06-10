@@ -204,6 +204,12 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
           string_at(row, ["metadata", "service_radar", "device_uid"]),
           string_at(row, ["metadata", "service_radar", "device", "id"]),
           string_at(row, ["metadata", "service_radar", "device_id"]),
+          map_value(raw_output_fields, "service_radar.device_uid"),
+          map_value(raw_output_fields, "service_radar.device.uid"),
+          map_value(raw_output_fields, "service_radar.device_id"),
+          map_value(raw_output_fields, "serviceradar.device_uid"),
+          map_value(raw_output_fields, "serviceradar.device.uid"),
+          map_value(raw_output_fields, "serviceradar.device_id"),
           string_at(row, ["metadata", "serviceradar", "device_uid"]),
           string_at(row, ["device", "uid"]),
           string_at(row, ["unmapped", "device_uid"]),
@@ -226,6 +232,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
           string_at(raw, ["metadata", "serviceradar", "agent_id"]),
           string_at(raw, ["unmapped", "agent_id"]),
           map_value(raw_correlation, "agent_id"),
+          map_value(raw_output_fields, "service_radar.agent_id"),
           map_value(raw_output_fields, "serviceradar.agent_id"),
           map_value(raw_output_fields, "agent_id")
         ]),
@@ -260,11 +267,17 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
       ip:
         first_present([
           string_at(row, ["metadata", "service_radar", "source_ip"]),
+          string_at(row, ["metadata", "service_radar", "device_ip"]),
           string_at(row, ["src_endpoint", "ip"]),
           string_at(raw, ["metadata", "service_radar", "source_ip"]),
+          string_at(raw, ["metadata", "service_radar", "device_ip"]),
           string_at(raw, ["src_endpoint", "ip"]),
           map_value(raw_correlation, "host_ip"),
           map_value(raw_correlation, "pod_ip"),
+          map_value(raw_output_fields, "service_radar.device_ip"),
+          map_value(raw_output_fields, "service_radar.source_ip"),
+          map_value(raw_output_fields, "serviceradar.device_ip"),
+          map_value(raw_output_fields, "serviceradar.source_ip"),
           map_value(raw_output_fields, "host.ip"),
           map_value(raw_output_fields, "evt.host.ip")
         ]),

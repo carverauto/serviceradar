@@ -596,6 +596,14 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
         clean_candidates([
           value(row, "source_device_uid"),
           Map.get(service_radar, "device_uid"),
+          Map.get(service_radar, "device_id"),
+          get_in(service_radar, ["device", "id"]),
+          Map.get(raw_output_fields, "service_radar.device_uid"),
+          Map.get(raw_output_fields, "service_radar.device.uid"),
+          Map.get(raw_output_fields, "service_radar.device_id"),
+          Map.get(raw_output_fields, "serviceradar.device_uid"),
+          Map.get(raw_output_fields, "serviceradar.device.uid"),
+          Map.get(raw_output_fields, "serviceradar.device_id"),
           Map.get(device, "uid"),
           Map.get(raw_device, "uid"),
           Map.get(raw_correlation, "device_uid"),
@@ -607,6 +615,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
         clean_candidates([
           Map.get(service_radar, "agent_id"),
           Map.get(raw_correlation, "agent_id"),
+          Map.get(raw_output_fields, "service_radar.agent_id"),
           Map.get(raw_output_fields, "serviceradar.agent_id"),
           Map.get(raw_output_fields, "agent_id"),
           Map.get(unmapped, "agent_id"),
@@ -634,10 +643,15 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
       ips:
         clean_candidates([
           Map.get(service_radar, "device_ip"),
+          Map.get(service_radar, "source_ip"),
           Map.get(device, "ip"),
           Map.get(raw_device, "ip"),
           Map.get(raw_correlation, "host_ip"),
           Map.get(raw_correlation, "pod_ip"),
+          Map.get(raw_output_fields, "service_radar.device_ip"),
+          Map.get(raw_output_fields, "service_radar.source_ip"),
+          Map.get(raw_output_fields, "serviceradar.device_ip"),
+          Map.get(raw_output_fields, "serviceradar.source_ip"),
           Map.get(raw_output_fields, "host.ip"),
           Map.get(raw_output_fields, "evt.host.ip")
         ])

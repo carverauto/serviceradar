@@ -188,6 +188,40 @@ fn security_findings_alias_filters_to_ocsf_findings_category() {
 }
 
 #[test]
+fn security_findings_source_device_uid_matches_service_radar_metadata() {
+    let query = r#"in:security_findings source_device_uid:"sr:device-1" sort:time:desc limit:25"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SecurityFindings));
+    let (sql, _) =
+        events::to_sql_and_params(&plan).expect("should build security findings device SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("service\\_radar.device\\_uid")
+            && lower.contains("service\\_radar.device.uid")
+            && lower.contains("service\\_radar.device\\_id")
+            && lower.contains("from platform.ocsf_devices as d"),
+        "expected source_device_uid filter to include service_radar identity metadata, got: {sql}"
+    );
+}
+
+#[test]
+fn logs_source_device_uid_matches_service_radar_attributes() {
+    let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::Logs));
+    let (sql, _) = logs::to_sql_and_params(&plan).expect("should build logs device SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("service\\_radar.device\\_uid")
+            && lower.contains("service\\_radar.device.uid")
+            && lower.contains("service\\_radar.device\\_id"),
+        "expected logs source_device_uid filter to include service_radar identity attributes, got: {sql}"
+    );
+}
+
+#[test]
 fn scan_activity_alias_filters_to_ocsf_scan_activity_class() {
     let query = "in:scan_activity status:Success sort:time:desc limit:25";
     let plan = plan_for(query);
@@ -203,6 +237,22 @@ fn scan_activity_alias_filters_to_ocsf_scan_activity_class() {
     assert!(
         lower.contains("order by \"ocsf_events\".\"time\" desc"),
         "expected time desc ordering, got: {sql}"
+    );
+}
+
+#[test]
+fn scan_activity_source_device_uid_matches_service_radar_metadata() {
+    let query = r#"in:scan_activity source_device_uid:"sr:device-1" sort:time:desc limit:25"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::ScanActivity));
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build scan activity device SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("service\\_radar.device\\_uid")
+            && lower.contains("\"ocsf_events\".\"class_uid\" = 6007")
+            && lower.contains("from platform.ocsf_devices as d"),
+        "expected scan_activity device filter to include service_radar identity metadata, got: {sql}"
     );
 }
 

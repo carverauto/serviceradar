@@ -28,6 +28,49 @@ type EventsFromClause = FromClause<EventsTable>;
 type EventsQuery<'a> =
     BoxedSelectStatement<'a, <EventsTable as AsQuery>::SqlType, EventsFromClause, Pg>;
 
+const EVENT_DEVICE_IDENTITY_KEYS: &[&str] = &[
+    "service_radar.device_uid",
+    "service_radar.device.uid",
+    "service_radar.device_id",
+    "serviceradar.device_id",
+    "serviceradar.device.uid",
+    "device_id",
+    "device_uid",
+    "source_device_uid",
+    "target_device_uid",
+    "uid",
+    "id",
+];
+const EVENT_DEVICE_HOST_KEYS: &[&str] = &[
+    "service_radar.device_hostname",
+    "service_radar.source_instance",
+    "service_radar.node_name",
+    "service_radar.device_ip",
+    "service_radar.source_ip",
+    "hostname",
+    "host",
+    "host.name",
+    "k8s.node.name",
+    "source.host",
+    "source.hostname",
+    "source.ip",
+    "server_identity",
+    "ip",
+];
+const DEVICE_INVENTORY_ALIAS_EXPRESSIONS: &[&str] = &[
+    "d.uid",
+    "d.uid_alt",
+    "d.hostname",
+    "d.name",
+    "d.ip",
+    "d.agent_id",
+    "d.metadata->>'sys_name'",
+    "d.metadata->>'snmp_name'",
+    "d.metadata->>'controller_name'",
+    "d.metadata->>'unifi_device_id'",
+    "d.metadata->>'device_id'",
+];
+
 pub(super) async fn execute(
     conn: &mut AsyncPgConnection,
     plan: &QueryPlan,
@@ -214,20 +257,7 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
             query = apply_text_filter!(query, filter, col_span_id)?;
         }
         "device_id" | "uid" | "source_device_uid" => {
-            query = apply_metadata_identity_filter(
-                query,
-                filter,
-                &[
-                    "serviceradar.device_id",
-                    "serviceradar.device.uid",
-                    "device_id",
-                    "device_uid",
-                    "source_device_uid",
-                    "target_device_uid",
-                    "uid",
-                    "id",
-                ],
-            )?;
+            query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
         }
         "purl" | "purl_canonical" | "canonical_purl" => {
             query = apply_json_coordinate_filter(
@@ -300,6 +330,10 @@ fn apply_metadata_identity_filter<'a>(
                   observables::text ILIKE {pattern} ESCAPE '\\')"
             ));
         }
+
+        if keys == EVENT_DEVICE_IDENTITY_KEYS {
+            clauses.push(device_inventory_identity_clause(&value));
+        }
     }
 
     if clauses.is_empty() {
@@ -314,6 +348,63 @@ fn apply_metadata_identity_filter<'a>(
     };
 
     Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn device_inventory_identity_clause(value: &str) -> String {
+    let device_value = sql_string_literal(value);
+    let alias_values = DEVICE_INVENTORY_ALIAS_EXPRESSIONS
+        .iter()
+        .map(|expr| format!("({expr})"))
+        .collect::<Vec<_>>()
+        .join(", ");
+
+    format!(
+        "EXISTS (\
+           SELECT 1 \
+           FROM platform.ocsf_devices AS d \
+           CROSS JOIN LATERAL (\
+             SELECT DISTINCT NULLIF(BTRIM(alias_value), '') AS alias_value \
+             FROM (VALUES {alias_values}) AS aliases(alias_value)\
+           ) AS device_alias \
+           WHERE (d.uid = {device_value} OR d.uid_alt = {device_value}) \
+             AND device_alias.alias_value IS NOT NULL \
+             AND ({})\
+         )",
+        device_alias_event_match_clause("device_alias.alias_value")
+    )
+}
+
+fn device_alias_event_match_clause(alias_expr: &str) -> String {
+    let escaped_alias = format!(
+        "replace(replace(replace({alias_expr}, E'\\\\', E'\\\\\\\\'), '%', E'\\\\%'), '_', E'\\\\_')"
+    );
+
+    let mut clauses = Vec::new();
+
+    for key in EVENT_DEVICE_HOST_KEYS
+        .iter()
+        .chain(EVENT_DEVICE_IDENTITY_KEYS.iter())
+    {
+        let key_pattern = escape_like_fragment(key);
+
+        for column in [
+            "device::text",
+            "metadata::text",
+            "unmapped::text",
+            "observables::text",
+            "src_endpoint::text",
+            "dst_endpoint::text",
+        ] {
+            clauses.push(format!(
+                "{column} ILIKE ('%\"{key_pattern}\"%\"' || {escaped_alias} || '\"%') ESCAPE '\\'"
+            ));
+            clauses.push(format!(
+                "{column} ILIKE ('%{key_pattern}=' || {escaped_alias} || '%') ESCAPE '\\'"
+            ));
+        }
+    }
+
+    clauses.join(" OR ")
 }
 
 fn apply_json_coordinate_filter<'a>(
