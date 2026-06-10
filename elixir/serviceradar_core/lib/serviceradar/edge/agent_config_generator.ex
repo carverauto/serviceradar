@@ -34,6 +34,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.AgentConfig.Compilers.SysmonCompiler
   alias ServiceRadar.AgentConfig.ConfigServer
   alias ServiceRadar.AgentRegistry
+  alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Edge.SNMPProtoMapper
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Integrations.SyncConfigGenerator
@@ -1663,7 +1664,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp load_bumblebee_config(agent_id) do
     if kubernetes_agent?(agent_id) do
-      disabled_bumblebee_config()
+      disabled_feature_config()
     else
       load_bumblebee_config_for_supported_agent(agent_id)
     end
@@ -1697,21 +1698,21 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Map.put_new("max_output_bytes", 33_554_432)
       |> Map.put_new("cadence", "6h")
       |> Map.put_new("findings_only", true)
-      |> Map.put("catalog", bumblebee_catalog_config(snapshot))
+      |> Map.put("catalog", catalog_assignment_config(snapshot))
     else
       {:error, :no_config_found} ->
         Logger.debug("No Bumblebee config found for agent #{agent_id}, using disabled config")
-        disabled_bumblebee_config()
+        disabled_feature_config()
 
       {:error, reason} ->
         Logger.warning(
           "Failed to load Bumblebee config for agent #{agent_id}: #{inspect(reason)}"
         )
 
-        disabled_bumblebee_config()
+        disabled_feature_config()
 
       _ ->
-        disabled_bumblebee_config()
+        disabled_feature_config()
     end
   end
 
@@ -1727,34 +1728,42 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       snapshot.object_size_bytes > 0
   end
 
-  defp bumblebee_catalog_config(snapshot) do
-    download = StorageToken.download_bumblebee_catalog_request(snapshot.object_key)
+  defp catalog_assignment_config(snapshot) do
+    case AgentArtifacts.publish_catalog_assignment(%{
+           source_id: snapshot.source_id || snapshot.snapshot_ref,
+           snapshot_ref: snapshot.snapshot_ref,
+           catalog_version: snapshot.catalog_version,
+           source_revision: snapshot.source_revision,
+           object_key: snapshot.object_key,
+           sha256: snapshot.content_sha256,
+           size_bytes: snapshot.object_size_bytes,
+           promoted_at: snapshot.promoted_at,
+           metadata: %{
+             "snapshot_ref" => snapshot.snapshot_ref,
+             "catalog_version" => snapshot.catalog_version,
+             "source_revision" => snapshot.source_revision
+           }
+         }) do
+      {:ok, assignment} ->
+        assignment
 
-    maybe_put_download_request(
-      %{
-        "schema_version" => "serviceradar.bumblebee.catalog_assignment.v1",
-        "snapshot_ref" => snapshot.snapshot_ref,
-        "catalog_version" => snapshot.catalog_version,
-        "source_revision" => snapshot.source_revision,
-        "object_key" => snapshot.object_key,
-        "sha256" => snapshot.content_sha256,
-        "size_bytes" => snapshot.object_size_bytes,
-        "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
-      },
-      download
-    )
+      {:error, reason} ->
+        Logger.warning("Failed to publish agent catalog artifact", reason: inspect(reason))
+
+        %{
+          "schema_version" => "serviceradar.catalog_assignment.v1",
+          "snapshot_ref" => snapshot.snapshot_ref,
+          "catalog_version" => snapshot.catalog_version,
+          "source_revision" => snapshot.source_revision,
+          "object_key" => snapshot.object_key,
+          "sha256" => snapshot.content_sha256,
+          "size_bytes" => snapshot.object_size_bytes,
+          "promoted_at" => snapshot.promoted_at && DateTime.to_iso8601(snapshot.promoted_at)
+        }
+    end
   end
 
-  defp maybe_put_download_request(config, %{url: url, token: token})
-       when is_binary(url) and is_binary(token) do
-    config
-    |> Map.put("download_url", url)
-    |> Map.put("download_token", token)
-  end
-
-  defp maybe_put_download_request(config, _download), do: config
-
-  defp disabled_bumblebee_config, do: %{"enabled" => false}
+  defp disabled_feature_config, do: %{"enabled" => false}
 
   defp kubernetes_agent?(agent_id), do: String.trim(to_string(agent_id)) == @kubernetes_agent_id
 

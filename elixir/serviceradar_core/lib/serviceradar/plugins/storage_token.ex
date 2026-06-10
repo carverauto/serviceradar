@@ -25,13 +25,20 @@ defmodule ServiceRadar.Plugins.StorageToken do
     download_request(package_id, object_key, "/artifacts/addons/#{package_id}/blob/download")
   end
 
-  @spec download_bumblebee_catalog_request(String.t() | nil) ::
+  @doc """
+  Mints a signed download request for an agent-facing artifact family.
+
+  The token id identifies the logical artifact source. Core authorizes the exact
+  source/object pair before the agent-gateway streams object bytes from
+  DataService.
+  """
+  @spec download_agent_artifact_request(String.t(), String.t() | nil) ::
           %{url: String.t(), token: String.t()} | nil
-  def download_bumblebee_catalog_request(object_key) do
+  def download_agent_artifact_request(token_id, object_key) do
     download_request(
-      "bumblebee-catalog",
+      token_id,
       object_key,
-      "/artifacts/bumblebee/catalog/download"
+      "/artifacts/agent-artifacts/#{safe_path_segment(token_id)}/download"
     )
   end
 
@@ -152,4 +159,15 @@ defmodule ServiceRadar.Plugins.StorageToken do
   end
 
   defp normalize_int(_value, default), do: default
+
+  defp safe_path_segment(value) when is_binary(value) do
+    value
+    |> URI.encode(&URI.char_unreserved?/1)
+    |> case do
+      "" -> "artifact"
+      segment -> segment
+    end
+  end
+
+  defp safe_path_segment(_value), do: "artifact"
 end

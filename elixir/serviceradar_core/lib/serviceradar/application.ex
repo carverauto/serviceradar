@@ -85,6 +85,9 @@ defmodule ServiceRadar.Application do
         # Local registry for process lookups (gateways, agents)
         {Registry, keys: :unique, name: ServiceRadar.LocalRegistry},
 
+        # Runtime publications for agent-gateway-served auxiliary artifacts
+        ServiceRadar.Edge.AgentArtifacts,
+
         # Oban job processor (can be disabled for standalone tests)
         oban_child(),
         oban_failure_event_reporter_child(),

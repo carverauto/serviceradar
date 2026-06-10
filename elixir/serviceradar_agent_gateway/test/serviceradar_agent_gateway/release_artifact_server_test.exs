@@ -89,37 +89,37 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
     end)
   end
 
-  test "streams Bumblebee catalog data through token authorization" do
+  test "streams generic agent artifact data through token authorization" do
     with_plugin_storage(fn ->
-      request = StorageToken.download_bumblebee_catalog_request("bumblebee/catalogs/active/catalog.json")
+      request = StorageToken.download_agent_artifact_request("catalog-source", "catalogs/current.json")
+
+      assert request.url == "https://gateway.example:50053/artifacts/agent-artifacts/catalog-source/download"
 
       conn =
-        :get
-        |> conn("/artifacts/bumblebee/catalog/download")
+        :post
+        |> conn("/artifacts/agent-artifacts/catalog-source/download")
         |> put_req_header("x-serviceradar-plugin-token", request.token)
         |> ReleaseArtifactServer.call(
           ReleaseArtifactServer.init(
             resolve_identity: fn _conn ->
               {:ok, %{component_id: "agent-123", component_type: :agent}}
             end,
-            resolve_bumblebee_catalog_download: fn "bumblebee-catalog",
-                                                   "bumblebee/catalogs/active/catalog.json",
-                                                   "agent-123" ->
+            resolve_agent_artifact_download: fn "catalog-source", "catalogs/current.json", "agent-123" ->
               {:ok,
                %{
-                 object_key: "bumblebee/catalogs/active/catalog.json",
-                 file_name: "bumblebee-catalog.json",
+                 object_key: "catalogs/current.json",
+                 file_name: "current.json",
                  content_type: "application/json"
                }}
             end,
-            download_object: fn "bumblebee/catalogs/active/catalog.json" ->
-              {:ok, ~s({"catalog":[]})}
+            download_object: fn "catalogs/current.json" ->
+              {:ok, ~s({"entries":[]})}
             end
           )
         )
 
       assert conn.status == 200
-      assert conn.resp_body == ~s({"catalog":[]})
+      assert conn.resp_body == ~s({"entries":[]})
       assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
     end)
   end

@@ -8,13 +8,11 @@ defmodule ServiceRadar.Edge.AgentArtifactDelivery do
   """
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Inventory.BumblebeeCatalogSnapshot
+  alias ServiceRadar.Edge.AgentArtifacts
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.PluginPackage
 
   require Ash.Query
-
-  @bumblebee_catalog_token_id "bumblebee-catalog"
 
   @spec resolve_plugin_download(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
@@ -64,29 +62,17 @@ defmodule ServiceRadar.Edge.AgentArtifactDelivery do
   def resolve_addon_download(_package_id, _object_key, _caller_agent_id),
     do: {:error, :unauthorized}
 
-  @spec resolve_bumblebee_catalog_download(String.t(), String.t(), String.t()) ::
+  @spec resolve_token_artifact_download(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def resolve_bumblebee_catalog_download(token_id, object_key, caller_agent_id)
-      when token_id == @bumblebee_catalog_token_id and is_binary(object_key) and
-             is_binary(caller_agent_id) do
-    actor = SystemActor.system(:agent_artifact_download)
-
-    with {:ok, %BumblebeeCatalogSnapshot{} = snapshot} <- active_bumblebee_catalog(actor),
-         true <- same_object_key?(snapshot.object_key, object_key) do
-      {:ok,
-       %{
-         object_key: object_key,
-         file_name: "bumblebee-catalog.json",
-         content_type: "application/json",
-         agent_id: caller_agent_id
-       }}
-    else
-      false -> {:error, :unauthorized}
+  def resolve_token_artifact_download(token_id, object_key, caller_agent_id)
+      when is_binary(token_id) and is_binary(object_key) and is_binary(caller_agent_id) do
+    case AgentArtifacts.authorize_download(token_id, object_key) do
+      {:ok, download} -> {:ok, Map.put(download, :agent_id, caller_agent_id)}
       {:error, _reason} -> {:error, :unauthorized}
     end
   end
 
-  def resolve_bumblebee_catalog_download(_token_id, _object_key, _caller_agent_id),
+  def resolve_token_artifact_download(_token_id, _object_key, _caller_agent_id),
     do: {:error, :unauthorized}
 
   defp plugin_package(package_id, actor) do
@@ -101,13 +87,6 @@ defmodule ServiceRadar.Edge.AgentArtifactDelivery do
     AddonPackage
     |> Ash.Query.for_read(:read)
     |> Ash.Query.filter(id == ^package_id)
-    |> Ash.read_one(actor: actor)
-    |> normalize_read_one()
-  end
-
-  defp active_bumblebee_catalog(actor) do
-    BumblebeeCatalogSnapshot
-    |> Ash.Query.for_read(:active, %{}, actor: actor)
     |> Ash.read_one(actor: actor)
     |> normalize_read_one()
   end

@@ -14,7 +14,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
   @download_path "/artifacts/releases/download"
   @plugin_download_path "/artifacts/plugins/:id/blob/download"
   @addon_download_path "/artifacts/addons/:id/blob/download"
-  @bumblebee_catalog_download_path "/artifacts/bumblebee/catalog/download"
+  @agent_artifact_download_path "/artifacts/agent-artifacts/:id/download"
   @target_header "x-serviceradar-release-target-id"
   @command_header "x-serviceradar-release-command-id"
   @plugin_token_header "x-serviceradar-plugin-token"
@@ -78,12 +78,12 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServer do
     serve_token_artifact(conn, id, :resolve_addon_artifact_download, "add-on artifact")
   end
 
-  get @bumblebee_catalog_download_path do
-    serve_token_artifact(conn, "bumblebee-catalog", :resolve_bumblebee_catalog_download, "bumblebee catalog")
+  get @agent_artifact_download_path do
+    serve_token_artifact(conn, id, :resolve_agent_artifact_download, "agent artifact")
   end
 
-  post @bumblebee_catalog_download_path do
-    serve_token_artifact(conn, "bumblebee-catalog", :resolve_bumblebee_catalog_download, "bumblebee catalog")
+  post @agent_artifact_download_path do
+    serve_token_artifact(conn, id, :resolve_agent_artifact_download, "agent artifact")
   end
 
   match _ do

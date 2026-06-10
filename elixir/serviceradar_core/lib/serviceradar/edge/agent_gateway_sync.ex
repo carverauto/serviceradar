@@ -109,14 +109,10 @@ defmodule ServiceRadar.Edge.AgentGatewaySync do
     AgentArtifactDelivery.resolve_addon_download(package_id, object_key, caller_agent_id)
   end
 
-  @spec resolve_bumblebee_catalog_download(String.t(), String.t(), String.t()) ::
+  @spec resolve_agent_artifact_download(String.t(), String.t(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def resolve_bumblebee_catalog_download(token_id, object_key, caller_agent_id) do
-    AgentArtifactDelivery.resolve_bumblebee_catalog_download(
-      token_id,
-      object_key,
-      caller_agent_id
-    )
+  def resolve_agent_artifact_download(token_id, object_key, caller_agent_id) do
+    AgentArtifactDelivery.resolve_token_artifact_download(token_id, object_key, caller_agent_id)
   end
 
   @spec resolve_credential_broker_grant(map()) :: {:ok, map()} | {:error, term()}
