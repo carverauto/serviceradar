@@ -15,6 +15,9 @@ problem.
   metadata.
 - Let add-ons/integrations ship processor contributions through their package, import,
   and approval lifecycle.
+- Persist processor and catalog contracts in core/CNPG at package install or
+  registration time, because running add-ons may live on agents and are not directly
+  reachable by core/web-ng.
 - Support PowerDNS DNS Activity, Falco detections, Trivy vulnerability/compliance
   findings, Bumblebee scan activity/findings, endpoint inventory, and future security
   sidecars without producer-specific aliases in EventWriter.
@@ -29,6 +32,9 @@ problem.
   as an EventWriter processor.
 - Do not let processor manifests decide tenancy, partition routing, RBAC, or trust
   boundaries.
+- Do not require core/web-ng to call running add-ons to fetch processor definitions,
+  catalogs, or mapping logic at event-processing time.
+- Do not move EventWriter processing into add-ons.
 - Do not require all old records to be backfilled or reprocessed.
 - Do not remove the core platform processors for generic events/logs/OTEL/flows.
 
@@ -52,14 +58,21 @@ declares:
 - promotion policy for log-to-event or event-to-alert input
 - priority and conflict behavior for overlapping subject filters
 
-The processor contribution is versioned with the package. Importing a new package
-version can stage a new processor version without changing core code.
+The processor contribution is versioned with the package. Importing, installing, or
+registering a new package version can stage a new processor version without changing
+core code.
 
 ### D2: Approval controls activation
 Processor contributions are inert until the package is approved. Approval records the
-effective processor manifest after operator review and any platform validation. A denied
-or revoked package disables its processor contributions. EventWriter loads only approved
-processor contributions plus core platform defaults.
+effective processor manifest after operator review and any platform validation. The
+effective manifest is persisted in CNPG as a normalized contract owned by the package
+version. A denied or revoked package disables its processor contributions. EventWriter
+loads only approved processor contributions plus core platform defaults.
+
+Core must never call a running add-on to ask for an EventWriter processor. Add-ons run
+on agents and may only be reachable through agent-gateway/command bus paths; those paths
+are for operational commands, not hot-path ingestion routing. The package/import path is
+where the contract enters core.
 
 ### D3: EventWriter uses a registry snapshot
 Introduce a processor registry read model that EventWriter can load at startup and
@@ -69,6 +82,11 @@ routes and engine configuration, not package source files.
 EventWriter SHALL build producer subscriptions, Broadway batchers, and processor
 resolution from this snapshot. The pipeline must not contain producer-specific clauses
 such as `get_processor(:pdns_ocsf)` or aliases for PowerDNS/Falco/Trivy.
+
+Dynamic package-contributed JetStream consumers should use the same Broadway-backed
+EventWriter path as the existing pipeline. Shared JetStream helper modules may keep
+consumer creation/API utilities, but message consumption and back-pressure should remain
+Broadway-owned rather than growing independent receive loops.
 
 ### D4: Core owns processor engines
 Packages select from platform-owned engines. Initial engines:
@@ -121,6 +139,36 @@ contribution manifests with their packages. Documentation and SDK helpers should
 those as reference patterns. The EventWriter source tree should not grow new
 producer-named processors for every integration.
 
+### D9: Catalog and artifact refresh are generic package contributions
+Catalog-style integrations, including Bumblebee, should declare catalog/artifact
+contracts as package metadata instead of owning a core worker such as
+`BumblebeeCatalogRefreshWorker`. The generic contract should cover:
+
+- catalog source id, version, and schema
+- fetch source and refresh cadence
+- parser/validator engine id from platform-owned engines
+- object-store staging destination
+- snapshot promotion policy
+- agent assignment metadata needed to retrieve the staged object through the
+  agent-gateway artifact path
+
+Core owns the generic catalog refresh worker and persistence model. A package can
+contribute a catalog contract, but it cannot require core to call the add-on process to
+resolve a catalog or to run package-supplied code.
+
+### D10: SDKs expose typed contract builders
+The add-on SDK in this repository and the external Go/Rust plugin SDKs should expose
+idiomatic builders/validators for:
+
+- signal schemas and display contracts
+- EventWriter processor contributions
+- catalog/artifact refresh contributions
+- OCSF finding and scan activity mappings
+- device-correlation hints
+
+SDK APIs should produce package metadata that core can validate and persist. They should
+not expose an API that implies the add-on will be called at runtime to process events.
+
 ## Risks / Trade-offs
 - **Declarative mapping may not cover every case immediately.** Mitigate with a
   short-lived platform adapter escape hatch while moving common logic into reusable
@@ -131,6 +179,8 @@ producer-named processors for every integration.
   atomic reload, and keeping the previous snapshot active when validation fails.
 - **Third-party manifests could be abusive.** Mitigate with signing, approval,
   bounded DSL validation, payload limits, and telemetry on dropped records.
+- **SDK drift can create invalid manifests.** Mitigate by sharing JSON Schema fixtures
+  and validation examples across the in-repo add-on SDK and Go/Rust plugin SDKs.
 
 ## Migration Plan
 1. Define the processor contribution schema and validation rules.
@@ -140,14 +190,16 @@ producer-named processors for every integration.
 4. Convert Falco and Trivy to package-owned contributions using security finding and
    promotion engines.
 5. Convert Bumblebee and endpoint inventory to scan activity/finding contributions.
-6. Remove producer-specific aliases, subject matchers, and batcher clauses from
+6. Replace `BumblebeeCatalogRefreshWorker` with the generic package catalog/artifact
+   refresh contract and worker.
+7. Add typed add-on SDK, Go SDK, and Rust SDK helpers for processor/catalog
+   contributions.
+8. Remove producer-specific aliases, subject matchers, and batcher clauses from
    EventWriter.
-7. Document processor contribution authoring for native add-ons, sidecars, and Wasm
+9. Document processor contribution authoring for native add-ons, sidecars, and Wasm
    packages.
 
 ## Open Questions
-- Should approved processor manifests be persisted as Ash resources, plain tables, or
-  derived from existing package/version records at startup?
 - Should EventWriter reload registry snapshots through PubSub, Oban job scheduling, or
   supervisor restart?
 - Which OCSF 1.9.0-dev finding/scan fields should be mandatory in the first migration

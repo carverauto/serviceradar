@@ -55,3 +55,21 @@ identity fields as authoritative tenant, partition, or agent identity.
 - **THEN** the stored signal SHALL include correlation candidates for inventory lookup
 - **AND** tenant, partition, and agent identity SHALL still come from authenticated
   ingestion provenance
+
+### Requirement: SDKs produce valid signal contribution contracts
+The add-on SDK and the Go/Rust plugin SDKs SHALL provide typed helpers for generating
+signal schema references, EventWriter processor contributions, OCSF finding mappings,
+scan activity mappings, and device-correlation hints. SDK-generated contracts SHALL
+validate with the same core schema used during package import.
+
+#### Scenario: Go plugin SDK emits a processor contribution
+- **GIVEN** a Go plugin author uses the SDK to declare an OCSF finding processor
+- **WHEN** the package manifest is generated
+- **THEN** the manifest SHALL include a processor contribution accepted by core
+  validation
+
+#### Scenario: Rust plugin SDK emits a scan activity mapping
+- **GIVEN** a Rust plugin author uses the SDK to declare a scan activity mapping
+- **WHEN** the package manifest is generated
+- **THEN** the manifest SHALL include a bounded scan activity contribution accepted by
+  core validation
