@@ -10,6 +10,10 @@ defmodule Serviceradar.Agent.Addon.V1.TelemetryPayloadKind do
   field :TELEMETRY_PAYLOAD_KIND_UNSPECIFIED, 0
   field :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT, 1
   field :TELEMETRY_PAYLOAD_KIND_OTEL_LOG, 2
+  field :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES, 3
+  field :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS, 4
+  field :TELEMETRY_PAYLOAD_KIND_OTLP_METRICS, 5
+  field :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, 6
 end
 
 defmodule Serviceradar.Agent.Addon.V1.TelemetrySource.MetadataEntry do
@@ -106,4 +110,27 @@ defmodule Serviceradar.Agent.Addon.V1.TelemetryBatch do
   field :source, 1, type: Serviceradar.Agent.Addon.V1.TelemetrySource
   field :records, 2, repeated: true, type: Serviceradar.Agent.Addon.V1.TelemetryRecord
   field :counters, 3, type: Serviceradar.Agent.Addon.V1.TelemetryCounters
+end
+
+defmodule Serviceradar.Agent.Addon.V1.OtlpRelayFrame do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.addon.v1.OtlpRelayFrame",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :relay_id, 1, type: :uint64, json_name: "relayId"
+  field :batch, 2, type: Serviceradar.Agent.Addon.V1.TelemetryBatch
+end
+
+defmodule Serviceradar.Agent.Addon.V1.OtlpRelayAck do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "serviceradar.agent.addon.v1.OtlpRelayAck",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :acked_relay_id, 1, type: :uint64, json_name: "ackedRelayId"
 end

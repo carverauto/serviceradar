@@ -25,16 +25,16 @@ use tokio::net::UnixListener;
 use tokio_stream::wrappers::UnixListenerStream;
 use tokio_stream::StreamExt as _;
 use tonic::transport::Server;
-use tonic::{Request, Response, Status};
+use tonic::{Request, Response, Status, Streaming};
 
 use crate::handshake::{self, HandshakeError};
 use crate::pb::addon_service_server::{AddonService, AddonServiceServer};
 use crate::pb::{
     ConfigureRequest, ConfigureResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    StreamTelemetryRequest,
+    OtlpRelayAck, StreamTelemetryRequest,
 };
 use crate::tls::{self, MtlsError};
-use crate::{Addon, TelemetryStream};
+use crate::{Addon, OtlpRelayAckStream, OtlpRelayStream, TelemetryStream};
 
 /// The gRPC health-check service name the go-plugin client probes
 /// (`go-plugin`'s `GRPCServiceName`). The agent calls `Health/Check` for this
@@ -244,5 +244,18 @@ impl AddonService for AddonGrpc {
         _request: Request<StreamTelemetryRequest>,
     ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
         Ok(Response::new(self.inner.stream_telemetry()))
+    }
+
+    type RelayOtlpStream = OtlpRelayStream;
+
+    async fn relay_otlp(
+        &self,
+        request: Request<Streaming<OtlpRelayAck>>,
+    ) -> Result<Response<Self::RelayOtlpStream>, Status> {
+        // Box tonic's request stream into the transport-agnostic alias the
+        // Addon trait consumes; the default implementation rejects the call
+        // with UNIMPLEMENTED for add-ons without otlp-relay:v1.
+        let acks: OtlpRelayAckStream = Box::pin(request.into_inner());
+        Ok(Response::new(self.inner.relay_otlp(acks)?))
     }
 }
