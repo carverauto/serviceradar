@@ -75,6 +75,8 @@ defmodule ServiceRadar.NATS.Connection do
   """
   @spec publish(String.t(), String.t() | binary(), keyword()) :: :ok | {:error, term()}
   def publish(subject, payload, opts \\ []) do
+    opts = put_trace_context(opts)
+
     case get() do
       {:ok, conn} ->
         try do
@@ -87,6 +89,19 @@ defmodule ServiceRadar.NATS.Connection do
 
       {:error, reason} ->
         {:error, {:nats_not_connected, reason}}
+    end
+  end
+
+  # Injects W3C trace context (traceparent/tracestate) into the outbound
+  # message headers when a span is active, so NATS consumers can join the
+  # publisher's trace. No-op (and no headers key added) when there is no
+  # active span context and no pre-existing headers.
+  defp put_trace_context(opts) do
+    headers = Keyword.get(opts, :headers, [])
+
+    case ServiceRadar.Otel.Propagation.inject_headers(headers) do
+      ^headers -> opts
+      injected -> Keyword.put(opts, :headers, injected)
     end
   end
 

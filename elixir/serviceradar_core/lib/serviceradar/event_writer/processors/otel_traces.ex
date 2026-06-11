@@ -12,6 +12,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   - Protobuf: OpenTelemetry `ExportTraceServiceRequest`
   - JSON: Trace span data with attributes
 
+  Identifiers are normalized to the canonical contract (32/16 character
+  lowercase hex, NULL for absent/zero ids) via `ServiceRadar.EventWriter.OtelId`.
+
   ## Table Schema
 
   ```sql
@@ -43,7 +46,17 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias Opentelemetry.Proto.Collector.Trace.V1.ExportTraceServiceRequest
+  alias Opentelemetry.Proto.Common.V1.InstrumentationScope
+  alias Opentelemetry.Proto.Trace.V1.ResourceSpans
+  alias Opentelemetry.Proto.Trace.V1.ScopeSpans
+  alias Opentelemetry.Proto.Trace.V1.Span
+  alias Opentelemetry.Proto.Trace.V1.Span.SpanKind
+  alias Opentelemetry.Proto.Trace.V1.Status
+  alias Opentelemetry.Proto.Trace.V1.Status.StatusCode
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.OtelId
+  alias ServiceRadar.EventWriter.OtlpAttributes
 
   require Logger
 
@@ -82,7 +95,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   defp build_rows(messages) do
     messages
-    |> Enum.map(&parse_message/1)
+    |> Enum.flat_map(&List.wrap(parse_message(&1)))
     |> Enum.reject(&is_nil/1)
   end
 
@@ -104,9 +117,12 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
     %{
       timestamp: timestamp,
-      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
-      span_id: FieldParser.get_field(json, "span_id", "spanId"),
-      parent_span_id: FieldParser.get_field(json, "parent_span_id", "parentSpanId"),
+      trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
+      span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
+      parent_span_id:
+        OtelId.normalize_parent_span_id(
+          FieldParser.get_field(json, "parent_span_id", "parentSpanId")
+        ),
       name: json["name"],
       kind: json["kind"],
       start_time_unix_nano:
@@ -135,9 +151,158 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     }
   end
 
-  defp parse_protobuf_trace(_data, _metadata) do
-    # TODO: Implement protobuf parsing for ExportTraceServiceRequest
-    # For now, skip protobuf messages
-    nil
+  defp parse_protobuf_trace(data, metadata) do
+    case decode_export_traces(data) do
+      {:ok, %ExportTraceServiceRequest{} = request} ->
+        parse_export_traces(request, metadata)
+
+      {:error, reason} ->
+        Logger.debug("Failed to decode OTLP traces protobuf: #{inspect(reason)}")
+        nil
+    end
   end
+
+  defp decode_export_traces(data) do
+    {:ok, ExportTraceServiceRequest.decode(data)}
+  rescue
+    error -> {:error, error}
+  end
+
+  defp parse_export_traces(%ExportTraceServiceRequest{resource_spans: resource_spans}, metadata) do
+    Enum.flat_map(resource_spans, &parse_resource_spans(&1, metadata))
+  end
+
+  defp parse_resource_spans(
+         %ResourceSpans{resource: resource, scope_spans: scope_spans},
+         metadata
+       ) do
+    resource_attributes = OtlpAttributes.key_values_to_map(resource && resource.attributes)
+
+    service_name =
+      resource_attributes["service.name"] || resource_attributes["service_name"] || "unknown"
+
+    service_version =
+      resource_attributes["service.version"] || resource_attributes["service_version"]
+
+    service_instance =
+      resource_attributes["service.instance.id"] || resource_attributes["service_instance"]
+
+    Enum.flat_map(scope_spans, fn scope_span ->
+      parse_scope_spans(
+        scope_span,
+        service_name,
+        service_version,
+        service_instance,
+        resource_attributes,
+        metadata
+      )
+    end)
+  end
+
+  defp parse_resource_spans(_, _metadata), do: []
+
+  defp parse_scope_spans(
+         %ScopeSpans{scope: scope, spans: spans},
+         service_name,
+         service_version,
+         service_instance,
+         resource_attributes,
+         _metadata
+       ) do
+    {scope_name, scope_version} = parse_scope(scope)
+    encoded_resource_attributes = FieldParser.encode_json(resource_attributes)
+
+    Enum.map(spans, fn %Span{} = span ->
+      %{
+        timestamp: span_timestamp(span),
+        trace_id: OtelId.normalize_trace_id(span.trace_id),
+        span_id: OtelId.normalize_span_id(span.span_id),
+        parent_span_id: OtelId.normalize_parent_span_id(span.parent_span_id),
+        name: span.name,
+        kind: enum_to_int(SpanKind, span.kind),
+        start_time_unix_nano: FieldParser.safe_bigint(span.start_time_unix_nano),
+        end_time_unix_nano: FieldParser.safe_bigint(span.end_time_unix_nano),
+        service_name: service_name,
+        service_version: service_version,
+        service_instance: service_instance,
+        scope_name: scope_name,
+        scope_version: scope_version,
+        status_code: status_code(span.status),
+        status_message: status_message(span.status),
+        attributes: FieldParser.encode_json(OtlpAttributes.key_values_to_map(span.attributes)),
+        resource_attributes: encoded_resource_attributes,
+        events: FieldParser.encode_json(Enum.map(span.events, &event_to_map/1)),
+        links: FieldParser.encode_json(Enum.map(span.links, &link_to_map/1)),
+        created_at: DateTime.utc_now()
+      }
+    end)
+  end
+
+  defp parse_scope_spans(
+         _,
+         _service_name,
+         _service_version,
+         _service_instance,
+         _resource_attributes,
+         _metadata
+       ), do: []
+
+  defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
+  defp parse_scope(_), do: {nil, nil}
+
+  # Derive the row timestamp from the span start time, preserving
+  # microsecond precision (TIMESTAMPTZ resolution).
+  defp span_timestamp(%Span{start_time_unix_nano: start_ns, end_time_unix_nano: end_ns}) do
+    cond do
+      is_integer(start_ns) and start_ns > 0 -> from_unix_nano(start_ns)
+      is_integer(end_ns) and end_ns > 0 -> from_unix_nano(end_ns)
+      true -> DateTime.utc_now()
+    end
+  end
+
+  defp from_unix_nano(ns) do
+    DateTime.from_unix!(div(ns, 1000), :microsecond)
+  rescue
+    _ -> DateTime.utc_now()
+  end
+
+  defp status_code(%Status{code: code}), do: enum_to_int(StatusCode, code) || 0
+  defp status_code(_), do: 0
+
+  defp status_message(%Status{message: message}) when is_binary(message) and message != "",
+    do: message
+
+  defp status_message(_), do: nil
+
+  defp enum_to_int(_module, value) when is_integer(value), do: value
+
+  defp enum_to_int(module, value) when is_atom(value) and not is_nil(value) do
+    module.value(value)
+  rescue
+    _ -> nil
+  end
+
+  defp enum_to_int(_module, _value), do: nil
+
+  defp event_to_map(%Span.Event{} = event) do
+    %{
+      "time_unix_nano" => event.time_unix_nano,
+      "name" => event.name,
+      "attributes" => OtlpAttributes.key_values_to_map(event.attributes),
+      "dropped_attributes_count" => event.dropped_attributes_count
+    }
+  end
+
+  defp event_to_map(_), do: %{}
+
+  defp link_to_map(%Span.Link{} = link) do
+    %{
+      "trace_id" => OtelId.normalize_trace_id(link.trace_id),
+      "span_id" => OtelId.normalize_span_id(link.span_id),
+      "trace_state" => link.trace_state,
+      "attributes" => OtlpAttributes.key_values_to_map(link.attributes)
+    }
+  end
+
+  defp link_to_map(_), do: %{}
 end

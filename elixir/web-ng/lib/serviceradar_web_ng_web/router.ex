@@ -746,6 +746,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/cameras", CameraLive.Index, :index)
       live("/cameras/:camera_source_id", CameraLive.Show, :show)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
+      live("/observability/traces/:trace_id", TraceLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)

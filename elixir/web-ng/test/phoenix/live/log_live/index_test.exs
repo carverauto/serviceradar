@@ -34,7 +34,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert html =~ "Page 1 log"
     assert has_element?(lv, "#logs-live-status", "Off")
 
-    assert [%{cursor: nil}] = drain_srql_calls()
+    assert [%{cursor: nil} | _] = drain_srql_calls()
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
@@ -55,13 +55,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     |> render_click()
 
     assert has_element?(lv, "#logs-live-status", "On")
-    assert [%{cursor: nil}] = drain_srql_calls()
+    assert [%{cursor: nil} | _] = drain_srql_calls()
 
     send(lv.pid, {:logs_ingested, %{}})
     send(lv.pid, {:debounced_refresh, "logs"})
     render(lv)
 
-    assert [%{cursor: nil}] = drain_srql_calls()
+    assert [%{cursor: nil} | _] = drain_srql_calls()
   end
 
   test "manual pagination pauses live mode before subsequent refreshes", %{conn: conn} do
@@ -103,6 +103,76 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert html =~ "Unified view of logs, traces, metrics, and infrastructure signals."
   end
 
+  # Regression for the initial tab load dropping list results: the first
+  # connected render must already contain the rows (no deferred diff, no
+  # manual re-run). Asserting on the html returned by live/2 is intentional —
+  # it is the join-time render.
+  test "metrics tab renders rows on the initial connected mount without a manual run", %{conn: conn} do
+    {:ok, lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics"}}")
+
+    assert html =~ "metrics-service"
+    refute html =~ "No metrics found."
+
+    # Tab switching still works after the initial load.
+    html = render_patch(lv, ~p"/observability?#{%{tab: "logs"}}")
+    assert html =~ "Page 1 log"
+  end
+
+  test "metrics pane labels span samples and cumulative sums distinctly", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics"}}")
+
+    assert html =~ "span sample"
+    assert html =~ "sum (cumulative)"
+    assert html =~ "cumulative"
+  end
+
+  test "metrics stat cards are clickable filters", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics"}}")
+
+    # Cards reflect the spans_red_1h rollup payload, not zeros.
+    assert html =~ "1.2k"
+
+    # Total -> reset metrics list; Slow Spans -> is_slow:true drill-down.
+    assert html =~ "q=in%3Aotel_metrics+sort%3Atimestamp%3Adesc"
+    assert html =~ "q=in%3Aotel_metrics+is_slow%3Atrue+sort%3Atimestamp%3Adesc"
+
+    # Errors / Error Rate cards pivot to the error trace list (the RED error
+    # counts come from spans, which drill down via trace summaries).
+    assert html =~ "q=in%3Aotel_trace_summaries+error_count%3A%3E0+sort%3Atimestamp%3Adesc"
+    assert html =~ "tab=traces"
+  end
+
+  test "traces stat cards are clickable filters", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "traces"}}")
+
+    # Total -> reset; Successful -> error_count:0; Errors -> error_count:>0.
+    assert html =~ "q=in%3Aotel_trace_summaries+sort%3Atimestamp%3Adesc"
+    assert html =~ "q=in%3Aotel_trace_summaries+error_count%3A0+sort%3Atimestamp%3Adesc"
+    assert html =~ "q=in%3Aotel_trace_summaries+error_count%3A%3E0+sort%3Atimestamp%3Adesc"
+  end
+
+  test "trace rows navigate to the trace detail view", %{conn: conn} do
+    {:ok, lv, _html} =
+      live(
+        conn,
+        ~p"/observability?#{%{tab: "traces", q: "in:otel_trace_summaries time:last_24h sort:timestamp:desc", limit: 20}}"
+      )
+
+    html = render(lv)
+
+    assert html =~ "Click a trace to open the span waterfall."
+    assert html =~ "/observability/traces/aabbccddeeff00112233445566778899"
+    refute html =~ "tab=logs&amp;q=in%3Alogs+trace_id"
+
+    # Row with a usable trace_id is clickable; row without one is inert.
+    assert has_element?(lv, "#traces-row-0[phx-click]")
+    refute has_element?(lv, "#traces-row-1[phx-click]")
+  end
+
   defp drain_srql_calls(acc \\ []) do
     receive do
       {:srql_query, payload} ->
@@ -132,9 +202,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
       cursor = Map.get(opts, :cursor)
 
+      results =
+        cond do
+          String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
+          String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
+          String.starts_with?(query, "in:otel_trace_summaries") -> sample_traces()
+          String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
+          true -> sample_logs(cursor)
+        end
+
       {:ok,
        %{
-         "results" => sample_logs(cursor),
+         "results" => results,
          "pagination" => pagination(cursor),
          "error" => nil
        }}
@@ -143,6 +222,72 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     @impl true
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
+
+    defp red_rollup_payload do
+      %{
+        "total" => 1200,
+        "errors" => 24,
+        "slow" => 36,
+        "error_rate" => 2.0,
+        "avg_duration_ms" => 12.5,
+        "p50_duration_ms" => 8.0,
+        "p95_duration_ms" => 42.0,
+        "max_duration_ms" => 480.0
+      }
+    end
+
+    defp traces_rollup_payload do
+      %{
+        "total" => 900,
+        "errors" => 18,
+        "avg_duration_ms" => 11.0,
+        "p95_duration_ms" => 40.0
+      }
+    end
+
+    defp sample_metrics do
+      [
+        %{
+          "timestamp" => "2026-04-18T15:02:00Z",
+          "service_name" => "metrics-service",
+          "metric_type" => "span",
+          "span_name" => "GET /api/devices",
+          "span_id" => "00f067aa0ba902b7",
+          "trace_id" => "aabbccddeeff00112233445566778899",
+          "duration_ms" => 250.5,
+          "is_slow" => true
+        },
+        %{
+          "timestamp" => "2026-04-18T15:01:00Z",
+          "service_name" => "falco",
+          "metric_type" => "sum",
+          "metric_name" => "falco.outputs.queue",
+          "value" => 1234.0
+        }
+      ]
+    end
+
+    defp sample_traces do
+      [
+        %{
+          "trace_id" => "aabbccddeeff00112233445566778899",
+          "timestamp" => "2026-04-18T15:02:00Z",
+          "root_service_name" => "web-ng",
+          "root_span_name" => "GET /api/devices",
+          "duration_ms" => 12.5,
+          "span_count" => 3,
+          "error_count" => 0
+        },
+        %{
+          "timestamp" => "2026-04-18T15:01:00Z",
+          "root_service_name" => "core-elx",
+          "root_span_name" => "orphan summary",
+          "duration_ms" => 1.0,
+          "span_count" => 1,
+          "error_count" => 0
+        }
+      ]
+    end
 
     defp sample_logs("cursor-page-2") do
       [

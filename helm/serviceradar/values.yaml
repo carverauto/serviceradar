@@ -1018,6 +1018,35 @@ logCollector:
         port: 2055
         targetPort: 2055
         protocol: UDP
+  # Dedicated Service (serviceradar-otlp) for external OTLP ingest.
+  # The log-collector serves OTLP/gRPC on 4317 with server TLS issued by the
+  # ServiceRadar private CA, so external senders must either trust the
+  # ServiceRadar root CA bundle or disable certificate verification
+  # (e.g. OTLP exporter `tls.insecure_skip_verify: true`).
+  otlp:
+    service:
+      enabled: true
+      # Service type: LoadBalancer (default), NodePort, or ClusterIP.
+      type: LoadBalancer
+      # Only advertise from nodes with local endpoints (set Local to preserve
+      # client source IPs; required for Calico BGP / MetalLB L2 setups).
+      externalTrafficPolicy: Cluster
+      # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
+      # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
+      # Example for AWS NLB: service.beta.kubernetes.io/aws-load-balancer-type: nlb
+      annotations: {}
+      # Optional static IP for the load balancer (if supported by provider)
+      loadBalancerIP: ""
+      # Optional load balancer implementation class (if supported by provider)
+      loadBalancerClass: ""
+      # OTLP/gRPC port. targetPort must match the log-collector container port.
+      port: 4317
+      targetPort: 4317
+      http:
+        # enable when OTLP/HTTP lands — the collector has no 4318 listener yet
+        enabled: false
+        port: 4318
+        targetPort: 4318
   tcpCollector:
     enabled: true
     replicaCount: 3
@@ -1491,6 +1520,14 @@ networkPolicy:
       # External syslog collectors receive log traffic from network devices.
       # This only renders policies for enabled non-ClusterIP log collector
       # external services.
+      enabled: true
+      allowedCIDRs:
+        - "0.0.0.0/0"
+    otlpExternal:
+      # The serviceradar-otlp LoadBalancer receives OTLP/gRPC telemetry from
+      # external senders. Keep this separate from the namespace-wide ingress
+      # policy so opening TCP/4317 does not also expose unrelated workloads.
+      # Only renders when logCollector.otlp.service is enabled and non-ClusterIP.
       enabled: true
       allowedCIDRs:
         - "0.0.0.0/0"

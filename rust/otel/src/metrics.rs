@@ -43,6 +43,55 @@ lazy_static! {
         "Total number of slow spans (>100ms)",
         &["service_name", "span_name"]
     ).unwrap();
+
+    // Per-signal delivery accounting: items received via OTLP export requests.
+    pub static ref OTEL_RECEIVED_TOTAL: CounterVec = register_counter_vec!(
+        "otel_received_total",
+        "Total OTLP items received by the collector, by signal (spans, log records, metric data points)",
+        &["signal"]
+    ).unwrap();
+
+    // Per-signal delivery accounting: items successfully published to NATS.
+    pub static ref OTEL_PUBLISHED_TOTAL: CounterVec = register_counter_vec!(
+        "otel_published_total",
+        "Total OTLP items successfully published to NATS, by signal",
+        &["signal"]
+    ).unwrap();
+
+    // Per-signal delivery accounting: items that failed to publish to NATS
+    // after retry. received == published + publish_failures (modulo in-flight).
+    pub static ref OTEL_PUBLISH_FAILURES_TOTAL: CounterVec = register_counter_vec!(
+        "otel_publish_failures_total",
+        "Total OTLP items that failed to publish to NATS after retry, by signal",
+        &["signal"]
+    ).unwrap();
+}
+
+/// Record items received for a signal ("traces", "metrics", "logs", "span_metrics").
+pub fn record_received(signal: &str, count: usize) {
+    if count > 0 {
+        OTEL_RECEIVED_TOTAL
+            .with_label_values(&[signal])
+            .inc_by(count as f64);
+    }
+}
+
+/// Record items successfully published to NATS for a signal.
+pub fn record_published(signal: &str, count: usize) {
+    if count > 0 {
+        OTEL_PUBLISHED_TOTAL
+            .with_label_values(&[signal])
+            .inc_by(count as f64);
+    }
+}
+
+/// Record items that failed to publish to NATS (after retry) for a signal.
+pub fn record_publish_failure(signal: &str, count: usize) {
+    if count > 0 {
+        OTEL_PUBLISH_FAILURES_TOTAL
+            .with_label_values(&[signal])
+            .inc_by(count as f64);
+    }
 }
 
 pub fn record_span_metrics(
@@ -114,5 +163,67 @@ pub fn span_kind_to_string(kind: i32) -> &'static str {
         4 => "producer",
         5 => "consumer",
         _ => "unknown",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // The prometheus registry is process-global, so each test uses unique
+    // signal label values to stay independent of other tests.
+
+    #[test]
+    fn test_record_received_increments_counter() {
+        let signal = "test_received_signal";
+        record_received(signal, 3);
+        record_received(signal, 2);
+        assert_eq!(OTEL_RECEIVED_TOTAL.with_label_values(&[signal]).get(), 5.0);
+    }
+
+    #[test]
+    fn test_record_published_increments_counter() {
+        let signal = "test_published_signal";
+        record_published(signal, 7);
+        assert_eq!(OTEL_PUBLISHED_TOTAL.with_label_values(&[signal]).get(), 7.0);
+    }
+
+    #[test]
+    fn test_record_publish_failure_increments_counter() {
+        let signal = "test_failure_signal";
+        record_publish_failure(signal, 4);
+        assert_eq!(
+            OTEL_PUBLISH_FAILURES_TOTAL
+                .with_label_values(&[signal])
+                .get(),
+            4.0
+        );
+    }
+
+    #[test]
+    fn test_zero_count_does_not_create_series() {
+        let signal = "test_zero_signal";
+        record_received(signal, 0);
+        record_published(signal, 0);
+        record_publish_failure(signal, 0);
+        assert_eq!(OTEL_RECEIVED_TOTAL.with_label_values(&[signal]).get(), 0.0);
+        assert_eq!(OTEL_PUBLISHED_TOTAL.with_label_values(&[signal]).get(), 0.0);
+        assert_eq!(
+            OTEL_PUBLISH_FAILURES_TOTAL
+                .with_label_values(&[signal])
+                .get(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_counters_appear_in_metrics_text() {
+        record_received("test_text_signal", 1);
+        record_published("test_text_signal", 1);
+        record_publish_failure("test_text_signal", 1);
+        let text = get_metrics_text().unwrap();
+        assert!(text.contains("otel_received_total"));
+        assert!(text.contains("otel_published_total"));
+        assert!(text.contains("otel_publish_failures_total"));
     }
 }

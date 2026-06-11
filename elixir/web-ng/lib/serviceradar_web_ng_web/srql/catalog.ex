@@ -707,8 +707,91 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "agent_id",
         "severity",
         "source",
-        "message"
+        "message",
+        "trace_id",
+        "span_id"
       ],
+      downsample: false
+    },
+    %{
+      id: "otel_trace_summaries",
+      label: "Traces",
+      route: "/observability",
+      route_params: %{"tab" => "traces"},
+      default_time: "last_24h",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "trace_id",
+      filter_fields: [
+        "trace_id",
+        "root_service_name",
+        "root_span_name",
+        "error_count",
+        "span_count",
+        "duration_ms"
+      ],
+      numeric_fields: ["error_count", "span_count", "duration_ms"],
+      downsample: false
+    },
+    %{
+      id: "otel_traces",
+      label: "Spans",
+      route: "/observability",
+      route_params: %{"tab" => "traces"},
+      default_time: "last_24h",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "trace_id",
+      filter_fields: [
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "service_name",
+        "name",
+        "status_code"
+      ],
+      numeric_fields: ["status_code"],
+      downsample: false
+    },
+    %{
+      # SRQL parses `in:traces` as an alias of `in:otel_traces` (span rows).
+      id: "traces",
+      label: "Spans",
+      route: "/observability",
+      route_params: %{"tab" => "traces"},
+      default_time: "last_24h",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "trace_id",
+      filter_fields: [
+        "trace_id",
+        "span_id",
+        "parent_span_id",
+        "service_name",
+        "name",
+        "status_code"
+      ],
+      numeric_fields: ["status_code"],
+      downsample: false
+    },
+    %{
+      id: "otel_metrics",
+      label: "Metrics",
+      route: "/observability",
+      route_params: %{"tab" => "metrics"},
+      default_time: "last_24h",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "trace_id",
+      filter_fields: [
+        "trace_id",
+        "span_id",
+        "service_name",
+        "span_name",
+        "metric_type",
+        "is_slow"
+      ],
+      boolean_fields: ["is_slow"],
       downsample: false
     },
     %{

@@ -103,10 +103,10 @@ pub fn otel_logs_to_json(data: &[u8]) -> anyhow::Result<Value> {
                     log_json["scope_version"] = json!(scope_version);
                 }
 
-                if let Some(trace_id) = bytes_to_hex(&log_record.trace_id) {
+                if let Some(trace_id) = normalize_id(&log_record.trace_id, TRACE_ID_LEN) {
                     log_json["trace_id"] = json!(trace_id);
                 }
-                if let Some(span_id) = bytes_to_hex(&log_record.span_id) {
+                if let Some(span_id) = normalize_id(&log_record.span_id, SPAN_ID_LEN) {
                     log_json["span_id"] = json!(span_id);
                 }
 
@@ -152,14 +152,74 @@ fn get_attr_string(attrs: &Value, key: &str) -> String {
     }
 }
 
-fn bytes_to_hex(bytes: &[u8]) -> Option<String> {
+/// Expected raw byte length of an OTLP trace id (canonical hex is 32 chars).
+const TRACE_ID_LEN: usize = 16;
+/// Expected raw byte length of an OTLP span id (canonical hex is 16 chars).
+const SPAN_ID_LEN: usize = 8;
+
+/// Normalize an OTLP id `bytes` field into canonical lowercase hex.
+///
+/// Producers are supposed to ship raw bytes (16 for trace ids, 8 for span
+/// ids), but some exporters — notably the Erlang/Elixir OTLP logs exporter —
+/// place the ASCII hex TEXT of the id in the protobuf bytes field. Naively
+/// hexing those bytes produces double-hex ids that can never join back to
+/// traces. This helper accepts:
+///
+/// - `expected_len` raw bytes        -> hex-encode (canonical)
+/// - `2 * expected_len` ASCII hex    -> pass through, lowercased
+/// - `4 * expected_len` ASCII hex    -> hex of ASCII hex; decode one layer,
+///   then pass through, lowercased
+///
+/// Empty input, all-zero ids (invalid per the OTLP spec), and anything that
+/// does not match one of the shapes above yield `None`.
+fn normalize_id(bytes: &[u8], expected_len: usize) -> Option<String> {
     if bytes.is_empty() {
         return None;
     }
 
-    let mut out = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        let _ = write!(out, "{:02x}", byte);
+    let hex_id = if bytes.len() == expected_len {
+        // Raw bytes (the spec-conformant shape): hex-encode.
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for byte in bytes {
+            let _ = write!(out, "{byte:02x}");
+        }
+        out
+    } else if bytes.len() == 2 * expected_len && bytes.iter().all(u8::is_ascii_hexdigit) {
+        // ASCII hex text shipped in the bytes field: pass through.
+        String::from_utf8(bytes.to_vec()).ok()?.to_ascii_lowercase()
+    } else if bytes.len() == 4 * expected_len && bytes.iter().all(u8::is_ascii_hexdigit) {
+        // Hex of ASCII hex (already double-encoded upstream): decode one
+        // layer, then require the result to be ASCII hex text.
+        let decoded = decode_ascii_hex(bytes)?;
+        if !decoded.iter().all(u8::is_ascii_hexdigit) {
+            return None;
+        }
+        String::from_utf8(decoded).ok()?.to_ascii_lowercase()
+    } else {
+        return None;
+    };
+
+    // All-zero ids are "absent" per the OTLP/W3C trace-context specs.
+    if hex_id.bytes().all(|b| b == b'0') {
+        return None;
+    }
+
+    Some(hex_id)
+}
+
+/// Decode an even-length ASCII hex string into raw bytes.
+fn decode_ascii_hex(bytes: &[u8]) -> Option<Vec<u8>> {
+    fn nibble(b: u8) -> Option<u8> {
+        (b as char).to_digit(16).map(|d| d as u8)
+    }
+
+    if !bytes.len().is_multiple_of(2) {
+        return None;
+    }
+
+    let mut out = Vec::with_capacity(bytes.len() / 2);
+    for pair in bytes.chunks_exact(2) {
+        out.push((nibble(pair[0])? << 4) | nibble(pair[1])?);
     }
     Some(out)
 }
@@ -349,6 +409,137 @@ mod tests {
         // Null value
         let null_val = AnyValue { value: None };
         assert_eq!(any_value_to_json(&null_val), Value::Null);
+    }
+
+    #[test]
+    fn test_normalize_id_raw_bytes() {
+        let trace_bytes: Vec<u8> = (1..=16).collect();
+        assert_eq!(
+            normalize_id(&trace_bytes, 16).as_deref(),
+            Some("0102030405060708090a0b0c0d0e0f10")
+        );
+
+        let span_bytes: Vec<u8> = (1..=8).collect();
+        assert_eq!(
+            normalize_id(&span_bytes, 8).as_deref(),
+            Some("0102030405060708")
+        );
+    }
+
+    #[test]
+    fn test_normalize_id_ascii_hex_passthrough() {
+        // The Erlang OTLP exporter ships the ASCII hex TEXT of the id in the
+        // protobuf bytes field: 32 ASCII chars for a trace id.
+        let ascii_hex = b"66353863AbCdEf001122334455667788";
+        assert_eq!(
+            normalize_id(ascii_hex, 16).as_deref(),
+            Some("66353863abcdef001122334455667788")
+        );
+
+        let ascii_hex_span = b"AABBCCDD00112233";
+        assert_eq!(
+            normalize_id(ascii_hex_span, 8).as_deref(),
+            Some("aabbccdd00112233")
+        );
+    }
+
+    #[test]
+    fn test_normalize_id_double_hex() {
+        // Hex of the ASCII hex string: 64 bytes for a trace id. Decoding one
+        // layer must recover the original 32-char id.
+        let original = "66353863abcdef001122334455667788";
+        let double_hex: Vec<u8> = original
+            .bytes()
+            .flat_map(|b| format!("{b:02x}").into_bytes())
+            .collect();
+        assert_eq!(double_hex.len(), 64);
+        assert_eq!(normalize_id(&double_hex, 16).as_deref(), Some(original));
+
+        let span_original = "aabbccdd00112233";
+        let span_double_hex: Vec<u8> = span_original
+            .bytes()
+            .flat_map(|b| format!("{b:02x}").into_bytes())
+            .collect();
+        assert_eq!(span_double_hex.len(), 32);
+        assert_eq!(
+            normalize_id(&span_double_hex, 8).as_deref(),
+            Some(span_original)
+        );
+    }
+
+    #[test]
+    fn test_normalize_id_zeros_rejected() {
+        // Raw all-zero bytes.
+        assert_eq!(normalize_id(&[0u8; 16], 16), None);
+        assert_eq!(normalize_id(&[0u8; 8], 8), None);
+        // ASCII hex all-zero text.
+        assert_eq!(normalize_id(&[b'0'; 32], 16), None);
+        // Double-hex of an all-zero ASCII id ("30" repeated 32 times).
+        let double_zero: Vec<u8> = std::iter::repeat_n([b'3', b'0'], 32).flatten().collect();
+        assert_eq!(double_zero.len(), 64);
+        assert_eq!(normalize_id(&double_zero, 16), None);
+    }
+
+    #[test]
+    fn test_normalize_id_empty_and_garbage() {
+        // Empty.
+        assert_eq!(normalize_id(&[], 16), None);
+        // Wrong lengths.
+        assert_eq!(normalize_id(&[1, 2, 3], 16), None);
+        assert_eq!(normalize_id(&[1u8; 15], 16), None);
+        assert_eq!(normalize_id(&[1u8; 33], 16), None);
+        // 2x length but not ASCII hex.
+        assert_eq!(normalize_id(&[b'z'; 32], 16), None);
+        // 4x length but not ASCII hex.
+        assert_eq!(normalize_id(&[b'!'; 64], 16), None);
+        // 4x length ASCII hex that decodes to non-hex bytes (e.g. 0xff).
+        assert_eq!(normalize_id(&[b'f'; 64], 16), None);
+    }
+
+    #[test]
+    fn test_otel_logs_to_json_normalizes_ascii_hex_ids() {
+        let mut logs_data = create_test_logs_data();
+        let record = &mut logs_data.resource_logs[0].scope_logs[0].log_records[0];
+        // Simulate the Erlang exporter: ASCII hex text in the bytes fields.
+        record.trace_id = b"66353863ABCDEF001122334455667788".to_vec();
+        record.span_id = b"AABBCCDD00112233".to_vec();
+
+        let mut buf = Vec::new();
+        logs_data.encode(&mut buf).unwrap();
+
+        let result = otel_logs_to_json(&buf).unwrap();
+        assert_eq!(result["trace_id"], "66353863abcdef001122334455667788");
+        assert_eq!(result["span_id"], "aabbccdd00112233");
+    }
+
+    #[test]
+    fn test_otel_logs_to_json_raw_byte_ids() {
+        let mut logs_data = create_test_logs_data();
+        let record = &mut logs_data.resource_logs[0].scope_logs[0].log_records[0];
+        record.trace_id = (1..=16).collect();
+        record.span_id = (1..=8).collect();
+
+        let mut buf = Vec::new();
+        logs_data.encode(&mut buf).unwrap();
+
+        let result = otel_logs_to_json(&buf).unwrap();
+        assert_eq!(result["trace_id"], "0102030405060708090a0b0c0d0e0f10");
+        assert_eq!(result["span_id"], "0102030405060708");
+    }
+
+    #[test]
+    fn test_otel_logs_to_json_omits_invalid_ids() {
+        let mut logs_data = create_test_logs_data();
+        let record = &mut logs_data.resource_logs[0].scope_logs[0].log_records[0];
+        record.trace_id = vec![0u8; 16]; // all-zero = absent
+        record.span_id = vec![1, 2, 3]; // garbage length
+
+        let mut buf = Vec::new();
+        logs_data.encode(&mut buf).unwrap();
+
+        let result = otel_logs_to_json(&buf).unwrap();
+        assert!(result.get("trace_id").is_none());
+        assert!(result.get("span_id").is_none());
     }
 
     #[test]

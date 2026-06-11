@@ -1,0 +1,249 @@
+defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
+  @moduledoc """
+  Tests for the trace detail view (TraceLive.Show): span waterfall ordering,
+  error styling, retention/not-found states, trace id validation, and the
+  correlated logs panel.
+  """
+
+  use ServiceRadarWebNGWeb.ConnCase, async: false
+
+  import Phoenix.LiveViewTest
+
+  alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.TraceLive.ShowTest
+
+  @trace_id "abcdefabcdefabcdefabcdefabcdef12"
+
+  setup %{conn: conn} do
+    user = AccountsFixtures.user_fixture(%{role: :operator})
+    conn = log_in_user(conn, user)
+
+    old = Application.get_env(:serviceradar_web_ng, :srql_module)
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+
+    :persistent_term.put({__MODULE__, :test_pid}, self())
+    :persistent_term.put({__MODULE__, :scenario}, :full)
+
+    on_exit(fn ->
+      :persistent_term.erase({__MODULE__, :test_pid})
+      :persistent_term.erase({__MODULE__, :scenario})
+
+      if is_nil(old) do
+        Application.delete_env(:serviceradar_web_ng, :srql_module)
+      else
+        Application.put_env(:serviceradar_web_ng, :srql_module, old)
+      end
+    end)
+
+    %{conn: conn}
+  end
+
+  test "renders the span waterfall in parent/child order", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    # Stub returns spans out of order (child2, child1, root); the waterfall
+    # must place the root first and order children by start time.
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+    assert has_element?(lv, "#trace-spans-row-1", "core.query")
+    assert has_element?(lv, "#trace-spans-row-2", "render.json")
+
+    html = render(lv)
+
+    # Children are depth-indented under the root.
+    assert html =~ "padding-left: 16px"
+
+    # Header summary values come from the trace summary row.
+    assert html =~ "3 spans"
+    assert has_element?(lv, "#trace-error-badge", "1 error")
+
+    queries = drain_srql_queries()
+
+    assert ~s(in:otel_trace_summaries trace_id:"#{@trace_id}" limit:1) in queries
+
+    assert ~s(in:traces trace_id:"#{@trace_id}" sort:start_time_unix_nano:asc limit:1000) in queries
+
+    # Correlated logs window derives from the trace's own span times ±5m.
+    assert ~s(in:logs trace_id:"#{@trace_id}" time:[2023-11-14T22:08:20Z,2023-11-14T22:18:20Z] sort:timestamp:asc limit:50) in queries
+  end
+
+  test "renders correlated logs with a logs-tab pivot", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert has_element?(lv, "#trace-logs-row-0", "query exploded")
+    assert has_element?(lv, "#trace-logs-tab-link", "View in logs tab")
+
+    html = render(lv)
+    # Log rows navigate to the log detail route.
+    assert html =~ "/logs/11111111-2222-3333-4444-555555555555"
+  end
+
+  test "error span gets error styling and expands details", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert has_element?(lv, "#trace-spans-row-1 .badge-error")
+    refute has_element?(lv, "#trace-spans-row-2 .badge-error")
+
+    lv
+    |> element("#trace-spans-row-1")
+    |> render_click()
+
+    assert has_element?(lv, "#trace-spans-detail-1")
+
+    html = render(lv)
+    assert html =~ "bbbbbbbbbbbbbbbb"
+    assert html =~ "boom"
+    assert html =~ "db.statement"
+  end
+
+  test "shows retention notice when summary exists but spans expired", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :expired)
+
+    {:ok, lv, html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert html =~ "Span data for this trace is no longer retained."
+    assert html =~ "3 spans"
+    refute has_element?(lv, "#trace-spans")
+    refute has_element?(lv, "#trace-not-found")
+  end
+
+  test "shows not-found state when neither summary nor spans exist", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :missing)
+
+    {:ok, lv, html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    assert html =~ "Trace not found or expired."
+    refute has_element?(lv, "#trace-spans")
+    refute has_element?(lv, "#trace-summary-bar")
+  end
+
+  test "invalid trace id redirects back to the traces pane", %{conn: conn} do
+    assert {:error, {:live_redirect, %{to: "/observability?tab=traces"}}} =
+             live(conn, ~p"/observability/traces/not-a-trace-id")
+  end
+
+  test "uppercase trace ids are canonicalized before querying", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{String.upcase(@trace_id)}")
+
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+
+    queries = drain_srql_queries()
+    assert Enum.any?(queries, &(&1 =~ ~s(trace_id:"#{@trace_id}")))
+    refute Enum.any?(queries, &(&1 =~ String.upcase(@trace_id)))
+  end
+
+  defp drain_srql_queries(acc \\ []) do
+    receive do
+      {:srql_query, query} ->
+        drain_srql_queries([query | acc])
+    after
+      100 ->
+        Enum.reverse(acc)
+    end
+  end
+
+  defmodule RecordingSRQLStub do
+    @moduledoc false
+    @behaviour ServiceRadarWebNG.SRQLBehaviour
+
+    @trace_id "abcdefabcdefabcdefabcdefabcdef12"
+    @base_ns 1_700_000_000_000_000_000
+    @ms 1_000_000
+
+    def query(query) when is_binary(query), do: query(query, %{})
+
+    @impl true
+    def query(query, _opts) when is_binary(query) do
+      case :persistent_term.get({ShowTest, :test_pid}, nil) do
+        pid when is_pid(pid) -> send(pid, {:srql_query, query})
+        _ -> :ok
+      end
+
+      scenario = :persistent_term.get({ShowTest, :scenario}, :full)
+
+      {:ok, %{"results" => results(query, scenario), "pagination" => %{}, "error" => nil}}
+    end
+
+    @impl true
+    def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
+    def query_request(_payload), do: {:error, :invalid_request}
+
+    defp results("in:otel_trace_summaries" <> _rest, scenario) when scenario in [:full, :expired] do
+      [
+        %{
+          "trace_id" => @trace_id,
+          "timestamp" => "2026-06-10T12:00:00Z",
+          "root_span_name" => "GET /api/devices",
+          "root_service_name" => "web-ng",
+          "duration_ms" => 50.0,
+          "span_count" => 3,
+          "error_count" => 1,
+          "status_code" => 2,
+          "service_set" => ["web-ng", "core-elx"]
+        }
+      ]
+    end
+
+    defp results("in:traces" <> _rest, :full) do
+      # Deliberately out of order: child2, child1, root.
+      [
+        %{
+          "trace_id" => @trace_id,
+          "span_id" => "cccccccccccccccc",
+          "parent_span_id" => "aaaaaaaaaaaaaaaa",
+          "name" => "render.json",
+          "service_name" => "web-ng",
+          "kind" => 1,
+          "start_time_unix_nano" => @base_ns + 35 * @ms,
+          "end_time_unix_nano" => @base_ns + 45 * @ms,
+          "status_code" => 1,
+          "status_message" => "",
+          "attributes" => "{}",
+          "timestamp" => "2023-11-14T22:13:20Z"
+        },
+        %{
+          "trace_id" => @trace_id,
+          "span_id" => "bbbbbbbbbbbbbbbb",
+          "parent_span_id" => "aaaaaaaaaaaaaaaa",
+          "name" => "core.query",
+          "service_name" => "core-elx",
+          "kind" => 3,
+          "start_time_unix_nano" => @base_ns + 5 * @ms,
+          "end_time_unix_nano" => @base_ns + 30 * @ms,
+          "status_code" => 2,
+          "status_message" => "boom",
+          "attributes" => ~s({"db.statement":"SELECT 1"}),
+          "timestamp" => "2023-11-14T22:13:20Z"
+        },
+        %{
+          "trace_id" => @trace_id,
+          "span_id" => "aaaaaaaaaaaaaaaa",
+          "parent_span_id" => "",
+          "name" => "GET /api/devices",
+          "service_name" => "web-ng",
+          "kind" => 2,
+          "start_time_unix_nano" => @base_ns,
+          "end_time_unix_nano" => @base_ns + 50 * @ms,
+          "status_code" => 0,
+          "status_message" => "",
+          "attributes" => "{}",
+          "timestamp" => "2023-11-14T22:13:20Z"
+        }
+      ]
+    end
+
+    defp results("in:logs" <> _rest, :full) do
+      [
+        %{
+          "id" => "11111111-2222-3333-4444-555555555555",
+          "timestamp" => "2023-11-14T22:13:20Z",
+          "severity_text" => "ERROR",
+          "service_name" => "core-elx",
+          "body" => "query exploded",
+          "trace_id" => @trace_id
+        }
+      ]
+    end
+
+    defp results(_query, _scenario), do: []
+  end
+end

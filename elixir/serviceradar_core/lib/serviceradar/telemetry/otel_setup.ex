@@ -172,7 +172,16 @@ defmodule ServiceRadar.Telemetry.OtelSetup do
 
         handler_config = %{
           exporter: {:otel_exporter_logs_otlp, exporter_opts},
-          level: :info
+          level: :info,
+          # Handler-scoped filter (applied by the :logger core only for THIS
+          # handler) that rewrites the hex-text otel_trace_id/otel_span_id
+          # metadata to raw bytes so the OTLP encoder's bytes fields carry
+          # 16/8 raw bytes instead of ASCII hex. Console/JSON handlers keep
+          # the human-readable hex metadata. See ServiceRadar.Otel.LogIdFilter.
+          filter_default: :log,
+          filters: [
+            otel_ids_to_bytes: {&ServiceRadar.Otel.LogIdFilter.filter/2, :no_arg}
+          ]
         }
 
         # Use a local copy of the handler implementation. The upstream

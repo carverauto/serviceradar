@@ -17,25 +17,43 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
 
     payload = normalize_payload(payload, service_name)
 
-    case Jason.encode(payload) do
-      {:ok, json} ->
-        case Connection.publish(nats_subject, json) do
-          :ok ->
-            :ok
+    # Producer span around the NATS hop: Connection.publish injects the
+    # active span context into the message headers; failures mark the span
+    # ERROR so error-rate rollups see them.
+    ServiceRadar.Otel.span(
+      "internal_log.publish",
+      %{
+        kind: :producer,
+        attributes: %{
+          "messaging.system" => "nats",
+          "messaging.destination.name" => nats_subject
+        }
+      },
+      fn ->
+        case Jason.encode(payload) do
+          {:ok, json} ->
+            case Connection.publish(nats_subject, json) do
+              :ok ->
+                :ok
+
+              {:error, reason} ->
+                ServiceRadar.Otel.set_error(reason)
+
+                Logger.warning("Failed to publish internal log",
+                  subject: nats_subject,
+                  reason: inspect(reason)
+                )
+
+                {:error, reason}
+            end
 
           {:error, reason} ->
-            Logger.warning("Failed to publish internal log",
-              subject: nats_subject,
-              reason: inspect(reason)
-            )
-
+            ServiceRadar.Otel.set_error(reason)
+            Logger.warning("Failed to encode internal log payload", reason: inspect(reason))
             {:error, reason}
         end
-
-      {:error, reason} ->
-        Logger.warning("Failed to encode internal log payload", reason: inspect(reason))
-        {:error, reason}
-    end
+      end
+    )
   end
 
   defp normalize_payload(payload, service_name) do

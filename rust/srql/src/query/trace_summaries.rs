@@ -361,26 +361,34 @@ fn add_int_condition(
     }
 }
 
+fn numeric_comparison_sql(column: &str, op: &FilterOp) -> Result<String> {
+    let operator = match op {
+        FilterOp::Eq => "=",
+        FilterOp::NotEq => "<>",
+        FilterOp::Gt => ">",
+        FilterOp::Gte => ">=",
+        FilterOp::Lt => "<",
+        FilterOp::Lte => "<=",
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{column} filter only supports equality or numeric comparisons"
+            )))
+        }
+    };
+    Ok(format!("{column} {operator} ?"))
+}
+
 fn add_i64_condition(
     clauses: &mut Vec<String>,
     binds: &mut Vec<SqlBindValue>,
     column: &str,
     filter: &Filter,
 ) -> Result<()> {
-    match filter.op {
-        FilterOp::Eq | FilterOp::NotEq => {
-            let value = parse_i64(filter)?;
-            clauses.push(match filter.op {
-                FilterOp::Eq => format!("{column} = ?"),
-                _ => format!("{column} <> ?"),
-            });
-            binds.push(SqlBindValue::BigInt(value));
-            Ok(())
-        }
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "{column} filter only supports equality"
-        ))),
-    }
+    let clause = numeric_comparison_sql(column, &filter.op)?;
+    let value = parse_i64(filter)?;
+    clauses.push(clause);
+    binds.push(SqlBindValue::BigInt(value));
+    Ok(())
 }
 
 fn add_float_condition(
@@ -389,20 +397,11 @@ fn add_float_condition(
     column: &str,
     filter: &Filter,
 ) -> Result<()> {
-    match filter.op {
-        FilterOp::Eq | FilterOp::NotEq => {
-            let value = parse_f64(filter)?;
-            clauses.push(match filter.op {
-                FilterOp::Eq => format!("{column} = ?"),
-                _ => format!("{column} <> ?"),
-            });
-            binds.push(SqlBindValue::Float(value));
-            Ok(())
-        }
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "{column} filter only supports equality"
-        ))),
-    }
+    let clause = numeric_comparison_sql(column, &filter.op)?;
+    let value = parse_f64(filter)?;
+    clauses.push(clause);
+    binds.push(SqlBindValue::Float(value));
+    Ok(())
 }
 
 fn parse_i32(filter: &Filter) -> Result<i32> {

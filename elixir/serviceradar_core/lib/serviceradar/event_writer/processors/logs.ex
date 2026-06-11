@@ -24,6 +24,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
 
@@ -106,8 +107,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       id: log_id,
       timestamp: parse_timestamp(json),
       observed_timestamp: observed_timestamp,
-      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
-      span_id: FieldParser.get_field(json, "span_id", "spanId"),
+      trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
+      span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
       trace_flags: parse_trace_flags(json),
       severity_text:
         FieldParser.get_field(json, "severity_text", "severityText") || json["severity"] ||
@@ -312,8 +313,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         %{
           id: log_id,
           timestamp: parse_otel_timestamp(log_record),
-          trace_id: bytes_to_hex(log_record.trace_id),
-          span_id: bytes_to_hex(log_record.span_id),
+          trace_id: OtelId.normalize_trace_id(log_record.trace_id),
+          span_id: OtelId.normalize_span_id(log_record.span_id),
           severity_text: log_record.severity_text,
           severity_number: FieldParser.safe_bigint(log_record.severity_number),
           body: any_value_to_body(log_record.body),
@@ -562,8 +563,4 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp empty_metadata_value?(%{} = map), do: map_size(map) == 0
   defp empty_metadata_value?([]), do: true
   defp empty_metadata_value?(_value), do: false
-
-  defp bytes_to_hex(<<>>), do: nil
-  defp bytes_to_hex(nil), do: nil
-  defp bytes_to_hex(bytes) when is_binary(bytes), do: Base.encode16(bytes, case: :lower)
 end

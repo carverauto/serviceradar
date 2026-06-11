@@ -314,6 +314,13 @@ if config_env() == :prod do
   observability_retention_batch_size =
     "SERVICERADAR_OBSERVABILITY_RETENTION_BATCH_SIZE" |> parse_int_env.(50_000) |> max(1)
 
+  # OTel retention defaults (mutually consistent ordering):
+  #   otel_traces (raw spans)        3 days
+  #   otel_trace_summaries           3 days (summaries never outlive spans by
+  #                                  more than the configured window)
+  #   logs                           30 days
+  #   otel_metrics (span samples)    30 days
+  #   otel_metric_points (OTLP)      30 days
   trace_summary_retention_days =
     "SERVICERADAR_TRACE_SUMMARY_RETENTION_DAYS" |> parse_int_env.(3) |> max(1)
 
@@ -322,17 +329,32 @@ if config_env() == :prod do
 
   logs_retention_days = "SERVICERADAR_LOGS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
+  otel_metrics_retention_days =
+    "SERVICERADAR_OTEL_METRICS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
+  otel_metric_points_retention_days =
+    "SERVICERADAR_OTEL_METRIC_POINTS_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
+
   ocsf_network_activity_retention_days =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_RETENTION_DAYS" |> parse_int_env.(90) |> max(1)
 
   flow_attribution_retention_minutes =
     "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
 
+  # Chunk intervals must be small enough that retention can actually drop
+  # chunks within one policy period (1h chunks for 3-day span retention,
+  # 6h chunks for 30-day logs retention).
   otel_traces_chunk_interval_hours =
-    "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
+    "SERVICERADAR_OTEL_TRACES_CHUNK_INTERVAL_HOURS" |> parse_int_env.(1) |> max(1)
 
   logs_chunk_interval_hours =
-    "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+    "SERVICERADAR_LOGS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
+
+  otel_metrics_chunk_interval_hours =
+    "SERVICERADAR_OTEL_METRICS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
+
+  otel_metric_points_chunk_interval_hours =
+    "SERVICERADAR_OTEL_METRIC_POINTS_CHUNK_INTERVAL_HOURS" |> parse_int_env.(6) |> max(1)
 
   ocsf_network_activity_chunk_interval_hours =
     "SERVICERADAR_OCSF_NETWORK_ACTIVITY_CHUNK_INTERVAL_HOURS" |> parse_int_env.(24) |> max(1)
@@ -875,9 +897,13 @@ if config_env() == :prod do
     trace_summary_retention_days: trace_summary_retention_days,
     otel_traces_retention_days: otel_traces_retention_days,
     logs_retention_days: logs_retention_days,
+    otel_metrics_retention_days: otel_metrics_retention_days,
+    otel_metric_points_retention_days: otel_metric_points_retention_days,
     ocsf_network_activity_retention_days: ocsf_network_activity_retention_days,
     otel_traces_chunk_interval_hours: otel_traces_chunk_interval_hours,
     logs_chunk_interval_hours: logs_chunk_interval_hours,
+    otel_metrics_chunk_interval_hours: otel_metrics_chunk_interval_hours,
+    otel_metric_points_chunk_interval_hours: otel_metric_points_chunk_interval_hours,
     ocsf_network_activity_chunk_interval_hours: ocsf_network_activity_chunk_interval_hours,
     sweep_host_result_retention_days:
       "SERVICERADAR_SWEEP_HOST_RESULT_RETENTION_DAYS" |> parse_int_env.(7) |> max(1),

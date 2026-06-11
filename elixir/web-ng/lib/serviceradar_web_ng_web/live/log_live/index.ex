@@ -112,15 +112,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
-     |> assign(:metrics_stats, %{
-       total: 0,
-       slow_spans: 0,
-       error_spans: 0,
-       error_rate: 0.0,
-       avg_duration_ms: 0.0,
-       p95_duration_ms: 0.0,
-       sample_size: 0
-     })
+     |> assign(:metrics_stats, empty_metrics_stats())
      |> assign(:limit, @default_limit)
      |> stream_configure(:logs, dom_id: &log_dom_id/1)
      |> stream_configure(:events, dom_id: &event_dom_id/1)
@@ -3404,24 +3396,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Traces" value={format_compact_int(@total)} icon="hero-clock" />
+      <.obs_stat
+        title="Total Traces"
+        value={format_compact_int(@total)}
+        icon="hero-clock"
+        href={traces_card_href("in:otel_trace_summaries sort:timestamp:desc")}
+      />
       <.obs_stat
         title="Successful"
         value={format_compact_int(@successful)}
         icon="hero-check-circle"
         tone="success"
+        href={traces_card_href("in:otel_trace_summaries error_count:0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_traces)}
         icon="hero-x-circle"
         tone={if @error_traces > 0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Avg Duration"
@@ -3464,24 +3464,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Metrics" value={format_compact_int(@total)} icon="hero-chart-bar" />
+      <.obs_stat
+        title="Total Metrics"
+        value={format_compact_int(@total)}
+        icon="hero-chart-bar"
+        href={metrics_card_href("in:otel_metrics sort:timestamp:desc")}
+      />
       <.obs_stat
         title="Slow Spans"
         value={format_compact_int(@slow_spans)}
         icon="hero-bolt"
         tone={if @slow_spans > 0, do: "warning", else: "success"}
+        href={metrics_card_href("in:otel_metrics is_slow:true sort:timestamp:desc")}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_spans)}
         icon="hero-exclamation-triangle"
         tone={if @error_spans > 0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Avg Duration"
@@ -3506,6 +3514,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:subtitle, :string, default: nil)
   attr(:icon, :string, required: true)
   attr(:tone, :string, default: "neutral", values: ~w(neutral success warning error info))
+  attr(:href, :string, default: nil)
 
   defp obs_stat(assigns) do
     {bg, fg} =
@@ -3520,17 +3529,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     assigns = assigns |> assign(:bg, bg) |> assign(:fg, fg)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-3">
-      <div class="flex items-center gap-2">
-        <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
-          <.icon name={@icon} class={["size-4", @fg]} />
-        </div>
-        <div class="min-w-0">
-          <div class="text-xs text-base-content/60 truncate">{@title}</div>
-          <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
-          <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
-            {@subtitle}
-          </div>
+    <.link
+      :if={is_binary(@href)}
+      patch={@href}
+      class="block rounded-xl border border-base-200 bg-base-100 p-3 hover:bg-base-200/40 transition-colors cursor-pointer"
+    >
+      <.obs_stat_body
+        title={@title}
+        value={@value}
+        subtitle={@subtitle}
+        icon={@icon}
+        bg={@bg}
+        fg={@fg}
+      />
+    </.link>
+    <div :if={not is_binary(@href)} class="rounded-xl border border-base-200 bg-base-100 p-3">
+      <.obs_stat_body
+        title={@title}
+        value={@value}
+        subtitle={@subtitle}
+        icon={@icon}
+        bg={@bg}
+        fg={@fg}
+      />
+    </div>
+    """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:subtitle, :string, default: nil)
+  attr(:icon, :string, required: true)
+  attr(:bg, :string, required: true)
+  attr(:fg, :string, required: true)
+
+  defp obs_stat_body(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2">
+      <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
+        <.icon name={@icon} class={["size-4", @fg]} />
+      </div>
+      <div class="min-w-0">
+        <div class="text-xs text-base-content/60 truncate">{@title}</div>
+        <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
+        <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+          {@subtitle}
         </div>
       </div>
     </div>
@@ -3668,10 +3711,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
 
           <%= for {trace, idx} <- Enum.with_index(@traces) do %>
+            <% trace_path = trace_detail_path(trace) %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(correlate_trace_href(trace))}
+              class={["hover:bg-base-200/40 transition-colors", trace_path && "cursor-pointer"]}
+              phx-click={trace_path && JS.navigate(trace_path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
               <td
@@ -3771,7 +3815,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 <span class="inline-flex items-center gap-2">
                   <span class={metric_type_badge_class(metric)}>
-                    {Map.get(metric, "metric_type") || "—"}
+                    {metric_type_label(metric)}
                   </span>
                 </span>
               </td>
@@ -3791,6 +3835,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="whitespace-nowrap text-xs font-mono text-right">
                 {format_metric_value(metric)}
+                <span
+                  :if={cumulative_metric?(metric)}
+                  class="ml-1 font-sans text-[10px] text-base-content/50"
+                  title="Raw cumulative counter value; rate rendering arrives with OTLP metric points"
+                >
+                  cumulative
+                </span>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.metric_viz metric={metric} sparklines={@sparklines} />
@@ -6029,8 +6080,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       "histogram" -> "badge badge-sm badge-info"
       "gauge" -> "badge badge-sm badge-success"
       "counter" -> "badge badge-sm badge-primary"
+      "span" -> "badge badge-sm badge-warning"
       _ -> "badge badge-sm badge-ghost"
     end
+  end
+
+  # Span performance samples and OTLP metric points are distinct signals;
+  # label them so the pane doesn't present slow-span samples as "metrics".
+  defp metric_type_label(metric) do
+    case metric |> Map.get("metric_type") |> normalize_severity() do
+      "" -> "—"
+      "span" -> "span sample"
+      "sum" -> "sum (cumulative)"
+      other -> other
+    end
+  end
+
+  # Falco/OTLP sums are raw cumulative counters today; rate rendering arrives
+  # once otel_metric_points data flows.
+  defp cumulative_metric?(metric) do
+    normalize_severity(Map.get(metric, "metric_type")) == "sum"
   end
 
   defp format_metric_value(metric) do
@@ -6649,7 +6718,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
   defp panel_subtitle("logs", false), do: "Click any log entry to view full details."
-  defp panel_subtitle("traces", _), do: "Click a trace to jump to correlated logs."
+  defp panel_subtitle("traces", _), do: "Click a trace to open the span waterfall."
 
   defp panel_subtitle("metrics", _), do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
@@ -6906,9 +6975,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp dispatch_tab_load(socket, tab, params, uri) do
     cond do
       !socket.assigns[:_initial_load_done] ->
-        # Initial page load — defer so the page shell renders immediately
-        send(self(), {:load_tab_data, tab, params, uri})
-        socket
+        # Initial connected mount — load synchronously so the first connected
+        # render already contains the list. The page shell was already painted
+        # by the dead render; deferring here used to produce a connected
+        # render with an empty list ("No metrics found.") whose data only
+        # existed in a follow-up diff, so the initial tab load dropped its
+        # results until the user manually re-ran the query.
+        load_tab(socket, tab, params, uri)
 
       tab != socket.assigns[:_loaded_tab] ->
         # Tab switch — load synchronously for instant transition (no flash)
@@ -7027,9 +7100,9 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp stream_active_tab(socket, _tab), do: socket
 
-  defp build_metrics_stats(_srql_module, scope) do
-    metrics = Stats.metrics_summary(scope: scope)
-    Map.put(metrics, :error_rate, compute_error_rate(metrics.total, metrics.error_spans))
+  defp build_metrics_stats(srql_module, scope) do
+    # rollup_stats:red over spans_red_1h already includes error_rate (0-100).
+    Stats.metrics_summary(srql_module: srql_module, scope: scope)
   end
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
@@ -7080,15 +7153,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp empty_metrics_stats do
-    %{
-      total: 0,
-      slow_spans: 0,
-      error_spans: 0,
-      error_rate: 0.0,
-      avg_duration_ms: 0.0,
-      p95_duration_ms: 0.0,
-      sample_size: 0
-    }
+    Stats.empty_metrics_summary()
   end
 
   defp empty_event_summary do
@@ -8403,12 +8468,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
   end
 
-  defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
-    Float.round(errors / total * 100.0, 1)
-  end
-
-  defp compute_error_rate(_total, _errors), do: 0.0
-
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "0.0"
@@ -8471,20 +8530,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp correlate_trace_href(trace) do
-    trace_id = trace |> Map.get("trace_id") |> escape_srql_value()
-    q = "in:logs trace_id:\"#{trace_id}\" time:last_24h sort:timestamp:desc"
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+  defp trace_detail_path(trace) do
+    case ServiceRadarWebNGWeb.TraceLive.Show.normalize_trace_id(Map.get(trace, "trace_id")) do
+      {:ok, trace_id} -> "/observability/traces/#{trace_id}"
+      :error -> nil
+    end
   end
+
+  # Stat-card click-through targets (same patch pattern as the logs cards).
+  defp traces_card_href(q), do: ~p"/observability?#{%{tab: "traces", q: q}}"
+  defp metrics_card_href(q), do: ~p"/observability?#{%{tab: "metrics", q: q}}"
 
   defp correlate_metric_href(metric) do
     trace_id = Map.get(metric, "trace_id")
 
     if is_binary(trace_id) and trace_id != "" do
-      q = "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" time:last_24h sort:timestamp:desc"
+      q =
+        "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc"
+
       "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
     else
       "/observability?" <> URI.encode_query(%{tab: "logs"})
+    end
+  end
+
+  # Correlation windows derive from the source signal's own timestamp (±1h)
+  # rather than a fixed relative window that can miss older samples.
+  defp correlated_logs_time_window(metric) do
+    case parse_timestamp(Map.get(metric, "timestamp") || Map.get(metric, "observed_timestamp")) do
+      {:ok, dt} ->
+        from = dt |> DateTime.add(-3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        to = dt |> DateTime.add(3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        "time:[#{from},#{to}]"
+
+      _ ->
+        "time:last_24h"
     end
   end
 

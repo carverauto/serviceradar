@@ -10,6 +10,7 @@ go_library(
         "//go/pkg/logger",
         "//go/pkg/models",
         "//proto",
+        "@io_opentelemetry_go_contrib_instrumentation_google_golang_org_grpc_otelgrpc//:otelgrpc",
         "@org_golang_google_grpc//:grpc",
         "@org_golang_google_grpc//codes",
         "@org_golang_google_grpc//connectivity",

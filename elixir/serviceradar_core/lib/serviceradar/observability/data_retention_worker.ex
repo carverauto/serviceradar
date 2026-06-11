@@ -18,9 +18,13 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
   @default_batch_size 50_000
   @default_otel_traces_retention_days 3
   @default_logs_retention_days 30
+  @default_otel_metrics_retention_days 30
+  @default_otel_metric_points_retention_days 30
   @default_ocsf_network_activity_retention_days 90
-  @default_otel_traces_chunk_interval_hours 6
-  @default_logs_chunk_interval_hours 24
+  @default_otel_traces_chunk_interval_hours 1
+  @default_logs_chunk_interval_hours 6
+  @default_otel_metrics_chunk_interval_hours 24
+  @default_otel_metric_points_chunk_interval_hours 6
   @default_ocsf_network_activity_chunk_interval_hours 24
   @default_trace_summary_retention_days 3
   @default_sweep_host_result_retention_days 7
@@ -66,6 +70,11 @@ defmodule ServiceRadar.Observability.DataRetentionWorker do
          :otel_traces_chunk_interval_hours, @default_otel_traces_chunk_interval_hours},
         {"logs", :logs_retention_days, @default_logs_retention_days, :logs_chunk_interval_hours,
          @default_logs_chunk_interval_hours},
+        {"otel_metrics", :otel_metrics_retention_days, @default_otel_metrics_retention_days,
+         :otel_metrics_chunk_interval_hours, @default_otel_metrics_chunk_interval_hours},
+        {"otel_metric_points", :otel_metric_points_retention_days,
+         @default_otel_metric_points_retention_days, :otel_metric_points_chunk_interval_hours,
+         @default_otel_metric_points_chunk_interval_hours},
         {"ocsf_network_activity", :ocsf_network_activity_retention_days,
          @default_ocsf_network_activity_retention_days,
          :ocsf_network_activity_chunk_interval_hours,

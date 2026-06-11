@@ -28,11 +28,11 @@
       "table": "logs"
     },
     {
-      "subject": "otel.traces",
+      "subject": "otel.traces.raw",
       "table": "otel_traces"
     },
     {
-      "subject": "otel.metrics",
+      "subject": "otel.metrics.derived",
       "table": "otel_metrics"
     },
     {

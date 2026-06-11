@@ -85,15 +85,37 @@ defmodule ServiceRadar.EventWriter.StateChangePublisher do
     if enabled?() do
       subject = @subject_prefix <> table
 
-      case encode_and_publish(subject, envelope) do
-        :ok ->
-          :telemetry.execute(@telemetry, %{count: 1}, %{table: table, subject: subject})
-          :ok
+      # Producer span around the NATS hop: Connection.publish injects the
+      # active span context into the message headers, so the causal-engine
+      # consumer can continue this trace. Failures mark the span ERROR.
+      ServiceRadar.Otel.span(
+        "state_change.publish",
+        %{
+          kind: :producer,
+          attributes: %{
+            "messaging.system" => "nats",
+            "messaging.destination.name" => subject,
+            "serviceradar.state_change.table" => table
+          }
+        },
+        fn ->
+          case encode_and_publish(subject, envelope) do
+            :ok ->
+              :telemetry.execute(@telemetry, %{count: 1}, %{table: table, subject: subject})
+              :ok
 
-        {:error, reason} ->
-          Logger.warning("state-change publish failed", table: table, reason: inspect(reason))
-          :ok
-      end
+            {:error, reason} ->
+              ServiceRadar.Otel.set_error(reason)
+
+              Logger.warning("state-change publish failed",
+                table: table,
+                reason: inspect(reason)
+              )
+
+              :ok
+          end
+        end
+      )
     else
       :ok
     end

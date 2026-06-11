@@ -79,6 +79,32 @@ use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+/// Backoff before the single NATS publish retry attempt.
+const NATS_PUBLISH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Attempt a NATS publish, retrying once after a brief backoff on failure.
+///
+/// Returns the result of the retry if the first attempt fails. Callers decide
+/// whether a final failure is fatal for the OTLP export (primary signals NACK
+/// the request so SDK clients retransmit; derived data stays best-effort).
+async fn publish_with_retry<F, Fut>(signal: &str, mut attempt: F) -> anyhow::Result<()>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<()>>,
+{
+    match attempt().await {
+        Ok(()) => Ok(()),
+        Err(first_err) => {
+            warn!(
+                "Failed to publish {signal} to NATS (retrying once after {}ms): {first_err}",
+                NATS_PUBLISH_RETRY_DELAY.as_millis()
+            );
+            tokio::time::sleep(NATS_PUBLISH_RETRY_DELAY).await;
+            attempt().await
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
     nats_output: Option<Arc<Mutex<nats_output::NATSOutput>>>,
@@ -182,6 +208,7 @@ impl TraceService for ServiceRadarCollector {
             trace_data.resource_spans.len(),
             span_count
         );
+        metrics::record_received("traces", span_count);
 
         // Calculate durations and collect performance metrics for NATS publishing
         let mut performance_metrics = Vec::new();
@@ -348,10 +375,22 @@ impl TraceService for ServiceRadarCollector {
                 "Publishing {} performance metrics to NATS",
                 performance_metrics.len()
             );
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
-                error!("Failed to publish performance metrics to NATS: {e}");
-                // Don't fail the request, just log the error
+            metrics::record_received("span_metrics", performance_metrics.len());
+            let publish_result = publish_with_retry("span_metrics", || async {
+                let mut nats_output = nats.lock().await;
+                nats_output.publish_metrics(&performance_metrics).await
+            })
+            .await;
+            match publish_result {
+                Ok(()) => metrics::record_published("span_metrics", performance_metrics.len()),
+                Err(e) => {
+                    metrics::record_publish_failure("span_metrics", performance_metrics.len());
+                    // Derived span metrics stay best-effort: losing them must
+                    // not force SDK clients to retransmit the spans they are
+                    // derived from. The primary span publish below is what
+                    // decides the request outcome.
+                    error!("Failed to publish performance metrics to NATS after retry: {e}");
+                }
             }
         }
 
@@ -386,13 +425,26 @@ impl TraceService for ServiceRadarCollector {
             }
         }
 
-        // Send to NATS if configured
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing spans; downstream writers dedupe on primary key, so retries
+        // are safe.
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding traces to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_traces(&trace_data).await {
-                error!("Failed to publish traces to NATS: {e}");
-                // Don't fail the request, just log the error
+            let publish_result = publish_with_retry("traces", || async {
+                let mut nats_output = nats.lock().await;
+                nats_output.publish_traces(&trace_data).await
+            })
+            .await;
+            match publish_result {
+                Ok(()) => metrics::record_published("traces", span_count),
+                Err(e) => {
+                    metrics::record_publish_failure("traces", span_count);
+                    error!("Failed to publish traces to NATS after retry: {e}");
+                    return Err(Status::unavailable(format!(
+                        "failed to publish traces to NATS after retry: {e}"
+                    )));
+                }
             }
         } else {
             debug!("No NATS output configured, traces received but not forwarded");
@@ -432,6 +484,7 @@ impl MetricsService for ServiceRadarCollector {
             "Received OTEL metrics export request: {} resource sets, {} scope sets, {} metrics, {} data points",
             resource_metric_count, scope_metric_count, metric_count, data_point_count
         );
+        metrics::record_received("metrics", data_point_count);
 
         if log::log_enabled!(log::Level::Debug) {
             for (index, resource_metrics) in metrics_data.resource_metrics.iter().enumerate() {
@@ -473,11 +526,25 @@ impl MetricsService for ServiceRadarCollector {
             }
         }
 
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing metric points.
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding raw OTLP metrics to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_raw_metrics(&metrics_data).await {
-                error!("Failed to publish raw OTLP metrics to NATS: {e}");
+            let publish_result = publish_with_retry("metrics", || async {
+                let mut nats_output = nats.lock().await;
+                nats_output.publish_raw_metrics(&metrics_data).await
+            })
+            .await;
+            match publish_result {
+                Ok(()) => metrics::record_published("metrics", data_point_count),
+                Err(e) => {
+                    metrics::record_publish_failure("metrics", data_point_count);
+                    error!("Failed to publish raw OTLP metrics to NATS after retry: {e}");
+                    return Err(Status::unavailable(format!(
+                        "failed to publish metrics to NATS after retry: {e}"
+                    )));
+                }
             }
         } else {
             debug!("No NATS output configured, metrics received but not forwarded");
@@ -513,6 +580,7 @@ impl LogsService for ServiceRadarCollector {
             logs_data.resource_logs.len(),
             logs_count
         );
+        metrics::record_received("logs", logs_count);
 
         // Log some debug details about the logs
         if log::log_enabled!(log::Level::Debug) {
@@ -545,13 +613,25 @@ impl LogsService for ServiceRadarCollector {
             }
         }
 
-        // Send to NATS if configured
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing log records.
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding logs to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_logs(&logs_data).await {
-                error!("Failed to publish logs to NATS: {e}");
-                // Don't fail the request, just log the error
+            let publish_result = publish_with_retry("logs", || async {
+                let mut nats_output = nats.lock().await;
+                nats_output.publish_logs(&logs_data).await
+            })
+            .await;
+            match publish_result {
+                Ok(()) => metrics::record_published("logs", logs_count),
+                Err(e) => {
+                    metrics::record_publish_failure("logs", logs_count);
+                    error!("Failed to publish logs to NATS after retry: {e}");
+                    return Err(Status::unavailable(format!(
+                        "failed to publish logs to NATS after retry: {e}"
+                    )));
+                }
             }
         } else {
             debug!("No NATS output configured, logs received but not forwarded");
@@ -717,6 +797,53 @@ mod tests {
         let response = TraceService::export(&collector, request).await;
 
         assert!(response.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_retry_first_attempt_succeeds() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            attempts.set(attempts.get() + 1);
+            async { Ok(()) }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_retry_recovers_on_second_attempt() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            async move {
+                if attempt == 1 {
+                    Err(anyhow::anyhow!("transient NATS failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_retry_fails_after_two_attempts() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            attempts.set(attempts.get() + 1);
+            async { Err::<(), anyhow::Error>(anyhow::anyhow!("NATS still down")) }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 2);
+        assert!(result.unwrap_err().to_string().contains("NATS still down"));
     }
 
     #[tokio::test]
