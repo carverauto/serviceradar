@@ -76,14 +76,16 @@ defmodule ServiceRadar.Inventory.Identity.DuplicateSweep do
   defp duplicate_identifier_groups do
     import Ecto.Query
 
-    types = Enum.map(Ids.identifier_priority(), &to_string/1)
+    # identifier_type is an Ash.Type.Atom enum column, so the query must use
+    # atoms — passing strings makes Ecto fail to dump them to the EctoType.
+    types = Ids.identifier_priority()
 
     query =
       from(di in DeviceIdentifier,
         where: di.identifier_type in ^types,
         where: not like(di.device_id, "serviceradar:%"),
         where:
-          di.identifier_type != "mac" or
+          di.identifier_type != :mac or
             fragment("? ~ '^[0-9A-F]{12}$'", di.identifier_value),
         group_by: [di.identifier_type, di.identifier_value, di.partition],
         having: count(fragment("DISTINCT ?", di.device_id)) > 1,
