@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
 
   require Ash.Query
 
@@ -95,6 +96,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
 
     assert html =~ "Approval review"
+    assert html =~ "approve a verified package"
     assert html =~ "flow.capture"
     assert html =~ "host.process"
 
@@ -190,6 +192,114 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
       |> Ash.read!(actor: system_actor())
 
     assert Enum.map(assignments, & &1.agent_uid) == [compatible.uid]
+  end
+
+  test "profile creation defaults blank SRQL target query to all devices", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "endpoint-inventory-profile-default",
+        name: "Endpoint Inventory Profile Default",
+        status: :approved,
+        approved_capabilities: ["endpoint.inventory"]
+      })
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert html =~ "Profile assignment"
+    assert html =~ "Advanced Profile Options"
+    assert html =~ "Advanced Manual Assignment Override"
+
+    html =
+      lv
+      |> form("#create-addon-profile-form", %{
+        "profile" => %{
+          "name" => "Inventory everywhere",
+          "target_query" => "   ",
+          "priority" => "100",
+          "max_targets" => "10000",
+          "params" => "{}",
+          "args" => ""
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Add-on profile created."
+
+    [profile] =
+      AddonProfile
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(addon_package_id == ^package.id)
+      |> Ash.read!(actor: system_actor())
+
+    assert profile.target_query == "in:devices"
+
+    html = render_click(lv, "reconcile_profile", %{"id" => Ecto.UUID.generate()})
+
+    assert html =~ "Profile reconcile failed"
+    assert render(lv) =~ "Profile assignment"
+  end
+
+  test "assignment list shows profile provenance and reconcile state", %{
+    conn: conn,
+    actor: actor
+  } do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "endpoint-inventory-profile-owned",
+        name: "Endpoint Inventory Profile Owned",
+        status: :approved,
+        approved_capabilities: ["endpoint.inventory"]
+      })
+
+    profile =
+      AddonProfile
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "Inventory everywhere",
+          addon_package_id: package.id,
+          target_query: "in:devices",
+          params: %{},
+          args: []
+        },
+        actor: actor
+      )
+      |> Ash.Changeset.force_change_attribute(:last_reconcile_summary, %{
+        "status" => "failed",
+        "last_error" => "agent capability missing"
+      })
+      |> Ash.Changeset.force_change_attribute(:last_reconciled_at, DateTime.utc_now())
+      |> Ash.create!()
+
+    AddonAssignment
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        agent_uid: "agent-profile-owned",
+        addon_package_id: package.id,
+        source: :profile,
+        source_key: "profile:#{profile.id}:endpoint-inventory-profile-owned:agent-profile-owned",
+        addon_profile_id: profile.id,
+        profile_reconcile_status: "failed",
+        profile_reconcile_error: "agent capability missing",
+        profile_last_reconciled_at: DateTime.utc_now(),
+        params: %{},
+        args: []
+      },
+      actor: actor
+    )
+    |> Ash.create!()
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert html =~ "agent-profile-owned"
+    assert html =~ "profile: Inventory everywhere"
+    assert html =~ "failed"
+    assert html =~ "agent capability missing"
+    refute html =~ "manual override"
   end
 
   defp create_addon_package!(actor, attrs) do

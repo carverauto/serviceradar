@@ -51,6 +51,10 @@ const (
 	bumblebeeScanActivityDisplayContractID  = "com.carverauto.bumblebee.scan_activity.display"
 	bumblebeeFindingDisplayContractVersion  = "1.0.0"
 	bumblebeeScanActivityDisplayContractVer = "1.0.0"
+	bumblebeeTelemetryProducerID            = "bumblebee"
+	bumblebeeStateFailed                    = "scan_failed"
+	bumblebeeStateNotScanned                = "not_scanned"
+	bumblebeeCoverageFailed                 = "failed"
 )
 
 var errBumblebeeSpoolTooLarge = errors.New("bumblebee spool payload exceeds size budget")
@@ -109,7 +113,7 @@ func (s *BumblebeeSpoolService) AddonTelemetryBatch(status *proto.StatusResponse
 	if err := json.Unmarshal(status.Message, &payload); err != nil {
 		return "", nil
 	}
-	if payload.State == "not_scanned" || payload.RunID == "" {
+	if payload.State == bumblebeeStateNotScanned || payload.RunID == "" {
 		return "", nil
 	}
 
@@ -133,9 +137,9 @@ func (s *BumblebeeSpoolService) AddonTelemetryBatch(status *proto.StatusResponse
 		return "", nil
 	}
 
-	return "bumblebee", &addonpb.TelemetryBatch{
+	return bumblebeeTelemetryProducerID, &addonpb.TelemetryBatch{
 		Source: &addonpb.TelemetrySource{
-			SourceType:     "bumblebee",
+			SourceType:     bumblebeeTelemetryProducerID,
 			SourceInstance: bumblebeeFirstNonEmpty(payload.AgentID, s.agentID, "agent"),
 		},
 		Records: records,
@@ -215,7 +219,7 @@ func (s *BumblebeeSpoolService) bumblebeeScanTelemetryRecord(payload bumblebee.S
 		PayloadKind:          addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
 		Payload:              data,
 	}, sraddon.SignalSchemaRef{
-		ProducerID:             "bumblebee",
+		ProducerID:             bumblebeeTelemetryProducerID,
 		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
 		SchemaID:               "ocsf.scan_activity",
 		SchemaVersion:          "1.0.0",
@@ -284,7 +288,7 @@ func (s *BumblebeeSpoolService) bumblebeeFindingTelemetryRecord(payload bumblebe
 		PayloadKind:          addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
 		Payload:              data,
 	}, sraddon.SignalSchemaRef{
-		ProducerID:             "bumblebee",
+		ProducerID:             bumblebeeTelemetryProducerID,
 		ProducerVersion:        bumblebeeFirstNonEmpty(payload.ScannerVersion, "0.1.1"),
 		SchemaID:               "ocsf.application_security_posture_finding",
 		SchemaVersion:          "1.0.0",
@@ -300,8 +304,8 @@ func (s *BumblebeeSpoolService) notScannedStatus() *proto.StatusResponse {
 		"schema_version": bumblebee.SchemaVersion,
 		"agent_id":       s.agentID,
 		"run_id":         "bumblebee-not-scanned",
-		"state":          "not_scanned",
-		"coverage_state": "not_scanned",
+		"state":          bumblebeeStateNotScanned,
+		"coverage_state": bumblebeeStateNotScanned,
 		"findings":       []bumblebee.Finding{},
 		"metadata": map[string]any{
 			"spool_path": s.spoolPath,
@@ -347,7 +351,7 @@ func bumblebeeDeterministicUUID(seed string) string {
 }
 
 func bumblebeeScanActivityID(payload bumblebee.ScanPayload) int {
-	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
+	if payload.State == bumblebeeStateFailed || payload.CoverageState == bumblebeeCoverageFailed {
 		return ocsfActivityScanError
 	}
 
@@ -384,7 +388,7 @@ func bumblebeeScanObject(payload bumblebee.ScanPayload) map[string]any {
 func bumblebeeScanMessage(payload bumblebee.ScanPayload, fallbackAgentID string) string {
 	agentID := bumblebeeFirstNonEmpty(payload.AgentID, fallbackAgentID, "agent")
 	count := len(payload.Findings)
-	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
+	if payload.State == bumblebeeStateFailed || payload.CoverageState == bumblebeeCoverageFailed {
 		return fmt.Sprintf("Bumblebee scan failed on %s", agentID)
 	}
 	if count == 1 {
@@ -455,9 +459,9 @@ func bumblebeeFindingObservables(finding bumblebee.Finding) []any {
 
 func bumblebeeServiceRadarMetadata(payload bumblebee.ScanPayload, ocsfClass string) map[string]any {
 	metadata := map[string]any{
-		"addon_id":    "bumblebee",
+		"addon_id":    bumblebeeTelemetryProducerID,
 		"agent_id":    bumblebeeFirstNonEmpty(payload.AgentID),
-		"source_type": "bumblebee",
+		"source_type": bumblebeeTelemetryProducerID,
 		"ocsf_class":  ocsfClass,
 		"run_id":      payload.RunID,
 	}
@@ -507,7 +511,7 @@ func bumblebeeFindingUnmapped(payload bumblebee.ScanPayload, finding bumblebee.F
 		"run_id":               payload.RunID,
 		"catalog_snapshot_ref": payload.CatalogSnapshotRef,
 		"scanner_version":      payload.ScannerVersion,
-		"source_type":          "bumblebee",
+		"source_type":          bumblebeeTelemetryProducerID,
 		"finding_id":           bumblebeeFirstNonEmpty(finding.FindingID, finding.ID),
 		"catalog_id":           finding.CatalogID,
 		"ecosystem":            finding.Ecosystem,
@@ -520,7 +524,7 @@ func bumblebeeFindingUnmapped(payload bumblebee.ScanPayload, finding bumblebee.F
 }
 
 func bumblebeeStatusID(payload bumblebee.ScanPayload) int {
-	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
+	if payload.State == bumblebeeStateFailed || payload.CoverageState == bumblebeeCoverageFailed {
 		return ocsfStatusFailure
 	}
 
@@ -536,7 +540,7 @@ func bumblebeeStatusName(statusID int) string {
 }
 
 func bumblebeeSeverityID(payload bumblebee.ScanPayload) int {
-	if payload.State == "scan_failed" || payload.CoverageState == "failed" {
+	if payload.State == bumblebeeStateFailed || payload.CoverageState == bumblebeeCoverageFailed {
 		return 3
 	}
 

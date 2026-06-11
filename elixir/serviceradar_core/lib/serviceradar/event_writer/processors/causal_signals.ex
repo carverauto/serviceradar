@@ -255,8 +255,15 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp inventory_vulnerability_finding_row?(_row), do: false
 
-  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
+  defp alert_evaluation_row(%{id: <<_::128>> = id} = row) do
     case Ecto.UUID.load(id) do
+      {:ok, uuid} -> %{row | id: uuid}
+      :error -> row
+    end
+  end
+
+  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
+    case Ecto.UUID.cast(id) do
       {:ok, uuid} -> %{row | id: uuid}
       :error -> row
     end

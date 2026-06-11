@@ -73,7 +73,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
         PluginTargetPolicyOps.preview_by_id(
           input.arguments.id,
           sample_limit: input.arguments.sample_limit,
-          actor: context[:actor]
+          actor: action_actor(context)
         )
       end
     end
@@ -84,7 +84,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       run fn input, context ->
         PluginTargetPolicyOps.reconcile_by_id(
           input.arguments.id,
-          actor: context[:actor]
+          actor: action_actor(context)
         )
       end
     end
@@ -184,4 +184,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicy do
       define_attribute? false
     end
   end
+
+  defp action_actor(%{actor: actor}), do: actor
+  defp action_actor(_context), do: nil
 end

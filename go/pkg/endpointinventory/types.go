@@ -94,15 +94,20 @@ type ScanPayload struct {
 	CollectorVersion             string                        `json:"collector_version,omitempty"`
 	State                        string                        `json:"state"`
 	CoverageState                string                        `json:"coverage_state"`
+	ConfigHash                   string                        `json:"config_hash,omitempty"`
 	LastScanAt                   time.Time                     `json:"last_scan_at"`
 	LastSuccessfulScanAt         *time.Time                    `json:"last_successful_scan_at,omitempty"`
 	OS                           OSInfo                        `json:"os,omitempty"`
-	Sources                      []SourceSummary               `json:"sources"`
+	EnabledPlugins               []string                      `json:"enabled_plugins,omitempty"`
+	DetectedPlugins              []string                      `json:"detected_plugins,omitempty"`
+	Diagnostics                  []SourceSummary               `json:"diagnostics"`
 	PackageCount                 int                           `json:"package_count"`
 	PackageSetHash               string                        `json:"package_set_hash,omitempty"`
 	ArtifactHash                 string                        `json:"artifact_hash,omitempty"`
 	HashAlgorithm                string                        `json:"hash_algorithm,omitempty"`
 	UploadReason                 string                        `json:"upload_reason,omitempty"`
+	DurationMillis               int64                         `json:"duration_ms,omitempty"`
+	Truncated                    bool                          `json:"truncated,omitempty"`
 	StandingQuestionResultCounts []StandingQuestionResultCount `json:"standing_question_result_counts,omitempty"`
 	SBOM                         *CycloneDXBOM                 `json:"sbom,omitempty"`
 	Metadata                     map[string]any                `json:"metadata,omitempty"`
@@ -181,10 +186,18 @@ type OSInfo struct {
 }
 
 type SourceSummary struct {
-	Source       string `json:"source"`
-	State        string `json:"state"`
-	PackageCount int    `json:"package_count"`
-	Error        string `json:"error,omitempty"`
+	Source         string `json:"-"`
+	Name           string `json:"name,omitempty"`
+	Type           string `json:"type,omitempty"`
+	State          string `json:"state"`
+	PackageCount   int    `json:"package_count"`
+	FindingCount   int    `json:"finding_count,omitempty"`
+	Reason         string `json:"reason,omitempty"`
+	Error          string `json:"error,omitempty"`
+	Path           string `json:"path,omitempty"`
+	Detected       bool   `json:"detected,omitempty"`
+	DurationMillis int64  `json:"duration_ms,omitempty"`
+	Truncated      bool   `json:"truncated,omitempty"`
 }
 
 type Package struct {

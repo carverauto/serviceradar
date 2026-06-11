@@ -427,6 +427,9 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   end
 
   defp build_event_metadata(payload, subject, output_fields) do
+    context = falco_context(payload, output_fields)
+    diagnostics = falco_diagnostics(payload, output_fields, context)
+
     %{
       "version" => "1.9.0-dev",
       "product" => %{
@@ -441,11 +444,236 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       "hostname" => normalize_string(payload["hostname"]),
       "source_type" => normalize_string(payload["source"]),
       "tags" => normalize_tags(payload["tags"]),
-      "output_fields" => output_fields
+      "output_fields" => output_fields,
+      "security_signal" =>
+        compact_map(%{
+          "kind" => "runtime",
+          "source" => "falco",
+          "rule" => context["rule"],
+          "priority" => context["priority"],
+          "uuid" => normalize_string(payload["uuid"]),
+          "diagnostics" => diagnostics
+        })
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  defp falco_context(payload, output_fields) do
+    hostname = falco_device_hostname(payload, output_fields)
+
+    %{
+      "rule" => normalize_string(payload["rule"]),
+      "priority" => normalize_string(payload["priority"]),
+      "hostname" => hostname,
+      "namespace" => normalize_string(output_fields["k8s.ns.name"]),
+      "pod" => normalize_string(output_fields["k8s.pod.name"]),
+      "container" => normalize_string(output_fields["container.name"]),
+      "container_id" => normalize_string(output_fields["container.id"])
+    }
+  end
+
+  defp falco_diagnostics(payload, output_fields, context) do
+    compact_map(%{
+      "rule" => %{
+        "name" => context["rule"],
+        "priority" => context["priority"],
+        "uuid" => normalize_string(payload["uuid"]),
+        "source" => normalize_string(payload["source"]),
+        "tags" => normalize_tags(payload["tags"]),
+        "references" => falco_references(payload, output_fields)
+      },
+      "host" => %{"name" => context["hostname"]},
+      "process" => falco_process_diagnostics(output_fields),
+      "parent_process" => falco_parent_process_diagnostics(output_fields),
+      "user" => falco_user_diagnostics(output_fields),
+      "file" => falco_file_diagnostics(output_fields),
+      "network" => falco_network_diagnostics(output_fields),
+      "container" =>
+        falco_container_diagnostics(output_fields, %{
+          "name" => context["container"],
+          "id" => context["container_id"]
+        }),
+      "kubernetes" => %{
+        "namespace" => context["namespace"],
+        "pod" => context["pod"],
+        "node" => normalize_string(output_fields["k8s.node.name"])
+      },
+      "event" => falco_event_diagnostics(output_fields, payload),
+      "attribution" =>
+        falco_attribution(
+          context["namespace"],
+          context["pod"],
+          context["container"],
+          context["container_id"]
+        )
+    })
+  end
+
+  defp falco_process_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["proc.name"]),
+      "short_name" => falco_field(output_fields, ["proc.sname"]),
+      "executable" => falco_field(output_fields, ["proc.exe", "proc.exepath"]),
+      "executable_path" => falco_field(output_fields, ["proc.exepath"]),
+      "command" => falco_field(output_fields, ["proc.cmdline", "proc.args"]),
+      "cwd" => falco_field(output_fields, ["proc.cwd"]),
+      "tty" => falco_field(output_fields, ["proc.tty"]),
+      "pid" => falco_field(output_fields, ["proc.pid"]),
+      "executable_flags" =>
+        compact_map(%{
+          "upper_layer" => falco_field(output_fields, ["proc.is_exe_upper_layer"]),
+          "from_memfd" => falco_field(output_fields, ["proc.is_exe_from_memfd"]),
+          "from_disk" => falco_field(output_fields, ["proc.is_exe_from_disk"]),
+          "lower_layer" => falco_field(output_fields, ["proc.is_exe_lower_layer"]),
+          "evt_flags" => falco_field(output_fields, ["evt.arg.flags"])
+        })
+    })
+  end
+
+  defp falco_parent_process_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["proc.pname"]),
+      "ancestor" => falco_field(output_fields, ["proc.aname[2]", "proc.aname[3]"])
+    })
+  end
+
+  defp falco_user_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["user.name"]),
+      "uid" => falco_field(output_fields, ["user.uid"]),
+      "login_uid" => falco_field(output_fields, ["user.loginuid"])
+    })
+  end
+
+  defp falco_file_diagnostics(output_fields) do
+    compact_map(%{
+      "name" => falco_field(output_fields, ["fd.name", "evt.arg.path", "evt.arg.name"]),
+      "directory" => falco_field(output_fields, ["fd.directory"]),
+      "type" => falco_field(output_fields, ["fd.type"]),
+      "num" => falco_field(output_fields, ["fd.num"]),
+      "flags" => falco_field(output_fields, ["evt.arg.flags", "fd.flags"])
+    })
+  end
+
+  defp falco_network_diagnostics(output_fields) do
+    compact_map(%{
+      "source_ip" => falco_field(output_fields, ["fd.sip", "evt.arg.sip"]),
+      "source_port" => falco_field(output_fields, ["fd.sport", "evt.arg.sport"]),
+      "destination_ip" => falco_field(output_fields, ["fd.dip", "evt.arg.dip"]),
+      "destination_port" => falco_field(output_fields, ["fd.dport", "evt.arg.dport"]),
+      "l4_protocol" => falco_field(output_fields, ["fd.l4proto"]),
+      "remote_ip" => falco_field(output_fields, ["fd.rip"]),
+      "remote_port" => falco_field(output_fields, ["fd.rport"])
+    })
+  end
+
+  defp falco_container_diagnostics(output_fields, context) do
+    compact_map(%{
+      "id" => context["id"],
+      "name" => context["name"],
+      "image" => falco_field(output_fields, ["container.image"]),
+      "image_repository" => falco_field(output_fields, ["container.image.repository"]),
+      "image_tag" => falco_field(output_fields, ["container.image.tag"]),
+      "image_digest" => falco_field(output_fields, ["container.image.digest"])
+    })
+  end
+
+  defp falco_event_diagnostics(output_fields, payload) do
+    compact_map(%{
+      "type" => falco_field(output_fields, ["evt.type"]),
+      "time" => falco_field(output_fields, ["evt.time"]) || normalize_string(payload["time"]),
+      "flags" => falco_field(output_fields, ["evt.arg.flags"])
+    })
+  end
+
+  defp falco_attribution(namespace, pod, container, container_id) do
+    status =
+      cond do
+        present?(namespace) and present?(pod) ->
+          "resolved"
+
+        present?(namespace) or present?(pod) or present?(container) or present?(container_id) ->
+          "partial"
+
+        true ->
+          "missing"
+      end
+
+    missing =
+      Enum.reject(
+        [
+          if(present?(namespace), do: nil, else: "kubernetes.namespace"),
+          if(present?(pod), do: nil, else: "kubernetes.pod")
+        ],
+        &is_nil/1
+      )
+
+    compact_map(%{
+      "status" => status,
+      "missing" => missing
+    })
+  end
+
+  defp falco_references(payload, output_fields) do
+    [
+      payload["rule_url"],
+      payload["rule_uri"],
+      payload["url"],
+      output_fields["falco.rule.url"],
+      output_fields["falco.rule_uri"]
+    ]
+    |> Enum.flat_map(&List.wrap/1)
+    |> Enum.map(&normalize_string/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+  end
+
+  defp falco_field(output_fields, keys) do
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      case falco_value(output_fields[key]) do
+        nil -> {:cont, nil}
+        value -> {:halt, value}
+      end
+    end)
+  end
+
+  defp falco_value(value) when is_binary(value) do
+    normalize_string(value)
+  end
+
+  defp falco_value(value) when value in [nil, "", []], do: nil
+  defp falco_value(value), do: value
+
+  defp compact_map(map) when is_map(map) do
+    Enum.reduce(map, %{}, fn {key, value}, acc ->
+      value = compact_value(value)
+
+      if empty_value?(value) do
+        acc
+      else
+        Map.put(acc, key, value)
+      end
+    end)
+  end
+
+  defp compact_value(value) when is_map(value), do: compact_map(value)
+
+  defp compact_value(value) when is_list(value) do
+    value
+    |> Enum.map(&compact_value/1)
+    |> Enum.reject(&empty_value?/1)
+  end
+
+  defp compact_value(value), do: value
+
+  defp empty_value?(nil), do: true
+  defp empty_value?(""), do: true
+  defp empty_value?([]), do: true
+  defp empty_value?(value) when is_map(value), do: map_size(value) == 0
+  defp empty_value?(_value), do: false
+
+  defp present?(value), do: not empty_value?(value)
 
   defp build_observables(payload, output_fields) do
     Enum.reject(

@@ -87,6 +87,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         active_fingerprint_tab_visible?(device_row, assigns.current_scope)
       )
       |> assign(:process_listeners_tab_visible, process_listeners_tab_visible?(device_row))
+      |> assign(:software_tab_visible, software_tab_visible?(device_row, assigns))
       |> assign(:sysmon_metrics_visible, sysmon_metrics_visible?(assigns))
       |> assign(
         :metric_sections_to_render,
@@ -151,6 +152,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
             :if={is_map(@device_row)}
             device_row={@device_row}
             active_tab={@active_tab}
+            software_tab_visible={@software_tab_visible}
             has_virtualization_guests={@has_virtualization_guests}
             has_ifaces={@has_ifaces}
             has_flows={@has_flows}
@@ -198,30 +200,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.healthcheck_section
                 :if={is_map(@healthcheck_summary)}
                 summary={@healthcheck_summary}
-              />
-
-              <.endpoint_inventory_section
-                :if={
-                  @has_software_inventory or device_has_agent?(@device_row) or
-                    is_binary(@endpoint_inventory_error)
-                }
-                scan={@endpoint_inventory_scan}
-                scans={@endpoint_inventory_scans}
-                packages={@endpoint_inventory_packages}
-                artifacts={@endpoint_inventory_artifacts}
-                error={@endpoint_inventory_error}
-                has_inventory={@has_software_inventory}
-                show_controls={device_has_agent?(@device_row)}
-                device_row={@device_row}
-                query_form={@endpoint_inventory_query_form}
-                cohort_form={@endpoint_inventory_cohort_form}
-                live_query_result={@endpoint_inventory_live_query_result}
-                cohort_query_result={@endpoint_inventory_cohort_query_result}
-                command_notice={@endpoint_inventory_command_notice}
-                command_error={@endpoint_inventory_command_error}
-                query_running={@endpoint_inventory_query_running}
-                force_refresh_running={@endpoint_inventory_force_refresh_running}
-                cohort_running={@endpoint_inventory_cohort_running}
               />
 
               <.bumblebee_section
@@ -279,6 +257,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
                 <% end %>
               <% end %>
             </div>
+          </div>
+
+          <div :if={@active_tab == "software" and @software_tab_visible}>
+            <.endpoint_inventory_section
+              scan={@endpoint_inventory_scan}
+              scans={@endpoint_inventory_scans}
+              packages={@endpoint_inventory_packages}
+              artifacts={@endpoint_inventory_artifacts}
+              vulnerability_matches={@endpoint_inventory_vulnerability_matches}
+              error={@endpoint_inventory_error}
+              has_inventory={@has_software_inventory}
+              show_controls={device_has_agent?(@device_row)}
+              device_row={@device_row}
+              query_form={@endpoint_inventory_query_form}
+              cohort_form={@endpoint_inventory_cohort_form}
+              package_filter_form={@endpoint_inventory_package_filter_form}
+              live_query_result={@endpoint_inventory_live_query_result}
+              cohort_query_result={@endpoint_inventory_cohort_query_result}
+              command_notice={@endpoint_inventory_command_notice}
+              command_error={@endpoint_inventory_command_error}
+              query_running={@endpoint_inventory_query_running}
+              force_refresh_running={@endpoint_inventory_force_refresh_running}
+              cohort_running={@endpoint_inventory_cohort_running}
+            />
           </div>
 
           <div :if={@active_tab == "guests" and @has_virtualization_guests}>
@@ -457,6 +459,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   end
 
   defp device_has_agent?(_row), do: false
+
+  defp software_tab_visible?(device_row, assigns) do
+    is_map(device_row) or Map.get(assigns, :has_software_inventory, false) or device_has_agent?(device_row) or
+      is_binary(Map.get(assigns, :endpoint_inventory_error))
+  end
 
   defp sysmon_metrics_visible?(assigns) do
     Map.get(assigns, :sysmon_presence, false)

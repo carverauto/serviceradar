@@ -486,6 +486,370 @@ func (x *StreamTelemetryRequest) GetCapability() string {
 	return ""
 }
 
+type StreamArtifactsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// capability is the artifact staging capability version requested by the
+	// agent, for example "artifact-staging:v1".
+	Capability    string `protobuf:"bytes,1,opt,name=capability,proto3" json:"capability,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamArtifactsRequest) Reset() {
+	*x = StreamArtifactsRequest{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamArtifactsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamArtifactsRequest) ProtoMessage() {}
+
+func (x *StreamArtifactsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamArtifactsRequest.ProtoReflect.Descriptor instead.
+func (*StreamArtifactsRequest) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *StreamArtifactsRequest) GetCapability() string {
+	if x != nil {
+		return x.Capability
+	}
+	return ""
+}
+
+type RunCommandRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// command_id is the platform command identifier assigned by the commandbus.
+	CommandId string `protobuf:"bytes,1,opt,name=command_id,json=commandId,proto3" json:"command_id,omitempty"`
+	// command_type identifies the generic control-plane command, for example
+	// "addon.run_command".
+	CommandType string `protobuf:"bytes,2,opt,name=command_type,json=commandType,proto3" json:"command_type,omitempty"`
+	// action_id is the package-declared producer action to execute.
+	ActionId string `protobuf:"bytes,3,opt,name=action_id,json=actionId,proto3" json:"action_id,omitempty"`
+	// schema identifies the payload contract carried in payload_json.
+	Schema string `protobuf:"bytes,4,opt,name=schema,proto3" json:"schema,omitempty"`
+	// payload_json is an opaque JSON object for the add-on to interpret according
+	// to schema and action_id. It may include credential broker grants, never raw
+	// secret values.
+	PayloadJson []byte `protobuf:"bytes,5,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	// deadline_unix is the absolute Unix second deadline supplied by the agent
+	// after applying command TTL limits. Zero means no explicit deadline.
+	DeadlineUnix  int64             `protobuf:"varint,6,opt,name=deadline_unix,json=deadlineUnix,proto3" json:"deadline_unix,omitempty"`
+	Metadata      map[string]string `protobuf:"bytes,7,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunCommandRequest) Reset() {
+	*x = RunCommandRequest{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunCommandRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunCommandRequest) ProtoMessage() {}
+
+func (x *RunCommandRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunCommandRequest.ProtoReflect.Descriptor instead.
+func (*RunCommandRequest) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *RunCommandRequest) GetCommandId() string {
+	if x != nil {
+		return x.CommandId
+	}
+	return ""
+}
+
+func (x *RunCommandRequest) GetCommandType() string {
+	if x != nil {
+		return x.CommandType
+	}
+	return ""
+}
+
+func (x *RunCommandRequest) GetActionId() string {
+	if x != nil {
+		return x.ActionId
+	}
+	return ""
+}
+
+func (x *RunCommandRequest) GetSchema() string {
+	if x != nil {
+		return x.Schema
+	}
+	return ""
+}
+
+func (x *RunCommandRequest) GetPayloadJson() []byte {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return nil
+}
+
+func (x *RunCommandRequest) GetDeadlineUnix() int64 {
+	if x != nil {
+		return x.DeadlineUnix
+	}
+	return 0
+}
+
+func (x *RunCommandRequest) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type RunCommandResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Success       bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
+	Message       string                 `protobuf:"bytes,2,opt,name=message,proto3" json:"message,omitempty"`
+	PayloadJson   []byte                 `protobuf:"bytes,3,opt,name=payload_json,json=payloadJson,proto3" json:"payload_json,omitempty"`
+	Metadata      map[string]string      `protobuf:"bytes,4,rep,name=metadata,proto3" json:"metadata,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RunCommandResponse) Reset() {
+	*x = RunCommandResponse{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RunCommandResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RunCommandResponse) ProtoMessage() {}
+
+func (x *RunCommandResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RunCommandResponse.ProtoReflect.Descriptor instead.
+func (*RunCommandResponse) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{9}
+}
+
+func (x *RunCommandResponse) GetSuccess() bool {
+	if x != nil {
+		return x.Success
+	}
+	return false
+}
+
+func (x *RunCommandResponse) GetMessage() string {
+	if x != nil {
+		return x.Message
+	}
+	return ""
+}
+
+func (x *RunCommandResponse) GetPayloadJson() []byte {
+	if x != nil {
+		return x.PayloadJson
+	}
+	return nil
+}
+
+func (x *RunCommandResponse) GetMetadata() map[string]string {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+type ArtifactMetadata struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// object_key is a producer-local relative path. The agent-gateway scopes it
+	// below the authenticated agent and add-on assignment before writing storage.
+	ObjectKey     string            `protobuf:"bytes,1,opt,name=object_key,json=objectKey,proto3" json:"object_key,omitempty"`
+	ContentType   string            `protobuf:"bytes,2,opt,name=content_type,json=contentType,proto3" json:"content_type,omitempty"`
+	Sha256        string            `protobuf:"bytes,3,opt,name=sha256,proto3" json:"sha256,omitempty"`
+	SizeBytes     int64             `protobuf:"varint,4,opt,name=size_bytes,json=sizeBytes,proto3" json:"size_bytes,omitempty"`
+	Attributes    map[string]string `protobuf:"bytes,5,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ArtifactMetadata) Reset() {
+	*x = ArtifactMetadata{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ArtifactMetadata) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ArtifactMetadata) ProtoMessage() {}
+
+func (x *ArtifactMetadata) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ArtifactMetadata.ProtoReflect.Descriptor instead.
+func (*ArtifactMetadata) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *ArtifactMetadata) GetObjectKey() string {
+	if x != nil {
+		return x.ObjectKey
+	}
+	return ""
+}
+
+func (x *ArtifactMetadata) GetContentType() string {
+	if x != nil {
+		return x.ContentType
+	}
+	return ""
+}
+
+func (x *ArtifactMetadata) GetSha256() string {
+	if x != nil {
+		return x.Sha256
+	}
+	return ""
+}
+
+func (x *ArtifactMetadata) GetSizeBytes() int64 {
+	if x != nil {
+		return x.SizeBytes
+	}
+	return 0
+}
+
+func (x *ArtifactMetadata) GetAttributes() map[string]string {
+	if x != nil {
+		return x.Attributes
+	}
+	return nil
+}
+
+type ArtifactUploadChunk struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// metadata is required on the first chunk of each artifact and omitted on
+	// continuation chunks.
+	Metadata      *ArtifactMetadata `protobuf:"bytes,1,opt,name=metadata,proto3" json:"metadata,omitempty"`
+	Data          []byte            `protobuf:"bytes,2,opt,name=data,proto3" json:"data,omitempty"`
+	ChunkIndex    uint32            `protobuf:"varint,3,opt,name=chunk_index,json=chunkIndex,proto3" json:"chunk_index,omitempty"`
+	IsFinal       bool              `protobuf:"varint,4,opt,name=is_final,json=isFinal,proto3" json:"is_final,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *ArtifactUploadChunk) Reset() {
+	*x = ArtifactUploadChunk{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *ArtifactUploadChunk) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*ArtifactUploadChunk) ProtoMessage() {}
+
+func (x *ArtifactUploadChunk) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use ArtifactUploadChunk.ProtoReflect.Descriptor instead.
+func (*ArtifactUploadChunk) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *ArtifactUploadChunk) GetMetadata() *ArtifactMetadata {
+	if x != nil {
+		return x.Metadata
+	}
+	return nil
+}
+
+func (x *ArtifactUploadChunk) GetData() []byte {
+	if x != nil {
+		return x.Data
+	}
+	return nil
+}
+
+func (x *ArtifactUploadChunk) GetChunkIndex() uint32 {
+	if x != nil {
+		return x.ChunkIndex
+	}
+	return 0
+}
+
+func (x *ArtifactUploadChunk) GetIsFinal() bool {
+	if x != nil {
+		return x.IsFinal
+	}
+	return false
+}
+
 type TelemetrySource struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// source_type identifies the producer family, for example "powerdns".
@@ -502,7 +866,7 @@ type TelemetrySource struct {
 
 func (x *TelemetrySource) Reset() {
 	*x = TelemetrySource{}
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -514,7 +878,7 @@ func (x *TelemetrySource) String() string {
 func (*TelemetrySource) ProtoMessage() {}
 
 func (x *TelemetrySource) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[7]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -527,7 +891,7 @@ func (x *TelemetrySource) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetrySource.ProtoReflect.Descriptor instead.
 func (*TelemetrySource) Descriptor() ([]byte, []int) {
-	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{7}
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *TelemetrySource) GetSourceType() string {
@@ -564,7 +928,7 @@ type TelemetryCounters struct {
 
 func (x *TelemetryCounters) Reset() {
 	*x = TelemetryCounters{}
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -576,7 +940,7 @@ func (x *TelemetryCounters) String() string {
 func (*TelemetryCounters) ProtoMessage() {}
 
 func (x *TelemetryCounters) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[8]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -589,7 +953,7 @@ func (x *TelemetryCounters) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryCounters.ProtoReflect.Descriptor instead.
 func (*TelemetryCounters) Descriptor() ([]byte, []int) {
-	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{8}
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *TelemetryCounters) GetReceived() uint64 {
@@ -642,7 +1006,7 @@ type TelemetryRecord struct {
 
 func (x *TelemetryRecord) Reset() {
 	*x = TelemetryRecord{}
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -654,7 +1018,7 @@ func (x *TelemetryRecord) String() string {
 func (*TelemetryRecord) ProtoMessage() {}
 
 func (x *TelemetryRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[9]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -667,7 +1031,7 @@ func (x *TelemetryRecord) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryRecord.ProtoReflect.Descriptor instead.
 func (*TelemetryRecord) Descriptor() ([]byte, []int) {
-	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{9}
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *TelemetryRecord) GetEventId() string {
@@ -723,7 +1087,7 @@ type TelemetryBatch struct {
 
 func (x *TelemetryBatch) Reset() {
 	*x = TelemetryBatch{}
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -735,7 +1099,7 @@ func (x *TelemetryBatch) String() string {
 func (*TelemetryBatch) ProtoMessage() {}
 
 func (x *TelemetryBatch) ProtoReflect() protoreflect.Message {
-	mi := &file_agent_addon_v1_addon_proto_msgTypes[10]
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -748,7 +1112,7 @@ func (x *TelemetryBatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use TelemetryBatch.ProtoReflect.Descriptor instead.
 func (*TelemetryBatch) Descriptor() ([]byte, []int) {
-	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{10}
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *TelemetryBatch) GetSource() *TelemetrySource {
@@ -803,7 +1167,50 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\x16StreamTelemetryRequest\x12\x1e\n" +
 	"\n" +
 	"capability\x18\x01 \x01(\tR\n" +
-	"capability\"\xf0\x01\n" +
+	"capability\"8\n" +
+	"\x16StreamArtifactsRequest\x12\x1e\n" +
+	"\n" +
+	"capability\x18\x01 \x01(\tR\n" +
+	"capability\"\xe9\x02\n" +
+	"\x11RunCommandRequest\x12\x1d\n" +
+	"\n" +
+	"command_id\x18\x01 \x01(\tR\tcommandId\x12!\n" +
+	"\fcommand_type\x18\x02 \x01(\tR\vcommandType\x12\x1b\n" +
+	"\taction_id\x18\x03 \x01(\tR\bactionId\x12\x16\n" +
+	"\x06schema\x18\x04 \x01(\tR\x06schema\x12!\n" +
+	"\fpayload_json\x18\x05 \x01(\fR\vpayloadJson\x12#\n" +
+	"\rdeadline_unix\x18\x06 \x01(\x03R\fdeadlineUnix\x12X\n" +
+	"\bmetadata\x18\a \x03(\v2<.serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\x83\x02\n" +
+	"\x12RunCommandResponse\x12\x18\n" +
+	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
+	"\amessage\x18\x02 \x01(\tR\amessage\x12!\n" +
+	"\fpayload_json\x18\x03 \x01(\fR\vpayloadJson\x12Y\n" +
+	"\bmetadata\x18\x04 \x03(\v2=.serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntryR\bmetadata\x1a;\n" +
+	"\rMetadataEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xa9\x02\n" +
+	"\x10ArtifactMetadata\x12\x1d\n" +
+	"\n" +
+	"object_key\x18\x01 \x01(\tR\tobjectKey\x12!\n" +
+	"\fcontent_type\x18\x02 \x01(\tR\vcontentType\x12\x16\n" +
+	"\x06sha256\x18\x03 \x01(\tR\x06sha256\x12\x1d\n" +
+	"\n" +
+	"size_bytes\x18\x04 \x01(\x03R\tsizeBytes\x12]\n" +
+	"\n" +
+	"attributes\x18\x05 \x03(\v2=.serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntryR\n" +
+	"attributes\x1a=\n" +
+	"\x0fAttributesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\"\xb0\x01\n" +
+	"\x13ArtifactUploadChunk\x12I\n" +
+	"\bmetadata\x18\x01 \x01(\v2-.serviceradar.agent.addon.v1.ArtifactMetadataR\bmetadata\x12\x12\n" +
+	"\x04data\x18\x02 \x01(\fR\x04data\x12\x1f\n" +
+	"\vchunk_index\x18\x03 \x01(\rR\n" +
+	"chunkIndex\x12\x19\n" +
+	"\bis_final\x18\x04 \x01(\bR\aisFinal\"\xf0\x01\n" +
 	"\x0fTelemetrySource\x12\x1f\n" +
 	"\vsource_type\x18\x01 \x01(\tR\n" +
 	"sourceType\x12'\n" +
@@ -836,12 +1243,15 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\x14TelemetryPayloadKind\x12&\n" +
 	"\"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!TELEMETRY_PAYLOAD_KIND_OCSF_EVENT\x10\x01\x12#\n" +
-	"\x1fTELEMETRY_PAYLOAD_KIND_OTEL_LOG\x10\x022\xb1\x03\n" +
+	"\x1fTELEMETRY_PAYLOAD_KIND_OTEL_LOG\x10\x022\x9c\x05\n" +
 	"\fAddonService\x12[\n" +
 	"\x04Info\x12(.serviceradar.agent.addon.v1.InfoRequest\x1a).serviceradar.agent.addon.v1.InfoResponse\x12j\n" +
 	"\tConfigure\x12-.serviceradar.agent.addon.v1.ConfigureRequest\x1a..serviceradar.agent.addon.v1.ConfigureResponse\x12a\n" +
 	"\x06Health\x12*.serviceradar.agent.addon.v1.HealthRequest\x1a+.serviceradar.agent.addon.v1.HealthResponse\x12u\n" +
-	"\x0fStreamTelemetry\x123.serviceradar.agent.addon.v1.StreamTelemetryRequest\x1a+.serviceradar.agent.addon.v1.TelemetryBatch0\x01BAZ?github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpbb\x06proto3"
+	"\x0fStreamTelemetry\x123.serviceradar.agent.addon.v1.StreamTelemetryRequest\x1a+.serviceradar.agent.addon.v1.TelemetryBatch0\x01\x12z\n" +
+	"\x0fStreamArtifacts\x123.serviceradar.agent.addon.v1.StreamArtifactsRequest\x1a0.serviceradar.agent.addon.v1.ArtifactUploadChunk0\x01\x12m\n" +
+	"\n" +
+	"RunCommand\x12..serviceradar.agent.addon.v1.RunCommandRequest\x1a/.serviceradar.agent.addon.v1.RunCommandResponseBAZ?github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpbb\x06proto3"
 
 var (
 	file_agent_addon_v1_addon_proto_rawDescOnce sync.Once
@@ -856,7 +1266,7 @@ func file_agent_addon_v1_addon_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_addon_v1_addon_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 13)
+var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
 var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(TelemetryPayloadKind)(0),      // 0: serviceradar.agent.addon.v1.TelemetryPayloadKind
 	(HealthResponse_Status)(0),     // 1: serviceradar.agent.addon.v1.HealthResponse.Status
@@ -867,34 +1277,50 @@ var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(*HealthRequest)(nil),          // 6: serviceradar.agent.addon.v1.HealthRequest
 	(*HealthResponse)(nil),         // 7: serviceradar.agent.addon.v1.HealthResponse
 	(*StreamTelemetryRequest)(nil), // 8: serviceradar.agent.addon.v1.StreamTelemetryRequest
-	(*TelemetrySource)(nil),        // 9: serviceradar.agent.addon.v1.TelemetrySource
-	(*TelemetryCounters)(nil),      // 10: serviceradar.agent.addon.v1.TelemetryCounters
-	(*TelemetryRecord)(nil),        // 11: serviceradar.agent.addon.v1.TelemetryRecord
-	(*TelemetryBatch)(nil),         // 12: serviceradar.agent.addon.v1.TelemetryBatch
-	nil,                            // 13: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
-	nil,                            // 14: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	(*StreamArtifactsRequest)(nil), // 9: serviceradar.agent.addon.v1.StreamArtifactsRequest
+	(*RunCommandRequest)(nil),      // 10: serviceradar.agent.addon.v1.RunCommandRequest
+	(*RunCommandResponse)(nil),     // 11: serviceradar.agent.addon.v1.RunCommandResponse
+	(*ArtifactMetadata)(nil),       // 12: serviceradar.agent.addon.v1.ArtifactMetadata
+	(*ArtifactUploadChunk)(nil),    // 13: serviceradar.agent.addon.v1.ArtifactUploadChunk
+	(*TelemetrySource)(nil),        // 14: serviceradar.agent.addon.v1.TelemetrySource
+	(*TelemetryCounters)(nil),      // 15: serviceradar.agent.addon.v1.TelemetryCounters
+	(*TelemetryRecord)(nil),        // 16: serviceradar.agent.addon.v1.TelemetryRecord
+	(*TelemetryBatch)(nil),         // 17: serviceradar.agent.addon.v1.TelemetryBatch
+	nil,                            // 18: serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	nil,                            // 19: serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	nil,                            // 20: serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	nil,                            // 21: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	nil,                            // 22: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
 }
 var file_agent_addon_v1_addon_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.agent.addon.v1.HealthResponse.status:type_name -> serviceradar.agent.addon.v1.HealthResponse.Status
-	13, // 1: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
-	0,  // 2: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
-	14, // 3: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
-	9,  // 4: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
-	11, // 5: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
-	10, // 6: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
-	2,  // 7: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
-	4,  // 8: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
-	6,  // 9: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
-	8,  // 10: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
-	3,  // 11: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
-	5,  // 12: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
-	7,  // 13: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
-	12, // 14: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
-	11, // [11:15] is the sub-list for method output_type
-	7,  // [7:11] is the sub-list for method input_type
-	7,  // [7:7] is the sub-list for extension type_name
-	7,  // [7:7] is the sub-list for extension extendee
-	0,  // [0:7] is the sub-list for field type_name
+	18, // 1: serviceradar.agent.addon.v1.RunCommandRequest.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	19, // 2: serviceradar.agent.addon.v1.RunCommandResponse.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	20, // 3: serviceradar.agent.addon.v1.ArtifactMetadata.attributes:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	12, // 4: serviceradar.agent.addon.v1.ArtifactUploadChunk.metadata:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata
+	21, // 5: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	0,  // 6: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
+	22, // 7: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	14, // 8: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
+	16, // 9: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
+	15, // 10: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
+	2,  // 11: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
+	4,  // 12: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
+	6,  // 13: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
+	8,  // 14: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
+	9,  // 15: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:input_type -> serviceradar.agent.addon.v1.StreamArtifactsRequest
+	10, // 16: serviceradar.agent.addon.v1.AddonService.RunCommand:input_type -> serviceradar.agent.addon.v1.RunCommandRequest
+	3,  // 17: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
+	5,  // 18: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
+	7,  // 19: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
+	17, // 20: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
+	13, // 21: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:output_type -> serviceradar.agent.addon.v1.ArtifactUploadChunk
+	11, // 22: serviceradar.agent.addon.v1.AddonService.RunCommand:output_type -> serviceradar.agent.addon.v1.RunCommandResponse
+	17, // [17:23] is the sub-list for method output_type
+	11, // [11:17] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_agent_addon_v1_addon_proto_init() }
@@ -908,7 +1334,7 @@ func file_agent_addon_v1_addon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_addon_v1_addon_proto_rawDesc), len(file_agent_addon_v1_addon_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   13,
+			NumMessages:   21,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

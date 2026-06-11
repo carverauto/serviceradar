@@ -24,19 +24,21 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/agent/syncsources"
 )
 
+const managedQueryLabel = "managed"
+
 // buildNormalizedUpdate composes the driver's raw API-to-update mapping with
 // the generic runtime normalization step, mirroring the full pipeline an
 // update passes through before reaching the gateway. The assertions below are
 // byte-identical to the wire format the Elixir core consumed before the
 // driver was extracted from the sync runtime.
-func buildNormalizedUpdate(item device, queryLabel string) map[string]interface{} {
+func buildNormalizedUpdate(item device) map[string]interface{} {
 	run := syncsources.RunContext{
 		AgentID:   "agent-1",
 		GatewayID: "agent-1",
 		Partition: "default",
 	}
 
-	update := buildUpdate(run, item, queryLabel)
+	update := buildUpdate(run, item, managedQueryLabel)
 	if update != nil {
 		syncsources.NormalizeUpdate(update)
 	}
@@ -99,7 +101,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 		PurdueLevel:       &purdue,
 		Visibility:        "Full",
 		NetworkInterfaces: []map[string]interface{}{{"name": "eth0", "mac": "00:11:22:33:44:55"}},
-	}, "managed")
+	})
 
 	if update["ip"] != "10.0.0.2" {
 		t.Fatalf("ip = %q, want first IPv4 address", update["ip"])
@@ -195,7 +197,7 @@ func TestBuildUpdateSplitsMultiMACField(t *testing.T) {
 		DeviceID:   42,
 		IPAddress:  "10.0.0.2",
 		MacAddress: "junk,00:1A:A0:B9:40:40,001422F42A2A",
-	}, "managed")
+	})
 
 	if update["mac"] != "00:1A:A0:B9:40:40" {
 		t.Fatalf("update[mac] = %q, want first valid atomic MAC", update["mac"])
@@ -215,7 +217,7 @@ func TestBuildUpdateOmitsMACWhenFieldHasNoValidMAC(t *testing.T) {
 		"empty":        {DeviceID: 42, IPAddress: "10.0.0.2"},
 		"garbage-only": {DeviceID: 42, IPAddress: "10.0.0.2", MacAddress: "unknown, n/a ,00:11:22:33:44"},
 	} {
-		update := buildNormalizedUpdate(item, "managed")
+		update := buildNormalizedUpdate(item)
 
 		if mac, ok := update["mac"]; ok {
 			t.Fatalf("%s: update[mac] = %q, want key omitted", name, mac)
@@ -237,7 +239,7 @@ func TestBuildUpdateFallsBackToMACListWhenMACFieldIsGarbage(t *testing.T) {
 		IPAddress:    "10.0.0.2",
 		MacAddress:   "n/a, also not a mac",
 		MacAddresses: []string{"bogus", "00:1A:A0:B9:40:42"},
-	}, "managed")
+	})
 
 	if update["mac"] != "00:1A:A0:B9:40:42" {
 		t.Fatalf("update[mac] = %q, want first valid MAC from mac_addresses list", update["mac"])
@@ -245,7 +247,7 @@ func TestBuildUpdateFallsBackToMACListWhenMACFieldIsGarbage(t *testing.T) {
 }
 
 func TestBuildUpdateSkipsDevicesWithoutIP(t *testing.T) {
-	if update := buildNormalizedUpdate(device{DeviceID: 42}, "managed"); update != nil {
+	if update := buildNormalizedUpdate(device{DeviceID: 42}); update != nil {
 		t.Fatalf("update = %#v, want nil for device without IP", update)
 	}
 }

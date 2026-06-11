@@ -13,6 +13,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     socket
     |> assign(:endpoint_inventory_query_form, to_form(default_query_params(), as: :endpoint_inventory_query))
     |> assign(:endpoint_inventory_cohort_form, to_form(default_cohort_params(), as: :endpoint_inventory_cohort_query))
+    |> assign(
+      :endpoint_inventory_package_filter_form,
+      to_form(default_package_filter_params(), as: :endpoint_inventory_filter)
+    )
     |> assign(:endpoint_inventory_live_query_result, nil)
     |> assign(:endpoint_inventory_cohort_query_result, nil)
     |> assign(:endpoint_inventory_command_notice, nil)
@@ -152,6 +156,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
       "timeout_ms" => "5000",
       "cohort_cap" => "128"
     }
+  end
+
+  def default_package_filter_params do
+    %{
+      "q" => "",
+      "package_manager" => "",
+      "version" => "",
+      "purl" => "",
+      "cpe" => ""
+    }
+  end
+
+  def apply_package_filter(socket, params) when is_map(params) do
+    params = Map.merge(default_package_filter_params(), normalize_params(params))
+
+    assign(socket, :endpoint_inventory_package_filter_form, to_form(params, as: :endpoint_inventory_filter))
   end
 
   defp apply_command_kind(socket, :ack, msg) do

@@ -24,6 +24,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
   """
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.ProducerScheduleCatalog
 
   require Ash.Query
 
@@ -99,9 +100,15 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
         |> Ash.create()
 
       {:ok, %AddonPackage{} = package} ->
-        package
-        |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]), actor: actor)
-        |> Ash.update()
+        with {:ok, updated} <-
+               package
+               |> Ash.Changeset.for_update(:update, Map.drop(attrs, [:addon_id, :version]),
+                 actor: actor
+               )
+               |> Ash.update(),
+             :ok <- ProducerScheduleCatalog.sync_package(updated, actor: actor) do
+          {:ok, updated}
+        end
 
       {:error, _reason} = error ->
         error
@@ -240,6 +247,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          capabilities: List.wrap(Map.get(manifest, "capabilities", [])),
          config_schema: Keyword.get(opts, :config_schema, %{}),
          signal_schemas: List.wrap(Map.get(manifest, "signal_schemas", [])),
+         producer_schedules: List.wrap(Map.get(manifest, "producer_schedules", [])),
          artifacts: artifacts,
          requires: requires,
          source_type: :first_party,

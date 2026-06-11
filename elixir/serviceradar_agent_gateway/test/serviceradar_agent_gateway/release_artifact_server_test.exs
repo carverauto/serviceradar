@@ -18,7 +18,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
           resolve_identity: fn _conn ->
             {:ok, %{component_id: "agent-123", component_type: :agent}}
           end,
-          resolve_download: fn _target_id, _command_id, _caller_agent_id -> {:error, :unauthorized} end
+          resolve_download: fn _target_id, _command_id, _caller_agent_id ->
+            {:error, :unauthorized}
+          end
         )
       )
 
@@ -69,7 +71,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
             resolve_identity: fn _conn ->
               {:ok, %{component_id: "agent-123", component_type: :agent}}
             end,
-            resolve_addon_artifact_download: fn "package-123", "native-addons/pkg.tar.gz", "agent-123" ->
+            resolve_addon_artifact_download: fn "package-123",
+                                                "native-addons/pkg.tar.gz",
+                                                "agent-123" ->
               {:ok,
                %{
                  object_key: "native-addons/pkg.tar.gz",
@@ -91,9 +95,11 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
 
   test "streams generic agent artifact data through token authorization" do
     with_plugin_storage(fn ->
-      request = StorageToken.download_agent_artifact_request("catalog-source", "catalogs/current.json")
+      request =
+        StorageToken.download_agent_artifact_request("catalog-source", "catalogs/current.json")
 
-      assert request.url == "https://gateway.example:50053/artifacts/agent-artifacts/catalog-source/download"
+      assert request.url ==
+               "https://gateway.example:50053/artifacts/agent-artifacts/catalog-source/download"
 
       conn =
         :post
@@ -104,7 +110,9 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
             resolve_identity: fn _conn ->
               {:ok, %{component_id: "agent-123", component_type: :agent}}
             end,
-            resolve_agent_artifact_download: fn "catalog-source", "catalogs/current.json", "agent-123" ->
+            resolve_agent_artifact_download: fn "catalog-source",
+                                                "catalogs/current.json",
+                                                "agent-123" ->
               {:ok,
                %{
                  object_key: "catalogs/current.json",
@@ -122,6 +130,131 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
       assert conn.resp_body == ~s({"entries":[]})
       assert get_resp_header(conn, "content-type") == ["application/json; charset=utf-8"]
     end)
+  end
+
+  test "uploads plugin staged artifacts under an agent scoped object key" do
+    body = ~s({"advisories":[]})
+    sha256 = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
+
+    conn =
+      :post
+      |> conn("/artifacts/agent-artifacts/upload", body)
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-serviceradar-artifact-key", "feeds/nvd.json")
+      |> put_req_header("x-serviceradar-artifact-assignment-id", "assign-123")
+      |> put_req_header("x-serviceradar-artifact-plugin-id", "feed-plugin")
+      |> put_req_header("x-serviceradar-artifact-sha256", sha256)
+      |> put_req_header("x-serviceradar-artifact-size", Integer.to_string(byte_size(body)))
+      |> ReleaseArtifactServer.call(
+        ReleaseArtifactServer.init(
+          resolve_identity: fn _conn ->
+            {:ok, %{component_id: "agent-123", component_type: :agent}}
+          end,
+          upload_object: fn metadata, data ->
+            assert data == body
+            assert metadata.key == "agent-artifacts/agent-123/assign-123/feeds/nvd.json"
+            assert metadata.content_type == "application/json"
+            assert metadata.sha256 == sha256
+            assert metadata.total_size == byte_size(body)
+            assert metadata.attributes["agent_id"] == "agent-123"
+            assert metadata.attributes["assignment_id"] == "assign-123"
+            assert metadata.attributes["plugin_id"] == "feed-plugin"
+
+            {:ok,
+             %Proto.UploadObjectResponse{
+               info: %Proto.ObjectInfo{
+                 metadata: metadata,
+                 sha256: sha256,
+                 size: byte_size(body)
+               }
+             }}
+          end
+        )
+      )
+
+    assert conn.status == 200
+
+    assert Jason.decode!(conn.resp_body) == %{
+             "attributes" => %{
+               "agent_id" => "agent-123",
+               "assignment_id" => "assign-123",
+               "plugin_id" => "feed-plugin",
+               "source" => "wasm-plugin",
+               "storage_backend" => "datasvc_object_store"
+             },
+             "content_type" => "application/json",
+             "object_key" => "agent-artifacts/agent-123/assign-123/feeds/nvd.json",
+             "sha256" => sha256,
+             "size_bytes" => byte_size(body)
+           }
+  end
+
+  test "uploads native add-on staged artifacts with native source provenance" do
+    body = ~s({"snapshot":"ok"})
+    sha256 = :sha256 |> :crypto.hash(body) |> Base.encode16(case: :lower)
+
+    conn =
+      :post
+      |> conn("/artifacts/agent-artifacts/upload", body)
+      |> put_req_header("content-type", "application/json")
+      |> put_req_header("x-serviceradar-artifact-key", "feeds/example.json")
+      |> put_req_header("x-serviceradar-artifact-assignment-id", "endpoint-inventory")
+      |> put_req_header("x-serviceradar-artifact-plugin-id", "endpoint-inventory")
+      |> put_req_header("x-serviceradar-artifact-source", "native-addon")
+      |> put_req_header("x-serviceradar-artifact-sha256", sha256)
+      |> put_req_header("x-serviceradar-artifact-size", Integer.to_string(byte_size(body)))
+      |> ReleaseArtifactServer.call(
+        ReleaseArtifactServer.init(
+          resolve_identity: fn _conn ->
+            {:ok, %{component_id: "agent-123", component_type: :agent}}
+          end,
+          upload_object: fn metadata, data ->
+            assert data == body
+
+            assert metadata.key ==
+                     "agent-artifacts/agent-123/endpoint-inventory/feeds/example.json"
+
+            assert metadata.attributes["source"] == "native-addon"
+
+            {:ok,
+             %Proto.UploadObjectResponse{
+               info: %Proto.ObjectInfo{
+                 metadata: metadata,
+                 sha256: sha256,
+                 size: byte_size(body)
+               }
+             }}
+          end
+        )
+      )
+
+    assert conn.status == 200
+
+    assert %{
+             "attributes" => %{
+               "source" => "native-addon",
+               "storage_backend" => "datasvc_object_store"
+             },
+             "object_key" => "agent-artifacts/agent-123/endpoint-inventory/feeds/example.json"
+           } = Jason.decode!(conn.resp_body)
+  end
+
+  test "rejects unsafe staged artifact object keys" do
+    conn =
+      :post
+      |> conn("/artifacts/agent-artifacts/upload", "body")
+      |> put_req_header("x-serviceradar-artifact-key", "../nvd.json")
+      |> put_req_header("x-serviceradar-artifact-assignment-id", "assign-123")
+      |> ReleaseArtifactServer.call(
+        ReleaseArtifactServer.init(
+          resolve_identity: fn _conn ->
+            {:ok, %{component_id: "agent-123", component_type: :agent}}
+          end
+        )
+      )
+
+    assert conn.status == 400
+    assert conn.resp_body =~ "invalid artifact key"
   end
 
   test "rejects callers without an authenticated agent identity" do

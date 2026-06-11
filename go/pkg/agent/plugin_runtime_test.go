@@ -235,6 +235,8 @@ func TestPluginManagerApplyConfigSeparatesStreamingAssignments(t *testing.T) {
 }
 
 func TestPluginManagerApplyConfigRefreshesDownloadTokenWithoutRestart(t *testing.T) {
+	const rotatedDownloadToken = "token-new"
+
 	mgr := NewPluginManager(t.Context(), PluginManagerConfig{Logger: logger.NewTestLogger()})
 	defer mgr.Stop()
 
@@ -279,7 +281,7 @@ func TestPluginManagerApplyConfigRefreshesDownloadTokenWithoutRestart(t *testing
 	// Same fingerprint, freshly minted token: must be adopted in place
 	// without restarting the runner (download tokens rotate every config
 	// generation and are excluded from the fingerprint).
-	mgr.ApplyConfig(assignmentConfig("token-new"))
+	mgr.ApplyConfig(assignmentConfig(rotatedDownloadToken))
 
 	mgr.mu.RLock()
 	currentRunner := mgr.runners["scheduled-1"]
@@ -290,35 +292,37 @@ func TestPluginManagerApplyConfigRefreshesDownloadTokenWithoutRestart(t *testing
 		t.Fatal("expected runner to survive a download-token-only refresh")
 	}
 
-	if _, token := currentRunner.assignment.downloadCredentials(); token != "token-new" {
-		t.Fatalf("runner download token = %q, want token-new", token)
+	if _, token := currentRunner.assignment.downloadCredentials(); token != rotatedDownloadToken {
+		t.Fatalf("runner download token = %q, want %s", token, rotatedDownloadToken)
 	}
 	if streamAssignment == nil {
 		t.Fatal("expected streaming assignment after apply")
 	}
-	if _, token := streamAssignment.downloadCredentials(); token != "token-new" {
-		t.Fatalf("stream download token = %q, want token-new", token)
+	if _, token := streamAssignment.downloadCredentials(); token != rotatedDownloadToken {
+		t.Fatalf("stream download token = %q, want %s", token, rotatedDownloadToken)
 	}
 }
 
 func TestPluginAssignmentSetDownloadCredentialsIgnoresEmptyURL(t *testing.T) {
+	const rotatedDownloadToken = "token-new"
+
 	assignment := &pluginAssignment{
 		AssignmentID:  "a-1",
 		DownloadURL:   "https://plugins.example/download/pkg-1",
 		DownloadToken: "token-old",
 	}
 
-	assignment.setDownloadCredentials("", "token-new")
+	assignment.setDownloadCredentials("", rotatedDownloadToken)
 
 	downloadURL, token := assignment.downloadCredentials()
 	if downloadURL != "https://plugins.example/download/pkg-1" || token != "token-old" {
 		t.Fatalf("empty URL must not overwrite credentials, got url=%q token=%q", downloadURL, token)
 	}
 
-	assignment.setDownloadCredentials("https://plugins.example/download/pkg-1", "token-new")
+	assignment.setDownloadCredentials("https://plugins.example/download/pkg-1", rotatedDownloadToken)
 
-	if _, token := assignment.downloadCredentials(); token != "token-new" {
-		t.Fatalf("download token = %q, want token-new", token)
+	if _, token := assignment.downloadCredentials(); token != rotatedDownloadToken {
+		t.Fatalf("download token = %q, want %s", token, rotatedDownloadToken)
 	}
 }
 

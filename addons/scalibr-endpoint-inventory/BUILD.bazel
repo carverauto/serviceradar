@@ -1,0 +1,31 @@
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+    "scalibr-endpoint-inventory.json",
+    "serviceradar-scalibr-endpoint-inventory.service",
+    "serviceradar-scalibr-endpoint-inventory.timer",
+])
+
+filegroup(
+    name = "scalibr_endpoint_inventory_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "scalibr_endpoint_inventory_systemd_units",
+    srcs = [
+        "serviceradar-scalibr-endpoint-inventory.service",
+        "serviceradar-scalibr-endpoint-inventory.timer",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+filegroup(
+    name = "scalibr_endpoint_inventory_runtime_config",
+    srcs = ["scalibr-endpoint-inventory.json"],
+    visibility = ["//visibility:public"],
+)

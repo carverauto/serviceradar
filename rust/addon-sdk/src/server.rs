@@ -31,10 +31,10 @@ use crate::handshake::{self, HandshakeError};
 use crate::pb::addon_service_server::{AddonService, AddonServiceServer};
 use crate::pb::{
     ConfigureRequest, ConfigureResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    StreamTelemetryRequest,
+    RunCommandRequest, RunCommandResponse, StreamTelemetryRequest,
 };
 use crate::tls::{self, MtlsError};
-use crate::{Addon, TelemetryStream};
+use crate::{Addon, CommandRequest, TelemetryStream};
 
 /// The gRPC health-check service name the go-plugin client probes
 /// (`go-plugin`'s `GRPCServiceName`). The agent calls `Health/Check` for this
@@ -244,5 +244,32 @@ impl AddonService for AddonGrpc {
         _request: Request<StreamTelemetryRequest>,
     ) -> Result<Response<Self::StreamTelemetryStream>, Status> {
         Ok(Response::new(self.inner.stream_telemetry()))
+    }
+
+    async fn run_command(
+        &self,
+        request: Request<RunCommandRequest>,
+    ) -> Result<Response<RunCommandResponse>, Status> {
+        let request = request.into_inner();
+        let result = self
+            .inner
+            .run_command(CommandRequest {
+                command_id: request.command_id,
+                command_type: request.command_type,
+                action_id: request.action_id,
+                schema: request.schema,
+                payload_json: request.payload_json,
+                deadline_unix: request.deadline_unix,
+                metadata: request.metadata,
+            })
+            .await
+            .map_err(|e| Status::internal(e.to_string()))?;
+
+        Ok(Response::new(RunCommandResponse {
+            success: result.success,
+            message: result.message,
+            payload_json: result.payload_json,
+            metadata: result.metadata,
+        }))
     }
 }

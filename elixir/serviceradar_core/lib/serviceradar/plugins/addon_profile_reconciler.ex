@@ -9,6 +9,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonAssignment
+  alias ServiceRadar.Plugins.MapUtils
   alias ServiceRadar.Plugins.SRQLInputResolver
   alias ServiceRadar.Plugins.ValueUtils
 
@@ -16,10 +17,15 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   @type reconcile_result :: %{
           matched_rows: non_neg_integer(),
+          resolved_devices: non_neg_integer(),
+          resolved_agents: non_neg_integer(),
           target_agents: non_neg_integer(),
+          eligible_agents: non_neg_integer(),
           desired_assignments: non_neg_integer(),
           skipped_without_agent: non_neg_integer(),
           skipped_manual_overrides: non_neg_integer(),
+          skipped_targets: [map()],
+          skip_counts: map(),
           upserted: non_neg_integer(),
           unchanged: non_neg_integer(),
           disabled: non_neg_integer()
@@ -85,24 +91,38 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
     with {:ok, normalized} <- normalize_profile(profile),
          {:ok, targets} <- extract_targets(resolved_inputs, normalized.max_targets),
+         {:ok, eligibility} <- evaluate_target_eligibility(normalized, targets.targets),
          {:ok, manual_assignments} <-
-           store.list_manual_assignments(normalized.addon_id, targets.agent_uids, actor) do
+           store.list_manual_assignments(normalized.addon_id, eligibility.agent_uids, actor) do
       manual_agent_uids = MapSet.new(manual_assignments, & &1.agent_uid)
 
+      manual_skips =
+        eligibility.targets
+        |> Enum.filter(&MapSet.member?(manual_agent_uids, &1.agent_uid))
+        |> Enum.map(&skip_target(&1, "manual_override", "manual add-on assignment exists"))
+
       assignments =
-        targets.agent_uids
+        eligibility.agent_uids
         |> Enum.reject(&MapSet.member?(manual_agent_uids, &1))
         |> Enum.map(&assignment_spec(normalized, &1, now))
+
+      skipped_targets = targets.skipped_targets ++ eligibility.skipped_targets ++ manual_skips
 
       {:ok,
        %{
          assignments: assignments,
          summary: %{
            matched_rows: targets.matched_rows,
+           resolved_devices: targets.resolved_devices,
+           resolved_agents: targets.resolved_agents,
            target_agents: length(targets.agent_uids),
+           eligible_agents: length(assignments),
            desired_assignments: length(assignments),
            skipped_without_agent: targets.skipped_without_agent,
            skipped_manual_overrides: MapSet.size(manual_agent_uids),
+           skipped_targets: skipped_targets,
+           skip_counts: skip_counts(skipped_targets),
+           target_samples: targets.targets |> Enum.take(20) |> Enum.map(&target_report/1),
            assignments: assignments
          }
        }}
@@ -179,8 +199,7 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   defp extract_targets(resolved_inputs, max_targets) do
     rows =
-      resolved_inputs
-      |> Enum.flat_map(fn input ->
+      Enum.flat_map(resolved_inputs, fn input ->
         entity = ValueUtils.string_value(input, [:entity, "entity"]) || "devices"
 
         input
@@ -189,26 +208,56 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
         |> Enum.map(&{entity, &1})
       end)
 
-    {agent_uids, skipped_without_agent} =
+    {targets, skipped_targets} =
       rows
-      |> Enum.reduce({[], 0}, fn {entity, row}, {uids, skipped} ->
+      |> Enum.with_index()
+      |> Enum.reduce({[], []}, fn {{entity, row}, index}, {target_acc, skipped_acc} ->
         case agent_uid_for_row(entity, row) do
-          nil -> {uids, skipped + 1}
-          uid -> {[uid | uids], skipped}
+          nil ->
+            skip =
+              skip_target(
+                %{entity: entity, row: row, row_index: index},
+                "no_enrolled_agent",
+                "target row has no enrolled agent"
+              )
+
+            {target_acc, [skip | skipped_acc]}
+
+          uid ->
+            target = %{
+              entity: entity,
+              row: row,
+              row_index: index,
+              agent_uid: uid,
+              device_uid: device_uid_for_row(entity, row)
+            }
+
+            {[target | target_acc], skipped_acc}
         end
       end)
 
-    unique_agent_uids =
-      agent_uids
+    targets =
+      targets
       |> Enum.reverse()
-      |> Enum.uniq()
+      |> unique_targets()
       |> Enum.take(max_targets)
+
+    unique_agent_uids =
+      targets
+      |> Enum.map(& &1.agent_uid)
+      |> Enum.uniq()
+
+    skipped_targets = Enum.reverse(skipped_targets)
 
     {:ok,
      %{
        matched_rows: length(rows),
        agent_uids: unique_agent_uids,
-       skipped_without_agent: skipped_without_agent
+       targets: targets,
+       resolved_devices: count_entity(targets, "devices"),
+       resolved_agents: count_entity(targets, "agents"),
+       skipped_without_agent: length(skipped_targets),
+       skipped_targets: skipped_targets
      }}
   end
 
@@ -218,6 +267,404 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
   defp agent_uid_for_row(_entity, row) do
     ValueUtils.string_value(row, [:agent_uid, "agent_uid", :agent_id, "agent_id"])
+  end
+
+  defp device_uid_for_row("devices", row), do: ValueUtils.string_value(row, [:uid, "uid"])
+  defp device_uid_for_row(_entity, _row), do: nil
+
+  defp unique_targets(targets) do
+    {_seen, unique} =
+      Enum.reduce(targets, {MapSet.new(), []}, fn target, {seen, acc} ->
+        if MapSet.member?(seen, target.agent_uid) do
+          {seen, acc}
+        else
+          {MapSet.put(seen, target.agent_uid), [target | acc]}
+        end
+      end)
+
+    Enum.reverse(unique)
+  end
+
+  defp count_entity(targets, entity), do: Enum.count(targets, &(&1.entity == entity))
+
+  defp evaluate_target_eligibility(profile, targets) do
+    {eligible, skipped} =
+      Enum.reduce(targets, {[], []}, fn target, {eligible_acc, skipped_acc} ->
+        case target_skip(profile, target) do
+          nil -> {[target | eligible_acc], skipped_acc}
+          {reason, detail} -> {eligible_acc, [skip_target(target, reason, detail) | skipped_acc]}
+        end
+      end)
+
+    eligible = Enum.reverse(eligible)
+
+    {:ok,
+     %{
+       targets: eligible,
+       agent_uids: Enum.map(eligible, & &1.agent_uid),
+       skipped_targets: Enum.reverse(skipped)
+     }}
+  end
+
+  defp target_skip(profile, target) do
+    cond do
+      profile.enabled == false ->
+        {"disabled_package_config", "profile is disabled"}
+
+      package_revoked_or_unapproved?(profile) ->
+        {"revoked_or_unapproved_package", "add-on package is not approved"}
+
+      unsupported_platform?(profile, target.row) ->
+        {"unsupported_platform", "target platform has no package artifact"}
+
+      incompatible_base_agent_version?(profile, target.row) ->
+        {"incompatible_base_agent_version",
+         "target base agent version does not satisfy package requirement"}
+
+      missing_required_capability?(profile, target.row) ->
+        {"missing_required_capability", "target is missing a package-required capability"}
+
+      disconnected_control_stream?(target.row) ->
+        {"disconnected_control_stream", "target agent control stream is offline"}
+
+      true ->
+        nil
+    end
+  end
+
+  defp package_revoked_or_unapproved?(profile) do
+    case package_status(profile) do
+      nil -> false
+      "approved" -> false
+      :approved -> false
+      _ -> true
+    end
+  end
+
+  defp package_status(profile) do
+    package = profile_package(profile)
+
+    ValueUtils.raw_value(profile, [:package_status, "package_status", :status, "status"]) ||
+      if is_map(package), do: ValueUtils.raw_value(package, [:status, "status"])
+  end
+
+  defp unsupported_platform?(profile, row) do
+    artifacts = package_artifacts(profile)
+
+    if map_size(artifacts) == 0 do
+      false
+    else
+      case target_platform(row) do
+        nil ->
+          false
+
+        platform ->
+          not Map.has_key?(artifacts, platform)
+      end
+    end
+  end
+
+  defp target_platform(row) do
+    os =
+      nested_string(row, [
+        [:os],
+        ["os"],
+        [:platform_os],
+        ["platform_os"],
+        [:metadata, :os],
+        [:metadata, "os"],
+        ["metadata", :os],
+        ["metadata", "os"]
+      ])
+
+    arch =
+      nested_string(row, [
+        [:arch],
+        ["arch"],
+        [:platform_arch],
+        ["platform_arch"],
+        [:metadata, :arch],
+        [:metadata, "arch"],
+        ["metadata", :arch],
+        ["metadata", "arch"]
+      ])
+
+    if os && arch, do: "#{os}/#{arch}"
+  end
+
+  defp incompatible_base_agent_version?(profile, row) do
+    case base_agent_requirement(profile) do
+      nil ->
+        false
+
+      requirement ->
+        version = target_agent_version(row)
+        not version_matches_requirement?(version, requirement)
+    end
+  end
+
+  defp base_agent_requirement(profile) do
+    requires = package_requires(profile)
+
+    ValueUtils.string_value(requires, [
+      :base_agent,
+      "base_agent",
+      :baseAgent,
+      "baseAgent",
+      :base_agent_version,
+      "base_agent_version"
+    ])
+  end
+
+  defp target_agent_version(row) do
+    nested_string(row, [
+      [:base_agent_version],
+      ["base_agent_version"],
+      [:agent_version],
+      ["agent_version"],
+      [:version],
+      ["version"],
+      [:metadata, :base_agent_version],
+      [:metadata, "base_agent_version"],
+      ["metadata", :base_agent_version],
+      ["metadata", "base_agent_version"],
+      [:metadata, :agent_version],
+      [:metadata, "agent_version"],
+      ["metadata", :agent_version],
+      ["metadata", "agent_version"],
+      [:metadata, :version],
+      [:metadata, "version"],
+      ["metadata", :version],
+      ["metadata", "version"]
+    ])
+  end
+
+  defp version_matches_requirement?(version, requirement)
+       when is_binary(version) and is_binary(requirement) do
+    with {:ok, parsed_version} <- parse_version(version),
+         {:ok, parsed_requirement} <- Version.parse_requirement(requirement) do
+      Version.match?(parsed_version, parsed_requirement)
+    else
+      _ -> false
+    end
+  end
+
+  defp version_matches_requirement?(_, _), do: false
+
+  defp parse_version(version) do
+    version
+    |> String.trim()
+    |> String.trim_leading("v")
+    |> Version.parse()
+    |> case do
+      {:ok, parsed} -> {:ok, parsed}
+      :error -> :error
+    end
+  end
+
+  defp missing_required_capability?(profile, row) do
+    required = required_capabilities(profile)
+
+    if required == [] do
+      false
+    else
+      actual =
+        row
+        |> target_capabilities()
+        |> MapSet.new()
+
+      Enum.any?(required, &(not MapSet.member?(actual, &1)))
+    end
+  end
+
+  defp required_capabilities(profile) do
+    requires = package_requires(profile)
+
+    direct =
+      ValueUtils.list_value(requires, [
+        :capabilities,
+        "capabilities",
+        :required_capabilities,
+        "required_capabilities",
+        :os_capabilities,
+        "os_capabilities"
+      ]) || []
+
+    Enum.map(direct, &to_string/1)
+  end
+
+  defp target_capabilities(row) do
+    lists =
+      [
+        nested_list(row, [
+          [:capabilities],
+          ["capabilities"],
+          [:metadata, :capabilities],
+          [:metadata, "capabilities"],
+          ["metadata", :capabilities],
+          ["metadata", "capabilities"]
+        ]),
+        nested_list(row, [
+          [:os_capabilities],
+          ["os_capabilities"],
+          [:metadata, :os_capabilities],
+          [:metadata, "os_capabilities"],
+          ["metadata", :os_capabilities],
+          ["metadata", "os_capabilities"]
+        ])
+      ]
+
+    lists
+    |> Enum.reject(&is_nil/1)
+    |> List.flatten()
+    |> Enum.map(&to_string/1)
+  end
+
+  defp disconnected_control_stream?(row) do
+    explicit =
+      ValueUtils.raw_value(row, [
+        :control_stream_online,
+        "control_stream_online",
+        :agent_control_stream_online,
+        "agent_control_stream_online"
+      ])
+
+    status =
+      nested_string(row, [
+        [:control_stream_status],
+        ["control_stream_status"],
+        [:agent_control_stream_status],
+        ["agent_control_stream_status"],
+        [:status],
+        ["status"],
+        [:metadata, :control_stream_status],
+        [:metadata, "control_stream_status"],
+        ["metadata", :control_stream_status],
+        ["metadata", "control_stream_status"]
+      ])
+
+    cond do
+      explicit == false -> true
+      explicit == true -> false
+      is_nil(status) -> false
+      String.downcase(status) in ["offline", "disconnected", "missing", "unknown"] -> true
+      true -> false
+    end
+  end
+
+  defp package_artifacts(profile) do
+    profile
+    |> profile_package()
+    |> case do
+      package when is_map(package) ->
+        ValueUtils.map_value(package, [:artifacts, "artifacts"]) || %{}
+
+      _ ->
+        ValueUtils.map_value(profile, [:artifacts, "artifacts"]) || %{}
+    end
+  end
+
+  defp package_requires(profile) do
+    profile
+    |> profile_package()
+    |> case do
+      package when is_map(package) ->
+        ValueUtils.map_value(package, [:requires, "requires"]) || %{}
+
+      _ ->
+        ValueUtils.map_value(profile, [:requires, "requires"]) || %{}
+    end
+  end
+
+  defp profile_package(profile) do
+    ValueUtils.map_value(profile, [
+      :addon_package,
+      "addon_package",
+      :package,
+      "package"
+    ])
+  end
+
+  defp nested_string(map, paths) do
+    Enum.find_value(paths, fn path ->
+      case nested_value(map, path) do
+        nil -> nil
+        value when is_binary(value) -> String.trim(value)
+        value when is_atom(value) -> Atom.to_string(value)
+        value when is_integer(value) -> Integer.to_string(value)
+        _ -> nil
+      end
+    end)
+  end
+
+  defp nested_list(map, paths) do
+    Enum.find_value(paths, fn path ->
+      case nested_value(map, path) do
+        value when is_list(value) -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp nested_value(map, keys) when is_map(map) and is_list(keys) do
+    Enum.reduce_while(keys, map, fn key, acc ->
+      if is_map(acc) and Map.has_key?(acc, key) do
+        {:cont, Map.get(acc, key)}
+      else
+        {:halt, nil}
+      end
+    end)
+  end
+
+  defp skip_target(target, reason, detail) do
+    %{
+      reason: reason,
+      detail: detail,
+      entity: Map.get(target, :entity),
+      row_index: Map.get(target, :row_index),
+      agent_uid: Map.get(target, :agent_uid),
+      device_uid:
+        Map.get(target, :device_uid) ||
+          device_uid_for_row(Map.get(target, :entity), Map.get(target, :row, %{})),
+      row: target_row_report(Map.get(target, :row, %{}))
+    }
+  end
+
+  defp target_report(target) do
+    %{
+      entity: target.entity,
+      row_index: target.row_index,
+      agent_uid: target.agent_uid,
+      device_uid: target.device_uid,
+      row: target_row_report(target.row)
+    }
+  end
+
+  defp target_row_report(row) do
+    keys = [
+      "uid",
+      "agent_id",
+      "agent_uid",
+      "hostname",
+      "name",
+      "os",
+      "arch",
+      "version",
+      "agent_version",
+      "base_agent_version",
+      "status",
+      "control_stream_status"
+    ]
+
+    row
+    |> MapUtils.stringify_keys_or_empty()
+    |> Map.take(keys)
+  end
+
+  defp skip_counts(skipped_targets) do
+    skipped_targets
+    |> Enum.map(& &1.reason)
+    |> Enum.frequencies()
   end
 
   defp assignment_spec(profile, agent_uid, reconciled_at) do
@@ -248,8 +695,9 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     with {:ok, profile_id} <- required_profile_id(profile),
          {:ok, addon_id} <- required_string(profile, [:addon_id, "addon_id"], "addon_id"),
          {:ok, addon_package_id} <-
-           required_value(profile, [:addon_package_id, "addon_package_id"], "addon_package_id"),
-         {:ok, query} <- required_string(profile, [:target_query, "target_query"], "target_query") do
+           required_value(profile, [:addon_package_id, "addon_package_id"], "addon_package_id") do
+      query = target_query(profile)
+
       {:ok,
        %{
          profile_id: profile_id,
@@ -261,7 +709,11 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
          args: ValueUtils.list_value(profile, [:args, "args"]) || [],
          priority: ValueUtils.int_value(profile, [:priority, "priority"], 100),
          max_targets: ValueUtils.int_value(profile, [:max_targets, "max_targets"], 10_000),
-         enabled: ValueUtils.bool_value(profile, [:enabled, "enabled"], true)
+         enabled: ValueUtils.bool_value(profile, [:enabled, "enabled"], true),
+         package_status: ValueUtils.raw_value(profile, [:package_status, "package_status"]),
+         addon_package: profile_package(profile),
+         artifacts: ValueUtils.map_value(profile, [:artifacts, "artifacts"]) || %{},
+         requires: ValueUtils.map_value(profile, [:requires, "requires"]) || %{}
        }}
     end
   end
@@ -283,7 +735,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     end
   end
 
-  defp target_query(profile), do: ValueUtils.string_value(profile, [:target_query, "target_query"]) || ""
+  defp target_query(profile) do
+    case ValueUtils.string_value(profile, [:target_query, "target_query"]) do
+      nil -> "in:devices"
+      "" -> "in:devices"
+      query -> query
+    end
+  end
 
   defp target_entity(profile) do
     case Regex.run(~r/^\s*in:([a-zA-Z0-9_]+)/, target_query(profile)) do
@@ -305,8 +763,6 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
     @moduledoc false
     @behaviour ServiceRadar.Plugins.AddonProfileReconciler
 
-    alias ServiceRadar.Plugins.AddonAssignment
-
     require Ash.Query
 
     @impl true
@@ -323,7 +779,8 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
       AddonAssignment
       |> Ash.Query.for_read(:read)
       |> Ash.Query.filter(
-        source == :manual and enabled == true and addon_id == ^addon_id and agent_uid in ^agent_uids
+        source == :manual and enabled == true and addon_id == ^addon_id and
+          agent_uid in ^agent_uids
       )
       |> Ash.read(actor: actor)
     end

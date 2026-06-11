@@ -181,7 +181,7 @@ func fullScanManifest(
 	manifest.HashAlgorithm = payload.HashAlgorithm
 	manifest.PackageCount = payload.PackageCount
 	manifest.Packages = append([]Package(nil), packages...)
-	manifest.SourceSummaries = append([]SourceSummary(nil), payload.Sources...)
+	manifest.SourceSummaries = append([]SourceSummary(nil), payload.Diagnostics...)
 	manifest.SourceMTimes = copySourceMTimes(current)
 	manifest.StandingQuestionResultCounts = copyStandingQuestionResultCounts(payload.StandingQuestionResultCounts)
 	manifest.LastScanAt = scannedAt

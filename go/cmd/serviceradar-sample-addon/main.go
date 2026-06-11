@@ -25,6 +25,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 
 	"github.com/carverauto/serviceradar/go/pkg/addon"
 	"github.com/carverauto/serviceradar/go/pkg/addon/sdk"
@@ -59,6 +60,24 @@ func (a *sampleAddon) Health(context.Context) (addon.Health, error) {
 	return addon.Health{
 		Status:  addon.HealthHealthy,
 		Version: addonVersion,
+	}, nil
+}
+
+func (a *sampleAddon) RunCommand(_ context.Context, request addon.CommandRequest) (addon.CommandResult, error) {
+	payload, err := json.Marshal(map[string]any{
+		"schema":     "serviceradar.sample_addon_command_result.v1",
+		"status":     "succeeded",
+		"action_id":  request.ActionID,
+		"command_id": request.CommandID,
+	})
+	if err != nil {
+		return addon.CommandResult{}, err
+	}
+
+	return addon.CommandResult{
+		Success:     true,
+		Message:     "sample command completed",
+		PayloadJSON: payload,
 	}, nil
 }
 

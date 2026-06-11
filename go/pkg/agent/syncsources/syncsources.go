@@ -67,6 +67,7 @@ type SourceDriver interface {
 // Constructor builds a new driver instance for a sync run.
 type Constructor func() SourceDriver
 
+//nolint:gochecknoglobals // Driver registration is process-wide by design.
 var (
 	registryMu sync.RWMutex
 	registry   = make(map[string]Constructor)

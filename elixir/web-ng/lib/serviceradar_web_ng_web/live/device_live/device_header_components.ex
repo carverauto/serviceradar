@@ -36,6 +36,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceHeaderComponents do
           <.link navigate={~p"/devices/#{@device_uid}"}>{@device_display_name}</.link>
         </li>
         <li :if={@active_tab == "interfaces"} class="text-base-content/70">Interfaces</li>
+        <li :if={@active_tab == "software"} class="text-base-content/70">Software</li>
         <li :if={@active_tab == "flows"} class="text-base-content/70">Flows</li>
         <li :if={@active_tab == "logs"} class="text-base-content/70">Logs</li>
         <li :if={@active_tab == "profiles"} class="text-base-content/70">Profiles</li>

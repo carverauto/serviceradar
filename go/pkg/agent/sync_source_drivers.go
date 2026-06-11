@@ -26,6 +26,8 @@ import (
 // example NetBox or UniFi), implement syncsources.SourceDriver in a new
 // subpackage under go/pkg/agent/syncsources/ and register it here. The sync
 // runtime itself never references individual integrations.
+//
+//nolint:gochecknoinits // This package is the explicit sync driver registration boundary.
 func init() {
 	syncsources.Register(armis.SourceType, armis.NewDriver)
 }

@@ -23,6 +23,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 )
 
@@ -101,19 +102,47 @@ func ParseAPKInstalled(reader io.Reader) ([]Package, error) {
 	return packages, nil
 }
 
-func CollectRPMPackages(ctx context.Context, rpmPath string) ([]Package, error) {
+func CollectRPMPackages(ctx context.Context, rpmPath string, maxOutputBytes int64) ([]Package, string, bool, error) {
 	path, err := exec.LookPath(rpmPath)
 	if err != nil {
-		return nil, err
+		return nil, "", false, err
 	}
 
 	cmd := exec.CommandContext(ctx, path, "-qa", "--qf", "%{NAME}\t%{VERSION}-%{RELEASE}\t%{ARCH}\n")
-	output, err := cmd.Output()
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return nil, err
+		return nil, path, false, err
+	}
+	if err := cmd.Start(); err != nil {
+		return nil, path, false, err
 	}
 
-	return ParseRPMQuery(strings.NewReader(string(output))), nil
+	limit := maxOutputBytes
+	if limit <= 0 {
+		limit = defaultMaxOutputBytes
+	}
+	output, readErr := io.ReadAll(io.LimitReader(stdout, limit+1))
+	waitErr := cmd.Wait()
+	truncated := int64(len(output)) > limit
+	if truncated {
+		output = output[:limit]
+	}
+	if readErr != nil {
+		return nil, path, truncated, readErr
+	}
+	if waitErr != nil {
+		if ctx.Err() != nil {
+			return nil, path, truncated, ctx.Err()
+		}
+		return nil, path, truncated, waitErr
+	}
+
+	packages := ParseRPMQuery(strings.NewReader(string(output)))
+	if truncated {
+		return packages, path, true, fmt.Errorf("%w: max_output_bytes=%s", errOutputTruncated, strconv.FormatInt(limit, 10))
+	}
+
+	return packages, path, false, nil
 }
 
 func ParseRPMQuery(reader io.Reader) []Package {

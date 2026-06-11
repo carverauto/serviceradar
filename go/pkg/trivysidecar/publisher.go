@@ -110,7 +110,7 @@ func (p *NATSPublisher) Publish(ctx context.Context, subject string, payload []b
 		if ensureErr := p.ensureStream(ctx, subject); ensureErr == nil {
 			_, err = p.js.Publish(ctx, subject, payload)
 		} else {
-			err = fmt.Errorf("%w; additionally failed to ensure stream: %v", err, ensureErr)
+			err = fmt.Errorf("%w; additionally failed to ensure stream: %w", err, ensureErr)
 		}
 	}
 

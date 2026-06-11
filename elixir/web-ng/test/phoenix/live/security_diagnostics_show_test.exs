@@ -24,13 +24,29 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   test "event detail renders Falco runtime diagnostics with partial attribution", %{conn: conn} do
     {:ok, _lv, html} = live(conn, ~p"/events/falco-event-1")
 
+    assert html =~ "Signal Details"
+    assert html =~ "Falco Evidence"
     assert html =~ "Falco Runtime Event"
     assert html =~ "Drop and execute new binary in container"
     assert html =~ "/tmp/.build/tool --lint"
     assert html =~ "/workspace/carverauto/serviceradar"
     assert html =~ "forgejo-runner"
     assert html =~ "code.forgejo.org/forgejo/runner:latest"
+    assert html =~ "Network Destination"
+    assert html =~ "10.42.0.1"
     assert html =~ "partial (missing kubernetes.namespace, kubernetes.pod)"
+  end
+
+  test "event detail renders Trivy vulnerability findings from the display contract", %{conn: conn} do
+    {:ok, _lv, html} = live(conn, ~p"/events/trivy-event-1")
+
+    assert html =~ "Signal Details"
+    assert html =~ "Vulnerabilities"
+    assert html =~ "CVE-2025-68121"
+    assert html =~ "crypto/tls: Unexpected session resumption in crypto/tls"
+    assert html =~ "v1.24.6"
+    assert html =~ "1.24.13, 1.25.7, 1.26.0-rc.3"
+    assert html =~ "bitnami/sealed-secrets-controller"
   end
 
   test "alert detail renders stateful incident diagnostics and source samples", %{conn: conn} do
@@ -49,6 +65,10 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
     {:ok, _lv, html} = live(conn, ~p"/events/syslog-event-1")
 
     assert html =~ "UniFi Network has updated to 10.4.57"
+    assert html =~ "Event Details"
+    assert html =~ "Unmapped"
+    assert html =~ "log_attributes"
+    refute html =~ "Signal Details"
     refute html =~ "WAF Finding"
     refute html =~ "View source log"
   end
@@ -84,6 +104,9 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
       cond do
         String.contains?(query, "syslog-event-1") ->
           [syslog_event()]
+
+        String.contains?(query, "trivy-event-1") ->
+          [trivy_event()]
 
         String.contains?(query, "syslog-alert-1") ->
           [syslog_alert()]
@@ -172,6 +195,61 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
       }
     end
 
+    defp trivy_event do
+      %{
+        "id" => "trivy-event-1",
+        "time" => "2026-06-10T21:01:33Z",
+        "severity" => "Critical",
+        "status" => "Failure",
+        "message" =>
+          "VulnerabilityReport for ReplicaSet/sealed-secrets/sealed-secrets-54d6d7dc89: 22 findings (CRITICAL)",
+        "log_name" => "trivy.report.vulnerability",
+        "log_provider" => "trivy",
+        "metadata" => %{
+          "cluster_id" => "demo",
+          "namespace" => "sealed-secrets",
+          "resource" => "ReplicaSet/sealed-secrets/sealed-secrets-54d6d7dc89",
+          "report_kind" => "VulnerabilityReport",
+          "correlation" => %{
+            "container_name" => "controller",
+            "owner_kind" => "ReplicaSet",
+            "owner_name" => "sealed-secrets-54d6d7dc89"
+          },
+          "product" => %{"name" => "Trivy", "vendor_name" => "Aqua Security"},
+          "service_radar" => %{"source_type" => "trivy"},
+          "summary" => %{
+            "criticalCount" => 1,
+            "highCount" => 5,
+            "mediumCount" => 15,
+            "lowCount" => 1
+          }
+        },
+        "raw_data" => %{
+          "observed_at" => "2026-06-10T21:01:33.593717386Z",
+          "report_kind" => "VulnerabilityReport",
+          "report" => %{
+            "report" => %{
+              "artifact" => %{
+                "repository" => "bitnami/sealed-secrets-controller",
+                "tag" => "0.32.2"
+              },
+              "scanner" => %{"name" => "Trivy", "version" => "0.69.1"},
+              "updateTimestamp" => "2026-03-20T16:49:51Z",
+              "vulnerabilities" => [
+                %{
+                  "fixedVersion" => "1.24.13, 1.25.7, 1.26.0-rc.3",
+                  "installedVersion" => "v1.24.6",
+                  "severity" => "CRITICAL",
+                  "title" => "crypto/tls: Unexpected session resumption in crypto/tls",
+                  "vulnerabilityID" => "CVE-2025-68121"
+                }
+              ]
+            }
+          }
+        }
+      }
+    end
+
     defp stateful_alert do
       %{
         "id" => "alert-1",
@@ -238,6 +316,11 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
           "name" => "forgejo-runner",
           "image_repository" => "code.forgejo.org/forgejo/runner",
           "image_tag" => "latest"
+        },
+        "network" => %{
+          "source_ip" => "10.42.3.25",
+          "destination_ip" => "10.42.0.1",
+          "destination_port" => "443"
         },
         "kubernetes" => %{},
         "attribution" => %{

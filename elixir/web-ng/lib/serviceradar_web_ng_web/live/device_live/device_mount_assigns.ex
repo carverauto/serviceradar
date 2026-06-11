@@ -25,6 +25,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_scans, [])
     |> assign(:endpoint_inventory_packages, [])
     |> assign(:endpoint_inventory_artifacts, [])
+    |> assign(:endpoint_inventory_vulnerability_matches, [])
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
     |> assign(:bumblebee_postures, [])

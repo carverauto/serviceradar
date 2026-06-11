@@ -92,6 +92,74 @@ defmodule ServiceRadar.Plugins.ManifestTest do
     assert joined =~ "signal_schemas[1].html is not allowed"
   end
 
+  test "producer schedule declarations parse and normalize" do
+    manifest =
+      @valid_manifest
+      |> Map.put("capabilities", [
+        "get_config",
+        "log",
+        "submit_result",
+        "artifact-staging:v1",
+        "advisory-feed:v1",
+        "producer-schedule:v1"
+      ])
+      |> Map.put("producer_schedules", [
+        %{
+          "schedule_id" => "cisa_kev_refresh",
+          "label" => "Refresh CISA KEV",
+          "description" => "Downloads and emits normalized advisory batches",
+          "action_id" => "advisory.refresh",
+          "command_type" => "plugin.run_action",
+          "default_cadence_seconds" => 86_400,
+          "min_cadence_seconds" => 3_600,
+          "max_cadence_seconds" => 2_592_000,
+          "allow_cron" => true,
+          "jitter_seconds" => 300,
+          "settings_schema" => %{"type" => "object"},
+          "credential_requirements" => %{"refs" => ["vulncheck_api"]},
+          "payload_template" => %{"feed_key" => "cisa-kev"},
+          "redaction" => %{"credential_refs" => true},
+          "dispatch_scope" => "assignment",
+          "timeout_seconds" => 600
+        }
+      ])
+
+    assert {:ok, parsed} = Manifest.from_map(manifest)
+    assert [schedule] = parsed.producer_schedules
+    assert schedule["schedule_id"] == "cisa_kev_refresh"
+    assert schedule["command_type"] == "plugin.run_action"
+    assert schedule["action_id"] == "advisory.refresh"
+    assert schedule["default_cadence_seconds"] == 86_400
+    assert schedule["settings_schema"] == %{"type" => "object"}
+  end
+
+  test "producer schedule declarations reject unsafe or incomplete shapes" do
+    manifest =
+      Map.put(@valid_manifest, "producer_schedules", [
+        %{
+          "schedule_id" => "Bad Schedule",
+          "label" => "Bad Schedule",
+          "command_type" => "provider.refresh",
+          "default_cadence_seconds" => 10,
+          "min_cadence_seconds" => 30,
+          "max_cadence_seconds" => 20,
+          "dispatch_scope" => "provider",
+          "settings_schema" => [],
+          "html" => "<script></script>"
+        }
+      ])
+
+    assert {:error, errors} = Manifest.from_map(manifest)
+    joined = Enum.join(errors, "\n")
+
+    assert joined =~ "producer_schedules[1].schedule_id must use lowercase"
+    assert joined =~ "producer_schedules[1].command_type must be one of"
+    assert joined =~ "producer_schedules[1].min_cadence_seconds must be <= max_cadence_seconds"
+    assert joined =~ "producer_schedules[1].dispatch_scope must be one of"
+    assert joined =~ "producer_schedules[1].settings_schema must be a map"
+    assert joined =~ "producer_schedules[1].html is not allowed"
+  end
+
   test "northbound action descriptors parse and normalize" do
     manifest =
       Map.put(@valid_manifest, "actions", [

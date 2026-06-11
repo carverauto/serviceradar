@@ -36,11 +36,24 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
         "time" => "2026-03-03T05:56:44.079252771Z",
         "output_fields" => %{
           "container.id" => "ec56370f8d11",
+          "container.image.repository" => "grafana/grafana",
+          "container.image.tag" => "11.6.0",
           "container.name" => "grafana-sc-datasources",
+          "evt.type" => "connect",
+          "fd.dip" => "10.42.0.1",
+          "fd.dport" => "443",
+          "fd.l4proto" => "tcp",
+          "fd.name" => "10.42.0.1:443",
+          "fd.sip" => "10.42.3.25",
+          "fd.sport" => "49200",
           "k8s.pod.name" => "kube-prom-grafana-85d59d85f9-gg6zz",
+          "proc.cmdline" => "python /app/sidecar.py",
+          "proc.cwd" => "/app",
+          "proc.is_exe_upper_layer" => true,
           "proc.name" => "python",
           "user.name" => "<NA>"
         },
+        "rule_url" => "https://falco.org/docs/reference/rules/default-rules/",
         "source" => "syscall",
         "tags" => ["container", "k8s", "network"],
         "hostname" => "k8s-cp2-worker2"
@@ -74,6 +87,37 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.metadata["service_radar"]["source_type"] == "falco"
       assert row.metadata["service_radar"]["device_hostname"] == "k8s-cp2-worker2"
       assert row.metadata["service_radar"]["container_id"] == "ec56370f8d11"
+
+      diagnostics = row.metadata["security_signal"]["diagnostics"]
+      assert diagnostics["rule"]["name"] == payload["rule"]
+      assert diagnostics["rule"]["priority"] == "Warning"
+      assert diagnostics["rule"]["source"] == "syscall"
+      assert diagnostics["rule"]["tags"] == ["container", "k8s", "network"]
+
+      assert diagnostics["rule"]["references"] == [
+               "https://falco.org/docs/reference/rules/default-rules/"
+             ]
+
+      assert diagnostics["host"]["name"] == "k8s-cp2-worker2"
+      assert diagnostics["process"]["name"] == "python"
+      assert diagnostics["process"]["command"] == "python /app/sidecar.py"
+      assert diagnostics["process"]["cwd"] == "/app"
+      assert diagnostics["process"]["executable_flags"]["upper_layer"] == true
+      assert diagnostics["container"]["id"] == "ec56370f8d11"
+      assert diagnostics["container"]["name"] == "grafana-sc-datasources"
+      assert diagnostics["container"]["image_repository"] == "grafana/grafana"
+      assert diagnostics["container"]["image_tag"] == "11.6.0"
+      assert diagnostics["file"]["name"] == "10.42.0.1:443"
+      assert diagnostics["network"]["source_ip"] == "10.42.3.25"
+      assert diagnostics["network"]["source_port"] == "49200"
+      assert diagnostics["network"]["destination_ip"] == "10.42.0.1"
+      assert diagnostics["network"]["destination_port"] == "443"
+      assert diagnostics["network"]["l4_protocol"] == "tcp"
+      assert diagnostics["kubernetes"]["pod"] == "kube-prom-grafana-85d59d85f9-gg6zz"
+      assert diagnostics["event"]["type"] == "connect"
+      assert diagnostics["attribution"]["status"] == "partial"
+      assert diagnostics["attribution"]["missing"] == ["kubernetes.namespace"]
+
       assert row.device[:uid] == "k8s-cp2-worker2"
       assert row.device[:hostname] == "k8s-cp2-worker2"
       assert row.unmapped["uuid"] == payload["uuid"]
@@ -120,6 +164,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.metadata["service_radar"]["node_name"] == "agent-k8s-cp3-worker1"
       assert row.device[:uid] == "agent-k8s-cp3-worker1"
       assert row.device[:hostname] == "agent-k8s-cp3-worker1"
+      assert row.metadata["security_signal"]["diagnostics"]["attribution"]["status"] == "partial"
     end
 
     test "preserves explicit canonical device uid while keeping Falco host metadata" do

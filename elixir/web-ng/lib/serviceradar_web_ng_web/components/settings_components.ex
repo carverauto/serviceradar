@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         discovery_tab(path, current_scope),
         network_tab(path, current_scope),
         mail_tab(path, current_scope),
+        security_tab(path, current_scope),
         events_tab(path, current_scope),
         dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
@@ -113,6 +114,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       navigate: ~p"/settings/mail",
       active: String.starts_with?(path, "/settings/mail"),
       show: RBAC.can?(current_scope, "settings.mail.manage")
+    }
+  end
+
+  defp security_tab(path, current_scope) do
+    %{
+      label: "Security",
+      navigate: ~p"/settings/security/vulnerability-feeds",
+      active: String.starts_with?(path, "/settings/security"),
+      show: RBAC.can?(current_scope, "settings.integrations.manage")
     }
   end
 

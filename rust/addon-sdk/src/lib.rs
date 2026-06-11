@@ -24,8 +24,8 @@
 //! half of that protocol in Rust so a Rust add-on is launched and supervised by
 //! the agent's *existing, unmodified* go-plugin client.
 //!
-//! An add-on author implements [`Addon`] (Info / Configure / Health) and calls
-//! [`serve`] from `main`:
+//! An add-on author implements [`Addon`] (Info / Configure / Health and,
+//! optionally, RunCommand / telemetry) and calls [`serve`] from `main`:
 //!
 //! ```ignore
 //! #[tokio::main]
@@ -130,6 +130,33 @@ pub struct Health {
     pub version: String,
     /// A bounded explanation when `status` is not `Healthy`.
     pub degradation_reason: String,
+}
+
+/// Generic command invocation delivered by the agent to a native add-on.
+///
+/// The control plane owns scheduling and dispatch. The command reaches the
+/// add-on only through the normal edge path: core/web-ng -> agent-gateway ->
+/// agent -> local add-on gRPC. Add-ons should treat `payload_json` as the
+/// package-declared command payload and return a bounded JSON response when
+/// useful.
+#[derive(Debug, Clone, Default)]
+pub struct CommandRequest {
+    pub command_id: String,
+    pub command_type: String,
+    pub action_id: String,
+    pub schema: String,
+    pub payload_json: Vec<u8>,
+    pub deadline_unix: i64,
+    pub metadata: std::collections::HashMap<String, String>,
+}
+
+/// Generic command result returned from [`Addon::run_command`].
+#[derive(Debug, Clone, Default)]
+pub struct CommandResult {
+    pub success: bool,
+    pub message: String,
+    pub payload_json: Vec<u8>,
+    pub metadata: std::collections::HashMap<String, String>,
 }
 
 /// Convenience builder for `TelemetryBatch` messages.
@@ -304,6 +331,20 @@ pub trait Addon: Send + Sync + 'static {
     /// source-compatible.
     fn stream_telemetry(&self) -> TelemetryStream {
         Box::pin(tokio_stream::empty())
+    }
+
+    /// Optional generic command handler for package-declared producer schedules
+    /// and run-now actions. Add-ons that declare schedules using
+    /// `addon.run_command` should override this method. The default keeps older
+    /// Rust add-ons source-compatible and lets the host report a bounded
+    /// unavailable result instead of failing the gRPC method.
+    async fn run_command(&self, _request: CommandRequest) -> anyhow::Result<CommandResult> {
+        Ok(CommandResult {
+            success: false,
+            message: "addon command handler unavailable".to_owned(),
+            payload_json: Vec::new(),
+            metadata: Default::default(),
+        })
     }
 }
 

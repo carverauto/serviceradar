@@ -479,6 +479,13 @@ go_deps.gazelle_override(
 go_deps.gazelle_override(
     build_file_generation = "on",
     directives = [
+        "gazelle:resolve go github.com/google/osv-scalibr/binary/proto/scan_result_go_proto //binary/proto/scan_result_go_proto",
+    ],
+    path = "github.com/google/osv-scalibr",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
         "gazelle:proto disable",
     ],
     path = "github.com/spiffe/spire-api-sdk",
@@ -496,6 +503,7 @@ use_repo(
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
     "com_github_cilium_ebpf",
+    "com_github_google_osv_scalibr",
     "com_github_google_uuid",
     "com_github_gorilla_websocket",
     "com_github_gosnmp_gosnmp",

@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
 
   attr(:device_row, :map, default: nil)
   attr(:active_tab, :string, required: true)
+  attr(:software_tab_visible, :boolean, default: false)
   attr(:has_virtualization_guests, :boolean, default: false)
   attr(:has_ifaces, :boolean, default: false)
   attr(:has_flows, :boolean, default: false)
@@ -27,6 +28,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabsComponents do
         class={["tab", @active_tab == "details" && "tab-active"]}
       >
         <.icon name="hero-document-text" class="size-4 mr-1.5" /> Details
+      </button>
+      <button
+        :if={@software_tab_visible}
+        type="button"
+        phx-click="switch_tab"
+        phx-value-tab="software"
+        class={["tab", @active_tab == "software" && "tab-active"]}
+      >
+        <.icon name="hero-cube" class="size-4 mr-1.5" /> Software
       </button>
       <button
         :if={@has_virtualization_guests}

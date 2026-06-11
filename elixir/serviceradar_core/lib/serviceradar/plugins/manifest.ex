@@ -26,7 +26,8 @@ defmodule ServiceRadar.Plugins.Manifest do
     :source,
     :schema_version,
     :display_contract,
-    :signal_schemas
+    :signal_schemas,
+    :producer_schedules
   ]
 
   @type t :: %__MODULE__{
@@ -44,7 +45,8 @@ defmodule ServiceRadar.Plugins.Manifest do
           source: map(),
           schema_version: pos_integer() | nil,
           display_contract: map(),
-          signal_schemas: [map()]
+          signal_schemas: [map()],
+          producer_schedules: [map()]
         }
 
   @allowed_runtimes ["none", "wasi-preview1"]
@@ -69,8 +71,35 @@ defmodule ServiceRadar.Plugins.Manifest do
     "tcp_read",
     "tcp_write",
     "tcp_close",
-    "udp_sendto"
+    "udp_sendto",
+    "artifact-staging:v1",
+    "advisory-feed:v1",
+    "producer-schedule:v1"
   ]
+  @allowed_producer_dispatch_scopes ["assignment", "package", "target_query"]
+  @allowed_producer_command_types ["plugin.run_action", "addon.run_command"]
+  @allowed_producer_schedule_types ["interval", "cron", "manual"]
+  @allowed_producer_schedule_keys ~w(
+    id
+    schedule_id
+    label
+    description
+    action_id
+    command_type
+    default_cadence_seconds
+    min_cadence_seconds
+    max_cadence_seconds
+    allow_cron
+    schedule_type
+    cron_expression
+    jitter_seconds
+    settings_schema
+    credential_requirements
+    payload_template
+    redaction
+    dispatch_scope
+    timeout_seconds
+  )
   @allowed_signal_types ["event", "log"]
   @allowed_signal_payload_kinds ["ocsf_event", "otel_log"]
   @allowed_signal_schema_keys ~w(
@@ -152,6 +181,9 @@ defmodule ServiceRadar.Plugins.Manifest do
     errors = display_contract_errors(display_contract) ++ errors
     {signal_schemas, errors} = validate_signal_schemas(fetch(map, :signal_schemas), errors)
 
+    {producer_schedules, errors} =
+      validate_producer_schedules(fetch(map, :producer_schedules), errors)
+
     if errors == [] do
       schema_version = schema_version || 1
 
@@ -171,7 +203,8 @@ defmodule ServiceRadar.Plugins.Manifest do
          source: source,
          schema_version: schema_version,
          display_contract: display_contract,
-         signal_schemas: signal_schemas
+         signal_schemas: signal_schemas,
+         producer_schedules: producer_schedules
        }}
     else
       {:error, Enum.reverse(errors)}
@@ -228,6 +261,19 @@ defmodule ServiceRadar.Plugins.Manifest do
     end
   end
 
+  @doc """
+  Validate optional package-owned producer schedule declarations.
+  """
+  @spec validate_producer_schedules([map()] | nil) :: :ok | {:error, [String.t()]}
+  def validate_producer_schedules(nil), do: :ok
+
+  def validate_producer_schedules(producer_schedules) do
+    case validate_producer_schedules(producer_schedules, []) do
+      {_normalized, []} -> :ok
+      {_normalized, errors} -> {:error, Enum.reverse(errors)}
+    end
+  end
+
   defp display_contract_errors(display_contract) do
     case validate_display_contract(display_contract) do
       :ok -> []
@@ -251,6 +297,267 @@ defmodule ServiceRadar.Plugins.Manifest do
 
   defp validate_signal_schemas(_signal_schemas, errors),
     do: {[], ["signal_schemas must be a list" | errors]}
+
+  defp validate_producer_schedules(nil, errors), do: {[], errors}
+
+  defp validate_producer_schedules(producer_schedules, errors) when is_list(producer_schedules) do
+    producer_schedules
+    |> Enum.with_index(1)
+    |> Enum.reduce({[], errors}, fn {schedule, index}, {acc, errors} ->
+      case validate_producer_schedule(schedule, index) do
+        {:ok, normalized} -> {[normalized | acc], errors}
+        {:error, schedule_errors} -> {acc, schedule_errors ++ errors}
+      end
+    end)
+    |> then(fn {schedules, errors} -> {Enum.reverse(schedules), errors} end)
+  end
+
+  defp validate_producer_schedules(_producer_schedules, errors),
+    do: {[], ["producer_schedules must be a list" | errors]}
+
+  defp validate_producer_schedule(schedule, index) when is_map(schedule) do
+    schedule = normalize_map(schedule) || %{}
+    errors = unknown_producer_schedule_key_errors(schedule, index)
+
+    {schedule_id, errors} =
+      optional_producer_schedule_string(schedule, :schedule_id, index, errors)
+
+    {id, errors} = optional_producer_schedule_string(schedule, :id, index, errors)
+    schedule_id = schedule_id || id
+
+    errors =
+      if is_nil(schedule_id) do
+        ["producer_schedules[#{index}].schedule_id must be a non-empty string" | errors]
+      else
+        validate_producer_schedule_id(errors, schedule_id, "schedule_id", index)
+      end
+
+    {label, errors} = required_producer_schedule_string(schedule, :label, index, errors)
+
+    {description, errors} =
+      optional_producer_schedule_string(schedule, :description, index, errors)
+
+    {action_id, errors} = optional_producer_schedule_string(schedule, :action_id, index, errors)
+
+    {command_type, errors} =
+      optional_producer_schedule_string(schedule, :command_type, index, errors)
+
+    command_type = command_type || "plugin.run_action"
+
+    errors =
+      cond do
+        command_type not in @allowed_producer_command_types ->
+          [
+            "producer_schedules[#{index}].command_type must be one of: #{Enum.join(@allowed_producer_command_types, ", ")}"
+            | errors
+          ]
+
+        command_type in @allowed_producer_command_types and is_nil(action_id) ->
+          [
+            "producer_schedules[#{index}].action_id is required for #{command_type}"
+            | errors
+          ]
+
+        true ->
+          errors
+      end
+
+    {schedule_type, errors} =
+      optional_producer_schedule_string(schedule, :schedule_type, index, errors)
+
+    schedule_type = schedule_type || "interval"
+
+    errors =
+      if schedule_type in @allowed_producer_schedule_types do
+        errors
+      else
+        [
+          "producer_schedules[#{index}].schedule_type must be one of: #{Enum.join(@allowed_producer_schedule_types, ", ")}"
+          | errors
+        ]
+      end
+
+    {default_cadence_seconds, errors} =
+      optional_producer_schedule_positive_int(
+        schedule,
+        :default_cadence_seconds,
+        index,
+        errors
+      )
+
+    {min_cadence_seconds, errors} =
+      optional_producer_schedule_positive_int(schedule, :min_cadence_seconds, index, errors)
+
+    {max_cadence_seconds, errors} =
+      optional_producer_schedule_positive_int(schedule, :max_cadence_seconds, index, errors)
+
+    default_cadence_seconds = default_cadence_seconds || 86_400
+    min_cadence_seconds = min_cadence_seconds || 300
+    max_cadence_seconds = max_cadence_seconds || 2_592_000
+
+    errors =
+      cond do
+        min_cadence_seconds > max_cadence_seconds ->
+          [
+            "producer_schedules[#{index}].min_cadence_seconds must be <= max_cadence_seconds"
+            | errors
+          ]
+
+        default_cadence_seconds < min_cadence_seconds or
+            default_cadence_seconds > max_cadence_seconds ->
+          [
+            "producer_schedules[#{index}].default_cadence_seconds must be within cadence bounds"
+            | errors
+          ]
+
+        true ->
+          errors
+      end
+
+    {jitter_seconds, errors} =
+      optional_producer_schedule_nonneg_int(schedule, :jitter_seconds, index, errors)
+
+    {timeout_seconds, errors} =
+      optional_producer_schedule_positive_int(schedule, :timeout_seconds, index, errors)
+
+    {cron_expression, errors} =
+      optional_producer_schedule_string(schedule, :cron_expression, index, errors)
+
+    {dispatch_scope, errors} =
+      optional_producer_schedule_string(schedule, :dispatch_scope, index, errors)
+
+    dispatch_scope = dispatch_scope || "assignment"
+
+    errors =
+      if dispatch_scope in @allowed_producer_dispatch_scopes do
+        errors
+      else
+        [
+          "producer_schedules[#{index}].dispatch_scope must be one of: #{Enum.join(@allowed_producer_dispatch_scopes, ", ")}"
+          | errors
+        ]
+      end
+
+    {settings_schema, errors} =
+      optional_producer_schedule_map(schedule, :settings_schema, index, errors)
+
+    {credential_requirements, errors} =
+      optional_producer_schedule_map(schedule, :credential_requirements, index, errors)
+
+    {payload_template, errors} =
+      optional_producer_schedule_map(schedule, :payload_template, index, errors)
+
+    {redaction, errors} = optional_producer_schedule_map(schedule, :redaction, index, errors)
+
+    if errors == [] do
+      {:ok,
+       %{
+         "schedule_id" => schedule_id,
+         "label" => label,
+         "command_type" => command_type,
+         "action_id" => action_id,
+         "schedule_type" => schedule_type,
+         "default_cadence_seconds" => default_cadence_seconds,
+         "min_cadence_seconds" => min_cadence_seconds,
+         "max_cadence_seconds" => max_cadence_seconds,
+         "allow_cron" => truthy?(fetch(schedule, :allow_cron)),
+         "jitter_seconds" => jitter_seconds || 0,
+         "timeout_seconds" => timeout_seconds || 300,
+         "settings_schema" => settings_schema,
+         "credential_requirements" => credential_requirements,
+         "payload_template" => payload_template,
+         "redaction" => redaction,
+         "dispatch_scope" => dispatch_scope
+       }
+       |> maybe_put_string("description", description)
+       |> maybe_put_string("cron_expression", cron_expression)}
+    else
+      {:error, errors}
+    end
+  end
+
+  defp validate_producer_schedule(_schedule, index),
+    do: {:error, ["producer_schedules[#{index}] must be a map"]}
+
+  defp unknown_producer_schedule_key_errors(schedule, index) do
+    schedule
+    |> Map.keys()
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 in @allowed_producer_schedule_keys))
+    |> Enum.map(&"producer_schedules[#{index}].#{&1} is not allowed")
+  end
+
+  defp required_producer_schedule_string(schedule, key, index, errors) do
+    case normalize_string(fetch(schedule, key)) do
+      nil ->
+        {nil, ["producer_schedules[#{index}].#{key} must be a non-empty string" | errors]}
+
+      "" ->
+        {nil, ["producer_schedules[#{index}].#{key} must be a non-empty string" | errors]}
+
+      value ->
+        {value, errors}
+    end
+  end
+
+  defp optional_producer_schedule_string(schedule, key, index, errors) do
+    case fetch(schedule, key) do
+      nil ->
+        {nil, errors}
+
+      value ->
+        case normalize_string(value) do
+          nil ->
+            {nil, ["producer_schedules[#{index}].#{key} must be a non-empty string" | errors]}
+
+          "" ->
+            {nil, ["producer_schedules[#{index}].#{key} must be a non-empty string" | errors]}
+
+          normalized ->
+            {normalized, errors}
+        end
+    end
+  end
+
+  defp optional_producer_schedule_map(schedule, key, index, errors) do
+    case fetch(schedule, key) do
+      nil -> {%{}, errors}
+      value when is_map(value) -> {normalize_map(value) || %{}, errors}
+      _ -> {%{}, ["producer_schedules[#{index}].#{key} must be a map" | errors]}
+    end
+  end
+
+  defp optional_producer_schedule_positive_int(schedule, key, index, errors) do
+    case normalize_int(fetch(schedule, key)) do
+      nil -> {nil, errors}
+      value when value > 0 -> {value, errors}
+      _ -> {nil, ["producer_schedules[#{index}].#{key} must be a positive integer" | errors]}
+    end
+  end
+
+  defp optional_producer_schedule_nonneg_int(schedule, key, index, errors) do
+    case normalize_int(fetch(schedule, key)) do
+      nil -> {nil, errors}
+      value when value >= 0 -> {value, errors}
+      _ -> {nil, ["producer_schedules[#{index}].#{key} must be a non-negative integer" | errors]}
+    end
+  end
+
+  defp validate_producer_schedule_id(errors, value, field, index) do
+    cond do
+      String.length(value) > @max_signal_ref_length ->
+        ["producer_schedules[#{index}].#{field} exceeds maximum length" | errors]
+
+      Regex.match?(~r/^[a-z0-9][a-z0-9_.-]*$/, value) ->
+        errors
+
+      true ->
+        [
+          "producer_schedules[#{index}].#{field} must use lowercase letters, numbers, dots, underscores, or hyphens"
+          | errors
+        ]
+    end
+  end
 
   defp validate_signal_schema(schema, index) when is_map(schema) do
     schema = normalize_map(schema) || %{}

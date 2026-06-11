@@ -84,7 +84,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       run fn input, context ->
         AddonProfileOps.preview_by_id(input.arguments.id,
           sample_limit: input.arguments.sample_limit,
-          actor: context[:actor]
+          actor: action_actor(context)
         )
       end
     end
@@ -93,7 +93,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       argument :id, :uuid, allow_nil?: false
 
       run fn input, context ->
-        AddonProfileOps.reconcile_by_id(input.arguments.id, actor: context[:actor])
+        AddonProfileOps.reconcile_by_id(input.arguments.id, actor: action_actor(context))
       end
     end
   end
@@ -201,4 +201,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
       destination_attribute :addon_profile_id
     end
   end
+
+  defp action_actor(%{actor: actor}), do: actor
+  defp action_actor(_context), do: nil
 end

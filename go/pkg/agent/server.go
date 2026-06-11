@@ -302,8 +302,10 @@ func (s *Server) initAddonManager() {
 	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
-		TelemetryHandler: s.handleAddonTelemetry,
-		Logger:           s.logger.WithComponent("agent.addon"),
+		CredentialResolver: s.credentialBroker,
+		TelemetryHandler:   s.handleAddonTelemetry,
+		ArtifactHandler:    s.handleAddonArtifact,
+		Logger:             s.logger.WithComponent("agent.addon"),
 	})
 }
 
@@ -490,6 +492,7 @@ func (s *Server) initPluginManager(ctx context.Context) {
 		LocalStoreDir:    s.configDir,
 		Logger:           s.logger,
 		CredentialBroker: s.credentialBroker,
+		ArtifactUploader: s.artifactUploader,
 	})
 }
 

@@ -38,6 +38,8 @@ const (
 	AddonService_Configure_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/Configure"
 	AddonService_Health_FullMethodName          = "/serviceradar.agent.addon.v1.AddonService/Health"
 	AddonService_StreamTelemetry_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamTelemetry"
+	AddonService_StreamArtifacts_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamArtifacts"
+	AddonService_RunCommand_FullMethodName      = "/serviceradar.agent.addon.v1.AddonService/RunCommand"
 )
 
 // AddonServiceClient is the client API for AddonService service.
@@ -67,6 +69,17 @@ type AddonServiceClient interface {
 	// capability in InfoResponse.capabilities. Add-ons that do not produce
 	// telemetry may leave the stream empty.
 	StreamTelemetry(ctx context.Context, in *StreamTelemetryRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[TelemetryBatch], error)
+	// StreamArtifacts is an optional add-on-to-agent artifact staging stream. The
+	// agent only calls this RPC for add-ons that advertise artifact-staging:v1 in
+	// InfoResponse.capabilities. Add-ons send bounded chunks; the agent stages the
+	// bytes through agent-gateway and never exposes object-store credentials.
+	StreamArtifacts(ctx context.Context, in *StreamArtifactsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArtifactUploadChunk], error)
+	// RunCommand executes a bounded, platform-scheduled command against a local
+	// add-on instance. The control plane records an addon.run_command command,
+	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
+	// supervised add-on subprocess. Add-ons never receive direct core, web-ng, or
+	// object-store connectivity through this contract.
+	RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error)
 }
 
 type addonServiceClient struct {
@@ -126,6 +139,35 @@ func (c *addonServiceClient) StreamTelemetry(ctx context.Context, in *StreamTele
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_StreamTelemetryClient = grpc.ServerStreamingClient[TelemetryBatch]
 
+func (c *addonServiceClient) StreamArtifacts(ctx context.Context, in *StreamArtifactsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArtifactUploadChunk], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AddonService_ServiceDesc.Streams[1], AddonService_StreamArtifacts_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[StreamArtifactsRequest, ArtifactUploadChunk]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamArtifactsClient = grpc.ServerStreamingClient[ArtifactUploadChunk]
+
+func (c *addonServiceClient) RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RunCommandResponse)
+	err := c.cc.Invoke(ctx, AddonService_RunCommand_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // AddonServiceServer is the server API for AddonService service.
 // All implementations must embed UnimplementedAddonServiceServer
 // for forward compatibility.
@@ -153,6 +195,17 @@ type AddonServiceServer interface {
 	// capability in InfoResponse.capabilities. Add-ons that do not produce
 	// telemetry may leave the stream empty.
 	StreamTelemetry(*StreamTelemetryRequest, grpc.ServerStreamingServer[TelemetryBatch]) error
+	// StreamArtifacts is an optional add-on-to-agent artifact staging stream. The
+	// agent only calls this RPC for add-ons that advertise artifact-staging:v1 in
+	// InfoResponse.capabilities. Add-ons send bounded chunks; the agent stages the
+	// bytes through agent-gateway and never exposes object-store credentials.
+	StreamArtifacts(*StreamArtifactsRequest, grpc.ServerStreamingServer[ArtifactUploadChunk]) error
+	// RunCommand executes a bounded, platform-scheduled command against a local
+	// add-on instance. The control plane records an addon.run_command command,
+	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
+	// supervised add-on subprocess. Add-ons never receive direct core, web-ng, or
+	// object-store connectivity through this contract.
+	RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error)
 	mustEmbedUnimplementedAddonServiceServer()
 }
 
@@ -174,6 +227,12 @@ func (UnimplementedAddonServiceServer) Health(context.Context, *HealthRequest) (
 }
 func (UnimplementedAddonServiceServer) StreamTelemetry(*StreamTelemetryRequest, grpc.ServerStreamingServer[TelemetryBatch]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamTelemetry not implemented")
+}
+func (UnimplementedAddonServiceServer) StreamArtifacts(*StreamArtifactsRequest, grpc.ServerStreamingServer[ArtifactUploadChunk]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamArtifacts not implemented")
+}
+func (UnimplementedAddonServiceServer) RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method RunCommand not implemented")
 }
 func (UnimplementedAddonServiceServer) mustEmbedUnimplementedAddonServiceServer() {}
 func (UnimplementedAddonServiceServer) testEmbeddedByValue()                      {}
@@ -261,6 +320,35 @@ func _AddonService_StreamTelemetry_Handler(srv interface{}, stream grpc.ServerSt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_StreamTelemetryServer = grpc.ServerStreamingServer[TelemetryBatch]
 
+func _AddonService_StreamArtifacts_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(StreamArtifactsRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(AddonServiceServer).StreamArtifacts(m, &grpc.GenericServerStream[StreamArtifactsRequest, ArtifactUploadChunk]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamArtifactsServer = grpc.ServerStreamingServer[ArtifactUploadChunk]
+
+func _AddonService_RunCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RunCommandRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(AddonServiceServer).RunCommand(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: AddonService_RunCommand_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(AddonServiceServer).RunCommand(ctx, req.(*RunCommandRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // AddonService_ServiceDesc is the grpc.ServiceDesc for AddonService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -280,11 +368,20 @@ var AddonService_ServiceDesc = grpc.ServiceDesc{
 			MethodName: "Health",
 			Handler:    _AddonService_Health_Handler,
 		},
+		{
+			MethodName: "RunCommand",
+			Handler:    _AddonService_RunCommand_Handler,
+		},
 	},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "StreamTelemetry",
 			Handler:       _AddonService_StreamTelemetry_Handler,
+			ServerStreams: true,
+		},
+		{
+			StreamName:    "StreamArtifacts",
+			Handler:       _AddonService_StreamArtifacts_Handler,
 			ServerStreams: true,
 		},
 	},

@@ -109,6 +109,268 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert artifact_device_uids(result.scan_ref) == [nil]
   end
 
+  test "preserves scanner-style diagnostics through endpoint inventory ingest", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-diagnostics-device-#{unique}")
+    agent_id = "endpoint-inventory-diagnostics-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    payload =
+      agent_id
+      |> scan_payload("scan-diagnostics-#{unique}")
+      |> Map.merge(%{
+        "collector_name" => "generic-endpoint-scanner",
+        "config_hash" => String.duplicate("a", 64),
+        "duration_ms" => 128,
+        "truncated" => true,
+        "enabled_plugins" => ["os-packages", "language-packages"],
+        "detected_plugins" => ["os-packages"],
+        "diagnostics" => [
+          %{
+            "name" => "os-packages",
+            "type" => "extractor",
+            "state" => "partial",
+            "detected" => true,
+            "package_count" => 1,
+            "finding_count" => 0,
+            "reason" => "output_truncated",
+            "duration_ms" => 127,
+            "truncated" => true,
+            "metadata" => %{"scope" => "host"}
+          },
+          %{
+            "name" => "language-packages",
+            "type" => "extractor",
+            "state" => "unavailable",
+            "detected" => false,
+            "package_count" => 0,
+            "reason" => "not_found"
+          }
+        ]
+      })
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.current? == true
+
+    scan = current_scan(agent_id)
+    assert scan.enabled_sources == ["os-packages", "language-packages"]
+
+    assert scan.source_summaries == [
+             %{
+               "name" => "os-packages",
+               "type" => "extractor",
+               "state" => "partial",
+               "detected" => true,
+               "package_count" => 1,
+               "finding_count" => 0,
+               "reason" => "output_truncated",
+               "duration_ms" => 127,
+               "truncated" => true,
+               "metadata" => %{"scope" => "host"}
+             },
+             %{
+               "name" => "language-packages",
+               "type" => "extractor",
+               "state" => "unavailable",
+               "detected" => false,
+               "package_count" => 0,
+               "reason" => "not_found"
+             }
+           ]
+
+    assert scan.metadata["config_hash"] == String.duplicate("a", 64)
+    assert scan.metadata["duration_ms"] == 128
+    assert scan.metadata["truncated"] == true
+    assert scan.metadata["enabled_plugins"] == ["os-packages", "language-packages"]
+    assert scan.metadata["detected_plugins"] == ["os-packages"]
+  end
+
+  test "does not infer scan coverage from legacy source summaries", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-legacy-source-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-legacy-source-#{unique}")
+      |> Map.delete("coverage_state")
+      |> Map.delete("diagnostics")
+      |> Map.delete("enabled_plugins")
+      |> Map.delete("detected_plugins")
+      |> Map.put("sources", [
+        %{"source" => "dpkg", "state" => "scanned", "package_count" => 1}
+      ])
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.current? == true
+    scan = current_scan(agent_id)
+    assert scan.coverage_state == "unknown"
+    assert scan.source_summaries == []
+    assert scan.enabled_sources == []
+  end
+
+  test "normalizes scanner diagnostic aliases without legacy source fallback", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-diagnostic-alias-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-diagnostic-alias-#{unique}")
+      |> Map.delete("coverage_state")
+      |> Map.delete("enabled_plugins")
+      |> Map.delete("detected_plugins")
+      |> Map.put("sources", [
+        %{"source" => "legacy-dpkg", "state" => "scanned", "package_count" => 99}
+      ])
+      |> Map.put("diagnostics", [
+        %{
+          "plugin_id" => "os-packages",
+          "kind" => "extractor",
+          "status" => "succeeded",
+          "count" => 1,
+          "findings_count" => 2,
+          "reason_code" => "matched",
+          "scan_root" => "/",
+          "elapsed_ms" => 42,
+          "supported" => true,
+          "metadata" => %{"scanner_family" => "endpoint_inventory"}
+        },
+        %{
+          "id" => "language-packages",
+          "category" => "extractor",
+          "status" => "failure",
+          "packages" => 0,
+          "message" => "permission denied",
+          "partial" => true,
+          "applicable" => false
+        }
+      ])
+
+    assert {:ok, _result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    scan = current_scan(agent_id)
+    assert scan.coverage_state == "partial"
+    assert scan.enabled_sources == ["os-packages", "language-packages"]
+
+    assert scan.source_summaries == [
+             %{
+               "name" => "os-packages",
+               "type" => "extractor",
+               "state" => "success",
+               "detected" => true,
+               "package_count" => 1,
+               "finding_count" => 2,
+               "reason" => "matched",
+               "path" => "/",
+               "duration_ms" => 42,
+               "metadata" => %{"scanner_family" => "endpoint_inventory"}
+             },
+             %{
+               "name" => "language-packages",
+               "type" => "extractor",
+               "state" => "failed",
+               "detected" => false,
+               "package_count" => 0,
+               "error" => "permission denied",
+               "truncated" => true
+             }
+           ]
+  end
+
+  test "infers complete coverage for zero packages only from complete diagnostics", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-empty-complete-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-empty-complete-#{unique}", components: [])
+      |> Map.delete("coverage_state")
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.current? == true
+    scan = current_scan(agent_id)
+    assert scan.package_count == 0
+    assert scan.coverage_state == "complete"
+
+    assert [%{"name" => "dpkg", "state" => "scanned", "package_count" => 0}] =
+             scan.source_summaries
+  end
+
+  test "marks diagnostic-less generic scans as unknown coverage", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-no-diagnostics-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-no-diagnostics-#{unique}")
+      |> Map.delete("coverage_state")
+      |> Map.delete("diagnostics")
+      |> Map.delete("enabled_plugins")
+      |> Map.delete("detected_plugins")
+
+    assert {:ok, _result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    scan = current_scan(agent_id)
+    assert scan.coverage_state == "unknown"
+    assert scan.source_summaries == []
+    assert scan.enabled_sources == []
+  end
+
+  test "infers failed coverage from generic diagnostic failures", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    agent_id = "endpoint-inventory-diagnostic-failed-agent-#{unique}"
+
+    payload =
+      agent_id
+      |> scan_payload("scan-diagnostic-failed-#{unique}", components: [])
+      |> Map.delete("coverage_state")
+      |> Map.put("diagnostics", [
+        %{
+          "name" => "dpkg",
+          "type" => "package_source",
+          "state" => "error",
+          "detected" => true,
+          "package_count" => 0,
+          "reason" => "permission_denied",
+          "error" => "permission denied"
+        }
+      ])
+
+    assert {:ok, _result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    scan = current_scan(agent_id)
+    assert scan.package_count == 0
+    assert scan.coverage_state == "failed"
+  end
+
   test "normalizes canonical purl and deduplicates by canonical coordinate", %{actor: actor} do
     unique = System.unique_integer([:positive])
     device = create_device!(actor, "endpoint-inventory-canonical-device-#{unique}")
@@ -812,8 +1074,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
       "coverage_state" => "complete",
       "last_scan_at" => DateTime.utc_now(),
       "last_successful_scan_at" => DateTime.utc_now(),
-      "sources" => [
-        %{"source" => "dpkg", "state" => "scanned", "package_count" => length(components)}
+      "enabled_plugins" => ["dpkg"],
+      "detected_plugins" => ["dpkg"],
+      "diagnostics" => [
+        %{
+          "name" => "dpkg",
+          "type" => "package_source",
+          "state" => "scanned",
+          "package_count" => length(components),
+          "detected" => true
+        }
       ],
       "package_count" => length(components),
       "sbom" => %{
@@ -872,13 +1142,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
           device_uid: s.device_uid,
           scan_id: s.scan_id,
           state: s.state,
+          coverage_state: s.coverage_state,
+          enabled_sources: s.enabled_sources,
+          source_summaries: s.source_summaries,
           package_count: s.package_count,
           package_set_hash: s.package_set_hash,
           server_package_set_hash: s.server_package_set_hash,
           package_set_hash_mismatch: s.package_set_hash_mismatch,
           unchanged_scan_count: s.unchanged_scan_count,
           last_changed_scan_at: s.last_changed_scan_at,
-          reconcile_floor_due: s.reconcile_floor_due
+          reconcile_floor_due: s.reconcile_floor_due,
+          metadata: s.metadata
         }
       ),
       prefix: "platform"

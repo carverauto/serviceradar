@@ -29,6 +29,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 )
 
 var (
@@ -41,6 +43,18 @@ var (
 	ErrUnexpectedClientType = errors.New("unexpected add-on gRPC client type")
 	// ErrConfigurationRejected indicates the add-on rejected its configuration.
 	ErrConfigurationRejected = errors.New("addon rejected configuration")
+	// ErrCredentialResolverUnavailable indicates the assignment requested
+	// gateway-brokered credentials, but the agent has no resolver installed.
+	ErrCredentialResolverUnavailable = errors.New("addon credential resolver unavailable")
+	// ErrInvalidConfig indicates the delivered add-on config cannot be safely
+	// extended with ServiceRadar runtime metadata.
+	ErrInvalidConfig = errors.New("invalid addon config")
+	// ErrAddonCommandUnavailable indicates the add-on is not running or does not
+	// expose the native command RPC.
+	ErrAddonCommandUnavailable = errors.New("addon command unavailable")
+	// ErrAddonAssignmentNotFound indicates no running add-on assignment matched a
+	// command invocation.
+	ErrAddonAssignmentNotFound = errors.New("addon assignment not found")
 )
 
 // State is the lifecycle state reported for a supervised add-on.
@@ -57,6 +71,9 @@ const (
 
 // Spec is a desired add-on assignment the manager should supervise.
 type Spec struct {
+	// AssignmentID is the control-plane assignment identifier used to scope
+	// gateway-staged artifacts. When empty, ID is used as the assignment scope.
+	AssignmentID string
 	// ID is the stable add-on identifier (matches addon.yaml id).
 	ID string
 	// Version is the assigned add-on version (informational).
@@ -70,6 +87,9 @@ type Spec struct {
 	ConfigJSON []byte
 	// Capabilities are the capability identifiers the add-on advertises.
 	Capabilities []string
+	// DownloadURL is the gateway artifact URL from the delivered assignment. It
+	// anchors the agent-gateway origin used for durable artifact upload.
+	DownloadURL string
 }
 
 // Status is a snapshot of one supervised add-on.
@@ -89,13 +109,33 @@ type Status struct {
 	LastExitedAt      time.Time `json:"last_exited_at,omitempty"`
 }
 
+// CommandInvocation identifies one native add-on action invocation delivered
+// through the agent control stream.
+type CommandInvocation struct {
+	AssignmentID string
+	AddonID      string
+	CommandID    string
+	CommandType  string
+	ActionID     string
+	Schema       string
+	PayloadJSON  []byte
+	Timeout      time.Duration
+	DeadlineUnix int64
+	Metadata     map[string]string
+}
+
 // AddonManager is the agent-facing contract for supervising native add-ons.
 type AddonManager interface {
 	// Apply reconciles the supervised add-ons to the desired set: it launches new
 	// add-ons, stops removed ones, and reconfigures changed ones.
 	Apply(ctx context.Context, specs []Spec) error
+	// SetCredentialResolver installs the gateway-backed credential resolver used
+	// for native add-on configure-time credential injection.
+	SetCredentialResolver(resolver coreaddon.CredentialResolver)
 	// Status returns a stable snapshot of every supervised add-on.
 	Status() []Status
+	// RunCommand executes a generic command against a supervised add-on.
+	RunCommand(ctx context.Context, invocation CommandInvocation) (coreaddon.CommandResult, error)
 	// Stop terminates all add-ons and waits for their supervisors to exit.
 	Stop(ctx context.Context) error
 }
