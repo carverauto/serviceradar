@@ -1025,6 +1025,8 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
   defp bulk_upsert_agent_availability([]), do: :ok
 
   defp bulk_upsert_agent_availability(records) do
+    records = dedupe_availability_records(records)
+
     on_conflict_query =
       from(a in DeviceAgentAvailability,
         update: [
@@ -1059,6 +1061,17 @@ defmodule ServiceRadar.SweepJobs.SweepResultsIngestor do
     e ->
       Logger.error("SweepResultsIngestor: Failed to upsert per-agent availability: #{inspect(e)}")
       :ok
+  end
+
+  # One sweep batch can carry multiple results for the same (device_uid,
+  # agent_id) — e.g. two swept IPs aliasing to one device. Postgres rejects
+  # ON CONFLICT DO UPDATE batches that touch the same row twice
+  # (cardinality_violation), so keep only the freshest row per key.
+  @doc false
+  def dedupe_availability_records(records) do
+    records
+    |> Enum.group_by(fn record -> {record.device_uid, record.agent_id} end)
+    |> Enum.map(fn {_key, rows} -> Enum.max_by(rows, & &1.checked_at, DateTime) end)
   end
 
   defp agent_display_name(agent_id) do
