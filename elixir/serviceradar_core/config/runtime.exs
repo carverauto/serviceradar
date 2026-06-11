@@ -10,6 +10,7 @@ alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
@@ -340,6 +341,18 @@ if config_env() == :prod do
 
   flow_attribution_retention_minutes =
     "SERVICERADAR_FLOW_ATTRIBUTION_RETENTION_MINUTES" |> parse_int_env.(60) |> max(15)
+
+  # Root-span-ratio ingest-health signal (RootSpanRatioWorker): warn when
+  # more than `threshold` of the spans ingested in the last 15 minutes are
+  # root spans, once at least `min_spans` spans are present.
+  root_span_ratio_threshold =
+    case Float.parse(System.get_env("SERVICERADAR_ROOT_SPAN_RATIO_THRESHOLD") || "") do
+      {value, ""} when value > 0.0 and value <= 1.0 -> value
+      _ -> 0.85
+    end
+
+  root_span_ratio_min_spans =
+    "SERVICERADAR_ROOT_SPAN_RATIO_MIN_SPANS" |> parse_int_env.(1000) |> max(1)
 
   # Chunk intervals must be small enough that retention can actually drop
   # chunks within one policy period (1h chunks for 3-day span retention,
@@ -920,6 +933,10 @@ if config_env() == :prod do
   config :serviceradar_core, RefreshTraceSummariesWorker,
     retention_days: trace_summary_retention_days
 
+  config :serviceradar_core, RootSpanRatioWorker,
+    threshold: root_span_ratio_threshold,
+    min_spans: root_span_ratio_min_spans
+
   config :serviceradar_core, ServiceRadar.FlowAttribution,
     retention_minutes: flow_attribution_retention_minutes
 
@@ -1063,6 +1080,7 @@ if config_env() == :prod do
          [
            {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
             RefreshTraceSummariesWorker, queue: :maintenance},
+           {"*/5 * * * *", RootSpanRatioWorker, queue: :maintenance},
            {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
            {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
            {"17 3 * * *", DataRetentionWorker, queue: :maintenance},

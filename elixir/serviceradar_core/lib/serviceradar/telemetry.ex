@@ -318,7 +318,33 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
-    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics()
+    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics() ++ observability_signal_metrics()
+  end
+
+  @doc """
+  Returns EventWriter per-signal counters and observability health gauges.
+  """
+  @spec observability_signal_metrics() :: list()
+  def observability_signal_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.event_writer.signal.count",
+        event_name: [:serviceradar, :event_writer, :signal],
+        measurement: :count,
+        tags: [:signal, :outcome],
+        description:
+          "EventWriter per-signal volume (signal: logs/traces/metrics/metric_points; " <>
+            "outcome: received/written/rejected)"
+      ),
+      last_value("serviceradar.observability.root_span_ratio.ratio",
+        event_name: [:serviceradar, :observability, :root_span_ratio],
+        measurement: :ratio,
+        description:
+          "Share of spans ingested in the recent window that are root spans " <>
+            "(parent_span_id IS NULL); sustained high values indicate lost parent linkage"
+      )
+    ]
   end
 
   @doc """

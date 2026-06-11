@@ -59,6 +59,20 @@ data:
     bind_address = "0.0.0.0"
     port = 4317
 
+{{- $otlpListenerHttp := default (dict) (default (dict) .Values.logCollector.otlp).http }}
+{{- $otlpHttpTlsEnabled := true }}
+{{- if hasKey $otlpListenerHttp "tlsEnabled" }}
+{{- $otlpHttpTlsEnabled = $otlpListenerHttp.tlsEnabled }}
+{{- end }}
+    # OTLP/HTTP listener. tls_enabled=true (default) reuses the [grpc_tls]
+    # server certificate; false serves plaintext HTTP for deployments where a
+    # TLS-terminating gateway (logCollector.otlp.gateway) fronts the listener.
+    [server.http]
+    enabled = true
+    bind_address = "0.0.0.0"
+    port = 4318
+    tls_enabled = {{ ternary "true" "false" $otlpHttpTlsEnabled }}
+
     [nats]
     url = "tls://serviceradar-nats:4222"
     subject = "otel"

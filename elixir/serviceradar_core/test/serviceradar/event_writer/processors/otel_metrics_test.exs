@@ -3,7 +3,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
 
   alias Opentelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest
   alias Opentelemetry.Proto.Common.V1.AnyValue
+  alias Opentelemetry.Proto.Common.V1.ArrayValue
+  alias Opentelemetry.Proto.Common.V1.InstrumentationScope
   alias Opentelemetry.Proto.Common.V1.KeyValue
+  alias Opentelemetry.Proto.Common.V1.KeyValueList
   alias Opentelemetry.Proto.Metrics.V1.Gauge
   alias Opentelemetry.Proto.Metrics.V1.Histogram
   alias Opentelemetry.Proto.Metrics.V1.HistogramDataPoint
@@ -149,6 +152,18 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
 
   describe "parse_message/1 with protobuf metric points" do
     @point_time 1_705_315_800_123_456_789
+    @point_start_time 1_705_315_700_000_000_000
+
+    # attributes_hash recipe v2 literals — the Go gateway asserts the SAME
+    # values for these fixtures. Hash input:
+    #   canonical_bytes(attrs) <> "\n" <> service_instance_id <> "\n" <> scope_name
+    #
+    #   {"destination":"slack"}\n\n      -> @hash_destination_slack
+    #   {}\n\n                           -> @hash_empty_attrs
+    #   {"a":"1","b":"2"}\n\n            -> @hash_ordered_ab
+    @hash_destination_slack "0a400c7afa11f7cb8f6b057bfc2ced04"
+    @hash_empty_attrs "5ad5cc4d26869082efd29c436b57384a"
+    @hash_ordered_ab "08d15b1d3dba45bfb72b5ba30c440f5c"
 
     defp build_metrics_request do
       sum_metric = %Metric{
@@ -245,12 +260,16 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert sum_row.service_name == "metrics-service"
       assert sum_row.value == 42.0
       assert sum_row.count == nil
-      assert is_binary(sum_row.attributes)
-      assert sum_row.attributes =~ "destination"
-      assert sum_row.attributes_hash =~ ~r/^[0-9a-f]{32}$/
+      assert sum_row.attributes == ~s({"destination":"slack"})
 
-      assert sum_row.attributes_hash ==
-               :md5 |> :crypto.hash(sum_row.attributes) |> Base.encode16(case: :lower)
+      # Identity defaults: no service.instance.id, no scope, no start time
+      assert sum_row.service_instance_id == ""
+      assert sum_row.scope_name == ""
+      assert sum_row.start_time_unix_nano == nil
+
+      # Recipe v2 literal (cross-checked against the Go implementation):
+      # md5("{\"destination\":\"slack\"}\n\n")
+      assert sum_row.attributes_hash == @hash_destination_slack
 
       # Point timestamps preserve microsecond precision
       assert sum_row.timestamp == DateTime.from_unix!(div(@point_time, 1000), :microsecond)
@@ -263,6 +282,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert gauge_row.temporality == nil
       assert gauge_row.is_monotonic == nil
       assert gauge_row.value == 0.5
+      assert gauge_row.attributes == "{}"
+      # md5("{}\n\n")
+      assert gauge_row.attributes_hash == @hash_empty_attrs
 
       # Histogram point
       assert histogram_row.metric_name == "http_request_duration"
@@ -272,6 +294,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert histogram_row.value == nil
       assert histogram_row.count == 10
       assert histogram_row.sum == 123.5
+      assert histogram_row.attributes_hash == @hash_empty_attrs
       assert Jason.decode!(histogram_row.bucket_counts) == [1, 2, 7]
       assert Jason.decode!(histogram_row.explicit_bounds) == [10.0, 100.0]
     end
@@ -323,6 +346,144 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
         })
 
       assert row_a.attributes_hash == row_b.attributes_hash
+      # Recipe v2 literal: md5("{\"a\":\"1\",\"b\":\"2\"}\n\n")
+      assert row_a.attributes_hash == @hash_ordered_ab
+      assert row_a.attributes == ~s({"a":"1","b":"2"})
+    end
+
+    test "folds service_instance_id, scope_name, and start_time into point identity" do
+      request = %ExportMetricsServiceRequest{
+        resource_metrics: [
+          %ResourceMetrics{
+            resource: %Resource{
+              attributes: [
+                %KeyValue{
+                  key: "service.name",
+                  value: %AnyValue{value: {:string_value, "metrics-service"}}
+                },
+                %KeyValue{
+                  key: "service.instance.id",
+                  value: %AnyValue{value: {:string_value, "instance-7"}}
+                }
+              ]
+            },
+            scope_metrics: [
+              %ScopeMetrics{
+                scope: %InstrumentationScope{name: "sr.scope", version: "1.2.3"},
+                metrics: [
+                  %Metric{
+                    name: "identity_rich",
+                    data:
+                      {:gauge,
+                       %Gauge{
+                         data_points: [
+                           %NumberDataPoint{
+                             time_unix_nano: @point_time,
+                             start_time_unix_nano: @point_start_time,
+                             value: {:as_double, 1.0},
+                             attributes: rich_attributes()
+                           }
+                         ]
+                       }}
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      [row] =
+        OtelMetrics.parse_message(%{
+          data: ExportMetricsServiceRequest.encode(request),
+          metadata: %{}
+        })
+
+      assert row.service_name == "metrics-service"
+      assert row.service_instance_id == "instance-7"
+      assert row.scope_name == "sr.scope"
+      assert row.start_time_unix_nano == @point_start_time
+
+      # Recipe v2 literal (cross-checked against the Go implementation).
+      # canonical_bytes:
+      #   {"arr":["x",1,f4004000000000000,false],"bool":true,"bytes":b/wAB,
+      #    "float":f3fe0000000000000,"int":42,"neg":fbff8000000000000,
+      #    "nested":{"a":{"deep":[1,2]},"z":"last"},"none":null,
+      #    "str":"va\"l\\ue"}
+      # hash input suffix: "\n" <> "instance-7" <> "\n" <> "sr.scope"
+      assert row.attributes_hash == "94d9dd949b532a243809a41937972918"
+
+      # Display JSON: sorted keys at every level, bytes as Base64 strings
+      assert row.attributes ==
+               ~s({"arr":["x",1,2.5,false],"bool":true,"bytes":"/wAB",) <>
+                 ~s("float":0.5,"int":42,"neg":-1.5,) <>
+                 ~s("nested":{"a":{"deep":[1,2]},"z":"last"},"none":null,) <>
+                 ~s("str":"va\\"l\\\\ue"})
+    end
+
+    defp rich_attributes do
+      any = fn value -> %AnyValue{value: value} end
+
+      [
+        %KeyValue{
+          key: "arr",
+          value:
+            any.(
+              {:array_value,
+               %ArrayValue{
+                 values: [
+                   any.({:string_value, "x"}),
+                   any.({:int_value, 1}),
+                   any.({:double_value, 2.5}),
+                   any.({:bool_value, false})
+                 ]
+               }}
+            )
+        },
+        %KeyValue{key: "bool", value: any.({:bool_value, true})},
+        %KeyValue{key: "bytes", value: any.({:bytes_value, <<255, 0, 1>>})},
+        %KeyValue{key: "float", value: any.({:double_value, 0.5})},
+        %KeyValue{key: "int", value: any.({:int_value, 42})},
+        %KeyValue{key: "neg", value: any.({:double_value, -1.5})},
+        %KeyValue{
+          key: "nested",
+          value:
+            any.(
+              {:kvlist_value,
+               %KeyValueList{
+                 values: [
+                   %KeyValue{key: "z", value: any.({:string_value, "last"})},
+                   %KeyValue{
+                     key: "a",
+                     value:
+                       any.(
+                         {:kvlist_value,
+                          %KeyValueList{
+                            values: [
+                              %KeyValue{
+                                key: "deep",
+                                value:
+                                  any.(
+                                    {:array_value,
+                                     %ArrayValue{
+                                       values: [
+                                         any.({:int_value, 1}),
+                                         any.({:int_value, 2})
+                                       ]
+                                     }}
+                                  )
+                              }
+                            ]
+                          }}
+                       )
+                   }
+                 ]
+               }}
+            )
+        },
+        %KeyValue{key: "none", value: %AnyValue{value: nil}},
+        %KeyValue{key: "str", value: any.({:string_value, "va\"l\\ue"})}
+      ]
     end
   end
 end

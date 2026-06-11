@@ -37,7 +37,7 @@
 - [x] 2.4 New CAGG for span RED aggregates computed from `otel_traces` (all
       spans), replacing slow-sample-biased stats as the source for traces and
       metrics stat cards; keep `otel_metrics` slow samples as exemplars
-- [ ] 2.5 OTLP metric points storage (sum/gauge/histogram with name, type,
+- [x] 2.5 OTLP metric points storage (sum/gauge/histogram with name, type,
       unit, temporality, attributes) + ingest path; rate-aware query support
 
 ## 3. Pipeline delivery accounting
@@ -45,12 +45,12 @@
 - [x] 3.1 Collector: stop ACKing failed NATS publishes (bounded buffer+retry,
       else OTLP failure response); per-signal received/published counters
       (rust/otel)
-- [ ] 3.2 Consumers: per-signal received/written/rejected counters (zen, Go
+- [x] 3.2 Consumers: per-signal received/written/rejected counters (zen, Go
       db-event-writer, Elixir EventWriter)
 - [x] 3.3 Fix docker-compose `otel.traces` vs `otel.traces.raw` subject
       mismatch; implement (or explicitly remove) the Elixir EventWriter
       protobuf trace parser TODO so no deployment shape silently drops traces
-- [ ] 3.4 Root-span-ratio health signal (propagation regression detector)
+- [x] 3.4 Root-span-ratio health signal (propagation regression detector)
 
 ## 4. Trace context propagation
 
@@ -91,7 +91,7 @@
 - [x] 5.8 Fix the initial tab load dropping list results (deferred
       `{:load_tab_data, ...}` renders empty until a manual re-run on the
       metrics tab)
-- [ ] 5.9 Label span samples vs OTLP metric points distinctly in the metrics
+- [x] 5.9 Label span samples vs OTLP metric points distinctly in the metrics
       pane; render counters as rates
 - [x] 5.10 LiveView tests: trace detail waterfall, trace→logs pivot params,
       card click filters, catalog round-trip preservation of `trace_id`
@@ -123,7 +123,7 @@
       toggle for cross-namespace senders
 - [ ] 7.6 Ingestion token auth (header/metadata) with identity stamped on the
       NATS envelope; configurable off
-- [ ] 7.7 Collector publish path: remove global mutex serialization
+- [x] 7.7 Collector publish path: remove global mutex serialization
       (clone JetStream context / bounded concurrency) to prevent
       DEADLINE_EXCEEDED storms under multi-producer load
 
@@ -144,18 +144,18 @@
       case-insensitive severity filtering in SRQL
 - [x] 8.6 Nil-resource ResourceSpans ingested (service "unknown") instead of
       dropped; rejects counted
-- [ ] 8.7 SRQL otel_metric_points entity + web-ng metrics pane reads points
+- [x] 8.7 SRQL otel_metric_points entity + web-ng metrics pane reads points
       with temporality-aware rate/delta rendering for cumulative sums
 - [ ] 8.8 Schema: trace_state + dropped_{attributes,events,links}_count
       columns; scope_attributes for spans; service.namespace +
       deployment.environment promoted to first-class columns in spans +
       summaries + RED rollups
-- [ ] 8.9 zen: passthrough-by-default when no decision rule matches logs.otel
+- [x] 8.9 zen: passthrough-by-default when no decision rule matches logs.otel
       (no consumed-and-ACKed silent drops); metric points series identity
       includes service.instance.id + scope; persist start_time_unix_nano for
       reset detection
-- [ ] 8.10 event_name filterable in SRQL + logs catalog
-- [ ] 8.11 Cross-writer attributes_hash parity edges: extreme-magnitude float
+- [x] 8.10 event_name filterable in SRQL + logs catalog
+- [x] 8.11 Cross-writer attributes_hash parity edges: extreme-magnitude float
       rendering (1e+21 notation divergence) and >32-key nested kvlist
       ordering in the Elixir writer (Jason large-map iteration) — sort nested
       maps in Elixir + pin float formatting so Go/Elixir hashes match for all
@@ -174,7 +174,7 @@
 
 ## 10. Edge OTLP collector add-on (reuse rust/otel, ride the agent channel)
 
-- [ ] 10.1 Refactor rust/otel output side behind an output trait: JetStream
+- [x] 10.1 Refactor rust/otel output side behind an output trait: JetStream
       backend (existing, central), agent-forward backend (new), optional
       OTLP-exporter backend; protocol surface (gRPC/HTTP, partial_success,
       counters, auth modes) stays shared so edge inherits all conformance work

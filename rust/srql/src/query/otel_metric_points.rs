@@ -12,6 +12,7 @@ use crate::{
     schema::otel_metric_points::dsl::{
         attributes as col_attributes, is_monotonic as col_is_monotonic,
         metric_name as col_metric_name, metric_type as col_metric_type, otel_metric_points,
+        scope_name as col_scope_name, service_instance_id as col_service_instance_id,
         service_name as col_service_name, temporality as col_temporality,
         timestamp as col_timestamp, unit as col_unit, value as col_value,
     },
@@ -148,7 +149,9 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "metric_name" | "service_name" | "service" | "metric_type" | "type" | "unit"
-        | "temporality" => collect_text_params(params, filter),
+        | "temporality" | "scope_name" | "service_instance_id" | "service_instance" => {
+            collect_text_params(params, filter)
+        }
         "attributes" => {
             params.push(BindParam::Text(attributes_pattern(filter)?));
             Ok(())
@@ -199,6 +202,12 @@ fn apply_filter<'a>(mut query: PointsQuery<'a>, filter: &Filter) -> Result<Point
         }
         "temporality" => {
             query = apply_text_filter!(query, filter, col_temporality)?;
+        }
+        "scope_name" => {
+            query = apply_text_filter!(query, filter, col_scope_name)?;
+        }
+        "service_instance_id" | "service_instance" => {
+            query = apply_text_filter!(query, filter, col_service_instance_id)?;
         }
         "attributes" => {
             let pattern = attributes_pattern(filter)?;
@@ -496,6 +505,10 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "metric_type" | "type" => build_text_clause("metric_type", filter, &mut binds)?,
         "unit" => build_text_clause("unit", filter, &mut binds)?,
         "temporality" => build_text_clause("temporality", filter, &mut binds)?,
+        "scope_name" => build_text_clause("scope_name", filter, &mut binds)?,
+        "service_instance_id" | "service_instance" => {
+            build_text_clause("service_instance_id", filter, &mut binds)?
+        }
         "attributes" => {
             let pattern = attributes_pattern(filter)?;
             binds.push(SqlBindValue::Text(pattern));
@@ -717,6 +730,49 @@ mod tests {
         assert_eq!(params.len(), 5, "params: {params:?}");
         assert!(
             matches!(&params[2], BindParam::Text(value) if value == "gen"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn select_list_includes_extended_point_columns() {
+        let plan = base_plan();
+        let (sql, _) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"start_time_unix_nano\""), "{sql}");
+        assert!(
+            sql.contains("\"otel_metric_points\".\"scope_name\""),
+            "{sql}"
+        );
+        assert!(sql.contains("\"service_instance_id\""), "{sql}");
+    }
+
+    #[test]
+    fn generates_sql_for_scope_name_filter() {
+        let mut plan = base_plan();
+        plan.filters
+            .push(filter("scope_name", FilterOp::Eq, "io.opentelemetry.sdk"));
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"scope_name\" = $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "io.opentelemetry.sdk"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn generates_sql_for_service_instance_id_filter() {
+        let mut plan = base_plan();
+        plan.filters
+            .push(filter("service_instance_id", FilterOp::Eq, "instance-1"));
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"service_instance_id\" = $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "instance-1"),
             "params: {params:?}"
         );
     }

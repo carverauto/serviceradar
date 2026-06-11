@@ -93,7 +93,9 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
       primary_key? true
       allow_nil? false
       public? true
-      description "MD5 of the canonical attributes JSON (part of composite PK)"
+
+      description "Recipe-v2 identity hash: MD5 of canonical attribute bytes + " <>
+                    "service_instance_id + scope_name (part of composite PK)"
     end
 
     attribute :metric_type, :string do
@@ -118,7 +120,26 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
 
     attribute :attributes, :string do
       public? true
-      description "Data point attributes as JSON text (sorted keys)"
+      description "Data point attributes as JSON text (keys sorted at every nesting level)"
+    end
+
+    attribute :service_instance_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Resource service.instance.id ('' when absent); folded into attributes_hash"
+    end
+
+    attribute :scope_name, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Instrumentation scope name ('' when absent); folded into attributes_hash"
+    end
+
+    attribute :start_time_unix_nano, :integer do
+      public? true
+      description "Data point start time in unix nanoseconds (NULL when absent/zero)"
     end
 
     attribute :value, :float do

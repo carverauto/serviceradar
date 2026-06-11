@@ -479,6 +479,9 @@ diesel::table! {
         sum -> Nullable<Float8>,
         bucket_counts -> Nullable<Text>,
         explicit_bounds -> Nullable<Text>,
+        start_time_unix_nano -> Nullable<Int8>,
+        scope_name -> Text,
+        service_instance_id -> Text,
         created_at -> Timestamptz,
     }
 }

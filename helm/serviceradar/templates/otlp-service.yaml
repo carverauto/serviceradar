@@ -1,7 +1,10 @@
 {{- $logCollectorOtlp := (default (dict) .Values.logCollector).otlp | default dict -}}
 {{- $otlpService := default (dict) $logCollectorOtlp.service -}}
 {{- if $otlpService.enabled }}
-# Dedicated Service for external OTLP ingest into the log-collector.
+# Dedicated Service for OTLP ingest into the log-collector.
+# Defaults to ClusterIP (no public IP): expose externally either through the
+# shared gateway routes (logCollector.otlp.gateway, preferred) or by opting
+# in to type=LoadBalancer for a dedicated public IP.
 # OTLP/gRPC is served on port 4317 with server TLS issued by the ServiceRadar
 # private CA: external senders must trust the ServiceRadar root CA bundle or
 # disable certificate verification (insecure skip-verify).
@@ -18,8 +21,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  type: {{ $otlpService.type | default "LoadBalancer" }}
-  {{- if and (ne ($otlpService.type | default "LoadBalancer") "ClusterIP") $otlpService.externalTrafficPolicy }}
+  type: {{ $otlpService.type | default "ClusterIP" }}
+  {{- if and (ne ($otlpService.type | default "ClusterIP") "ClusterIP") $otlpService.externalTrafficPolicy }}
   externalTrafficPolicy: {{ $otlpService.externalTrafficPolicy }}
   {{- end }}
   {{- if $otlpService.loadBalancerIP }}

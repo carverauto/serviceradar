@@ -6,6 +6,7 @@ use serde_json::Value;
 use crate::config::{Config, MessageFormat};
 use crate::engine::SharedEngine;
 use crate::rule_discovery;
+use crate::telemetry;
 use crate::{flow_proto, otel_logs, otel_metrics};
 
 pub async fn process_message(
@@ -18,6 +19,17 @@ pub async fn process_message(
 
     // Determine message format and parse accordingly
     let format = cfg.message_format_for_subject(&msg.subject);
+    let counters = telemetry::counters_for_format(&format);
+
+    // Count each message once, on its first delivery, so NAK-driven
+    // redeliveries do not inflate the received counter.
+    let first_delivery = msg.info().map(|info| info.delivered <= 1).unwrap_or(true);
+    if first_delivery {
+        if let Some(counters) = counters {
+            counters.record_received();
+        }
+    }
+
     let mut context: serde_json::Value = match format {
         MessageFormat::Json => serde_json::from_slice(&msg.payload)?,
         MessageFormat::Protobuf => otel_logs::otel_logs_to_json(&msg.payload)?,
@@ -59,19 +71,49 @@ pub async fn process_message(
         context = merge_rule_result(previous_context, Value::from(resp.result));
     }
 
-    if !rules.is_empty() {
+    // Passthrough-by-default: an OTEL log message with NO decision rules at
+    // all (none configured, none discovered in KV) used to be
+    // consumed-and-ACKed without republishing — a silent drop that made
+    // fresh installs depend on a KV bootstrap rule. Republish the converted
+    // JSON unchanged instead, unless strict mode is configured
+    // (`passthrough_when_unmatched: false`).
+    let passthrough = passthrough_applies(cfg, &format, &rules);
+
+    if !rules.is_empty() || passthrough {
         let data = serde_json::to_vec(&context)?;
+        let mut published = false;
         if let Some(suffix) = &cfg.result_subject_suffix {
             let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
             debug!("published result to {result_subject}");
             js.publish(result_subject, data.into()).await?.await?;
+            published = true;
         } else if let Some(subject) = &cfg.result_subject {
             debug!("published result to {subject}");
             js.publish(subject.clone(), data.into()).await?.await?;
+            published = true;
+        }
+
+        if published {
+            if let Some(counters) = counters {
+                counters.record_forwarded();
+                if passthrough {
+                    counters.record_passthrough();
+                    debug!(
+                        "no decision rules for {}; republished unchanged (passthrough)",
+                        msg.subject
+                    );
+                }
+            }
         }
     }
 
     Ok(())
+}
+
+/// True when an OTEL log message with no decision rules should be
+/// republished unchanged instead of silently dropped.
+pub(crate) fn passthrough_applies(cfg: &Config, format: &MessageFormat, rules: &[String]) -> bool {
+    rules.is_empty() && cfg.passthrough_when_unmatched && *format == MessageFormat::Protobuf
 }
 
 pub(crate) fn merge_rule_result(previous: Value, result: Value) -> Value {
@@ -149,6 +191,7 @@ mod tests {
                 },
             ],
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),
@@ -307,6 +350,46 @@ mod tests {
         assert_eq!(metrics.len(), 1);
         assert_eq!(metrics[0]["name"], "cpu.usage");
         assert_eq!(metrics[0]["data_type"], "gauge");
+    }
+
+    #[test]
+    fn passthrough_applies_only_to_unmatched_otel_logs() {
+        let mut cfg = create_test_config();
+
+        // No rules + otel log format + flag on => passthrough.
+        assert!(super::passthrough_applies(
+            &cfg,
+            &MessageFormat::Protobuf,
+            &[]
+        ));
+
+        // Rules present => the normal evaluation path publishes.
+        assert!(!super::passthrough_applies(
+            &cfg,
+            &MessageFormat::Protobuf,
+            &["some_rule".to_string()]
+        ));
+
+        // Non-otel-log formats keep their existing behavior.
+        assert!(!super::passthrough_applies(&cfg, &MessageFormat::Json, &[]));
+        assert!(!super::passthrough_applies(
+            &cfg,
+            &MessageFormat::OtelMetrics,
+            &[]
+        ));
+        assert!(!super::passthrough_applies(
+            &cfg,
+            &MessageFormat::FlowProtobuf,
+            &[]
+        ));
+
+        // Strict mode restores the old consumed-and-ACKed drop.
+        cfg.passthrough_when_unmatched = false;
+        assert!(!super::passthrough_applies(
+            &cfg,
+            &MessageFormat::Protobuf,
+            &[]
+        ));
     }
 
     #[test]

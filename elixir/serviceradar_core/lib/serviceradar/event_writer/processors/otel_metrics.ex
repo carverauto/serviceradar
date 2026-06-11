@@ -10,6 +10,12 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     sum/gauge/histogram data points are decoded into the `otel_metric_points`
     hypertable, keyed by (timestamp, metric_name, service_name, attributes_hash).
 
+  `attributes_hash` follows recipe v2 (see `ServiceRadar.EventWriter.OtlpAttributes`):
+  MD5 over `canonical_bytes(point_attributes) <> "\\n" <> service_instance_id
+  <> "\\n" <> scope_name`, kept in lockstep with the Go gateway
+  implementation. The stored `attributes` column is display JSON with map
+  keys sorted at every nesting level.
+
   Identifiers on span samples are normalized to the canonical contract via
   `ServiceRadar.EventWriter.OtelId`.
 
@@ -47,6 +53,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias Opentelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest
+  alias Opentelemetry.Proto.Common.V1.InstrumentationScope
   alias Opentelemetry.Proto.Metrics.V1.Gauge
   alias Opentelemetry.Proto.Metrics.V1.Histogram
   alias Opentelemetry.Proto.Metrics.V1.HistogramDataPoint
@@ -58,6 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.SignalTelemetry
 
   require Logger
 
@@ -70,15 +78,23 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
   @impl true
   def process_batch(messages) do
+    SignalTelemetry.emit(:metrics, :received, length(messages))
+
+    parsed = Enum.map(messages, &parse_message/1)
+    SignalTelemetry.emit(:metrics, :rejected, Enum.count(parsed, &is_nil/1))
+
     # DB connection's search_path determines the schema
     {span_sample_rows, point_rows} =
-      messages
-      |> Enum.flat_map(&List.wrap(parse_message(&1)))
+      parsed
       |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(&List.wrap/1)
       |> Enum.split_with(&span_sample_row?/1)
 
     sample_count = insert_rows(table_name(), span_sample_rows)
     point_count = insert_rows(@metric_points_table, point_rows)
+
+    SignalTelemetry.emit(:metrics, :written, sample_count)
+    SignalTelemetry.emit(:metric_points, :written, point_count)
 
     {:ok, sample_count + point_count}
   rescue
@@ -179,22 +195,40 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     service_name =
       resource_attributes["service.name"] || resource_attributes["service_name"] || ""
 
+    service_instance_id =
+      case resource_attributes["service.instance.id"] do
+        value when is_binary(value) -> value
+        _ -> ""
+      end
+
     Enum.flat_map(scope_metrics, fn
-      %ScopeMetrics{metrics: metrics} -> Enum.flat_map(metrics, &parse_metric(&1, service_name))
-      _ -> []
+      %ScopeMetrics{scope: scope, metrics: metrics} ->
+        identity = %{
+          service_name: service_name,
+          service_instance_id: service_instance_id,
+          scope_name: scope_name(scope)
+        }
+
+        Enum.flat_map(metrics, &parse_metric(&1, identity))
+
+      _ ->
+        []
     end)
   end
 
   defp parse_resource_metrics(_), do: []
 
-  defp parse_metric(%Metric{name: name, unit: unit, data: data}, service_name) do
+  defp scope_name(%InstrumentationScope{name: name}) when is_binary(name), do: name
+  defp scope_name(_), do: ""
+
+  defp parse_metric(%Metric{name: name, unit: unit, data: data}, identity) do
     unit = if unit == "", do: nil, else: unit
 
     case data do
       {:sum, %Sum{} = sum} ->
         Enum.map(
           sum.data_points,
-          &number_point_row(&1, name, "sum", unit, service_name,
+          &number_point_row(&1, name, "sum", unit, identity,
             temporality: temporality(sum.aggregation_temporality),
             is_monotonic: sum.is_monotonic
           )
@@ -203,40 +237,51 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
       {:gauge, %Gauge{} = gauge} ->
         Enum.map(
           gauge.data_points,
-          &number_point_row(&1, name, "gauge", unit, service_name, [])
+          &number_point_row(&1, name, "gauge", unit, identity, [])
         )
 
       {:histogram, %Histogram{} = histogram} ->
         Enum.map(
           histogram.data_points,
-          &histogram_point_row(&1, name, unit, service_name,
+          &histogram_point_row(&1, name, unit, identity,
             temporality: temporality(histogram.aggregation_temporality)
           )
         )
+
+      {:exponential_histogram, %Opentelemetry.Proto.Metrics.V1.ExponentialHistogram{} = eh} ->
+        reject_unsupported_points(name, "exponential_histogram", length(eh.data_points))
+
+      {:summary, %Opentelemetry.Proto.Metrics.V1.Summary{} = summary} ->
+        reject_unsupported_points(name, "summary", length(summary.data_points))
 
       _other ->
         []
     end
   end
 
-  defp parse_metric(_, _service_name), do: []
+  defp parse_metric(_, _identity), do: []
 
-  defp number_point_row(%NumberDataPoint{} = point, name, type, unit, service_name, opts) do
+  # Decoding exponential histograms and summaries is a spec'd follow-up
+  # (tasks.md 8.3); until then they are counted, never silently dropped.
+  defp reject_unsupported_points(name, type, point_count) do
+    SignalTelemetry.emit(:metric_points, :rejected, point_count)
+
+    Logger.debug(
+      "Dropping unsupported OTLP metric type #{type} for #{name} (#{point_count} data points)"
+    )
+
+    []
+  end
+
+  defp number_point_row(%NumberDataPoint{} = point, name, type, unit, identity, opts) do
     name
-    |> base_point_row(type, unit, service_name, point.attributes, point.time_unix_nano, opts)
+    |> base_point_row(type, unit, identity, point, opts)
     |> Map.put(:value, number_point_value(point))
   end
 
-  defp histogram_point_row(%HistogramDataPoint{} = point, name, unit, service_name, opts) do
+  defp histogram_point_row(%HistogramDataPoint{} = point, name, unit, identity, opts) do
     name
-    |> base_point_row(
-      "histogram",
-      unit,
-      service_name,
-      point.attributes,
-      point.time_unix_nano,
-      opts
-    )
+    |> base_point_row("histogram", unit, identity, point, opts)
     |> Map.merge(%{
       count: FieldParser.safe_bigint(point.count),
       sum: point.sum,
@@ -245,19 +290,27 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     })
   end
 
-  defp base_point_row(name, type, unit, service_name, attributes, time_unix_nano, opts) do
-    attributes_json = encode_point_attributes(attributes)
+  defp base_point_row(name, type, unit, identity, point, opts) do
+    canonical_attributes = OtlpAttributes.key_values_to_canonical_map(point.attributes)
 
     %{
-      timestamp: point_timestamp(time_unix_nano),
+      timestamp: point_timestamp(point.time_unix_nano),
       metric_name: name,
       metric_type: type,
       unit: unit,
       temporality: Keyword.get(opts, :temporality),
       is_monotonic: Keyword.get(opts, :is_monotonic),
-      service_name: service_name,
-      attributes: attributes_json,
-      attributes_hash: md5_hex(attributes_json),
+      service_name: identity.service_name,
+      service_instance_id: identity.service_instance_id,
+      scope_name: identity.scope_name,
+      start_time_unix_nano: positive_nano(point.start_time_unix_nano),
+      attributes: OtlpAttributes.stable_json(canonical_attributes),
+      attributes_hash:
+        OtlpAttributes.attributes_hash(
+          canonical_attributes,
+          identity.service_instance_id,
+          identity.scope_name
+        ),
       value: nil,
       count: nil,
       sum: nil,
@@ -274,19 +327,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
   defp number_point_value(_), do: nil
 
-  # Encode point attributes deterministically (sorted keys) so that
-  # attributes_hash is stable for identical attribute sets.
-  defp encode_point_attributes(attributes) do
-    attributes
-    |> OtlpAttributes.key_values_to_map()
-    |> Enum.sort_by(fn {key, _value} -> key end)
-    |> Jason.OrderedObject.new()
-    |> Jason.encode!()
-  end
-
-  defp md5_hex(text) do
-    :md5 |> :crypto.hash(text) |> Base.encode16(case: :lower)
-  end
+  defp positive_nano(ns) when is_integer(ns) and ns > 0, do: FieldParser.safe_bigint(ns)
+  defp positive_nano(_), do: nil
 
   defp point_timestamp(ns) when is_integer(ns) and ns > 0 do
     DateTime.from_unix!(div(ns, 1000), :microsecond)

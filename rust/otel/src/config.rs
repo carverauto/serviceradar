@@ -47,6 +47,13 @@ pub struct HttpConfig {
     /// publicly.
     #[serde(default = "default_allowed_origins")]
     pub allowed_origins: Vec<String>,
+    /// Whether the OTLP/HTTP listener serves TLS (default: true). When true
+    /// the listener reuses the `[grpc_tls]` server certificate if one is
+    /// configured (plaintext otherwise, preserving previous behavior). Set
+    /// to false to force plaintext HTTP even when `[grpc_tls]` is set — for
+    /// running behind a TLS-terminating gateway in-cluster.
+    #[serde(default = "default_http_tls_enabled")]
+    pub tls_enabled: bool,
 }
 
 impl Default for HttpConfig {
@@ -56,6 +63,7 @@ impl Default for HttpConfig {
             bind_address: default_bind_address(),
             port: default_http_port(),
             allowed_origins: default_allowed_origins(),
+            tls_enabled: default_http_tls_enabled(),
         }
     }
 }
@@ -121,6 +129,12 @@ pub struct NATSConfigTOML {
     pub max_age_secs: u64,
     #[serde(default = "default_stream_replicas")]
     pub stream_replicas: usize,
+    /// Maximum number of concurrently in-flight JetStream chunk publishes
+    /// across all export requests (per-request chunk order stays
+    /// sequential). Bounds publish fan-out under multi-producer load.
+    /// Defaults to 32.
+    #[serde(default = "default_max_inflight_publishes")]
+    pub max_inflight_publishes: usize,
     pub tls: Option<NATSTLSConfig>,
 }
 
@@ -240,6 +254,7 @@ impl Config {
                 tls_cert,
                 tls_key,
                 tls_ca,
+                max_inflight_publishes: nats.max_inflight_publishes,
             }
         })
     }
@@ -267,6 +282,7 @@ impl Config {
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),
                 stream_replicas: default_stream_replicas(),
+                max_inflight_publishes: default_max_inflight_publishes(),
                 tls: Some(NATSTLSConfig {
                     cert_file: "/path/to/nats-client.crt".to_string(),
                     key_file: "/path/to/nats-client.key".to_string(),
@@ -319,6 +335,10 @@ fn default_stream_replicas() -> usize {
     1
 }
 
+fn default_max_inflight_publishes() -> usize {
+    crate::nats_output::DEFAULT_MAX_INFLIGHT_PUBLISHES
+}
+
 fn default_metrics_bind_address() -> String {
     "0.0.0.0".to_string()
 }
@@ -332,6 +352,10 @@ fn default_max_request_bytes() -> usize {
 }
 
 fn default_http_enabled() -> bool {
+    true
+}
+
+fn default_http_tls_enabled() -> bool {
     true
 }
 
@@ -493,6 +517,7 @@ max_request_bytes = 1048576
         assert_eq!(config.server.http.bind_address, "0.0.0.0");
         assert_eq!(config.server.http.port, 4318);
         assert_eq!(config.server.http.allowed_origins, vec!["*".to_string()]);
+        assert!(config.server.http.tls_enabled);
         assert_eq!(config.http_address(), "0.0.0.0:4318");
     }
 
@@ -504,11 +529,13 @@ enabled = false
 bind_address = "127.0.0.1"
 port = 4319
 allowed_origins = ["https://app.example.com", "https://ops.example.com"]
+tls_enabled = false
 "#;
         let config: Config = toml::from_str(toml_content).unwrap();
         assert!(!config.server.http.enabled);
         assert_eq!(config.server.http.bind_address, "127.0.0.1");
         assert_eq!(config.server.http.port, 4319);
+        assert!(!config.server.http.tls_enabled);
         assert_eq!(
             config.server.http.allowed_origins,
             vec![
@@ -637,6 +664,7 @@ key_file = "/grpc.key"
                 max_bytes: default_max_bytes(),
                 max_age_secs: default_max_age_secs(),
                 stream_replicas: default_stream_replicas(),
+                max_inflight_publishes: 8,
                 tls: Some(NATSTLSConfig {
                     cert_file: "/cert.pem".to_string(),
                     key_file: "/key.pem".to_string(),
@@ -659,6 +687,28 @@ key_file = "/grpc.key"
         assert_eq!(nats_config.tls_cert.unwrap(), PathBuf::from("/cert.pem"));
         assert_eq!(nats_config.tls_key.unwrap(), PathBuf::from("/key.pem"));
         assert_eq!(nats_config.tls_ca.unwrap(), PathBuf::from("/ca.pem"));
+        assert_eq!(nats_config.max_inflight_publishes, 8);
+    }
+
+    #[test]
+    fn test_max_inflight_publishes_defaults_to_32() {
+        let toml_content = r#"
+[nats]
+url = "nats://test:4222"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.nats.unwrap().max_inflight_publishes, 32);
+    }
+
+    #[test]
+    fn test_max_inflight_publishes_parses_from_toml() {
+        let toml_content = r#"
+[nats]
+url = "nats://test:4222"
+max_inflight_publishes = 4
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.nats.unwrap().max_inflight_publishes, 4);
     }
 
     #[test]

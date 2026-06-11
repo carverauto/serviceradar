@@ -1059,6 +1059,9 @@ pub struct OtelMetricPointRow {
     pub sum: Option<f64>,
     pub bucket_counts: Option<String>,
     pub explicit_bounds: Option<String>,
+    pub start_time_unix_nano: Option<i64>,
+    pub scope_name: String,
+    pub service_instance_id: String,
     pub created_at: DateTime<Utc>,
 }
 
@@ -1079,6 +1082,9 @@ impl OtelMetricPointRow {
             "sum": self.sum,
             "bucket_counts": self.bucket_counts,
             "explicit_bounds": self.explicit_bounds,
+            "start_time_unix_nano": self.start_time_unix_nano,
+            "scope_name": self.scope_name,
+            "service_instance_id": self.service_instance_id,
         })
     }
 }

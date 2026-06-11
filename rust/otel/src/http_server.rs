@@ -58,7 +58,9 @@ pub struct HttpServerOptions {
 impl HttpServerOptions {
     /// Builds listener options from the collector config. Returns `None`
     /// when the HTTP listener is disabled. The gRPC TLS server certificate
-    /// is reused when configured; otherwise the listener is plaintext.
+    /// is reused when configured and `server.http.tls_enabled` is true
+    /// (the default); otherwise the listener is plaintext. Disabling
+    /// `tls_enabled` supports running behind a TLS-terminating gateway.
     pub fn from_config(config: &Config) -> Result<Option<Self>, BoxError> {
         if !config.server.http.enabled {
             return Ok(None);
@@ -69,22 +71,26 @@ impl HttpServerOptions {
             .parse()
             .map_err(|e| format!("invalid OTLP/HTTP bind address: {e}"))?;
 
-        let tls_identity = match &config.grpc_tls {
-            Some(tls) => Some(TlsIdentityPem {
-                cert_pem: std::fs::read(&tls.cert_file).map_err(|e| {
-                    format!(
-                        "failed to read TLS certificate '{}' for OTLP/HTTP listener: {e}",
-                        tls.cert_file
-                    )
-                })?,
-                key_pem: std::fs::read(&tls.key_file).map_err(|e| {
-                    format!(
-                        "failed to read TLS key '{}' for OTLP/HTTP listener: {e}",
-                        tls.key_file
-                    )
-                })?,
-            }),
-            None => None,
+        let tls_identity = if !config.server.http.tls_enabled {
+            None
+        } else {
+            match &config.grpc_tls {
+                Some(tls) => Some(TlsIdentityPem {
+                    cert_pem: std::fs::read(&tls.cert_file).map_err(|e| {
+                        format!(
+                            "failed to read TLS certificate '{}' for OTLP/HTTP listener: {e}",
+                            tls.cert_file
+                        )
+                    })?,
+                    key_pem: std::fs::read(&tls.key_file).map_err(|e| {
+                        format!(
+                            "failed to read TLS key '{}' for OTLP/HTTP listener: {e}",
+                            tls.key_file
+                        )
+                    })?,
+                }),
+                None => None,
+            }
         };
 
         Ok(Some(Self {
@@ -749,6 +755,23 @@ mod tests {
         assert_eq!(options.addr, "0.0.0.0:4318".parse().unwrap());
         assert_eq!(options.allowed_origins, vec!["*".to_string()]);
         assert_eq!(options.max_request_bytes, 64 * 1024 * 1024);
+        assert!(options.tls_identity.is_none());
+    }
+
+    #[test]
+    fn from_config_skips_tls_identity_when_http_tls_disabled() {
+        // tls_enabled=false must yield a plaintext listener without even
+        // touching the grpc_tls cert files (paths here do not exist).
+        let mut config = Config::default();
+        config.server.http.tls_enabled = false;
+        config.grpc_tls = Some(crate::config::GRPCTLSConfig {
+            cert_file: "/nonexistent/server.pem".to_string(),
+            key_file: "/nonexistent/server-key.pem".to_string(),
+            ca_file: None,
+            client_auth: Default::default(),
+        });
+
+        let options = HttpServerOptions::from_config(&config).unwrap().unwrap();
         assert!(options.tls_identity.is_none());
     }
 }

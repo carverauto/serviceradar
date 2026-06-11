@@ -80,6 +80,9 @@ const (
 		temporality,
 		is_monotonic,
 		service_name,
+		service_instance_id,
+		scope_name,
+		start_time_unix_nano,
 		attributes,
 		attributes_hash,
 		value,
@@ -90,7 +93,8 @@ const (
 	) VALUES (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
-		$11,$12,$13,$14
+		$11,$12,$13,$14,$15,
+		$16,$17
 	) ON CONFLICT DO NOTHING`
 
 	otelTracesInsertSQL = `INSERT INTO %s (
@@ -216,6 +220,9 @@ func (inserter otelMetricPointInserter) QueueRow(batch *pgx.Batch, query string,
 		row.Temporality,
 		row.IsMonotonic,
 		row.ServiceName,
+		row.ServiceInstanceID,
+		row.ScopeName,
+		row.StartTimeUnixNano,
 		row.Attributes,
 		row.AttributesHash,
 		row.Value,

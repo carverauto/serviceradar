@@ -93,7 +93,10 @@
 {{- $logCollectorOtlp := default (dict) $logCollector.otlp -}}
 {{- $logCollectorOtlpService := default (dict) $logCollectorOtlp.service -}}
 {{- $logCollectorOtlpServiceEnabled := default false $logCollectorOtlpService.enabled -}}
-{{- $logCollectorOtlpServiceType := default "LoadBalancer" $logCollectorOtlpService.type -}}
+{{- $logCollectorOtlpServiceType := default "ClusterIP" $logCollectorOtlpService.type -}}
+{{- $logCollectorOtlpGateway := default (dict) $logCollectorOtlp.gateway -}}
+{{- $logCollectorOtlpGatewayEnabled := default false $logCollectorOtlpGateway.enabled -}}
+{{- $logCollectorOtlpEnvoyNamespace := default "envoy-gateway-system" $logCollectorOtlpGateway.envoyGatewayNamespace -}}
 {{- $logCollectorOtlpHttp := default (dict) $logCollectorOtlpService.http -}}
 {{- $logCollectorOtlpPorts := list (dict "protocol" "TCP" "port" (default 4317 $logCollectorOtlpService.port)) -}}
 {{- if default false $logCollectorOtlpHttp.enabled -}}
@@ -404,6 +407,32 @@ spec:
       ports:
 {{- include "serviceradar.networkPolicyPorts" $logCollectorOtlpPorts | trim | nindent 8 }}
 {{- end }}
+{{- end }}
+{{- if and $logCollectorOtlpServiceEnabled $logCollectorOtlpGatewayEnabled $hasLogCollectorOtlpPorts }}
+---
+# Gateway-mode OTLP ingest: external senders reach the shared Gateway API
+# gateway, whose envoy proxy pods forward to the log-collector. Admit only
+# the envoy proxy namespace instead of 0.0.0.0/0 (the CIDR-based
+# otlp-external policy above is reserved for the opt-in LoadBalancer mode).
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-otlp-gateway
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ $logCollectorOtlpEnvoyNamespace | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorOtlpPorts | trim | nindent 8 }}
 {{- end }}
 {{- if and $trapdExternalServiceEnabled $trapdExternalEnabled $hasTrapdExternalCIDRs $hasTrapdExternalPorts (ne $trapdExternalServiceType "ClusterIP") }}
 ---

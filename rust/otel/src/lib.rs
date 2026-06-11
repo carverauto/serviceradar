@@ -6,6 +6,7 @@ pub mod config;
 pub mod http_server;
 pub mod metrics;
 pub mod nats_output;
+pub mod output;
 pub mod server;
 pub mod setup;
 pub mod tls;
@@ -62,7 +63,7 @@ pub mod opentelemetry {
     }
 }
 
-use crate::nats_output::PerformanceMetric;
+use crate::output::{PerformanceMetric, TelemetryOutput};
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -77,8 +78,7 @@ use opentelemetry::proto::collector::trace::v1::{
 };
 use opentelemetry::proto::metrics::v1::Metric;
 use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, RwLock};
 
 /// Backoff before the single NATS publish retry attempt.
 const NATS_PUBLISH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
@@ -129,9 +129,17 @@ fn oversize_partial_message(rejected: usize) -> String {
     format!("{rejected} records exceeded max encoded size")
 }
 
+/// Hot-swappable handle to the active output backend.
+///
+/// The `RwLock` is only ever held long enough to clone the inner `Arc`
+/// (per-export reads) or swap it (runtime reconfiguration) — never across a
+/// publish await — so concurrent exports publish without any global
+/// serialization (the old `Arc<Mutex<NATSOutput>>` head-of-line blocking).
+type OutputSlot = RwLock<Arc<dyn TelemetryOutput>>;
+
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
-    nats_output: Option<Arc<Mutex<nats_output::NATSOutput>>>,
+    output: Option<Arc<OutputSlot>>,
 }
 
 impl ServiceRadarCollector {
@@ -140,12 +148,13 @@ impl ServiceRadarCollector {
     ) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
 
-        let nats_output = if let Some(config) = nats_config {
+        let output: Option<Arc<OutputSlot>> = if let Some(config) = nats_config {
             debug!("Initializing NATS output for collector");
             match nats_output::NATSOutput::new(config).await {
                 Ok(output) => {
                     debug!("NATS output created successfully");
-                    Some(Arc::new(Mutex::new(output)))
+                    let output: Arc<dyn TelemetryOutput> = Arc::new(output);
+                    Some(Arc::new(RwLock::new(output)))
                 }
                 Err(e) => {
                     error!("Failed to initialize NATS output: {e}");
@@ -158,10 +167,37 @@ impl ServiceRadarCollector {
         };
 
         debug!(
-            "ServiceRadarCollector created with NATS output: {}",
-            nats_output.is_some()
+            "ServiceRadarCollector created with output backend: {}",
+            output.is_some()
         );
-        Ok(Self { nats_output })
+        Ok(Self { output })
+    }
+
+    /// Builds a collector around an arbitrary output backend.
+    ///
+    /// This is the seam the planned agent-forward and OTLP-exporter edge
+    /// backends (and tests) plug into; see [`crate::output`] for the backend
+    /// roadmap.
+    pub fn with_output(output: Arc<dyn TelemetryOutput>) -> Self {
+        Self {
+            output: Some(Arc::new(RwLock::new(output))),
+        }
+    }
+
+    /// Clones the current output backend handle out of the slot. The lock is
+    /// released before any publish await.
+    fn output_handle(&self) -> Option<Arc<dyn TelemetryOutput>> {
+        self.output.as_ref().map(|slot| match slot.read() {
+            Ok(guard) => Arc::clone(&guard),
+            Err(poisoned) => Arc::clone(&poisoned.into_inner()),
+        })
+    }
+
+    fn swap_output(slot: &OutputSlot, new_output: Arc<dyn TelemetryOutput>) {
+        match slot.write() {
+            Ok(mut guard) => *guard = new_output,
+            Err(poisoned) => *poisoned.into_inner() = new_output,
+        }
     }
 
     /// Reconfigure NATS output at runtime. If None, disables output. If Some, rebuilds the output.
@@ -170,12 +206,9 @@ impl ServiceRadarCollector {
         match nats_config {
             Some(cfg) => match nats_output::NATSOutput::new(cfg).await {
                 Ok(new_output) => {
-                    if let Some(arc) = &self.nats_output {
-                        {
-                            let mut guard = arc.lock().await;
-                            *guard = new_output;
-                            info!("NATS output reconfigured successfully");
-                        }
+                    if let Some(slot) = &self.output {
+                        Self::swap_output(slot, Arc::new(new_output));
+                        info!("NATS output reconfigured successfully");
                     } else {
                         warn!("NATS output not initialized; restart required to enable output");
                     }
@@ -185,13 +218,10 @@ impl ServiceRadarCollector {
                 }
             },
             None => {
-                if let Some(arc) = &self.nats_output {
-                    {
-                        let mut guard = arc.lock().await;
-                        // Replace with a disabled output that drops
-                        *guard = nats_output::NATSOutput::disabled();
-                        info!("NATS output disabled via reconfiguration");
-                    }
+                if let Some(slot) = &self.output {
+                    // Replace with a disabled output that drops
+                    Self::swap_output(slot, Arc::new(nats_output::NATSOutput::disabled()));
+                    info!("NATS output disabled via reconfiguration");
                 } else {
                     debug!("NATS output already disabled");
                 }
@@ -203,7 +233,7 @@ impl ServiceRadarCollector {
 impl std::fmt::Debug for ServiceRadarCollector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServiceRadarCollector")
-            .field("nats_output", &self.nats_output.is_some())
+            .field("output", &self.output.is_some())
             .finish()
     }
 }
@@ -390,22 +420,21 @@ impl ServiceRadarCollector {
             }
         }
 
-        // Publish performance metrics to NATS
+        // Publish performance metrics to the output backend
         if performance_metrics.is_empty() {
             // Nothing to publish
-        } else if let Some(nats) = &self.nats_output {
+        } else if let Some(output) = self.output_handle() {
             debug!(
                 "Publishing {} performance metrics to NATS",
                 performance_metrics.len()
             );
             metrics::record_received("span_metrics", performance_metrics.len());
             let publish_result = publish_with_retry("span_metrics", || async {
-                let mut nats_output = nats.lock().await;
-                nats_output.publish_metrics(&performance_metrics).await
+                output.publish_derived_metrics(&performance_metrics).await
             })
             .await;
             match publish_result {
-                Ok(()) => metrics::record_published("span_metrics", performance_metrics.len()),
+                Ok(outcome) => metrics::record_published("span_metrics", outcome.published),
                 Err(e) => {
                     metrics::record_publish_failure("span_metrics", performance_metrics.len());
                     // Derived span metrics stay best-effort: losing them must
@@ -453,17 +482,15 @@ impl ServiceRadarCollector {
         // losing spans; downstream writers dedupe on primary key, so retries
         // are safe.
         let mut rejected_spans = 0usize;
-        if let Some(nats) = &self.nats_output {
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding traces to NATS");
-            let publish_result = publish_with_retry("traces", || async {
-                let mut nats_output = nats.lock().await;
-                nats_output.publish_traces(&trace_data).await
-            })
-            .await;
+            let publish_result =
+                publish_with_retry("traces", || async { output.publish_traces(&trace_data).await })
+                    .await;
             match publish_result {
-                Ok(rejected) => {
-                    rejected_spans = rejected;
-                    metrics::record_published("traces", span_count.saturating_sub(rejected));
+                Ok(outcome) => {
+                    rejected_spans = outcome.rejected;
+                    metrics::record_published("traces", outcome.published);
                 }
                 Err(e) => {
                     metrics::record_publish_failure("traces", span_count);
@@ -562,17 +589,16 @@ impl ServiceRadarCollector {
         // fails the export so SDK clients retransmit instead of silently
         // losing metric points.
         let mut rejected_data_points = 0usize;
-        if let Some(nats) = &self.nats_output {
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding raw OTLP metrics to NATS");
             let publish_result = publish_with_retry("metrics", || async {
-                let mut nats_output = nats.lock().await;
-                nats_output.publish_raw_metrics(&metrics_data).await
+                output.publish_raw_metrics(&metrics_data).await
             })
             .await;
             match publish_result {
-                Ok(rejected) => {
-                    rejected_data_points = rejected;
-                    metrics::record_published("metrics", data_point_count.saturating_sub(rejected));
+                Ok(outcome) => {
+                    rejected_data_points = outcome.rejected;
+                    metrics::record_published("metrics", outcome.published);
                 }
                 Err(e) => {
                     metrics::record_publish_failure("metrics", data_point_count);
@@ -656,17 +682,15 @@ impl ServiceRadarCollector {
         // fails the export so SDK clients retransmit instead of silently
         // losing log records.
         let mut rejected_log_records = 0usize;
-        if let Some(nats) = &self.nats_output {
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding logs to NATS");
-            let publish_result = publish_with_retry("logs", || async {
-                let mut nats_output = nats.lock().await;
-                nats_output.publish_logs(&logs_data).await
-            })
-            .await;
+            let publish_result =
+                publish_with_retry("logs", || async { output.publish_logs(&logs_data).await })
+                    .await;
             match publish_result {
-                Ok(rejected) => {
-                    rejected_log_records = rejected;
-                    metrics::record_published("logs", logs_count.saturating_sub(rejected));
+                Ok(outcome) => {
+                    rejected_log_records = outcome.rejected;
+                    metrics::record_published("logs", outcome.published);
                 }
                 Err(e) => {
                     metrics::record_publish_failure("logs", logs_count);
@@ -1035,5 +1059,138 @@ mod tests {
                 schema_url: "https://opentelemetry.io/schemas/1.4.0".to_string(),
             }],
         }
+    }
+
+    /// Test double for the output seam: counts calls, optionally fails or
+    /// reports rejected records.
+    #[derive(Default)]
+    struct MockOutput {
+        trace_calls: std::sync::atomic::AtomicUsize,
+        log_calls: std::sync::atomic::AtomicUsize,
+        metric_calls: std::sync::atomic::AtomicUsize,
+        rejected: usize,
+        fail: bool,
+    }
+
+    impl MockOutput {
+        fn outcome(&self, total: usize) -> anyhow::Result<crate::output::PublishOutcome> {
+            if self.fail {
+                anyhow::bail!("mock output failure");
+            }
+            Ok(crate::output::PublishOutcome {
+                published: total.saturating_sub(self.rejected),
+                rejected: self.rejected,
+            })
+        }
+    }
+
+    #[tonic::async_trait]
+    impl TelemetryOutput for MockOutput {
+        async fn publish_traces(
+            &self,
+            traces: &ExportTraceServiceRequest,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.trace_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let spans = traces
+                .resource_spans
+                .iter()
+                .flat_map(|rs| rs.scope_spans.iter())
+                .map(|ss| ss.spans.len())
+                .sum();
+            self.outcome(spans)
+        }
+
+        async fn publish_logs(
+            &self,
+            logs: &ExportLogsServiceRequest,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.log_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let records = logs
+                .resource_logs
+                .iter()
+                .flat_map(|rl| rl.scope_logs.iter())
+                .map(|sl| sl.log_records.len())
+                .sum();
+            self.outcome(records)
+        }
+
+        async fn publish_raw_metrics(
+            &self,
+            _metrics: &ExportMetricsServiceRequest,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.metric_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.outcome(0)
+        }
+
+        async fn publish_derived_metrics(
+            &self,
+            metrics: &[PerformanceMetric],
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.outcome(metrics.len())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_collector_publishes_through_output_trait() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let response = collector
+            .handle_traces(create_test_trace_request())
+            .await
+            .unwrap();
+        assert!(response.partial_success.is_none());
+        assert_eq!(
+            output
+                .trace_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        let response = collector
+            .handle_logs(create_test_logs_request())
+            .await
+            .unwrap();
+        assert!(response.partial_success.is_none());
+        assert_eq!(output.log_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_collector_reports_partial_success_from_output_rejections() {
+        let output = Arc::new(MockOutput {
+            rejected: 1,
+            ..MockOutput::default()
+        });
+        let collector = ServiceRadarCollector::with_output(output);
+
+        let response = collector
+            .handle_traces(create_test_trace_request())
+            .await
+            .unwrap();
+        let partial = response.partial_success.expect("partial_success expected");
+        assert_eq!(partial.rejected_spans, 1);
+        assert!(partial.error_message.contains("max encoded size"));
+    }
+
+    #[tokio::test]
+    async fn test_collector_maps_output_failure_to_export_error_after_retry() {
+        let output = Arc::new(MockOutput {
+            fail: true,
+            ..MockOutput::default()
+        });
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let result = collector.handle_traces(create_test_trace_request()).await;
+        assert!(result.is_err());
+        // publish_with_retry retries exactly once before failing the export.
+        assert_eq!(
+            output
+                .trace_calls
+                .load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
     }
 }

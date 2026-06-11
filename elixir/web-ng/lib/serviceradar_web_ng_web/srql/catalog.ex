@@ -708,6 +708,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "severity",
         "source",
         "message",
+        "event_name",
         "trace_id",
         "span_id"
       ],
@@ -792,6 +793,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "is_slow"
       ],
       boolean_fields: ["is_slow"],
+      downsample: false
+    },
+    %{
+      # Real OTLP metric data points (sum/gauge/histogram) written by the
+      # EventWriter pipeline — distinct from the span-derived samples in
+      # `otel_metrics`. SRQL also accepts the `metric_points` alias.
+      id: "otel_metric_points",
+      label: "OTLP Metrics",
+      route: "/observability",
+      route_params: %{"tab" => "metrics", "mview" => "points"},
+      default_time: "last_24h",
+      default_sort_field: "timestamp",
+      default_sort_dir: "desc",
+      default_filter_field: "metric_name",
+      filter_fields: [
+        "metric_name",
+        "service_name",
+        "metric_type",
+        "unit",
+        "temporality"
+      ],
       downsample: false
     },
     %{

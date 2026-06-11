@@ -25,6 +25,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OtelId
+  alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
 
@@ -37,8 +38,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def process_batch(messages) do
+    SignalTelemetry.emit(:logs, :received, length(messages))
+
     # DB connection's search_path determines the schema
-    rows = build_rows(messages)
+    {rows, rejected} = build_rows(messages)
+    SignalTelemetry.emit(:logs, :rejected, rejected)
 
     if Enum.empty?(rows) do
       {:ok, 0}
@@ -62,9 +66,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   # Private functions
 
   defp build_rows(messages) do
-    messages
-    |> Enum.flat_map(&List.wrap(parse_message(&1)))
-    |> Enum.reject(&is_nil/1)
+    parsed = Enum.map(messages, &parse_message/1)
+    rejected = Enum.count(parsed, &is_nil/1)
+
+    rows =
+      parsed
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(&List.wrap/1)
+
+    {rows, rejected}
   end
 
   defp insert_log_rows(rows) do
@@ -80,6 +90,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       )
 
     maybe_promote_logs(rows)
+    SignalTelemetry.emit(:logs, :written, count)
     LogPubSub.broadcast_ingest(%{count: count})
     {:ok, count}
   end

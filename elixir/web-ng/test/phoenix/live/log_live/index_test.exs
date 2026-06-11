@@ -128,6 +128,84 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert html =~ "cumulative"
   end
 
+  test "metrics pane labels the two views distinctly", %{conn: conn} do
+    # Default view: span samples stay the default table and carry their
+    # exemplar label; the toggle advertises the OTLP metrics view.
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics"}}")
+
+    assert html =~ "Span samples (slow-span exemplars)"
+    assert html =~ "OTLP metrics"
+    assert html =~ "metrics-view-toggle"
+  end
+
+  test "metrics OTLP view lists metric names from the points stats payload", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics", mview: "points"}}")
+
+    # Name rows: name, type badge, unit, point count.
+    assert html =~ "falco.outputs.queue"
+    assert html =~ "gen"
+    assert html =~ "42"
+    assert html =~ "sum"
+    assert html =~ "gauge"
+    assert html =~ "ms"
+
+    # Span-sample table is replaced in this view.
+    refute html =~ "Span samples (slow-span exemplars)"
+
+    calls = drain_srql_calls()
+
+    # Names rollup scoped to the active window, plus the type/unit enrichment
+    # sample (the window token follows the pane's default query).
+    assert Enum.any?(calls, fn call ->
+             String.starts_with?(call.query, "in:otel_metric_points time:") and
+               String.ends_with?(
+                 call.query,
+                 ~s|stats:"count() as points by metric_name" sort:points:desc limit:100|
+               )
+           end)
+
+    assert Enum.any?(calls, fn call ->
+             String.starts_with?(call.query, "in:otel_metric_points time:") and
+               String.ends_with?(call.query, "sort:timestamp:desc limit:250")
+           end)
+  end
+
+  test "clicking a metric name issues the recent-points query", %{conn: conn} do
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{tab: "metrics", mview: "points"}}")
+
+    _ = drain_srql_calls()
+
+    lv
+    |> element("#otlp-metric-name-0 a", "falco.outputs.queue")
+    |> render_click()
+
+    render(lv)
+
+    calls = drain_srql_calls()
+
+    assert Enum.any?(
+             calls,
+             &(&1.query == ~s|in:otel_metric_points metric_name:"falco.outputs.queue" sort:timestamp:desc limit:500|)
+           )
+  end
+
+  test "cumulative monotonic counters render a rate with stored temporality", %{conn: conn} do
+    {:ok, _lv, html} =
+      live(
+        conn,
+        ~p"/observability?#{%{tab: "metrics", mview: "points", metric: "falco.outputs.queue"}}"
+      )
+
+    # 60/minute counter -> 1/s, labeled from the stored temporality field.
+    assert html =~ "current rate"
+    assert html =~ "1/s"
+    assert html =~ "temporality: cumulative"
+    refute html =~ "Select a metric to load its recent points."
+  end
+
   test "metrics stat cards are clickable filters", %{conn: conn} do
     {:ok, _lv, html} =
       live(conn, ~p"/observability?#{%{tab: "metrics"}}")
@@ -207,6 +285,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
           String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
           String.starts_with?(query, "in:otel_trace_summaries") -> sample_traces()
+          String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
           true -> sample_logs(cursor)
         end
@@ -243,6 +322,74 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         "avg_duration_ms" => 11.0,
         "p95_duration_ms" => 40.0
       }
+    end
+
+    defp otlp_points_results(query) do
+      cond do
+        String.contains?(query, "stats:") -> otlp_points_stats_payload()
+        String.contains?(query, "metric_name:") -> sample_otlp_points()
+        true -> sample_otlp_recent_points()
+      end
+    end
+
+    defp otlp_points_stats_payload do
+      [
+        %{"payload" => %{"metric_name" => "falco.outputs.queue", "points" => 42}},
+        %{"payload" => %{"metric_name" => "gen", "points" => 7}}
+      ]
+    end
+
+    # Best-effort enrichment sample: newest points across all metric names.
+    defp sample_otlp_recent_points do
+      [
+        %{
+          "timestamp" => "2026-04-18T15:02:00Z",
+          "metric_name" => "falco.outputs.queue",
+          "metric_type" => "sum",
+          "unit" => "1",
+          "temporality" => "cumulative",
+          "is_monotonic" => true,
+          "service_name" => "falco",
+          "attributes" => ~s({"queue":"0"}),
+          "attributes_hash" => "hash-falco",
+          "value" => 130.0
+        },
+        %{
+          "timestamp" => "2026-04-18T15:02:00Z",
+          "metric_name" => "gen",
+          "metric_type" => "gauge",
+          "unit" => "ms",
+          "temporality" => "unspecified",
+          "is_monotonic" => nil,
+          "service_name" => "telemetrygen",
+          "attributes" => ~s({}),
+          "attributes_hash" => "hash-gen",
+          "value" => 3.5
+        }
+      ]
+    end
+
+    # Recent points for one metric: a cumulative monotonic counter growing by
+    # 60 per minute -> rate 1/s with a reset-free series.
+    defp sample_otlp_points do
+      for {ts, value} <- [
+            {"2026-04-18T15:02:00Z", 130.0},
+            {"2026-04-18T15:01:00Z", 70.0},
+            {"2026-04-18T15:00:00Z", 10.0}
+          ] do
+        %{
+          "timestamp" => ts,
+          "metric_name" => "falco.outputs.queue",
+          "metric_type" => "sum",
+          "unit" => "1",
+          "temporality" => "cumulative",
+          "is_monotonic" => true,
+          "service_name" => "falco",
+          "attributes" => ~s({"queue":"0"}),
+          "attributes_hash" => "hash-falco",
+          "value" => value
+        }
+      end
     end
 
     defp sample_metrics do

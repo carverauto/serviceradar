@@ -42,6 +42,7 @@ config :serviceradar_core, Oban,
      crontab: [
        {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *",
         ServiceRadar.Jobs.RefreshTraceSummariesWorker, queue: :maintenance},
+       {"*/5 * * * *", ServiceRadar.Jobs.RootSpanRatioWorker, queue: :maintenance},
        {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
        {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
        {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},

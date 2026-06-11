@@ -1019,17 +1019,40 @@ logCollector:
         targetPort: 2055
         protocol: UDP
   # Dedicated Service (serviceradar-otlp) for external OTLP ingest.
-  # The log-collector serves OTLP/gRPC on 4317 with server TLS issued by the
-  # ServiceRadar private CA, so external senders must either trust the
-  # ServiceRadar root CA bundle or disable certificate verification
-  # (e.g. OTLP exporter `tls.insecure_skip_verify: true`).
+  #
+  # Two exposure modes:
+  #   1. Gateway (preferred, default-friendly): keep service.type ClusterIP
+  #      and set otlp.gateway.enabled=true to attach routes to an existing
+  #      shared Gateway API gateway. No dedicated public IP is consumed.
+  #   2. LoadBalancer (opt-in): set service.type=LoadBalancer to allocate a
+  #      dedicated public IP for direct OTLP ingest. Pair with the
+  #      networkPolicy.ingress.otlpExternal CIDR allowlist.
+  #
+  # TLS: the OTLP/gRPC listener (4317) always presents the collector's
+  # [grpc_tls] certificate issued by the ServiceRadar private CA, so external
+  # senders must either trust the ServiceRadar root CA bundle or disable
+  # certificate verification (e.g. OTLP exporter `tls.insecure_skip_verify:
+  # true`). The OTLP/HTTP listener (4318) reuses the same certificate unless
+  # otlp.http.tlsEnabled=false (plaintext, for TLS-terminating gateways).
   otlp:
+    # Collector-side OTLP/HTTP (4318) listener settings rendered into
+    # otel.toml ([server.http]). Independent from service.http below, which
+    # only controls whether the Service exposes the 4318 port.
+    http:
+      # Serve TLS on 4318 using the [grpc_tls] certificate (default). Set to
+      # false to serve plaintext HTTP — use when a TLS-terminating gateway
+      # (otlp.gateway) fronts the listener inside the cluster; envoy then
+      # forwards plain HTTP to the pod and no BackendTLSPolicy is needed.
+      tlsEnabled: true
     service:
       enabled: true
-      # Service type: LoadBalancer (default), NodePort, or ClusterIP.
-      type: LoadBalancer
+      # Service type: ClusterIP (default), LoadBalancer, or NodePort.
+      # ClusterIP consumes no public IP; expose externally via otlp.gateway.
+      # LoadBalancer is the opt-in dedicated-public-IP mode.
+      type: ClusterIP
       # Only advertise from nodes with local endpoints (set Local to preserve
       # client source IPs; required for Calico BGP / MetalLB L2 setups).
+      # Ignored when type=ClusterIP.
       externalTrafficPolicy: Cluster
       # Annotations for load balancer configuration (MetalLB, cloud providers, etc.)
       # Example for MetalLB: metallb.universe.tf/address-pool: k3s-pool
@@ -1043,10 +1066,41 @@ logCollector:
       port: 4317
       targetPort: 4317
       http:
-        # enable when OTLP/HTTP lands — the collector has no 4318 listener yet
+        # Expose the OTLP/HTTP listener (4318) on the Service. Required when
+        # otlp.gateway.httpHostname is set (the HTTPRoute backend is this port).
         enabled: false
         port: 4318
         targetPort: 4318
+    # Attach OTLP ingest to an existing shared Gateway API gateway instead of
+    # allocating a dedicated LoadBalancer IP. Renders an HTTPRoute (OTLP/HTTP)
+    # and/or a TLSRoute (OTLP/gRPC passthrough) in the release namespace; the
+    # target gateway must admit routes from this namespace (e.g. via its
+    # allowedRoutes namespace selector).
+    gateway:
+      enabled: false
+      gatewayName: "serviceradar-shared-gateway"
+      gatewayNamespace: "serviceradar-system"
+      # Hostname for OTLP/HTTP behind the gateway's HTTPS listener.
+      # WILDCARD CONSTRAINT: a listener hostname like *.serviceradar.cloud
+      # matches exactly ONE label — use otlp-demo.serviceradar.cloud, NOT
+      # otlp.demo.serviceradar.cloud. Empty disables the HTTPRoute.
+      httpHostname: ""
+      # Gateway listener (sectionName) the HTTPRoute attaches to. Must be an
+      # HTTPS (Terminate) or HTTP listener whose hostname matches httpHostname.
+      httpSectionName: "https-web"
+      # Hostname for OTLP/gRPC via the gateway's TLS passthrough listener,
+      # e.g. <name>.grpc.serviceradar.cloud (external port 50052). With
+      # passthrough, envoy does NOT terminate TLS: the collector's [grpc_tls]
+      # certificate (ServiceRadar private CA) is what senders see, so they
+      # need the root CA bundle or insecure skip-verify. Empty disables the
+      # TLSRoute. The single-label wildcard constraint applies here too.
+      grpcHostname: ""
+      grpcSectionName: "tls-grpc"
+      # Namespace where the gateway's envoy proxy pods run (Envoy Gateway
+      # deploys them in its own system namespace, not the Gateway's
+      # namespace). Used by the otlp-gateway NetworkPolicy to admit gateway
+      # traffic to 4317/4318 without opening 0.0.0.0/0.
+      envoyGatewayNamespace: "envoy-gateway-system"
   tcpCollector:
     enabled: true
     replicaCount: 3
@@ -1527,7 +1581,10 @@ networkPolicy:
       # The serviceradar-otlp LoadBalancer receives OTLP/gRPC telemetry from
       # external senders. Keep this separate from the namespace-wide ingress
       # policy so opening TCP/4317 does not also expose unrelated workloads.
-      # Only renders when logCollector.otlp.service is enabled and non-ClusterIP.
+      # Only renders when logCollector.otlp.service is enabled and non-ClusterIP
+      # (i.e. the opt-in LoadBalancer mode). In gateway mode
+      # (logCollector.otlp.gateway.enabled) a separate otlp-gateway policy is
+      # rendered instead, admitting only the envoy proxy namespace.
       enabled: true
       allowedCIDRs:
         - "0.0.0.0/0"

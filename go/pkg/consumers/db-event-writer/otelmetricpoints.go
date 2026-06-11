@@ -9,13 +9,21 @@ package dbeventwriter
 // attributes_hash) for identical input and double-ingest dedupes via
 // ON CONFLICT DO NOTHING:
 //
-//   - attributes are serialized as sorted-key JSON (every nesting level),
-//     matching Jason's encoding of a key-sorted ordered object;
-//   - attributes_hash is the lowercase-hex md5 of that exact JSON text;
+//   - attributes are serialized as sorted-key JSON (every nesting level)
+//     for display, matching Jason's encoding of a key-sorted ordered object;
+//   - attributes_hash follows hash recipe v2: lowercase-hex md5 of
+//     canonicalBytes(pointAttributes) + "\n" + serviceInstanceID + "\n" +
+//     scopeName, where canonicalBytes is the deterministic, type-preserving
+//     encoding implemented by writeCanonicalHashValue (NOT the display JSON:
+//     floats encode as "f" + big-endian float bits hex, bytes as "b" +
+//     base64, so 42 and 42.0 hash differently);
 //   - timestamps truncate time_unix_nano to microseconds, matching
 //     DateTime.from_unix!(div(ns, 1000), :microsecond);
 //   - service_name defaults to "" (resource "service.name" then
-//     "service_name"), matching the Elixir processor and the column default;
+//     "service_name"), service_instance_id to "" (resource
+//     "service.instance.id"), and scope_name to "" (instrumentation scope
+//     name), matching the Elixir processor and the column defaults;
+//   - start_time_unix_nano is NULL when the point carries no start time;
 //   - temporality serializes as "delta"/"cumulative"/"unspecified".
 //
 // Exponential histogram and summary points are not decoded yet (spec'd
@@ -26,6 +34,8 @@ import (
 	"bytes"
 	"context"
 	"crypto/md5" //nolint:gosec // non-cryptographic content hash, must match Elixir :crypto.hash(:md5, _)
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"math"
@@ -90,6 +100,15 @@ func (p *Processor) parseOTELMetricPoints(msg jetstream.Msg) ([]models.OTELMetri
 	return rows, true
 }
 
+// metricPointIdentity carries the resource/scope identity fields that feed
+// both the row columns and the recipe-v2 attributes hash. All fields default
+// to "", matching the Elixir processor and the column defaults.
+type metricPointIdentity struct {
+	serviceName       string
+	serviceInstanceID string
+	scopeName         string
+}
+
 // metricPointRowsForResource walks one ResourceMetrics subtree. A nil
 // resource is processed with empty attributes and service_name "" instead of
 // being skipped, matching the Elixir processor.
@@ -103,7 +122,10 @@ func (p *Processor) metricPointRowsForResource(resourceMetric *metricspbv1.Resou
 		resourceAttrs = attrsToMap(resourceMetric.Resource.Attributes)
 	}
 
-	serviceName := stringAttr(resourceAttrs, "service.name", "service_name")
+	identity := metricPointIdentity{
+		serviceName:       stringAttr(resourceAttrs, "service.name", "service_name"),
+		serviceInstanceID: stringAttr(resourceAttrs, "service.instance.id"),
+	}
 
 	var rows []models.OTELMetricPointRow
 
@@ -112,8 +134,15 @@ func (p *Processor) metricPointRowsForResource(resourceMetric *metricspbv1.Resou
 			continue
 		}
 
+		scopeIdentity := identity
+
+		scopeIdentity.scopeName = ""
+		if scopeMetric.Scope != nil {
+			scopeIdentity.scopeName = scopeMetric.Scope.Name
+		}
+
 		for _, metric := range scopeMetric.Metrics {
-			rows = append(rows, p.metricPointRows(metric, serviceName)...)
+			rows = append(rows, p.metricPointRows(metric, scopeIdentity)...)
 		}
 	}
 
@@ -123,7 +152,7 @@ func (p *Processor) metricPointRowsForResource(resourceMetric *metricspbv1.Resou
 // metricPointRows converts one metric into data-point rows. Exponential
 // histogram and summary points are counted as rejected (decode is a spec'd
 // follow-up) instead of silently dropped.
-func (p *Processor) metricPointRows(metric *metricspbv1.Metric, serviceName string) []models.OTELMetricPointRow {
+func (p *Processor) metricPointRows(metric *metricspbv1.Metric, identity metricPointIdentity) []models.OTELMetricPointRow {
 	if metric == nil {
 		return nil
 	}
@@ -145,7 +174,7 @@ func (p *Processor) metricPointRows(metric *metricspbv1.Metric, serviceName stri
 				continue
 			}
 
-			row := numberPointRow(point, metric.Name, metricTypeSum, unit, serviceName)
+			row := numberPointRow(point, metric.Name, metricTypeSum, unit, identity)
 			row.Temporality = &temporality
 			row.IsMonotonic = &isMonotonic
 			rows = append(rows, row)
@@ -164,7 +193,7 @@ func (p *Processor) metricPointRows(metric *metricspbv1.Metric, serviceName stri
 				continue
 			}
 
-			rows = append(rows, numberPointRow(point, metric.Name, metricTypeGauge, unit, serviceName))
+			rows = append(rows, numberPointRow(point, metric.Name, metricTypeGauge, unit, identity))
 		}
 
 		return rows
@@ -181,7 +210,7 @@ func (p *Processor) metricPointRows(metric *metricspbv1.Metric, serviceName stri
 				continue
 			}
 
-			row := histogramPointRow(point, metric.Name, unit, serviceName)
+			row := histogramPointRow(point, metric.Name, unit, identity)
 			row.Temporality = &temporality
 			rows = append(rows, row)
 		}
@@ -231,9 +260,9 @@ func numberPointRow(
 	point *metricspbv1.NumberDataPoint,
 	metricName, metricType string,
 	unit *string,
-	serviceName string,
+	identity metricPointIdentity,
 ) models.OTELMetricPointRow {
-	row := baseMetricPointRow(metricName, metricType, unit, serviceName, point.Attributes, point.TimeUnixNano)
+	row := baseMetricPointRow(metricName, metricType, unit, identity, point.Attributes, point.TimeUnixNano, point.StartTimeUnixNano)
 
 	switch value := point.Value.(type) {
 	case *metricspbv1.NumberDataPoint_AsDouble:
@@ -251,9 +280,10 @@ func histogramPointRow(
 	point *metricspbv1.HistogramDataPoint,
 	metricName string,
 	unit *string,
-	serviceName string,
+	identity metricPointIdentity,
 ) models.OTELMetricPointRow {
-	row := baseMetricPointRow(metricName, metricTypeHistogram, unit, serviceName, point.Attributes, point.TimeUnixNano)
+	row := baseMetricPointRow(
+		metricName, metricTypeHistogram, unit, identity, point.Attributes, point.TimeUnixNano, point.StartTimeUnixNano)
 
 	count := safeUint64ToInt64(point.Count)
 	row.Count = &count
@@ -271,21 +301,44 @@ func histogramPointRow(
 func baseMetricPointRow(
 	metricName, metricType string,
 	unit *string,
-	serviceName string,
+	identity metricPointIdentity,
 	attrs []*commonv1.KeyValue,
-	timeUnixNano uint64,
+	timeUnixNano, startTimeUnixNano uint64,
 ) models.OTELMetricPointRow {
-	attributesJSON := canonicalAttributesJSON(attrs)
-
-	return models.OTELMetricPointRow{
-		Timestamp:      metricPointTimestamp(timeUnixNano),
-		MetricName:     metricName,
-		MetricType:     metricType,
-		Unit:           unit,
-		ServiceName:    serviceName,
-		Attributes:     attributesJSON,
-		AttributesHash: md5Hex(attributesJSON),
+	row := models.OTELMetricPointRow{
+		Timestamp:         metricPointTimestamp(timeUnixNano),
+		MetricName:        metricName,
+		MetricType:        metricType,
+		Unit:              unit,
+		ServiceName:       identity.serviceName,
+		ServiceInstanceID: identity.serviceInstanceID,
+		ScopeName:         identity.scopeName,
+		Attributes:        canonicalAttributesJSON(attrs),
+		AttributesHash:    metricPointAttributesHash(attrs, identity),
 	}
+
+	// NULL when the point carried no start time (0 in OTLP).
+	if startTimeUnixNano != 0 {
+		startTime := safeUint64ToInt64(startTimeUnixNano)
+		row.StartTimeUnixNano = &startTime
+	}
+
+	return row
+}
+
+// metricPointAttributesHash implements hash recipe v2 shared with the Elixir
+// EventWriter: lowercase-hex md5 of canonicalBytes(pointAttributes) + "\n" +
+// serviceInstanceID + "\n" + scopeName.
+func metricPointAttributesHash(attrs []*commonv1.KeyValue, identity metricPointIdentity) string {
+	var buf bytes.Buffer
+
+	writeCanonicalHashValue(&buf, attrsToCanonicalMap(attrs))
+	buf.WriteByte('\n')
+	buf.WriteString(identity.serviceInstanceID)
+	buf.WriteByte('\n')
+	buf.WriteString(identity.scopeName)
+
+	return md5Hex(buf.String())
 }
 
 // metricPointTimestamp truncates time_unix_nano to microsecond precision,
@@ -321,6 +374,159 @@ func optionalString(value string) *string {
 func md5Hex(text string) string {
 	digest := md5.Sum([]byte(text)) //nolint:gosec // content hash for dedupe, mirrors Elixir md5_hex/1
 	return hex.EncodeToString(digest[:])
+}
+
+// attrsToCanonicalMap converts OTLP KeyValue pairs into the type-preserving
+// value tree that feeds the recipe-v2 canonical encoding. Unlike attrsToMap
+// (display JSON), bytes values stay []byte so they encode as "b" + base64
+// instead of a plain JSON string. Empty keys are skipped and duplicate keys
+// last-win, identical to attrsToMap, so the hash and the display JSON always
+// describe the same attribute set.
+func attrsToCanonicalMap(attrs []*commonv1.KeyValue) map[string]interface{} {
+	result := make(map[string]interface{}, len(attrs))
+
+	for _, attr := range attrs {
+		if attr == nil || attr.Key == "" {
+			continue
+		}
+
+		result[attr.Key] = anyValueToCanonical(attr.Value)
+	}
+
+	return result
+}
+
+// anyValueToCanonical converts an OTLP AnyValue into a canonical-encoding
+// value: string, bool, int64, float64, []byte, []interface{}, or
+// map[string]interface{}. Unset values become nil. Int-valued attributes
+// stay int64 and double-valued stay float64 so 42 and 42.0 hash differently
+// by design.
+func anyValueToCanonical(value *commonv1.AnyValue) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.Value.(type) {
+	case *commonv1.AnyValue_StringValue:
+		return v.StringValue
+	case *commonv1.AnyValue_BoolValue:
+		return v.BoolValue
+	case *commonv1.AnyValue_IntValue:
+		return v.IntValue
+	case *commonv1.AnyValue_DoubleValue:
+		return v.DoubleValue
+	case *commonv1.AnyValue_BytesValue:
+		return v.BytesValue
+	case *commonv1.AnyValue_ArrayValue:
+		if v.ArrayValue == nil {
+			return []interface{}{}
+		}
+
+		items := make([]interface{}, 0, len(v.ArrayValue.Values))
+		for _, item := range v.ArrayValue.Values {
+			items = append(items, anyValueToCanonical(item))
+		}
+
+		return items
+	case *commonv1.AnyValue_KvlistValue:
+		if v.KvlistValue == nil {
+			return map[string]interface{}{}
+		}
+
+		return attrsToCanonicalMap(v.KvlistValue.Values)
+	default:
+		return nil
+	}
+}
+
+// writeCanonicalHashValue renders a canonical value tree as the recipe-v2
+// canonical bytes shared with the Elixir EventWriter. Rules (applied
+// recursively at every nesting level):
+//
+//	map    → "{" + entries sorted by key bytes, enc(key)+":"+enc(value)
+//	         joined by "," + "}"
+//	string → '"' + value escaping ONLY backslash and double-quote + '"'
+//	bool   → true/false; nil → null; int64 → base-10
+//	float  → "f" + 16-char lowercase hex of big-endian Float64bits
+//	         (no decimal text, so formatting differences cannot diverge)
+//	bytes  → "b" + std base64
+//	array  → "[" + items joined by "," + "]"
+func writeCanonicalHashValue(buf *bytes.Buffer, value interface{}) {
+	switch typed := value.(type) {
+	case nil:
+		buf.WriteString("null")
+	case bool:
+		buf.WriteString(strconv.FormatBool(typed))
+	case string:
+		writeCanonicalHashString(buf, typed)
+	case int64:
+		buf.WriteString(strconv.FormatInt(typed, 10))
+	case float64:
+		var bits [8]byte
+
+		binary.BigEndian.PutUint64(bits[:], math.Float64bits(typed))
+		buf.WriteByte('f')
+		buf.WriteString(hex.EncodeToString(bits[:]))
+	case []byte:
+		buf.WriteByte('b')
+		buf.WriteString(base64.StdEncoding.EncodeToString(typed))
+	case []interface{}:
+		buf.WriteByte('[')
+
+		for i, item := range typed {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+
+			writeCanonicalHashValue(buf, item)
+		}
+
+		buf.WriteByte(']')
+	case map[string]interface{}:
+		keys := make([]string, 0, len(typed))
+		for key := range typed {
+			keys = append(keys, key)
+		}
+
+		// sort.Strings compares bytewise, satisfying "sorted by key bytes".
+		sort.Strings(keys)
+
+		buf.WriteByte('{')
+
+		for i, key := range keys {
+			if i > 0 {
+				buf.WriteByte(',')
+			}
+
+			writeCanonicalHashString(buf, key)
+			buf.WriteByte(':')
+			writeCanonicalHashValue(buf, typed[key])
+		}
+
+		buf.WriteByte('}')
+	default:
+		// anyValueToCanonical only produces the types above; degrade to null
+		// rather than silently skip input.
+		buf.WriteString("null")
+	}
+}
+
+// writeCanonicalHashString writes the recipe-v2 string form: double-quoted,
+// escaping ONLY backslash and double-quote (control characters and non-ASCII
+// bytes pass through verbatim, unlike JSON).
+func writeCanonicalHashString(buf *bytes.Buffer, value string) {
+	buf.WriteByte('"')
+
+	for i := 0; i < len(value); i++ {
+		char := value[i]
+		if char == '\\' || char == '"' {
+			buf.WriteByte('\\')
+		}
+
+		buf.WriteByte(char)
+	}
+
+	buf.WriteByte('"')
 }
 
 // canonicalAttributesJSON renders OTLP attributes as deterministic JSON with

@@ -6,9 +6,9 @@ use async_nats::jetstream::{
 use async_nats::{Client, ConnectOptions, jetstream};
 use log::{debug, error, info, warn};
 use prost::Message;
-use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
+use tokio::sync::{Mutex, RwLock, Semaphore};
 use tokio::time::timeout;
 
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
@@ -17,8 +17,16 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 use crate::opentelemetry::proto::logs::v1::{ResourceLogs, ScopeLogs};
 use crate::opentelemetry::proto::metrics::v1::{ResourceMetrics, ScopeMetrics};
 use crate::opentelemetry::proto::trace::v1::{ResourceSpans, ScopeSpans};
+use crate::output::{PublishOutcome, TelemetryOutput};
+
+// Re-exported for backwards compatibility; the type now lives with the
+// output trait it belongs to.
+pub use crate::output::PerformanceMetric;
 
 const MAX_PROTO_PUBLISH_BYTES: usize = 900 * 1024;
+
+/// Default bound on concurrently in-flight JetStream chunk publishes.
+pub const DEFAULT_MAX_INFLIGHT_PUBLISHES: usize = 32;
 
 #[derive(Clone, Debug)]
 pub struct NATSConfig {
@@ -34,6 +42,11 @@ pub struct NATSConfig {
     pub tls_cert: Option<PathBuf>,
     pub tls_key: Option<PathBuf>,
     pub tls_ca: Option<PathBuf>,
+    /// Maximum number of concurrently in-flight chunk publishes across all
+    /// export requests. Per-request chunk ordering stays sequential; this
+    /// only bounds cross-request fan-out so a publish burst cannot overwhelm
+    /// JetStream.
+    pub max_inflight_publishes: usize,
 }
 
 impl Default for NATSConfig {
@@ -51,14 +64,40 @@ impl Default for NATSConfig {
             tls_cert: None,
             tls_key: None,
             tls_ca: None,
+            max_inflight_publishes: DEFAULT_MAX_INFLIGHT_PUBLISHES,
         }
     }
 }
 
+/// JetStream-backed [`TelemetryOutput`] (the central-deployment backend).
+///
+/// Publishes hold no global lock: the `jetstream::Context` is `Clone` and
+/// internally synchronized, so concurrent export requests publish
+/// independently. Mutable state is confined to two narrow synchronization
+/// points, neither held across a publish/ack await:
+///
+/// - `state` (`RwLock`): locked only long enough to clone out or swap the
+///   current JetStream context.
+/// - `recovery` (`Mutex`): serializes reconnect + ensure_stream so a publish
+///   error storm triggers one reconnection instead of N.
 pub struct NATSOutput {
     config: NATSConfig,
-    jetstream: Option<jetstream::Context>,
+    state: RwLock<ConnectionState>,
+    /// Serializes reconnect/stream-ensure only; never held during publishes.
+    recovery: Mutex<()>,
+    /// Bounds concurrently in-flight chunk publishes
+    /// ([`NATSConfig::max_inflight_publishes`]).
+    publish_permits: Semaphore,
     disabled: bool,
+}
+
+#[derive(Default)]
+struct ConnectionState {
+    jetstream: Option<jetstream::Context>,
+    /// Bumped after every recovery attempt (success or failure) so
+    /// concurrent publishers can tell whether another task already
+    /// reconnected while they waited.
+    generation: u64,
 }
 
 /// Splits an OTLP export into publishable chunks. The second tuple element is
@@ -573,19 +612,29 @@ impl NATSOutput {
         ensure_stream(&jetstream, &config).await?;
 
         info!("NATS output initialized successfully");
-        Ok(Self {
-            config,
-            jetstream: Some(jetstream),
-            disabled: false,
-        })
+        Ok(Self::from_parts(config, Some(jetstream), false))
     }
 
     pub fn disabled() -> Self {
         info!("NATS output disabled (no-op)");
+        Self::from_parts(NATSConfig::default(), None, true)
+    }
+
+    fn from_parts(
+        config: NATSConfig,
+        jetstream: Option<jetstream::Context>,
+        disabled: bool,
+    ) -> Self {
+        let permits = config.max_inflight_publishes.max(1);
         Self {
-            config: NATSConfig::default(),
-            jetstream: None,
-            disabled: true,
+            state: RwLock::new(ConnectionState {
+                jetstream,
+                generation: 0,
+            }),
+            recovery: Mutex::new(()),
+            publish_permits: Semaphore::new(permits),
+            config,
+            disabled,
         }
     }
 
@@ -627,7 +676,45 @@ impl NATSOutput {
         Ok((client, jetstream))
     }
 
-    async fn recover_stream(&mut self) -> Result<()> {
+    /// Returns the current JetStream context (cloned; `jetstream::Context`
+    /// is internally synchronized), reconnecting first if absent. No lock is
+    /// held when this returns.
+    async fn current_jetstream(&self) -> Result<(jetstream::Context, u64)> {
+        let observed_generation = {
+            let state = self.state.read().await;
+            if let Some(js) = &state.jetstream {
+                return Ok((js.clone(), state.generation));
+            }
+            state.generation
+        };
+
+        warn!(
+            "JetStream context missing before publish; attempting reconnect for stream '{}'",
+            self.config.stream
+        );
+        self.recover(observed_generation).await
+    }
+
+    /// Reconnects and re-ensures the stream behind the narrow `recovery`
+    /// lock. Publishers that lost the recovery race reuse the fresh context
+    /// instead of reconnecting again; if the racing recovery failed, this
+    /// attempt proceeds with its own reconnect.
+    async fn recover(&self, observed_generation: u64) -> Result<(jetstream::Context, u64)> {
+        let _guard = self.recovery.lock().await;
+
+        {
+            let state = self.state.read().await;
+            // If a concurrent recovery succeeded while we waited for the
+            // lock, reuse its context. If it ran and failed (generation
+            // bumped, context still absent), fall through and try again
+            // ourselves.
+            if state.generation != observed_generation
+                && let Some(js) = &state.jetstream
+            {
+                return Ok((js.clone(), state.generation));
+            }
+        }
+
         warn!(
             "Attempting to recover NATS JetStream context for stream '{}'",
             self.config.stream
@@ -635,37 +722,44 @@ impl NATSOutput {
         match Self::connect(&self.config).await {
             Ok((_client, jetstream)) => {
                 ensure_stream(&jetstream, &self.config).await?;
-                self.jetstream = Some(jetstream);
+                let mut state = self.state.write().await;
+                state.jetstream = Some(jetstream.clone());
+                state.generation += 1;
+                let generation = state.generation;
+                drop(state);
                 info!(
                     "Successfully recovered JetStream stream '{}'",
                     self.config.stream
                 );
-                Ok(())
+                Ok((jetstream, generation))
             }
             Err(e) => {
                 error!(
                     "Failed to reconnect to NATS while recovering stream '{}': {e}",
                     self.config.stream
                 );
-                self.jetstream = None;
+                let mut state = self.state.write().await;
+                state.jetstream = None;
+                state.generation += 1;
                 Err(e)
             }
         }
     }
 
-    async fn get_or_recover_jetstream(&mut self) -> Result<jetstream::Context> {
-        if let Some(js) = self.jetstream.clone() {
-            return Ok(js);
-        }
-
+    /// Best-effort recovery after a publish/ack error that indicates the
+    /// stream is missing. Failures are logged, never propagated — the
+    /// original publish error is what the caller reports.
+    async fn try_recover_after_error(&self, observed_generation: u64, what: &str) {
         warn!(
-            "JetStream context missing before publish; attempting reconnect for stream '{}'",
+            "JetStream stream '{}' missing during {what}; attempting recovery",
             self.config.stream
         );
-        self.recover_stream().await?;
-        self.jetstream
-            .clone()
-            .ok_or_else(|| anyhow!("JetStream context unavailable after recovery"))
+        if let Err(recover_err) = self.recover(observed_generation).await {
+            error!(
+                "Failed to recover JetStream stream '{}' after {what} error: {recover_err}",
+                self.config.stream
+            );
+        }
     }
 
     fn publish_error_indicates_missing_stream(err: &dyn std::fmt::Display) -> bool {
@@ -674,10 +768,70 @@ impl NATSOutput {
             .contains("no stream found")
     }
 
-    /// Publishes traces to NATS. Returns the number of individual spans that
-    /// were rejected because a single span's encoded size exceeds the publish
-    /// budget; callers report these via OTLP partial_success.
-    pub async fn publish_traces(&mut self, traces: &ExportTraceServiceRequest) -> Result<usize> {
+    /// Publishes one encoded chunk and waits for the JetStream ack.
+    ///
+    /// Holds no lock across the publish/ack awaits; a semaphore permit
+    /// bounds the number of concurrently in-flight chunk publishes across
+    /// all export requests.
+    async fn publish_chunk(&self, subject: &str, payload: Vec<u8>, signal: &str) -> Result<()> {
+        let _permit = self
+            .publish_permits
+            .acquire()
+            .await
+            .map_err(|_| anyhow!("NATS publish semaphore closed"))?;
+
+        let (js, generation) = self.current_jetstream().await?;
+
+        let ack: PublishAckFuture = match js.publish(subject.to_string(), payload.into()).await {
+            Ok(future) => future,
+            Err(e) => {
+                error!("Failed to publish {signal} to NATS: {e}");
+                if Self::publish_error_indicates_missing_stream(&e) {
+                    self.try_recover_after_error(generation, &format!("{signal} publish"))
+                        .await;
+                }
+                return Err(e.into());
+            }
+        };
+
+        debug!(
+            "Waiting for NATS acknowledgment for {signal} (timeout: {:?})",
+            self.config.timeout
+        );
+        match timeout(self.config.timeout, ack).await {
+            Ok(Ok(ack_result)) => {
+                debug!(
+                    "NATS {signal} publish acknowledged: stream={}, sequence={}",
+                    ack_result.stream, ack_result.sequence
+                );
+                Ok(())
+            }
+            Ok(Err(e)) => {
+                error!("NATS {signal} acknowledgment failed: {e}");
+                if e.kind() == PublishErrorKind::StreamNotFound {
+                    self.try_recover_after_error(generation, &format!("{signal} acknowledgment"))
+                        .await;
+                }
+                Err(anyhow!("NATS {signal} acknowledgment failed: {e}"))
+            }
+            Err(_) => {
+                warn!(
+                    "NATS {signal} ack timed out after {:?}",
+                    self.config.timeout
+                );
+                Err(anyhow!("NATS {signal} publish timeout"))
+            }
+        }
+    }
+
+}
+
+#[tonic::async_trait]
+impl TelemetryOutput for NATSOutput {
+    /// Publishes traces to NATS. `rejected` counts individual spans dropped
+    /// because a single span's encoded size exceeds the publish budget;
+    /// callers report these via OTLP partial_success.
+    async fn publish_traces(&self, traces: &ExportTraceServiceRequest) -> Result<PublishOutcome> {
         let span_count = traces
             .resource_spans
             .iter()
@@ -698,7 +852,10 @@ impl NATSOutput {
         let traces_subject = format!("{}.traces.raw", self.config.subject);
         if self.disabled {
             debug!("NATS output disabled; dropping traces");
-            return Ok(0);
+            return Ok(PublishOutcome {
+                published: span_count,
+                rejected: 0,
+            });
         }
 
         let (trace_chunks, rejected) = split_traces_request(traces, MAX_PROTO_PUBLISH_BYTES);
@@ -720,64 +877,8 @@ impl NATSOutput {
                 trace_chunks.len(),
                 payload.len()
             );
-
-            let js = self.get_or_recover_jetstream().await?;
-            let ack: PublishAckFuture = match js
-                .publish(traces_subject.clone(), payload.into())
-                .await
-            {
-                Ok(future) => future,
-                Err(e) => {
-                    error!("Failed to publish traces to NATS: {e}");
-                    if Self::publish_error_indicates_missing_stream(&e) {
-                        match self.recover_stream().await {
-                            Ok(_) => {}
-                            Err(recover_err) => {
-                                error!(
-                                    "Failed to recover JetStream stream '{}' after traces publish error: {recover_err}",
-                                    self.config.stream
-                                );
-                            }
-                        }
-                    }
-                    return Err(e.into());
-                }
-            };
-
-            debug!(
-                "Waiting for NATS acknowledgment for trace chunk {}/{} (timeout: {:?})",
-                index + 1,
-                trace_chunks.len(),
-                self.config.timeout
-            );
-            match timeout(self.config.timeout, ack).await {
-                Ok(Ok(ack_result)) => {
-                    debug!(
-                        "NATS trace chunk acknowledged: stream={}, sequence={}",
-                        ack_result.stream, ack_result.sequence
-                    );
-                }
-                Ok(Err(e)) => {
-                    error!("NATS acknowledgment failed: {e}");
-                    if e.kind() == PublishErrorKind::StreamNotFound {
-                        warn!(
-                            "JetStream stream '{}' missing during traces publish acknowledgment; attempting recovery",
-                            self.config.stream
-                        );
-                        if let Err(recover_err) = self.recover_stream().await {
-                            error!(
-                                "Failed to recover JetStream stream '{}' after traces ack error: {recover_err}",
-                                self.config.stream
-                            );
-                        }
-                    }
-                    return Err(anyhow::anyhow!("NATS acknowledgment failed: {}", e));
-                }
-                Err(_) => {
-                    warn!("NATS ack timed out after {:?}", self.config.timeout);
-                    return Err(anyhow::anyhow!("NATS publish timeout"));
-                }
-            }
+            self.publish_chunk(&traces_subject, payload, "traces")
+                .await?;
         }
 
         info!(
@@ -785,13 +886,16 @@ impl NATSOutput {
             span_count.saturating_sub(rejected),
             trace_chunks.len()
         );
-        Ok(rejected)
+        Ok(PublishOutcome {
+            published: span_count.saturating_sub(rejected),
+            rejected,
+        })
     }
 
-    /// Publishes logs to NATS. Returns the number of individual log records
-    /// rejected because a single record's encoded size exceeds the publish
+    /// Publishes logs to NATS. `rejected` counts individual log records
+    /// dropped because a single record's encoded size exceeds the publish
     /// budget; callers report these via OTLP partial_success.
-    pub async fn publish_logs(&mut self, logs: &ExportLogsServiceRequest) -> Result<usize> {
+    async fn publish_logs(&self, logs: &ExportLogsServiceRequest) -> Result<PublishOutcome> {
         let logs_count = logs
             .resource_logs
             .iter()
@@ -816,7 +920,10 @@ impl NATSOutput {
             .unwrap_or_else(|| format!("{}.logs", self.config.subject));
         if self.disabled {
             debug!("NATS output disabled; dropping logs");
-            return Ok(0);
+            return Ok(PublishOutcome {
+                published: logs_count,
+                rejected: 0,
+            });
         }
 
         let (log_chunks, rejected) = split_logs_request(logs, MAX_PROTO_PUBLISH_BYTES);
@@ -838,62 +945,7 @@ impl NATSOutput {
                 log_chunks.len(),
                 payload.len()
             );
-
-            let js = self.get_or_recover_jetstream().await?;
-            let ack: PublishAckFuture = match js.publish(logs_subject.clone(), payload.into()).await
-            {
-                Ok(future) => future,
-                Err(e) => {
-                    error!("Failed to publish logs to NATS: {e}");
-                    if Self::publish_error_indicates_missing_stream(&e) {
-                        match self.recover_stream().await {
-                            Ok(_) => {}
-                            Err(recover_err) => {
-                                error!(
-                                    "Failed to recover JetStream stream '{}' after logs publish error: {recover_err}",
-                                    self.config.stream
-                                );
-                            }
-                        }
-                    }
-                    return Err(e.into());
-                }
-            };
-
-            debug!(
-                "Waiting for NATS acknowledgment for log chunk {}/{} (timeout: {:?})",
-                index + 1,
-                log_chunks.len(),
-                self.config.timeout
-            );
-            match timeout(self.config.timeout, ack).await {
-                Ok(Ok(ack_result)) => {
-                    debug!(
-                        "NATS logs chunk acknowledged: stream={}, sequence={}",
-                        ack_result.stream, ack_result.sequence
-                    );
-                }
-                Ok(Err(e)) => {
-                    error!("NATS logs acknowledgment failed: {e}");
-                    if e.kind() == PublishErrorKind::StreamNotFound {
-                        warn!(
-                            "JetStream stream '{}' missing during logs publish acknowledgment; attempting recovery",
-                            self.config.stream
-                        );
-                        if let Err(recover_err) = self.recover_stream().await {
-                            error!(
-                                "Failed to recover JetStream stream '{}' after logs ack error: {recover_err}",
-                                self.config.stream
-                            );
-                        }
-                    }
-                    return Err(anyhow::anyhow!("NATS logs acknowledgment failed: {}", e));
-                }
-                Err(_) => {
-                    warn!("NATS logs ack timed out after {:?}", self.config.timeout);
-                    return Err(anyhow::anyhow!("NATS logs publish timeout"));
-                }
-            }
+            self.publish_chunk(&logs_subject, payload, "logs").await?;
         }
 
         info!(
@@ -901,12 +953,18 @@ impl NATSOutput {
             logs_count.saturating_sub(rejected),
             log_chunks.len()
         );
-        Ok(rejected)
+        Ok(PublishOutcome {
+            published: logs_count.saturating_sub(rejected),
+            rejected,
+        })
     }
 
-    pub async fn publish_metrics(&mut self, metrics: &[PerformanceMetric]) -> Result<()> {
+    async fn publish_derived_metrics(
+        &self,
+        metrics: &[PerformanceMetric],
+    ) -> Result<PublishOutcome> {
         if metrics.is_empty() {
-            return Ok(());
+            return Ok(PublishOutcome::default());
         }
 
         debug!("Publishing {} performance metrics to NATS", metrics.len());
@@ -921,84 +979,42 @@ impl NATSOutput {
 
         if self.disabled {
             debug!("NATS output disabled; dropping metrics");
-            return Ok(());
+            return Ok(PublishOutcome {
+                published: metrics.len(),
+                rejected: 0,
+            });
         }
-        let js = self.get_or_recover_jetstream().await?;
-        let ack: PublishAckFuture = match js
-            .publish(otel_metrics_subject, json_payload.into())
-            .await
-        {
-            Ok(future) => future,
-            Err(e) => {
-                error!("Failed to publish metrics to NATS: {e}");
-                if Self::publish_error_indicates_missing_stream(&e) {
-                    match self.recover_stream().await {
-                        Ok(_) => {}
-                        Err(recover_err) => {
-                            error!(
-                                "Failed to recover JetStream stream '{}' after metrics publish error: {recover_err}",
-                                self.config.stream
-                            );
-                        }
-                    }
-                }
-                return Err(e.into());
-            }
-        };
 
-        // Wait for acknowledgment with timeout
-        debug!(
-            "Waiting for NATS acknowledgment for metrics (timeout: {:?})",
-            self.config.timeout
+        self.publish_chunk(&otel_metrics_subject, json_payload, "derived metrics")
+            .await?;
+
+        info!(
+            "Successfully published {} performance metrics to NATS",
+            metrics.len()
         );
-        match timeout(self.config.timeout, ack).await {
-            Ok(Ok(ack_result)) => {
-                debug!(
-                    "NATS metrics publish acknowledged: stream={}, sequence={}",
-                    ack_result.stream, ack_result.sequence
-                );
-                info!(
-                    "Successfully published {} performance metrics to NATS",
-                    metrics.len()
-                );
-            }
-            Ok(Err(e)) => {
-                error!("NATS metrics acknowledgment failed: {e}");
-                if e.kind() == PublishErrorKind::StreamNotFound {
-                    warn!(
-                        "JetStream stream '{}' missing during metrics publish acknowledgment; attempting recovery",
-                        self.config.stream
-                    );
-                    if let Err(recover_err) = self.recover_stream().await {
-                        error!(
-                            "Failed to recover JetStream stream '{}' after metrics ack error: {recover_err}",
-                            self.config.stream
-                        );
-                    }
-                }
-                return Err(anyhow::anyhow!("NATS metrics acknowledgment failed: {}", e));
-            }
-            Err(_) => {
-                warn!("NATS metrics ack timed out after {:?}", self.config.timeout);
-                return Err(anyhow::anyhow!("NATS metrics publish timeout"));
-            }
-        }
-
-        Ok(())
+        Ok(PublishOutcome {
+            published: metrics.len(),
+            rejected: 0,
+        })
     }
 
-    /// Publishes raw OTLP metrics to NATS. Returns the number of individual
-    /// metric data points rejected because a single metric's encoded size
+    /// Publishes raw OTLP metrics to NATS. `rejected` counts individual
+    /// metric data points dropped because a single metric's encoded size
     /// exceeds the publish budget; callers report these via partial_success.
-    pub async fn publish_raw_metrics(
-        &mut self,
+    async fn publish_raw_metrics(
+        &self,
         metrics_request: &ExportMetricsServiceRequest,
-    ) -> Result<usize> {
+    ) -> Result<PublishOutcome> {
         debug!("Publishing raw OTLP metrics request to NATS");
+
+        let data_point_count = metric_request_data_points(metrics_request);
 
         if self.disabled {
             debug!("NATS output disabled; dropping raw metrics payload");
-            return Ok(0);
+            return Ok(PublishOutcome {
+                published: data_point_count,
+                rejected: 0,
+            });
         }
 
         let raw_subject = format!("{}.metrics.raw", self.config.subject);
@@ -1023,106 +1039,19 @@ impl NATSOutput {
                 metric_chunks.len(),
                 payload.len()
             );
-
-            let js = self.get_or_recover_jetstream().await?;
-            let ack: PublishAckFuture = match js.publish(raw_subject.clone(), payload.into()).await
-            {
-                Ok(future) => future,
-                Err(e) => {
-                    error!("Failed to publish raw OTLP metrics to NATS: {e}");
-                    if Self::publish_error_indicates_missing_stream(&e) {
-                        match self.recover_stream().await {
-                            Ok(_) => {}
-                            Err(recover_err) => {
-                                error!(
-                                    "Failed to recover JetStream stream '{}' after raw metrics publish error: {recover_err}",
-                                    self.config.stream
-                                );
-                            }
-                        }
-                    }
-                    return Err(e.into());
-                }
-            };
-
-            debug!(
-                "Waiting for NATS acknowledgment for raw metrics chunk {}/{} (timeout: {:?})",
-                index + 1,
-                metric_chunks.len(),
-                self.config.timeout
-            );
-            match timeout(self.config.timeout, ack).await {
-                Ok(Ok(ack_result)) => {
-                    debug!(
-                        "NATS raw metrics chunk acknowledged: stream={}, sequence={}",
-                        ack_result.stream, ack_result.sequence
-                    );
-                }
-                Ok(Err(e)) => {
-                    error!("NATS raw metrics acknowledgment failed: {e}");
-                    if e.kind() == PublishErrorKind::StreamNotFound {
-                        warn!(
-                            "JetStream stream '{}' missing during raw metrics acknowledgment; attempting recovery",
-                            self.config.stream
-                        );
-                        if let Err(recover_err) = self.recover_stream().await {
-                            error!(
-                                "Failed to recover JetStream stream '{}' after raw metrics ack error: {recover_err}",
-                                self.config.stream
-                            );
-                        }
-                    }
-                    return Err(anyhow::anyhow!(
-                        "NATS raw metrics acknowledgment failed: {}",
-                        e
-                    ));
-                }
-                Err(_) => {
-                    warn!(
-                        "NATS raw metrics ack timed out after {:?}",
-                        self.config.timeout
-                    );
-                    return Err(anyhow::anyhow!("NATS raw metrics publish timeout"));
-                }
-            }
+            self.publish_chunk(&raw_subject, payload, "raw metrics")
+                .await?;
         }
 
         info!(
             "Successfully published raw OTLP metrics request to NATS in {} message(s)",
             metric_chunks.len()
         );
-        Ok(rejected)
+        Ok(PublishOutcome {
+            published: data_point_count.saturating_sub(rejected),
+            rejected,
+        })
     }
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct PerformanceMetric {
-    pub timestamp: String, // ISO 8601 timestamp
-    pub trace_id: String,
-    pub span_id: String,
-    pub service_name: String,
-    pub span_name: String,
-    pub span_kind: String,
-    pub duration_ms: f64,
-    pub duration_seconds: f64,
-    pub metric_type: String, // "span", "http", "grpc", "slow_span"
-
-    // Optional HTTP fields
-    pub http_method: Option<String>,
-    pub http_route: Option<String>,
-    pub http_status_code: Option<String>,
-
-    // Optional gRPC fields
-    pub grpc_service: Option<String>,
-    pub grpc_method: Option<String>,
-    pub grpc_status_code: Option<String>,
-
-    // Performance flags
-    pub is_slow: bool, // true if > 100ms
-
-    // Additional metadata
-    pub component: String, // "otel-collector"
-    pub level: String,     // "info", "warn" for slow spans
 }
 
 #[cfg(test)]

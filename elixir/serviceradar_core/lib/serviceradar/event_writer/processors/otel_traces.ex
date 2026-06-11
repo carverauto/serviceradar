@@ -57,6 +57,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
+  alias ServiceRadar.EventWriter.SignalTelemetry
 
   require Logger
 
@@ -65,8 +66,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   @impl true
   def process_batch(messages) do
+    SignalTelemetry.emit(:traces, :received, length(messages))
+
     # DB connection's search_path determines the schema
-    rows = build_rows(messages)
+    {rows, rejected} = build_rows(messages)
+    SignalTelemetry.emit(:traces, :rejected, rejected)
 
     if Enum.empty?(rows) do
       {:ok, 0}
@@ -94,9 +98,15 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   # Private functions
 
   defp build_rows(messages) do
-    messages
-    |> Enum.flat_map(&List.wrap(parse_message(&1)))
-    |> Enum.reject(&is_nil/1)
+    parsed = Enum.map(messages, &parse_message/1)
+    rejected = Enum.count(parsed, &is_nil/1)
+
+    rows =
+      parsed
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(&List.wrap/1)
+
+    {rows, rejected}
   end
 
   defp insert_trace_rows(rows) do
@@ -109,6 +119,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
         returning: false
       )
 
+    SignalTelemetry.emit(:traces, :written, count)
     {:ok, count}
   end
 

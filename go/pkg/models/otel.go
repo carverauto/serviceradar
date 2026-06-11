@@ -51,23 +51,31 @@ type OTELMetricRow struct {
 // histogram) destined for the otel_metric_points hypertable. Mirrors
 // ServiceRadar.EventWriter.Processors.OtelMetrics metric-point rows: the
 // primary key is (timestamp, metric_name, service_name, attributes_hash), so
-// AttributesHash must be the lowercase-hex md5 of the exact Attributes JSON
-// text (sorted keys) for cross-writer dedupe to work.
+// AttributesHash must follow hash recipe v2 — the lowercase-hex md5 of
+// canonicalBytes(pointAttributes) + "\n" + serviceInstanceID + "\n" +
+// scopeName — for cross-writer dedupe to work. Attributes remains the
+// display JSON (keys sorted at every nesting level) and is no longer the
+// hash input. StartTimeUnixNano is nil when the point carried no start time
+// (NULL column); ScopeName and ServiceInstanceID default to "", matching
+// the column defaults.
 type OTELMetricPointRow struct {
-	Timestamp      time.Time
-	MetricName     string
-	MetricType     string
-	Unit           *string
-	Temporality    *string
-	IsMonotonic    *bool
-	ServiceName    string
-	Attributes     string
-	AttributesHash string
-	Value          *float64
-	Count          *int64
-	Sum            *float64
-	BucketCounts   *string
-	ExplicitBounds *string
+	Timestamp         time.Time
+	MetricName        string
+	MetricType        string
+	Unit              *string
+	Temporality       *string
+	IsMonotonic       *bool
+	ServiceName       string
+	ServiceInstanceID string
+	ScopeName         string
+	StartTimeUnixNano *int64
+	Attributes        string
+	AttributesHash    string
+	Value             *float64
+	Count             *int64
+	Sum               *float64
+	BucketCounts      *string
+	ExplicitBounds    *string
 }
 
 // OTELTraceRow stores a single OTEL trace span row.

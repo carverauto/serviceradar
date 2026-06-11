@@ -2,7 +2,7 @@ suite: otlp ingest service
 templates:
   - templates/otlp-service.yaml
 tests:
-  - it: renders a LoadBalancer service for OTLP gRPC by default
+  - it: renders a ClusterIP service for OTLP gRPC by default (no public IP)
     asserts:
       - hasDocuments:
           count: 1
@@ -13,7 +13,9 @@ tests:
           value: serviceradar-otlp
       - equal:
           path: spec.type
-          value: LoadBalancer
+          value: ClusterIP
+      - notExists:
+          path: spec.externalTrafficPolicy
       - equal:
           path: spec.selector.app
           value: serviceradar-log-collector
@@ -51,18 +53,21 @@ tests:
             targetPort: 4318
             protocol: TCP
 
-  - it: supports ClusterIP override and drops externalTrafficPolicy
+  - it: supports the opt-in LoadBalancer mode with externalTrafficPolicy
     set:
-      logCollector.otlp.service.type: ClusterIP
+      logCollector.otlp.service.type: LoadBalancer
+      logCollector.otlp.service.externalTrafficPolicy: Local
     asserts:
       - equal:
           path: spec.type
-          value: ClusterIP
-      - notExists:
+          value: LoadBalancer
+      - equal:
           path: spec.externalTrafficPolicy
+          value: Local
 
-  - it: carries annotations and pinned IP from values
+  - it: carries annotations and pinned IP in LoadBalancer mode
     set:
+      logCollector.otlp.service.type: LoadBalancer
       logCollector.otlp.service.annotations:
         metallb.universe.tf/address-pool: k3s-pool
       logCollector.otlp.service.loadBalancerIP: "203.0.113.10"
