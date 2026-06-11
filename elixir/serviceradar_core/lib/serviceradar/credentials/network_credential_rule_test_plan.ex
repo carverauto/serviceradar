@@ -43,7 +43,7 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
              |> Keyword.put(:detect_conflicts?, false)
            ),
          {:ok, target} <- select_target(preview),
-         {:ok, agent_id} <- select_agent(preview, target),
+         {:ok, agent_id} <- select_agent(preview, target, rule),
          {:ok, secret_id} <- required_string(rule, [:secret_id, "secret_id"], "secret_id") do
       build_plan(rule, preview, target, agent_id, secret_id, opts)
     end
@@ -145,13 +145,31 @@ defmodule ServiceRadar.Credentials.NetworkCredentialRuleTestPlan do
     end
   end
 
-  defp select_agent(preview, target) do
+  defp select_agent(preview, target, rule) do
     agent_id = value_string(target, [:agent_id, "agent_id", :agent_uid, "agent_uid"])
 
     if is_binary(agent_id) and agent_id != "" do
       {:ok, agent_id}
     else
-      agent_from_preview(preview)
+      case agent_from_preview(preview) do
+        {:ok, value} -> {:ok, value}
+        # No in-scope device carries an agent_id link yet — proxmox host
+        # devices are discovered before they're agent-bound, so agent_distribution
+        # is empty. When the rule is explicitly scoped to a single agent, that
+        # agent is the eligible dispatch target.
+        {:error, _} -> scoped_agent(rule)
+      end
+    end
+  end
+
+  defp scoped_agent(rule) do
+    scope_type = value_string(rule, [:scope_type, "scope_type"])
+    scope_value = value_string(rule, [:scope_value, "scope_value"])
+
+    if scope_type == "agent" and is_binary(scope_value) and scope_value != "" do
+      {:ok, scope_value}
+    else
+      {:error, :no_eligible_agent}
     end
   end
 
