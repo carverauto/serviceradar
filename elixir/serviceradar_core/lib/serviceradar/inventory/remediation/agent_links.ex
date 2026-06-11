@@ -49,6 +49,9 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
   @step "agent-links"
   @default_statuses [:connected]
   @active_alias_states [:detected, :confirmed, :updated]
+  # A real host carries identity for one machine. Beyond this many MAC
+  # identifiers the row is a faker/merge chimera, not a single host.
+  @max_plausible_host_macs 32
 
   @doc false
   def run(mode, opts, manifest, actor) do
@@ -157,16 +160,68 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
     end
   end
 
+  # Golden path: the agent keeps its current device when that device is the
+  # agent's own — anchored on the stable agent_id (survives k8s pod renames and
+  # IP churn), with hostname as corroboration only — AND the row is a clean
+  # single host, not a faker/merge chimera carrying foreign strong identity.
+  # The previous hostname-only anchor churned every time a pod was recreated
+  # under a new name, and happily kept agents welded to multi-host chimeras.
   defp keeps_current_device?(agent, device, expected, sharing) do
-    Decisions.device_matches_host?(device, expected) and
-      case Map.get(sharing, agent.device_uid, [agent]) do
-        [_single] ->
-          true
+    not is_nil(device) and is_nil(Map.get(device, :deleted_at)) and
+      not chimera_device?(device) and
+      agent_owns_device?(agent, device, expected) and
+      rightful_owner_of_shared?(agent, device, sharing)
+  end
 
-        shared ->
-          owner = Decisions.choose_device_owner(shared, device.hostname)
-          owner != nil and owner.uid == agent.uid
-      end
+  # agent_id is the anchor (the agent declares it; it does not change on pod
+  # rename). Hostname is accepted only as corroboration for devices that do not
+  # yet carry the agent's agent_id identifier row.
+  defp agent_owns_device?(agent, device, expected) do
+    device_carries_agent_id?(device, agent.uid) or
+      Decisions.device_matches_host?(device, expected)
+  end
+
+  defp device_carries_agent_id?(device, agent_uid) do
+    device
+    |> device_identifiers()
+    |> Enum.any?(&(&1.identifier_type == :agent_id and &1.identifier_value == agent_uid))
+  end
+
+  # A real host carries identity for exactly one machine. Multiple distinct
+  # armis_device_ids — or an implausible MAC cardinality — means the row is a
+  # faker/merge chimera (e.g. the agent welded onto a 60-MAC faker device). An
+  # agent must never keep such a row; it relocates to a clean one.
+  defp chimera_device?(device) do
+    identifiers = device_identifiers(device)
+
+    distinct_armis =
+      identifiers
+      |> Enum.filter(&(&1.identifier_type == :armis_device_id))
+      |> Enum.map(& &1.identifier_value)
+      |> Enum.uniq()
+      |> length()
+
+    mac_count = Enum.count(identifiers, &(&1.identifier_type == :mac))
+
+    distinct_armis > 1 or mac_count > @max_plausible_host_macs
+  end
+
+  defp device_identifiers(device) do
+    case Map.get(device, :identifiers) do
+      list when is_list(list) -> list
+      _ -> []
+    end
+  end
+
+  defp rightful_owner_of_shared?(agent, device, sharing) do
+    case Map.get(sharing, agent.device_uid, [agent]) do
+      [_single] ->
+        true
+
+      shared ->
+        owner = Decisions.choose_device_owner(shared, device.hostname)
+        owner != nil and owner.uid == agent.uid
+    end
   end
 
   defp relocate(plan, agent, expected, claimed, actor) do
@@ -546,8 +601,14 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
 
   defp fetch_device(uid, actor) do
     case Device.get_by_uid(uid, true, actor: actor) do
-      {:ok, %Device{} = device} -> device
-      _ -> nil
+      {:ok, %Device{} = device} ->
+        case Ash.load(device, [:identifiers], actor: actor) do
+          {:ok, loaded} -> loaded
+          _ -> device
+        end
+
+      _ ->
+        nil
     end
   end
 
