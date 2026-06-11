@@ -612,6 +612,10 @@ func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]models.OTELLogRow, bo
 			Int("log_rows", len(logRows)).
 			Msg("Successfully parsed log rows from OTEL message")
 
+		// Attribution headers are per-message: stamp the rows of this
+		// message only, never a whole batch.
+		stampLogRows(logRows, ingestAttributionFromMsg(msg))
+
 		return logRows, true
 	}
 
@@ -626,6 +630,8 @@ func (p *Processor) parseOTELMessage(msg jetstream.Msg) ([]models.OTELLogRow, bo
 	p.logger.Debug().
 		Int("log_rows", len(logRows)).
 		Msg("Successfully parsed log rows from JSON payload")
+
+	stampLogRows(logRows, ingestAttributionFromMsg(msg))
 
 	return logRows, true
 }
@@ -717,6 +723,9 @@ func (p *Processor) parsePerformanceMessage(msg jetstream.Msg) ([]models.OTELMet
 	p.logger.Debug().
 		Int("metrics_rows", len(metricsRows)).
 		Msg("Successfully parsed performance metrics")
+
+	// Per-message attribution: headers ride the JetStream message, not the batch.
+	stampMetricRows(metricsRows, ingestAttributionFromMsg(msg))
 
 	return metricsRows, true
 }
@@ -897,6 +906,9 @@ func (p *Processor) parseOTELMetrics(msg jetstream.Msg) ([]models.OTELMetricRow,
 	p.logger.Debug().
 		Int("metrics_rows", len(rows)).
 		Msg("Successfully parsed metrics rows from OTEL message")
+
+	// Per-message attribution: headers ride the JetStream message, not the batch.
+	stampMetricRows(rows, ingestAttributionFromMsg(msg))
 
 	return rows, true
 }
@@ -1219,6 +1231,9 @@ func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]models.OTELTraceRow, b
 	p.logger.Debug().
 		Int("trace_rows", len(traceRows)).
 		Msg("Successfully parsed trace rows from OTEL message")
+
+	// Per-message attribution: headers ride the JetStream message, not the batch.
+	stampTraceRows(traceRows, ingestAttributionFromMsg(msg))
 
 	return traceRows, true
 }

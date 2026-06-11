@@ -486,4 +486,67 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       ]
     end
   end
+
+  describe "parse_message/1 ingest attribution" do
+    @sr_headers [
+      {"Sr-Ingest-Identity", "spiffe://serviceradar/gateway/gw-1"},
+      {"Sr-Agent-Id", "agent-7"},
+      {"Sr-Partition", "site-a"}
+    ]
+
+    test "maps Sr-* headers onto span-sample rows" do
+      data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "service_name" => "svc",
+          "span_name" => "op",
+          "duration_ms" => 12.5
+        })
+
+      row =
+        OtelMetrics.parse_message(%{
+          data: data,
+          metadata: %{subject: "otel.metrics", headers: @sr_headers}
+        })
+
+      assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+      assert row.ingest_agent_id == "agent-7"
+      assert row.ingest_partition == "site-a"
+    end
+
+    test "maps Sr-* headers onto every protobuf metric point row" do
+      payload = ExportMetricsServiceRequest.encode(build_metrics_request())
+
+      rows =
+        OtelMetrics.parse_message(%{
+          data: payload,
+          metadata: %{subject: "otel.metrics.raw", headers: @sr_headers}
+        })
+
+      assert is_list(rows)
+      assert rows != []
+
+      for row <- rows do
+        assert row.metric_name
+        assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+        assert row.ingest_agent_id == "agent-7"
+        assert row.ingest_partition == "site-a"
+      end
+    end
+
+    test "absent headers default the ingest columns to empty strings" do
+      data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "service_name" => "svc",
+          "span_name" => "op"
+        })
+
+      row = OtelMetrics.parse_message(%{data: data, metadata: %{subject: "otel.metrics"}})
+
+      assert row.ingest_identity == ""
+      assert row.ingest_agent_id == ""
+      assert row.ingest_partition == ""
+    end
+  end
 end

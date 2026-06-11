@@ -239,3 +239,56 @@ component.
 - **WHEN** the agent or one of its add-ons emits OTLP telemetry locally
 - **THEN** it SHALL appear in the platform's observability UI attributed to
   that agent/site
+
+### Requirement: Edge spool retention is operator-managed and observable
+
+The edge collector add-on's spool retention SHALL be operator-configurable
+through the add-on settings UI via the add-on configuration schema (maximum
+size, maximum age, and free-disk floor), with bounded defaults (no
+multi-gigabyte allocation required); shrinking the configured bound SHALL
+take effect immediately by evicting oldest segments down to the new bound;
+and when the host volume's free space falls below the configured floor the
+spool SHALL behave as bound-reached (evict-oldest, counted rejection on
+persistent failure) rather than filling the disk or crashing.
+
+#### Scenario: Retention configured from the settings UI
+
+- **WHEN** an operator changes the spool's maximum size in the add-on
+  settings
+- **THEN** the running add-on SHALL apply the new bound without restart
+- **AND** if the new bound is smaller than current usage, oldest segments
+  SHALL be evicted immediately with evictions counted
+
+#### Scenario: Host disk pressure does not fill the volume
+
+- **GIVEN** the volume's free space drops below the configured floor while
+  the spool is under its own bound
+- **WHEN** new telemetry arrives during a link outage
+- **THEN** the spool SHALL evict oldest data to make room rather than
+  growing, and persistent write failure SHALL reject with accounting, never
+  crash
+
+### Requirement: Spool usage reported as OCSF events
+
+The edge collector add-on SHALL report spool usage through the platform's
+event pipeline: OCSF events emitted via the add-on SDK's telemetry stream on
+utilization threshold transitions (rising and clearing) and while eviction
+is active, carrying spool bytes used, configured bound, utilization
+percentage, free disk space, and per-signal evicted-record counts — so
+operators can alert on edge buffering pressure with the existing
+event-to-alert rules.
+
+#### Scenario: Threshold crossing emits an event
+
+- **WHEN** spool utilization rises past a reporting threshold (e.g. 80%)
+- **THEN** an OCSF event SHALL be emitted via the SDK telemetry stream with
+  the usage attributes
+- **AND** a clearing event SHALL be emitted when utilization falls back
+  below the threshold
+
+#### Scenario: Eviction pressure is alertable
+
+- **GIVEN** a stateful alert rule matching spool-pressure events
+- **WHEN** an edge site evicts telemetry during an extended outage
+- **THEN** the emitted events SHALL be sufficient to trigger and resolve the
+  alert through the existing event-to-alert pipeline

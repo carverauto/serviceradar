@@ -167,6 +167,29 @@ defmodule ServiceRadar.Observability.OtelMetricPoint do
       description "Histogram explicit bucket bounds as JSON text"
     end
 
+    # Ingest attribution (stamped by the agent gateway at publish time)
+    attribute :ingest_identity, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Publisher identity that ingested the point (Sr-Ingest-Identity header, '' when absent)"
+    end
+
+    attribute :ingest_agent_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Agent that ingested the point (Sr-Agent-Id header, '' when absent)"
+    end
+
+    attribute :ingest_partition, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
+    end
+
     attribute :created_at, :utc_datetime_usec do
       allow_nil? false
       public? true

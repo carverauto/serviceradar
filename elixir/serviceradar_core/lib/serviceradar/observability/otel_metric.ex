@@ -76,7 +76,10 @@ defmodule ServiceRadar.Observability.OtelMetric do
         :is_slow,
         :component,
         :level,
-        :unit
+        :unit,
+        :ingest_identity,
+        :ingest_agent_id,
+        :ingest_partition
       ]
     end
   end
@@ -196,6 +199,29 @@ defmodule ServiceRadar.Observability.OtelMetric do
     attribute :unit, :string do
       public? true
       description "Unit of measurement"
+    end
+
+    # Ingest attribution (stamped by the agent gateway at publish time)
+    attribute :ingest_identity, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Publisher identity that ingested the sample (Sr-Ingest-Identity header, '' when absent)"
+    end
+
+    attribute :ingest_agent_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Agent that ingested the sample (Sr-Agent-Id header, '' when absent)"
+    end
+
+    attribute :ingest_partition, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
     end
 
     attribute :created_at, :utc_datetime_usec do

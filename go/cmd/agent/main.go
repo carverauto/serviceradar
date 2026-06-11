@@ -83,6 +83,12 @@ func run() error {
 		}
 	}
 
+	// Self-telemetry "auto" semantics (refactor-otel-signal-correlation
+	// 10.5): when agent.local_otlp_endpoint names a co-resident collector
+	// and the OTel logging block is enabled without an explicit endpoint,
+	// the agent's own logs export to the local collector.
+	agent.ApplyLocalOtlpLoggerEndpoint(logConfig, cfg.LocalOtlpEndpoint)
+
 	agentLogger, err := lifecycle.CreateComponentLogger(ctx, "agent", logConfig)
 	if err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)

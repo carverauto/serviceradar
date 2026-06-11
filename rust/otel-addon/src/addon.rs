@@ -16,22 +16,27 @@
 
 //! The [`Addon`] implementation: Configure builds (or rebuilds) the OTLP
 //! collector around the agent-forward spool; RelayOtlp drains that spool to
-//! the agent with cumulative-ack watermarking.
+//! the agent with cumulative-ack watermarking; StreamTelemetry carries the
+//! spool monitor's OCSF usage events (native-telemetry:v1).
 
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use addon_sdk::{
-    Addon, CAPABILITY_OTLP_RELAY_V1, ConfigureResult, Health, HealthStatus, Info,
-    OtlpRelayAckStream, OtlpRelayStream,
+    Addon, CAPABILITY_NATIVE_TELEMETRY_V1, CAPABILITY_OTLP_RELAY_V1, ConfigureResult, Health,
+    HealthStatus, Info, OtlpRelayAckStream, OtlpRelayStream, TelemetryStream, pb,
 };
 use async_trait::async_trait;
 use log::{debug, error, info, warn};
 use sha2::{Digest as _, Sha256};
+use tokio::sync::broadcast;
 use tokio::task::JoinHandle;
 use tokio_stream::StreamExt as _;
-use tokio_stream::wrappers::ReceiverStream;
+use tokio_stream::wrappers::errors::BroadcastStreamRecvError;
+use tokio_stream::wrappers::{BroadcastStream, ReceiverStream};
+
+use crate::spool_monitor::spawn_spool_monitor;
 
 use otel::ServiceRadarCollector;
 use otel::agent_forward::AgentForwardOutput;
@@ -54,9 +59,24 @@ const LISTENER_RETRY_DELAY: Duration = Duration::from_millis(500);
 /// Relay frames buffered between the spool reader task and the gRPC stream.
 const RELAY_CHANNEL_DEPTH: usize = 16;
 
-#[derive(Default)]
+/// Spool-usage telemetry batches buffered for slow StreamTelemetry readers.
+const TELEMETRY_CHANNEL_DEPTH: usize = 64;
+
 pub struct OtelCollectorAddon {
     state: Mutex<State>,
+    /// Fan-out for the spool monitor's OCSF usage events; StreamTelemetry
+    /// subscribes here (native-telemetry:v1, lossy by contract).
+    telemetry_tx: broadcast::Sender<pb::TelemetryBatch>,
+}
+
+impl Default for OtelCollectorAddon {
+    fn default() -> Self {
+        let (telemetry_tx, _) = broadcast::channel(TELEMETRY_CHANNEL_DEPTH);
+        Self {
+            state: Mutex::default(),
+            telemetry_tx,
+        }
+    }
 }
 
 #[derive(Default)]
@@ -68,6 +88,8 @@ struct State {
     /// Spool settings backing `spool`, for reuse detection on reconfigure.
     spool_config: Option<SpoolConfig>,
     runtime: Option<Runtime>,
+    /// Spool usage monitor task (one per open spool instance).
+    monitor: Option<JoinHandle<()>>,
 }
 
 /// Listener tasks for the currently-applied configuration.
@@ -280,7 +302,10 @@ impl Addon for OtelCollectorAddon {
         Ok(Info {
             id: ADDON_ID.to_string(),
             version: ADDON_VERSION.to_string(),
-            capabilities: vec![CAPABILITY_OTLP_RELAY_V1.to_string()],
+            capabilities: vec![
+                CAPABILITY_OTLP_RELAY_V1.to_string(),
+                CAPABILITY_NATIVE_TELEMETRY_V1.to_string(),
+            ],
         })
     }
 
@@ -310,9 +335,24 @@ impl Addon for OtelCollectorAddon {
 
         // Reuse the open spool when its settings are unchanged so the relay
         // reader, watermark, and relay_id sequence carry across listener
-        // reconfigurations; otherwise open the new location.
+        // reconfigurations. Changed bounds at the same location reconfigure
+        // the live spool in place (a smaller max_bytes/max_age evicts down
+        // immediately, no teardown); only a new directory opens a new spool.
         let spool = match (&state.spool, &state.spool_config) {
             (Some(spool), Some(existing)) if *existing == spool_config => Arc::clone(spool),
+            (Some(spool), Some(existing)) if existing.dir == spool_config.dir => {
+                if let Err(e) = spool.reconfigure(spool_config.clone()) {
+                    return Ok(reject(
+                        config_hash,
+                        format!("failed to apply new spool bounds: {e:#}"),
+                    ));
+                }
+                info!(
+                    "applied new spool bounds in place: max {} bytes, free-disk floor {} bytes",
+                    spool_config.max_bytes, spool_config.min_free_disk_bytes
+                );
+                Arc::clone(spool)
+            }
             _ => match Spool::open(spool_config.clone()) {
                 Ok(spool) => Arc::new(spool),
                 Err(e) => {
@@ -348,6 +388,24 @@ impl Addon for OtelCollectorAddon {
             agent_forward.max_bytes,
         );
 
+        // (Re)start the usage monitor when the spool instance changed (or on
+        // first configure); a reused/reconfigured spool keeps its monitor —
+        // the monitor reads bounds from the spool on every sample.
+        let spool_replaced = state
+            .spool
+            .as_ref()
+            .is_none_or(|prev| !Arc::ptr_eq(prev, &spool));
+        if spool_replaced || state.monitor.as_ref().is_none_or(JoinHandle::is_finished) {
+            if let Some(old) = state.monitor.take() {
+                old.abort();
+            }
+            state.monitor = Some(spawn_spool_monitor(
+                Arc::clone(&spool),
+                self.telemetry_tx.clone(),
+                ADDON_VERSION,
+            ));
+        }
+
         state.runtime = Some(spawn_runtime(prepared));
         state.spool = Some(spool);
         state.spool_config = Some(spool_config);
@@ -382,7 +440,8 @@ impl Addon for OtelCollectorAddon {
         if let Some(spool) = &state.spool {
             let stats = spool.stats();
             let max_bytes = spool.max_bytes();
-            if max_bytes > 0 && stats.total_bytes * SPOOL_DEGRADED_DEN >= max_bytes * SPOOL_DEGRADED_NUM
+            if max_bytes > 0
+                && stats.total_bytes * SPOOL_DEGRADED_DEN >= max_bytes * SPOOL_DEGRADED_NUM
             {
                 return Ok(Health {
                     status: HealthStatus::Degraded,
@@ -479,6 +538,22 @@ impl Addon for OtelCollectorAddon {
 
         Ok(Box::pin(ReceiverStream::new(rx)))
     }
+
+    /// Native telemetry stream (native-telemetry:v1): OCSF spool-usage
+    /// events from the monitor task. Lossy by contract — a lagging receiver
+    /// gets a RESOURCE_EXHAUSTED marker, not back-pressure on the monitor.
+    fn stream_telemetry(&self) -> TelemetryStream {
+        let stream =
+            BroadcastStream::new(self.telemetry_tx.subscribe()).filter_map(|item| match item {
+                Ok(batch) => Some(Ok(batch)),
+                Err(BroadcastStreamRecvError::Lagged(skipped)) => {
+                    Some(Err(tonic::Status::resource_exhausted(format!(
+                        "otel spool telemetry receiver lagged by {skipped} batches"
+                    ))))
+                }
+            });
+        Box::pin(stream)
+    }
 }
 
 #[cfg(test)]
@@ -498,7 +573,11 @@ mod tests {
             },
             "agent_forward": {
                 "spool_dir": spool_dir.to_string_lossy(),
-                "max_bytes": max_bytes
+                "max_bytes": max_bytes,
+                // Tests must not depend on the host volume's real free
+                // space; the floor has dedicated unit tests in the otel
+                // crate with an injected probe.
+                "min_free_disk_bytes": 0
             }
         })
         .to_string()
@@ -533,11 +612,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn info_advertises_otlp_relay_capability() {
+    async fn info_advertises_otlp_relay_and_native_telemetry_capabilities() {
         let addon = OtelCollectorAddon::default();
         let info = addon.info().await.unwrap();
         assert_eq!(info.id, "otel-collector");
-        assert_eq!(info.capabilities, vec!["otlp-relay:v1".to_string()]);
+        assert_eq!(
+            info.capabilities,
+            vec![
+                "otlp-relay:v1".to_string(),
+                "native-telemetry:v1".to_string()
+            ]
+        );
     }
 
     #[tokio::test]
@@ -674,5 +759,77 @@ mod tests {
             "reason: {}",
             health.degradation_reason
         );
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn smaller_spool_bound_reconfigures_the_live_spool_in_place() {
+        let dir = tempfile::tempdir().unwrap();
+        let addon = OtelCollectorAddon::default();
+        addon
+            .configure(&config_json(dir.path(), 1024 * 1024))
+            .await
+            .unwrap();
+
+        let spool = addon.spool_for_tests().expect("spool after configure");
+        let relay_id = spool.append_batch(test_batch(vec![9; 64])).unwrap();
+
+        // Deliver a smaller max_bytes: the SAME open spool must apply the
+        // new bound immediately (no teardown — watermark, relay ids, and
+        // spooled frames survive).
+        let result = addon
+            .configure(&config_json(dir.path(), 4096))
+            .await
+            .unwrap();
+        assert!(result.accepted, "error: {}", result.error);
+
+        let after = addon.spool_for_tests().expect("spool still open");
+        assert!(
+            Arc::ptr_eq(&spool, &after),
+            "changed bounds must reuse the open spool, not reopen it"
+        );
+        assert_eq!(after.max_bytes(), 4096, "new bound is live immediately");
+        assert!(
+            after.stats().next_relay_id > relay_id,
+            "relay id sequence carried across reconfigure"
+        );
+
+        // The monitor task survives a reuse (same spool instance).
+        assert!(addon.lock_state().monitor.is_some());
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn configure_spawns_the_spool_usage_monitor() {
+        let dir = tempfile::tempdir().unwrap();
+        let addon = OtelCollectorAddon::default();
+        assert!(addon.lock_state().monitor.is_none());
+        addon
+            .configure(&config_json(dir.path(), 1024 * 1024))
+            .await
+            .unwrap();
+        let monitor_running = addon
+            .lock_state()
+            .monitor
+            .as_ref()
+            .is_some_and(|m| !m.is_finished());
+        assert!(monitor_running, "monitor task must be running");
+    }
+
+    #[tokio::test]
+    async fn stream_telemetry_forwards_monitor_batches() {
+        let addon = OtelCollectorAddon::default();
+        let mut stream = addon.stream_telemetry();
+
+        // Simulate the monitor emitting one OCSF batch.
+        addon
+            .telemetry_tx
+            .send(test_batch(vec![5; 8]))
+            .expect("stream subscribed above");
+
+        let batch = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("batch within timeout")
+            .expect("stream open")
+            .expect("batch ok");
+        assert_eq!(batch.records[0].payload, vec![5u8; 8]);
     }
 }

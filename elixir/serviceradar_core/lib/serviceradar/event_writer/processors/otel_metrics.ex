@@ -63,6 +63,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Metrics.V1.Sum
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
@@ -105,14 +106,19 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, json} ->
-        parse_json_metric(json, metadata)
+    attribution = IngestAttribution.from_metadata(metadata)
 
-      {:error, _} ->
-        # Try protobuf parsing
-        parse_protobuf_metric(data, metadata)
-    end
+    case_result =
+      case Jason.decode(data) do
+        {:ok, json} ->
+          parse_json_metric(json, metadata)
+
+        {:error, _} ->
+          # Try protobuf parsing
+          parse_protobuf_metric(data, metadata)
+      end
+
+    IngestAttribution.attach(case_result, attribution)
   end
 
   # Private functions

@@ -124,6 +124,9 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         }
         "event_name" => build_text_clause("event_name", filter),
         "body" | "message" => build_text_clause("body", filter),
+        "ingest_identity" => build_text_clause("ingest_identity", filter),
+        "ingest_agent_id" => build_text_clause("ingest_agent_id", filter),
+        "ingest_partition" => build_text_clause("ingest_partition", filter),
         "severity_number" => build_numeric_clause("severity_number", filter),
         other => Err(ServiceError::InvalidRequest(format!(
             "unsupported filter field for logs stats: '{other}'"

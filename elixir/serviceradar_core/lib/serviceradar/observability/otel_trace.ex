@@ -93,7 +93,10 @@ defmodule ServiceRadar.Observability.OtelTrace do
         :dropped_events_count,
         :dropped_links_count,
         :service_namespace,
-        :deployment_environment
+        :deployment_environment,
+        :ingest_identity,
+        :ingest_agent_id,
+        :ingest_partition
       ]
     end
   end
@@ -264,6 +267,29 @@ defmodule ServiceRadar.Observability.OtelTrace do
       default 0
       public? true
       description "Number of span links dropped at the source"
+    end
+
+    # Ingest attribution (stamped by the agent gateway at publish time)
+    attribute :ingest_identity, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Publisher identity that ingested the span (Sr-Ingest-Identity header, '' when absent)"
+    end
+
+    attribute :ingest_agent_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Agent that ingested the span (Sr-Agent-Id header, '' when absent)"
+    end
+
+    attribute :ingest_partition, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
     end
 
     attribute :created_at, :utc_datetime_usec do

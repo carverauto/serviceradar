@@ -4,6 +4,7 @@ go_library(
     name = "db-event-writer",
     srcs = [
         "agent_service.go",
+        "attribution.go",
         "config.go",
         "consumer.go",
         "counters.go",
@@ -42,10 +43,14 @@ go_library(
 go_test(
     name = "db-event-writer_test",
     srcs = [
+        "attribution_test.go",
         "otelid_test.go",
         "otelmetricpoints_test.go",
         "otlpattrs_test.go",
         "processor_test.go",
     ],
     embed = [":db-event-writer"],
+    deps = [
+        "@com_github_stretchr_testify//require",
+    ],
 )

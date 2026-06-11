@@ -590,6 +590,16 @@ config :serviceradar_web_ng,
        :managed_device_limit,
        to_int.(System.get_env("SERVICERADAR_MANAGED_DEVICE_LIMIT"))
 
+# "Send your telemetry" onboarding surface (/settings/telemetry-onboarding):
+# the deployment's externally reachable OTLP endpoints. gRPC is host:port
+# (e.g. otlp-demo.grpc.serviceradar.cloud:50052), HTTP is a URL (e.g.
+# https://otlp-demo.serviceradar.cloud). Empty values render an operator
+# note instead of endpoints.
+config :serviceradar_web_ng, :otlp_onboarding,
+  grpc_endpoint: System.get_env("SERVICERADAR_OTLP_GRPC_ENDPOINT", ""),
+  http_endpoint: System.get_env("SERVICERADAR_OTLP_HTTP_ENDPOINT", ""),
+  grpc_requires_private_ca: to_bool.(System.get_env("SERVICERADAR_OTLP_GRPC_REQUIRES_PRIVATE_CA", "true")) != false
+
 config :serviceradar_web_ng, :runtime_capabilities, runtime_capabilities
 
 config :serviceradar_web_ng,

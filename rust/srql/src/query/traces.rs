@@ -6,11 +6,13 @@ use crate::{
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_traces::dsl::{
         deployment_environment as col_deployment_environment, end_time_unix_nano as col_end,
-        kind as col_kind, name as col_name, otel_traces, parent_span_id as col_parent_span_id,
-        scope_name as col_scope_name, scope_version as col_scope_version,
-        service_instance as col_service_instance, service_name as col_service_name,
-        service_namespace as col_service_namespace, service_version as col_service_version,
-        span_id as col_span_id, start_time_unix_nano as col_start, status_code as col_status_code,
+        ingest_agent_id as col_ingest_agent_id, ingest_identity as col_ingest_identity,
+        ingest_partition as col_ingest_partition, kind as col_kind, name as col_name, otel_traces,
+        parent_span_id as col_parent_span_id, scope_name as col_scope_name,
+        scope_version as col_scope_version, service_instance as col_service_instance,
+        service_name as col_service_name, service_namespace as col_service_namespace,
+        service_version as col_service_version, span_id as col_span_id,
+        start_time_unix_nano as col_start, status_code as col_status_code,
         status_message as col_status_message, timestamp as col_timestamp, trace_id as col_trace_id,
     },
     time::TimeRange,
@@ -428,6 +430,15 @@ fn apply_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<Trace
         "status_message" => {
             query = apply_text_filter!(query, filter, col_status_message)?;
         }
+        "ingest_identity" => {
+            query = apply_text_filter!(query, filter, col_ingest_identity)?;
+        }
+        "ingest_agent_id" => {
+            query = apply_text_filter!(query, filter, col_ingest_agent_id)?;
+        }
+        "ingest_partition" => {
+            query = apply_text_filter!(query, filter, col_ingest_partition)?;
+        }
         "status_code" => {
             query = apply_status_code_filter(query, filter)?;
         }
@@ -499,7 +510,10 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "scope_version"
         | "name"
         | "span_name"
-        | "status_message" => collect_text_params(params, filter),
+        | "status_message"
+        | "ingest_identity"
+        | "ingest_agent_id"
+        | "ingest_partition" => collect_text_params(params, filter),
         "status_code" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {
@@ -688,17 +702,12 @@ mod tests {
     use crate::parser::{Entity, Filter, FilterOp, FilterValue};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-    #[test]
-    fn unknown_filter_field_returns_error() {
+    fn base_plan(filters: Vec<Filter>) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(1);
-        let plan = QueryPlan {
+        QueryPlan {
             entity: Entity::Traces,
-            filters: vec![Filter {
-                field: "unknown_field".into(),
-                op: FilterOp::Eq,
-                value: FilterValue::Scalar("test".to_string()),
-            }],
+            filters,
             order: Vec::new(),
             limit: 100,
             offset: 0,
@@ -707,7 +716,77 @@ mod tests {
             downsample: None,
             rollup_stats: None,
             include_deleted: false,
-        };
+        }
+    }
+
+    #[test]
+    fn ingest_identity_eq_filter_generates_sql_and_bind() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_identity".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("spiffe://sr/agent/edge-1".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_traces\".\"ingest_identity\" = $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "spiffe://sr/agent/edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_agent_id_like_filter_uses_ilike() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_agent_id".into(),
+            op: FilterOp::Like,
+            value: FilterValue::Scalar("%edge%".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_traces\".\"ingest_agent_id\" ILIKE $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "%edge%"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_partition_in_filter_generates_any_clause() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_partition".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["default".into(), "tenant-a".into()]),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_traces\".\"ingest_partition\" = ANY($3)"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["default".to_string(), "tenant-a".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let plan = base_plan(vec![Filter {
+            field: "unknown_field".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("test".to_string()),
+        }]);
 
         let result = build_query(&plan);
         match result {

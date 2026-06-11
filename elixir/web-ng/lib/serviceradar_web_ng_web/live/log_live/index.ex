@@ -717,6 +717,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_apply_netflow_nf_state(params, tab) when is_map(params) and tab == "netflows" do
     nf_raw = Map.get(params, "nf")
 
+    maybe_apply_decoded_netflow_nf_state(params, nf_raw)
+  end
+
+  defp maybe_apply_netflow_nf_state(params, _tab), do: params
+
+  # Without an explicit `nf` state param there is nothing to restore;
+  # decoding `nil` yields the default state, which would clobber an explicit
+  # time window in `q` with the default netflow window.
+  defp maybe_apply_decoded_netflow_nf_state(params, nf_raw) when nf_raw in [nil, ""], do: params
+
+  defp maybe_apply_decoded_netflow_nf_state(params, nf_raw) do
     case NFState.decode_param(nf_raw) do
       {:ok, state} when is_map(state) ->
         query =
@@ -754,8 +765,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         params
     end
   end
-
-  defp maybe_apply_netflow_nf_state(params, _tab), do: params
 
   defp extract_netflow_viz_state(params) when is_map(params) do
     case NFState.decode_param(Map.get(params, "nf")) do

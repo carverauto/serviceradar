@@ -10,11 +10,13 @@ use crate::{
     models::OtelMetricPointRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_metric_points::dsl::{
-        attributes as col_attributes, is_monotonic as col_is_monotonic,
-        metric_name as col_metric_name, metric_type as col_metric_type, otel_metric_points,
-        scope_name as col_scope_name, service_instance_id as col_service_instance_id,
-        service_name as col_service_name, temporality as col_temporality,
-        timestamp as col_timestamp, unit as col_unit, value as col_value,
+        attributes as col_attributes, ingest_agent_id as col_ingest_agent_id,
+        ingest_identity as col_ingest_identity, ingest_partition as col_ingest_partition,
+        is_monotonic as col_is_monotonic, metric_name as col_metric_name,
+        metric_type as col_metric_type, otel_metric_points, scope_name as col_scope_name,
+        service_instance_id as col_service_instance_id, service_name as col_service_name,
+        temporality as col_temporality, timestamp as col_timestamp, unit as col_unit,
+        value as col_value,
     },
     time::TimeRange,
 };
@@ -149,7 +151,8 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
         "metric_name" | "service_name" | "service" | "metric_type" | "type" | "unit"
-        | "temporality" | "scope_name" | "service_instance_id" | "service_instance" => {
+        | "temporality" | "scope_name" | "service_instance_id" | "service_instance"
+        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
             collect_text_params(params, filter)
         }
         "attributes" => {
@@ -208,6 +211,15 @@ fn apply_filter<'a>(mut query: PointsQuery<'a>, filter: &Filter) -> Result<Point
         }
         "service_instance_id" | "service_instance" => {
             query = apply_text_filter!(query, filter, col_service_instance_id)?;
+        }
+        "ingest_identity" => {
+            query = apply_text_filter!(query, filter, col_ingest_identity)?;
+        }
+        "ingest_agent_id" => {
+            query = apply_text_filter!(query, filter, col_ingest_agent_id)?;
+        }
+        "ingest_partition" => {
+            query = apply_text_filter!(query, filter, col_ingest_partition)?;
         }
         "attributes" => {
             let pattern = attributes_pattern(filter)?;
@@ -509,6 +521,9 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "service_instance_id" | "service_instance" => {
             build_text_clause("service_instance_id", filter, &mut binds)?
         }
+        "ingest_identity" => build_text_clause("ingest_identity", filter, &mut binds)?,
+        "ingest_agent_id" => build_text_clause("ingest_agent_id", filter, &mut binds)?,
+        "ingest_partition" => build_text_clause("ingest_partition", filter, &mut binds)?,
         "attributes" => {
             let pattern = attributes_pattern(filter)?;
             binds.push(SqlBindValue::Text(pattern));
@@ -827,6 +842,58 @@ mod tests {
         assert!(
             sql.contains("ORDER BY \"otel_metric_points\".\"value\" ASC"),
             "{sql}"
+        );
+    }
+
+    #[test]
+    fn ingest_identity_eq_filter_generates_sql_and_bind() {
+        let mut plan = base_plan();
+        plan.filters.push(filter(
+            "ingest_identity",
+            FilterOp::Eq,
+            "spiffe://sr/agent/edge-1",
+        ));
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"ingest_identity\" = $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "spiffe://sr/agent/edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_agent_id_like_filter_uses_ilike() {
+        let mut plan = base_plan();
+        plan.filters
+            .push(filter("ingest_agent_id", FilterOp::Like, "%edge%"));
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"ingest_agent_id\" ILIKE $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "%edge%"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_partition_in_filter_generates_any_clause() {
+        let mut plan = base_plan();
+        plan.filters.push(Filter {
+            field: "ingest_partition".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["default".into(), "tenant-a".into()]),
+        });
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"ingest_partition\" = ANY($3)"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["default".to_string(), "tenant-a".to_string()]),
+            "params: {params:?}"
         );
     }
 

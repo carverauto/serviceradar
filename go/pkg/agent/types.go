@@ -151,6 +151,14 @@ type ServerConfig struct {
 	CheckersDir   string                 `json:"checkers_dir"`
 	Logging       *logger.Config         `json:"logging,omitempty" hot:"reload"`
 
+	// LocalOtlpEndpoint optionally names a co-resident OTLP/gRPC collector
+	// endpoint (e.g. "http://127.0.0.1:4317") for self-telemetry
+	// (refactor-otel-signal-correlation 10.5). It seeds the agent logger's
+	// OTel endpoint ("auto" semantics: an explicit logging.otel.endpoint
+	// wins) and is the add-on manager's fallback when the desired add-on set
+	// has no sidecar-supervised otel-collector to derive the endpoint from.
+	LocalOtlpEndpoint string `json:"local_otlp_endpoint,omitempty"`
+
 	// Gateway configuration for push-based architecture
 	GatewayAddr             string                 `json:"gateway_addr,omitempty"`              // Address of the agent-gateway to push status to
 	GatewaySecurity         *models.SecurityConfig `json:"gateway_security,omitempty"`          // Security config for gateway connection

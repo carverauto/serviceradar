@@ -332,4 +332,41 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.id
     end
   end
+
+  describe "parse_message/1 ingest attribution" do
+    @sr_headers [
+      {"Sr-Ingest-Identity", "spiffe://serviceradar/gateway/gw-1"},
+      {"Sr-Agent-Id", "agent-7"},
+      {"Sr-Partition", "site-a"}
+    ]
+
+    test "maps Sr-* headers onto the ingest columns" do
+      data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "body" => "hello",
+          "service_name" => "svc"
+        })
+
+      row =
+        Logs.parse_message(%{
+          data: data,
+          metadata: %{subject: "logs.otel", headers: @sr_headers}
+        })
+
+      assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+      assert row.ingest_agent_id == "agent-7"
+      assert row.ingest_partition == "site-a"
+    end
+
+    test "absent headers default the ingest columns to empty strings" do
+      data = Jason.encode!(%{"timestamp" => "2024-01-15T10:30:00Z", "body" => "hello"})
+
+      row = Logs.parse_message(%{data: data, metadata: %{subject: "logs.otel"}})
+
+      assert row.ingest_identity == ""
+      assert row.ingest_agent_id == ""
+      assert row.ingest_partition == ""
+    end
+  end
 end

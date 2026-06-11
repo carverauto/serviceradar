@@ -304,10 +304,19 @@ func (s *Server) initAddonManager() {
 		s.addonOtlpRelay = newAddonOtlpRelayDeps()
 	}
 
+	localOtlpEndpoint := ""
+	if s.config != nil {
+		localOtlpEndpoint = strings.TrimSpace(s.config.LocalOtlpEndpoint)
+	}
+
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
 		TelemetryHandler: s.handleAddonTelemetry,
 		OtlpRelayRunner:  s.runAddonOtlpRelay,
-		Logger:           s.logger.WithComponent("agent.addon"),
+		// Fallback self-telemetry endpoint (agent.local_otlp_endpoint); the
+		// endpoint derived from a sidecar otel-collector add-on's delivered
+		// config wins inside the manager.
+		LocalOtlpEndpoint: localOtlpEndpoint,
+		Logger:            s.logger.WithComponent("agent.addon"),
 	})
 }
 

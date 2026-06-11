@@ -138,3 +138,20 @@ flowgger:
     enabled: true
     annotations:
       metallb.universe.tf/address-pool: k3s-pool
+
+logCollector:
+  otlp:
+    http:
+      tlsEnabled: false
+    service:
+      enabled: true
+      type: ClusterIP
+      http:
+        enabled: true
+    gateway:
+      # Prerequisite: the demo-staging namespace needs the
+      # serviceradar.com/gateway-access=true label before these routes
+      # attach to the shared gateway (no public IP consumed either way).
+      enabled: true
+      httpHostname: "otlp-staging.serviceradar.cloud"
+      grpcHostname: "otlp-staging.grpc.serviceradar.cloud"

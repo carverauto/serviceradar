@@ -25,7 +25,7 @@ async fn srql_api_queries() {
 
 async fn check_devices_inventory_query_matches_fixture(harness: &SrqlTestHarness) {
     let request = QueryRequest {
-        query: "in:devices discovery_sources:(armis) time:last_7d sort:last_seen:desc limit:2"
+        query: "in:devices discovery_sources:(armis) include_inactive:true time:last_7d sort:last_seen:desc limit:2"
             .to_string(),
         limit: None,
         cursor: None,

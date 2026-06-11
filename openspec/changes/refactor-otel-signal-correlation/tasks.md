@@ -54,7 +54,7 @@
 
 ## 4. Trace context propagation
 
-- [ ] 4.1 Elixir: attach active span context to exported logs; verify
+- [x] 4.1 Elixir: attach active span context to exported logs; verify
       gRPC/HTTP client propagation (web-ng → core-elx → datasvc); inject/extract
       context on internal NATS hops
 - [x] 4.2 Go: wire `InitializeTracing` into core/agent services that should
@@ -169,7 +169,7 @@
 - [ ] 9.2 Conformance acceptance harness: telemetrygen (or equivalent)
       traces+logs+metrics against a fresh install must land end-to-end;
       wire into CI or a runbook script
-- [ ] 9.3 "Send your telemetry" onboarding surface: endpoint + ingestion key
+- [x] 9.3 "Send your telemetry" onboarding surface: endpoint + ingestion key
       issuance + live first-data checker (phase 2)
 
 ## 10. Edge OTLP collector add-on (reuse rust/otel, ride the agent channel)
@@ -193,11 +193,36 @@
       never reconcile hub stream config); site-scoped subject prefixing for
       attribution; document hub-side sourcing expectations (leaf server
       deployment itself = separate change add-nats-leaf-edge-telemetry)
-- [ ] 10.5 Self-telemetry: agent, plugins, and co-resident add-ons export to
+- [x] 10.5 Self-telemetry: agent, plugins, and co-resident add-ons export to
       the local collector when present (env/config convention, e.g. local
       OTEL_EXPORTER_OTLP_ENDPOINT); document the convention for add-on
       authors
-- [ ] 10.6 Attribution columns/labels surfaced in queries + UI (filter by
+- [x] 10.6 Attribution columns/labels surfaced in queries + UI (filter by
       agent/site); edge-vs-central indistinguishable otherwise
 - [ ] 10.7 E2E: telemetrygen → edge add-on → agent → gateway → core → UI on a
       worker agent in demo; link-outage buffering test
+- [x] 10.8 Spool disk-safety hardening: free-disk floor (bound-reached
+      semantics under host disk pressure), shrink-bound evicts immediately
+      on reconfigure, ENOSPC → evict+retry once → counted rejection; sizing
+      guidance documented (defaults 256MiB; leaf transport for long-outage
+      durability)
+- [x] 10.9 Spool retention in the add-on settings UI (config.schema.json
+      fields with titles/units/defaults) + OCSF spool-usage events via the
+      SDK telemetry stream (threshold rise/clear + eviction-active,
+      usage/eviction attributes) + example alert rule documented
+- [ ] 10.10 Alert-rule bundle plumbing: addon/plugin manifest schema gains a
+      rule-templates section; control plane seeds bundled stateful alert
+      rule templates with provenance (package id+version) on import/assign;
+      upgrade updates templates without clobbering customized rules;
+      removal marks orphans; rule-management UI shows provenance; SDK docs
+      (addon-sdk + wasm plugin SDK) define the convention
+- [ ] 10.11 otel-collector add-on ships its bundle: spool utilization
+      sustained-high + eviction-active templates matching the 10.9 OCSF
+      event attributes (trigger + clear), documented in the add-on README
+- [ ] 8.12 SRQL placeholder-rewrite sweep: the `$N`->`?` rewrite_placeholders
+      idiom is copy-pasted across ~15 query modules and breaks under
+      BoxedSqlQuery the moment a builder binds a parameter (endpoint_packages
+      instance fixed by the DB gate; sweep the rest + the translate-path `?`
+      emission for Postgrex execution)
+- [ ] 8.13 srql test fixture: add otel_metric_points table (diesel defines it;
+      first DB-backed test touching it will fail at fixture level)

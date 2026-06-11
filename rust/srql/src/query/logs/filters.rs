@@ -5,7 +5,9 @@ use crate::{
     parser::{Filter, FilterOp},
     query::BindParam,
     schema::logs::dsl::{
-        body as col_body, event_name as col_event_name, id as col_id, scope_name as col_scope_name,
+        body as col_body, event_name as col_event_name, id as col_id,
+        ingest_agent_id as col_ingest_agent_id, ingest_identity as col_ingest_identity,
+        ingest_partition as col_ingest_partition, scope_name as col_scope_name,
         scope_version as col_scope_version, service_instance as col_service_instance,
         service_name as col_service_name, service_version as col_service_version,
         severity_number as col_severity_number, severity_text as col_severity_text,
@@ -75,6 +77,18 @@ pub(super) fn apply_filter<'a>(mut query: LogsQuery<'a>, filter: &Filter) -> Res
         }
         "device_id" | "uid" | "source_device_uid" => {
             query = apply_metadata_identity_filter(query, filter, LOG_DEVICE_IDENTITY_KEYS)?;
+        }
+        // NOTE: `agent_id` below is already taken by the attributes-based
+        // metadata identity filter, so the ingest column filters use their
+        // exact `ingest_*` column names only — no `agent_id` alias.
+        "ingest_identity" => {
+            query = apply_text_filter!(query, filter, col_ingest_identity)?;
+        }
+        "ingest_agent_id" => {
+            query = apply_text_filter!(query, filter, col_ingest_agent_id)?;
+        }
+        "ingest_partition" => {
+            query = apply_text_filter!(query, filter, col_ingest_partition)?;
         }
         "gateway_id" => {
             query = apply_metadata_identity_filter(
@@ -245,7 +259,8 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
             Ok(())
         }
         "trace_id" | "span_id" | "service_name" | "service_version" | "service_instance"
-        | "source" | "scope_name" | "scope_version" | "event_name" | "body" | "message" => {
+        | "source" | "scope_name" | "scope_version" | "event_name" | "body" | "message"
+        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
             collect_text_params(params, filter)
         }
         "severity_text" | "severity" | "level" => collect_severity_params(params, filter),
@@ -343,6 +358,74 @@ mod tests {
         assert!(
             matches!(&params[2], BindParam::TextArray(values)
                 if values == &vec!["device.reboot".to_string(), "device.shutdown".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_identity_eq_filter_targets_column() {
+        let plan = data_plan(vec![scalar_filter(
+            "ingest_identity",
+            FilterOp::Eq,
+            "spiffe://sr/agent/edge-1",
+        )]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"logs\".\"ingest_identity\" = $3"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "spiffe://sr/agent/edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_agent_id_eq_filter_targets_column_not_attributes() {
+        let plan = data_plan(vec![scalar_filter(
+            "ingest_agent_id",
+            FilterOp::Eq,
+            "edge-1",
+        )]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(sql.contains("\"logs\".\"ingest_agent_id\" = $3"), "{sql}");
+        assert!(!sql.contains("ILIKE"), "{sql}");
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn agent_id_filter_still_routes_to_attributes_metadata() {
+        // Guard: the pre-existing `agent_id` filter is attributes-based and
+        // must not be shadowed by the new `ingest_agent_id` column filter.
+        let plan = data_plan(vec![scalar_filter("agent_id", FilterOp::Eq, "edge-1")]);
+
+        let (sql, _params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(!sql.contains("\"logs\".\"agent_id\""), "{sql}");
+        assert!(sql.contains("attributes"), "{sql}");
+    }
+
+    #[test]
+    fn ingest_partition_in_filter_generates_any_clause() {
+        let plan = data_plan(vec![Filter {
+            field: "ingest_partition".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["default".into(), "tenant-a".into()]),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"logs\".\"ingest_partition\" = ANY($3)"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["default".to_string(), "tenant-a".to_string()]),
             "params: {params:?}"
         );
     }

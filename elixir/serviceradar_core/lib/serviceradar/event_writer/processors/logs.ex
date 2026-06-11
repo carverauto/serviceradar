@@ -24,6 +24,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Observability.LogPromotion
@@ -57,10 +58,15 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
-      {:error, _} = error -> parse_log_payload(error, data, metadata)
-    end
+    attribution = IngestAttribution.from_metadata(metadata)
+
+    case_result =
+      case Jason.decode(data) do
+        {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
+        {:error, _} = error -> parse_log_payload(error, data, metadata)
+      end
+
+    IngestAttribution.attach(case_result, attribution)
   end
 
   # Private functions

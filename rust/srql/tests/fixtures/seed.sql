@@ -1,12 +1,14 @@
 -- Canonical SRQL device fixture rows (OCSF v1.7.0 aligned).
-TRUNCATE endpoint_inventory_packages;
-TRUNCATE endpoint_packages;
+-- endpoint_inventory_packages references endpoint_packages, so they must be
+-- truncated in the same statement; ocsf_devices is referenced by
+-- device_agent_availability and the virtualization_* tables, so CASCADE.
+TRUNCATE endpoint_inventory_packages, endpoint_packages;
 TRUNCATE endpoint_inventory_scans;
 TRUNCATE endpoint_inventory_current_package_counts;
 TRUNCATE endpoint_inventory_current_cpe_counts;
 TRUNCATE endpoint_inventory_package_counts_hourly;
 TRUNCATE endpoint_inventory_cpe_counts_hourly;
-TRUNCATE ocsf_devices;
+TRUNCATE ocsf_devices CASCADE;
 WITH base AS (
     SELECT NOW() AS now_ts
 )

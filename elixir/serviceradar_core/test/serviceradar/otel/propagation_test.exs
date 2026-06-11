@@ -103,6 +103,34 @@ defmodule ServiceRadar.Otel.PropagationTest do
     end
   end
 
+  describe "extract_link/1" do
+    test "builds a link from a header list without touching the current context" do
+      assert OpenTelemetry.Tracer.current_span_ctx() == :undefined
+
+      link = Propagation.extract_link([{"traceparent", @traceparent}])
+
+      assert %{trace_id: @trace_id, span_id: @span_id} = link
+      assert OpenTelemetry.Tracer.current_span_ctx() == :undefined
+    end
+
+    test "builds a link from a header map carrier" do
+      assert %{trace_id: @trace_id, span_id: @span_id} =
+               Propagation.extract_link(%{"traceparent" => @traceparent})
+    end
+
+    test "returns nil for malformed traceparent" do
+      assert Propagation.extract_link([{"traceparent", "garbage"}]) == nil
+    end
+
+    test "returns nil for empty or unusable carriers" do
+      assert Propagation.extract_link([]) == nil
+      assert Propagation.extract_link(%{}) == nil
+      assert Propagation.extract_link(nil) == nil
+      assert Propagation.extract_link([{"Nats-Msg-Id", "abc"}]) == nil
+      assert Propagation.extract_link([{:weird, 42}, "not-a-tuple"]) == nil
+    end
+  end
+
   describe "round trip" do
     test "publisher inject -> consumer extract preserves trace and span ids" do
       set_remote_span()

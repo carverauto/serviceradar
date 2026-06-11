@@ -710,7 +710,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "message",
         "event_name",
         "trace_id",
-        "span_id"
+        "span_id",
+        "ingest_identity",
+        "ingest_agent_id",
+        "ingest_partition"
       ],
       downsample: false
     },
@@ -749,7 +752,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "parent_span_id",
         "service_name",
         "name",
-        "status_code"
+        "status_code",
+        "ingest_identity",
+        "ingest_agent_id",
+        "ingest_partition"
       ],
       numeric_fields: ["status_code"],
       downsample: false
@@ -770,7 +776,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "parent_span_id",
         "service_name",
         "name",
-        "status_code"
+        "status_code",
+        "ingest_identity",
+        "ingest_agent_id",
+        "ingest_partition"
       ],
       numeric_fields: ["status_code"],
       downsample: false
@@ -790,7 +799,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "service_name",
         "span_name",
         "metric_type",
-        "is_slow"
+        "is_slow",
+        "ingest_identity",
+        "ingest_agent_id",
+        "ingest_partition"
       ],
       boolean_fields: ["is_slow"],
       downsample: false
@@ -812,7 +824,10 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "service_name",
         "metric_type",
         "unit",
-        "temporality"
+        "temporality",
+        "ingest_identity",
+        "ingest_agent_id",
+        "ingest_partition"
       ],
       downsample: false
     },

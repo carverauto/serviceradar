@@ -43,6 +43,12 @@ flate2 = "1"
 tokio-rustls = "0.26"
 rustls-pemfile = "2"
 
+# Free-disk floor for the relay spool: statvfs without unsafe. rustix is
+# already in the workspace dependency graph (tempfile et al.), so this pins
+# no new crate version.
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs"] }
+
 [dev-dependencies]
 tempfile = "3.0"
 

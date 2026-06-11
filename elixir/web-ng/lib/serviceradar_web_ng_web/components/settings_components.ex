@@ -51,6 +51,7 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         discovery_tab(path, current_scope),
         network_tab(path, current_scope),
         mail_tab(path, current_scope),
+        telemetry_onboarding_tab(path, current_scope),
         events_tab(path, current_scope),
         dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
@@ -113,6 +114,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       navigate: ~p"/settings/mail",
       active: String.starts_with?(path, "/settings/mail"),
       show: RBAC.can?(current_scope, "settings.mail.manage")
+    }
+  end
+
+  defp telemetry_onboarding_tab(path, current_scope) do
+    %{
+      label: "Telemetry onboarding",
+      navigate: ~p"/settings/telemetry-onboarding",
+      active: String.starts_with?(path, "/settings/telemetry-onboarding"),
+      show: RBAC.can?(current_scope, "settings.view")
     }
   end
 

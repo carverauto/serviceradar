@@ -97,6 +97,9 @@ func (p *Processor) parseOTELMetricPoints(msg jetstream.Msg) ([]models.OTELMetri
 
 	metricCounters.received.Add(int64(len(rows)))
 
+	// Per-message attribution: headers ride the JetStream message, not the batch.
+	stampMetricPointRows(rows, ingestAttributionFromMsg(msg))
+
 	return rows, true
 }
 

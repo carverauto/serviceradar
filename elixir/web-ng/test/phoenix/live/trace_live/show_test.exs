@@ -95,6 +95,40 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert html =~ "db.statement"
   end
 
+  test "span inspector shows ingest identity chips only when present", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    # core.query carries ingest attribution from srql.
+    lv
+    |> element("#trace-spans-row-1")
+    |> render_click()
+
+    html = render(lv)
+    assert html =~ "Ingest Identity"
+    assert html =~ "spiffe://sr/agent/edge-1"
+    assert html =~ "Ingest Agent"
+    assert html =~ "agent-edge-1"
+    assert html =~ "Ingest Partition"
+    assert html =~ "tenant-a"
+
+    # render.json carries the blank defaults — no chips.
+    lv
+    |> element("#trace-spans-row-2")
+    |> render_click()
+
+    html = render(lv)
+    refute html =~ "Ingest Identity"
+    refute html =~ "Ingest Partition"
+
+    # The root span omits the fields entirely — no chips either.
+    lv
+    |> element("#trace-spans-row-0")
+    |> render_click()
+
+    html = render(lv)
+    refute html =~ "Ingest Identity"
+  end
+
   test "shows retention notice when summary exists but spans expired", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :expired)
 
@@ -198,7 +232,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
           "status_code" => 1,
           "status_message" => "",
           "attributes" => "{}",
-          "timestamp" => "2023-11-14T22:13:20Z"
+          "timestamp" => "2023-11-14T22:13:20Z",
+          # Rows ingested before the attribution columns landed carry the
+          # NOT NULL DEFAULT '' values.
+          "ingest_identity" => "",
+          "ingest_agent_id" => "",
+          "ingest_partition" => ""
         },
         %{
           "trace_id" => @trace_id,
@@ -212,7 +251,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
           "status_code" => 2,
           "status_message" => "boom",
           "attributes" => ~s({"db.statement":"SELECT 1"}),
-          "timestamp" => "2023-11-14T22:13:20Z"
+          "timestamp" => "2023-11-14T22:13:20Z",
+          "ingest_identity" => "spiffe://sr/agent/edge-1",
+          "ingest_agent_id" => "agent-edge-1",
+          "ingest_partition" => "tenant-a"
         },
         %{
           "trace_id" => @trace_id,

@@ -29,6 +29,10 @@ language: rust                # go | rust
 
 capabilities:
   - otlp-relay:v1
+  # OCSF spool-usage events (threshold transitions + elevated-state
+  # heartbeat) over AddonService.StreamTelemetry, so operators can alert on
+  # edge buffering pressure through the existing event-to-alert pipeline.
+  - native-telemetry:v1
 
 requires:
   base_agent: ">=1.2.0"

@@ -112,23 +112,34 @@
     "agent_forward": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Durable relay spool settings (the durability owner between OTLP OK and gateway ack).",
+      "title": "Relay spool retention",
+      "description": "Durable relay spool settings (the durability owner between OTLP OK and gateway ack). The spool is bounded: when any bound is reached, the oldest sealed segments are evicted first and every evicted record is counted in delivery accounting — telemetry is never allowed to fill the disk. Changing these bounds takes effect immediately on the running add-on, without a restart. Sizing hint: 256 MiB buffers roughly tens of minutes of moderate edge volume; for long-outage durability use the NATS leaf JetStream transport instead of a larger spool.",
       "properties": {
         "spool_dir": {
           "type": "string",
-          "description": "Directory holding spool segments and the ack-watermark file.",
+          "title": "Spool directory",
+          "description": "Directory holding spool segments and the ack-watermark file. Changing the directory reopens the spool at the new location.",
           "default": "/var/lib/serviceradar/otel-spool"
         },
         "max_bytes": {
           "type": "integer",
-          "minimum": 1,
-          "description": "Total spool budget in bytes before oldest-segment eviction.",
+          "minimum": 1048576,
+          "title": "Maximum spool size (bytes)",
+          "description": "Total on-disk budget in bytes before oldest-segment eviction (default 256 MiB). Shrinking this bound evicts oldest data immediately, with evictions counted. 256 MiB is roughly tens of minutes at moderate edge volume; use the NATS leaf transport for long-outage durability rather than a multi-gigabyte spool.",
           "default": 268435456
         },
         "max_age_secs": {
           "type": "integer",
           "minimum": 1,
-          "description": "Optional age bound in seconds for spooled-but-unacked segments."
+          "title": "Maximum segment age (seconds)",
+          "description": "Optional age bound in seconds: sealed segments older than this are evicted (oldest first, counted) even when the spool is under its size budget. Unset means no age bound."
+        },
+        "min_free_disk_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "title": "Free-disk floor (bytes)",
+          "description": "Minimum free space in bytes the spool must leave on its volume (default 512 MiB). When the volume's free space drops below this floor the spool behaves as if its own bound were reached: oldest segments are evicted to make room and, if that cannot help, new telemetry is rejected with per-signal counts — the spool never fills the disk or crashes. Set to 0 to disable the floor.",
+          "default": 536870912
         }
       }
     }

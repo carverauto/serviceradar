@@ -248,6 +248,24 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                         <.kv label="End" value={format_ns_time(row.end_ns)} mono />
                         <.kv label="Duration" value={format_duration_ms(row.duration_ms)} mono />
                         <.kv label="Service" value={row.service} />
+                        <.kv
+                          :if={non_empty(Map.get(row.span, "ingest_identity"))}
+                          label="Ingest Identity"
+                          value={Map.get(row.span, "ingest_identity")}
+                          mono
+                        />
+                        <.kv
+                          :if={non_empty(Map.get(row.span, "ingest_agent_id"))}
+                          label="Ingest Agent"
+                          value={Map.get(row.span, "ingest_agent_id")}
+                          mono
+                        />
+                        <.kv
+                          :if={non_empty(Map.get(row.span, "ingest_partition"))}
+                          label="Ingest Partition"
+                          value={Map.get(row.span, "ingest_partition")}
+                          mono
+                        />
                       </div>
                       <.json_block
                         label="Attributes"

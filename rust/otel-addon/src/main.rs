@@ -24,12 +24,16 @@
 //! - advertises `otlp-relay:v1` and serves `AddonService.RelayOtlp`,
 //!   streaming spooled frames to the agent and advancing the spool's ack
 //!   watermark as cumulative acks arrive;
+//! - advertises `native-telemetry:v1` and serves `StreamTelemetry`,
+//!   emitting OCSF spool-usage events on utilization threshold transitions
+//!   (`spool_monitor`);
 //! - reports Degraded when the spool is >= 90% full or a listener is down.
 //!
 //! Logging goes to stderr (env_logger's default): stdout is reserved for the
 //! go-plugin handshake line.
 
 mod addon;
+mod spool_monitor;
 
 use addon::OtelCollectorAddon;
 

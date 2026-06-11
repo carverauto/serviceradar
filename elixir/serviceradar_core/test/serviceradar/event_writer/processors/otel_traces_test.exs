@@ -513,4 +513,98 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert OtelTraces.parse_message(%{data: <<255, 255, 255>>, metadata: %{}}) == nil
     end
   end
+
+  describe "parse_message/1 ingest attribution" do
+    @sr_headers [
+      {"Sr-Ingest-Identity", "spiffe://serviceradar/gateway/gw-1"},
+      {"Sr-Agent-Id", "agent-7"},
+      {"Sr-Partition", "site-a"}
+    ]
+
+    defp minimal_trace_json do
+      Jason.encode!(%{
+        "timestamp" => "2024-01-15T10:30:00Z",
+        "trace_id" => "0123456789abcdef0123456789abcdef",
+        "span_id" => "0123456789abcdef",
+        "name" => "op",
+        "service_name" => "svc"
+      })
+    end
+
+    test "maps Sr-* headers onto the ingest columns" do
+      message = %{
+        data: minimal_trace_json(),
+        metadata: %{subject: "otel.traces.raw", headers: @sr_headers}
+      }
+
+      row = OtelTraces.parse_message(message)
+
+      assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+      assert row.ingest_agent_id == "agent-7"
+      assert row.ingest_partition == "site-a"
+    end
+
+    test "absent headers default the ingest columns to empty strings" do
+      message = %{data: minimal_trace_json(), metadata: %{subject: "otel.traces.raw"}}
+
+      row = OtelTraces.parse_message(message)
+
+      assert row.ingest_identity == ""
+      assert row.ingest_agent_id == ""
+      assert row.ingest_partition == ""
+    end
+
+    test "attaches the triple to every protobuf span row" do
+      request = %ExportTraceServiceRequest{
+        resource_spans: [
+          %ResourceSpans{
+            resource: %Resource{
+              attributes: [
+                %KeyValue{
+                  key: "service.name",
+                  value: %AnyValue{value: {:string_value, "svc"}}
+                }
+              ]
+            },
+            scope_spans: [
+              %ScopeSpans{
+                scope: %InstrumentationScope{name: "scope", version: "1.0"},
+                spans: [
+                  %Span{
+                    trace_id: :binary.copy(<<1>>, 16),
+                    span_id: :binary.copy(<<2>>, 8),
+                    name: "op-a",
+                    start_time_unix_nano: 1_705_315_800_000_000_000,
+                    end_time_unix_nano: 1_705_315_800_100_000_000
+                  },
+                  %Span{
+                    trace_id: :binary.copy(<<1>>, 16),
+                    span_id: :binary.copy(<<3>>, 8),
+                    name: "op-b",
+                    start_time_unix_nano: 1_705_315_800_000_000_000,
+                    end_time_unix_nano: 1_705_315_800_100_000_000
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      message = %{
+        data: ExportTraceServiceRequest.encode(request),
+        metadata: %{subject: "otel.traces.raw", headers: @sr_headers}
+      }
+
+      rows = OtelTraces.parse_message(message)
+
+      assert length(rows) == 2
+
+      for row <- rows do
+        assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+        assert row.ingest_agent_id == "agent-7"
+        assert row.ingest_partition == "site-a"
+      end
+    end
+  end
 end

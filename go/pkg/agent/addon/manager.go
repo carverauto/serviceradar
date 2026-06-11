@@ -66,7 +66,14 @@ type Config struct {
 	// add-on is healthy again (the add-on resumes from its durable ack
 	// watermark, so stop/start is lossless).
 	OtlpRelayRunner func(ctx context.Context, addonID string, client coreaddon.OtlpRelayClient)
-	Logger          zerolog.Logger
+	// LocalOtlpEndpoint is a static fallback OTLP endpoint for add-on
+	// self-telemetry (agent config knob), used only when the desired add-on
+	// set does not include a sidecar-supervised otel-collector to derive the
+	// endpoint from (for example, a collector running as a systemd add-on or
+	// host service). The endpoint derived from the otel-collector add-on's
+	// delivered config always wins.
+	LocalOtlpEndpoint string
+	Logger            zerolog.Logger
 }
 
 func applyDefaults(cfg Config) Config {
@@ -107,6 +114,11 @@ type Manager struct {
 	mu      sync.Mutex
 	runners map[string]*runner
 	closed  bool
+	// localOtlpEndpoint is the self-telemetry OTLP endpoint injected into
+	// spawned add-on environments, derived from the otel-collector add-on's
+	// delivered config on every Apply (falling back to cfg.LocalOtlpEndpoint,
+	// then ""). Read at spawn time so restarts pick up the current value.
+	localOtlpEndpoint string
 }
 
 var _ AddonManager = (*Manager)(nil)
@@ -133,6 +145,16 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 	desired := make(map[string]Spec, len(specs))
 	for _, s := range specs {
 		desired[s.ID] = s
+	}
+
+	// Self-telemetry: derive the local OTLP endpoint from the otel-collector
+	// add-on's delivered config (cross-add-on config access happens here, at
+	// reconcile time, where every desired spec is in hand). Add-ons spawned
+	// or restarted from now on export to it; already-running add-ons keep
+	// their spawn-time environment until their next restart.
+	m.localOtlpEndpoint = localOtlpEndpointFromSpecs(specs)
+	if m.localOtlpEndpoint == "" {
+		m.localOtlpEndpoint = m.cfg.LocalOtlpEndpoint
 	}
 
 	// Collect runners to tear down and shut them down AFTER releasing the lock:
@@ -176,10 +198,19 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 // startRunnerLocked creates and starts a supervisor for spec. The caller holds m.mu.
 func (m *Manager) startRunnerLocked(spec Spec) {
 	r := newRunner(spec, m.cfg)
+	r.localOtlpEndpoint = m.currentLocalOtlpEndpoint
 	m.runners[spec.ID] = r
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go r.run(ctx)
+}
+
+// currentLocalOtlpEndpoint returns the self-telemetry OTLP endpoint derived
+// by the most recent Apply ("" when no collector is configured).
+func (m *Manager) currentLocalOtlpEndpoint() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.localOtlpEndpoint
 }
 
 // Status returns a stable snapshot of every supervised add-on.
@@ -230,6 +261,10 @@ type runner struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// localOtlpEndpoint, when non-nil, supplies the current self-telemetry
+	// OTLP endpoint at spawn time (nil in tests that build runners directly).
+	localOtlpEndpoint func() string
 
 	reconfigure chan struct{}
 
@@ -363,10 +398,22 @@ func (r *runner) runOnce(ctx context.Context) error {
 	spec := r.currentSpec()
 	r.setState(StateStarting, "")
 
+	cmd := exec.CommandContext(ctx, spec.BinaryPath, spec.Args...) //nolint:gosec // path comes from a verified, signed add-on artifact
+
+	// Self-telemetry env convention (10.5): point the add-on at the local
+	// otel-collector when one is configured. addonProcessEnv handles the
+	// loop guard (never the collector itself), the operator opt-out, and
+	// explicit-endpoint precedence.
+	localEndpoint := ""
+	if r.localOtlpEndpoint != nil {
+		localEndpoint = r.localOtlpEndpoint()
+	}
+	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
+
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  coreaddon.Handshake,
 		Plugins:          coreaddon.ClientPluginSet(),
-		Cmd:              exec.CommandContext(ctx, spec.BinaryPath, spec.Args...), //nolint:gosec // path comes from a verified, signed add-on artifact
+		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
 		Logger:           r.hclogger,

@@ -31,6 +31,9 @@ pub struct LogRow {
     pub attributes: Option<String>,
     pub resource_attributes: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub ingest_identity: String,
+    pub ingest_agent_id: String,
+    pub ingest_partition: String,
 }
 
 impl LogRow {
@@ -61,6 +64,9 @@ impl LogRow {
             "attributes": self.attributes.clone(),
             "resource_attributes": self.resource_attributes,
             "source_device_uid": source_device_uid,
+            "ingest_identity": self.ingest_identity,
+            "ingest_agent_id": self.ingest_agent_id,
+            "ingest_partition": self.ingest_partition,
             "raw_data": self.attributes.unwrap_or_default(),
         })
     }
@@ -96,6 +102,9 @@ pub struct TraceSpanRow {
     pub dropped_events_count: i32,
     pub dropped_links_count: i32,
     pub created_at: DateTime<Utc>,
+    pub ingest_identity: String,
+    pub ingest_agent_id: String,
+    pub ingest_partition: String,
 }
 
 impl TraceSpanRow {
@@ -127,6 +136,9 @@ impl TraceSpanRow {
             "dropped_attributes_count": self.dropped_attributes_count,
             "dropped_events_count": self.dropped_events_count,
             "dropped_links_count": self.dropped_links_count,
+            "ingest_identity": self.ingest_identity,
+            "ingest_agent_id": self.ingest_agent_id,
+            "ingest_partition": self.ingest_partition,
             "raw_data": self.attributes.unwrap_or_default(),
         })
     }

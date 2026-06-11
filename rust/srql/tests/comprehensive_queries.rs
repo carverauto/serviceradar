@@ -174,7 +174,8 @@ async fn comprehensive_queries_match_fixtures() {
         TestCase {
             // device-delta is 8 days old, so last_7d should exclude it.
             // device-alpha (30m), device-beta (3h), device-gamma (2h) should be included.
-            query: "in:devices time:last_7d",
+            // include_inactive:true keeps inactive device-beta visible.
+            query: "in:devices include_inactive:true time:last_7d",
             expected_count: 3,
             validator: None,
         },
@@ -188,7 +189,7 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             // Sort by last_seen desc. device-alpha (30m) > gamma (2h) > beta (3h) > delta (8d)
-            query: "in:devices sort:last_seen:desc",
+            query: "in:devices include_inactive:true sort:last_seen:desc",
             expected_count: 4,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
@@ -200,7 +201,7 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             // Sort by last_seen asc. delta (8d) < beta (3h) < gamma (2h) < alpha (30m)
-            query: "in:devices sort:last_seen:asc",
+            query: "in:devices include_inactive:true sort:last_seen:asc",
             expected_count: 4,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
@@ -227,8 +228,8 @@ async fn comprehensive_queries_match_fixtures() {
             validator: None,
         },
         TestCase {
-            // is_available:false -> beta
-            query: "in:devices is_available:false",
+            // is_available:false -> beta (inactive, so include_inactive is needed)
+            query: "in:devices include_inactive:true is_available:false",
             expected_count: 1,
             validator: Some(Box::new(|body| {
                 assert_eq!(body["results"][0]["uid"], "device-beta")
@@ -245,7 +246,7 @@ async fn comprehensive_queries_match_fixtures() {
         },
         TestCase {
             // Per-agent latest availability: agent-1 sees alpha and beta as reachable.
-            query: "in:devices available_from_agent:agent-1 sort:uid:asc",
+            query: "in:devices include_inactive:true available_from_agent:agent-1 sort:uid:asc",
             expected_count: 2,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();
@@ -301,7 +302,7 @@ async fn comprehensive_queries_match_fixtures() {
         TestCase {
             // os.name with LIKE pattern -> match devices with "OS" in os name
             // IOS-XE, NX-OS, PAN-OS, IOS all contain "OS"
-            query: "in:devices os.name:%OS%",
+            query: "in:devices include_inactive:true os.name:%OS%",
             expected_count: 4,
             validator: None,
         },
@@ -316,7 +317,7 @@ async fn comprehensive_queries_match_fixtures() {
         // JSONB path queries for metadata field
         TestCase {
             // metadata.site:dfw-edge -> device-alpha and device-beta
-            query: "in:devices metadata.site:dfw-edge",
+            query: "in:devices include_inactive:true metadata.site:dfw-edge",
             expected_count: 2,
             validator: Some(Box::new(|body| {
                 let results = body["results"].as_array().unwrap();

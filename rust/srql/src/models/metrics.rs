@@ -29,6 +29,9 @@ pub struct OtelMetricRow {
     pub level: Option<String>,
     pub unit: Option<String>,
     pub created_at: DateTime<Utc>,
+    pub ingest_identity: String,
+    pub ingest_agent_id: String,
+    pub ingest_partition: String,
 }
 
 impl OtelMetricRow {
@@ -53,6 +56,9 @@ impl OtelMetricRow {
             "component": self.component,
             "level": self.level,
             "unit": self.unit,
+            "ingest_identity": self.ingest_identity,
+            "ingest_agent_id": self.ingest_agent_id,
+            "ingest_partition": self.ingest_partition,
         })
     }
 }
@@ -78,6 +84,9 @@ pub struct OtelMetricPointRow {
     pub scope_name: String,
     pub service_instance_id: String,
     pub created_at: DateTime<Utc>,
+    pub ingest_identity: String,
+    pub ingest_agent_id: String,
+    pub ingest_partition: String,
 }
 
 impl OtelMetricPointRow {
@@ -100,6 +109,9 @@ impl OtelMetricPointRow {
             "start_time_unix_nano": self.start_time_unix_nano,
             "scope_name": self.scope_name,
             "service_instance_id": self.service_instance_id,
+            "ingest_identity": self.ingest_identity,
+            "ingest_agent_id": self.ingest_agent_id,
+            "ingest_partition": self.ingest_partition,
         })
     }
 }

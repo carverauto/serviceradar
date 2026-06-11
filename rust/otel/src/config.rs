@@ -63,6 +63,12 @@ pub struct AgentForwardConfig {
     /// Optional age bound in seconds for spooled-but-unacked segments.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_age_secs: Option<u64>,
+    /// Free-disk floor in bytes (default 512 MiB; 0 disables): when the
+    /// spool volume's available space drops below this, the spool behaves
+    /// as bound-reached (evict-oldest, counted rejection) instead of
+    /// filling the disk.
+    #[serde(default = "default_min_free_disk_bytes")]
+    pub min_free_disk_bytes: u64,
 }
 
 impl Default for AgentForwardConfig {
@@ -71,6 +77,7 @@ impl Default for AgentForwardConfig {
             spool_dir: default_spool_dir(),
             max_bytes: default_spool_max_bytes(),
             max_age_secs: None,
+            min_free_disk_bytes: default_min_free_disk_bytes(),
         }
     }
 }
@@ -83,6 +90,7 @@ impl AgentForwardConfig {
             max_bytes: self.max_bytes,
             max_age: self.max_age_secs.map(Duration::from_secs),
             segment_max_bytes: crate::agent_forward::spool::DEFAULT_SEGMENT_MAX_BYTES,
+            min_free_disk_bytes: self.min_free_disk_bytes,
         }
     }
 }
@@ -473,6 +481,10 @@ fn default_spool_dir() -> String {
 
 fn default_spool_max_bytes() -> u64 {
     crate::agent_forward::spool::DEFAULT_SPOOL_MAX_BYTES
+}
+
+fn default_min_free_disk_bytes() -> u64 {
+    crate::agent_forward::spool::DEFAULT_MIN_FREE_DISK_BYTES
 }
 
 fn default_http_enabled() -> bool {
@@ -928,6 +940,7 @@ backend = "agent"
 spool_dir = "/var/tmp/otel-spool"
 max_bytes = 1048576
 max_age_secs = 600
+min_free_disk_bytes = 33554432
 "#;
         let config: Config = toml::from_str(toml_content).unwrap();
         assert_eq!(config.output.backend, OutputBackend::Agent);
@@ -935,11 +948,13 @@ max_age_secs = 600
         assert_eq!(agent_forward.spool_dir, "/var/tmp/otel-spool");
         assert_eq!(agent_forward.max_bytes, 1024 * 1024);
         assert_eq!(agent_forward.max_age_secs, Some(600));
+        assert_eq!(agent_forward.min_free_disk_bytes, 32 * 1024 * 1024);
 
         let spool = agent_forward.spool_config();
         assert_eq!(spool.dir, PathBuf::from("/var/tmp/otel-spool"));
         assert_eq!(spool.max_bytes, 1024 * 1024);
         assert_eq!(spool.max_age, Some(Duration::from_secs(600)));
+        assert_eq!(spool.min_free_disk_bytes, 32 * 1024 * 1024);
     }
 
     #[test]
@@ -958,6 +973,10 @@ backend = "agent"
             crate::agent_forward::spool::DEFAULT_SPOOL_MAX_BYTES
         );
         assert!(defaults.max_age_secs.is_none());
+        assert_eq!(
+            defaults.min_free_disk_bytes,
+            crate::agent_forward::spool::DEFAULT_MIN_FREE_DISK_BYTES
+        );
     }
 
     #[test]

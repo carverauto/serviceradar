@@ -234,6 +234,38 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
       assert html =~ "regular syslog message"
       refute html =~ "FunctionClauseError"
     end
+
+    test "renders ingest identity fields when present", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      log_id = "7c0e98aa-1a55-4dd2-9c41-3210fe5da7bd"
+      insert_test_ingest_log!(log_id)
+
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      assert html =~ "Ingest Identity"
+      assert has_element?(lv, "#log-ingest-identity", "spiffe://sr/agent/edge-1")
+      assert has_element?(lv, "#log-ingest-agent", "agent-edge-1")
+      assert has_element?(lv, "#log-ingest-partition", "tenant-a")
+    end
+
+    test "omits ingest identity fields when blank", %{conn: conn} do
+      user = operator_user_fixture()
+      conn = log_in_user(conn, user)
+
+      # insert_test_log! leaves the ingest columns at their NOT NULL
+      # DEFAULT '' values, which must not render.
+      log_id = "550e8400-e29b-41d4-a716-446655440000"
+      insert_test_log!(log_id)
+
+      {:ok, lv, html} = live(conn, ~p"/logs/#{log_id}")
+
+      refute html =~ "Ingest Identity"
+      refute has_element?(lv, "#log-ingest-identity")
+      refute has_element?(lv, "#log-ingest-agent")
+      refute has_element?(lv, "#log-ingest-partition")
+    end
   end
 
   describe "can_create_rules? helper" do
@@ -354,6 +386,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.ShowTest do
             "mfa" => ["Elixir.ServiceRadar.Observability.ZenRuleSync", "log_reconcile_results", 1]
           }),
         created_at: now
+      }
+    ])
+  end
+
+  defp insert_test_ingest_log!(log_id) when is_binary(log_id) do
+    {:ok, uuid} = Ecto.UUID.dump(log_id)
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("logs", [
+      %{
+        timestamp: now,
+        observed_timestamp: now,
+        id: uuid,
+        severity_text: "INFO",
+        severity_number: 9,
+        body: "ingest-attributed message",
+        service_name: "test-service",
+        attributes: Jason.encode!(%{"event" => "ingest"}),
+        created_at: now,
+        ingest_identity: "spiffe://sr/agent/edge-1",
+        ingest_agent_id: "agent-edge-1",
+        ingest_partition: "tenant-a"
       }
     ])
   end

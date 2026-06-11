@@ -354,6 +354,9 @@ diesel::table! {
         attributes -> Nullable<Text>,
         resource_attributes -> Nullable<Text>,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 
@@ -438,6 +441,9 @@ diesel::table! {
         dropped_events_count -> Int4,
         dropped_links_count -> Int4,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 
@@ -465,6 +471,9 @@ diesel::table! {
         level -> Nullable<Text>,
         unit -> Nullable<Text>,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 
@@ -490,6 +499,9 @@ diesel::table! {
         scope_name -> Text,
         service_instance_id -> Text,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 

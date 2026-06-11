@@ -22,6 +22,7 @@ sha2 = "0.10"
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "time", "io-util"] }
 tokio-stream = { workspace = true, features = ["sync"] }
 tonic = { workspace = true }
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 prost = { workspace = true }

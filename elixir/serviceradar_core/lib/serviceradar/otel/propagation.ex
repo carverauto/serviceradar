@@ -51,6 +51,35 @@ defmodule ServiceRadar.Otel.Propagation do
     end
   end
 
+  @doc """
+  Builds an OpenTelemetry span link from W3C trace-context headers without
+  touching the process context.
+
+  Unlike `extract_context/1`, the extraction happens against a fresh context,
+  so the caller's current span context is never replaced. Returns an
+  `t:OpenTelemetry.link/0` for the remote span context, or `nil` when the
+  carrier holds no valid `traceparent`.
+  """
+  @spec extract_link(headers() | %{optional(binary()) => binary()} | nil) ::
+          OpenTelemetry.link() | nil
+  def extract_link(headers) do
+    case normalize_headers(headers) do
+      [] ->
+        nil
+
+      carrier ->
+        ctx = :otel_propagator_text_map.extract_to(:otel_ctx.new(), carrier)
+
+        case :otel_tracer.current_span_ctx(ctx) do
+          :undefined -> nil
+          span_ctx -> normalize_link(OpenTelemetry.link(span_ctx))
+        end
+    end
+  end
+
+  defp normalize_link(:undefined), do: nil
+  defp normalize_link(link), do: link
+
   defp normalize_headers(headers) when is_map(headers) do
     headers
     |> Enum.map(fn {key, value} -> {key, value} end)

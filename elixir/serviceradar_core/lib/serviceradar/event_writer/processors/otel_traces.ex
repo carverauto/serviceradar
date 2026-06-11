@@ -45,6 +45,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     dropped_links_count INTEGER NOT NULL DEFAULT 0,
     service_namespace TEXT NOT NULL DEFAULT '',
     deployment_environment TEXT NOT NULL DEFAULT '',
+    ingest_identity TEXT NOT NULL DEFAULT '',
+    ingest_agent_id TEXT NOT NULL DEFAULT '',
+    ingest_partition TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (timestamp, trace_id, span_id)
   );
@@ -62,6 +65,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias Opentelemetry.Proto.Trace.V1.Status
   alias Opentelemetry.Proto.Trace.V1.Status.StatusCode
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
@@ -92,14 +96,19 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, json} ->
-        parse_json_trace(json, metadata)
+    attribution = IngestAttribution.from_metadata(metadata)
 
-      {:error, _} ->
-        # Try protobuf parsing
-        parse_protobuf_trace(data, metadata)
-    end
+    case_result =
+      case Jason.decode(data) do
+        {:ok, json} ->
+          parse_json_trace(json, metadata)
+
+        {:error, _} ->
+          # Try protobuf parsing
+          parse_protobuf_trace(data, metadata)
+      end
+
+    IngestAttribution.attach(case_result, attribution)
   end
 
   # Private functions

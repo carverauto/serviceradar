@@ -2,6 +2,14 @@ package models
 
 import "time"
 
+// Ingest attribution columns (refactor-otel-signal-correlation, 10.6).
+//
+// Every OTEL signal row carries the edge ingest attribution stamped upstream
+// as NATS message headers: Sr-Ingest-Identity -> IngestIdentity,
+// Sr-Agent-Id -> IngestAgentID, Sr-Partition -> IngestPartition. The columns
+// are TEXT NOT NULL DEFAULT '' and an absent header stays "", so edge- and
+// centrally-ingested signals are indistinguishable except for these fields.
+
 // OTELLogRow represents a normalized log entry emitted by OTEL collectors.
 type OTELLogRow struct {
 	Timestamp          time.Time
@@ -22,6 +30,9 @@ type OTELLogRow struct {
 	ScopeAttributes    string
 	Attributes         string
 	ResourceAttributes string
+	IngestIdentity     string
+	IngestAgentID      string
+	IngestPartition    string
 }
 
 // OTELMetricRow captures a single OTEL performance metric sample.
@@ -45,6 +56,9 @@ type OTELMetricRow struct {
 	Component       string
 	Level           string
 	Unit            string // Unit of measurement (e.g., "ms", "s", "bytes", "1" for counts)
+	IngestIdentity  string
+	IngestAgentID   string
+	IngestPartition string
 }
 
 // OTELMetricPointRow captures a real OTLP metric data point (sum, gauge, or
@@ -76,6 +90,9 @@ type OTELMetricPointRow struct {
 	Sum               *float64
 	BucketCounts      *string
 	ExplicitBounds    *string
+	IngestIdentity    string
+	IngestAgentID     string
+	IngestPartition   string
 }
 
 // OTELTraceRow stores a single OTEL trace span row.
@@ -115,4 +132,7 @@ type OTELTraceRow struct {
 	DroppedAttributesCount int32
 	DroppedEventsCount     int32
 	DroppedLinksCount      int32
+	IngestIdentity         string
+	IngestAgentID          string
+	IngestPartition        string
 }

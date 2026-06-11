@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_nats::jetstream::{self, Message};
+use async_nats::HeaderMap;
 use log::debug;
 use serde_json::Value;
 
@@ -81,19 +82,36 @@ pub async fn process_message(
 
     if !rules.is_empty() || passthrough {
         let data = serde_json::to_vec(&context)?;
-        let mut published = false;
-        if let Some(suffix) = &cfg.result_subject_suffix {
-            let result_subject = format!("{}.{}", msg.subject, suffix.trim_start_matches('.'));
-            debug!("published result to {result_subject}");
-            js.publish(result_subject, data.into()).await?.await?;
-            published = true;
-        } else if let Some(subject) = &cfg.result_subject {
-            debug!("published result to {subject}");
-            js.publish(subject.clone(), data.into()).await?.await?;
-            published = true;
-        }
 
-        if published {
+        // Copy attribution (Sr-*) and trace-context headers from the consumed
+        // message onto the republished one. The central collector and edge
+        // relay stamp those headers on the original message; downstream
+        // consumers (e.g. the db-event-writer) read them off zen's
+        // republished messages, so dropping them here would lose attribution
+        // at the zen hop.
+        let mut headers = HeaderMap::new();
+        copy_forward_headers(msg.headers.as_ref(), &mut headers);
+
+        let result_subject = if let Some(suffix) = &cfg.result_subject_suffix {
+            Some(format!(
+                "{}.{}",
+                msg.subject,
+                suffix.trim_start_matches('.')
+            ))
+        } else {
+            cfg.result_subject.clone()
+        };
+
+        if let Some(result_subject) = result_subject {
+            debug!("published result to {result_subject}");
+            if headers.is_empty() {
+                js.publish(result_subject, data.into()).await?.await?;
+            } else {
+                js.publish_with_headers(result_subject, headers, data.into())
+                    .await?
+                    .await?;
+            }
+
             if let Some(counters) = counters {
                 counters.record_forwarded();
                 if passthrough {
@@ -108,6 +126,43 @@ pub async fn process_message(
     }
 
     Ok(())
+}
+
+/// Headers copied through from the consumed message to every republished
+/// message: ServiceRadar attribution headers stamped by the central collector
+/// and edge relay, plus W3C trace context so the trace survives the zen hop.
+const FORWARDED_HEADERS: [&str; 5] = [
+    "Sr-Ingest-Identity",
+    "Sr-Agent-Id",
+    "Sr-Partition",
+    "traceparent",
+    "tracestate",
+];
+
+/// Copy the forwardable headers from the consumed message into `outgoing`.
+///
+/// Incoming header names are matched case-insensitively and written with
+/// canonical casing. Headers absent upstream are simply not set, and headers
+/// already present in `outgoing` (set by zen itself) are preserved.
+pub(crate) fn copy_forward_headers(incoming: Option<&HeaderMap>, outgoing: &mut HeaderMap) {
+    let Some(incoming) = incoming else {
+        return;
+    };
+
+    for canonical in FORWARDED_HEADERS {
+        if outgoing.get(canonical).is_some() {
+            continue;
+        }
+
+        for (name, values) in incoming.iter() {
+            let name: &str = name.as_ref();
+            if name.eq_ignore_ascii_case(canonical) {
+                for value in values {
+                    outgoing.append(canonical, value.clone());
+                }
+            }
+        }
+    }
 }
 
 /// True when an OTEL log message with no decision rules should be
@@ -142,6 +197,7 @@ pub(crate) fn merge_rule_result(previous: Value, result: Value) -> Value {
 #[cfg(test)]
 mod tests {
     use crate::config::{Config, DecisionGroupConfig, MessageFormat, RuleEntry};
+    use async_nats::HeaderMap;
     use prost::Message;
     use serde_json::json;
 
@@ -390,6 +446,149 @@ mod tests {
             &MessageFormat::Protobuf,
             &[]
         ));
+    }
+
+    #[test]
+    fn forwarded_headers_copied_case_insensitively_with_canonical_casing() {
+        let mut incoming = HeaderMap::new();
+        incoming.insert("sr-ingest-identity", "spiffe://example/central-collector");
+        incoming.insert("SR-AGENT-ID", "agent-1");
+        incoming.insert("Sr-Partition", "partition-a");
+        incoming.insert(
+            "TraceParent",
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01",
+        );
+        incoming.insert("tracestate", "vendor=foo");
+        incoming.append("tracestate", "other=bar");
+        // Unrelated upstream headers must not be copied through (re-sending
+        // e.g. Nats-Msg-Id would collide with JetStream dedupe).
+        incoming.insert("Nats-Msg-Id", "dedupe-key");
+
+        let mut outgoing = HeaderMap::new();
+        super::copy_forward_headers(Some(&incoming), &mut outgoing);
+
+        assert_eq!(
+            outgoing.get("Sr-Ingest-Identity").map(|v| v.as_str()),
+            Some("spiffe://example/central-collector")
+        );
+        assert_eq!(
+            outgoing.get("Sr-Agent-Id").map(|v| v.as_str()),
+            Some("agent-1")
+        );
+        assert_eq!(
+            outgoing.get("Sr-Partition").map(|v| v.as_str()),
+            Some("partition-a")
+        );
+        assert_eq!(
+            outgoing.get("traceparent").map(|v| v.as_str()),
+            Some("00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01")
+        );
+
+        // Multi-valued headers keep every value.
+        let tracestate: Vec<&str> = outgoing.get_all("tracestate").map(|v| v.as_str()).collect();
+        assert_eq!(tracestate, vec!["vendor=foo", "other=bar"]);
+
+        // Written with canonical casing, not whatever casing arrived.
+        assert!(outgoing.get("SR-AGENT-ID").is_none());
+        assert!(outgoing.get("sr-ingest-identity").is_none());
+        assert!(outgoing.get("TraceParent").is_none());
+
+        // Unrelated headers stay behind.
+        assert!(outgoing.get("Nats-Msg-Id").is_none());
+    }
+
+    #[test]
+    fn absent_forwarded_headers_are_not_set() {
+        // No incoming header block at all.
+        let mut outgoing = HeaderMap::new();
+        super::copy_forward_headers(None, &mut outgoing);
+        assert!(outgoing.is_empty());
+
+        // Incoming headers present, but none forwardable.
+        let mut incoming = HeaderMap::new();
+        incoming.insert("Nats-Msg-Id", "dedupe-key");
+        let mut outgoing = HeaderMap::new();
+        super::copy_forward_headers(Some(&incoming), &mut outgoing);
+        assert!(outgoing.is_empty());
+
+        // Partial set: only the headers actually present are copied.
+        let mut incoming = HeaderMap::new();
+        incoming.insert("Sr-Agent-Id", "agent-1");
+        let mut outgoing = HeaderMap::new();
+        super::copy_forward_headers(Some(&incoming), &mut outgoing);
+        assert_eq!(
+            outgoing.get("Sr-Agent-Id").map(|v| v.as_str()),
+            Some("agent-1")
+        );
+        assert!(outgoing.get("Sr-Ingest-Identity").is_none());
+        assert!(outgoing.get("Sr-Partition").is_none());
+        assert!(outgoing.get("traceparent").is_none());
+        assert!(outgoing.get("tracestate").is_none());
+    }
+
+    #[test]
+    fn existing_outgoing_headers_are_preserved() {
+        let mut incoming = HeaderMap::new();
+        incoming.insert("Sr-Agent-Id", "upstream-agent");
+        incoming.insert("Sr-Partition", "upstream-partition");
+
+        let mut outgoing = HeaderMap::new();
+        outgoing.insert("Sr-Agent-Id", "zen-set-agent");
+        outgoing.insert("X-Zen-Rule", "matched");
+
+        super::copy_forward_headers(Some(&incoming), &mut outgoing);
+
+        // Headers zen already set win over the upstream copy...
+        assert_eq!(
+            outgoing.get("Sr-Agent-Id").map(|v| v.as_str()),
+            Some("zen-set-agent")
+        );
+        assert_eq!(
+            outgoing.get("X-Zen-Rule").map(|v| v.as_str()),
+            Some("matched")
+        );
+        // ...while everything else still copies through.
+        assert_eq!(
+            outgoing.get("Sr-Partition").map(|v| v.as_str()),
+            Some("upstream-partition")
+        );
+    }
+
+    #[test]
+    fn passthrough_republish_carries_forwarded_headers() {
+        // The passthrough branch republished through the same publish path
+        // as rule-matched messages, so an unmatched OTEL log message keeps
+        // its attribution headers too.
+        let cfg = create_test_config();
+        assert!(super::passthrough_applies(
+            &cfg,
+            &MessageFormat::Protobuf,
+            &[]
+        ));
+
+        let mut incoming = HeaderMap::new();
+        incoming.insert("sr-ingest-identity", "spiffe://example/edge-relay");
+        incoming.insert("Sr-Agent-Id", "agent-7");
+        incoming.insert(
+            "traceparent",
+            "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01",
+        );
+
+        let mut outgoing = HeaderMap::new();
+        super::copy_forward_headers(Some(&incoming), &mut outgoing);
+
+        assert_eq!(
+            outgoing.get("Sr-Ingest-Identity").map(|v| v.as_str()),
+            Some("spiffe://example/edge-relay")
+        );
+        assert_eq!(
+            outgoing.get("Sr-Agent-Id").map(|v| v.as_str()),
+            Some("agent-7")
+        );
+        assert_eq!(
+            outgoing.get("traceparent").map(|v| v.as_str()),
+            Some("00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01")
+        );
     }
 
     #[test]

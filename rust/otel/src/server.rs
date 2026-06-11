@@ -238,6 +238,7 @@ mod tests {
                 spool_dir: dir.path().to_string_lossy().into_owned(),
                 max_bytes: 1024 * 1024,
                 max_age_secs: None,
+                min_free_disk_bytes: 0,
             }),
             ..Default::default()
         };

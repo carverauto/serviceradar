@@ -37,12 +37,16 @@ const (
 		scope_version,
 		scope_attributes,
 		attributes,
-		resource_attributes
+		resource_attributes,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
 		$1,$2,NULLIF($3,''),NULLIF($4,''),$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18
+		$16,$17,$18,$19,$20,
+		$21
 	) ON CONFLICT DO NOTHING`
 
 	otelMetricsInsertSQL = `INSERT INTO %s (
@@ -64,12 +68,16 @@ const (
 		is_slow,
 		component,
 		level,
-		unit
+		unit,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18,$19
+		$16,$17,$18,$19,$20,
+		$21,$22
 	) ON CONFLICT DO NOTHING`
 
 	otelMetricPointsInsertSQL = `INSERT INTO %s (
@@ -89,12 +97,15 @@ const (
 		count,
 		sum,
 		bucket_counts,
-		explicit_bounds
+		explicit_bounds,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17
+		$16,$17,$18,$19,$20
 	) ON CONFLICT DO NOTHING`
 
 	// trace_state ($20) and scope_attributes ($21) are nullable: the row
@@ -126,14 +137,17 @@ const (
 		dropped_events_count,
 		dropped_links_count,
 		service_namespace,
-		deployment_environment
+		deployment_environment,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
 		$1,$2,$3,NULLIF($4,''),$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
 		$16,$17,$18,$19,NULLIF($20,''),
 		NULLIF($21,''),$22,$23,$24,$25,
-		$26
+		$26,$27,$28,$29
 	) ON CONFLICT DO NOTHING`
 )
 
@@ -174,6 +188,9 @@ func (inserter otelLogInserter) QueueRow(batch *pgx.Batch, query string, rowInde
 		row.ScopeAttributes,
 		row.Attributes,
 		row.ResourceAttributes,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -209,6 +226,9 @@ func (inserter otelMetricInserter) QueueRow(batch *pgx.Batch, query string, rowI
 		row.Component,
 		row.Level,
 		row.Unit,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -242,6 +262,9 @@ func (inserter otelMetricPointInserter) QueueRow(batch *pgx.Batch, query string,
 		row.Sum,
 		row.BucketCounts,
 		row.ExplicitBounds,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -284,6 +307,9 @@ func (inserter otelTraceInserter) QueueRow(batch *pgx.Batch, query string, rowIn
 		row.DroppedLinksCount,
 		row.ServiceNamespace,
 		row.DeploymentEnvironment,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
