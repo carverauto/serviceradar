@@ -516,6 +516,7 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
           guest_macs
         )
       end)
+      |> reject_guests_without_network_identity()
 
     updates =
       host_updates ++
@@ -568,6 +569,24 @@ defmodule ServiceRadar.Inventory.HypervisorEnrichmentIngestor do
       "ip",
       ip
     )
+  end
+
+  # A virtual guest only earns a device when we discovered an IP the reconciler
+  # can merge on. Without one it becomes an orphan device that can never
+  # reconcile with the host's own agent device — exactly the IP-less duplicate
+  # the proxmox integration kept producing. So drop guests with no discoverable
+  # IP rather than importing identity-less placeholders.
+  defp reject_guests_without_network_identity(updates) do
+    {kept, skipped} =
+      Enum.split_with(updates, fn update -> (Map.get(update, "ip") || "") != "" end)
+
+    if skipped != [] do
+      Logger.info(
+        "HypervisorEnrichment: skipped #{length(skipped)} guest(s) with no discoverable IP"
+      )
+    end
+
+    kept
   end
 
   defp existing_device_updates(records, role, ip_by_ref, guest_macs) do
