@@ -40,6 +40,8 @@ func (s *AgentService) GetStatus(_ context.Context, req *proto.StatusRequest) (*
 		msg["message"] = "db-event-writer is operational"
 	}
 
+	msg["signal_counters"] = signalCountersSnapshot()
+
 	data, err := json.Marshal(msg)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal status message")
@@ -69,7 +71,7 @@ func (s *AgentService) GetResults(_ context.Context, req *proto.ResultsRequest) 
 		ServiceName: req.ServiceName,
 		ServiceType: req.ServiceType,
 		AgentId:     "db-event-writer-monitor",
-		GatewayId:    req.GatewayId,
+		GatewayId:   req.GatewayId,
 		Timestamp:   time.Now().Unix(),
 	}, nil
 }

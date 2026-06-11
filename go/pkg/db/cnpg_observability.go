@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	defaultLogsTable    = "logs"
-	defaultMetricsTable = "otel_metrics"
-	defaultTracesTable  = "otel_traces"
+	defaultLogsTable         = "logs"
+	defaultMetricsTable      = "otel_metrics"
+	defaultMetricPointsTable = "otel_metric_points"
+	defaultTracesTable       = "otel_traces"
 )
 
 const (
@@ -69,6 +70,27 @@ const (
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
 		$16,$17,$18,$19
+	) ON CONFLICT DO NOTHING`
+
+	otelMetricPointsInsertSQL = `INSERT INTO %s (
+		timestamp,
+		metric_name,
+		metric_type,
+		unit,
+		temporality,
+		is_monotonic,
+		service_name,
+		attributes,
+		attributes_hash,
+		value,
+		count,
+		sum,
+		bucket_counts,
+		explicit_bounds
+	) VALUES (
+		$1,$2,$3,$4,$5,
+		$6,$7,$8,$9,$10,
+		$11,$12,$13,$14
 	) ON CONFLICT DO NOTHING`
 
 	otelTracesInsertSQL = `INSERT INTO %s (
@@ -174,6 +196,36 @@ func (inserter otelMetricInserter) QueueRow(batch *pgx.Batch, query string, rowI
 	)
 }
 
+type otelMetricPointInserter struct {
+	rows []models.OTELMetricPointRow
+}
+
+func (inserter otelMetricPointInserter) RowCount() int { return len(inserter.rows) }
+
+func (inserter otelMetricPointInserter) TimestampAt(rowIndex int) time.Time {
+	return inserter.rows[rowIndex].Timestamp
+}
+
+func (inserter otelMetricPointInserter) QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time) {
+	row := inserter.rows[rowIndex]
+	batch.Queue(query,
+		timestamp,
+		row.MetricName,
+		row.MetricType,
+		row.Unit,
+		row.Temporality,
+		row.IsMonotonic,
+		row.ServiceName,
+		row.Attributes,
+		row.AttributesHash,
+		row.Value,
+		row.Count,
+		row.Sum,
+		row.BucketCounts,
+		row.ExplicitBounds,
+	)
+}
+
 type otelTraceInserter struct {
 	rows []models.OTELTraceRow
 }
@@ -215,6 +267,10 @@ func buildOTELLogsInsertQuery(sanitizedTable string) string {
 
 func buildOTELMetricsInsertQuery(sanitizedTable string) string {
 	return fmt.Sprintf(otelMetricsInsertSQL, sanitizedTable)
+}
+
+func buildOTELMetricPointsInsertQuery(sanitizedTable string) string {
+	return fmt.Sprintf(otelMetricPointsInsertSQL, sanitizedTable)
 }
 
 func buildOTELTracesInsertQuery(sanitizedTable string) string {
@@ -285,6 +341,21 @@ func (db *DB) InsertOTELLogs(ctx context.Context, table string, rows []models.OT
 // InsertOTELMetrics persists OTEL metric rows into the configured CNPG table.
 func (db *DB) InsertOTELMetrics(ctx context.Context, table string, rows []models.OTELMetricRow) error {
 	return db.insertOTEL(ctx, table, defaultMetricsTable, "metrics", buildOTELMetricsInsertQuery, otelMetricInserter{rows: rows})
+}
+
+// InsertOTELMetricPoints persists real OTLP metric data points (sum, gauge,
+// histogram) into the configured CNPG table. ON CONFLICT DO NOTHING on the
+// (timestamp, metric_name, service_name, attributes_hash) primary key dedupes
+// double-ingest against the Elixir EventWriter.
+func (db *DB) InsertOTELMetricPoints(ctx context.Context, table string, rows []models.OTELMetricPointRow) error {
+	return db.insertOTEL(
+		ctx,
+		table,
+		defaultMetricPointsTable,
+		"metric points",
+		buildOTELMetricPointsInsertQuery,
+		otelMetricPointInserter{rows: rows},
+	)
 }
 
 // InsertOTELTraces persists OTEL trace rows into the configured CNPG table.

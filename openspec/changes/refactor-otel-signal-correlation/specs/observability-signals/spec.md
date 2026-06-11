@@ -190,6 +190,66 @@ are observable per deployment.
   counts for a window
 - **THEN** the pipeline counters SHALL make any loss visible per signal
 
+### Requirement: External producer data fidelity
+
+The pipeline SHALL preserve external OTLP producers' data with full
+fidelity: attribute maps (span, resource, scope, log, event) SHALL be stored
+as structured JSON preserving every OTLP AnyValue type — including zero,
+false, and empty-string values, nested kvlists, arrays, and bytes — never as
+flattened delimiter-joined text; structured (kvlist/array) log bodies SHALL
+be stored as JSON rather than discarded; log records carrying only
+`severity_number` SHALL be classified into the standard severity buckets;
+and all writers targeting the same table SHALL produce an identical encoding
+for identical input.
+
+#### Scenario: Attribute values with reserved characters survive
+
+- **WHEN** a span arrives with `http.url = "https://x/p?a=1&b=2,c=3"` and
+  `retry = 0` and `cache.hit = false`
+- **THEN** all three attributes SHALL be stored and rendered with their
+  exact values and types
+
+#### Scenario: Structured log body preserved
+
+- **WHEN** a log record arrives whose body is a kvlist
+- **THEN** the stored body SHALL be its JSON representation and the logs
+  pane SHALL display it
+
+#### Scenario: severity_number-only log is classified
+
+- **GIVEN** a log record with `severity_number: 17` and empty severity text
+- **THEN** it SHALL be counted in the error severity bucket and filterable
+  as an error
+
+#### Scenario: Writer parity
+
+- **WHEN** the same OTLP span is ingested via the Go writer and the Elixir
+  writer
+- **THEN** the stored rows SHALL be equivalent field-for-field, including
+  attribute/event/link encodings
+
+### Requirement: External metrics are queryable
+
+OTLP metric points from external producers SHALL be queryable through the
+standard query layer and visible in the UI with their metric identity:
+listable/filterable by metric name, type, service, and time window;
+cumulative monotonic sums rendered temporality-aware (rate/delta, not raw
+running totals); exponential-histogram and summary points SHALL at minimum
+be counted and surfaced (not silently dropped), with full decoding as a
+stated follow-up if not immediate.
+
+#### Scenario: External counter visible end-to-end
+
+- **WHEN** an external app exports a cumulative sum metric
+- **THEN** a query by its metric name SHALL return its points
+- **AND** the UI SHALL render it as a rate or delta over the selected window
+
+#### Scenario: Unsupported point types are not silent
+
+- **WHEN** an exponential histogram point arrives
+- **THEN** it SHALL be counted in pipeline accounting and SHALL NOT vanish
+  without trace
+
 ## MODIFIED Requirements
 
 ### Requirement: OTEL log schema visibility in the UI

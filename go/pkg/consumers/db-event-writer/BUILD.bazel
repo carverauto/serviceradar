@@ -6,9 +6,13 @@ go_library(
         "agent_service.go",
         "config.go",
         "consumer.go",
+        "counters.go",
         "errors.go",
         "json_logs.go",
         "ocsf_events.go",
+        "otelid.go",
+        "otelmetricpoints.go",
+        "otlpattrs.go",
         "processor.go",
         "service.go",
     ],
@@ -37,6 +41,11 @@ go_library(
 
 go_test(
     name = "db-event-writer_test",
-    srcs = ["processor_test.go"],
+    srcs = [
+        "otelid_test.go",
+        "otelmetricpoints_test.go",
+        "otlpattrs_test.go",
+        "processor_test.go",
+    ],
     embed = [":db-event-writer"],
 )

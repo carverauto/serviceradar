@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,68 +46,46 @@ type Processor struct {
 	logger  logger.Logger
 }
 
-// extractAttributeValue extracts a string value from an attribute based on its type
+// extractAttributeValue renders a scalar attribute value as a string for
+// scalar columns (HTTP/gRPC metric fields). Zero, false, and empty values are
+// preserved; non-scalar values render as empty strings.
 func extractAttributeValue(attr *commonv1.KeyValue) string {
-	switch {
-	case attr.Value.GetStringValue() != "":
-		return attr.Value.GetStringValue()
-	case attr.Value.GetBoolValue():
-		return "true"
-	case attr.Value.GetIntValue() != 0:
-		return fmt.Sprintf("%d", attr.Value.GetIntValue())
-	case attr.Value.GetDoubleValue() != 0:
-		return fmt.Sprintf("%f", attr.Value.GetDoubleValue())
+	if attr == nil || attr.Value == nil {
+		return ""
+	}
+
+	switch v := attr.Value.Value.(type) {
+	case *commonv1.AnyValue_StringValue:
+		return v.StringValue
+	case *commonv1.AnyValue_BoolValue:
+		return strconv.FormatBool(v.BoolValue)
+	case *commonv1.AnyValue_IntValue:
+		return strconv.FormatInt(v.IntValue, 10)
+	case *commonv1.AnyValue_DoubleValue:
+		return strconv.FormatFloat(v.DoubleValue, 'f', -1, 64)
 	default:
 		return ""
 	}
 }
 
-// processResourceAttributes processes resource attributes and extracts service information
+// processResourceAttributes converts resource attributes into a full-fidelity
+// map and extracts service identity fields. Key fallbacks mirror the Elixir
+// EventWriter (service.name then service_name, and so on). A nil resource is
+// valid OTLP: it yields empty attributes and service_name "unknown" so the
+// signal is ingested instead of dropped.
 func processResourceAttributes(
-	resource *resourcev1.Resource) (serviceName, serviceVersion, serviceInstance string, resourceAttribs []string) {
+	resource *resourcev1.Resource) (serviceName, serviceVersion, serviceInstance string, resourceAttrs map[string]interface{}) {
 	if resource == nil {
-		return "", "", "", nil
+		return unknownString, "", "", map[string]interface{}{}
 	}
 
-	resourceAttribs = make([]string, 0, len(resource.Attributes))
+	resourceAttrs = attrsToMap(resource.Attributes)
 
-	for _, attr := range resource.Attributes {
-		value := extractAttributeValue(attr)
-		if value == "" {
-			continue
-		}
+	serviceName = stringAttr(resourceAttrs, "service.name", "service_name")
+	serviceVersion = stringAttr(resourceAttrs, "service.version", "service_version")
+	serviceInstance = stringAttr(resourceAttrs, "service.instance.id", "service_instance")
 
-		// Extract service information
-		switch attr.Key {
-		case "service.name":
-			serviceName = value
-		case "service.version":
-			serviceVersion = value
-		case "service.instance.id":
-			serviceInstance = value
-		}
-
-		// Add to resource attributes
-		resourceAttribs = append(resourceAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
-	}
-
-	return serviceName, serviceVersion, serviceInstance, resourceAttribs
-}
-
-// processLogAttributes processes log record attributes
-func processLogAttributes(attributes []*commonv1.KeyValue) []string {
-	logAttribs := make([]string, 0, len(attributes))
-
-	for _, attr := range attributes {
-		value := extractAttributeValue(attr)
-		if value == "" {
-			continue
-		}
-
-		logAttribs = append(logAttribs, fmt.Sprintf("%s=%s", attr.Key, value))
-	}
-
-	return logAttribs
+	return serviceName, serviceVersion, serviceInstance, resourceAttrs
 }
 
 // createLogRow creates a LogRow from a log record and its context
@@ -115,8 +94,8 @@ func createLogRow(
 	source string,
 	serviceName, serviceVersion, serviceInstance string,
 	scopeName, scopeVersion, scopeAttributes string,
-	resourceAttribs []string,
-	logAttribs []string,
+	resourceAttributes string,
+	attributes string,
 ) models.OTELLogRow {
 	// Extract body text
 	body := ""
@@ -134,8 +113,8 @@ func createLogRow(
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
 		ObservedTimestamp:  observedTimestamp,
-		TraceID:            fmt.Sprintf("%x", logRecord.TraceId),
-		SpanID:             fmt.Sprintf("%x", logRecord.SpanId),
+		TraceID:            NormalizeTraceID(logRecord.TraceId),
+		SpanID:             NormalizeSpanID(logRecord.SpanId),
 		TraceFlags:         traceFlags,
 		SeverityText:       logRecord.SeverityText,
 		SeverityNumber:     int32(logRecord.SeverityNumber),
@@ -148,21 +127,19 @@ func createLogRow(
 		ScopeName:          scopeName,
 		ScopeVersion:       scopeVersion,
 		ScopeAttributes:    scopeAttributes,
-		Attributes:         strings.Join(logAttribs, ","),
-		ResourceAttributes: strings.Join(resourceAttribs, ","),
+		Attributes:         attributes,
+		ResourceAttributes: resourceAttributes,
 		// RawData field removed to save storage space
 	}
 }
 
-// getScopeInfo extracts scope name and version
+// getScopeInfo extracts scope name, version, and attributes (as JSON object text)
 func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version, attributes string) {
 	if scope == nil {
 		return "", "", ""
 	}
 
-	scopeAttributes := processLogAttributes(scope.Attributes)
-
-	return scope.Name, scope.Version, strings.Join(scopeAttributes, ",")
+	return scope.Name, scope.Version, attrsToJSON(scope.Attributes)
 }
 
 func safeTimeFromUnixNano(value uint64) time.Time {
@@ -223,16 +200,13 @@ func parseOTELLogs(b []byte, subject string) ([]models.OTELLogRow, error) {
 	// Pre-allocate result slice
 	var rows []models.OTELLogRow
 
-	// Process all logs in a single loop
+	// Process all logs in a single loop. ResourceLogs with a nil resource are
+	// still processed (empty attributes, service_name "unknown").
 	for _, resourceLog := range req.ResourceLogs {
-		// Skip invalid resource logs
-		if resourceLog.Resource == nil {
-			continue
-		}
-
 		// Get service info once per resource
-		serviceName, serviceVersion, serviceInstance, resourceAttribs :=
+		serviceName, serviceVersion, serviceInstance, resourceAttrs :=
 			processResourceAttributes(resourceLog.Resource)
+		resourceAttributes := marshalJSONObject(resourceAttrs)
 
 		// Process all scope logs for this resource
 		for _, scopeLog := range resourceLog.ScopeLogs {
@@ -241,17 +215,14 @@ func parseOTELLogs(b []byte, subject string) ([]models.OTELLogRow, error) {
 
 			// Process all log records for this scope
 			for _, logRecord := range scopeLog.LogRecords {
-				// Get log attributes
-				logAttribs := processLogAttributes(logRecord.Attributes)
-
 				// Build and add the log row
 				row := createLogRow(
 					logRecord,
 					source,
 					serviceName, serviceVersion, serviceInstance,
 					scopeName, scopeVersion, scopeAttributes,
-					resourceAttribs,
-					logAttribs,
+					resourceAttributes,
+					attrsToJSON(logRecord.Attributes),
 				)
 
 				rows = append(rows, row)
@@ -282,23 +253,36 @@ func NewProcessorWithStreams(dbService db.Service, streams []StreamConfig, log l
 	return &Processor{db: dbImpl, streams: streams, logger: log}, nil
 }
 
-// getTableForSubject returns the table name for a given subject
+// getTableForSubject returns the table name for a given subject. Exact (and
+// namespaced-exact) matches win over prefix matches regardless of config
+// ordering so that "otel.metrics.raw" routes to its own table even when a
+// broader "otel.metrics" mapping is listed first.
 func (p *Processor) getTableForSubject(subject string) string {
 	subject = strings.TrimSpace(subject)
 
 	if len(p.streams) > 0 {
+		// Pass 1: exact match, or namespaced-exact (for example
+		// "demo.otel.metrics.raw" against "otel.metrics.raw").
 		for _, stream := range p.streams {
 			streamSubject := strings.TrimSpace(stream.Subject)
 			if streamSubject == "" {
 				continue
 			}
 
-			// Match exact and prefix forms (for example "otel.metrics" and
-			// "otel.metrics.raw"), and namespaced forms (for example
-			// "demo.otel.metrics").
-			if streamSubject == subject ||
-				strings.HasPrefix(subject, streamSubject+".") ||
-				strings.HasSuffix(subject, "."+streamSubject) {
+			if streamSubject == subject || strings.HasSuffix(subject, "."+streamSubject) {
+				return strings.TrimSpace(stream.Table)
+			}
+		}
+
+		// Pass 2: prefix match (for example "otel.metrics" matching
+		// "otel.metrics.derived").
+		for _, stream := range p.streams {
+			streamSubject := strings.TrimSpace(stream.Subject)
+			if streamSubject == "" {
+				continue
+			}
+
+			if strings.HasPrefix(subject, streamSubject+".") {
 				return strings.TrimSpace(stream.Table)
 			}
 		}
@@ -344,6 +328,11 @@ func (p *Processor) ProcessBatch(ctx context.Context, msgs []jetstream.Msg) ([]j
 // processTableMessages routes messages to the appropriate table processor based on table name
 func (p *Processor) processTableMessages(ctx context.Context, table string, tableMsgs []jetstream.Msg) ([]jetstream.Msg, error) {
 	switch {
+	case strings.Contains(table, "otel_metric_points"):
+		// Must precede the generic "metrics" branch: real OTLP data points
+		// (sum/gauge/histogram) go to the otel_metric_points hypertable.
+		p.logger.Debug().Str("table", table).Msg("Processing as OTEL metric points table")
+		return p.processMetricPointsTable(ctx, table, tableMsgs)
 	case strings.Contains(table, "logs"):
 		p.logger.Debug().Str("table", table).Msg("Processing as logs table")
 		return p.processLogsTable(ctx, table, tableMsgs)
@@ -415,6 +404,7 @@ func processOTELTable[T any](
 	parse func(jetstream.Msg) ([]T, bool),
 	insert func(context.Context, string, []T) error,
 	warnMsg, successMsg string,
+	counters *signalCounters,
 ) ([]jetstream.Msg, error) {
 	if len(msgs) == 0 {
 		return nil, nil
@@ -433,6 +423,7 @@ func processOTELTable[T any](
 		parsedRows, ok := parse(msg)
 		if !ok {
 			log.Warn().Msg(warnMsg)
+			counters.rejected.Add(1)
 			continue
 		}
 
@@ -446,6 +437,8 @@ func processOTELTable[T any](
 	if err := insert(ctx, table, rows); err != nil {
 		return processed, err
 	}
+
+	counters.written.Add(int64(len(rows)))
 
 	log.Info().
 		Int("rows_processed", len(rows)).
@@ -472,9 +465,11 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 			p.logger.Warn().
 				Str("subject", msg.Subject()).
 				Msg("Skipping malformed log message")
+			logCounters.rejected.Add(1)
 			continue
 		}
 
+		logCounters.received.Add(int64(len(parsedRows)))
 		rows = append(rows, parsedRows...)
 	}
 
@@ -485,6 +480,8 @@ func (p *Processor) processLogsTable(ctx context.Context, table string, msgs []j
 	if err := p.db.InsertOTELLogs(ctx, table, rows); err != nil {
 		return processed, err
 	}
+
+	logCounters.written.Add(int64(len(rows)))
 
 	p.logger.Info().
 		Int("rows_processed", len(rows)).
@@ -516,18 +513,26 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 			rows, ok = p.parseOTELMetrics(msg)
 			if !ok {
 				p.logger.Warn().Msg("Skipping malformed OTEL metrics message")
+				metricCounters.rejected.Add(1)
 				continue
 			}
 		case p.isJSONFormat(msg.Data()):
 			rows, ok = p.parsePerformanceMessage(msg)
 			if !ok {
 				p.logger.Warn().Msg("Skipping malformed performance metrics JSON message")
+				metricCounters.rejected.Add(1)
 				continue
 			}
 		default:
+			p.logger.Debug().
+				Str("subject", msg.Subject()).
+				Msg("Skipping metrics message that is neither OTEL protobuf nor JSON")
+			metricCounters.rejected.Add(1)
+
 			continue
 		}
 
+		metricCounters.received.Add(int64(len(rows)))
 		metricRows = append(metricRows, rows...)
 	}
 
@@ -538,6 +543,8 @@ func (p *Processor) processMetricsTable(ctx context.Context, table string, msgs 
 	if err := p.db.InsertOTELMetrics(ctx, table, metricRows); err != nil {
 		return processed, err
 	}
+
+	metricCounters.written.Add(int64(len(metricRows)))
 
 	p.logger.Info().
 		Int("rows_processed", len(metricRows)).
@@ -558,6 +565,7 @@ func (p *Processor) processTracesTable(ctx context.Context, table string, msgs [
 		p.db.InsertOTELTraces,
 		"Skipping malformed OTEL trace message",
 		"Inserted OTEL traces into CNPG",
+		&traceCounters,
 	)
 }
 
@@ -727,10 +735,8 @@ func (p *Processor) parseMetricsRequest(msgData []byte) (*metricsv1.ExportMetric
 func (p *Processor) processResourceMetrics(resourceMetric *metricspbv1.ResourceMetrics) []models.OTELMetricRow {
 	var rows []models.OTELMetricRow
 
-	// Skip invalid resource metrics
-	if resourceMetric.Resource == nil {
-		return rows
-	}
+	// ResourceMetrics with a nil resource are still processed (empty
+	// attributes, service_name "unknown") instead of being skipped.
 
 	// Get service info once per resource
 	serviceName, serviceVersion, serviceInstance, resourceAttribs := processResourceAttributes(resourceMetric.Resource)
@@ -957,21 +963,23 @@ func convertSpanTimestamp(startTimeUnixNano uint64) time.Time {
 	return time.Unix(secInt64, safeUint64ToInt64(nanos))
 }
 
-// processSpanEvents converts span events to JSON string
+// processSpanEvents converts span events to a JSON array of
+// {time_unix_nano, name, attributes, dropped_attributes_count} objects,
+// matching ServiceRadar.EventWriter.Processors.OtelTraces.event_to_map/1.
 func processSpanEvents(events []*tracepbv1.Span_Event) string {
-	if len(events) == 0 {
-		return "[]"
-	}
-
 	eventMaps := make([]map[string]interface{}, 0, len(events))
 
 	for _, event := range events {
-		eventMap := map[string]interface{}{
-			"time_unix_nano": event.TimeUnixNano,
-			"name":           event.Name,
-			"attributes":     processLogAttributes(event.Attributes),
+		if event == nil {
+			continue
 		}
-		eventMaps = append(eventMaps, eventMap)
+
+		eventMaps = append(eventMaps, map[string]interface{}{
+			"time_unix_nano":           event.TimeUnixNano,
+			"name":                     event.Name,
+			"attributes":               attrsToMap(event.Attributes),
+			"dropped_attributes_count": event.DroppedAttributesCount,
+		})
 	}
 
 	if eventBytes, err := json.Marshal(eventMaps); err == nil {
@@ -981,21 +989,24 @@ func processSpanEvents(events []*tracepbv1.Span_Event) string {
 	return "[]"
 }
 
-// processSpanLinks converts span links to JSON string
+// processSpanLinks converts span links to a JSON array of
+// {trace_id, span_id, trace_state, attributes} objects, matching
+// ServiceRadar.EventWriter.Processors.OtelTraces.link_to_map/1. Ids are
+// canonicalized via the Normalize helpers; absent ids serialize as null.
 func processSpanLinks(links []*tracepbv1.Span_Link) string {
-	if len(links) == 0 {
-		return "[]"
-	}
-
 	linkMaps := make([]map[string]interface{}, 0, len(links))
 
 	for _, link := range links {
-		linkMap := map[string]interface{}{
-			"trace_id":   fmt.Sprintf("%x", link.TraceId),
-			"span_id":    fmt.Sprintf("%x", link.SpanId),
-			"attributes": processLogAttributes(link.Attributes),
+		if link == nil {
+			continue
 		}
-		linkMaps = append(linkMaps, linkMap)
+
+		linkMaps = append(linkMaps, map[string]interface{}{
+			"trace_id":    jsonOTELID(NormalizeTraceID(link.TraceId)),
+			"span_id":     jsonOTELID(NormalizeSpanID(link.SpanId)),
+			"trace_state": link.TraceState,
+			"attributes":  attrsToMap(link.Attributes),
+		})
 	}
 
 	if linkBytes, err := json.Marshal(linkMaps); err == nil {
@@ -1005,14 +1016,16 @@ func processSpanLinks(links []*tracepbv1.Span_Link) string {
 	return "[]"
 }
 
-// processSpanSimple converts a single span to an OTELTraceRow
+// processSpanSimple converts a single span to an OTELTraceRow.
+// resourceAttributes is the pre-encoded JSON object text shared by every
+// span of the resource.
 func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, serviceInstance string,
-	resourceAttribs []string, scopeName, scopeVersion string) models.OTELTraceRow {
+	resourceAttributes string, scopeName, scopeVersion string) models.OTELTraceRow {
 	// Convert timestamp
 	timestamp := convertSpanTimestamp(span.StartTimeUnixNano)
 
-	// Process span attributes
-	spanAttribs := processLogAttributes(span.Attributes)
+	// Process span attributes as standards-shaped JSON (full fidelity)
+	spanAttributes := attrsToJSON(span.Attributes)
 
 	// Process events and links
 	eventsJSON := processSpanEvents(span.Events)
@@ -1030,16 +1043,12 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 		statusMessage = span.Status.Message
 	}
 
-	// Convert attributes to comma-separated strings
-	spanAttribsStr := strings.Join(spanAttribs, ",")
-	resourceAttribsStr := strings.Join(resourceAttribs, ",")
-
 	// Create the trace row
 	traceRow := models.OTELTraceRow{
 		Timestamp:          timestamp,
-		TraceID:            fmt.Sprintf("%x", span.TraceId),
-		SpanID:             fmt.Sprintf("%x", span.SpanId),
-		ParentSpanID:       fmt.Sprintf("%x", span.ParentSpanId),
+		TraceID:            NormalizeTraceID(span.TraceId),
+		SpanID:             NormalizeSpanID(span.SpanId),
+		ParentSpanID:       NormalizeParentSpanID(span.ParentSpanId),
 		Name:               span.Name,
 		Kind:               int32(span.Kind),
 		StartTimeUnixNano:  safeUint64ToInt64(span.StartTimeUnixNano),
@@ -1051,8 +1060,8 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 		ScopeVersion:       scopeVersion,
 		StatusCode:         statusCode,
 		StatusMessage:      statusMessage,
-		Attributes:         spanAttribsStr,
-		ResourceAttributes: resourceAttribsStr,
+		Attributes:         spanAttributes,
+		ResourceAttributes: resourceAttributes,
 		Events:             eventsJSON,
 		Links:              linksJSON,
 		// RawData field removed to save storage space
@@ -1065,14 +1074,13 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []models.OTELTraceRow {
 	var traceRows []models.OTELTraceRow
 
-	// Skip invalid resource spans
-	if resourceSpan.Resource == nil {
-		return traceRows
-	}
+	// ResourceSpans with a nil resource are still processed (empty
+	// attributes, service_name "unknown") instead of being skipped.
 
 	// Get service info once per resource
-	serviceName, serviceVersion, serviceInstance, resourceAttribs :=
+	serviceName, serviceVersion, serviceInstance, resourceAttrs :=
 		processResourceAttributes(resourceSpan.Resource)
+	resourceAttributes := marshalJSONObject(resourceAttrs)
 
 	// Process all scope spans for this resource
 	for _, scopeSpan := range resourceSpan.ScopeSpans {
@@ -1082,7 +1090,7 @@ func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []models.OTELTr
 		// Process all spans for this scope
 		for _, span := range scopeSpan.Spans {
 			traceRow := processSpanSimple(span, serviceName, serviceVersion, serviceInstance,
-				resourceAttribs, scopeName, scopeVersion)
+				resourceAttributes, scopeName, scopeVersion)
 			traceRows = append(traceRows, traceRow)
 		}
 	}
@@ -1113,6 +1121,32 @@ func (p *Processor) parseOTELTraces(msg jetstream.Msg) ([]models.OTELTraceRow, b
 		resourceTraceRows := processResourceSpans(resourceSpan)
 		traceRows = append(traceRows, resourceTraceRows...)
 	}
+
+	traceCounters.received.Add(int64(len(traceRows)))
+
+	// Drop spans whose normalized trace/span id is empty: they are
+	// unidentifiable under the canonical id contract, and trace_id/span_id
+	// are primary-key columns that must never be NULL.
+	validRows := traceRows[:0]
+	dropped := 0
+
+	for _, row := range traceRows {
+		if row.TraceID == "" || row.SpanID == "" {
+			dropped++
+			continue
+		}
+
+		validRows = append(validRows, row)
+	}
+
+	if dropped > 0 {
+		traceCounters.rejected.Add(int64(dropped))
+		p.logger.Debug().
+			Int("dropped_spans", dropped).
+			Msg("Dropped spans with invalid or all-zero trace/span ids")
+	}
+
+	traceRows = validRows
 
 	p.logger.Debug().
 		Int("trace_rows", len(traceRows)).

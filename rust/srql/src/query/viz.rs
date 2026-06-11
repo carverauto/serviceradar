@@ -1110,6 +1110,42 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
                 series: None,
             }],
         },
+        Entity::OtelMetricPoints => VizMeta {
+            columns: vec![
+                col(
+                    "timestamp",
+                    ColumnType::Timestamptz,
+                    Some(ColumnSemantic::Time),
+                ),
+                col(
+                    "metric_name",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Series),
+                ),
+                col("metric_type", ColumnType::Text, None),
+                col("unit", ColumnType::Text, None),
+                col("temporality", ColumnType::Text, None),
+                col("is_monotonic", ColumnType::Bool, None),
+                col("service_name", ColumnType::Text, None),
+                col("attributes", ColumnType::Text, None),
+                col(
+                    "attributes_hash",
+                    ColumnType::Text,
+                    Some(ColumnSemantic::Id),
+                ),
+                col("value", ColumnType::Float, Some(ColumnSemantic::Value)),
+                col("count", ColumnType::Int, Some(ColumnSemantic::Value)),
+                col("sum", ColumnType::Float, Some(ColumnSemantic::Value)),
+                col("bucket_counts", ColumnType::Text, None),
+                col("explicit_bounds", ColumnType::Text, None),
+            ],
+            suggestions: vec![VizSuggestion {
+                kind: VizKind::Timeseries,
+                x: Some("timestamp".to_string()),
+                y: Some("value".to_string()),
+                series: Some("metric_name".to_string()),
+            }],
+        },
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => VizMeta {
             columns: vec![
                 col(

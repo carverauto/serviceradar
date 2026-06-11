@@ -192,8 +192,29 @@ async fn start_otel(config_path: &str) -> Result<()> {
         });
     }
 
-    start_server(addr, grpc_tls_config, collector)
-        .await
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    // Start OTLP/HTTP listener (default port 4318) unless disabled.
+    match otel::http_server::HttpServerOptions::from_config(&otel_cfg) {
+        Ok(Some(http_options)) => {
+            let http_collector = collector.clone();
+            tokio::spawn(async move {
+                if let Err(e) =
+                    otel::http_server::start_http_server(http_options, http_collector).await
+                {
+                    error!("OTLP/HTTP server error: {e}");
+                }
+            });
+        }
+        Ok(None) => info!("OTLP/HTTP listener disabled by configuration"),
+        Err(e) => error!("Failed to configure OTLP/HTTP listener: {e}"),
+    }
+
+    start_server(
+        addr,
+        grpc_tls_config,
+        collector,
+        otel_cfg.server.max_request_bytes,
+    )
+    .await
+    .map_err(|e| anyhow::anyhow!("{e}"))?;
     Ok(())
 }

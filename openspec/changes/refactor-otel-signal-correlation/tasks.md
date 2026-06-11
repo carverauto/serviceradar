@@ -106,3 +106,98 @@
       retention firing (no table older than configured retention)
 - [ ] 6.4 Update docs (`docs/docs/otel.md`, srql-cookbook) for canonical ids,
       trace detail, and correlation recipes; document retention defaults
+
+## 7. External OTLP transport conformance (SigNoz-parity ingest)
+
+- [x] 7.1 OTLP/gRPC: accept gzip (and zstd) compressed requests; configurable
+      max decoded message size (default ≥16 MiB)
+- [x] 7.2 OTLP/HTTP listener on 4318: /v1/{traces,logs,metrics},
+      application/x-protobuf (+gzip), CORS config; OTLP/JSON or explicit 415
+- [x] 7.3 Per-record rejection: oversized/malformed records dropped + counted
+      + reported via partial_success; no poison-batch retry loops; logs
+      partial_success unset on full success
+- [x] 7.4 OTLP listener client-auth configurable (required/optional/none)
+      independent of platform mTLS
+- [x] 7.5 Helm: external OTLP exposure (LoadBalancer service default-on +
+      values-demo wiring; Gateway/route option documented); NetworkPolicy
+      toggle for cross-namespace senders
+- [ ] 7.6 Ingestion token auth (header/metadata) with identity stamped on the
+      NATS envelope; configurable off
+- [ ] 7.7 Collector publish path: remove global mutex serialization
+      (clone JetStream context / bounded concurrency) to prevent
+      DEADLINE_EXCEEDED storms under multi-producer load
+
+## 8. External data fidelity
+
+- [x] 8.1 Go writer: attributes/resource/scope/events/links as full-fidelity
+      JSON (AnyValue incl. zero/false/empty, arrays, kvlists, bytes), shape
+      identical to the Elixir writer
+- [x] 8.2 Go writer: decode ExportMetricsServiceRequest into otel_metric_points
+      (sum/gauge/histogram) and route otel.metrics.raw there; keep span
+      samples separate; single owner per deployment shape (no double-ingest)
+- [x] 8.3 Exponential histogram + summary points: decode or count-and-surface
+      (no silent drops) in both writers
+- [x] 8.4 Structured (kvlist/array) log bodies stored as JSON in the Go JSON
+      path; nanosecond timestamps decoded via json.Number (no float rounding)
+- [x] 8.5 Severity: severity_number fallback classification when text
+      missing/unknown (incl. TRACE 1-4); never overwrite sender severity_number;
+      case-insensitive severity filtering in SRQL
+- [x] 8.6 Nil-resource ResourceSpans ingested (service "unknown") instead of
+      dropped; rejects counted
+- [ ] 8.7 SRQL otel_metric_points entity + web-ng metrics pane reads points
+      with temporality-aware rate/delta rendering for cumulative sums
+- [ ] 8.8 Schema: trace_state + dropped_{attributes,events,links}_count
+      columns; scope_attributes for spans; service.namespace +
+      deployment.environment promoted to first-class columns in spans +
+      summaries + RED rollups
+- [ ] 8.9 zen: passthrough-by-default when no decision rule matches logs.otel
+      (no consumed-and-ACKed silent drops); metric points series identity
+      includes service.instance.id + scope; persist start_time_unix_nano for
+      reset detection
+- [ ] 8.10 event_name filterable in SRQL + logs catalog
+- [ ] 8.11 Cross-writer attributes_hash parity edges: extreme-magnitude float
+      rendering (1e+21 notation divergence) and >32-key nested kvlist
+      ordering in the Elixir writer (Jason large-map iteration) — sort nested
+      maps in Elixir + pin float formatting so Go/Elixir hashes match for all
+      inputs
+
+## 9. External onboarding
+
+- [ ] 9.1 Rewrite docs/docs/otel.md as an onboarding page: per-deployment
+      endpoint matrix, exact TLS posture, per-language env snippets,
+      collector-exporter example
+- [ ] 9.2 Conformance acceptance harness: telemetrygen (or equivalent)
+      traces+logs+metrics against a fresh install must land end-to-end;
+      wire into CI or a runbook script
+- [ ] 9.3 "Send your telemetry" onboarding surface: endpoint + ingestion key
+      issuance + live first-data checker (phase 2)
+
+## 10. Edge OTLP collector add-on (reuse rust/otel, ride the agent channel)
+
+- [ ] 10.1 Refactor rust/otel output side behind an output trait: JetStream
+      backend (existing, central), agent-forward backend (new), optional
+      OTLP-exporter backend; protocol surface (gRPC/HTTP, partial_success,
+      counters, auth modes) stays shared so edge inherits all conformance work
+- [ ] 10.2 Agent/gateway telemetry relay: forwarding RPC (or stream reuse) on
+      the agent→gateway channel carrying encoded OTLP batches; gateway/core
+      republishes onto the standard NATS subjects with agent id/partition
+      attribution stamped from the agent's mTLS identity
+- [ ] 10.3 Package the collector as a native add-on (addon-sdk, signing,
+      delivery models, edge-ops lifecycle); configuration via streamed agent
+      config (listen address/ports, buffer bounds, output backend)
+- [ ] 10.4 Bounded on-disk store-and-forward buffer with oldest-first
+      eviction + eviction accounting; drain on reconnect (agent-channel
+      transport only — leaf JetStream mode gets durability from the leaf)
+- [ ] 10.4b Leaf JetStream transport mode: config selects local leaf URL +
+      creds; leaf-safe stream provisioning (own domain/local stream only,
+      never reconcile hub stream config); site-scoped subject prefixing for
+      attribution; document hub-side sourcing expectations (leaf server
+      deployment itself = separate change add-nats-leaf-edge-telemetry)
+- [ ] 10.5 Self-telemetry: agent, plugins, and co-resident add-ons export to
+      the local collector when present (env/config convention, e.g. local
+      OTEL_EXPORTER_OTLP_ENDPOINT); document the convention for add-on
+      authors
+- [ ] 10.6 Attribution columns/labels surfaced in queries + UI (filter by
+      agent/site); edge-vs-central indistinguishable otherwise
+- [ ] 10.7 E2E: telemetrygen → edge add-on → agent → gateway → core → UI on a
+      worker agent in demo; link-outage buffering test

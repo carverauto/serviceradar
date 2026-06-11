@@ -37,7 +37,7 @@
     },
     {
       "subject": "otel.metrics.raw",
-      "table": "otel_metrics"
+      "table": "otel_metric_points"
     }
   ],
   "cnpg": {

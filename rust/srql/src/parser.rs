@@ -48,6 +48,7 @@ pub enum Entity {
     Dashboards,
     Gateways,
     OtelMetrics,
+    OtelMetricPoints,
     RperfMetrics,
     CpuMetrics,
     MemoryMetrics,
@@ -488,6 +489,7 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         }
         "gateways" | "gateway" => Ok(Entity::Gateways),
         "otel_metrics" | "metrics" => Ok(Entity::OtelMetrics),
+        "otel_metric_points" | "metric_points" => Ok(Entity::OtelMetricPoints),
         "rperf_metrics" | "rperf" => Ok(Entity::RperfMetrics),
         "cpu_metrics" | "cpu" => Ok(Entity::CpuMetrics),
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),

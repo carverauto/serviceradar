@@ -144,6 +144,7 @@ mod graph_cypher;
 mod interfaces;
 mod logs;
 mod memory_metrics;
+mod otel_metric_points;
 mod otel_metrics;
 mod process_metrics;
 mod services;
@@ -257,6 +258,9 @@ impl QueryEngine {
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+                Entity::OtelMetricPoints => {
+                    otel_metric_points::execute(&mut conn, &plan).await?
+                }
                 Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                     timeseries_metrics::execute(&mut conn, &plan).await?
                 }
@@ -924,6 +928,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Logs => logs::to_sql_and_params(&plan)?,
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
+            Entity::OtelMetricPoints => otel_metric_points::to_sql_and_params(&plan)?,
             Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                 timeseries_metrics::to_sql_and_params(&plan)?
             }

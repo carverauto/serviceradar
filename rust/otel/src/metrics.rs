@@ -65,6 +65,16 @@ lazy_static! {
         "Total OTLP items that failed to publish to NATS after retry, by signal",
         &["signal"]
     ).unwrap();
+
+    // Per-signal accounting of individual records dropped at ingest (e.g. a
+    // single span/log/metric whose encoded size exceeds the NATS payload
+    // budget). These drops are reported back to OTLP clients via
+    // partial_success so SDKs do not retry them forever.
+    pub static ref OTEL_RECORDS_REJECTED_TOTAL: CounterVec = register_counter_vec!(
+        "otel_records_rejected_total",
+        "Total OTLP records rejected by the collector, by signal and reason",
+        &["signal", "reason"]
+    ).unwrap();
 }
 
 /// Record items received for a signal ("traces", "metrics", "logs", "span_metrics").
@@ -90,6 +100,16 @@ pub fn record_publish_failure(signal: &str, count: usize) {
     if count > 0 {
         OTEL_PUBLISH_FAILURES_TOTAL
             .with_label_values(&[signal])
+            .inc_by(count as f64);
+    }
+}
+
+/// Record individual records rejected at ingest for a signal (e.g. reason
+/// "oversize" when a single encoded record exceeds the publish budget).
+pub fn record_rejected(signal: &str, reason: &str, count: usize) {
+    if count > 0 {
+        OTEL_RECORDS_REJECTED_TOTAL
+            .with_label_values(&[signal, reason])
             .inc_by(count as f64);
     }
 }
@@ -211,6 +231,27 @@ mod tests {
         assert_eq!(
             OTEL_PUBLISH_FAILURES_TOTAL
                 .with_label_values(&[signal])
+                .get(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_record_rejected_increments_counter() {
+        let signal = "test_rejected_signal";
+        record_rejected(signal, "oversize", 2);
+        record_rejected(signal, "oversize", 3);
+        assert_eq!(
+            OTEL_RECORDS_REJECTED_TOTAL
+                .with_label_values(&[signal, "oversize"])
+                .get(),
+            5.0
+        );
+        // Zero counts must not create a series.
+        record_rejected("test_rejected_zero_signal", "oversize", 0);
+        assert_eq!(
+            OTEL_RECORDS_REJECTED_TOTAL
+                .with_label_values(&["test_rejected_zero_signal", "oversize"])
                 .get(),
             0.0
         );

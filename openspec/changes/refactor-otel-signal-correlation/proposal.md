@@ -122,6 +122,29 @@ Verified root causes (live demo DB + code, 2026-06-11):
   EventWriter (or formally route traces to the Go writer everywhere), fix the
   compose `otel.traces` vs `otel.traces.raw` subject mismatch, and add
   pipeline-health counters (received vs written per signal) queryable in the UI.
+- **Make the collector a general OTLP backend, not a self-instrumentation
+  tool** (SigNoz-parity ingest for non-ServiceRadar applications, validated
+  by live conformance testing + a 5-dimension audit): OTLP/HTTP on 4318
+  (protobuf+gzip+CORS), gRPC gzip/zstd acceptance with sane message limits,
+  per-record `partial_success` rejection instead of poison-batch retry
+  loops, OTLP-listener client-auth decoupled from platform mTLS, Helm
+  LoadBalancer/Gateway exposure for the OTLP ports, ingestion-token auth,
+  full-fidelity JSON attribute storage (zero/false/empty, arrays, kvlists,
+  bytes — never `k=v` blobs), structured log bodies, severity_number-only
+  classification, external metric points queryable with temporality-aware
+  rendering, and an onboarding doc rewrite with per-language snippets and a
+  repeatable conformance acceptance test (see `specs/otlp-ingest/spec.md`
+  and tasks 7-9).
+- **Edge OTLP ingestion as a native add-on**: package the SAME `rust/otel`
+  collector crate (output side made pluggable — JetStream centrally,
+  agent-forward at the edge) as a native add-on coupled with
+  serviceradar-agent, so edge sites get local OTLP ingest that rides the
+  existing agent→gateway mTLS channel — no new inbound ports or egress —
+  with bounded store-and-forward buffering, gateway-stamped agent/site
+  attribution, and downstream parity with central ingest. Also becomes the
+  local telemetry endpoint for the agent, plugins, and other add-ons
+  (fleet self-telemetry we currently don't collect). See design D8 and
+  tasks section 10.
 - **BREAKING**: `logs.trace_id`/`span_id` values are rewritten by backfill
   (double-hex → canonical hex); `otel_metrics` gains complete (non-slow-only)
   span aggregates which changes card semantics; trace row click navigates to

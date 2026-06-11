@@ -151,6 +151,63 @@ buffer-retry) on publish failure, and the subject/parsers are reconciled so
 every deployment shape has exactly one effective writer per table. A
 root-span-ratio gauge provides the propagation regression alarm.
 
+### D8. Edge OTLP ingestion: the same collector crate, packaged as a native add-on
+
+Decision: edge OTLP ingestion reuses `rust/otel` — the exact crate behind the
+central collector — packaged as a native add-on coupled with
+serviceradar-agent, NOT a new collector implementation. The crate already
+builds as a library (the central deployment embeds it in log-collector), and
+all the conformance work in this change (gRPC gzip/limits, OTLP/HTTP 4318,
+per-record `partial_success`, delivery counters, client-auth modes) lands in
+that shared crate, so the edge add-on inherits it for free.
+
+What changes to enable reuse: the crate's output side becomes pluggable. It
+currently hard-couples ingestion to `NATSOutput` (JetStream publish). We
+introduce an output trait with two backends: (a) the existing JetStream
+backend (central deployment, unchanged), and (b) an agent-forward backend
+that hands encoded OTLP batches to the local serviceradar-agent, which
+relays them over its existing mTLS gateway channel; the gateway/core side
+republishes onto the same NATS subjects the central collector uses, so
+downstream consumers are untouched and edge data is indistinguishable from
+central data. Attribution (agent id, partition/site) is stamped at the
+gateway from the agent's authenticated identity — the edge needs no
+ingestion tokens.
+
+Why agent-channel transport (option A) over having the edge add-on export
+OTLP directly to the central LB (option B): B is simpler but requires
+outbound reachability to a second endpoint and per-site CA/token
+distribution, and fails sites whose only allowed path is the gateway link —
+the exact environment ServiceRadar exists for. B remains a degenerate
+configuration (the output trait makes an OTLP-exporter backend cheap) for
+sites that prefer it.
+
+Buffering: the add-on buffers bounded batches on disk when the agent link is
+down (oldest-first eviction, evictions counted in delivery accounting),
+consistent with the platform's store-and-forward model. Add-on packaging,
+signing, delivery, and config follow the completed native add-on framework
+changes (delivery-models, rust SDK, edge-ops, streamed agent config); the
+add-on also exposes the local endpoint that the agent, plugins, and other
+add-ons use for self-telemetry.
+
+Leaf-node transport (second first-class edge mode): where a site runs a NATS
+leaf server, the collector's EXISTING JetStream backend pointed at the local
+leaf becomes the preferred transport — zero new collector code, and durable
+store-and-forward comes from the leaf's JetStream instead of the add-on's
+own buffer (10.4 applies only to agent-channel mode). Leaf-mode specifics to
+respect: (a) the leaf's JetStream runs its own domain — the edge stream is
+local and reaches the hub via stream sourcing/mirroring or cross-domain
+consumption, NOT by pretending to be the hub's `events` stream; (b) the
+collector's current ensure_stream() force-reconciles shared stream config on
+every connect (a known audit finding) — in leaf mode it must provision only
+the local edge stream and never clobber hub config; (c) attribution in leaf
+mode derives from the leaf connection's NATS account/creds and site-scoped
+subject prefixes (ties into the existing nats-tenant-isolation and
+nats-cross-account-consumption capabilities) rather than gateway stamping.
+Deploying leaf servers themselves (provisioning, creds, hub-side sourcing,
+retention sizing) is OUT of this change's scope — a follow-up change (e.g.
+`add-nats-leaf-edge-telemetry`) owns it; this change only guarantees the
+collector is transport-ready for it.
+
 ## Risks / Trade-offs
 
 - Backfill on live demo: small (1-day logs retention) but must be batched and

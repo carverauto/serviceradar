@@ -18,6 +18,9 @@
 {{- $logCollectorExternal := default (dict) $ingress.logCollectorExternal -}}
 {{- $logCollectorExternalEnabled := default true $logCollectorExternal.enabled -}}
 {{- $logCollectorExternalCIDRs := default (list "0.0.0.0/0") $logCollectorExternal.allowedCIDRs -}}
+{{- $otlpExternal := default (dict) $ingress.otlpExternal -}}
+{{- $otlpExternalEnabled := default true $otlpExternal.enabled -}}
+{{- $otlpExternalCIDRs := default (list "0.0.0.0/0") $otlpExternal.allowedCIDRs -}}
 {{- $trapdExternal := default (dict) $ingress.trapdExternal -}}
 {{- $trapdExternalEnabled := default true $trapdExternal.enabled -}}
 {{- $trapdExternalCIDRs := default (list "0.0.0.0/0") $trapdExternal.allowedCIDRs -}}
@@ -38,6 +41,7 @@
 {{- $hasAgentGatewayExternalCIDRs := gt (len $agentGatewayExternalCIDRs) 0 -}}
 {{- $hasFlowCollectorExternalCIDRs := gt (len $flowCollectorExternalCIDRs) 0 -}}
 {{- $hasLogCollectorExternalCIDRs := gt (len $logCollectorExternalCIDRs) 0 -}}
+{{- $hasOtlpExternalCIDRs := gt (len $otlpExternalCIDRs) 0 -}}
 {{- $hasTrapdExternalCIDRs := gt (len $trapdExternalCIDRs) 0 -}}
 {{- $hasBmpCollectorExternalCIDRs := gt (len $bmpCollectorExternalCIDRs) 0 -}}
 {{- $agentGateway := default (dict) .Values.agentGateway -}}
@@ -86,6 +90,16 @@
 {{- end -}}
 {{- $hasLogCollectorExternalPorts := gt (len $logCollectorExternalPorts) 0 -}}
 {{- $hasLogCollectorTcpExternalPorts := gt (len $logCollectorTcpExternalPorts) 0 -}}
+{{- $logCollectorOtlp := default (dict) $logCollector.otlp -}}
+{{- $logCollectorOtlpService := default (dict) $logCollectorOtlp.service -}}
+{{- $logCollectorOtlpServiceEnabled := default false $logCollectorOtlpService.enabled -}}
+{{- $logCollectorOtlpServiceType := default "LoadBalancer" $logCollectorOtlpService.type -}}
+{{- $logCollectorOtlpHttp := default (dict) $logCollectorOtlpService.http -}}
+{{- $logCollectorOtlpPorts := list (dict "protocol" "TCP" "port" (default 4317 $logCollectorOtlpService.port)) -}}
+{{- if default false $logCollectorOtlpHttp.enabled -}}
+  {{- $logCollectorOtlpPorts = append $logCollectorOtlpPorts (dict "protocol" "TCP" "port" (default 4318 $logCollectorOtlpHttp.port)) -}}
+{{- end -}}
+{{- $hasLogCollectorOtlpPorts := gt (len $logCollectorOtlpPorts) 0 -}}
 {{- $gobgp := default (dict) .Values.gobgp -}}
 {{- $gobgpEnabled := default false $gobgp.enabled -}}
 {{- $gobgpBgp := default (dict) $gobgp.bgp -}}
@@ -366,6 +380,29 @@ spec:
             cidr: {{ $cidr | quote }}
       ports:
 {{- include "serviceradar.networkPolicyPorts" $logCollectorTcpExternalPorts | trim | nindent 8 }}
+{{- end }}
+{{- end }}
+{{- if and $logCollectorOtlpServiceEnabled $otlpExternalEnabled $hasOtlpExternalCIDRs $hasLogCollectorOtlpPorts (ne $logCollectorOtlpServiceType "ClusterIP") }}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "serviceradar.fullname" . }}-otlp-external
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+spec:
+  podSelector:
+    matchLabels:
+      app: serviceradar-log-collector
+  policyTypes:
+    - Ingress
+  ingress:
+{{- range $cidr := $otlpExternalCIDRs }}
+    - from:
+        - ipBlock:
+            cidr: {{ $cidr | quote }}
+      ports:
+{{- include "serviceradar.networkPolicyPorts" $logCollectorOtlpPorts | trim | nindent 8 }}
 {{- end }}
 {{- end }}
 {{- if and $trapdExternalServiceEnabled $trapdExternalEnabled $hasTrapdExternalCIDRs $hasTrapdExternalPorts (ne $trapdExternalServiceType "ClusterIP") }}

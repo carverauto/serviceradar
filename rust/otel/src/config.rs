@@ -20,8 +20,44 @@ pub struct ServerConfig {
     pub bind_address: String,
     #[serde(default = "default_port")]
     pub port: u16,
+    /// Maximum accepted OTLP export request size in bytes. Applied as the
+    /// gRPC decode limit and the OTLP/HTTP body limit. Defaults to 64 MiB.
+    #[serde(default = "default_max_request_bytes")]
+    pub max_request_bytes: usize,
     #[serde(default)]
     pub metrics: Option<MetricsConfig>,
+    /// OTLP/HTTP listener (port 4318 by default, enabled by default).
+    #[serde(default)]
+    pub http: HttpConfig,
+}
+
+/// OTLP/HTTP listener configuration (`[server.http]`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpConfig {
+    /// Whether to expose the OTLP/HTTP listener (default: true).
+    #[serde(default = "default_http_enabled")]
+    pub enabled: bool,
+    #[serde(default = "default_bind_address")]
+    pub bind_address: String,
+    /// Standard OTLP/HTTP port (default: 4318).
+    #[serde(default = "default_http_port")]
+    pub port: u16,
+    /// CORS origins allowed for browser-based OTLP exporters. The default
+    /// `["*"]` allows any origin; restrict this when exposing the listener
+    /// publicly.
+    #[serde(default = "default_allowed_origins")]
+    pub allowed_origins: Vec<String>,
+}
+
+impl Default for HttpConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_http_enabled(),
+            bind_address: default_bind_address(),
+            port: default_http_port(),
+            allowed_origins: default_allowed_origins(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -37,6 +73,26 @@ pub struct GRPCTLSConfig {
     pub cert_file: String,
     pub key_file: String,
     pub ca_file: Option<String>,
+    /// Client certificate policy when `ca_file` is set:
+    /// - "required": clients must present a certificate signed by the CA
+    ///   (mTLS; the default, preserving previous behavior).
+    /// - "optional": client certificates are verified when presented, but
+    ///   connections without one are accepted. Useful when the same listener
+    ///   serves internal mTLS clients and external OTLP producers.
+    /// - "none": never request client certificates, even if `ca_file` is set.
+    ///   Use this when exposing external ingest with server-side TLS only.
+    #[serde(default)]
+    pub client_auth: ClientAuthMode,
+}
+
+/// Client certificate policy for the gRPC TLS listener.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ClientAuthMode {
+    #[default]
+    Required,
+    Optional,
+    None,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -73,7 +129,9 @@ impl Default for ServerConfig {
         Self {
             bind_address: default_bind_address(),
             port: default_port(),
+            max_request_bytes: default_max_request_bytes(),
             metrics: None,
+            http: HttpConfig::default(),
         }
     }
 }
@@ -132,6 +190,14 @@ impl Config {
         format!("{}:{}", self.server.bind_address, self.server.port)
     }
 
+    /// Get the full OTLP/HTTP bind address (address:port)
+    pub fn http_address(&self) -> String {
+        format!(
+            "{}:{}",
+            self.server.http.bind_address, self.server.http.port
+        )
+    }
+
     /// Get the full metrics bind address (address:port) if metrics are enabled
     pub fn metrics_address(&self) -> Option<String> {
         self.server
@@ -184,10 +250,12 @@ impl Config {
             server: ServerConfig {
                 bind_address: default_bind_address(),
                 port: default_port(),
+                max_request_bytes: default_max_request_bytes(),
                 metrics: Some(MetricsConfig {
                     bind_address: default_metrics_bind_address(),
                     port: default_metrics_port(),
                 }),
+                http: HttpConfig::default(),
             },
             nats: Some(NATSConfigTOML {
                 url: "nats://localhost:4222".to_string(),
@@ -209,6 +277,7 @@ impl Config {
                 cert_file: "/path/to/grpc-server.crt".to_string(),
                 key_file: "/path/to/grpc-server.key".to_string(),
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
+                client_auth: ClientAuthMode::Required,
             }),
         };
 
@@ -256,6 +325,22 @@ fn default_metrics_bind_address() -> String {
 
 fn default_metrics_port() -> u16 {
     9090
+}
+
+fn default_max_request_bytes() -> usize {
+    64 * 1024 * 1024 // 64 MiB
+}
+
+fn default_http_enabled() -> bool {
+    true
+}
+
+fn default_http_port() -> u16 {
+    4318
+}
+
+fn default_allowed_origins() -> Vec<String> {
+    vec!["*".to_string()]
 }
 
 #[cfg(test)]
@@ -356,7 +441,7 @@ url = "nats://test:4222"
             server: ServerConfig {
                 bind_address: "127.0.0.1".to_string(),
                 port: 8080,
-                metrics: None,
+                ..ServerConfig::default()
             },
             nats: None,
             grpc_tls: None,
@@ -374,6 +459,7 @@ url = "nats://test:4222"
                 cert_file: "/server.crt".to_string(),
                 key_file: "/server.key".to_string(),
                 ca_file: None,
+                client_auth: ClientAuthMode::default(),
             }),
         };
 
@@ -381,6 +467,102 @@ url = "nats://test:4222"
         assert_eq!(tls.cert_file, "/server.crt");
         assert_eq!(tls.key_file, "/server.key");
         assert!(tls.ca_file.is_none());
+        assert_eq!(tls.client_auth, ClientAuthMode::Required);
+    }
+
+    #[test]
+    fn test_max_request_bytes_defaults_to_64mib() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.server.max_request_bytes, 64 * 1024 * 1024);
+    }
+
+    #[test]
+    fn test_max_request_bytes_parses_from_toml() {
+        let toml_content = r#"
+[server]
+max_request_bytes = 1048576
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.server.max_request_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn test_http_listener_defaults() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(config.server.http.enabled);
+        assert_eq!(config.server.http.bind_address, "0.0.0.0");
+        assert_eq!(config.server.http.port, 4318);
+        assert_eq!(config.server.http.allowed_origins, vec!["*".to_string()]);
+        assert_eq!(config.http_address(), "0.0.0.0:4318");
+    }
+
+    #[test]
+    fn test_http_listener_parses_from_toml() {
+        let toml_content = r#"
+[server.http]
+enabled = false
+bind_address = "127.0.0.1"
+port = 4319
+allowed_origins = ["https://app.example.com", "https://ops.example.com"]
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert!(!config.server.http.enabled);
+        assert_eq!(config.server.http.bind_address, "127.0.0.1");
+        assert_eq!(config.server.http.port, 4319);
+        assert_eq!(
+            config.server.http.allowed_origins,
+            vec![
+                "https://app.example.com".to_string(),
+                "https://ops.example.com".to_string()
+            ]
+        );
+    }
+
+    #[test]
+    fn test_client_auth_defaults_to_required() {
+        let toml_content = r#"
+[grpc_tls]
+cert_file = "/grpc.crt"
+key_file = "/grpc.key"
+ca_file = "/ca.pem"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(
+            config.grpc_tls.unwrap().client_auth,
+            ClientAuthMode::Required
+        );
+    }
+
+    #[test]
+    fn test_client_auth_parses_all_modes() {
+        for (raw, expected) in [
+            ("required", ClientAuthMode::Required),
+            ("optional", ClientAuthMode::Optional),
+            ("none", ClientAuthMode::None),
+        ] {
+            let toml_content = format!(
+                r#"
+[grpc_tls]
+cert_file = "/grpc.crt"
+key_file = "/grpc.key"
+ca_file = "/ca.pem"
+client_auth = "{raw}"
+"#
+            );
+            let config: Config = toml::from_str(&toml_content).unwrap();
+            assert_eq!(config.grpc_tls.unwrap().client_auth, expected, "{raw}");
+        }
+    }
+
+    #[test]
+    fn test_client_auth_rejects_unknown_mode() {
+        let toml_content = r#"
+[grpc_tls]
+cert_file = "/grpc.crt"
+key_file = "/grpc.key"
+client_auth = "sometimes"
+"#;
+        assert!(toml::from_str::<Config>(toml_content).is_err());
     }
 
     #[test]

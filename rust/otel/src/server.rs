@@ -8,6 +8,7 @@ use log::{debug, error, info};
 use std::convert::Infallible;
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
+use tonic::codec::CompressionEncoding;
 use tonic::transport::{Server, ServerTlsConfig};
 
 use crate::ServiceRadarCollector;
@@ -33,13 +34,18 @@ pub async fn create_collector(
     }
 }
 
-/// Starts the gRPC server with the given configuration
+/// Starts the gRPC server with the given configuration.
+///
+/// `max_request_bytes` bounds the decoded size of a single OTLP export
+/// request (tonic's default of 4 MiB is far too small for stock OTel
+/// Collector batching); wire it from `config.server.max_request_bytes`.
 pub async fn start_server(
     addr: SocketAddr,
     grpc_tls_config: Option<ServerTlsConfig>,
     collector: ServiceRadarCollector,
+    max_request_bytes: usize,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    info!("OTEL Collector listening on {addr}");
+    info!("OTEL Collector listening on {addr} (max request size: {max_request_bytes} bytes)");
     debug!("Starting gRPC server");
 
     let mut server_builder = Server::builder();
@@ -54,10 +60,30 @@ pub async fn start_server(
     let logs_collector = collector.clone();
     let metrics_collector = collector;
 
+    // Stock OTLP exporters (e.g. the OTel Collector's otlp exporter)
+    // negotiate gzip by default; without accept_compressed they receive a
+    // permanent UNIMPLEMENTED. Accept gzip + zstd and compress responses
+    // with gzip when the client advertises support.
+    let trace_service = TraceServiceServer::new(trace_collector)
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip)
+        .max_decoding_message_size(max_request_bytes);
+    let logs_service = LogsServiceServer::new(logs_collector)
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip)
+        .max_decoding_message_size(max_request_bytes);
+    let metrics_service = MetricsServiceServer::new(metrics_collector)
+        .accept_compressed(CompressionEncoding::Gzip)
+        .accept_compressed(CompressionEncoding::Zstd)
+        .send_compressed(CompressionEncoding::Gzip)
+        .max_decoding_message_size(max_request_bytes);
+
     let result = server_builder
-        .add_service(TraceServiceServer::new(trace_collector))
-        .add_service(LogsServiceServer::new(logs_collector))
-        .add_service(MetricsServiceServer::new(metrics_collector))
+        .add_service(trace_service)
+        .add_service(logs_service)
+        .add_service(metrics_service)
         .serve(addr)
         .await;
 

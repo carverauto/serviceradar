@@ -100,6 +100,18 @@ logCollector:
     limits:
       cpu: "1"
       memory: "1Gi"
+  # External OTLP/gRPC ingest (serviceradar-otlp LoadBalancer). The collector
+  # presents a cert from the ServiceRadar private CA; external senders need the
+  # root CA bundle or insecure skip-verify until public-CA support lands.
+  # 23.138.124.20 verified free in k3s-pool as of 2026-06-11.
+  otlp:
+    service:
+      enabled: true
+      type: LoadBalancer
+      annotations:
+        metallb.universe.tf/address-pool: k3s-pool
+      loadBalancerIP: "23.138.124.20"
+      externalTrafficPolicy: Local
 
 agentGateway:
   enabled: true

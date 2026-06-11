@@ -3,6 +3,7 @@ use tonic::{Request, Response, Status};
 
 pub mod cli;
 pub mod config;
+pub mod http_server;
 pub mod metrics;
 pub mod nats_output;
 pub mod server;
@@ -68,11 +69,11 @@ use opentelemetry::proto::collector::logs::v1::{
 };
 use opentelemetry::proto::collector::metrics::v1::metrics_service_server::MetricsService;
 use opentelemetry::proto::collector::metrics::v1::{
-    ExportMetricsServiceRequest, ExportMetricsServiceResponse,
+    ExportMetricsPartialSuccess, ExportMetricsServiceRequest, ExportMetricsServiceResponse,
 };
 use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use opentelemetry::proto::collector::trace::v1::{
-    ExportTraceServiceRequest, ExportTraceServiceResponse,
+    ExportTracePartialSuccess, ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
 use opentelemetry::proto::metrics::v1::Metric;
 use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
@@ -87,13 +88,13 @@ const NATS_PUBLISH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_
 /// Returns the result of the retry if the first attempt fails. Callers decide
 /// whether a final failure is fatal for the OTLP export (primary signals NACK
 /// the request so SDK clients retransmit; derived data stays best-effort).
-async fn publish_with_retry<F, Fut>(signal: &str, mut attempt: F) -> anyhow::Result<()>
+async fn publish_with_retry<T, F, Fut>(signal: &str, mut attempt: F) -> anyhow::Result<T>
 where
     F: FnMut() -> Fut,
-    Fut: std::future::Future<Output = anyhow::Result<()>>,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
 {
     match attempt().await {
-        Ok(()) => Ok(()),
+        Ok(value) => Ok(value),
         Err(first_err) => {
             warn!(
                 "Failed to publish {signal} to NATS (retrying once after {}ms): {first_err}",
@@ -103,6 +104,29 @@ where
             attempt().await
         }
     }
+}
+
+/// Error returned when an export could not be durably accepted (the NATS
+/// publish failed even after a retry). The OTLP/gRPC surface maps this to
+/// UNAVAILABLE and the OTLP/HTTP surface maps it to 503 so stock SDK
+/// exporters retransmit the batch.
+#[derive(Debug)]
+pub struct ExportError {
+    pub message: String,
+}
+
+impl std::fmt::Display for ExportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ExportError {}
+
+/// Builds the partial_success error message for records rejected because a
+/// single record exceeded the maximum encoded size.
+fn oversize_partial_message(rejected: usize) -> String {
+    format!("{rejected} records exceeded max encoded size")
 }
 
 #[derive(Clone)]
@@ -184,14 +208,13 @@ impl std::fmt::Debug for ServiceRadarCollector {
     }
 }
 
-#[tonic::async_trait]
-impl TraceService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP traces export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_traces(
         &self,
-        request: Request<ExportTraceServiceRequest>,
-    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        let trace_data = request.into_inner();
-
+        trace_data: ExportTraceServiceRequest,
+    ) -> Result<ExportTraceServiceResponse, ExportError> {
         let span_count = trace_data
             .resource_spans
             .iter()
@@ -429,6 +452,7 @@ impl TraceService for ServiceRadarCollector {
         // fails the export so SDK clients retransmit instead of silently
         // losing spans; downstream writers dedupe on primary key, so retries
         // are safe.
+        let mut rejected_spans = 0usize;
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding traces to NATS");
             let publish_result = publish_with_retry("traces", || async {
@@ -437,13 +461,16 @@ impl TraceService for ServiceRadarCollector {
             })
             .await;
             match publish_result {
-                Ok(()) => metrics::record_published("traces", span_count),
+                Ok(rejected) => {
+                    rejected_spans = rejected;
+                    metrics::record_published("traces", span_count.saturating_sub(rejected));
+                }
                 Err(e) => {
                     metrics::record_publish_failure("traces", span_count);
                     error!("Failed to publish traces to NATS after retry: {e}");
-                    return Err(Status::unavailable(format!(
-                        "failed to publish traces to NATS after retry: {e}"
-                    )));
+                    return Err(ExportError {
+                        message: format!("failed to publish traces to NATS after retry: {e}"),
+                    });
                 }
             }
         } else {
@@ -451,20 +478,25 @@ impl TraceService for ServiceRadarCollector {
         }
 
         debug!("OTEL export request completed successfully");
-        Ok(Response::new(ExportTraceServiceResponse {
-            partial_success: None,
-        }))
+        // Per the OTLP spec, partial_success is unset on full success and
+        // carries the rejected count when individual records were dropped
+        // (e.g. a single span too large to ever publish).
+        Ok(ExportTraceServiceResponse {
+            partial_success: (rejected_spans > 0).then(|| ExportTracePartialSuccess {
+                rejected_spans: rejected_spans as i64,
+                error_message: oversize_partial_message(rejected_spans),
+            }),
+        })
     }
 }
 
-#[tonic::async_trait]
-impl MetricsService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP metrics export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_metrics(
         &self,
-        request: Request<ExportMetricsServiceRequest>,
-    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
-        let metrics_data = request.into_inner();
-
+        metrics_data: ExportMetricsServiceRequest,
+    ) -> Result<ExportMetricsServiceResponse, ExportError> {
         let resource_metric_count = metrics_data.resource_metrics.len();
         let mut scope_metric_count = 0usize;
         let mut metric_count = 0usize;
@@ -529,6 +561,7 @@ impl MetricsService for ServiceRadarCollector {
         // Send to NATS if configured. A publish failure (after one retry)
         // fails the export so SDK clients retransmit instead of silently
         // losing metric points.
+        let mut rejected_data_points = 0usize;
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding raw OTLP metrics to NATS");
             let publish_result = publish_with_retry("metrics", || async {
@@ -537,33 +570,39 @@ impl MetricsService for ServiceRadarCollector {
             })
             .await;
             match publish_result {
-                Ok(()) => metrics::record_published("metrics", data_point_count),
+                Ok(rejected) => {
+                    rejected_data_points = rejected;
+                    metrics::record_published("metrics", data_point_count.saturating_sub(rejected));
+                }
                 Err(e) => {
                     metrics::record_publish_failure("metrics", data_point_count);
                     error!("Failed to publish raw OTLP metrics to NATS after retry: {e}");
-                    return Err(Status::unavailable(format!(
-                        "failed to publish metrics to NATS after retry: {e}"
-                    )));
+                    return Err(ExportError {
+                        message: format!("failed to publish metrics to NATS after retry: {e}"),
+                    });
                 }
             }
         } else {
             debug!("No NATS output configured, metrics received but not forwarded");
         }
 
-        Ok(Response::new(ExportMetricsServiceResponse {
-            partial_success: None,
-        }))
+        // partial_success stays unset on full success per the OTLP spec.
+        Ok(ExportMetricsServiceResponse {
+            partial_success: (rejected_data_points > 0).then(|| ExportMetricsPartialSuccess {
+                rejected_data_points: rejected_data_points as i64,
+                error_message: oversize_partial_message(rejected_data_points),
+            }),
+        })
     }
 }
 
-#[tonic::async_trait]
-impl LogsService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP logs export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_logs(
         &self,
-        request: Request<ExportLogsServiceRequest>,
-    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
-        let logs_data = request.into_inner();
-
+        logs_data: ExportLogsServiceRequest,
+    ) -> Result<ExportLogsServiceResponse, ExportError> {
         let logs_count = logs_data
             .resource_logs
             .iter()
@@ -616,6 +655,7 @@ impl LogsService for ServiceRadarCollector {
         // Send to NATS if configured. A publish failure (after one retry)
         // fails the export so SDK clients retransmit instead of silently
         // losing log records.
+        let mut rejected_log_records = 0usize;
         if let Some(nats) = &self.nats_output {
             debug!("Forwarding logs to NATS");
             let publish_result = publish_with_retry("logs", || async {
@@ -624,13 +664,16 @@ impl LogsService for ServiceRadarCollector {
             })
             .await;
             match publish_result {
-                Ok(()) => metrics::record_published("logs", logs_count),
+                Ok(rejected) => {
+                    rejected_log_records = rejected;
+                    metrics::record_published("logs", logs_count.saturating_sub(rejected));
+                }
                 Err(e) => {
                     metrics::record_publish_failure("logs", logs_count);
                     error!("Failed to publish logs to NATS after retry: {e}");
-                    return Err(Status::unavailable(format!(
-                        "failed to publish logs to NATS after retry: {e}"
-                    )));
+                    return Err(ExportError {
+                        message: format!("failed to publish logs to NATS after retry: {e}"),
+                    });
                 }
             }
         } else {
@@ -638,12 +681,53 @@ impl LogsService for ServiceRadarCollector {
         }
 
         debug!("OTEL logs export request completed successfully");
-        Ok(Response::new(ExportLogsServiceResponse {
-            partial_success: Some(ExportLogsPartialSuccess {
-                rejected_log_records: 0,
-                error_message: String::new(),
+        // Per the OTLP spec, partial_success MUST be unset on full success;
+        // it is only populated when log records were actually rejected.
+        Ok(ExportLogsServiceResponse {
+            partial_success: (rejected_log_records > 0).then(|| ExportLogsPartialSuccess {
+                rejected_log_records: rejected_log_records as i64,
+                error_message: oversize_partial_message(rejected_log_records),
             }),
-        }))
+        })
+    }
+}
+
+#[tonic::async_trait]
+impl TraceService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportTraceServiceRequest>,
+    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+        self.handle_traces(request.into_inner())
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
+    }
+}
+
+#[tonic::async_trait]
+impl MetricsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportMetricsServiceRequest>,
+    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
+        self.handle_metrics(request.into_inner())
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
+    }
+}
+
+#[tonic::async_trait]
+impl LogsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportLogsServiceRequest>,
+    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
+        self.handle_logs(request.into_inner())
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
     }
 }
 
@@ -898,10 +982,8 @@ mod tests {
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
-        assert!(inner.partial_success.is_some());
-        let partial_success = inner.partial_success.unwrap();
-        assert_eq!(partial_success.rejected_log_records, 0);
-        assert!(partial_success.error_message.is_empty());
+        // OTLP spec: partial_success MUST be unset on full success.
+        assert!(inner.partial_success.is_none());
     }
 
     fn create_test_logs_request() -> ExportLogsServiceRequest {

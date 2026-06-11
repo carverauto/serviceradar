@@ -464,6 +464,28 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    otel_metric_points (timestamp, metric_name, service_name, attributes_hash) {
+        timestamp -> Timestamptz,
+        metric_name -> Text,
+        metric_type -> Nullable<Text>,
+        unit -> Nullable<Text>,
+        temporality -> Nullable<Text>,
+        is_monotonic -> Nullable<Bool>,
+        service_name -> Text,
+        attributes -> Nullable<Text>,
+        attributes_hash -> Text,
+        value -> Nullable<Float8>,
+        count -> Nullable<Int8>,
+        sum -> Nullable<Float8>,
+        bucket_counts -> Nullable<Text>,
+        explicit_bounds -> Nullable<Text>,
+        created_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     timeseries_metrics (timestamp, gateway_id, series_key) {
         timestamp -> Timestamptz,
         gateway_id -> Text,

@@ -71,7 +71,7 @@ mod tests {
             server: ServerConfig {
                 bind_address: "127.0.0.1".to_string(),
                 port: 8080,
-                metrics: None,
+                ..ServerConfig::default()
             },
             nats: None,
             grpc_tls: None,
@@ -88,7 +88,7 @@ mod tests {
             server: ServerConfig {
                 bind_address: "invalid".to_string(),
                 port: 8080,
-                metrics: None,
+                ..ServerConfig::default()
             },
             nats: None,
             grpc_tls: None,

@@ -1043,6 +1043,47 @@ impl OtelMetricRow {
 }
 
 #[derive(Debug, Clone, Queryable, Selectable, Serialize)]
+#[diesel(table_name = crate::schema::otel_metric_points, check_for_backend(diesel::pg::Pg))]
+pub struct OtelMetricPointRow {
+    pub timestamp: DateTime<Utc>,
+    pub metric_name: String,
+    pub metric_type: Option<String>,
+    pub unit: Option<String>,
+    pub temporality: Option<String>,
+    pub is_monotonic: Option<bool>,
+    pub service_name: String,
+    pub attributes: Option<String>,
+    pub attributes_hash: String,
+    pub value: Option<f64>,
+    pub count: Option<i64>,
+    pub sum: Option<f64>,
+    pub bucket_counts: Option<String>,
+    pub explicit_bounds: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+impl OtelMetricPointRow {
+    pub fn into_json(self) -> serde_json::Value {
+        serde_json::json!({
+            "timestamp": self.timestamp,
+            "metric_name": self.metric_name,
+            "metric_type": self.metric_type,
+            "unit": self.unit,
+            "temporality": self.temporality,
+            "is_monotonic": self.is_monotonic,
+            "service_name": self.service_name,
+            "attributes": self.attributes,
+            "attributes_hash": self.attributes_hash,
+            "value": self.value,
+            "count": self.count,
+            "sum": self.sum,
+            "bucket_counts": self.bucket_counts,
+            "explicit_bounds": self.explicit_bounds,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Queryable, Selectable, Serialize)]
 #[diesel(table_name = crate::schema::timeseries_metrics, check_for_backend(diesel::pg::Pg))]
 pub struct TimeseriesMetricRow {
     pub timestamp: DateTime<Utc>,

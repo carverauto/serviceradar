@@ -61,12 +61,17 @@ pub struct NATSOutput {
     disabled: bool,
 }
 
+/// Splits an OTLP export into publishable chunks. The second tuple element is
+/// the number of individual records dropped because a single record's encoded
+/// size exceeds `max_publish_bytes`; such records can never be published, so
+/// they are rejected (and reported via partial_success) instead of poisoning
+/// the whole batch into an infinite client retry loop.
 fn split_logs_request(
     logs: &ExportLogsServiceRequest,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportLogsServiceRequest>> {
+) -> (Vec<ExportLogsServiceRequest>, usize) {
     if logs.encoded_len() <= max_publish_bytes {
-        return Ok(vec![logs.clone()]);
+        return (vec![logs.clone()], 0);
     }
 
     let mut units = Vec::new();
@@ -94,8 +99,9 @@ fn split_logs_request(
 fn pack_log_units(
     units: Vec<ExportLogsServiceRequest>,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportLogsServiceRequest>> {
+) -> (Vec<ExportLogsServiceRequest>, usize) {
     let mut chunks = Vec::new();
+    let mut rejected = 0usize;
     let mut current = ExportLogsServiceRequest {
         resource_logs: Vec::new(),
     };
@@ -103,11 +109,11 @@ fn pack_log_units(
     for unit in units {
         let unit_size = unit.encoded_len();
         if unit_size > max_publish_bytes {
-            return Err(anyhow!(
-                "single OTEL log record exceeds NATS payload budget: {} > {} bytes",
-                unit_size,
-                max_publish_bytes
-            ));
+            rejected += 1;
+            warn!(
+                "Dropping oversized OTEL log record: {unit_size} encoded bytes exceeds the {max_publish_bytes} byte publish budget"
+            );
+            continue;
         }
 
         let mut candidate = current.clone();
@@ -125,15 +131,15 @@ fn pack_log_units(
         chunks.push(current);
     }
 
-    Ok(chunks)
+    (chunks, rejected)
 }
 
 fn split_traces_request(
     traces: &ExportTraceServiceRequest,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportTraceServiceRequest>> {
+) -> (Vec<ExportTraceServiceRequest>, usize) {
     if traces.encoded_len() <= max_publish_bytes {
-        return Ok(vec![traces.clone()]);
+        return (vec![traces.clone()], 0);
     }
 
     let mut units = Vec::new();
@@ -161,8 +167,9 @@ fn split_traces_request(
 fn pack_trace_units(
     units: Vec<ExportTraceServiceRequest>,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportTraceServiceRequest>> {
+) -> (Vec<ExportTraceServiceRequest>, usize) {
     let mut chunks = Vec::new();
+    let mut rejected = 0usize;
     let mut current = ExportTraceServiceRequest {
         resource_spans: Vec::new(),
     };
@@ -170,11 +177,11 @@ fn pack_trace_units(
     for unit in units {
         let unit_size = unit.encoded_len();
         if unit_size > max_publish_bytes {
-            return Err(anyhow!(
-                "single OTEL span exceeds NATS payload budget: {} > {} bytes",
-                unit_size,
-                max_publish_bytes
-            ));
+            rejected += 1;
+            warn!(
+                "Dropping oversized OTEL span: {unit_size} encoded bytes exceeds the {max_publish_bytes} byte publish budget"
+            );
+            continue;
         }
 
         let mut candidate = current.clone();
@@ -192,15 +199,15 @@ fn pack_trace_units(
         chunks.push(current);
     }
 
-    Ok(chunks)
+    (chunks, rejected)
 }
 
 fn split_metrics_request(
     metrics: &ExportMetricsServiceRequest,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportMetricsServiceRequest>> {
+) -> (Vec<ExportMetricsServiceRequest>, usize) {
     if metrics.encoded_len() <= max_publish_bytes {
-        return Ok(vec![metrics.clone()]);
+        return (vec![metrics.clone()], 0);
     }
 
     let mut units = Vec::new();
@@ -228,8 +235,9 @@ fn split_metrics_request(
 fn pack_metric_units(
     units: Vec<ExportMetricsServiceRequest>,
     max_publish_bytes: usize,
-) -> Result<Vec<ExportMetricsServiceRequest>> {
+) -> (Vec<ExportMetricsServiceRequest>, usize) {
     let mut chunks = Vec::new();
+    let mut rejected = 0usize;
     let mut current = ExportMetricsServiceRequest {
         resource_metrics: Vec::new(),
     };
@@ -237,11 +245,13 @@ fn pack_metric_units(
     for unit in units {
         let unit_size = unit.encoded_len();
         if unit_size > max_publish_bytes {
-            return Err(anyhow!(
-                "single OTEL metric exceeds NATS payload budget: {} > {} bytes",
-                unit_size,
-                max_publish_bytes
-            ));
+            // OTLP metrics partial_success counts rejected data points, not
+            // rejected Metric containers.
+            rejected += metric_request_data_points(&unit);
+            warn!(
+                "Dropping oversized OTEL metric: {unit_size} encoded bytes exceeds the {max_publish_bytes} byte publish budget"
+            );
+            continue;
         }
 
         let mut candidate = current.clone();
@@ -261,7 +271,27 @@ fn pack_metric_units(
         chunks.push(current);
     }
 
-    Ok(chunks)
+    (chunks, rejected)
+}
+
+/// Counts the metric data points contained in an export request.
+fn metric_request_data_points(request: &ExportMetricsServiceRequest) -> usize {
+    use crate::opentelemetry::proto::metrics::v1::metric::Data;
+
+    request
+        .resource_metrics
+        .iter()
+        .flat_map(|rm| rm.scope_metrics.iter())
+        .flat_map(|sm| sm.metrics.iter())
+        .map(|metric| match metric.data {
+            Some(Data::Gauge(ref gauge)) => gauge.data_points.len(),
+            Some(Data::Sum(ref sum)) => sum.data_points.len(),
+            Some(Data::Histogram(ref histogram)) => histogram.data_points.len(),
+            Some(Data::ExponentialHistogram(ref histogram)) => histogram.data_points.len(),
+            Some(Data::Summary(ref summary)) => summary.data_points.len(),
+            None => 0,
+        })
+        .sum()
 }
 
 fn subject_matches(pattern: &str, subject: &str) -> bool {
@@ -644,7 +674,10 @@ impl NATSOutput {
             .contains("no stream found")
     }
 
-    pub async fn publish_traces(&mut self, traces: &ExportTraceServiceRequest) -> Result<()> {
+    /// Publishes traces to NATS. Returns the number of individual spans that
+    /// were rejected because a single span's encoded size exceeds the publish
+    /// budget; callers report these via OTLP partial_success.
+    pub async fn publish_traces(&mut self, traces: &ExportTraceServiceRequest) -> Result<usize> {
         let span_count = traces
             .resource_spans
             .iter()
@@ -665,10 +698,13 @@ impl NATSOutput {
         let traces_subject = format!("{}.traces.raw", self.config.subject);
         if self.disabled {
             debug!("NATS output disabled; dropping traces");
-            return Ok(());
+            return Ok(0);
         }
 
-        let trace_chunks = split_traces_request(traces, MAX_PROTO_PUBLISH_BYTES)?;
+        let (trace_chunks, rejected) = split_traces_request(traces, MAX_PROTO_PUBLISH_BYTES);
+        if rejected > 0 {
+            crate::metrics::record_rejected("traces", "oversize", rejected);
+        }
         debug!(
             "Publishing {} trace chunk(s) to subject: {}",
             trace_chunks.len(),
@@ -746,13 +782,16 @@ impl NATSOutput {
 
         info!(
             "Successfully published {} spans to NATS in {} message(s)",
-            span_count,
+            span_count.saturating_sub(rejected),
             trace_chunks.len()
         );
-        Ok(())
+        Ok(rejected)
     }
 
-    pub async fn publish_logs(&mut self, logs: &ExportLogsServiceRequest) -> Result<()> {
+    /// Publishes logs to NATS. Returns the number of individual log records
+    /// rejected because a single record's encoded size exceeds the publish
+    /// budget; callers report these via OTLP partial_success.
+    pub async fn publish_logs(&mut self, logs: &ExportLogsServiceRequest) -> Result<usize> {
         let logs_count = logs
             .resource_logs
             .iter()
@@ -777,10 +816,13 @@ impl NATSOutput {
             .unwrap_or_else(|| format!("{}.logs", self.config.subject));
         if self.disabled {
             debug!("NATS output disabled; dropping logs");
-            return Ok(());
+            return Ok(0);
         }
 
-        let log_chunks = split_logs_request(logs, MAX_PROTO_PUBLISH_BYTES)?;
+        let (log_chunks, rejected) = split_logs_request(logs, MAX_PROTO_PUBLISH_BYTES);
+        if rejected > 0 {
+            crate::metrics::record_rejected("logs", "oversize", rejected);
+        }
         debug!(
             "Publishing {} log chunk(s) to subject: {}",
             log_chunks.len(),
@@ -856,10 +898,10 @@ impl NATSOutput {
 
         info!(
             "Successfully published {} log records to NATS in {} message(s)",
-            logs_count,
+            logs_count.saturating_sub(rejected),
             log_chunks.len()
         );
-        Ok(())
+        Ok(rejected)
     }
 
     pub async fn publish_metrics(&mut self, metrics: &[PerformanceMetric]) -> Result<()> {
@@ -945,20 +987,27 @@ impl NATSOutput {
         Ok(())
     }
 
+    /// Publishes raw OTLP metrics to NATS. Returns the number of individual
+    /// metric data points rejected because a single metric's encoded size
+    /// exceeds the publish budget; callers report these via partial_success.
     pub async fn publish_raw_metrics(
         &mut self,
         metrics_request: &ExportMetricsServiceRequest,
-    ) -> Result<()> {
+    ) -> Result<usize> {
         debug!("Publishing raw OTLP metrics request to NATS");
 
         if self.disabled {
             debug!("NATS output disabled; dropping raw metrics payload");
-            return Ok(());
+            return Ok(0);
         }
 
         let raw_subject = format!("{}.metrics.raw", self.config.subject);
 
-        let metric_chunks = split_metrics_request(metrics_request, MAX_PROTO_PUBLISH_BYTES)?;
+        let (metric_chunks, rejected) =
+            split_metrics_request(metrics_request, MAX_PROTO_PUBLISH_BYTES);
+        if rejected > 0 {
+            crate::metrics::record_rejected("metrics", "oversize", rejected);
+        }
         debug!(
             "Publishing {} raw metrics chunk(s) to subject: {}",
             metric_chunks.len(),
@@ -1042,7 +1091,7 @@ impl NATSOutput {
             "Successfully published raw OTLP metrics request to NATS in {} message(s)",
             metric_chunks.len()
         );
-        Ok(())
+        Ok(rejected)
     }
 }
 
@@ -1140,7 +1189,8 @@ mod tests {
             }],
         };
 
-        let chunks = split_logs_request(&logs, 5_000).expect("split logs request");
+        let (chunks, rejected) = split_logs_request(&logs, 5_000);
+        assert_eq!(rejected, 0);
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 5_000));
 
@@ -1211,7 +1261,8 @@ mod tests {
             }],
         };
 
-        let chunks = split_traces_request(&traces, 6_000).expect("split traces request");
+        let (chunks, rejected) = split_traces_request(&traces, 6_000);
+        assert_eq!(rejected, 0);
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 6_000));
 
@@ -1331,7 +1382,8 @@ mod tests {
             }],
         };
 
-        let chunks = split_metrics_request(&metrics, 8_000).expect("split metrics request");
+        let (chunks, rejected) = split_metrics_request(&metrics, 8_000);
+        assert_eq!(rejected, 0);
         assert!(chunks.len() > 1);
         assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= 8_000));
 
@@ -1351,5 +1403,203 @@ mod tests {
             })
             .sum::<usize>();
         assert_eq!(total_metrics, 10);
+    }
+
+    fn small_span(idx: u64, name: &str) -> Span {
+        Span {
+            trace_id: vec![1; 16],
+            span_id: vec![2; 8],
+            parent_span_id: vec![],
+            flags: 0,
+            name: name.to_string(),
+            kind: SpanKind::Internal as i32,
+            start_time_unix_nano: idx,
+            end_time_unix_nano: idx + 1,
+            attributes: vec![],
+            dropped_attributes_count: 0,
+            events: vec![],
+            dropped_events_count: 0,
+            links: vec![],
+            dropped_links_count: 0,
+            status: Some(SpanStatus {
+                message: String::new(),
+                code: 1,
+            }),
+            trace_state: String::new(),
+        }
+    }
+
+    #[test]
+    fn pack_trace_units_drops_oversized_single_span_and_keeps_rest() {
+        let budget = 2_000usize;
+        // One span whose encoded size alone exceeds the budget, plus small spans.
+        let oversized = small_span(0, &"x".repeat(4_000));
+        let traces = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(test_resource("trace-oversize")),
+                scope_spans: vec![ScopeSpans {
+                    scope: Some(InstrumentationScope {
+                        name: "scope".to_string(),
+                        version: "1.0.0".to_string(),
+                        attributes: vec![],
+                        dropped_attributes_count: 0,
+                    }),
+                    spans: vec![
+                        oversized,
+                        small_span(1, "small-1"),
+                        small_span(2, "small-2"),
+                        small_span(3, "small-3"),
+                    ],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let (chunks, rejected) = split_traces_request(&traces, budget);
+        assert_eq!(rejected, 1, "exactly the oversized span is rejected");
+        assert!(!chunks.is_empty(), "remaining spans must still be packed");
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= budget));
+
+        let surviving_spans: usize = chunks
+            .iter()
+            .flat_map(|chunk| chunk.resource_spans.iter())
+            .flat_map(|rs| rs.scope_spans.iter())
+            .map(|ss| ss.spans.len())
+            .sum();
+        assert_eq!(surviving_spans, 3);
+    }
+
+    #[test]
+    fn pack_trace_units_all_oversized_yields_no_chunks() {
+        let budget = 1_000usize;
+        let traces = ExportTraceServiceRequest {
+            resource_spans: vec![ResourceSpans {
+                resource: Some(test_resource("trace-oversize-all")),
+                scope_spans: vec![ScopeSpans {
+                    scope: None,
+                    spans: vec![
+                        small_span(0, &"y".repeat(3_000)),
+                        small_span(1, &"z".repeat(3_000)),
+                    ],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let (chunks, rejected) = split_traces_request(&traces, budget);
+        assert_eq!(rejected, 2);
+        assert!(chunks.is_empty());
+    }
+
+    #[test]
+    fn pack_log_units_drops_oversized_single_record_and_keeps_rest() {
+        let budget = 2_000usize;
+        let make_record = |idx: u64, body: String| LogRecord {
+            time_unix_nano: idx,
+            observed_time_unix_nano: idx,
+            severity_number: SeverityNumber::Info as i32,
+            severity_text: "INFO".to_string(),
+            body: Some(AnyValue {
+                value: Some(
+                    crate::opentelemetry::proto::common::v1::any_value::Value::StringValue(body),
+                ),
+            }),
+            attributes: vec![],
+            dropped_attributes_count: 0,
+            flags: 0,
+            trace_id: vec![],
+            span_id: vec![],
+            event_name: format!("log-{idx}"),
+        };
+
+        let logs = ExportLogsServiceRequest {
+            resource_logs: vec![ResourceLogs {
+                resource: Some(test_resource("log-oversize")),
+                scope_logs: vec![ScopeLogs {
+                    scope: None,
+                    log_records: vec![
+                        make_record(0, "x".repeat(5_000)),
+                        make_record(1, "small".to_string()),
+                        make_record(2, "small".to_string()),
+                    ],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let (chunks, rejected) = split_logs_request(&logs, budget);
+        assert_eq!(rejected, 1);
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= budget));
+
+        let surviving_records: usize = chunks
+            .iter()
+            .flat_map(|chunk| chunk.resource_logs.iter())
+            .flat_map(|rl| rl.scope_logs.iter())
+            .map(|sl| sl.log_records.len())
+            .sum();
+        assert_eq!(surviving_records, 2);
+    }
+
+    #[test]
+    fn pack_metric_units_counts_rejected_data_points() {
+        let budget = 2_000usize;
+        let make_metric = |idx: u64, description: String, data_points: usize| {
+            Metric {
+            name: format!("metric-{idx}"),
+            description,
+            unit: "1".to_string(),
+            metadata: vec![],
+            data: Some(
+                crate::opentelemetry::proto::metrics::v1::metric::Data::Gauge(Gauge {
+                    data_points: (0..data_points)
+                        .map(|dp| NumberDataPoint {
+                            attributes: vec![],
+                            start_time_unix_nano: idx,
+                            time_unix_nano: idx + dp as u64,
+                            exemplars: vec![],
+                            flags: 0,
+                            value: Some(
+                                crate::opentelemetry::proto::metrics::v1::number_data_point::Value::AsDouble(
+                                    dp as f64,
+                                ),
+                            ),
+                        })
+                        .collect(),
+                }),
+            ),
+        }
+        };
+
+        let metrics = ExportMetricsServiceRequest {
+            resource_metrics: vec![ResourceMetrics {
+                resource: Some(test_resource("metric-oversize")),
+                scope_metrics: vec![ScopeMetrics {
+                    scope: None,
+                    metrics: vec![
+                        // Oversized metric carrying 3 data points.
+                        make_metric(0, "d".repeat(5_000), 3),
+                        make_metric(1, "small".to_string(), 1),
+                        make_metric(2, "small".to_string(), 1),
+                    ],
+                    schema_url: String::new(),
+                }],
+                schema_url: String::new(),
+            }],
+        };
+
+        let (chunks, rejected) = split_metrics_request(&metrics, budget);
+        assert_eq!(rejected, 3, "all data points of the oversized metric count");
+        assert!(chunks.iter().all(|chunk| chunk.encoded_len() <= budget));
+
+        let surviving_metrics: usize = chunks
+            .iter()
+            .flat_map(|chunk| chunk.resource_metrics.iter())
+            .flat_map(|rm| rm.scope_metrics.iter())
+            .map(|sm| sm.metrics.len())
+            .sum();
+        assert_eq!(surviving_metrics, 2);
     }
 }
