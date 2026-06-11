@@ -1099,7 +1099,7 @@
     "@@rules_oci+//oci:extensions.bzl%oci": {
       "general": {
         "bzlTransitiveDigest": "/jl276vDpQWxB1/3CAGO5clOvCe40KXmJB6wp2bxWj4=",
-        "usagesDigest": "eBSkQ6qNnvtgZ93zYqNYlVHDsQIqO6X4VgJF68vNuoQ=",
+        "usagesDigest": "JS2/IT1mc3fdczeTi9kyaLoEIknGJYEfe0z+LJMtt20=",
         "recordedInputs": [
           "REPO_MAPPING:aspect_bazel_lib+,bazel_tools bazel_tools",
           "REPO_MAPPING:bazel_features+,bazel_tools bazel_tools",
@@ -1238,32 +1238,32 @@
               "reproducible": true
             }
           },
-          "alpine_3_23_linux_amd64": {
+          "alpine_3_24_linux_amd64": {
             "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_pull",
             "attributes": {
               "www_authenticate_challenges": {},
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/alpine",
-              "identifier": "sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659",
+              "identifier": "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
               "platform": "linux/amd64",
-              "target_name": "alpine_3_23_linux_amd64",
+              "target_name": "alpine_3_24_linux_amd64",
               "bazel_tags": []
             }
           },
-          "alpine_3_23": {
+          "alpine_3_24": {
             "repoRuleId": "@@rules_oci+//oci/private:pull.bzl%oci_alias",
             "attributes": {
-              "target_name": "alpine_3_23",
+              "target_name": "alpine_3_24",
               "www_authenticate_challenges": {},
               "scheme": "https",
               "registry": "index.docker.io",
               "repository": "library/alpine",
-              "identifier": "sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659",
+              "identifier": "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
               "platforms": {
-                "@@platforms//cpu:x86_64": "@alpine_3_23_linux_amd64"
+                "@@platforms//cpu:x86_64": "@alpine_3_24_linux_amd64"
               },
-              "bzlmod_repository": "alpine_3_23",
+              "bzlmod_repository": "alpine_3_24",
               "reproducible": true
             }
           },
@@ -1594,8 +1594,8 @@
             "alpine_3_20",
             "alpine_3_20_linux_amd64",
             "alpine_3_20_linux_arm64_v8",
-            "alpine_3_23",
-            "alpine_3_23_linux_amd64",
+            "alpine_3_24",
+            "alpine_3_24_linux_amd64",
             "ubuntu_noble",
             "ubuntu_noble_linux_amd64",
             "ubuntu_noble_linux_arm64_v8",

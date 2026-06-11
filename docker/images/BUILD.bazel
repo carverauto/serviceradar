@@ -72,18 +72,18 @@ fi
 declare_apk_rootfs_targets([
     ("libncursesw", "@alpine_libncursesw_apk//file"),
     ("ncurses_terminfo_base", "@alpine_ncurses_terminfo_base_apk//file"),
-    ("tools_bash", "@alpine_3_23_bash_apk//file"),
-    ("tools_openssl", "@alpine_3_23_openssl_apk//file"),
-    ("tools_libssl3", "@alpine_3_23_libssl3_apk//file"),
-    ("tools_libcrypto3", "@alpine_3_23_libcrypto3_apk//file"),
-    ("tools_readline", "@alpine_3_23_readline_apk//file"),
-    ("tools_postgresql_common", "@alpine_3_23_postgresql_common_apk//file"),
-    ("tools_postgresql18_client", "@alpine_3_23_postgresql18_client_apk//file"),
-    ("tools_libpq", "@alpine_3_23_libpq_apk//file"),
-    ("tools_lz4_libs", "@alpine_3_23_lz4_libs_apk//file"),
-    ("tools_zstd_libs", "@alpine_3_23_zstd_libs_apk//file"),
-    ("tools_libncursesw", "@alpine_3_23_libncursesw_apk//file"),
-    ("tools_ncurses_terminfo_base", "@alpine_3_23_ncurses_terminfo_base_apk//file"),
+    ("tools_bash", "@alpine_3_24_bash_apk//file"),
+    ("tools_openssl", "@alpine_3_24_openssl_apk//file"),
+    ("tools_libssl3", "@alpine_3_24_libssl3_apk//file"),
+    ("tools_libcrypto3", "@alpine_3_24_libcrypto3_apk//file"),
+    ("tools_readline", "@alpine_3_24_readline_apk//file"),
+    ("tools_postgresql_common", "@alpine_3_24_postgresql_common_apk//file"),
+    ("tools_postgresql18_client", "@alpine_3_24_postgresql18_client_apk//file"),
+    ("tools_libpq", "@alpine_3_24_libpq_apk//file"),
+    ("tools_lz4_libs", "@alpine_3_24_lz4_libs_apk//file"),
+    ("tools_zstd_libs", "@alpine_3_24_zstd_libs_apk//file"),
+    ("tools_libncursesw", "@alpine_3_24_libncursesw_apk//file"),
+    ("tools_ncurses_terminfo_base", "@alpine_3_24_ncurses_terminfo_base_apk//file"),
 ])
 
 declare_alpine_netutils_rootfs_amd64()
@@ -508,7 +508,7 @@ declare_service_container_amd64(
 
 declare_custom_base_service_container_amd64(
     name = "cert_generator_image_amd64",
-    base = "@alpine_3_23_linux_amd64//:alpine_3_23_linux_amd64",
+    base = "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
     image_title = "serviceradar-cert-generator",
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-cert-generator:local"],
     files = {
@@ -533,7 +533,7 @@ declare_postgresql_client_symlink_layer(
 
 declare_custom_base_service_container_amd64(
     name = "tools_image_amd64",
-    base = "@alpine_3_23_linux_amd64//:alpine_3_23_linux_amd64",
+    base = "@alpine_3_24_linux_amd64//:alpine_3_24_linux_amd64",
     image_title = "serviceradar-tools",
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
     files = {
