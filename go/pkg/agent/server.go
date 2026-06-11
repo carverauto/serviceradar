@@ -310,8 +310,10 @@ func (s *Server) initAddonManager() {
 	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
-		TelemetryHandler: s.handleAddonTelemetry,
-		OtlpRelayRunner:  s.runAddonOtlpRelay,
+		CredentialResolver: s.credentialBroker,
+		TelemetryHandler:   s.handleAddonTelemetry,
+		ArtifactHandler:    s.handleAddonArtifact,
+		OtlpRelayRunner:    s.runAddonOtlpRelay,
 		// Fallback self-telemetry endpoint (agent.local_otlp_endpoint); the
 		// endpoint derived from a sidecar otel-collector add-on's delivered
 		// config wins inside the manager.
@@ -503,6 +505,7 @@ func (s *Server) initPluginManager(ctx context.Context) {
 		LocalStoreDir:    s.configDir,
 		Logger:           s.logger,
 		CredentialBroker: s.credentialBroker,
+		ArtifactUploader: s.artifactUploader,
 	})
 }
 

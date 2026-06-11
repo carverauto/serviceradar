@@ -68,6 +68,10 @@ defmodule ServiceRadar.Inventory do
     resource ServiceRadar.Inventory.EndpointInventoryScan
     resource ServiceRadar.Inventory.EndpointInventorySettings
     resource ServiceRadar.Inventory.EndpointPackage
+    resource ServiceRadar.Inventory.EndpointVulnerabilityMatch
+    resource ServiceRadar.Inventory.VulnerabilityAdvisory
+    resource ServiceRadar.Inventory.VulnerabilityFeedDefinition
+    resource ServiceRadar.Inventory.VulnerabilityFeedSnapshot
   end
 
   authorization do

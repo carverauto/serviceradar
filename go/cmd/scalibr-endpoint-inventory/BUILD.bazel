@@ -1,0 +1,18 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "scalibr_endpoint_inventory_lib",
+    srcs = ["main.go"],
+    importpath = "github.com/carverauto/serviceradar/go/cmd/scalibr-endpoint-inventory",
+    visibility = ["//visibility:private"],
+    deps = [
+        "//go/pkg/endpointinventory",
+        "//go/pkg/scalibrinventory",
+    ],
+)
+
+go_binary(
+    name = "scalibr_endpoint_inventory",
+    embed = [":scalibr_endpoint_inventory_lib"],
+    visibility = ["//visibility:public"],
+)

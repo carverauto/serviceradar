@@ -397,12 +397,14 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 	}
 
 	spec := agentaddon.Spec{
+		AssignmentID: a.GetAddonId(),
 		ID:           a.GetAddonId(),
 		Version:      a.GetVersion(),
 		BinaryPath:   binaryPath,
 		Args:         a.GetArgs(),
 		ConfigJSON:   a.GetConfigJson(),
 		Capabilities: a.GetCapabilities(),
+		DownloadURL:  a.GetDownloadUrl(),
 	}
 
 	// Cache the fully verified, freshly staged spec as last-known-good so a later

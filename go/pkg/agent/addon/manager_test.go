@@ -21,6 +21,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -225,6 +226,44 @@ func TestManagerStopsRemovedAddon(t *testing.T) {
 	}
 	if s, ok := statusByID(mgr, "sample"); ok {
 		t.Fatalf("expected sample addon to be removed, still present: %+v", s)
+	}
+}
+
+func TestManagerRunsCommandByAssignmentID(t *testing.T) {
+	requireSampleAddon(t)
+
+	mgr := NewManager(testConfig(t))
+	t.Cleanup(func() { stopManager(t, mgr) })
+
+	if err := mgr.Apply(context.Background(), []Spec{{
+		AssignmentID: "assignment-1",
+		ID:           "sample",
+		Version:      "0.1.0",
+		BinaryPath:   sampleAddonBin,
+		ConfigJSON:   []byte(`{"message":"command"}`),
+		Capabilities: []string{coreaddon.CapabilityProducerScheduleV1},
+	}}); err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	waitForState(t, mgr, "sample", 15*time.Second)
+
+	result, err := mgr.RunCommand(context.Background(), CommandInvocation{
+		AssignmentID: "assignment-1",
+		CommandID:    "command-1",
+		CommandType:  coreaddon.CommandTypeAddonRunCommand,
+		ActionID:     "advisory.refresh",
+		Schema:       coreaddon.ProducerScheduleRunSchemaV1,
+		PayloadJSON:  []byte(`{"schema":"serviceradar.producer_schedule_run.v1","action_id":"advisory.refresh"}`),
+		Timeout:      5 * time.Second,
+	})
+	if err != nil {
+		t.Fatalf("run command: %v", err)
+	}
+	if !result.Success {
+		t.Fatalf("command success = false, message=%q", result.Message)
+	}
+	if got := string(result.PayloadJSON); !strings.Contains(got, `"action_id":"advisory.refresh"`) {
+		t.Fatalf("unexpected command payload: %s", got)
 	}
 }
 

@@ -133,6 +133,38 @@ func (s *grpcServer) StreamTelemetry(
 	}
 }
 
+func (s *grpcServer) StreamArtifacts(
+	_ *addonpb.StreamArtifactsRequest,
+	stream addonpb.AddonService_StreamArtifactsServer,
+) error {
+	source, ok := s.impl.(ArtifactSource)
+	if !ok {
+		return nil
+	}
+
+	chunks, err := source.StreamArtifacts(stream.Context())
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-stream.Context().Done():
+			return stream.Context().Err()
+		case chunk, ok := <-chunks:
+			if !ok {
+				return nil
+			}
+			if chunk == nil {
+				continue
+			}
+			if err := stream.Send(chunk); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // RelayOtlp bridges the generated bidi stream to the optional OtlpRelaySource
 // contract. Add-ons that do not advertise otlp-relay:v1 (and so do not
 // implement OtlpRelaySource) report UNIMPLEMENTED, mirroring the Rust SDK's
@@ -145,10 +177,6 @@ func (s *grpcServer) RelayOtlp(stream addonpb.AddonService_RelayOtlpServer) erro
 	}
 
 	ctx := stream.Context()
-
-	// Pump ack watermarks from the agent into the implementation. The channel
-	// closes when the agent half-closes (io.EOF) or the stream breaks, which
-	// tells the implementation to stop releasing spool segments.
 	acks := make(chan uint64)
 	go func() {
 		defer close(acks)
@@ -188,6 +216,39 @@ func (s *grpcServer) RelayOtlp(stream addonpb.AddonService_RelayOtlpServer) erro
 	}
 }
 
+func (s *grpcServer) RunCommand(
+	ctx context.Context,
+	req *addonpb.RunCommandRequest,
+) (*addonpb.RunCommandResponse, error) {
+	handler, ok := s.impl.(CommandHandler)
+	if !ok {
+		return &addonpb.RunCommandResponse{
+			Success: false,
+			Message: "addon command handler unavailable",
+		}, nil
+	}
+
+	result, err := handler.RunCommand(ctx, CommandRequest{
+		CommandID:    req.GetCommandId(),
+		CommandType:  req.GetCommandType(),
+		ActionID:     req.GetActionId(),
+		Schema:       req.GetSchema(),
+		PayloadJSON:  req.GetPayloadJson(),
+		DeadlineUnix: req.GetDeadlineUnix(),
+		Metadata:     req.GetMetadata(),
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &addonpb.RunCommandResponse{
+		Success:     result.Success,
+		Message:     result.Message,
+		PayloadJson: result.PayloadJSON,
+		Metadata:    result.Metadata,
+	}, nil
+}
+
 // grpcClient adapts the generated AddonServiceClient to the Addon interface.
 type grpcClient struct {
 	client addonpb.AddonServiceClient
@@ -195,6 +256,8 @@ type grpcClient struct {
 
 var _ Addon = (*grpcClient)(nil)
 var _ TelemetryClient = (*grpcClient)(nil)
+var _ ArtifactClient = (*grpcClient)(nil)
+var _ CommandClient = (*grpcClient)(nil)
 var _ OtlpRelayClient = (*grpcClient)(nil)
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
@@ -263,6 +326,36 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 	return out, nil
 }
 
+func (c *grpcClient) StreamArtifacts(ctx context.Context) (<-chan *addonpb.ArtifactUploadChunk, error) {
+	stream, err := c.client.StreamArtifacts(ctx, &addonpb.StreamArtifactsRequest{
+		Capability: CapabilityArtifactStagingV1,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan *addonpb.ArtifactUploadChunk)
+	go func() {
+		defer close(out)
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return
+				}
+				return
+			}
+			select {
+			case out <- chunk:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	return out, nil
+}
+
 // RelayOtlp opens the acked OTLP relay stream against the remote add-on. The
 // returned frames channel yields the add-on's OtlpRelayFrame messages and is
 // closed when the stream ends; the caller sends cumulative ack watermarks on
@@ -309,4 +402,26 @@ func (c *grpcClient) RelayOtlp(ctx context.Context) (<-chan *addonpb.OtlpRelayFr
 	}()
 
 	return frames, acks, nil
+}
+
+func (c *grpcClient) RunCommand(ctx context.Context, request CommandRequest) (CommandResult, error) {
+	resp, err := c.client.RunCommand(ctx, &addonpb.RunCommandRequest{
+		CommandId:    request.CommandID,
+		CommandType:  request.CommandType,
+		ActionId:     request.ActionID,
+		Schema:       request.Schema,
+		PayloadJson:  request.PayloadJSON,
+		DeadlineUnix: request.DeadlineUnix,
+		Metadata:     request.Metadata,
+	})
+	if err != nil {
+		return CommandResult{}, err
+	}
+
+	return CommandResult{
+		Success:     resp.GetSuccess(),
+		Message:     resp.GetMessage(),
+		PayloadJSON: resp.GetPayloadJson(),
+		Metadata:    resp.GetMetadata(),
+	}, nil
 }

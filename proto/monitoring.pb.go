@@ -2542,8 +2542,8 @@ type AddonAssignmentConfig struct {
 	OsCapabilities []string `protobuf:"bytes,15,rep,name=os_capabilities,json=osCapabilities,proto3" json:"os_capabilities,omitempty"`
 	// Gateway-proxied download for the `pushed_artifact` delivery model. Agents MUST
 	// NOT access object storage / the KV directly; when these are set the agent fetches
-	// the artifact from the agent-gateway over HTTPS (the same path WASM plugins use).
-	// download_url points at the gateway addon-blob endpoint; download_token is the
+	// the artifact from the agent-gateway over HTTPS.
+	// download_url points at the gateway artifact endpoint; download_token is the
 	// signed (HMAC) grant authorizing the specific artifact_object_key. The agent
 	// still verifies artifact_sha256 + artifact_signature after download.
 	DownloadUrl   string `protobuf:"bytes,16,opt,name=download_url,json=downloadUrl,proto3" json:"download_url,omitempty"`

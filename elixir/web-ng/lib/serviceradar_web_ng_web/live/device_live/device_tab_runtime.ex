@@ -15,6 +15,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceTabRuntime do
 
   @valid_tabs ~w(
     details
+    software
     interfaces
     flows
     logs

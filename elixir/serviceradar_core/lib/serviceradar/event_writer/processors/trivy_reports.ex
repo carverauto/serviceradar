@@ -250,6 +250,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     finding_rows =
       build_finding_rows(%{
         event_uuid: event_uuid,
+        log_uuid: log_uuid,
         payload: payload,
         event_time: event_time,
         context: context
@@ -542,12 +543,15 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
   defp build_finding_rows(%{
          event_uuid: event_uuid,
+         log_uuid: log_uuid,
          payload: payload,
          event_time: event_time,
          context: context
        }) do
     report_payload = normalize_map(get_in(payload, ["report", "report"]))
+    artifact = normalize_map(report_payload["artifact"])
     event_uuid_bin = Ecto.UUID.dump!(event_uuid)
+    log_uuid_bin = Ecto.UUID.dump!(log_uuid)
     report_kind = normalize_string(payload["report_kind"]) || "TrivyReport"
     target = report_target(report_payload, context)
     now = DateTime.utc_now()
@@ -555,13 +559,29 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     common =
       %{
         event_uuid: event_uuid_bin,
+        log_uuid: log_uuid_bin,
         observed_at: event_time,
         report_kind: report_kind,
         cluster_id: normalize_string(payload["cluster_id"]),
         namespace: normalize_string(payload["namespace"]),
+        agent_id: trivy_agent_id(context),
+        device_uid: trivy_device_uid(payload, context),
+        resource_kind: context["resource_kind"],
         resource_name: context["resource_name"],
+        resource_namespace: context["resource_namespace"],
         pod_name: context["pod_name"],
+        pod_namespace: context["pod_namespace"],
+        pod_uid: context["pod_uid"],
         pod_ip: context["pod_ip"],
+        host_ip: context["host_ip"],
+        node_name: context["node_name"],
+        container_name: context["container_name"],
+        owner_kind: context["owner_kind"],
+        owner_name: context["owner_name"],
+        owner_uid: context["owner_uid"],
+        image_repository: normalize_string(artifact["repository"]),
+        image_tag: normalize_string(artifact["tag"]),
+        image_digest: normalize_string(artifact["digest"]),
         target: target,
         created_at: now,
         updated_at: now
@@ -595,6 +615,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         |> Map.put(:severity_id, severity_id)
         |> Map.put(:status, pick_string(vulnerability, ["status", "Status"]) || "open")
         |> Map.put(:package_name, package_name)
+        |> Map.put(:package_purl, package_purl(vulnerability))
         |> Map.put(
           :installed_version,
           pick_string(vulnerability, ["installedVersion", "InstalledVersion"])
@@ -628,6 +649,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         |> Map.put(:severity_id, severity_id)
         |> Map.put(:status, "fail")
         |> Map.put(:package_name, nil)
+        |> Map.put(:package_purl, nil)
         |> Map.put(:installed_version, nil)
         |> Map.put(:fixed_version, nil)
         |> Map.put(:description, pick_string(check, ["description", "messages", "message"]))
@@ -657,6 +679,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
         |> Map.put(:severity_id, severity_id)
         |> Map.put(:status, "open")
         |> Map.put(:package_name, nil)
+        |> Map.put(:package_purl, nil)
         |> Map.put(:installed_version, nil)
         |> Map.put(:fixed_version, nil)
         |> Map.put(:description, pick_string(secret, ["description", "match", "message"]))
@@ -758,13 +781,29 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
 
     updatable_columns = [
       :event_uuid,
+      :log_uuid,
       :observed_at,
       :report_kind,
       :cluster_id,
       :namespace,
+      :agent_id,
+      :device_uid,
+      :resource_kind,
       :resource_name,
+      :resource_namespace,
       :pod_name,
+      :pod_namespace,
+      :pod_uid,
       :pod_ip,
+      :host_ip,
+      :node_name,
+      :container_name,
+      :owner_kind,
+      :owner_name,
+      :owner_uid,
+      :image_repository,
+      :image_tag,
+      :image_digest,
       :finding_type,
       :finding_id,
       :target,
@@ -773,6 +812,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
       :severity_id,
       :status,
       :package_name,
+      :package_purl,
       :installed_version,
       :fixed_version,
       :description,
@@ -1239,6 +1279,23 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   end
 
   defp pick_list(_map, _keys), do: []
+
+  defp package_purl(vulnerability) when is_map(vulnerability) do
+    pick_string(vulnerability, [
+      "purl",
+      "PURL",
+      "pkgPURL",
+      "PkgPURL",
+      "packagePurl",
+      "packagePURL"
+    ]) ||
+      vulnerability
+      |> Map.get("pkgIdentifier")
+      |> normalize_map()
+      |> pick_string(["purl", "PURL"])
+  end
+
+  defp package_purl(_vulnerability), do: nil
 
   defp normalize_finding_severity(value) do
     value

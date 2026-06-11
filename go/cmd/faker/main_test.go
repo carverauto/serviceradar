@@ -125,7 +125,9 @@ func collectPrimaryIPSet(devices []ArmisDevice) map[string]struct{} {
 func TestGenerateMACCountIsDeterministic(t *testing.T) {
 	// Sample one index from each distribution bucket plus boundaries.
 	for _, idx := range []int{0, 7, 59, 60, 84, 85, 94, 95, 98, 99, 49999} {
-		require.Equal(t, generateMACCount(idx), generateMACCount(idx),
+		first := generateMACCount(idx)
+		second := generateMACCount(idx)
+		require.Equal(t, first, second,
 			"MAC count must be stable across invocations (device index %d)", idx)
 	}
 }

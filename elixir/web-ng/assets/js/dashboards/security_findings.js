@@ -48,14 +48,18 @@ function dashboardHtml(host) {
   const severityCounts = countBy(findings, (row) => normalizedSeverity(row.severity))
   const classCounts = countBy(findings, classLabel)
   const highRisk = findings.filter((row) => ["Critical", "High"].includes(normalizedSeverity(row.severity))).length
+  const unlinkedFindings = findings.length - deviceLinked
+  const failedScans = scans.filter((row) => failedStatus(row.status || row.status_detail || row.status_id)).length
+  const dnsBlocks = dns.filter(dnsBlock).length
+  const topAffected = topAffectedResources(findings, vulnerabilities)
 
   return `
     <section class="min-w-0 space-y-5 overflow-x-hidden">
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        ${metricCard("Active findings", number(findings.length), `${number(highRisk)} critical or high`, highRisk > 0 ? "critical" : "ok")}
-        ${metricCard("Linked devices", `${percent(deviceLinked, findings.length)}`, `${number(deviceLinked)} of ${number(findings.length)} findings`, deviceLinked === findings.length ? "ok" : "warning")}
-        ${metricCard("Scan activity", number(scans.length), "Falco, Trivy, Bumblebee, inventory runs", scans.length > 0 ? "ok" : "neutral")}
-        ${metricCard("DNS security", number(dns.length), "PowerDNS DNS activity events", dns.length > 0 ? "warning" : "neutral")}
+        ${metricCard("Active findings", number(findings.length), `${number(highRisk)} critical or high`, highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
+        ${metricCard("Linked devices", `${percent(deviceLinked, findings.length)}`, `${number(deviceLinked)} of ${number(findings.length)} findings`, deviceLinked === findings.length ? "ok" : "warning", "in:security_findings sort:time:desc limit:100")}
+        ${metricCard("Scan activity", number(scans.length), "Falco, Trivy, Bumblebee, inventory runs", scans.length > 0 ? "ok" : "neutral", "in:scan_activity sort:time:desc limit:80")}
+        ${metricCard("DNS security", number(dns.length), "PowerDNS DNS activity events", dns.length > 0 ? "warning" : "neutral", "in:dns_activity sort:time:desc limit:80")}
       </div>
 
       <section class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
@@ -71,29 +75,23 @@ function dashboardHtml(host) {
       </section>
 
       <div class="grid gap-5 xl:grid-cols-[minmax(0,1.35fr)_minmax(340px,0.65fr)]">
-        <section class="min-w-0 overflow-hidden rounded-lg border border-base-300 bg-base-100 shadow-sm">
+        <section class="min-w-0 rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
           <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-300 px-4 py-3">
             <div>
-              <h2 class="text-base font-semibold text-base-content">Security Findings</h2>
-              <p class="text-xs text-base-content/60">OCSF Findings category records tied back to inventory devices</p>
+              <h2 class="text-base font-semibold text-base-content">Exposure Posture</h2>
+              <p class="text-xs text-base-content/60">Editable posture panels built from normalized security findings and scan activity</p>
             </div>
-            <button type="button" data-srql="findings" class="btn btn-xs btn-ghost">Open SRQL</button>
+            <button type="button" data-path="/security" class="btn btn-xs btn-primary">Open work queue</button>
           </div>
-          <div class="max-w-full overflow-x-auto">
-            <table class="table table-sm">
-              <thead>
-                <tr>
-                  <th>Finding</th>
-                  <th>Source</th>
-                  <th>Device</th>
-                  <th>Severity</th>
-                  <th>Time</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${findings.length ? findings.slice(0, 18).map(findingRow).join("") : emptyRow("No security findings returned", 5)}
-              </tbody>
-            </table>
+          <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            ${postureInsightCard("Critical/high", number(highRisk), "Priority findings", highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
+            ${postureInsightCard("Unlinked findings", number(unlinkedFindings), "Missing device correlation", unlinkedFindings > 0 ? "warning" : "ok", "in:security_findings sort:time:desc limit:100")}
+            ${postureInsightCard("Failed scans", number(failedScans), "Scanner runs needing attention", failedScans > 0 ? "critical" : "ok", "in:scan_activity status:Failure sort:time:desc limit:80")}
+            ${postureInsightCard("DNS blocks", number(dnsBlocks), "Policy enforcement signals", dnsBlocks > 0 ? "warning" : "neutral", "in:dns_activity source:powerdns sort:time:desc limit:80")}
+          </div>
+          <div class="mt-4 grid gap-3 lg:grid-cols-2">
+            ${scannerFreshnessPanel(scannerSignals)}
+            ${topAffectedPanel(topAffected)}
           </div>
         </section>
 
@@ -147,7 +145,7 @@ function dashboardHtml(host) {
           <button type="button" data-srql="vulnerabilities" class="btn btn-xs btn-ghost">Open SRQL</button>
         </div>
         <div class="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-          ${(vulnerabilities.length ? vulnerabilities.slice(0, 8) : findings.filter((row) => Number(row.class_uid) === 2002).slice(0, 8)).map(compactFinding).join("") || `<p class="text-sm text-base-content/60">No vulnerability findings returned.</p>`}
+          ${(vulnerabilities.length ? vulnerabilities.slice(0, 8) : findings.filter((row) => Number(row.class_uid) === 2002).slice(0, 8)).map(compactFinding).join("") || emptyCard("No vulnerability findings returned.", "in:security_findings class_uid:2002 sort:time:desc limit:80")}
         </div>
       </section>
     </section>
@@ -166,6 +164,29 @@ function bindActions(element, api) {
     button.addEventListener("click", () => {
       const query = button.dataset.query || queries[button.dataset.srql]
       if (query) api.setSrqlQuery(query)
+    })
+  }
+
+  for (const target of element.querySelectorAll("[data-query][data-card-action]")) {
+    target.addEventListener("click", (event) => {
+      if (interactiveClick(event)) return
+      const query = target.dataset.query
+      if (query) api.setSrqlQuery(query)
+    })
+  }
+
+  for (const target of element.querySelectorAll("[data-event-id]")) {
+    target.addEventListener("click", (event) => {
+      if (interactiveClick(event)) return
+      const eventId = target.dataset.eventId
+      if (eventId) api.navigate({type: "path", path: `/events/${encodeURIComponent(eventId)}`})
+    })
+  }
+
+  for (const target of element.querySelectorAll("[data-path]")) {
+    target.addEventListener("click", () => {
+      const path = target.dataset.path
+      if (path) api.navigate({type: "path", path})
     })
   }
 }
@@ -190,9 +211,12 @@ function scannerSignalCard(signal) {
   const row = signal.row
   const status = row ? "present" : "missing"
   const tone = row ? "ok" : "neutral"
+  const actionAttr = row?.id
+    ? `data-event-id="${escapeAttr(row.id)}"`
+    : `data-query="${escapeAttr(signal.query)}" data-card-action="query"`
 
   return `
-    <article class="min-w-0 rounded-lg border border-base-300 bg-base-100 p-3 shadow-sm">
+    <article ${actionAttr} class="min-w-0 cursor-pointer rounded-lg border border-base-300 bg-base-100 p-3 shadow-sm transition hover:-translate-y-0.5 hover:border-info hover:shadow-md">
       <div class="flex items-start justify-between gap-2">
         <div class="min-w-0">
           <h3 class="truncate text-sm font-semibold text-base-content">${escapeHtml(signal.label)}</h3>
@@ -209,32 +233,17 @@ function scannerSignalCard(signal) {
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Time</span><span>${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
               <p class="line-clamp-2 text-base-content">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
             </div>`
-          : `<p class="mt-3 text-xs text-base-content/60">No row returned.</p>`
+          : `<p class="mt-3 text-xs text-base-content/60">${escapeHtml(missingSignalMessage(signal))}</p>`
       }
-      <button type="button" data-srql="source-signal" data-query="${escapeHtml(signal.query)}" class="btn btn-xs btn-ghost mt-3">Open SRQL</button>
+      <button type="button" data-srql="source-signal" data-query="${escapeAttr(signal.query)}" class="btn btn-xs btn-ghost mt-3">Open SRQL</button>
       <span class="sr-only">${tone}</span>
     </article>
   `
 }
 
-function findingRow(row) {
-  return `
-    <tr>
-      <td>
-        <div class="font-medium text-base-content">${escapeHtml(classLabel(row))}</div>
-        <div class="max-w-xl truncate text-xs text-base-content/60">${escapeHtml(row.message || row.short_message || row.id || "Finding")}</div>
-      </td>
-      <td>${sourceBadge(sourceType(row))}</td>
-      <td>${deviceLink(row)}</td>
-      <td>${severityBadge(row.severity)}</td>
-      <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.time || row.event_timestamp))}</td>
-    </tr>
-  `
-}
-
 function scanRow(row) {
   return `
-    <tr>
+    <tr ${eventActionAttr(row)} class="${row.id ? "cursor-pointer hover" : ""}">
       <td>
         <div class="font-medium text-base-content">${escapeHtml(row.activity_name || "Scan")}</div>
         <div class="max-w-md truncate text-xs text-base-content/60">${escapeHtml(row.message || row.short_message || row.id || "")}</div>
@@ -247,9 +256,77 @@ function scanRow(row) {
   `
 }
 
+function postureInsightCard(title, value, caption, tone, query) {
+  return `
+    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-base-300 bg-base-200/40 p-3 transition hover:-translate-y-0.5 hover:border-info hover:bg-base-200">
+      <div class="flex items-center justify-between gap-2">
+        <h3 class="text-xs font-medium uppercase tracking-wide text-base-content/60">${escapeHtml(title)}</h3>
+        <span class="h-2.5 w-2.5 rounded-full ${toneClass(tone)}"></span>
+      </div>
+      <div class="mt-2 text-2xl font-semibold text-base-content">${escapeHtml(value)}</div>
+      <p class="mt-1 text-xs text-base-content/60">${escapeHtml(caption)}</p>
+    </article>
+  `
+}
+
+function scannerFreshnessPanel(signals) {
+  const present = signals.filter((signal) => signal.row)
+  const stale = signals.filter((signal) => !signal.row)
+
+  return `
+    <article class="rounded-lg border border-base-300 bg-base-200/30 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-semibold text-base-content">Scanner coverage</h3>
+        <span class="badge badge-sm ${stale.length ? "badge-warning" : "badge-success"}">${number(present.length)}/${number(signals.length)}</span>
+      </div>
+      <div class="mt-3 space-y-2">
+        ${
+          signals
+            .map(
+              (signal) => `
+                <div data-query="${escapeAttr(signal.query)}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100">
+                  <span class="truncate text-base-content/70">${escapeHtml(signal.label)}</span>
+                  <span class="badge badge-xs ${signal.row ? "badge-success" : "badge-ghost"}">${signal.row ? "present" : "missing"}</span>
+                </div>
+              `,
+            )
+            .join("")
+        }
+      </div>
+    </article>
+  `
+}
+
+function topAffectedPanel(resources) {
+  return `
+    <article class="rounded-lg border border-base-300 bg-base-200/30 p-4">
+      <div class="flex items-center justify-between gap-3">
+        <h3 class="text-sm font-semibold text-base-content">Top affected resources</h3>
+        <button type="button" data-path="/security" class="btn btn-xs btn-ghost">Investigate</button>
+      </div>
+      <div class="mt-3 space-y-2">
+        ${
+          resources.length
+            ? resources
+                .map(
+                  ([label, count]) => `
+                    <div data-query="${escapeAttr("in:security_findings sort:time:desc limit:100")}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100">
+                      <span class="truncate text-base-content/70">${escapeHtml(label)}</span>
+                      <span class="font-medium text-base-content">${number(count)}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : `<p class="text-sm text-base-content/60">No affected resource signal is available yet.</p>`
+        }
+      </div>
+    </article>
+  `
+}
+
 function dnsRow(row) {
   return `
-    <tr>
+    <tr ${eventActionAttr(row)} class="${row.id ? "cursor-pointer hover" : ""}">
       <td>
         <div class="max-w-xl truncate font-medium text-base-content">${escapeHtml(row.message || row.short_message || row.id || "DNS event")}</div>
         <div class="text-xs text-base-content/60">${escapeHtml(sourceType(row))}</div>
@@ -262,14 +339,26 @@ function dnsRow(row) {
 }
 
 function compactFinding(row) {
+  const actionAttr = row?.id
+    ? eventActionAttr(row)
+    : `data-query="${escapeAttr("in:security_findings class_uid:2002 sort:time:desc limit:80")}" data-card-action="query"`
+
   return `
-    <article class="rounded-lg border border-base-300 p-3">
+    <article ${actionAttr} class="cursor-pointer rounded-lg border border-base-300 p-3 transition hover:-translate-y-0.5 hover:border-info hover:shadow-sm">
       <div class="flex items-center justify-between gap-2">
         ${severityBadge(row.severity)}
         <span class="text-xs text-base-content/50">${escapeHtml(sourceType(row))}</span>
       </div>
       <div class="mt-2 line-clamp-2 text-sm font-medium text-base-content">${escapeHtml(row.message || row.short_message || "Vulnerability finding")}</div>
       <div class="mt-2 text-xs text-base-content/60">${deviceLink(row)}</div>
+    </article>
+  `
+}
+
+function emptyCard(message, query) {
+  return `
+    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-dashed border-base-300 p-4 text-sm text-base-content/60 transition hover:border-info hover:bg-base-200/50">
+      ${escapeHtml(message)}
     </article>
   `
 }
@@ -283,7 +372,7 @@ function breakdownPanel(title, entries, total) {
       <div class="mt-4 space-y-3">
         ${
           filtered.length
-            ? filtered.slice(0, 8).map(([label, count]) => statusBar(label, count, total)).join("")
+            ? filtered.slice(0, 8).map(([label, count]) => statusBar(title, label, count, total)).join("")
             : `<p class="text-sm text-base-content/60">No rows returned.</p>`
         }
       </div>
@@ -291,9 +380,9 @@ function breakdownPanel(title, entries, total) {
   `
 }
 
-function metricCard(title, value, caption, tone) {
+function metricCard(title, value, caption, tone, query) {
   return `
-    <article class="rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm">
+    <article data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-lg border border-base-300 bg-base-100 p-4 shadow-sm transition hover:-translate-y-0.5 hover:border-info hover:shadow-md">
       <div class="flex items-center justify-between gap-3">
         <h2 class="text-sm font-medium text-base-content/70">${escapeHtml(title)}</h2>
         <span class="h-2.5 w-2.5 rounded-full ${toneClass(tone)}"></span>
@@ -304,10 +393,11 @@ function metricCard(title, value, caption, tone) {
   `
 }
 
-function statusBar(label, count, total) {
+function statusBar(title, label, count, total) {
   const pct = total > 0 ? Math.round((Number(count || 0) / Number(total)) * 100) : 0
+  const query = breakdownQuery(title, label)
   return `
-    <div>
+    <div data-query="${escapeAttr(query)}" data-card-action="query" class="cursor-pointer rounded-md p-1 transition hover:bg-base-200/70">
       <div class="mb-1 flex items-center justify-between gap-3 text-xs">
         <span class="truncate text-base-content/70">${escapeHtml(label)}</span>
         <span class="font-medium text-base-content">${number(count)} (${pct}%)</span>
@@ -317,6 +407,31 @@ function statusBar(label, count, total) {
       </div>
     </div>
   `
+}
+
+function breakdownQuery(title, label) {
+  if (title === "Severity" && label !== "Unknown") {
+    return `in:security_findings severity:${label} sort:time:desc limit:100`
+  }
+
+  if (title === "OCSF Classes") {
+    const classUid = Object.entries(CLASS_LABELS).find(([, value]) => value === label)?.[0]
+    if (classUid) return `in:security_findings class_uid:${classUid} sort:time:desc limit:100`
+  }
+
+  if (title === "Signal Sources" && label !== "unknown") {
+    return `in:events source:${label} sort:time:desc limit:100`
+  }
+
+  return "in:security_findings sort:time:desc limit:100"
+}
+
+function eventActionAttr(row) {
+  return row?.id ? `data-event-id="${escapeAttr(row.id)}"` : ""
+}
+
+function interactiveClick(event) {
+  return Boolean(event.target?.closest?.("a, button, input, select, textarea, summary"))
 }
 
 function frameMap(host) {
@@ -406,6 +521,59 @@ function statusBadge(value) {
   return `<span class="badge badge-sm ${klass}">${escapeHtml(value || "Unknown")}</span>`
 }
 
+function failedStatus(value) {
+  const normalized = String(value || "").toLowerCase()
+  return normalized === "2" || normalized.includes("fail") || normalized.includes("error")
+}
+
+function dnsBlock(row) {
+  const action = String(
+    stringAt(row, ["raw_data", "firewall_rule", "type"]) ||
+      stringAt(row, ["raw_data", "rcode"]) ||
+      row.status ||
+      row.message ||
+      "",
+  ).toLowerCase()
+
+  return ["nxdomain", "blocked", "block", "sinkhole", "refused"].some((token) => action.includes(token)) ||
+    String(row.message || row.short_message || "").toLowerCase().includes("rpz")
+}
+
+function topAffectedResources(findings, vulnerabilities) {
+  const counts = countBy(findings.concat(vulnerabilities), affectedResourceLabel)
+  counts.delete("unknown")
+  counts.delete("Unlinked")
+
+  return Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0])))
+    .slice(0, 6)
+}
+
+function affectedResourceLabel(row) {
+  return (
+    stringAt(row, ["metadata", "service_radar", "resource_name"]) ||
+    stringAt(row, ["metadata", "service_radar", "device_hostname"]) ||
+    stringAt(row, ["metadata", "service_radar", "source_instance"]) ||
+    stringAt(row, ["device", "name"]) ||
+    stringAt(row, ["device", "hostname"]) ||
+    row.resource_name ||
+    row.target ||
+    row.source ||
+    "unknown"
+  )
+}
+
+function missingSignalMessage(signal) {
+  if (signal.label === "Trivy findings") return "No Trivy vulnerability finding rows are available yet."
+  if (signal.label === "Trivy scan") return "No Trivy scan activity is available yet."
+  if (signal.label === "Falco detection") return "No Falco runtime detections are available yet."
+  if (signal.label === "Endpoint inventory") return "No endpoint inventory vulnerability findings are available yet."
+  if (signal.label === "PowerDNS DNS") return "No PowerDNS DNS activity is available yet."
+  if (signal.label === "Bumblebee finding") return "No Bumblebee findings are available yet."
+  if (signal.label === "Bumblebee scan") return "No Bumblebee scan activity is available yet."
+  return "No normalized security row is available for this source yet."
+}
+
 function normalizedSeverity(value) {
   const text = String(value || "Unknown").trim().toLowerCase()
   if (text === "critical") return "Critical"
@@ -465,4 +633,8 @@ function escapeHtml(value) {
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;")
     .replaceAll("'", "&#39;")
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value).replaceAll("`", "&#96;")
 }

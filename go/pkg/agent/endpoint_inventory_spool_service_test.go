@@ -261,7 +261,7 @@ func endpointInventoryFullUploadPayload(scannedAt time.Time) *endpointinventory.
 		CoverageState:        "complete",
 		LastScanAt:           scannedAt,
 		LastSuccessfulScanAt: &scannedAt,
-		Sources:              []endpointinventory.SourceSummary{},
+		Diagnostics:          []endpointinventory.SourceSummary{},
 		PackageCount:         1,
 		PackageSetHash:       "package-hash",
 		ArtifactHash:         "artifact-hash",

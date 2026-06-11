@@ -11,6 +11,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Inventory.DeviceDiscoveryIngestor
   alias ServiceRadar.Inventory.HypervisorEnrichmentIngestor
   alias ServiceRadar.Inventory.ProxmoxEnrichmentIngestor
+  alias ServiceRadar.Inventory.VulnerabilityAdvisoryIngestor
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
@@ -388,6 +389,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       DeviceDiscoveryIngestor,
       HypervisorEnrichmentIngestor,
       ProxmoxEnrichmentIngestor,
+      VulnerabilityAdvisoryIngestor,
       BatchIngestor,
       ThreatIntelPluginIngestor,
       EventIngestor,

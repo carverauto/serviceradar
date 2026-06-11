@@ -357,6 +357,8 @@ func metricPointTimestamp(timeUnixNano uint64) time.Time {
 
 func temporalityString(temporality metricspbv1.AggregationTemporality) string {
 	switch temporality {
+	case metricspbv1.AggregationTemporality_AGGREGATION_TEMPORALITY_UNSPECIFIED:
+		return temporalityUnspecified
 	case metricspbv1.AggregationTemporality_AGGREGATION_TEMPORALITY_DELTA:
 		return temporalityDelta
 	case metricspbv1.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:

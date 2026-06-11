@@ -325,9 +325,9 @@ oci_ext.pull(
     ],
 )
 oci_ext.pull(
-    name = "alpine_3_23",
-    digest = "sha256:25109184c71bdad752c8312a8623239686a9a2071e8825f20acb8f2198c3f659",
-    image = "docker.io/library/alpine:3.23",
+    name = "alpine_3_24",
+    digest = "sha256:a2d49ea686c2adfe3c992e47dc3b5e7fa6e6b5055609400dc2acaeb241c829f4",
+    image = "docker.io/library/alpine:3.24",
     platforms = [
         "linux/amd64",
     ],
@@ -390,8 +390,8 @@ use_repo(
     "alpine_3_20",
     "alpine_3_20_linux_amd64",
     "alpine_3_20_linux_arm64_v8",
-    "alpine_3_23",
-    "alpine_3_23_linux_amd64",
+    "alpine_3_24",
+    "alpine_3_24_linux_amd64",
     "arc_runner",
     "arc_runner_linux_amd64",
     "cloudnativepg_postgresql_18",
@@ -479,6 +479,13 @@ go_deps.gazelle_override(
 go_deps.gazelle_override(
     build_file_generation = "on",
     directives = [
+        "gazelle:resolve go github.com/google/osv-scalibr/binary/proto/scan_result_go_proto //binary/proto/scan_result_go_proto",
+    ],
+    path = "github.com/google/osv-scalibr",
+)
+go_deps.gazelle_override(
+    build_file_generation = "on",
+    directives = [
         "gazelle:proto disable",
     ],
     path = "github.com/spiffe/spire-api-sdk",
@@ -496,6 +503,7 @@ use_repo(
     "com_github_charmbracelet_bubbletea",
     "com_github_charmbracelet_lipgloss",
     "com_github_cilium_ebpf",
+    "com_github_google_osv_scalibr",
     "com_github_google_uuid",
     "com_github_gorilla_websocket",
     "com_github_gosnmp_gosnmp",
@@ -1448,98 +1456,98 @@ http_file(
 )
 
 http_file(
-    name = "alpine_3_23_bash_apk",
-    sha256 = "c52a2b6997567830d573160c2c0cad665473320f08862133aaf4c1e96864fc48",
+    name = "alpine_3_24_bash_apk",
+    sha256 = "4ad962f26fb3c68365171233fe61e3c51bbee1cab35e8dc661198233daeab0dd",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/bash-5.3.3-r1.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/bash-5.3.9-r1.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_openssl_apk",
-    sha256 = "d89963409d6e268ba0b84c8b13a5f2cf93a3fc0a893d4ed6af4280fef50e9736",
+    name = "alpine_3_24_openssl_apk",
+    sha256 = "594ebf664c48b6e865f7532b1722ee08ff54c557410869410d4ed545eff7d22f",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/openssl-3.5.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/openssl-3.5.7-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_libssl3_apk",
-    sha256 = "88f8491b5fe8d7cdd724f02ca5f98db2ed07839bdb96ca4c1c8799eb7ccb84c8",
+    name = "alpine_3_24_libssl3_apk",
+    sha256 = "84b1da6cb64ab8018c3dcfb80647c03b14d609de3d49ff90dd8356f63836217e",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libssl3-3.5.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libssl3-3.5.7-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_libcrypto3_apk",
-    sha256 = "9bf1548a563134be46e44048db645117b820b2dbc150ac406fbb627072f35046",
+    name = "alpine_3_24_libcrypto3_apk",
+    sha256 = "b709346666ff1343ebbc780950e61d9a0217e460c5e0836fe11b7cd3c5656b04",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libcrypto3-3.5.6-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libcrypto3-3.5.7-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_readline_apk",
-    sha256 = "6d29b98eafff4aebaed4e61fca8329fbf7b26489a29fefc1d4462610d687303b",
+    name = "alpine_3_24_readline_apk",
+    sha256 = "766911ecb986a6c5cf0841a6b556cd1e9dbbf22b3559726de32416486cd15c81",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/readline-8.3.1-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/readline-8.3.3-r1.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_libncursesw_apk",
-    sha256 = "233f20a6d64d87afbc4b03ad3e7508f5d56af747508c395ba7a6c5f1033b15f0",
+    name = "alpine_3_24_libncursesw_apk",
+    sha256 = "cf8caa8a88bc4ce9d9e395567fefaf9ef7fbd55c50ae6155b35c1b58f3755023",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libncursesw-6.5_p20251123-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libncursesw-6.6_p20260516-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_ncurses_terminfo_base_apk",
-    sha256 = "9392f4d87fd9446c7c35dd1a29abe8e3566174e03bd75c848028e46829403f1f",
+    name = "alpine_3_24_ncurses_terminfo_base_apk",
+    sha256 = "ce83be6d0bd10584a53c3a5868cc1595ce5f0f8e0b621f8f7f70b6144e521fc9",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/ncurses-terminfo-base-6.5_p20251123-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/ncurses-terminfo-base-6.6_p20260516-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_postgresql_common_apk",
-    sha256 = "d88dc9d3e638135f335fe2a469fb9de51bbe60bb4d17bb62638aab7d6aa326bc",
+    name = "alpine_3_24_postgresql_common_apk",
+    sha256 = "749d8a88b56c84b415372655435600c749345113e21ce8fe9964f7e22345cbff",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/postgresql-common-1.2-r2.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql-common-1.3-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_postgresql18_client_apk",
-    sha256 = "0e31a45d3c6c4cdfd58aecd42c232bf430734f5d57a79b4fc71eac3b8e796cff",
+    name = "alpine_3_24_postgresql18_client_apk",
+    sha256 = "d7edf2ff2d70dcb63a88d7b95b08134c4de644a4f5467807bed2ba70327f6011",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/postgresql18-client-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/postgresql18-client-18.4-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_libpq_apk",
-    sha256 = "33efa16c07a5709e97aa538a54cb72bf2ef5b361c378ee13369597c337758ee1",
+    name = "alpine_3_24_libpq_apk",
+    sha256 = "145d0d57ce40baaf2d7191e66dc18b8872822642939a0264fd4fc1c73d6599f1",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/libpq-18.4-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/libpq-18.4-r0.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_lz4_libs_apk",
-    sha256 = "85766b2ab3e9fdb975e437368af06b22278fbcb1ce935f07cca07fd6611f4c62",
+    name = "alpine_3_24_lz4_libs_apk",
+    sha256 = "3ad4912ab8ecf5f6236fdb751f88243006b3a8f152684e455b781e16284dd298",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/lz4-libs-1.10.0-r0.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/lz4-libs-1.10.0-r1.apk",
     ],
 )
 
 http_file(
-    name = "alpine_3_23_zstd_libs_apk",
-    sha256 = "d5fcc58f7f071a5658d97b09838668e4443203217631992915b8e60656904104",
+    name = "alpine_3_24_zstd_libs_apk",
+    sha256 = "23c6065b0049b2406441564bcf0032515a43f78e80d76fcb85535a3803ef5d4e",
     urls = [
-        "https://dl-cdn.alpinelinux.org/alpine/v3.23/main/x86_64/zstd-libs-1.5.7-r2.apk",
+        "https://dl-cdn.alpinelinux.org/alpine/v3.24/main/x86_64/zstd-libs-1.5.7-r2.apk",
     ],
 )
 

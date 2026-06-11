@@ -20,7 +20,9 @@ import (
 	"bufio"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -42,14 +44,19 @@ const (
 	coverageDisabled                 = "disabled"
 	coverageFailed                   = "failed"
 	coverageNoSupportedPackageSource = "no_supported_package_source"
+	coveragePartial                  = "partial"
 	coverageUnchanged                = "unchanged"
+	coverageUnknown                  = "unknown"
 
 	metadataReasonServerReconcileFloor = "server_reconcile_floor"
 	redactionStateCollected            = "collected_when_available"
 	redactionStateOmitted              = "omitted"
 )
 
-var errPackageLimitExceeded = errors.New("endpoint inventory package limit exceeded")
+var (
+	errPackageLimitExceeded = errors.New("endpoint inventory package limit exceeded")
+	errOutputTruncated      = errors.New("endpoint inventory source output truncated")
+)
 
 type Runner struct {
 	cfg Config
@@ -61,8 +68,9 @@ func NewRunner(cfg Config) *Runner {
 
 func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	started := time.Now().UTC()
+	configHash := computeConfigHash(r.cfg)
 	if !r.cfg.Enabled {
-		return disabledPayload(r.cfg, started), nil
+		return disabledPayload(r.cfg, started, configHash), nil
 	}
 
 	ctx, cancel := context.WithTimeout(ctx, ScanTimeout(r.cfg))
@@ -85,14 +93,18 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 
 	packages, sources := r.collectPackages(ctx)
 	if len(packages) > r.cfg.MaxPackages {
-		return failurePayload(r.cfg, started, osInfo, sources, errPackageLimitExceeded), nil
+		return failurePayload(r.cfg, started, osInfo, sources, errPackageLimitExceeded, configHash), nil
 	}
 
+	coverage := sourceCoverageState(sources, len(packages))
 	state := scanStateScanned
-	coverage := coverageComplete
-	if len(packages) == 0 {
+	switch coverage {
+	case coverageFailed:
+		state = scanStateFailed
+	case coverageNoSupportedPackageSource:
 		state = scanStateNotSupported
-		coverage = coverageNoSupportedPackageSource
+	case coverageUnknown:
+		state = scanStateNotScanned
 	}
 	sbom := BuildCycloneDX(r.cfg, started, osInfo, packages)
 	packageSetHash := ComputePackageSetHash(packages)
@@ -112,15 +124,20 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		ScanID:               newScanID(),
 		State:                state,
 		CoverageState:        coverage,
+		ConfigHash:           configHash,
 		LastScanAt:           started,
 		LastSuccessfulScanAt: &started,
 		OS:                   osInfo,
-		Sources:              sources,
+		EnabledPlugins:       append([]string(nil), r.cfg.Sources...),
+		DetectedPlugins:      detectedSources(sources),
+		Diagnostics:          scannerDiagnostics(sources),
 		PackageCount:         len(packages),
 		PackageSetHash:       packageSetHash,
 		ArtifactHash:         artifactHash,
 		HashAlgorithm:        HashAlgorithm,
 		UploadReason:         uploadReason,
+		DurationMillis:       time.Since(started).Milliseconds(),
+		Truncated:            summariesTruncated(sources),
 		Metadata:             collectionPolicyMetadata(r.cfg),
 	}
 	if uploadReason == UploadReasonChanged {
@@ -143,16 +160,18 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	return payload, nil
 }
 
-func disabledPayload(cfg Config, scannedAt time.Time) *ScanPayload {
+func disabledPayload(cfg Config, scannedAt time.Time, configHash string) *ScanPayload {
 	return &ScanPayload{
-		SchemaVersion: SchemaVersion,
-		AgentID:       cfg.AgentID,
-		ScanID:        "endpoint-inventory-disabled",
-		State:         scanStateNotScanned,
-		CoverageState: coverageDisabled,
-		LastScanAt:    scannedAt,
-		Sources:       []SourceSummary{},
-		Metadata:      withMetadataValue(collectionPolicyMetadata(cfg), "reason", "disabled"),
+		SchemaVersion:  SchemaVersion,
+		AgentID:        cfg.AgentID,
+		ScanID:         "endpoint-inventory-disabled",
+		State:          scanStateNotScanned,
+		CoverageState:  coverageDisabled,
+		ConfigHash:     configHash,
+		LastScanAt:     scannedAt,
+		EnabledPlugins: append([]string(nil), cfg.Sources...),
+		Diagnostics:    []SourceSummary{},
+		Metadata:       withMetadataValue(collectionPolicyMetadata(cfg), "reason", "disabled"),
 	}
 }
 
@@ -168,10 +187,13 @@ func (r *Runner) unchangedPayload(
 		ScanID:               newScanID(),
 		State:                scanStateUnchanged,
 		CoverageState:        coverageUnchanged,
+		ConfigHash:           computeConfigHash(r.cfg),
 		LastScanAt:           scannedAt,
 		LastSuccessfulScanAt: &scannedAt,
 		OS:                   osInfo,
-		Sources:              append([]SourceSummary(nil), cache.SourceSummaries...),
+		EnabledPlugins:       append([]string(nil), r.cfg.Sources...),
+		DetectedPlugins:      detectedSources(cache.SourceSummaries),
+		Diagnostics:          scannerDiagnostics(cache.SourceSummaries),
 		PackageCount:         cache.PackageCount,
 		PackageSetHash:       cache.PackageSetHash,
 		ArtifactHash:         cache.ArtifactHash,
@@ -189,29 +211,40 @@ func (r *Runner) collectPackages(ctx context.Context) ([]Package, []SourceSummar
 	summaries := make([]SourceSummary, 0, len(r.cfg.Sources))
 
 	for _, source := range r.cfg.Sources {
+		started := time.Now()
 		var (
 			collected []Package
 			err       error
+			path      string
+			truncated bool
 		)
 
 		switch source {
 		case PackageSourceDpkg:
+			path = r.cfg.DpkgStatusPath
 			collected, err = CollectDpkgPackages(r.cfg.DpkgStatusPath)
 		case PackageSourceAPK:
+			path = r.cfg.APKInstalledPath
 			collected, err = CollectAPKPackages(r.cfg.APKInstalledPath)
 		case PackageSourceRPM:
-			collected, err = CollectRPMPackages(ctx, r.cfg.RPMPath)
+			collected, path, truncated, err = CollectRPMPackages(ctx, r.cfg.RPMPath, r.cfg.MaxOutputBytes)
 		default:
 			err = fmt.Errorf("%w: %s", ErrUnsupportedSource, source)
 		}
 
-		summary := SourceSummary{Source: source, State: "scanned", PackageCount: len(collected)}
+		summary := SourceSummary{
+			Source:         source,
+			Name:           source,
+			Type:           "package_source",
+			State:          "scanned",
+			PackageCount:   len(collected),
+			Path:           path,
+			Detected:       sourceDetected(source, path, err),
+			DurationMillis: time.Since(started).Milliseconds(),
+			Truncated:      truncated,
+		}
 		if err != nil {
-			summary.State = "unavailable"
-			if !errors.Is(err, os.ErrNotExist) && !errors.Is(err, exec.ErrNotFound) {
-				summary.State = "error"
-				summary.Error = err.Error()
-			}
+			applySourceError(&summary, err)
 		}
 
 		summaries = append(summaries, summary)
@@ -229,23 +262,173 @@ func initialPackageCapacity(cfg Config) int {
 	return 1024
 }
 
-func failurePayload(cfg Config, scannedAt time.Time, osInfo OSInfo, sources []SourceSummary, err error) *ScanPayload {
+func failurePayload(
+	cfg Config,
+	scannedAt time.Time,
+	osInfo OSInfo,
+	sources []SourceSummary,
+	err error,
+	configHash string,
+) *ScanPayload {
 	return &ScanPayload{
-		SchemaVersion: SchemaVersion,
-		AgentID:       cfg.AgentID,
-		ScanID:        newScanID(),
-		State:         scanStateFailed,
-		CoverageState: coverageFailed,
-		LastScanAt:    scannedAt,
-		OS:            osInfo,
-		Sources:       sources,
-		Metadata:      withMetadataValue(collectionPolicyMetadata(cfg), "error", err.Error()),
+		SchemaVersion:   SchemaVersion,
+		AgentID:         cfg.AgentID,
+		ScanID:          newScanID(),
+		State:           scanStateFailed,
+		CoverageState:   coverageFailed,
+		ConfigHash:      configHash,
+		LastScanAt:      scannedAt,
+		OS:              osInfo,
+		EnabledPlugins:  append([]string(nil), cfg.Sources...),
+		DetectedPlugins: detectedSources(sources),
+		Diagnostics:     scannerDiagnostics(sources),
+		Truncated:       summariesTruncated(sources),
+		Metadata:        withMetadataValue(collectionPolicyMetadata(cfg), "error", err.Error()),
 	}
+}
+
+func applySourceError(summary *SourceSummary, err error) {
+	summary.Reason = sourceErrorReason(err)
+	summary.State = "unavailable"
+
+	if sourceErrorIsFailure(err) {
+		summary.State = "error"
+		summary.Error = err.Error()
+	}
+}
+
+func sourceErrorReason(err error) string {
+	switch {
+	case errors.Is(err, errOutputTruncated):
+		return "output_truncated"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, os.ErrPermission):
+		return "permission_denied"
+	case errors.Is(err, exec.ErrNotFound):
+		return "command_not_found"
+	case errors.Is(err, os.ErrNotExist):
+		return "not_found"
+	case errors.Is(err, ErrUnsupportedSource):
+		return "unsupported_source"
+	default:
+		return "collector_error"
+	}
+}
+
+func sourceErrorIsFailure(err error) bool {
+	return !errors.Is(err, os.ErrNotExist) && !errors.Is(err, exec.ErrNotFound)
+}
+
+func sourceDetected(source, path string, err error) bool {
+	if err == nil {
+		return true
+	}
+	if errors.Is(err, exec.ErrNotFound) || errors.Is(err, os.ErrNotExist) {
+		return false
+	}
+	if source == PackageSourceRPM && path == "" {
+		return false
+	}
+
+	return true
+}
+
+func sourceCoverageState(sources []SourceSummary, packageCount int) string {
+	if len(sources) == 0 {
+		return coverageUnknown
+	}
+
+	failed := false
+	supported := false
+	for _, source := range sources {
+		if source.State == "error" || source.Truncated {
+			failed = true
+			continue
+		}
+		if source.Detected && source.State == "scanned" {
+			supported = true
+		}
+	}
+	if failed && packageCount == 0 {
+		return coverageFailed
+	}
+	if failed {
+		return coveragePartial
+	}
+	if !supported && packageCount == 0 {
+		return coverageNoSupportedPackageSource
+	}
+
+	return coverageComplete
+}
+
+func detectedSources(sources []SourceSummary) []string {
+	detected := make([]string, 0, len(sources))
+	for _, source := range sources {
+		if source.Detected && source.Source != "" {
+			detected = append(detected, source.Source)
+		} else if source.Detected && source.Name != "" {
+			detected = append(detected, source.Name)
+		}
+	}
+
+	return detected
+}
+
+func scannerDiagnostics(sources []SourceSummary) []SourceSummary {
+	diagnostics := make([]SourceSummary, 0, len(sources))
+	for _, source := range sources {
+		diagnostic := source
+		if diagnostic.Name == "" {
+			diagnostic.Name = diagnostic.Source
+		}
+		if diagnostic.Type == "" {
+			diagnostic.Type = "package_source"
+		}
+		diagnostics = append(diagnostics, diagnostic)
+	}
+
+	return diagnostics
+}
+
+func summariesTruncated(sources []SourceSummary) bool {
+	for _, source := range sources {
+		if source.Truncated {
+			return true
+		}
+	}
+
+	return false
+}
+
+func computeConfigHash(cfg Config) string {
+	data, err := json.Marshal(struct {
+		Sources           []string `json:"sources"`
+		ScanTimeout       string   `json:"scan_timeout"`
+		CollectPaths      bool     `json:"collect_paths"`
+		CollectFileHashes bool     `json:"collect_file_hashes"`
+		MaxPackages       int      `json:"max_packages"`
+		MaxOutputBytes    int64    `json:"max_output_bytes"`
+	}{
+		Sources:           append([]string(nil), cfg.Sources...),
+		ScanTimeout:       cfg.ScanTimeout,
+		CollectPaths:      cfg.CollectPaths,
+		CollectFileHashes: cfg.CollectFileHashes,
+		MaxPackages:       cfg.MaxPackages,
+		MaxOutputBytes:    cfg.MaxOutputBytes,
+	})
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+
+	return hex.EncodeToString(sum[:])
 }
 
 func collectionPolicyMetadata(cfg Config) map[string]any {
 	return map[string]any{
-		"sources_enabled": append([]string(nil), cfg.Sources...),
+		"enabled_plugins": append([]string(nil), cfg.Sources...),
 		"collection_policy": map[string]any{
 			"cadence":             cfg.Cadence,
 			"collect_paths":       cfg.CollectPaths,

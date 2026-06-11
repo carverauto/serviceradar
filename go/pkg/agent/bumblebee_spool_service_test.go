@@ -14,10 +14,7 @@ import (
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 )
 
-const (
-	bumblebeeSpoolTestAgentID = "agent-1"
-	bumblebeeStateNotScanned  = "not_scanned"
-)
+const bumblebeeSpoolTestAgentID = "agent-1"
 
 func TestBumblebeeSpoolServiceMissingSpoolReturnsNotScanned(t *testing.T) {
 	spoolPath := filepath.Join(t.TempDir(), "missing.json")
@@ -149,8 +146,8 @@ func TestBumblebeeSpoolServiceAddonTelemetryEmitsScanAndFindingEvents(t *testing
 		Available: true,
 		Message:   data,
 	})
-	if source != "bumblebee" {
-		t.Fatalf("source = %q, want bumblebee", source)
+	if source != bumblebeeTelemetryProducerID {
+		t.Fatalf("source = %q, want %s", source, bumblebeeTelemetryProducerID)
 	}
 	if batch == nil {
 		t.Fatal("expected telemetry batch")
@@ -203,7 +200,7 @@ func assertTelemetrySchemaRef(t *testing.T, record *addonpb.TelemetryRecord, sch
 	t.Helper()
 
 	metadata := record.GetMetadata()
-	if metadata[sraddon.SignalSchemaMetadataProducerID] != "bumblebee" ||
+	if metadata[sraddon.SignalSchemaMetadataProducerID] != bumblebeeTelemetryProducerID ||
 		metadata[sraddon.SignalSchemaMetadataSchemaID] != schemaID ||
 		metadata[sraddon.SignalSchemaMetadataPayloadKind] != "ocsf_event" {
 		t.Fatalf("unexpected schema ref metadata: %#v", metadata)
@@ -233,7 +230,7 @@ func assertServiceRadarMetadata(t *testing.T, event map[string]any, ocsfClass st
 	if !ok {
 		t.Fatalf("service_radar metadata missing or malformed: %#v", metadata["service_radar"])
 	}
-	if serviceRadar["source_type"] != "bumblebee" || serviceRadar["addon_id"] != "bumblebee" {
+	if serviceRadar["source_type"] != bumblebeeTelemetryProducerID || serviceRadar["addon_id"] != bumblebeeTelemetryProducerID {
 		t.Fatalf("unexpected service_radar source metadata: %#v", serviceRadar)
 	}
 	if serviceRadar["ocsf_class"] != ocsfClass {

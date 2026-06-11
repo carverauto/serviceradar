@@ -98,6 +98,7 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		httpClient:       client,
 		compilationCache: wazero.NewCompilationCache(),
 		credentialBroker: cfg.CredentialBroker,
+		artifactUploader: cfg.ArtifactUploader,
 		credentialCache:  make(map[string]credentialBrokerCacheEntry),
 		credentialNow:    time.Now,
 		ctx:              rootCtx,
@@ -109,6 +110,17 @@ func NewPluginManager(ctx context.Context, cfg PluginManagerConfig) *PluginManag
 		states:           make(map[string]*assignmentState),
 		stateNow:         time.Now,
 	}
+}
+
+// SetArtifactUploader installs the trusted host-side artifact uploader.
+func (m *PluginManager) SetArtifactUploader(uploader PluginArtifactUploader) {
+	if m == nil {
+		return
+	}
+
+	m.artifactMu.Lock()
+	defer m.artifactMu.Unlock()
+	m.artifactUploader = uploader
 }
 
 // SetCredentialBroker installs the trusted host-side credential resolver.

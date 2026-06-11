@@ -75,6 +75,31 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPayload do
 
   def truthy_value?(_value), do: false
 
+  def boolean_value(map, key) when is_map(map) do
+    case value(map, key) do
+      value when is_boolean(value) ->
+        value
+
+      value when value in [0, 1] ->
+        value == 1
+
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> String.downcase()
+        |> case do
+          value when value in ["true", "1", "yes", "y"] -> true
+          value when value in ["false", "0", "no", "n"] -> false
+          _ -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  def boolean_value(_map, _key), do: nil
+
   def datetime_value(map, key) when is_map(map) do
     case value(map, key) do
       %DateTime{} = dt ->

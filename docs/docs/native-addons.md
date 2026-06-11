@@ -8,8 +8,9 @@ title: Native Add-ons
 ServiceRadar agents gain optional capabilities through **native add-ons** - signed,
 per-architecture binaries that operators select in Edge Ops and push down to chosen
 agents. Add-ons are the native counterpart to [Wasm Plugins](./wasm-plugins.md): use
-a Wasm plugin for a sandboxed checker, and a native add-on when a capability needs a
-real OS process (a sidecar daemon, a scheduled scanner, a host-level collector).
+a Wasm plugin when the work fits the sandbox and host ABI, and use a native add-on
+when a capability needs a real OS process (a sidecar daemon, a privileged
+host-level collector, or another runtime that cannot fit inside Wasm).
 
 This page is the operator and author overview for the add-on framework. Use it with
 the first-party add-on runbooks:
@@ -429,6 +430,23 @@ SDK (`rust/addon-sdk`) provides the equivalent helper - go-plugin handshake, Aut
 and gRPC serving over the UDS - proven by the `rust-sample` reference add-on; the
 documented contract in `proto/agent/addon/v1/` remains the source of truth for Rust
 interop.
+
+Native add-ons that produce advisory feeds, scan diagnostics, or other scheduled
+datasets should declare package-owned `producer_schedules` in `addon.yaml` instead
+of requiring core code changes. The Go SDK exposes `ProducerScheduleContract`,
+`NewProducerScheduleContract`, and the `CapabilityProducerScheduleV1` constants so
+authors can construct the same manifest shape used by Wasm plugins. ServiceRadar
+persists the contract, renders schedule settings from it, stores operator cadence
+and credential choices, and records status against the generic schedule state.
+
+Wasm producers dispatch through `plugin.run_action`. Native add-on producers
+dispatch through `addon.run_command`. Both paths use the same control-plane
+schedule state and the same edge boundary: core/web-ng sends the command over
+agent commandbus to agent-gateway, agent-gateway forwards it to the selected
+agent, and the agent invokes the local add-on over the add-on gRPC protocol.
+Add-ons remain responsible for provider-specific download, validation, and
+normalization, and they never receive direct access to web-ng, core-elx, or NATS
+JetStream object storage.
 
 ### Author checklist
 

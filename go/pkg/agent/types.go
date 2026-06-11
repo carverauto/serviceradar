@@ -55,6 +55,7 @@ type Server struct {
 	mapperService      *MapperService
 	pluginManager      *PluginManager
 	credentialBroker   CredentialBrokerResolver
+	artifactUploader   PluginArtifactUploader
 	sidecarStatus      sidecarStatusProvider
 	sidecarManager     sidecarLifecycleManager
 	netprobeSidecar    *agentnetprobe.Sidecar

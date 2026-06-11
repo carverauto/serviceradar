@@ -65,6 +65,13 @@ service AddonService {
   // reconnect the add-on re-sends every unacked frame, resuming from its last
   // acked watermark with the original relay_ids.
   rpc RelayOtlp(stream OtlpRelayAck) returns (stream OtlpRelayFrame);
+
+  // RunCommand executes a bounded, platform-scheduled command against a local
+  // add-on instance. The control plane records an addon.run_command command,
+  // agent-gateway streams it to the agent, and the agent invokes this RPC on the
+  // supervised add-on subprocess. Add-ons never receive direct core, web-ng, or
+  // object-store connectivity through this contract.
+  rpc RunCommand(RunCommandRequest) returns (RunCommandResponse);
 }
 
 message InfoRequest {}
@@ -111,6 +118,33 @@ message StreamTelemetryRequest {
   // capability is the telemetry capability version requested by the agent, for
   // example "native-telemetry:v1".
   string capability = 1;
+}
+
+message RunCommandRequest {
+  // command_id is the platform command identifier assigned by the commandbus.
+  string command_id = 1;
+  // command_type identifies the generic control-plane command, for example
+  // "addon.run_command".
+  string command_type = 2;
+  // action_id is the package-declared producer action to execute.
+  string action_id = 3;
+  // schema identifies the payload contract carried in payload_json.
+  string schema = 4;
+  // payload_json is an opaque JSON object for the add-on to interpret according
+  // to schema and action_id. It may include credential broker grants, never raw
+  // secret values.
+  bytes payload_json = 5;
+  // deadline_unix is the absolute Unix second deadline supplied by the agent
+  // after applying command TTL limits. Zero means no explicit deadline.
+  int64 deadline_unix = 6;
+  map<string, string> metadata = 7;
+}
+
+message RunCommandResponse {
+  bool success = 1;
+  string message = 2;
+  bytes payload_json = 3;
+  map<string, string> metadata = 4;
 }
 
 enum TelemetryPayloadKind {

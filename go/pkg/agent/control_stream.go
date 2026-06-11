@@ -32,6 +32,8 @@ import (
 	"syscall"
 	"time"
 
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/agent/remoteaccess"
 	"github.com/carverauto/serviceradar/go/pkg/mtr"
 	"github.com/carverauto/serviceradar/proto"
@@ -41,6 +43,11 @@ import (
 const (
 	controlStreamReconnectDelay    = 5 * time.Second
 	controlStreamHeartbeatInterval = 60 * time.Second
+)
+
+const (
+	commandStatusFailed    = "failed"
+	commandStatusSucceeded = "succeeded"
 )
 
 const (
@@ -54,12 +61,14 @@ const (
 	commandTypeProxmoxTest                 = "proxmox.credential_test"
 	commandTypePluginSnapshot              = "plugin.debug_snapshot"
 	commandTypePluginRunAction             = "plugin.run_action"
+	commandTypeAddonRunCommand             = coreaddon.CommandTypeAddonRunCommand
 	commandTypeEndpointInventoryCacheQuery = "endpoint_inventory.cache_query"
 	commandTypeEndpointInventoryForceFresh = "endpoint_inventory.force_fresh_scan"
 )
 
 const defaultOnDemandMtrDeadline = 45 * time.Second
 const defaultMaxConcurrentOnDemandMtr = 2
+const defaultAddonCommandTimeout = 300 * time.Second
 
 var errControlStreamClosed = errors.New("control stream closed")
 
@@ -103,35 +112,13 @@ type proxmoxCredentialTestPayload struct {
 	Metadata         map[string]string            `json:"metadata,omitempty"`
 }
 
-type proxmoxTestTarget struct {
-	Kind      string `json:"kind,omitempty"`
-	ID        string `json:"id,omitempty"`
-	AgentID   string `json:"agent_id,omitempty"`
-	DeviceUID string `json:"device_uid,omitempty"`
-	BaseURL   string `json:"base_url"`
-	Hostname  string `json:"hostname,omitempty"`
-	IP        string `json:"ip,omitempty"`
-}
+type proxmoxTestTarget = coreaddon.CredentialBrokerTarget
 
 type proxmoxTestTLS struct {
 	InsecureSkipVerify bool `json:"insecure_skip_verify,omitempty"`
 }
 
-type credentialBrokerGrant struct {
-	Schema              string                      `json:"schema,omitempty"`
-	GrantID             string                      `json:"grant_id,omitempty"`
-	GrantType           string                      `json:"grant_type,omitempty"`
-	CredentialRuleID    string                      `json:"credential_rule_id,omitempty"`
-	CredentialSecretRef string                      `json:"credential_secret_ref,omitempty"`
-	Consumer            map[string]string           `json:"consumer,omitempty"`
-	Target              proxmoxTestTarget           `json:"target,omitempty"`
-	ResolutionLocation  string                      `json:"resolution_location,omitempty"`
-	Inject              map[string]string           `json:"inject,omitempty"`
-	Cache               credentialBrokerCachePolicy `json:"cache,omitempty"`
-	Allow               credentialBrokerACL         `json:"allow,omitempty"`
-	TTLSeconds          int                         `json:"ttl_seconds,omitempty"`
-	ExpiresAt           string                      `json:"expires_at,omitempty"`
-}
+type credentialBrokerGrant = coreaddon.CredentialBrokerGrant
 
 type proxmoxCredentialBrokerGrant = credentialBrokerGrant
 
@@ -143,17 +130,19 @@ type pluginRunActionPayload struct {
 	Payload            json.RawMessage `json:"-"`
 }
 
-type credentialBrokerACL struct {
-	Methods []string `json:"methods,omitempty"`
-	Paths   []string `json:"paths,omitempty"`
-	Hosts   []string `json:"hosts,omitempty"`
-	Ports   []int    `json:"ports,omitempty"`
+type addonRunCommandPayload struct {
+	InvocationID      string            `json:"invocation_id"`
+	ActionID          string            `json:"action_id"`
+	AddonAssignmentID string            `json:"addon_assignment_id"`
+	AddonPackageID    string            `json:"addon_package_id,omitempty"`
+	AddonID           string            `json:"addon_id,omitempty"`
+	Schema            string            `json:"schema,omitempty"`
+	Metadata          map[string]string `json:"metadata,omitempty"`
+	Payload           json.RawMessage   `json:"-"`
 }
 
-type credentialBrokerCachePolicy struct {
-	Mode       string `json:"mode,omitempty"`
-	TTLSeconds int    `json:"ttl_seconds,omitempty"`
-}
+type credentialBrokerACL = coreaddon.CredentialBrokerACL
+type credentialBrokerCachePolicy = coreaddon.CredentialBrokerCachePolicy
 
 type proxmoxCredentialBrokerACL = credentialBrokerACL
 
@@ -521,6 +510,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handlePluginDebugSnapshot(cmd, sender)
 		case commandTypePluginRunAction:
 			p.handlePluginRunAction(ctx, cmd, sender)
+		case commandTypeAddonRunCommand:
+			p.handleAddonRunCommand(ctx, cmd, sender)
 		case commandTypeEndpointInventoryCacheQuery:
 			p.handleEndpointInventoryCacheQuery(cmd, sender)
 		case commandTypeEndpointInventoryForceFresh:
@@ -609,17 +600,125 @@ func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.Command
 		if err := json.Unmarshal(resultBytes, &resultPayload); err != nil {
 			resultPayload = map[string]interface{}{
 				"schema":            "serviceradar.northbound_action_result.v1",
-				"status":            "succeeded",
+				"status":            commandStatusSucceeded,
 				"raw_result_base64": base64.StdEncoding.EncodeToString(resultBytes),
 			}
 		}
 	}
 	resultPayload["schema"] = firstNonEmptyString(resultPayload["schema"], "serviceradar.northbound_action_result.v1")
-	resultPayload["status"] = firstNonEmptyString(resultPayload["status"], "succeeded")
+	resultPayload["status"] = firstNonEmptyString(resultPayload["status"], commandStatusSucceeded)
 	resultPayload["invocation_id"] = firstNonEmptyString(resultPayload["invocation_id"], payload.InvocationID)
 	resultPayload["action_id"] = firstNonEmptyString(resultPayload["action_id"], payload.ActionID)
 
 	_ = sender.Send(commandResult(cmd, true, "plugin action completed", resultPayload))
+}
+
+func (p *PushLoop) handleAddonRunCommand(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
+	payload := addonRunCommandPayload{Payload: cmd.PayloadJson}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &payload); err != nil {
+			_ = sender.Send(commandResult(cmd, false, "invalid addon command payload", map[string]interface{}{
+				"schema": "serviceradar.northbound_action_result.v1",
+				"status": "failed",
+				"error":  "invalid_payload",
+			}))
+			return
+		}
+		payload.Payload = cmd.PayloadJson
+	}
+
+	if strings.TrimSpace(payload.AddonAssignmentID) == "" {
+		_ = sender.Send(commandResult(cmd, false, "missing addon_assignment_id", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "missing_addon_assignment_id",
+		}))
+		return
+	}
+
+	p.server.mu.RLock()
+	addonManager := p.server.addonManager
+	p.server.mu.RUnlock()
+
+	if addonManager == nil {
+		_ = sender.Send(commandResult(cmd, false, "addon manager unavailable", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "addon_manager_unavailable",
+		}))
+		return
+	}
+
+	timeout := commandRemainingTimeout(cmd, defaultAddonCommandTimeout)
+	if timeout <= 0 {
+		_ = sender.Send(commandResult(cmd, false, "command expired", map[string]interface{}{
+			"schema": "serviceradar.northbound_action_result.v1",
+			"status": "failed",
+			"error":  "command_expired",
+		}))
+		return
+	}
+
+	_ = sender.Send(commandProgress(cmd, 10, "starting addon command"))
+
+	result, err := addonManager.RunCommand(ctx, agentaddon.CommandInvocation{
+		AssignmentID: payload.AddonAssignmentID,
+		AddonID:      payload.AddonID,
+		CommandID:    cmd.CommandId,
+		CommandType:  cmd.CommandType,
+		ActionID:     payload.ActionID,
+		Schema:       payload.Schema,
+		PayloadJSON:  payload.Payload,
+		Timeout:      timeout,
+		DeadlineUnix: time.Now().Add(timeout).Unix(),
+		Metadata:     payload.Metadata,
+	})
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), map[string]interface{}{
+			"schema":              "serviceradar.northbound_action_result.v1",
+			"status":              "failed",
+			"error":               err.Error(),
+			"invocation_id":       payload.InvocationID,
+			"action_id":           payload.ActionID,
+			"addon_assignment_id": payload.AddonAssignmentID,
+			"addon_package_id":    payload.AddonPackageID,
+		}))
+		return
+	}
+
+	resultPayload := map[string]interface{}{}
+	if len(result.PayloadJSON) > 0 {
+		if err := json.Unmarshal(result.PayloadJSON, &resultPayload); err != nil {
+			resultPayload = map[string]interface{}{
+				"schema":            "serviceradar.northbound_action_result.v1",
+				"status":            resultStatus(result.Success),
+				"raw_result_base64": base64.StdEncoding.EncodeToString(result.PayloadJSON),
+			}
+		}
+	}
+	resultPayload["schema"] = firstNonEmptyString(resultPayload["schema"], "serviceradar.northbound_action_result.v1")
+	resultPayload["status"] = firstNonEmptyString(resultPayload["status"], resultStatus(result.Success))
+	resultPayload["invocation_id"] = firstNonEmptyString(resultPayload["invocation_id"], payload.InvocationID)
+	resultPayload["action_id"] = firstNonEmptyString(resultPayload["action_id"], payload.ActionID)
+	resultPayload["addon_assignment_id"] = firstNonEmptyString(resultPayload["addon_assignment_id"], payload.AddonAssignmentID)
+	resultPayload["addon_package_id"] = firstNonEmptyString(resultPayload["addon_package_id"], payload.AddonPackageID)
+	if len(result.Metadata) > 0 {
+		resultPayload["metadata"] = result.Metadata
+	}
+
+	message := result.Message
+	if strings.TrimSpace(message) == "" {
+		message = "addon command completed"
+	}
+
+	_ = sender.Send(commandResult(cmd, result.Success, message, resultPayload))
+}
+
+func resultStatus(success bool) string {
+	if success {
+		return commandStatusSucceeded
+	}
+	return commandStatusFailed
 }
 
 func (p *PushLoop) handleMapperRun(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {
@@ -1144,7 +1243,7 @@ func validateProxmoxCredentialBrokerGrant(payload proxmoxCredentialTestPayload, 
 	return nil
 }
 
-func validateProxmoxGrantTarget(commandTarget, grantTarget proxmoxTestTarget, baseURL string) error {
+func validateProxmoxGrantTarget(commandTarget proxmoxTestTarget, grantTarget coreaddon.CredentialBrokerTarget, baseURL string) error {
 	if strings.TrimSpace(grantTarget.Kind) != "" &&
 		strings.TrimSpace(grantTarget.Kind) != "device" {
 		return errCredentialBrokerGrantDenied

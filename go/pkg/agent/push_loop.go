@@ -167,6 +167,7 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 		interval = defaultPushInterval
 	}
 	configurePluginCredentialBroker(server, gateway)
+	configurePluginArtifactUploader(server)
 	debounce, heartbeat := clampStatusIntervals(interval, defaultStatusHeartbeatInterval, interval)
 	cameraRelayManager := newCameraRelayManager(gateway, log)
 	cameraRelayManager.pluginSourceFactory = func(ctx context.Context, spec cameraRelaySessionSpec) (cameraRelayChunkStream, error) {
@@ -233,6 +234,32 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	return pushLoop
 }
 
+func configurePluginArtifactUploader(server *Server) {
+	if server == nil || server.config == nil {
+		return
+	}
+
+	uploader, err := newGatewayPluginArtifactUploader(server.config.GatewaySecurity, server.logger)
+	if err != nil {
+		if server.logger != nil {
+			server.logger.Warn().Err(err).Msg("Wasm plugin artifact staging unavailable")
+		}
+		return
+	}
+
+	server.mu.RLock()
+	pluginManager := server.pluginManager
+	server.mu.RUnlock()
+
+	server.mu.Lock()
+	server.artifactUploader = uploader
+	server.mu.Unlock()
+
+	if pluginManager != nil {
+		pluginManager.SetArtifactUploader(uploader)
+	}
+}
+
 func configurePluginCredentialBroker(server *Server, gateway *agentgateway.GatewayClient) {
 	if server == nil || gateway == nil {
 		return
@@ -245,6 +272,7 @@ func configurePluginCredentialBroker(server *Server, gateway *agentgateway.Gatew
 
 	server.mu.RLock()
 	pluginManager := server.pluginManager
+	addonManager := server.addonManager
 	server.mu.RUnlock()
 
 	server.mu.Lock()
@@ -253,6 +281,9 @@ func configurePluginCredentialBroker(server *Server, gateway *agentgateway.Gatew
 
 	if pluginManager != nil {
 		pluginManager.SetCredentialBroker(resolver)
+	}
+	if addonManager != nil {
+		addonManager.SetCredentialResolver(resolver)
 	}
 }
 

@@ -117,6 +117,7 @@ func normalizeMACList(candidates []string) []string {
 	return macs
 }
 
+//nolint:gochecknoglobals // strings.Replacer is immutable and safe to reuse.
 var macSeparatorReplacer = strings.NewReplacer(":", "", "-", "", ".", "")
 
 // normalizeMACAddress strips ':', '-', and '.' separators and uppercases the

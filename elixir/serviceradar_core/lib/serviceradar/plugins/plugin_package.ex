@@ -13,6 +13,8 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Plugins.ProducerScheduleCatalog
   alias ServiceRadar.Plugins.Validations.Manifest
 
   @package_fields [
@@ -25,6 +27,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     :config_schema,
     :display_contract,
     :signal_schemas,
+    :producer_schedules,
     :wasm_object_key,
     :content_hash,
     :signature,
@@ -92,6 +95,7 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       accept @package_create_fields
 
       validate Manifest
+      change &sync_producer_schedule_contracts/2
     end
 
     update :update do
@@ -203,6 +207,14 @@ defmodule ServiceRadar.Plugins.PluginPackage do
       public? true
       default []
       description "Package-owned log/event signal schemas and display contract references"
+    end
+
+    attribute :producer_schedules, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-owned recurring producer schedule contracts"
     end
 
     attribute :wasm_object_key, :string do
@@ -357,5 +369,9 @@ defmodule ServiceRadar.Plugins.PluginPackage do
 
   identities do
     identity :unique_plugin_version, [:plugin_id, :version]
+  end
+
+  defp sync_producer_schedule_contracts(changeset, _context) do
+    AfterAction.after_action_result(changeset, &ProducerScheduleCatalog.sync_package/1)
   end
 end

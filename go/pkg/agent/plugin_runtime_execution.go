@@ -40,19 +40,21 @@ type pluginExecution struct {
 	mu               sync.Mutex
 	conns            map[uint32]net.Conn
 	wsConns          map[uint32]*websocket.Conn
+	artifactStreams  map[uint32]*pluginArtifactStream
 	nextHandle       uint32
 	submitted        bool
 }
 
 func newPluginExecution(manager *PluginManager, assignment *pluginAssignment) *pluginExecution {
 	return &pluginExecution{
-		manager:    manager,
-		assignment: assignment,
-		mode:       pluginExecutionModeScheduled,
-		configJSON: assignment.ParamsJSON,
-		conns:      make(map[uint32]net.Conn),
-		wsConns:    make(map[uint32]*websocket.Conn),
-		nextHandle: 1,
+		manager:         manager,
+		assignment:      assignment,
+		mode:            pluginExecutionModeScheduled,
+		configJSON:      assignment.ParamsJSON,
+		conns:           make(map[uint32]net.Conn),
+		wsConns:         make(map[uint32]*websocket.Conn),
+		artifactStreams: make(map[uint32]*pluginArtifactStream),
+		nextHandle:      1,
 	}
 }
 
@@ -71,6 +73,18 @@ func (e *pluginExecution) instantiateHostModule(ctx context.Context, runtime waz
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostEmitTelemetry).
 		Export("emit_telemetry")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostArtifactOpen).
+		Export("artifact_open")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostArtifactWrite).
+		Export("artifact_write")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostArtifactCommit).
+		Export("artifact_commit")
+	builder.NewFunctionBuilder().
+		WithFunc(e.hostArtifactAbort).
+		Export("artifact_abort")
 	builder.NewFunctionBuilder().
 		WithFunc(e.hostCameraMediaOpen).
 		Export("camera_media_open")

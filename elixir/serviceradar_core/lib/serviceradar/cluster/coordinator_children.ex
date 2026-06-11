@@ -50,6 +50,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         netflow_enrichment_dataset_scheduler_child(),
         netflow_security_scheduler_child(),
         netflow_cache_scheduler_child(),
+        endpoint_vulnerability_match_scheduler_child(),
         armis_northbound_scheduler_child(),
         mtr_baseline_scheduler_child(),
         mtr_state_trigger_worker_child(),
@@ -224,6 +225,16 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp netflow_cache_scheduler_child do
     if enabled?("NETFLOW_CACHE_SCHEDULER_ENABLED", :netflow_cache_scheduler_enabled, true) do
       ServiceRadar.Observability.NetflowCacheScheduler
+    end
+  end
+
+  defp endpoint_vulnerability_match_scheduler_child do
+    if enabled?(
+         "ENDPOINT_VULNERABILITY_MATCH_SCHEDULER_ENABLED",
+         :endpoint_vulnerability_match_scheduler_enabled,
+         true
+       ) do
+      ServiceRadar.Inventory.EndpointVulnerabilityMatchScheduler
     end
   end
 

@@ -280,9 +280,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       {:error, {:invalid_params, message}} ->
         {:noreply, put_flash(socket, :error, "Invalid profile configuration: #{message}")}
 
-      {:error, :missing_query} ->
-        {:noreply, put_flash(socket, :error, "Enter an SRQL target query.")}
-
       {:error, :invalid_integer} ->
         {:noreply, put_flash(socket, :error, "Priority and max targets must be positive integers.")}
     end
@@ -727,11 +724,40 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   <ul class="divide-y divide-base-200">
                     <%= for assignment <- @assignments do %>
                       <li class="flex items-center justify-between gap-2 py-2">
-                        <div class="text-xs font-mono">{assignment.agent_uid}</div>
+                        <div class="min-w-0">
+                          <div class="text-xs font-mono">{assignment.agent_uid}</div>
+                          <div class="mt-1 flex flex-wrap gap-1">
+                            <span class="badge badge-ghost badge-xs">
+                              {assignment_source_text(assignment, @addon_profiles)}
+                            </span>
+                            <span
+                              :if={assignment_reconcile_status(assignment, @addon_profiles)}
+                              class={[
+                                "badge badge-xs",
+                                profile_report_status_badge(
+                                  assignment_reconcile_status(assignment, @addon_profiles)
+                                )
+                              ]}
+                            >
+                              {profile_report_status_label(
+                                assignment_reconcile_status(assignment, @addon_profiles)
+                              )}
+                            </span>
+                            <span
+                              :if={assignment_reconciled_at(assignment, @addon_profiles)}
+                              class="badge badge-ghost badge-xs"
+                            >
+                              reconciled
+                            </span>
+                          </div>
+                          <div
+                            :if={assignment_reconcile_error(assignment, @addon_profiles)}
+                            class="mt-1 truncate text-[11px] text-error"
+                          >
+                            {assignment_reconcile_error(assignment, @addon_profiles)}
+                          </div>
+                        </div>
                         <div class="flex items-center gap-2">
-                          <span class="badge badge-ghost badge-xs">
-                            {source_label(assignment.source)}
-                          </span>
                           <span class={[
                             "badge badge-sm",
                             if(assignment.enabled, do: "badge-success", else: "badge-ghost")
@@ -758,11 +784,18 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
               <div class="rounded-xl border border-base-200 p-4 space-y-3">
                 <div class="flex items-center justify-between gap-3">
                   <div>
-                    <div class="text-sm font-semibold">Profiles</div>
+                    <div class="text-sm font-semibold">Profile assignment</div>
                     <p class="text-xs text-base-content/60">
-                      Assign this add-on from SRQL target queries.
+                      Target devices with SRQL, then reconcile to materialize eligible agent assignments.
                     </p>
                   </div>
+                </div>
+
+                <div
+                  :if={@selected_package.status != :approved}
+                  class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
+                >
+                  This add-on package is {@selected_package.status}; approve a verified package for the selected release before creating profiles or assignments.
                 </div>
 
                 <%= if @addon_profiles == [] do %>
@@ -770,6 +803,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 <% else %>
                   <ul class="divide-y divide-base-200">
                     <%= for profile <- @addon_profiles do %>
+                      <% report = profile_reconcile_report(profile) %>
                       <li class="flex items-center justify-between gap-3 py-2">
                         <div class="min-w-0">
                           <div class="truncate text-xs font-semibold">{profile.name}</div>
@@ -788,6 +822,35 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                             </span>
                             <span :if={profile.last_reconciled_at} class="badge badge-ghost badge-xs">
                               reconciled
+                            </span>
+                            <span
+                              :if={report.status}
+                              class={["badge badge-xs", profile_report_status_badge(report.status)]}
+                            >
+                              {profile_report_status_label(report.status)}
+                            </span>
+                            <span
+                              :for={chip <- profile_report_chips(report)}
+                              class="badge badge-ghost badge-xs"
+                            >
+                              {chip}
+                            </span>
+                          </div>
+                          <div
+                            :if={profile_report_last_error(report)}
+                            class="mt-1 truncate text-[11px] text-error"
+                          >
+                            {profile_report_last_error(report)}
+                          </div>
+                          <div
+                            :if={profile_skip_chips(report) != []}
+                            class="mt-1 flex flex-wrap gap-1"
+                          >
+                            <span
+                              :for={chip <- profile_skip_chips(report)}
+                              class="rounded bg-base-200 px-1.5 py-0.5 text-[10px] text-base-content/70"
+                            >
+                              {chip}
                             </span>
                           </div>
                         </div>
@@ -811,23 +874,13 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                   phx-change="profile_change"
                   class="space-y-3"
                 >
-                  <div class="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label class="label"><span class="label-text">Name</span></label>
-                      <input
-                        name="profile[name]"
-                        class="input input-bordered w-full"
-                        value={@profile_form["name"]}
-                      />
-                    </div>
-                    <div>
-                      <label class="label"><span class="label-text">Priority</span></label>
-                      <input
-                        name="profile[priority]"
-                        class="input input-bordered w-full"
-                        value={@profile_form["priority"]}
-                      />
-                    </div>
+                  <div>
+                    <label class="label"><span class="label-text">Profile Name</span></label>
+                    <input
+                      name="profile[name]"
+                      class="input input-bordered w-full"
+                      value={@profile_form["name"]}
+                    />
                   </div>
                   <div>
                     <label class="label"><span class="label-text">SRQL Target Query</span></label>
@@ -837,31 +890,51 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       value={@profile_form["target_query"]}
                       placeholder="in:devices hostname:%ns% include_inactive:true"
                     />
+                    <p class="mt-1 text-xs text-base-content/60">
+                      Leave blank to target all devices with <span class="font-mono">in:devices</span>.
+                    </p>
                   </div>
-                  <div class="grid gap-3 md:grid-cols-2">
-                    <div>
-                      <label class="label"><span class="label-text">Max Targets</span></label>
-                      <input
-                        name="profile[max_targets]"
-                        class="input input-bordered w-full"
-                        value={@profile_form["max_targets"]}
-                      />
+                  <details class="rounded border border-base-200 bg-base-200/30">
+                    <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-base-content/70">
+                      Advanced Profile Options
+                    </summary>
+                    <div class="space-y-3 border-t border-base-200 p-3">
+                      <div class="grid gap-3 md:grid-cols-2">
+                        <div>
+                          <label class="label"><span class="label-text">Priority</span></label>
+                          <input
+                            name="profile[priority]"
+                            class="input input-bordered w-full"
+                            value={@profile_form["priority"]}
+                          />
+                        </div>
+                        <div>
+                          <label class="label"><span class="label-text">Max Targets</span></label>
+                          <input
+                            name="profile[max_targets]"
+                            class="input input-bordered w-full"
+                            value={@profile_form["max_targets"]}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label class="label">
+                          <span class="label-text">Args (one per line)</span>
+                        </label>
+                        <textarea
+                          name="profile[args]"
+                          class="textarea textarea-bordered w-full font-mono text-xs min-h-[42px]"
+                        ><%= @profile_form["args"] %></textarea>
+                      </div>
+                      <div>
+                        <label class="label"><span class="label-text">Params (JSON)</span></label>
+                        <textarea
+                          name="profile[params]"
+                          class="textarea textarea-bordered w-full font-mono text-xs min-h-[70px]"
+                        ><%= assignment_params_raw(@profile_form) %></textarea>
+                      </div>
                     </div>
-                    <div>
-                      <label class="label"><span class="label-text">Args (one per line)</span></label>
-                      <textarea
-                        name="profile[args]"
-                        class="textarea textarea-bordered w-full font-mono text-xs min-h-[42px]"
-                      ><%= @profile_form["args"] %></textarea>
-                    </div>
-                  </div>
-                  <div>
-                    <label class="label"><span class="label-text">Params (JSON)</span></label>
-                    <textarea
-                      name="profile[params]"
-                      class="textarea textarea-bordered w-full font-mono text-xs min-h-[70px]"
-                    ><%= assignment_params_raw(@profile_form) %></textarea>
-                  </div>
+                  </details>
                   <div class="flex justify-end">
                     <button
                       type="submit"
@@ -874,13 +947,20 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 </form>
               </div>
 
-              <div class="rounded-xl border border-base-200 p-4 space-y-3">
-                <div class="text-sm font-semibold">Target add-on</div>
+              <details class="rounded-xl border border-base-200 p-4">
+                <summary class="cursor-pointer">
+                  <div class="inline-flex flex-col gap-1 align-middle">
+                    <span class="text-sm font-semibold">Advanced Manual Assignment Override</span>
+                    <span class="text-xs text-base-content/60">
+                      Assign directly to agents only when profile ownership is not appropriate.
+                    </span>
+                  </div>
+                </summary>
                 <form
                   id="create-addon-assignment-form"
                   phx-submit="create_assignment"
                   phx-change="assignment_change"
-                  class="space-y-3"
+                  class="mt-3 space-y-3"
                 >
                   <div class="grid gap-3 md:grid-cols-2">
                     <div>
@@ -1057,7 +1137,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     This add-on must be approved before it can be assigned.
                   </p>
                 <% end %>
-              </div>
+              </details>
             </div>
           </div>
         <% end %>
@@ -1337,7 +1417,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp default_profile_form(nil) do
     %{
       "name" => "",
-      "target_query" => "in:devices ",
+      "target_query" => "in:devices",
       "priority" => "100",
       "max_targets" => "10000",
       "params" => "{}",
@@ -1396,6 +1476,54 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp source_label(source) when is_binary(source), do: source
   defp source_label(_source), do: "unknown"
 
+  defp assignment_source_text(assignment, profiles) do
+    case source_label(assignment.source) do
+      "profile" ->
+        case assignment_profile(assignment, profiles) do
+          nil -> "profile"
+          profile -> "profile: #{profile.name}"
+        end
+
+      "manual" ->
+        "manual override"
+
+      source ->
+        source
+    end
+  end
+
+  defp assignment_reconcile_status(assignment, profiles) do
+    present_text(assignment.profile_reconcile_status) ||
+      assignment
+      |> assignment_profile(profiles)
+      |> profile_reconcile_report()
+      |> Map.get(:status)
+  end
+
+  defp assignment_reconciled_at(assignment, profiles) do
+    assignment.profile_last_reconciled_at ||
+      case assignment_profile(assignment, profiles) do
+        nil -> nil
+        profile -> profile.last_reconciled_at
+      end
+  end
+
+  defp assignment_reconcile_error(assignment, profiles) do
+    present_text(assignment.profile_reconcile_error) ||
+      assignment
+      |> assignment_profile(profiles)
+      |> profile_reconcile_report()
+      |> profile_report_last_error()
+  end
+
+  defp assignment_profile(assignment, profiles) do
+    profile_id = assignment.addon_profile_id
+
+    Enum.find(profiles, fn profile ->
+      present_text(profile.id) == present_text(profile_id)
+    end)
+  end
+
   defp parse_params(form, config_schema) do
     if config_schema_present?(config_schema) do
       structured = Map.get(form, "params")
@@ -1428,24 +1556,27 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp profile_attrs(form, package, params, priority, max_targets) do
-    target_query = String.trim(Map.get(form, "target_query") || "")
+    {:ok,
+     %{
+       name: present_text(Map.get(form, "name")) || "#{package.name} profile",
+       addon_package_id: package.id,
+       target_query: profile_target_query(Map.get(form, "target_query")),
+       params: params,
+       args: parse_args(Map.get(form, "args")),
+       priority: priority,
+       max_targets: max_targets,
+       enabled: true
+     }}
+  end
 
-    if target_query == "" do
-      {:error, :missing_query}
-    else
-      {:ok,
-       %{
-         name: present_text(Map.get(form, "name")) || "#{package.name} profile",
-         addon_package_id: package.id,
-         target_query: target_query,
-         params: params,
-         args: parse_args(Map.get(form, "args")),
-         priority: priority,
-         max_targets: max_targets,
-         enabled: true
-       }}
+  defp profile_target_query(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> "in:devices"
+      query -> query
     end
   end
+
+  defp profile_target_query(_value), do: "in:devices"
 
   defp parse_positive_integer(value, default) do
     value = if is_nil(value) or value == "", do: Integer.to_string(default), else: to_string(value)
@@ -1465,6 +1596,109 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp profile_reconcile_message(_summary), do: "Profile reconciled."
+
+  defp profile_reconcile_report(%{last_reconcile_summary: summary}) when is_map(summary) do
+    %{
+      status: summary_value(summary, :status),
+      matched_rows: summary_value(summary, :matched_rows, 0),
+      eligible_agents: summary_value(summary, :eligible_agents, 0),
+      desired_assignments: summary_value(summary, :desired_assignments, 0),
+      skipped_targets: summary_list(summary, :skipped_targets),
+      skip_counts: summary_map(summary, :skip_counts),
+      upserted: summary_value(summary, :upserted, 0),
+      disabled: summary_value(summary, :disabled, 0),
+      last_error: summary_value(summary, :last_error)
+    }
+  end
+
+  defp profile_reconcile_report(_profile) do
+    %{
+      status: nil,
+      matched_rows: nil,
+      eligible_agents: nil,
+      desired_assignments: nil,
+      skipped_targets: [],
+      skip_counts: %{},
+      upserted: nil,
+      disabled: nil,
+      last_error: nil
+    }
+  end
+
+  defp profile_report_status_badge("failed"), do: "badge-error"
+  defp profile_report_status_badge("succeeded"), do: "badge-success"
+  defp profile_report_status_badge(_status), do: "badge-ghost"
+
+  defp profile_report_status_label("failed"), do: "failed"
+  defp profile_report_status_label("succeeded"), do: "ok"
+  defp profile_report_status_label(status) when is_binary(status), do: status
+  defp profile_report_status_label(_status), do: "unknown"
+
+  defp profile_report_chips(report) do
+    Enum.reject(
+      [
+        count_chip("matched", report.matched_rows),
+        count_chip("eligible", report.eligible_agents),
+        count_chip("desired", report.desired_assignments),
+        count_chip("skipped", skipped_target_count(report)),
+        count_chip("changed", report.upserted),
+        count_chip("disabled stale", report.disabled)
+      ],
+      &is_nil/1
+    )
+  end
+
+  defp profile_skip_chips(report) do
+    report.skip_counts
+    |> Enum.sort_by(fn {reason, count} -> {-count, to_string(reason)} end)
+    |> Enum.take(4)
+    |> Enum.map(fn {reason, count} -> "#{human_reason(reason)} #{count}" end)
+  end
+
+  defp profile_report_last_error(%{last_error: error}) when is_binary(error) and error != "" do
+    "Last error: #{truncate_error(error)}"
+  end
+
+  defp profile_report_last_error(_report), do: nil
+
+  defp skipped_target_count(%{skip_counts: skip_counts}) when map_size(skip_counts) > 0 do
+    skip_counts |> Map.values() |> Enum.sum()
+  end
+
+  defp skipped_target_count(%{skipped_targets: skipped_targets}) when is_list(skipped_targets) do
+    length(skipped_targets)
+  end
+
+  defp skipped_target_count(_report), do: 0
+
+  defp count_chip(_label, nil), do: nil
+  defp count_chip(label, value) when is_integer(value), do: "#{label} #{value}"
+  defp count_chip(label, value) when is_binary(value), do: "#{label} #{value}"
+  defp count_chip(_label, _value), do: nil
+
+  defp human_reason(reason) do
+    reason
+    |> to_string()
+    |> String.replace("_", " ")
+  end
+
+  defp summary_value(summary, key, default \\ nil) do
+    Map.get(summary, key) || Map.get(summary, to_string(key)) || default
+  end
+
+  defp summary_map(summary, key) do
+    case summary_value(summary, key, %{}) do
+      value when is_map(value) -> value
+      _ -> %{}
+    end
+  end
+
+  defp summary_list(summary, key) do
+    case summary_value(summary, key, []) do
+      value when is_list(value) -> value
+      _ -> []
+    end
+  end
 
   defp parse_json_object(raw) do
     case Jason.decode(raw) do
@@ -1757,10 +1991,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
-  defp format_error(error) when is_binary(error), do: error
-  defp format_error(error) when is_atom(error), do: Atom.to_string(error)
-  defp format_error(%Ash.Error.Invalid{} = error), do: Exception.message(error)
-  defp format_error(error), do: inspect(error)
+  defp format_error(error) when is_binary(error), do: truncate_error(error)
+  defp format_error(error) when is_atom(error), do: error |> Atom.to_string() |> truncate_error()
+  defp format_error(%Ash.Error.Invalid{} = error), do: error |> Exception.message() |> truncate_error()
+
+  defp format_error(error) do
+    error
+    |> inspect(limit: 8, printable_limit: 400)
+    |> truncate_error()
+  end
+
+  defp truncate_error(message) when is_binary(message) do
+    if String.length(message) > 500 do
+      String.slice(message, 0, 500) <> "..."
+    else
+      message
+    end
+  end
 
   defp present_text(value) when is_binary(value) do
     value = String.trim(value)

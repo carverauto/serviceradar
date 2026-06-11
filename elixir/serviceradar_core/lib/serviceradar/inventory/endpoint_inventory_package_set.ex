@@ -9,6 +9,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
   @package_event_added "added"
   @package_event_removed "removed"
   @package_event_version_changed "version_changed"
+  @coverage_states ~w(complete partial not_scanned failed disabled unchanged unknown no_supported_package_source)
+  @diagnostic_complete_states ~w(scanned complete success)
+  @diagnostic_failure_states ~w(error failed timeout)
+  @diagnostic_unavailable_states ~w(unavailable skipped not_supported unsupported)
   @package_manager_purl_types %{
     "apk" => "apk",
     "dpkg" => "deb",
@@ -60,30 +64,48 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     end)
   end
 
-  def normalize_sources(sources) do
-    sources
+  def normalize_diagnostics(diagnostics) do
+    diagnostics
     |> Enum.map(fn
-      source when is_map(source) ->
+      diagnostic when is_map(diagnostic) ->
+        name = diagnostic_string(diagnostic, [:name, :id, :plugin_id, :plugin, :source_id])
+
         Payload.compact_map(%{
-          "source" => Payload.string_value(source, :source),
-          "state" => Payload.string_value(source, :state),
-          "package_count" => Payload.integer_value(source, :package_count, nil),
-          "error" => Payload.string_value(source, :error)
+          "name" => name,
+          "type" => diagnostic_string(diagnostic, [:type, :kind, :category, :plugin_type]),
+          "state" => normalize_diagnostic_state(diagnostic_string(diagnostic, [:state, :status])),
+          "package_count" =>
+            diagnostic_integer(diagnostic, [:package_count, :packageCount, :packages, :count]),
+          "finding_count" =>
+            diagnostic_integer(diagnostic, [
+              :finding_count,
+              :findingCount,
+              :findings_count,
+              :findings
+            ]),
+          "reason" => diagnostic_string(diagnostic, [:reason, :reason_code, :code]),
+          "error" => diagnostic_string(diagnostic, [:error, :error_message, :message]),
+          "path" => diagnostic_string(diagnostic, [:path, :root, :scan_root, :target_path]),
+          "detected" => diagnostic_boolean(diagnostic, [:detected, :supported, :applicable]),
+          "duration_ms" =>
+            diagnostic_integer(diagnostic, [:duration_ms, :durationMillis, :elapsed_ms]),
+          "truncated" => diagnostic_boolean(diagnostic, [:truncated, :partial]),
+          "metadata" => metadata_or_nil(diagnostic)
         })
 
-      _source ->
+      _diagnostic ->
         nil
     end)
     |> Enum.reject(&is_nil/1)
   end
 
-  def enabled_sources(payload, source_summaries) do
-    explicit = Payload.string_list_value(payload, :enabled_sources)
+  def enabled_diagnostics(payload, diagnostics) do
+    explicit = Payload.string_list_value(payload, :enabled_plugins)
 
     if explicit == [] do
-      Enum.flat_map(source_summaries, fn summary ->
-        case Map.get(summary, "source") do
-          source when is_binary(source) and source != "" -> [source]
+      Enum.flat_map(diagnostics, fn diagnostic ->
+        case Map.get(diagnostic, "name") do
+          name when is_binary(name) and name != "" -> [name]
           _ -> []
         end
       end)
@@ -91,6 +113,36 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
       explicit
     end
   end
+
+  defp metadata_or_nil(source) do
+    case Payload.map_value(source, :metadata) do
+      metadata when map_size(metadata) == 0 -> nil
+      metadata -> metadata
+    end
+  end
+
+  defp diagnostic_string(diagnostic, keys) do
+    Enum.find_value(keys, &Payload.string_value(diagnostic, &1))
+  end
+
+  defp diagnostic_integer(diagnostic, keys) do
+    Enum.find_value(keys, &Payload.integer_value(diagnostic, &1, nil))
+  end
+
+  defp diagnostic_boolean(diagnostic, keys) do
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      case Payload.boolean_value(diagnostic, key) do
+        nil -> {:cont, nil}
+        value -> {:halt, value}
+      end
+    end)
+  end
+
+  defp normalize_diagnostic_state(nil), do: nil
+  defp normalize_diagnostic_state("ok"), do: "success"
+  defp normalize_diagnostic_state("succeeded"), do: "success"
+  defp normalize_diagnostic_state("failure"), do: "failed"
+  defp normalize_diagnostic_state(value), do: value
 
   def manager_counts(packages) do
     packages
@@ -122,13 +174,49 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     end
   end
 
-  def coverage_state(payload, packages) do
+  def coverage_state(payload, packages, diagnostics) do
     case Payload.string_value(payload, :coverage_state) do
-      value when value in ["complete", "partial", "not_scanned", "failed"] -> value
-      _ when packages == [] -> "not_scanned"
-      _ -> "complete"
+      value when value in @coverage_states -> value
+      _ -> infer_coverage_state(packages, diagnostics)
     end
   end
+
+  defp infer_coverage_state(_packages, []), do: "unknown"
+
+  defp infer_coverage_state(packages, diagnostics) do
+    failed? = Enum.any?(diagnostics, &diagnostic_failed?/1)
+    complete? = Enum.any?(diagnostics, &diagnostic_complete?/1)
+    unavailable? = Enum.all?(diagnostics, &diagnostic_unavailable?/1)
+
+    cond do
+      failed? and packages == [] -> "failed"
+      failed? -> "partial"
+      complete? -> "complete"
+      unavailable? -> "no_supported_package_source"
+      true -> "unknown"
+    end
+  end
+
+  defp diagnostic_complete?(diagnostic) do
+    Map.get(diagnostic, "state") in @diagnostic_complete_states and
+      Map.get(diagnostic, "detected") != false and
+      not Map.get(diagnostic, "truncated", false)
+  end
+
+  defp diagnostic_failed?(diagnostic) do
+    Map.get(diagnostic, "state") in @diagnostic_failure_states or
+      present?(Map.get(diagnostic, "error")) or
+      Map.get(diagnostic, "truncated", false)
+  end
+
+  defp diagnostic_unavailable?(diagnostic) do
+    Map.get(diagnostic, "state") in @diagnostic_unavailable_states or
+      Map.get(diagnostic, "detected") == false
+  end
+
+  defp present?(value) when is_binary(value), do: String.trim(value) != ""
+  defp present?(nil), do: false
+  defp present?(_value), do: true
 
   def successful_scan_time(payload, fallback) do
     case scan_state(payload) do

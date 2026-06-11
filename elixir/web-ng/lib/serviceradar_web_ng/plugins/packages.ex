@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
   alias ServiceRadar.Plugins.PackageAssignmentLifecycle
   alias ServiceRadar.Plugins.Plugin
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.ProducerScheduleCatalog
   alias ServiceRadarWebNG.Plugins.FirstPartyImporter
   alias ServiceRadarWebNG.Plugins.GitHubImporter
   alias ServiceRadarWebNG.Plugins.Storage
@@ -350,6 +351,12 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
           manifest_struct.signal_schemas ||
           []
 
+      producer_schedules =
+        Map.get(attrs, :producer_schedules) ||
+          Map.get(attrs, "producer_schedules") ||
+          manifest_struct.producer_schedules ||
+          []
+
       attrs =
         attrs
         |> Map.put_new(:plugin_id, manifest_struct.id)
@@ -361,6 +368,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
         |> Map.put_new(:outputs, manifest_struct.outputs)
         |> Map.put_new(:display_contract, display_contract)
         |> Map.put_new(:signal_schemas, signal_schemas)
+        |> Map.put_new(:producer_schedules, producer_schedules)
 
       PluginPackage
       |> Ash.Changeset.for_create(:create, attrs)
@@ -402,6 +410,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
       |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
+      |> Map.put_new(:producer_schedules, import.manifest_struct.producer_schedules || [])
       |> Map.put(:source_type, :github)
       |> Map.put(:source_commit, import.source_commit)
       |> Map.put(:signature, import.signature)
@@ -432,6 +441,7 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
       |> Map.put_new(:config_schema, import.config_schema || %{})
       |> Map.put_new(:display_contract, import.display_contract || %{})
       |> Map.put_new(:signal_schemas, import.manifest_struct.signal_schemas || [])
+      |> Map.put_new(:producer_schedules, import.manifest_struct.producer_schedules || [])
       |> Map.put(:source_type, :first_party)
       |> Map.put(:source_repo_url, import.source_repo_url)
       |> Map.put(:source_release_tag, import.source_release_tag)
@@ -485,8 +495,14 @@ defmodule ServiceRadarWebNG.Plugins.Packages do
     |> Ash.Changeset.for_update(:update, attrs)
     |> update_resource_with_opts(ash_opts)
     |> case do
-      {:ok, updated} -> {:ok, updated, true}
-      {:error, error} -> {:error, error}
+      {:ok, updated} ->
+        case ProducerScheduleCatalog.sync_package(updated, actor_opts(ash_opts)) do
+          :ok -> {:ok, updated, true}
+          {:error, error} -> {:error, error}
+        end
+
+      {:error, error} ->
+        {:error, error}
     end
   end
 

@@ -650,8 +650,8 @@ func TestProcessResourceSpansNilResourceIngestsAsUnknown(t *testing.T) {
 		t.Fatalf("expected nil-resource span to be ingested, got %d rows", len(rows))
 	}
 
-	if rows[0].ServiceName != "unknown" {
-		t.Fatalf("expected service name %q, got %q", "unknown", rows[0].ServiceName)
+	if rows[0].ServiceName != unknownString {
+		t.Fatalf("expected service name %q, got %q", unknownString, rows[0].ServiceName)
 	}
 
 	if rows[0].ResourceAttributes != "{}" {

@@ -73,10 +73,12 @@ sh_test(
         "$(rootpath //addons/workload-identity:addon.yaml)",
         "$(rootpath //addons/bumblebee-scan:addon.yaml)",
         "$(rootpath //addons/endpoint-inventory:addon.yaml)",
+        "$(rootpath //addons/scalibr-endpoint-inventory:addon.yaml)",
     ],
     data = [
         "//addons/bumblebee-scan:addon.yaml",
         "//addons/endpoint-inventory:addon.yaml",
+        "//addons/scalibr-endpoint-inventory:addon.yaml",
         "runfile_path.sh",
         "//addons/netprobe:addon.yaml",
         "//addons/powerdns:addon.yaml",

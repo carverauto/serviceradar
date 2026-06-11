@@ -48,6 +48,15 @@ const (
 	// to the local agent over AddonService.StreamTelemetry.
 	CapabilityNativeTelemetryV1 = "native-telemetry:v1"
 
+	// CapabilityArtifactStagingV1 marks producers that can stage durable
+	// artifacts through the local agent and agent-gateway. This capability name is
+	// intentionally runtime-neutral and is shared with Wasm producers.
+	CapabilityArtifactStagingV1 = "artifact-staging:v1"
+
+	// CommandTypeAddonRunCommand is the generic commandbus command used to invoke
+	// native add-on actions through agent-gateway -> agent -> add-on gRPC.
+	CommandTypeAddonRunCommand = "addon.run_command"
+
 	// CapabilityOtlpRelayV1 marks add-ons that serve the acked OTLP relay stream
 	// over AddonService.RelayOtlp. Unlike native-telemetry:v1 (lossy), frames
 	// carry a persistent monotonic relay_id and stay in the add-on's durable
@@ -90,6 +99,31 @@ type TelemetryClient interface {
 	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
 }
 
+// ArtifactSource is implemented by add-ons that can produce durable artifacts.
+// Add-ons advertise this support with CapabilityArtifactStagingV1 in Info.
+type ArtifactSource interface {
+	StreamArtifacts(ctx context.Context) (<-chan *addonpb.ArtifactUploadChunk, error)
+}
+
+// ArtifactClient is implemented by client-side adapters that can drain a remote
+// add-on's artifact staging stream.
+type ArtifactClient interface {
+	StreamArtifacts(ctx context.Context) (<-chan *addonpb.ArtifactUploadChunk, error)
+}
+
+// CommandHandler is implemented by add-ons that can execute bounded commands
+// requested through the agent control stream. Add-ons advertise schedule-driven
+// command support with CapabilityProducerScheduleV1 in their package manifest.
+type CommandHandler interface {
+	RunCommand(ctx context.Context, request CommandRequest) (CommandResult, error)
+}
+
+// CommandClient is implemented by client-side adapters that can invoke a remote
+// add-on command over the local go-plugin gRPC connection.
+type CommandClient interface {
+	RunCommand(ctx context.Context, request CommandRequest) (CommandResult, error)
+}
+
 // OtlpRelaySource is implemented by add-ons that serve the acked OTLP relay
 // stream (AddonService.RelayOtlp). Add-ons advertise this support with
 // CapabilityOtlpRelayV1 in Info; the agent never opens the stream otherwise.
@@ -120,6 +154,10 @@ type TelemetryRecord = addonpb.TelemetryRecord
 type TelemetrySourceInfo = addonpb.TelemetrySource
 type TelemetryCounters = addonpb.TelemetryCounters
 type TelemetryPayloadKind = addonpb.TelemetryPayloadKind
+type ArtifactMetadata = addonpb.ArtifactMetadata
+type ArtifactUploadChunk = addonpb.ArtifactUploadChunk
+type RunCommandRequest = addonpb.RunCommandRequest
+type RunCommandResponse = addonpb.RunCommandResponse
 type OtlpRelayFrame = addonpb.OtlpRelayFrame
 type OtlpRelayAck = addonpb.OtlpRelayAck
 
@@ -135,6 +173,25 @@ type ConfigureResult struct {
 	ConfigHash string
 	Accepted   bool
 	Error      string
+}
+
+// CommandRequest is a generic action invocation delivered to an add-on.
+type CommandRequest struct {
+	CommandID    string
+	CommandType  string
+	ActionID     string
+	Schema       string
+	PayloadJSON  []byte
+	DeadlineUnix int64
+	Metadata     map[string]string
+}
+
+// CommandResult is the add-on's bounded result payload.
+type CommandResult struct {
+	Success     bool
+	Message     string
+	PayloadJSON []byte
+	Metadata    map[string]string
 }
 
 // HealthStatus is the coarse health of an add-on.

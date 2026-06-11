@@ -33,14 +33,36 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
                            "go/cmd/wasm-plugins/proxmox/display/resource_event.display.json",
                            @contract_roots
                          )
+  @trivy_contract_path @resolve_contract_path.(
+                         "go/pkg/trivysidecar/display/vulnerability_report.display.json",
+                         @contract_roots
+                       )
+  @falco_contract_path @resolve_contract_path.(
+                         "integrations/falco/display/runtime_event.display.json",
+                         @contract_roots
+                       )
   @external_resource @powerdns_contract_path
   @external_resource @axis_contract_path
   @external_resource @protect_contract_path
   @external_resource @proxmox_contract_path
+  @external_resource @trivy_contract_path
+  @external_resource @falco_contract_path
   @powerdns_signal_schema_ref %{
     "producer_id" => "powerdns",
     "producer_version" => "0.1.1",
     "schema_id" => "com.carverauto.powerdns.dns_activity",
+    "schema_version" => "1.0.0"
+  }
+  @trivy_signal_schema_ref %{
+    "producer_id" => "trivy",
+    "producer_version" => "0.69.1",
+    "schema_id" => "com.carverauto.trivy.vulnerability_report",
+    "schema_version" => "1.0.0"
+  }
+  @falco_signal_schema_ref %{
+    "producer_id" => "falco",
+    "producer_version" => "1.0.0",
+    "schema_id" => "com.carverauto.falco.runtime_event",
     "schema_version" => "1.0.0"
   }
   @built_in_contracts %{
@@ -53,11 +75,17 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     {"unifi-protect-camera", "0.1.0", "com.carverauto.unifi_protect.camera_event", "1.0.0"} =>
       @protect_contract_path |> File.read!() |> Jason.decode!(),
     {"proxmox-inventory", "0.1.1", "com.carverauto.proxmox.resource_event", "1.0.0"} =>
-      @proxmox_contract_path |> File.read!() |> Jason.decode!()
+      @proxmox_contract_path |> File.read!() |> Jason.decode!(),
+    {"trivy", "0.69.1", "com.carverauto.trivy.vulnerability_report", "1.0.0"} =>
+      @trivy_contract_path |> File.read!() |> Jason.decode!(),
+    {"falco", "1.0.0", "com.carverauto.falco.runtime_event", "1.0.0"} =>
+      @falco_contract_path |> File.read!() |> Jason.decode!()
   }
 
   @max_widgets 24
   @max_fields 64
+  @max_table_rows 50
+  @max_table_columns 8
   @max_value_length 240
 
   @doc "Resolve the display contract referenced by a stored event/log row."
@@ -161,8 +189,18 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   defp inferred_signal_schema_ref(record) do
     service_radar = service_radar_metadata(record)
 
-    if powerdns_dns_activity?(record, service_radar) do
-      @powerdns_signal_schema_ref
+    cond do
+      powerdns_dns_activity?(record, service_radar) ->
+        @powerdns_signal_schema_ref
+
+      trivy_vulnerability_report?(record, service_radar) ->
+        @trivy_signal_schema_ref
+
+      falco_runtime_event?(record, service_radar) ->
+        @falco_signal_schema_ref
+
+      true ->
+        nil
     end
   end
 
@@ -185,6 +223,28 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
       (integer_value(map_value(record, "class_uid")) == 4003 or log_name == "pdns.ocsf")
   end
 
+  defp trivy_vulnerability_report?(record, service_radar) do
+    source_type = map_value(service_radar, "source_type")
+    log_provider = map_value(record, "log_provider")
+    log_name = map_value(record, "log_name")
+    metadata = map_value(record, "metadata") || %{}
+    report_kind = map_value(metadata, "report_kind") || raw_path_value(record, ["report_kind"])
+
+    (source_type == "trivy" or log_provider == "trivy" or log_name == "trivy.report.vulnerability") and
+      report_kind == "VulnerabilityReport"
+  end
+
+  defp falco_runtime_event?(record, service_radar) do
+    source_type = map_value(service_radar, "source_type")
+    log_provider = map_value(record, "log_provider")
+    log_name = map_value(record, "log_name")
+    metadata = map_value(record, "metadata") || %{}
+    signal = map_value(metadata, "security_signal") || %{}
+
+    (source_type == "falco" or log_provider == "falco" or String.starts_with?(log_name || "", "falco.")) and
+      map_value(signal, "source") in [nil, "falco"]
+  end
+
   defp map_value(map, key) when is_map(map) do
     Map.get(map, key) || atom_key_value(map, key)
   end
@@ -195,6 +255,12 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
   defp atom_key_value(map, "addon_id"), do: Map.get(map, :addon_id)
   defp atom_key_value(map, "log_name"), do: Map.get(map, :log_name)
   defp atom_key_value(map, "class_uid"), do: Map.get(map, :class_uid)
+  defp atom_key_value(map, "log_provider"), do: Map.get(map, :log_provider)
+  defp atom_key_value(map, "metadata"), do: Map.get(map, :metadata)
+  defp atom_key_value(map, "raw_data"), do: Map.get(map, :raw_data)
+  defp atom_key_value(map, "report_kind"), do: Map.get(map, :report_kind)
+  defp atom_key_value(map, "security_signal"), do: Map.get(map, :security_signal)
+  defp atom_key_value(map, "source"), do: Map.get(map, :source)
   defp atom_key_value(_map, _key), do: nil
 
   defp integer_value(value) when is_integer(value), do: value
@@ -270,7 +336,63 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
     end
   end
 
+  defp render_widget(record, %{"type" => "table"} = widget) do
+    rows = path_value(record, Map.get(widget, "path"))
+    columns = table_columns(widget)
+
+    if is_list(rows) and columns != [] do
+      rendered_rows =
+        rows
+        |> Enum.take(@max_table_rows)
+        |> Enum.flat_map(&render_table_row(&1, columns))
+
+      if rendered_rows == [] do
+        []
+      else
+        [
+          %{
+            type: :table,
+            title: clean_label(Map.get(widget, "title")),
+            columns: Enum.map(columns, &Map.take(&1, [:label, :path])),
+            rows: rendered_rows
+          }
+        ]
+      end
+    else
+      []
+    end
+  end
+
   defp render_widget(_record, _widget), do: []
+
+  defp table_columns(widget) do
+    widget
+    |> Map.get("columns", [])
+    |> List.wrap()
+    |> Enum.take(@max_table_columns)
+    |> Enum.flat_map(fn
+      %{"label" => label, "path" => path} when is_binary(path) ->
+        [%{label: clean_label(label), path: path}]
+
+      _ ->
+        []
+    end)
+  end
+
+  defp render_table_row(%{} = row, columns) do
+    values =
+      Enum.map(columns, fn column ->
+        %{
+          label: column.label,
+          path: column.path,
+          value: display_value(path_value(row, column.path)) || "-"
+        }
+      end)
+
+    if Enum.all?(values, &(&1.value == "-")), do: [], else: [%{values: values}]
+  end
+
+  defp render_table_row(_row, _columns), do: []
 
   defp render_fields(fields, record) do
     fields
@@ -322,6 +444,15 @@ defmodule ServiceRadarWebNG.Observability.SignalDisplay do
           {:halt, nil}
       end
     end)
+  end
+
+  defp raw_path_value(record, path) do
+    record
+    |> map_value("raw_data")
+    |> case do
+      raw when is_map(raw) -> get_in(raw, path)
+      _ -> nil
+    end
   end
 
   defp display_value(value) when is_binary(value) do

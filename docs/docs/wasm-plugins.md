@@ -46,6 +46,62 @@ should be ingested independently of the check result. Check-scoped annotations c
 still use the `events` field in `serviceradar.plugin_result.v1`, but those events
 are coupled to `submit_result` and are not a streaming telemetry surface.
 
+## Gateway-Mediated Artifacts
+
+Wasm plugins can produce more than small health-check results. A plugin that
+needs durable snapshots, advisory feed batches, SBOM evidence, or other large
+artifacts should use the host SDK artifact APIs. Those calls are logical
+ServiceRadar operations such as opening an artifact, writing chunks, committing
+with metadata, aborting, and reporting the committed object identity in the
+plugin result.
+
+The plugin never receives NATS JetStream Object Store credentials and never talks
+to web-ng directly. The agent brokers the host call through agent-gateway, and
+agent-gateway writes through the normal internal object-storage path. Native
+add-ons follow the same boundary. Choose a native add-on only when the producer
+needs OS or runtime capabilities outside the Wasm sandbox, not because it needs
+durable artifact staging.
+
+For vulnerability or threat-intelligence feeds, the producer is responsible for
+provider-specific download, schema validation, checksum verification, archive
+handling, and normalization. The result submitted to ServiceRadar should be the
+generic advisory batch contract plus snapshot provenance. Core stores and matches
+that generic contract; it does not own CISA, NVD, VulnCheck, OSV, or other
+provider parsers.
+
+Scheduled advisory or diagnostic producers declare `producer_schedules` in the
+plugin package manifest. ServiceRadar persists those declarations, renders
+operator-owned settings for cadence, credentials, and assignment, and dispatches
+due runs through the existing agent commandbus with `plugin.run_action`. The
+scheduled invocation payload uses `serviceradar.producer_schedule_run.v1`; the
+plugin remains responsible for provider-specific fetch and normalization.
+Operator-selected credentials are converted into scoped `credential_brokers` in
+the command payload. Raw `credential_refs` remain platform state and are not sent
+directly to the agent.
+
+```yaml
+capabilities:
+  - get_config
+  - submit_result
+  - http_request
+  - artifact-staging:v1
+  - advisory-feed:v1
+  - producer-schedule:v1
+
+producer_schedules:
+  - schedule_id: daily_advisory_refresh
+    label: Refresh advisory feed
+    action_id: advisory.refresh
+    command_type: plugin.run_action
+    default_cadence_seconds: 86400
+    min_cadence_seconds: 3600
+    max_cadence_seconds: 2592000
+    jitter_seconds: 120
+    dispatch_scope: assignment
+    payload_template:
+      feed_key: primary
+```
+
 ## Capability and Permission Model
 
 Capabilities and permissions are the core of the plugin security model. They are declared in the manifest and approved during import review. The agent enforces both the capability list and the permission allowlists on every host call.

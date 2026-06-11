@@ -16,6 +16,7 @@ defmodule ServiceRadar.Plugins do
     resource ServiceRadar.Plugins.PluginAssignment
     resource ServiceRadar.Plugins.PluginTargetPolicy
     resource ServiceRadar.Plugins.AddonPackage
+    resource ServiceRadar.Plugins.ProducerSchedule
     resource ServiceRadar.Plugins.AddonProfile
     resource ServiceRadar.Plugins.AddonAssignment
     resource ServiceRadar.Plugins.AddonStatus

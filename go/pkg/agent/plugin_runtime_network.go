@@ -285,6 +285,10 @@ func (e *pluginExecution) closeAll() {
 		delete(e.wsConns, handle)
 		e.manager.releaseConnection()
 	}
+	for handle, stream := range e.artifactStreams {
+		_ = stream.abort()
+		delete(e.artifactStreams, handle)
+	}
 	if e.mediaBridge != nil {
 		e.mediaBridge.finish(io.EOF)
 	}

@@ -536,7 +536,7 @@ func (p *otlpRelayPump) buildChunks(pending []otlpRelayPending) []*proto.Gateway
 	}
 
 	var chunks []*proto.GatewayStatusChunk
-	var statuses []*proto.GatewayServiceStatus
+	statuses := make([]*proto.GatewayServiceStatus, 0, len(pending))
 	chunkBytes := 0
 
 	appendChunk := func() {

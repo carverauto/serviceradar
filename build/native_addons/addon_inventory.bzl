@@ -152,6 +152,34 @@ ADDON_BUNDLES = [
         "pushed_artifact_tarball": True,
     },
     {
+        # OSV ScaLibr-backed endpoint software inventory scanner add-on. This is
+        # a scanner-specific package that still emits the generic endpoint
+        # inventory spool and scanner:v1 metadata contracts; no agent/core
+        # scanner branches are required.
+        "name": "scalibr_endpoint_inventory_addon_bundle",
+        "addon_id": "scalibr-endpoint-inventory",
+        "repository_name": "serviceradar-addon-scalibr-endpoint-inventory",
+        "language": "go",
+        "binary": "//go/cmd/scalibr-endpoint-inventory:scalibr_endpoint_inventory",
+        "binary_name": "serviceradar-scalibr-endpoint-inventory",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/scalibr-endpoint-inventory:addon.yaml"),
+            ("config.schema.json", "//addons/scalibr-endpoint-inventory:config.schema.json"),
+        ],
+        "unit_entries": [
+            ("serviceradar-scalibr-endpoint-inventory.service", "//addons/scalibr-endpoint-inventory:serviceradar-scalibr-endpoint-inventory.service"),
+            ("serviceradar-scalibr-endpoint-inventory.timer", "//addons/scalibr-endpoint-inventory:serviceradar-scalibr-endpoint-inventory.timer"),
+        ],
+        "data_entries": [
+            ("scalibr-endpoint-inventory.json", "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_runtime_config"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
+    {
         # RDP per-session helper add-on. This replaces the old RDP-flavored
         # managed-agent runtime archive: the base agent stays core-only, while
         # remote-access resolves this staged ephemeral helper on demand.

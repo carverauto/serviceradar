@@ -13,12 +13,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadar.Inventory.EndpointInventoryPackage
   alias ServiceRadar.Inventory.EndpointInventoryScan
   alias ServiceRadar.Inventory.EndpointPackage
+  alias ServiceRadar.Inventory.EndpointVulnerabilityMatch
   alias ServiceRadar.Inventory.VirtualizationDatastore
   alias ServiceRadar.Inventory.VirtualizationGuest
   alias ServiceRadar.Inventory.VirtualizationHost
   alias ServiceRadar.Inventory.VirtualizationHostDisk
   alias ServiceRadar.Inventory.VirtualizationNetworkInterface
   alias ServiceRadar.Inventory.VirtualizationStorageSystem
+  alias ServiceRadar.Inventory.VulnerabilityAdvisory
   alias ServiceRadar.NetworkDiscovery.MapperJob
   alias ServiceRadar.NetworkDiscovery.MapperSeed
   alias ServiceRadarWebNG.AshTestHelpers
@@ -1402,10 +1404,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           collector_version: "test",
           state: "scanned",
           coverage_state: "complete",
-          package_count: 1,
-          enabled_sources: ["dpkg"],
-          manager_counts: %{"dpkg" => 1},
-          source_summaries: [%{"source" => "dpkg", "state" => "scanned", "package_count" => 1}],
+          package_count: 2,
+          enabled_sources: ["dpkg", "rpm"],
+          manager_counts: %{"dpkg" => 1, "rpm" => 1},
+          source_summaries: [
+            %{"source" => "dpkg", "state" => "scanned", "package_count" => 1},
+            %{"source" => "rpm", "state" => "scanned", "package_count" => 1}
+          ],
           artifact_count: 1,
           current: true,
           last_successful_scan_at: now,
@@ -1427,10 +1432,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       |> Ash.Changeset.for_create(
         :create,
         %{
-          coordinate_key: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
-          purl_canonical: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
+          coordinate_key: "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
+          purl_canonical: "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
           package_manager: "dpkg",
-          name: "nginx",
+          name: "zlib-sr-#{unique}",
           version: "1.24.0-#{unique}",
           architecture: "amd64",
           ecosystem: "deb",
@@ -1440,7 +1445,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, _package_row} =
+    {:ok, package_row} =
       EndpointInventoryPackage
       |> Ash.Changeset.for_create(
         :create,
@@ -1449,15 +1454,126 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
           endpoint_package_ref: endpoint_package.id,
           device_uid: uid,
           agent_id: agent_id,
-          name: "nginx",
+          name: "zlib-sr-#{unique}",
           version: "1.24.0-#{unique}",
           architecture: "amd64",
           package_manager: "dpkg",
           ecosystem: "deb",
-          purl: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
-          purl_canonical: "pkg:deb/nginx@1.24.0-#{unique}?arch=amd64",
-          cpes: ["cpe:2.3:a:nginx:nginx:1.24.0:*:*:*:*:*:*:*"],
+          purl: "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
+          purl_canonical: "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
+          cpes: ["cpe:2.3:a:zlib-sr:zlib-sr:1.24.0:*:*:*:*:*:*:*"],
           source: "dpkg",
+          current: true,
+          evidence: %{},
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, advisory} =
+      VulnerabilityAdvisory
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          provider: "fixture",
+          feed_key: "cisa-kev",
+          source_object_id: "CVE-2026-#{unique}",
+          advisory_id: "CVE-2026-#{unique}",
+          cve_id: "CVE-2026-#{unique}",
+          title: "zlib-sr fixture vulnerability",
+          severity: "critical",
+          cvss_score: 9.8,
+          kev: true,
+          exploit_available: true,
+          affected_coordinates: [
+            %{
+              "type" => "purl",
+              "value" => "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
+              "version_ranges" => [%{"fixed_version" => "1.24.1-#{unique}"}]
+            }
+          ],
+          references: ["https://example.test/CVE-2026-#{unique}"],
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _match} =
+      EndpointVulnerabilityMatch
+      |> Ash.Changeset.for_create(
+        :upsert,
+        %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_ref: scan.id,
+          inventory_package_ref: package_row.id,
+          endpoint_package_ref: endpoint_package.id,
+          advisory_ref: advisory.id,
+          provider: "fixture",
+          feed_key: "cisa-kev",
+          advisory_id: "CVE-2026-#{unique}",
+          cve_id: "CVE-2026-#{unique}",
+          coordinate_type: "purl",
+          coordinate_value: "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64",
+          version_evidence: %{"installed_version" => "1.24.0-#{unique}"},
+          confidence: "high",
+          status: "active",
+          severity: "critical",
+          cvss_score: 9.8,
+          fixed_version: "1.24.1-#{unique}",
+          kev: true,
+          exploit_available: true,
+          evidence: %{
+            "package" => %{
+              "name" => "zlib-sr-#{unique}",
+              "version" => "1.24.0-#{unique}",
+              "package_manager" => "dpkg",
+              "purl_canonical" => "pkg:deb/zlib-sr-#{unique}@1.24.0-#{unique}?arch=amd64"
+            }
+          },
+          first_seen_at: now,
+          last_seen_at: now,
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, rpm_endpoint_package} =
+      EndpointPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          coordinate_key: "pkg:rpm/rpm-sr-#{unique}@3.0.13-#{unique}?arch=x86_64",
+          purl_canonical: "pkg:rpm/rpm-sr-#{unique}@3.0.13-#{unique}?arch=x86_64",
+          package_manager: "rpm",
+          name: "rpm-sr-#{unique}",
+          version: "3.0.13-#{unique}",
+          architecture: "x86_64",
+          ecosystem: "rpm",
+          source_scope: "host",
+          metadata: %{}
+        }
+      )
+      |> Ash.create(scope: scope)
+
+    {:ok, _rpm_package_row} =
+      EndpointInventoryPackage
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          scan_ref: scan.id,
+          endpoint_package_ref: rpm_endpoint_package.id,
+          device_uid: uid,
+          agent_id: agent_id,
+          name: "rpm-sr-#{unique}",
+          version: "3.0.13-#{unique}",
+          architecture: "x86_64",
+          package_manager: "rpm",
+          ecosystem: "rpm",
+          purl: "pkg:rpm/rpm-sr-#{unique}@3.0.13-#{unique}?arch=x86_64",
+          purl_canonical: "pkg:rpm/rpm-sr-#{unique}@3.0.13-#{unique}?arch=x86_64",
+          cpes: ["cpe:2.3:a:rpm-sr:rpm-sr:3.0.13:*:*:*:*:*:*:*"],
+          source: "rpm",
           current: true,
           evidence: %{},
           metadata: %{}
@@ -1507,24 +1623,200 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       )
       |> Ash.create(scope: scope)
 
-    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
     html = render_until(view, "Endpoint Software", 10_000)
 
     assert html =~ "Endpoint Software"
+    assert html =~ "Software"
     assert html =~ "Live Query"
     assert html =~ "Cohort Query"
+    assert html =~ "Source Diagnostics"
+    assert html =~ "Package Managers"
     assert html =~ "endpoint_inventory_query"
     assert html =~ "endpoint_inventory_cohort_query"
+    assert html =~ "endpoint-inventory-package-filter"
+    assert html =~ "Vulnerability Matches"
+    assert html =~ "CVE-2026-#{unique}"
+    assert html =~ "1.24.1-#{unique}"
+    assert html =~ "cisa-kev"
+    assert html =~ "KEV"
     assert html =~ "scanned"
     assert html =~ "complete"
     assert html =~ agent_id
-    assert html =~ "nginx"
+    assert html =~ "serviceradar-endpoint-inventory test"
+    assert html =~ "Showing 2 of 2 loaded rows"
+    assert html =~ "zlib-sr-#{unique}"
+    assert html =~ "rpm-sr-#{unique}"
     assert html =~ "1.24.0-#{unique}"
+    assert html =~ "3.0.13-#{unique}"
     assert html =~ "dpkg"
-    assert html =~ "pkg:deb/nginx"
+    assert html =~ "rpm"
+    assert html =~ "pkg:deb/zlib-sr"
     assert html =~ "High"
     assert html =~ "87"
     assert html =~ "endpoint-inventory/by-hash/#{unique}.cdx.json"
+
+    filtered_html =
+      view
+      |> form("#endpoint-inventory-package-filter", %{
+        "endpoint_inventory_filter" => %{"package_manager" => "rpm"}
+      })
+      |> render_change()
+
+    assert filtered_html =~ "Filtered"
+    assert filtered_html =~ "Showing 1 of 2 loaded rows"
+    assert filtered_html =~ "rpm-sr-#{unique}"
+    refute filtered_html =~ "zlib-sr-#{unique}</td>"
+
+    no_match_html =
+      view
+      |> form("#endpoint-inventory-package-filter", %{
+        "endpoint_inventory_filter" => %{"q" => "does-not-match-#{unique}"}
+      })
+      |> render_change()
+
+    assert no_match_html =~ "No package rows match the current filters."
+  end
+
+  test "renders endpoint software empty and unhealthy scan states on device details", %{
+    conn: conn,
+    scope: scope
+  } do
+    unique = System.unique_integer([:positive])
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+    stale_at = DateTime.add(now, -2 * 86_400, :second)
+
+    scenarios = [
+      %{
+        suffix: "no-agent",
+        agent?: false,
+        scan: nil,
+        title: "No enrolled endpoint inventory agent",
+        detail: "cannot run until this device is associated with an enrolled agent",
+        empty: "No enrolled endpoint inventory agent or package inventory is available for this device."
+      },
+      %{
+        suffix: "no-scan",
+        scan: nil,
+        title: "No endpoint inventory scan yet",
+        detail: "no endpoint inventory scan has been ingested",
+        empty: "Endpoint inventory is available for this device, but no scan has reported yet."
+      },
+      %{
+        suffix: "disabled",
+        scan: %{
+          state: "disabled",
+          coverage_state: "disabled",
+          package_count: 0,
+          last_scan_at: now,
+          last_successful_scan_at: nil,
+          source_summaries: []
+        },
+        title: "Endpoint inventory is disabled",
+        detail: "collector is disabled",
+        empty: "Endpoint inventory is disabled for this device."
+      },
+      %{
+        suffix: "failed",
+        scan: %{
+          state: "scan_failed",
+          coverage_state: "failed",
+          package_count: 0,
+          last_scan_at: now,
+          last_successful_scan_at: nil,
+          source_summaries: [
+            %{"source" => "dpkg", "state" => "failed", "reason" => "dpkg exited 2"}
+          ]
+        },
+        title: "Latest endpoint inventory scan failed",
+        detail: "dpkg exited 2",
+        empty: "The latest endpoint inventory scan failed before package rows were accepted."
+      },
+      %{
+        suffix: "partial",
+        scan: %{
+          state: "scanned",
+          coverage_state: "partial",
+          package_count: 0,
+          last_scan_at: now,
+          last_successful_scan_at: now,
+          source_summaries: [
+            %{"source" => "rpm", "state" => "partial", "reason" => "rpm output truncated"}
+          ]
+        },
+        title: "Latest endpoint inventory scan is partial",
+        detail: "rpm output truncated",
+        empty: "The latest endpoint inventory scan is partial and produced no current package rows."
+      },
+      %{
+        suffix: "stale",
+        scan: %{
+          state: "scanned",
+          coverage_state: "complete",
+          package_count: 0,
+          last_scan_at: stale_at,
+          last_successful_scan_at: stale_at,
+          source_summaries: [%{"source" => "dpkg", "state" => "complete", "package_count" => 0}]
+        },
+        title: "Latest successful scan is stale",
+        detail: "older than 24 hours",
+        empty: "No current package rows are available and the latest successful scan is stale."
+      },
+      %{
+        suffix: "complete-empty",
+        scan: %{
+          state: "scanned",
+          coverage_state: "complete",
+          package_count: 0,
+          last_scan_at: now,
+          last_successful_scan_at: now,
+          source_summaries: [%{"source" => "dpkg", "state" => "complete", "package_count" => 0}]
+        },
+        title: "Scan completed with no package rows",
+        detail: "reported complete coverage",
+        empty: "The latest endpoint inventory scan completed, but it did not report current package rows."
+      }
+    ]
+
+    for scenario <- scenarios do
+      uid = "sr:test-device-endpoint-state-#{scenario.suffix}-#{unique}"
+      agent_id = "agent-endpoint-state-#{scenario.suffix}-#{unique}"
+      agent_id_value = if Map.get(scenario, :agent?, true), do: agent_id
+
+      Repo.insert_all("ocsf_devices", [
+        %{
+          uid: uid,
+          type_id: 0,
+          hostname: "endpoint-state-#{scenario.suffix}-#{unique}",
+          agent_id: agent_id_value,
+          is_available: true,
+          first_seen_time: now,
+          last_seen_time: now
+        }
+      ])
+
+      if is_map(scenario.scan) do
+        insert_endpoint_inventory_scan!(scope, %{
+          device_uid: uid,
+          agent_id: agent_id,
+          scan_id: "scan-#{scenario.suffix}-#{unique}",
+          state: scenario.scan.state,
+          coverage_state: scenario.scan.coverage_state,
+          package_count: scenario.scan.package_count,
+          last_scan_at: scenario.scan.last_scan_at,
+          last_successful_scan_at: scenario.scan.last_successful_scan_at,
+          source_summaries: scenario.scan.source_summaries
+        })
+      end
+
+      {:ok, view, _html} = live(conn, ~p"/devices/#{uid}?tab=software")
+      html = render_until(view, scenario.title, 10_000)
+
+      assert html =~ "Endpoint Software"
+      assert html =~ scenario.title
+      assert html =~ scenario.detail
+      assert html =~ scenario.empty
+    end
   end
 
   test "renders Proxmox virtualization inventory on device details", %{conn: conn, scope: scope} do
@@ -3085,6 +3377,39 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   defp uuid_binary do
     Ecto.UUID.dump!(Ecto.UUID.generate())
+  end
+
+  defp insert_endpoint_inventory_scan!(scope, attrs) do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    params =
+      Map.merge(
+        %{
+          collector_name: "serviceradar-endpoint-inventory",
+          collector_version: "test",
+          enabled_sources: [],
+          manager_counts: %{},
+          source_summaries: [],
+          artifact_count: 0,
+          current: true,
+          last_changed_scan_at: Map.get(attrs, :last_successful_scan_at) || Map.get(attrs, :last_scan_at) || now,
+          ingested_at: now,
+          package_set_hash: "sha256:package-set-#{Map.fetch!(attrs, :scan_id)}",
+          artifact_hash: nil,
+          hash_algorithm: "sha256-v1",
+          upload_reason: "changed",
+          unchanged_scan_count: 0,
+          metadata: %{}
+        },
+        attrs
+      )
+
+    {:ok, scan} =
+      EndpointInventoryScan
+      |> Ash.Changeset.for_create(:create, params)
+      |> Ash.create(scope: scope)
+
+    scan
   end
 
   defp manual_device_uid(ip) do

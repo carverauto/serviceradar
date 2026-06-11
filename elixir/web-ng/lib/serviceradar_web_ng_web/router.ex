@@ -827,6 +827,13 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/networks/integrations/:id/edit", Settings.IntegrationsLive.Index, :edit)
       live("/settings/networks/threat-intel", Settings.ThreatIntelLive.Index, :index)
 
+      # Security settings
+      live(
+        "/settings/security/vulnerability-feeds",
+        Settings.SecurityLive.VulnerabilityFeeds,
+        :index
+      )
+
       # Sysmon profiles configuration
       live("/settings/sysmon", Settings.SysmonProfilesLive.Index, :index)
       live("/settings/sysmon/new", Settings.SysmonProfilesLive.Index, :new_profile)

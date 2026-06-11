@@ -807,6 +807,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, EndpointInventoryRuntime.dispatch_cohort_query(socket, params)}
   end
 
+  def handle_event("endpoint_inventory_package_filter", %{"endpoint_inventory_filter" => params}, socket) do
+    {:noreply, EndpointInventoryRuntime.apply_package_filter(socket, params)}
+  end
+
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
     case MtrRuntime.get_trace_detail(socket.assigns.current_scope, trace_id) do
       {:ok, trace, hops} ->

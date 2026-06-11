@@ -119,7 +119,12 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       )
 
     packages = EndpointInventoryPackageSet.normalize_packages(payload)
-    sources = EndpointInventoryPackageSet.normalize_sources(Payload.list_value(payload, :sources))
+
+    diagnostics =
+      payload
+      |> Payload.list_value(:diagnostics)
+      |> EndpointInventoryPackageSet.normalize_diagnostics()
+
     reported_hash = Payload.string_value(payload, :package_set_hash)
     server_hash = EndpointInventoryPackageSet.server_package_set_hash(packages)
 
@@ -132,11 +137,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        collector_name: Payload.string_value(payload, :collector_name) || @collector_name,
        collector_version: Payload.string_value(payload, :collector_version),
        state: EndpointInventoryPackageSet.scan_state(payload),
-       coverage_state: EndpointInventoryPackageSet.coverage_state(payload, packages),
+       coverage_state: EndpointInventoryPackageSet.coverage_state(payload, packages, diagnostics),
        package_count: Payload.integer_value(payload, :package_count, length(packages)),
-       enabled_sources: EndpointInventoryPackageSet.enabled_sources(payload, sources),
+       enabled_sources: EndpointInventoryPackageSet.enabled_diagnostics(payload, diagnostics),
        manager_counts: EndpointInventoryPackageSet.manager_counts(packages),
-       source_summaries: sources,
+       source_summaries: diagnostics,
        packages: packages,
        reported_package_set_hash: reported_hash,
        package_set_hash: reported_hash || server_hash,
@@ -350,8 +355,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         "coverage_state" => context.coverage_state,
         "package_count" => context.package_count
       },
-      raw_data: normalize_scan_activity_raw_payload(context.payload),
-      created_at: DateTime.utc_now()
+      raw_data: normalize_scan_activity_raw_payload(context.payload)
     }
 
     Repo.insert_all("ocsf_events", [row],
@@ -363,6 +367,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
     :ok
   end
+
+  defp uuid_string(<<_::128>> = id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> uuid
+      :error -> nil
+    end
+  end
+
+  defp uuid_string(id) when is_binary(id), do: id
+  defp uuid_string(_id), do: nil
 
   defp endpoint_inventory_scan_activity_id(context) do
     if successful_scan?(context),
@@ -406,7 +420,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         "agent_id" => context.agent_id,
         "device_uid" => context.device_uid,
         "scan_id" => context.scan_id,
-        "scan_ref" => to_string(scan_ref),
+        "scan_ref" => uuid_string(scan_ref),
         "package_count" => context.package_count,
         "coverage_state" => context.coverage_state,
         "upload_reason" => context.upload_reason,
@@ -692,6 +706,11 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "package_set_hash" => context.package_set_hash,
       "artifact_hash" => context.artifact_hash,
       "hash_algorithm" => context.hash_algorithm,
+      "config_hash" => Payload.string_value(context.payload, :config_hash),
+      "duration_ms" => Payload.integer_value(context.payload, :duration_ms, nil),
+      "truncated" => Payload.boolean_value(context.payload, :truncated),
+      "enabled_plugins" => Payload.string_list_value(context.payload, :enabled_plugins),
+      "detected_plugins" => Payload.string_list_value(context.payload, :detected_plugins),
       "upload_reason" => context.upload_reason,
       "server_package_set_hash" => context.server_package_set_hash,
       "package_set_hash_mismatch" => context.package_set_hash_mismatch?,

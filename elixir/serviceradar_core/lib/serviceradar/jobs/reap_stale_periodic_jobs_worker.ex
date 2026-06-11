@@ -26,6 +26,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Edge.AgentCommandCleanupWorker",
     "ServiceRadar.Identity.CliAuthCleanupWorker",
     "ServiceRadar.Inventory.DeviceCleanupWorker",
+    "ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker",
     "ServiceRadar.Inventory.InterfaceThresholdWorker",
     "ServiceRadar.Jobs.AlertsRetentionWorker",
     "ServiceRadar.Jobs.RefreshTraceSummariesWorker",

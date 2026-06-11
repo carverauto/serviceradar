@@ -5,7 +5,13 @@ defmodule ServiceRadar.Plugins.ValueUtils do
 
   @spec raw_value(map(), [atom() | String.t()]) :: term()
   def raw_value(map, keys) when is_map(map) and is_list(keys) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      if Map.has_key?(map, key) do
+        {:halt, Map.get(map, key)}
+      else
+        {:cont, nil}
+      end
+    end)
   end
 
   @spec string_value(map(), [atom() | String.t()]) :: String.t() | nil

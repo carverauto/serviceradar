@@ -777,6 +777,7 @@ defmodule ServiceRadarWebNG.Jobs.JobCatalog do
     [
       # Inventory + cleanup
       ServiceRadar.Inventory.InterfaceThresholdWorker,
+      ServiceRadar.Inventory.EndpointVulnerabilityMatchWorker,
       ServiceRadar.Inventory.DeviceCleanupWorker,
       ServiceRadar.Edge.AgentCommandCleanupWorker,
 

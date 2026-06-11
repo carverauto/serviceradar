@@ -95,6 +95,8 @@ func buildMetricPointsResource() *metricspbv1.ResourceMetrics {
 // protobuf input — most importantly the primary-key fields (timestamp,
 // metric_name, service_name, attributes_hash) so double-ingest dedupes via
 // ON CONFLICT DO NOTHING.
+//
+//nolint:gocyclo // Field parity is clearer as one table-shaped assertion block.
 func TestMetricPointRowsElixirParity(t *testing.T) {
 	t.Parallel()
 

@@ -85,6 +85,32 @@ defmodule ServiceRadarWebNGWeb.Observability.SignalDisplayComponents do
     """
   end
 
+  def signal_display_widget(%{widget: %{type: :table}} = assigns) do
+    ~H"""
+    <div>
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-3">
+        {@widget.title || "Rows"}
+      </span>
+      <div class="max-w-full overflow-x-auto rounded-lg border border-base-200">
+        <table class="table table-sm">
+          <thead>
+            <tr>
+              <th :for={column <- @widget.columns}>{column.label}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @widget.rows}>
+              <td :for={cell <- row.values} class="max-w-sm align-top">
+                <span class="line-clamp-3 break-words">{cell.value}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    """
+  end
+
   def signal_display_widget(assigns), do: ~H""
 
   attr(:value, :any, default: nil)

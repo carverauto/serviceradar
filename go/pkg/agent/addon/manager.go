@@ -38,6 +38,7 @@ const (
 	defaultHealthInterval        = 5 * time.Second
 	defaultUnhealthyThreshold    = 3
 	defaultConfigureTimeout      = 10 * time.Second
+	defaultCommandTimeout        = 300 * time.Second
 	defaultHealthTimeout         = 5 * time.Second
 	defaultRestartBackoffInitial = time.Second
 	defaultRestartBackoffMax     = time.Minute
@@ -56,7 +57,10 @@ type Config struct {
 	RestartBackoffInitial time.Duration
 	RestartBackoffMax     time.Duration
 	RestartLimitPerMinute int
+	ArtifactMaxBytes      int64
+	CredentialResolver    coreaddon.CredentialResolver
 	TelemetryHandler      func(addonID string, batch *coreaddon.TelemetryBatch)
+	ArtifactHandler       ArtifactHandler
 	// OtlpRelayRunner, when set, is invoked on its own goroutine for every
 	// running add-on that advertises CapabilityOtlpRelayV1 and supports the
 	// client-side relay stream. It owns the acked OTLP relay pump for one
@@ -100,6 +104,9 @@ func applyDefaults(cfg Config) Config {
 	}
 	if cfg.RestartLimitPerMinute <= 0 {
 		cfg.RestartLimitPerMinute = defaultRestartLimitPerMinute
+	}
+	if cfg.ArtifactMaxBytes <= 0 {
+		cfg.ArtifactMaxBytes = defaultArtifactMaxBytes
 	}
 	if cfg.Logger.GetLevel() == zerolog.Disabled {
 		cfg.Logger = logger.GetLogger().With().Str("component", "agent.addon").Logger()
@@ -195,6 +202,21 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 	return nil
 }
 
+// SetCredentialResolver installs the trusted gateway-backed credential resolver
+// used for configure-time native add-on credential injection.
+func (m *Manager) SetCredentialResolver(resolver coreaddon.CredentialResolver) {
+	if m == nil {
+		return
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.cfg.CredentialResolver = resolver
+	for _, r := range m.runners {
+		r.setCredentialResolver(resolver)
+	}
+}
+
 // startRunnerLocked creates and starts a supervisor for spec. The caller holds m.mu.
 func (m *Manager) startRunnerLocked(spec Spec) {
 	r := newRunner(spec, m.cfg)
@@ -223,6 +245,46 @@ func (m *Manager) Status() []Status {
 		statuses = append(statuses, r.snapshot())
 	}
 	return statuses
+}
+
+// RunCommand executes a generic command against a supervised native add-on.
+func (m *Manager) RunCommand(ctx context.Context, invocation CommandInvocation) (coreaddon.CommandResult, error) {
+	if m == nil {
+		return coreaddon.CommandResult{}, ErrAddonCommandUnavailable
+	}
+
+	r, err := m.commandRunner(invocation)
+	if err != nil {
+		return coreaddon.CommandResult{}, err
+	}
+
+	return r.runCommand(ctx, invocation)
+}
+
+func (m *Manager) commandRunner(invocation CommandInvocation) (*runner, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.closed {
+		return nil, ErrManagerClosed
+	}
+
+	if invocation.AssignmentID != "" {
+		for _, r := range m.runners {
+			if r.currentSpec().AssignmentID == invocation.AssignmentID {
+				return r, nil
+			}
+		}
+		return nil, ErrAddonAssignmentNotFound
+	}
+
+	if invocation.AddonID != "" {
+		if r, ok := m.runners[invocation.AddonID]; ok {
+			return r, nil
+		}
+	}
+
+	return nil, ErrAddonAssignmentNotFound
 }
 
 // Stop terminates all add-ons and waits for their supervisors to exit.
@@ -272,6 +334,7 @@ type runner struct {
 	spec          Spec
 	status        Status
 	restartWindow []time.Time
+	commandClient coreaddon.CommandClient
 }
 
 func newRunner(spec Spec, cfg Config) *runner {
@@ -301,6 +364,18 @@ func (r *runner) update(spec Spec) {
 		default:
 		}
 	}
+}
+
+func (r *runner) setCredentialResolver(resolver coreaddon.CredentialResolver) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.cfg.CredentialResolver = resolver
+}
+
+func (r *runner) credentialResolver() coreaddon.CredentialResolver {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cfg.CredentialResolver
 }
 
 // finished reports whether the runner's supervisor goroutine has exited (stopped
@@ -460,12 +535,19 @@ func (r *runner) runOnce(ctx context.Context) error {
 	}
 
 	r.setRunning(pid, version, capabilities)
+	r.setCommandClient(ac)
+	defer r.clearCommandClient(ac)
 
 	telemetryCtx, telemetryCancel := context.WithCancel(ctx)
 	defer telemetryCancel()
 	if hasCapability(capabilities, coreaddon.CapabilityNativeTelemetryV1) {
 		if telemetryClient, ok := ac.(coreaddon.TelemetryClient); ok {
 			go r.drainTelemetry(telemetryCtx, telemetryClient)
+		}
+	}
+	if r.cfg.ArtifactHandler != nil && hasCapability(capabilities, coreaddon.CapabilityArtifactStagingV1) {
+		if artifactClient, ok := ac.(coreaddon.ArtifactClient); ok {
+			go r.drainArtifacts(telemetryCtx, artifactClient)
 		}
 	}
 
@@ -546,6 +628,68 @@ func (l *relayLifecycle) stop() {
 	}
 	cancel()
 	<-done
+}
+
+func (r *runner) runCommand(parent context.Context, invocation CommandInvocation) (coreaddon.CommandResult, error) {
+	client, err := r.commandClientSnapshot()
+	if err != nil {
+		return coreaddon.CommandResult{}, err
+	}
+
+	timeout := invocation.Timeout
+	if timeout <= 0 {
+		timeout = defaultCommandTimeout
+	}
+
+	ctx, cancel := context.WithTimeout(parent, timeout)
+	defer cancel()
+
+	return client.RunCommand(ctx, coreaddon.CommandRequest{
+		CommandID:    invocation.CommandID,
+		CommandType:  invocation.CommandType,
+		ActionID:     invocation.ActionID,
+		Schema:       invocation.Schema,
+		PayloadJSON:  invocation.PayloadJSON,
+		DeadlineUnix: invocation.DeadlineUnix,
+		Metadata:     invocation.Metadata,
+	})
+}
+
+func (r *runner) commandClientSnapshot() (coreaddon.CommandClient, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if r.status.State != StateRunning {
+		return nil, ErrAddonCommandUnavailable
+	}
+	if r.commandClient == nil {
+		return nil, ErrAddonCommandUnavailable
+	}
+	return r.commandClient, nil
+}
+
+func (r *runner) setCommandClient(ac coreaddon.Addon) {
+	commandClient, ok := ac.(coreaddon.CommandClient)
+	if !ok {
+		return
+	}
+
+	r.mu.Lock()
+	r.commandClient = commandClient
+	r.mu.Unlock()
+}
+
+func (r *runner) clearCommandClient(ac coreaddon.Addon) {
+	commandClient, ok := ac.(coreaddon.CommandClient)
+	if !ok {
+		return
+	}
+
+	r.mu.Lock()
+	if r.commandClient == commandClient {
+		r.commandClient = nil
+	}
+	r.mu.Unlock()
 }
 
 func hasCapability(capabilities []string, capability string) bool {
@@ -640,7 +784,12 @@ func (r *runner) configure(parent context.Context, ac coreaddon.Addon) error {
 	ctx, cancel := context.WithTimeout(parent, r.cfg.ConfigureTimeout)
 	defer cancel()
 
-	res, err := ac.Configure(ctx, spec.ConfigJSON)
+	configJSON, err := injectCredentialMaterials(ctx, spec.ConfigJSON, r.credentialResolver())
+	if err != nil {
+		return err
+	}
+
+	res, err := ac.Configure(ctx, configJSON)
 	if err != nil {
 		return err
 	}

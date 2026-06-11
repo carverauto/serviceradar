@@ -53,7 +53,6 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'sweep-banner-grab', label: 'Sweep Banner Grab'},
         {type: 'doc', id: 'syn-scanner-tuning', label: 'SYN Scanner Tuning'},
         {type: 'doc', id: 'sysmon-profiles', label: 'Sysmon Profiles'},
-        {type: 'doc', id: 'bumblebee', label: 'Bumblebee Exposure Scanning'},
         {type: 'doc', id: 'fingerprint-architecture', label: 'Fingerprint Architecture'},
         {type: 'doc', id: 'rperf', label: 'Network Performance Testing'},
       ],
@@ -67,8 +66,6 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'netbox', label: 'NetBox'},
         {type: 'doc', id: 'ansible', label: 'Ansible'},
         {type: 'doc', id: 'proxmox', label: 'Proxmox VE'},
-        {type: 'doc', id: 'falco', label: 'Falco'},
-        {type: 'doc', id: 'trivy-integration', label: 'Trivy'},
         {type: 'doc', id: 'remote-access', label: 'Remote Access'},
         {type: 'doc', id: 'remote-access-rdp', label: 'Remote Access: RDP'},
       ],
@@ -84,6 +81,16 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'netflow', label: 'NetFlow'},
         {type: 'doc', id: 'bgp-routing', label: 'BGP Routing'},
         {type: 'doc', id: 'otel', label: 'OpenTelemetry'},
+      ],
+    },
+    {
+      type: 'category',
+      label: 'Security',
+      items: [
+        {type: 'doc', id: 'endpoint-software-security', label: 'Endpoint Software Security'},
+        {type: 'doc', id: 'falco', label: 'Falco Runtime Detection'},
+        {type: 'doc', id: 'trivy-integration', label: 'Trivy Vulnerability Reports'},
+        {type: 'doc', id: 'bumblebee', label: 'Bumblebee Exposure Scanning'},
       ],
     },
     {

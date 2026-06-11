@@ -1,0 +1,24 @@
+[Unit]
+Description=ServiceRadar ScaLibr Endpoint Software Inventory Scanner
+Documentation=https://serviceradar.cloud/docs/endpoint-software-security
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/var/lib/serviceradar/endpoint-inventory
+Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
+ExecStart=/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory -config /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/scalibr-endpoint-inventory.json
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadOnlyPaths=/
+ReadWritePaths=/var/lib/serviceradar/endpoint-inventory
+StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
+
+[Install]
+WantedBy=multi-user.target

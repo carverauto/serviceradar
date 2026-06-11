@@ -23,6 +23,7 @@ import (
 	"testing"
 	"time"
 
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	agentnetprobe "github.com/carverauto/serviceradar/go/pkg/agent/netprobe"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
@@ -39,8 +40,14 @@ func (m *recordingAddonManager) Apply(_ context.Context, specs []agentaddon.Spec
 	return nil
 }
 
+func (m *recordingAddonManager) SetCredentialResolver(coreaddon.CredentialResolver) {}
+
 func (m *recordingAddonManager) Status() []agentaddon.Status {
 	return nil
+}
+
+func (m *recordingAddonManager) RunCommand(context.Context, agentaddon.CommandInvocation) (coreaddon.CommandResult, error) {
+	return coreaddon.CommandResult{}, agentaddon.ErrAddonCommandUnavailable
 }
 
 func (m *recordingAddonManager) Stop(context.Context) error {

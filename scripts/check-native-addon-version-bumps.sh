@@ -88,6 +88,7 @@ powerdns
 workload-identity
 bumblebee
 endpoint-inventory
+scalibr-endpoint-inventory
 rdp
 EOF
 }
@@ -101,6 +102,7 @@ manifest_path() {
     workload-identity) echo "addons/workload-identity/addon.yaml" ;;
     bumblebee) echo "addons/bumblebee-scan/addon.yaml" ;;
     endpoint-inventory) echo "addons/endpoint-inventory/addon.yaml" ;;
+    scalibr-endpoint-inventory) echo "addons/scalibr-endpoint-inventory/addon.yaml" ;;
     rdp) echo "addons/rdp-adapter/addon.yaml" ;;
     *) return 1 ;;
   esac
@@ -168,6 +170,11 @@ path_belongs_to_addon() {
     endpoint-inventory)
       case "${path}" in
         addons/endpoint-inventory/*|go/cmd/endpoint-inventory/*) return 0 ;;
+      esac
+      ;;
+    scalibr-endpoint-inventory)
+      case "${path}" in
+        addons/scalibr-endpoint-inventory/*|go/cmd/scalibr-endpoint-inventory/*) return 0 ;;
       esac
       ;;
     rdp)

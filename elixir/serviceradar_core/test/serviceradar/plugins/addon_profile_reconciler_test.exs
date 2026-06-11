@@ -37,6 +37,69 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     end
   end
 
+  defmodule ResolverEligibility do
+    @moduledoc false
+    def resolve(_input_defs, _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "devices",
+           query: "in:devices",
+           rows: [
+             agent_row("device-good", "agent-good"),
+             agent_row("device-manual", "agent-manual"),
+             %{"uid" => "device-without-agent", "hostname" => "ns-missing-agent"},
+             agent_row("device-arm", "agent-arm", %{"arch" => "arm64"}),
+             agent_row("device-old", "agent-old", %{"agent_version" => "1.1.9"}),
+             agent_row("device-missing-cap", "agent-missing-cap", %{"capabilities" => []}),
+             agent_row("device-offline", "agent-offline", %{"control_stream_status" => "offline"})
+           ]
+         }
+       ]}
+    end
+
+    defp agent_row(device_uid, agent_uid, overrides \\ %{}) do
+      Map.merge(
+        %{
+          "uid" => device_uid,
+          "hostname" => device_uid,
+          "agent_id" => agent_uid,
+          "os" => "linux",
+          "arch" => "amd64",
+          "agent_version" => "1.2.3",
+          "capabilities" => ["endpoint-inventory"],
+          "control_stream_status" => "connected"
+        },
+        overrides
+      )
+    end
+  end
+
+  defmodule ResolverDefaultQuery do
+    @moduledoc false
+    def resolve([%{entity: "devices", query: "in:devices"}], _opts) do
+      {:ok,
+       [
+         %{
+           name: "targets",
+           entity: "devices",
+           query: "in:devices",
+           rows: [
+             %{
+               "uid" => "device-good",
+               "agent_id" => "agent-good",
+               "os" => "linux",
+               "arch" => "amd64",
+               "agent_version" => "1.2.3",
+               "capabilities" => ["endpoint-inventory"]
+             }
+           ]
+         }
+       ]}
+    end
+  end
+
   defmodule MemoryStore do
     @moduledoc false
     @behaviour AddonProfileReconciler
@@ -46,7 +109,14 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     end
 
     def stop do
-      if Process.whereis(__MODULE__), do: Agent.stop(__MODULE__)
+      if Process.whereis(__MODULE__) do
+        try do
+          Agent.stop(__MODULE__)
+        catch
+          :exit, _ -> :ok
+        end
+      end
+
       :ok
     end
 
@@ -180,5 +250,125 @@ defmodule ServiceRadar.Plugins.AddonProfileReconcilerTest do
     assert third.upserted == 1
     assert third.unchanged == 0
     assert third.disabled == 1
+  end
+
+  test "preview reports resolved targets and skip reasons" do
+    profile = endpoint_inventory_profile()
+
+    MemoryStore.put_manual("endpoint-inventory", "agent-manual")
+
+    assert {:ok, preview} =
+             AddonProfileReconciler.preview(profile,
+               resolver: ResolverEligibility,
+               store: MemoryStore
+             )
+
+    assert preview.summary.matched_rows == 7
+    assert preview.summary.resolved_devices == 6
+    assert preview.summary.resolved_agents == 0
+    assert preview.summary.target_agents == 6
+    assert preview.summary.eligible_agents == 1
+    assert preview.summary.desired_assignments == 1
+    assert preview.summary.skipped_without_agent == 1
+    assert preview.summary.skipped_manual_overrides == 1
+
+    assert preview.summary.skip_counts == %{
+             "disconnected_control_stream" => 1,
+             "incompatible_base_agent_version" => 1,
+             "manual_override" => 1,
+             "missing_required_capability" => 1,
+             "no_enrolled_agent" => 1,
+             "unsupported_platform" => 1
+           }
+
+    assert [%{agent_uid: "agent-good"}] = preview.sample_assignments
+    assert [%{agent_uid: "agent-good"} | _] = preview.summary.target_samples
+
+    skipped_reasons = Enum.map(preview.summary.skipped_targets, & &1.reason)
+
+    assert skipped_reasons == [
+             "no_enrolled_agent",
+             "unsupported_platform",
+             "incompatible_base_agent_version",
+             "missing_required_capability",
+             "disconnected_control_stream",
+             "manual_override"
+           ]
+  end
+
+  test "blank profile target query defaults to all devices" do
+    profile = Map.put(endpoint_inventory_profile(), :target_query, " ")
+
+    assert {:ok, result} =
+             AddonProfileReconciler.reconcile(profile,
+               resolver: ResolverDefaultQuery,
+               store: MemoryStore,
+               reconciled_at: ~U[2026-06-09 18:00:00Z]
+             )
+
+    assert result.matched_rows == 1
+    assert result.desired_assignments == 1
+
+    assert result.target_samples == [
+             %{
+               agent_uid: "agent-good",
+               device_uid: "device-good",
+               entity: "devices",
+               row: %{
+                 "agent_id" => "agent-good",
+                 "agent_version" => "1.2.3",
+                 "arch" => "amd64",
+                 "os" => "linux",
+                 "uid" => "device-good"
+               },
+               row_index: 0
+             }
+           ]
+  end
+
+  test "preview reports disabled and unapproved package skip reasons" do
+    disabled_profile = Map.put(endpoint_inventory_profile(), :enabled, false)
+
+    assert {:ok, disabled_preview} =
+             AddonProfileReconciler.preview(disabled_profile,
+               resolver: ResolverDefaultQuery,
+               store: MemoryStore
+             )
+
+    assert disabled_preview.summary.desired_assignments == 0
+    assert disabled_preview.summary.skip_counts == %{"disabled_package_config" => 1}
+
+    revoked_profile = put_in(endpoint_inventory_profile(), [:addon_package, :status], :revoked)
+
+    assert {:ok, revoked_preview} =
+             AddonProfileReconciler.preview(revoked_profile,
+               resolver: ResolverDefaultQuery,
+               store: MemoryStore
+             )
+
+    assert revoked_preview.summary.desired_assignments == 0
+    assert revoked_preview.summary.skip_counts == %{"revoked_or_unapproved_package" => 1}
+  end
+
+  defp endpoint_inventory_profile do
+    %{
+      id: Ecto.UUID.generate(),
+      name: "Endpoint inventory",
+      addon_id: "endpoint-inventory",
+      addon_package_id: Ecto.UUID.generate(),
+      target_query: "in:devices",
+      params: %{},
+      args: [],
+      priority: 10,
+      enabled: true,
+      addon_package: %{
+        status: :approved,
+        artifacts: %{"linux/amd64" => %{}},
+        requires: %{
+          "base_agent" => ">=1.2.0",
+          "os_capabilities" => ["endpoint-inventory"]
+        }
+      }
+    }
   end
 end

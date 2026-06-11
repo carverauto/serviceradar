@@ -17,6 +17,9 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     authorizers: [Ash.Policy.Authorizer],
     extensions: [AshStateMachine]
 
+  alias ServiceRadar.Changes.AfterAction
+  alias ServiceRadar.Plugins.ProducerScheduleCatalog
+
   @package_fields [
     :name,
     :description,
@@ -28,6 +31,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     :capabilities,
     :config_schema,
     :signal_schemas,
+    :producer_schedules,
     :artifacts,
     :requires,
     :source_type,
@@ -78,6 +82,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
 
     create :create do
       accept @package_create_fields
+      change &sync_producer_schedule_contracts/2
     end
 
     update :update do
@@ -210,6 +215,14 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       description "Package-owned log/event signal schemas and display contract references"
     end
 
+    attribute :producer_schedules, {:array, :map} do
+      allow_nil? false
+      public? true
+      default []
+
+      description "Package-owned recurring producer schedule contracts"
+    end
+
     attribute :artifacts, :map do
       allow_nil? false
       public? true
@@ -308,5 +321,9 @@ defmodule ServiceRadar.Plugins.AddonPackage do
 
   identities do
     identity :unique_addon_version, [:addon_id, :version]
+  end
+
+  defp sync_producer_schedule_contracts(changeset, _context) do
+    AfterAction.after_action_result(changeset, &ProducerScheduleCatalog.sync_package/1)
   end
 end

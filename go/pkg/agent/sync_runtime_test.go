@@ -45,6 +45,7 @@ var (
 	errFakeSyncDriverFailed        = errors.New("fake sync driver failed")
 )
 
+//nolint:gochecknoglobals // Tests register a synthetic driver once per process.
 var registerFakeSyncDriverOnce sync.Once
 
 func registerFakeSyncDriver() {
@@ -491,8 +492,9 @@ func decodedSyncChunkUpdates(t *testing.T, chunks []*proto.GatewayStatusChunk) [
 
 func decodedSyncChunkDeviceIDs(t *testing.T, chunks []*proto.GatewayStatusChunk) []string {
 	t.Helper()
-	var deviceIDs []string
-	for _, update := range decodedSyncChunkUpdates(t, chunks) {
+	updates := decodedSyncChunkUpdates(t, chunks)
+	deviceIDs := make([]string, 0, len(updates))
+	for _, update := range updates {
 		deviceID, _ := update["device_id"].(string)
 		if deviceID == "" {
 			t.Fatalf("missing device_id in update: %#v", update)

@@ -23,6 +23,7 @@ import (
 	"sync"
 	"time"
 
+	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/tetratelabs/wazero"
 )
@@ -42,6 +43,7 @@ const (
 	pluginCapabilityCameraMediaStream = "camera_media_stream"
 	pluginCapabilityProxmoxConsole    = "proxmox_console_stream"
 	pluginCapabilityEmitTelemetry     = "emit_telemetry"
+	pluginCapabilityArtifactStaging   = "artifact-staging:v1"
 )
 
 const (
@@ -82,6 +84,7 @@ type PluginManagerConfig struct {
 	Logger           logger.Logger
 	HTTPClient       *http.Client
 	CredentialBroker CredentialBrokerResolver
+	ArtifactUploader PluginArtifactUploader
 }
 
 // CredentialBrokerResolver resolves a validated broker grant for agent-owned
@@ -92,11 +95,7 @@ type CredentialBrokerResolver interface {
 
 // CredentialBrokerMaterial is memory-only credential material returned to the
 // agent host function after policy validation.
-type CredentialBrokerMaterial struct {
-	Value          string
-	Fields         map[string]string
-	LeaseExpiresAt time.Time
-}
+type CredentialBrokerMaterial = coreaddon.CredentialBrokerMaterial
 
 // PluginManager manages Wasm plugin assignments and execution.
 type PluginManager struct {
@@ -106,9 +105,11 @@ type PluginManager struct {
 	httpClient       *http.Client
 	compilationCache wazero.CompilationCache
 	credentialBroker CredentialBrokerResolver
+	artifactUploader PluginArtifactUploader
 	credentialCache  map[string]credentialBrokerCacheEntry
 	credentialNow    func() time.Time
 	credentialMu     sync.Mutex
+	artifactMu       sync.Mutex
 
 	ctx    context.Context
 	cancel context.CancelFunc

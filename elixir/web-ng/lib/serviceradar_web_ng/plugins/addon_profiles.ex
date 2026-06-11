@@ -61,9 +61,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     scope = Keyword.get(opts, :scope)
     actor = Keyword.get(opts, :actor) || scope_actor(scope)
 
-    AddonProfile
-    |> Ash.ActionInput.for_action(:reconcile_now, %{id: id})
-    |> Ash.run_action(ash_opts(scope, actor))
+    safe_run_action(fn ->
+      AddonProfile
+      |> Ash.ActionInput.for_action(:reconcile_now, %{id: id})
+      |> Ash.run_action(ash_opts(scope, actor))
+    end)
   end
 
   def reconcile(_id, _opts), do: {:error, :invalid_attributes}
@@ -76,9 +78,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
     actor = Keyword.get(opts, :actor) || scope_actor(scope)
     sample_limit = Keyword.get(opts, :sample_limit, 10)
 
-    AddonProfile
-    |> Ash.ActionInput.for_action(:preview, %{id: id, sample_limit: sample_limit})
-    |> Ash.run_action(ash_opts(scope, actor))
+    safe_run_action(fn ->
+      AddonProfile
+      |> Ash.ActionInput.for_action(:preview, %{id: id, sample_limit: sample_limit})
+      |> Ash.run_action(ash_opts(scope, actor))
+    end)
   end
 
   def preview(_id, _opts), do: {:error, :invalid_attributes}
@@ -132,6 +136,15 @@ defmodule ServiceRadarWebNG.Plugins.AddonProfiles do
 
   defp scope_actor(%{user: user}) when not is_nil(user), do: user
   defp scope_actor(_scope), do: nil
+
+  defp safe_run_action(fun) when is_function(fun, 0) do
+    fun.()
+  rescue
+    error -> {:error, error}
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
+    kind, reason -> {:error, {kind, reason}}
+  end
 
   defp drop_nil_values(attrs) do
     attrs
