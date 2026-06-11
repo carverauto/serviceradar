@@ -200,7 +200,7 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
 
     // Data mode: return trace summary rows
     let mut sql = String::from(
-        "SELECT\n    timestamp,\n    trace_id,\n    root_span_id,\n    root_span_name,\n    root_service_name,\n    root_span_kind,\n    start_time_unix_nano,\n    end_time_unix_nano,\n    duration_ms,\n    status_code,\n    status_message,\n    service_set,\n    span_count,\n    error_count\nFROM otel_trace_summaries",
+        "SELECT\n    timestamp,\n    trace_id,\n    root_span_id,\n    root_span_name,\n    root_service_name,\n    root_service_namespace,\n    deployment_environment,\n    root_span_kind,\n    start_time_unix_nano,\n    end_time_unix_nano,\n    duration_ms,\n    status_code,\n    status_message,\n    service_set,\n    span_count,\n    error_count\nFROM otel_trace_summaries",
     );
 
     // Build WHERE clause for time range and filters
@@ -249,6 +249,12 @@ fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBin
             }
             "root_service_name" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_name", filter)?
+            }
+            "root_service_namespace" => {
+                add_text_condition(&mut clauses, &mut binds, "root_service_namespace", filter)?
+            }
+            "deployment_environment" | "deployment.environment" => {
+                add_text_condition(&mut clauses, &mut binds, "deployment_environment", filter)?
             }
             "status_code" => add_int_condition(&mut clauses, &mut binds, "status_code", filter)?,
             "root_span_kind" => {

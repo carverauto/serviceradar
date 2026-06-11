@@ -5,10 +5,11 @@ use crate::{
     models::TraceSpanRow,
     parser::{Entity, Filter, FilterOp, OrderClause, OrderDirection},
     schema::otel_traces::dsl::{
-        end_time_unix_nano as col_end, kind as col_kind, name as col_name, otel_traces,
-        parent_span_id as col_parent_span_id, scope_name as col_scope_name,
-        scope_version as col_scope_version, service_instance as col_service_instance,
-        service_name as col_service_name, service_version as col_service_version,
+        deployment_environment as col_deployment_environment, end_time_unix_nano as col_end,
+        kind as col_kind, name as col_name, otel_traces, parent_span_id as col_parent_span_id,
+        scope_name as col_scope_name, scope_version as col_scope_version,
+        service_instance as col_service_instance, service_name as col_service_name,
+        service_namespace as col_service_namespace, service_version as col_service_version,
         span_id as col_span_id, start_time_unix_nano as col_start, status_code as col_status_code,
         status_message as col_status_message, timestamp as col_timestamp, trace_id as col_trace_id,
     },
@@ -266,22 +267,22 @@ fn build_red_rollup_stats(plan: &QueryPlan) -> Result<Option<TracesStatsSql>> {
         binds.push(SqlBindValue::Timestamp(*end));
     }
 
-    // Apply service_name filter if present
+    // Apply service_name / service_namespace / deployment_environment filters
+    // if present (the spans_red_1h CAGG groups by all three).
     for filter in &plan.filters {
-        match filter.field.as_str() {
-            "service_name" | "service.name" => {
-                if let Some((clause, mut values)) =
-                    build_rollup_text_clause("service_name", filter)?
-                {
-                    clauses.push(clause);
-                    binds.append(&mut values);
-                }
-            }
+        let column = match filter.field.as_str() {
+            "service_name" | "service.name" => "service_name",
+            "service_namespace" | "service.namespace" => "service_namespace",
+            "deployment_environment" | "deployment.environment" => "deployment_environment",
             other => {
                 return Err(ServiceError::InvalidRequest(format!(
-                    "rollup_stats:red only supports service_name filter, got: '{other}'"
+                    "rollup_stats:red only supports service_name, service_namespace, and deployment_environment filters, got: '{other}'"
                 )));
             }
+        };
+        if let Some((clause, mut values)) = build_rollup_text_clause(column, filter)? {
+            clauses.push(clause);
+            binds.append(&mut values);
         }
     }
 
@@ -403,6 +404,12 @@ fn apply_filter<'a>(mut query: TracesQuery<'a>, filter: &Filter) -> Result<Trace
         "service_name" | "service.name" => {
             query = apply_text_filter!(query, filter, col_service_name)?;
         }
+        "service_namespace" | "service.namespace" => {
+            query = apply_text_filter!(query, filter, col_service_namespace)?;
+        }
+        "deployment_environment" | "deployment.environment" => {
+            query = apply_text_filter!(query, filter, col_deployment_environment)?;
+        }
         "service_version" => {
             query = apply_text_filter!(query, filter, col_service_version)?;
         }
@@ -477,9 +484,22 @@ fn collect_i32_list(params: &mut Vec<BindParam>, filter: &Filter, err: &str) -> 
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "trace_id" | "span_id" | "parent_span_id" | "service_name" | "service.name"
-        | "service_version" | "service_instance" | "scope_name" | "scope_version" | "name"
-        | "span_name" | "status_message" => collect_text_params(params, filter),
+        "trace_id"
+        | "span_id"
+        | "parent_span_id"
+        | "service_name"
+        | "service.name"
+        | "service_namespace"
+        | "service.namespace"
+        | "deployment_environment"
+        | "deployment.environment"
+        | "service_version"
+        | "service_instance"
+        | "scope_name"
+        | "scope_version"
+        | "name"
+        | "span_name"
+        | "status_message" => collect_text_params(params, filter),
         "status_code" => match filter.op {
             FilterOp::Eq | FilterOp::NotEq => {
                 let value = filter.value.as_scalar()?.parse::<i32>().map_err(|_| {

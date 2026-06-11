@@ -79,24 +79,40 @@ type OTELMetricPointRow struct {
 }
 
 // OTELTraceRow stores a single OTEL trace span row.
+//
+// TraceState and ScopeAttributes keep Go's "" zero value in the struct, but
+// the CNPG INSERT stores "" as NULL (NULLIF): trace_state is NULL when the
+// span carries no W3C tracestate, scope_attributes is NULL when the
+// instrumentation scope has no attributes. ScopeAttributes is sorted-key JSON
+// object text, the same encoding the Elixir writer uses for attribute
+// columns. ServiceNamespace and DeploymentEnvironment default to "" matching
+// their NOT NULL empty-string-default columns; the dropped counts default
+// to 0.
 type OTELTraceRow struct {
-	Timestamp          time.Time
-	TraceID            string
-	SpanID             string
-	ParentSpanID       string
-	Name               string
-	Kind               int32
-	StartTimeUnixNano  int64
-	EndTimeUnixNano    int64
-	ServiceName        string
-	ServiceVersion     string
-	ServiceInstance    string
-	ScopeName          string
-	ScopeVersion       string
-	StatusCode         int32
-	StatusMessage      string
-	Attributes         string
-	ResourceAttributes string
-	Events             string
-	Links              string
+	Timestamp              time.Time
+	TraceID                string
+	SpanID                 string
+	ParentSpanID           string
+	Name                   string
+	Kind                   int32
+	StartTimeUnixNano      int64
+	EndTimeUnixNano        int64
+	ServiceName            string
+	ServiceVersion         string
+	ServiceInstance        string
+	ServiceNamespace       string
+	DeploymentEnvironment  string
+	ScopeName              string
+	ScopeVersion           string
+	ScopeAttributes        string
+	StatusCode             int32
+	StatusMessage          string
+	TraceState             string
+	Attributes             string
+	ResourceAttributes     string
+	Events                 string
+	Links                  string
+	DroppedAttributesCount int32
+	DroppedEventsCount     int32
+	DroppedLinksCount      int32
 }

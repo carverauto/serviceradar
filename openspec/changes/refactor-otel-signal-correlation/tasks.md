@@ -146,7 +146,7 @@
       dropped; rejects counted
 - [x] 8.7 SRQL otel_metric_points entity + web-ng metrics pane reads points
       with temporality-aware rate/delta rendering for cumulative sums
-- [ ] 8.8 Schema: trace_state + dropped_{attributes,events,links}_count
+- [x] 8.8 Schema: trace_state + dropped_{attributes,events,links}_count
       columns; scope_attributes for spans; service.namespace +
       deployment.environment promoted to first-class columns in spans +
       summaries + RED rollups

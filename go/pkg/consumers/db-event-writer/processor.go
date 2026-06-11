@@ -26,6 +26,7 @@ import (
 
 const (
 	maxInt64      = 9223372036854775807
+	maxInt32      = 2147483647
 	unknownString = "unknown"
 )
 
@@ -36,6 +37,15 @@ func safeUint64ToInt64(u uint64) int64 {
 	}
 
 	return int64(u)
+}
+
+// safeUint32ToInt32 safely converts uint32 to int32, capping at maxInt32 if needed
+func safeUint32ToInt32(u uint32) int32 {
+	if u > uint32(maxInt32) {
+		return maxInt32
+	}
+
+	return int32(u)
 }
 
 // Processor writes JetStream messages to CNPG observability tables.
@@ -140,6 +150,24 @@ func getScopeInfo(scope *commonv1.InstrumentationScope) (name, version, attribut
 	}
 
 	return scope.Name, scope.Version, attrsToJSON(scope.Attributes)
+}
+
+// spanScopeAttributesJSON encodes scope attributes for the
+// otel_traces.scope_attributes column: sorted-key JSON object text, or ""
+// (stored as NULL via NULLIF) when the scope carries no attributes. The
+// empty-map check runs after attrsToMap so nil/empty-key entries that encode
+// to nothing also yield NULL, matching the Elixir writer.
+func spanScopeAttributesJSON(scope *commonv1.InstrumentationScope) string {
+	if scope == nil {
+		return ""
+	}
+
+	attrs := attrsToMap(scope.Attributes)
+	if len(attrs) == 0 {
+		return ""
+	}
+
+	return marshalJSONObject(attrs)
 }
 
 func safeTimeFromUnixNano(value uint64) time.Time {
@@ -1016,11 +1044,28 @@ func processSpanLinks(links []*tracepbv1.Span_Link) string {
 	return "[]"
 }
 
-// processSpanSimple converts a single span to an OTELTraceRow.
-// resourceAttributes is the pre-encoded JSON object text shared by every
-// span of the resource.
-func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, serviceInstance string,
-	resourceAttributes string, scopeName, scopeVersion string) models.OTELTraceRow {
+// spanRowContext carries the resource- and scope-level fields shared by
+// every span row produced from a single ScopeSpans block: service identity
+// (including service.namespace and the promoted deployment environment),
+// the pre-encoded resource attribute JSON, and the scope identity with its
+// pre-encoded attribute JSON ("" when the scope has no attributes).
+type spanRowContext struct {
+	serviceName           string
+	serviceVersion        string
+	serviceInstance       string
+	serviceNamespace      string
+	deploymentEnvironment string
+	resourceAttributes    string
+	scopeName             string
+	scopeVersion          string
+	scopeAttributes       string
+}
+
+// processSpanSimple converts a single span to an OTELTraceRow. rowCtx holds
+// the pre-encoded resource/scope JSON and identity fields shared by every
+// span of the scope. TraceState keeps "" in the struct when the span has no
+// tracestate; the INSERT turns it into NULL.
+func processSpanSimple(span *tracepbv1.Span, rowCtx spanRowContext) models.OTELTraceRow {
 	// Convert timestamp
 	timestamp := convertSpanTimestamp(span.StartTimeUnixNano)
 
@@ -1045,25 +1090,32 @@ func processSpanSimple(span *tracepbv1.Span, serviceName, serviceVersion, servic
 
 	// Create the trace row
 	traceRow := models.OTELTraceRow{
-		Timestamp:          timestamp,
-		TraceID:            NormalizeTraceID(span.TraceId),
-		SpanID:             NormalizeSpanID(span.SpanId),
-		ParentSpanID:       NormalizeParentSpanID(span.ParentSpanId),
-		Name:               span.Name,
-		Kind:               int32(span.Kind),
-		StartTimeUnixNano:  safeUint64ToInt64(span.StartTimeUnixNano),
-		EndTimeUnixNano:    safeUint64ToInt64(span.EndTimeUnixNano),
-		ServiceName:        serviceName,
-		ServiceVersion:     serviceVersion,
-		ServiceInstance:    serviceInstance,
-		ScopeName:          scopeName,
-		ScopeVersion:       scopeVersion,
-		StatusCode:         statusCode,
-		StatusMessage:      statusMessage,
-		Attributes:         spanAttributes,
-		ResourceAttributes: resourceAttributes,
-		Events:             eventsJSON,
-		Links:              linksJSON,
+		Timestamp:              timestamp,
+		TraceID:                NormalizeTraceID(span.TraceId),
+		SpanID:                 NormalizeSpanID(span.SpanId),
+		ParentSpanID:           NormalizeParentSpanID(span.ParentSpanId),
+		Name:                   span.Name,
+		Kind:                   int32(span.Kind),
+		StartTimeUnixNano:      safeUint64ToInt64(span.StartTimeUnixNano),
+		EndTimeUnixNano:        safeUint64ToInt64(span.EndTimeUnixNano),
+		ServiceName:            rowCtx.serviceName,
+		ServiceVersion:         rowCtx.serviceVersion,
+		ServiceInstance:        rowCtx.serviceInstance,
+		ServiceNamespace:       rowCtx.serviceNamespace,
+		DeploymentEnvironment:  rowCtx.deploymentEnvironment,
+		ScopeName:              rowCtx.scopeName,
+		ScopeVersion:           rowCtx.scopeVersion,
+		ScopeAttributes:        rowCtx.scopeAttributes,
+		StatusCode:             statusCode,
+		StatusMessage:          statusMessage,
+		TraceState:             span.TraceState,
+		Attributes:             spanAttributes,
+		ResourceAttributes:     rowCtx.resourceAttributes,
+		Events:                 eventsJSON,
+		Links:                  linksJSON,
+		DroppedAttributesCount: safeUint32ToInt32(span.DroppedAttributesCount),
+		DroppedEventsCount:     safeUint32ToInt32(span.DroppedEventsCount),
+		DroppedLinksCount:      safeUint32ToInt32(span.DroppedLinksCount),
 		// RawData field removed to save storage space
 	}
 
@@ -1082,16 +1134,32 @@ func processResourceSpans(resourceSpan *tracepbv1.ResourceSpans) []models.OTELTr
 		processResourceAttributes(resourceSpan.Resource)
 	resourceAttributes := marshalJSONObject(resourceAttrs)
 
+	// Promote service.namespace and the deployment environment to
+	// first-class columns. deployment.environment.name (current OTel
+	// semconv) wins over the deprecated deployment.environment.
+	serviceNamespace := stringAttr(resourceAttrs, "service.namespace")
+	deploymentEnvironment := stringAttr(resourceAttrs, "deployment.environment.name", "deployment.environment")
+
 	// Process all scope spans for this resource
 	for _, scopeSpan := range resourceSpan.ScopeSpans {
 		// Get scope info once per scope
 		scopeName, scopeVersion, _ := getScopeInfo(scopeSpan.Scope)
 
+		rowCtx := spanRowContext{
+			serviceName:           serviceName,
+			serviceVersion:        serviceVersion,
+			serviceInstance:       serviceInstance,
+			serviceNamespace:      serviceNamespace,
+			deploymentEnvironment: deploymentEnvironment,
+			resourceAttributes:    resourceAttributes,
+			scopeName:             scopeName,
+			scopeVersion:          scopeVersion,
+			scopeAttributes:       spanScopeAttributesJSON(scopeSpan.Scope),
+		}
+
 		// Process all spans for this scope
 		for _, span := range scopeSpan.Spans {
-			traceRow := processSpanSimple(span, serviceName, serviceVersion, serviceInstance,
-				resourceAttributes, scopeName, scopeVersion)
-			traceRows = append(traceRows, traceRow)
+			traceRows = append(traceRows, processSpanSimple(span, rowCtx))
 		}
 	}
 

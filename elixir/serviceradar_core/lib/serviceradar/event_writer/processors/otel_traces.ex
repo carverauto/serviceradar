@@ -32,12 +32,19 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
     service_instance TEXT,
     scope_name TEXT,
     scope_version TEXT,
+    scope_attributes TEXT,
     status_code INTEGER,
     status_message TEXT,
+    trace_state TEXT,
     attributes TEXT,
     resource_attributes TEXT,
     events TEXT,
     links TEXT,
+    dropped_attributes_count INTEGER NOT NULL DEFAULT 0,
+    dropped_events_count INTEGER NOT NULL DEFAULT 0,
+    dropped_links_count INTEGER NOT NULL DEFAULT 0,
+    service_namespace TEXT NOT NULL DEFAULT '',
+    deployment_environment TEXT NOT NULL DEFAULT '',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (timestamp, trace_id, span_id)
   );
@@ -126,6 +133,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   defp parse_json_trace(json, _metadata) do
     timestamp = FieldParser.parse_timestamp(json["timestamp"] || json["start_time_unix_nano"])
 
+    resource_attributes =
+      FieldParser.get_field(json, "resource_attributes", "resourceAttributes")
+
     %{
       timestamp: timestamp,
       trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
@@ -149,15 +159,32 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
       service_instance: FieldParser.get_field(json, "service_instance", "serviceInstance"),
       scope_name: FieldParser.get_field(json, "scope_name", "scopeName"),
       scope_version: FieldParser.get_field(json, "scope_version", "scopeVersion"),
+      scope_attributes:
+        encode_scope_attributes(
+          FieldParser.get_field(json, "scope_attributes", "scopeAttributes")
+        ),
       status_code: FieldParser.get_field(json, "status_code", "statusCode"),
       status_message: FieldParser.get_field(json, "status_message", "statusMessage"),
+      trace_state:
+        normalize_trace_state(FieldParser.get_field(json, "trace_state", "traceState")),
       attributes: FieldParser.encode_json(json["attributes"]),
-      resource_attributes:
-        FieldParser.encode_json(
-          FieldParser.get_field(json, "resource_attributes", "resourceAttributes")
-        ),
+      resource_attributes: FieldParser.encode_json(resource_attributes),
       events: FieldParser.encode_json(json["events"]),
       links: FieldParser.encode_json(json["links"]),
+      dropped_attributes_count:
+        dropped_count(
+          FieldParser.get_field(json, "dropped_attributes_count", "droppedAttributesCount")
+        ),
+      dropped_events_count:
+        dropped_count(FieldParser.get_field(json, "dropped_events_count", "droppedEventsCount")),
+      dropped_links_count:
+        dropped_count(FieldParser.get_field(json, "dropped_links_count", "droppedLinksCount")),
+      service_namespace:
+        json_string_field(json, "service_namespace", "serviceNamespace") ||
+          service_namespace(resource_attributes),
+      deployment_environment:
+        json_string_field(json, "deployment_environment", "deploymentEnvironment") ||
+          deployment_environment(resource_attributes),
       created_at: DateTime.utc_now()
     }
   end
@@ -220,8 +247,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
          resource_attributes,
          _metadata
        ) do
-    {scope_name, scope_version} = parse_scope(scope)
+    {scope_name, scope_version, scope_attributes} = parse_scope(scope)
     encoded_resource_attributes = FieldParser.encode_json(resource_attributes)
+    service_namespace = service_namespace(resource_attributes)
+    deployment_environment = deployment_environment(resource_attributes)
 
     Enum.map(spans, fn %Span{} = span ->
       %{
@@ -238,12 +267,19 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
         service_instance: service_instance,
         scope_name: scope_name,
         scope_version: scope_version,
+        scope_attributes: scope_attributes,
         status_code: status_code(span.status),
         status_message: status_message(span.status),
+        trace_state: normalize_trace_state(span.trace_state),
         attributes: FieldParser.encode_json(OtlpAttributes.key_values_to_map(span.attributes)),
         resource_attributes: encoded_resource_attributes,
         events: FieldParser.encode_json(Enum.map(span.events, &event_to_map/1)),
         links: FieldParser.encode_json(Enum.map(span.links, &link_to_map/1)),
+        dropped_attributes_count: dropped_count(span.dropped_attributes_count),
+        dropped_events_count: dropped_count(span.dropped_events_count),
+        dropped_links_count: dropped_count(span.dropped_links_count),
+        service_namespace: service_namespace,
+        deployment_environment: deployment_environment,
         created_at: DateTime.utc_now()
       }
     end)
@@ -258,8 +294,66 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
          _metadata
        ), do: []
 
-  defp parse_scope(%InstrumentationScope{name: name, version: version}), do: {name, version}
-  defp parse_scope(_), do: {nil, nil}
+  defp parse_scope(%InstrumentationScope{name: name, version: version} = scope) do
+    {name, version, encode_scope_attributes(OtlpAttributes.key_values_to_map(scope.attributes))}
+  end
+
+  defp parse_scope(_), do: {nil, nil, nil}
+
+  # Instrumentation scope attributes are stored as sorted-key JSON text;
+  # empty attribute sets are stored as NULL (never "{}").
+  defp encode_scope_attributes(map) when is_map(map) do
+    if map_size(map) == 0, do: nil, else: OtlpAttributes.stable_json(map)
+  end
+
+  defp encode_scope_attributes(value) when is_binary(value) and value not in ["", "{}"], do: value
+  defp encode_scope_attributes(_), do: nil
+
+  # span.trace_state: empty string means "absent" and is stored as NULL.
+  defp normalize_trace_state(value) when is_binary(value) and value != "", do: value
+  defp normalize_trace_state(_), do: nil
+
+  defp dropped_count(value) when is_integer(value) and value >= 0, do: value
+
+  defp dropped_count(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int >= 0 -> int
+      _ -> 0
+    end
+  end
+
+  defp dropped_count(_), do: 0
+
+  # Resource attribute "service.namespace" (default '').
+  defp service_namespace(resource_attributes),
+    do: resource_attr_string(resource_attributes, ["service.namespace"])
+
+  # Resource attribute "deployment.environment.name" falling back to the
+  # legacy "deployment.environment" key (default '').
+  defp deployment_environment(resource_attributes) do
+    resource_attr_string(resource_attributes, [
+      "deployment.environment.name",
+      "deployment.environment"
+    ])
+  end
+
+  defp resource_attr_string(attributes, keys) when is_map(attributes) do
+    Enum.find_value(keys, "", fn key ->
+      case attributes do
+        %{^key => value} when is_binary(value) and value != "" -> value
+        _ -> nil
+      end
+    end)
+  end
+
+  defp resource_attr_string(_attributes, _keys), do: ""
+
+  defp json_string_field(json, snake_key, camel_key) do
+    case FieldParser.get_field(json, snake_key, camel_key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
 
   # Derive the row timestamp from the span start time, preserving
   # microsecond precision (TIMESTAMPTZ resolution).

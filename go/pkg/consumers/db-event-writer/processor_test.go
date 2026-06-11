@@ -657,6 +657,44 @@ func TestProcessResourceSpansNilResourceIngestsAsUnknown(t *testing.T) {
 	if rows[0].ResourceAttributes != "{}" {
 		t.Fatalf("expected empty resource attributes object, got %q", rows[0].ResourceAttributes)
 	}
+
+	// Absent resource: the promoted columns fall back to their NOT NULL
+	// DEFAULT '' contract values, and the nullable columns stay "" (NULL).
+	if rows[0].ServiceNamespace != "" || rows[0].DeploymentEnvironment != "" {
+		t.Fatalf("expected empty namespace/environment defaults, got %q %q",
+			rows[0].ServiceNamespace, rows[0].DeploymentEnvironment)
+	}
+
+	if rows[0].TraceState != "" || rows[0].ScopeAttributes != "" {
+		t.Fatalf("expected empty trace state and scope attributes, got %q %q",
+			rows[0].TraceState, rows[0].ScopeAttributes)
+	}
+
+	if rows[0].DroppedAttributesCount != 0 || rows[0].DroppedEventsCount != 0 || rows[0].DroppedLinksCount != 0 {
+		t.Fatalf("expected zero dropped counts, got %d %d %d",
+			rows[0].DroppedAttributesCount, rows[0].DroppedEventsCount, rows[0].DroppedLinksCount)
+	}
+}
+
+func TestSafeUint32ToInt32CapsAtMaxInt32(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input uint32
+		want  int32
+	}{
+		{0, 0},
+		{42, 42},
+		{2147483647, 2147483647},
+		{2147483648, 2147483647},
+		{4294967295, 2147483647},
+	}
+
+	for _, tc := range cases {
+		if got := safeUint32ToInt32(tc.input); got != tc.want {
+			t.Fatalf("safeUint32ToInt32(%d): expected %d, got %d", tc.input, tc.want, got)
+		}
+	}
 }
 
 func TestParseOTELLogsNilResourceIngestsAsUnknown(t *testing.T) {

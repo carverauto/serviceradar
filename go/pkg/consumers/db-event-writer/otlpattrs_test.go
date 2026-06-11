@@ -210,17 +210,28 @@ func TestProcessResourceSpansEncodesJSONAttributeColumns(t *testing.T) {
 			Attributes: []*commonv1.KeyValue{
 				otlpKV("service.name", otlpString("postgres")),
 				otlpKV("service.version", otlpString("16.1")),
+				otlpKV("service.namespace", otlpString("payments")),
+				otlpKV("deployment.environment.name", otlpString("prod-eu")),
+				otlpKV("deployment.environment", otlpString("legacy-ignored")),
 				otlpKV("deployment.canary", otlpBool(false)),
 			},
 		},
 		ScopeSpans: []*tracepbv1.ScopeSpans{
 			{
-				Scope: &commonv1.InstrumentationScope{Name: "pg-otel", Version: "0.2.0"},
+				Scope: &commonv1.InstrumentationScope{
+					Name:    "pg-otel",
+					Version: "0.2.0",
+					Attributes: []*commonv1.KeyValue{
+						otlpKV("telemetry.sdk.language", otlpString("go")),
+						otlpKV("pool_size", otlpInt(0)),
+					},
+				},
 				Spans: []*tracepbv1.Span{
 					{
 						TraceId:           rawTraceID,
 						SpanId:            rawSpanID,
 						Name:              "query",
+						TraceState:        "congo=t61rcWkgMzE",
 						StartTimeUnixNano: 1718000000000000000,
 						EndTimeUnixNano:   1718000000000196400,
 						Attributes: []*commonv1.KeyValue{
@@ -228,6 +239,9 @@ func TestProcessResourceSpansEncodesJSONAttributeColumns(t *testing.T) {
 							otlpKV("query_time_microseconds", otlpInt(1964)),
 							otlpKV("rows_returned", otlpInt(0)),
 						},
+						DroppedAttributesCount: 3,
+						DroppedEventsCount:     1,
+						DroppedLinksCount:      2,
 					},
 				},
 			},
@@ -244,6 +258,25 @@ func TestProcessResourceSpansEncodesJSONAttributeColumns(t *testing.T) {
 		t.Fatalf("unexpected service identity: %q %q", row.ServiceName, row.ServiceVersion)
 	}
 
+	if row.ServiceNamespace != "payments" {
+		t.Fatalf("expected service namespace %q, got %q", "payments", row.ServiceNamespace)
+	}
+
+	// deployment.environment.name must win over the deprecated
+	// deployment.environment when both are present.
+	if row.DeploymentEnvironment != "prod-eu" {
+		t.Fatalf("expected deployment environment %q, got %q", "prod-eu", row.DeploymentEnvironment)
+	}
+
+	if row.TraceState != "congo=t61rcWkgMzE" {
+		t.Fatalf("expected trace state %q, got %q", "congo=t61rcWkgMzE", row.TraceState)
+	}
+
+	if row.DroppedAttributesCount != 3 || row.DroppedEventsCount != 1 || row.DroppedLinksCount != 2 {
+		t.Fatalf("unexpected dropped counts: %d %d %d",
+			row.DroppedAttributesCount, row.DroppedEventsCount, row.DroppedLinksCount)
+	}
+
 	assertJSONEqual(t, row.Attributes, `{
 		"decode_time_microseconds": 3,
 		"query_time_microseconds": 1964,
@@ -253,11 +286,107 @@ func TestProcessResourceSpansEncodesJSONAttributeColumns(t *testing.T) {
 	assertJSONEqual(t, row.ResourceAttributes, `{
 		"service.name": "postgres",
 		"service.version": "16.1",
+		"service.namespace": "payments",
+		"deployment.environment.name": "prod-eu",
+		"deployment.environment": "legacy-ignored",
 		"deployment.canary": false
 	}`)
 
+	assertJSONEqual(t, row.ScopeAttributes, `{
+		"telemetry.sdk.language": "go",
+		"pool_size": 0
+	}`)
+
+	// Sorted-key convention shared with the Elixir writer: the encoded text
+	// must order keys, not just decode to the same map.
+	wantScopeJSON := `{"pool_size":0,"telemetry.sdk.language":"go"}`
+	if row.ScopeAttributes != wantScopeJSON {
+		t.Fatalf("expected sorted scope attribute JSON %q, got %q", wantScopeJSON, row.ScopeAttributes)
+	}
+
 	assertJSONEqual(t, row.Events, `[]`)
 	assertJSONEqual(t, row.Links, `[]`)
+}
+
+func TestProcessResourceSpansDeploymentEnvironmentFallback(t *testing.T) {
+	t.Parallel()
+
+	resourceSpan := &tracepbv1.ResourceSpans{
+		Resource: &resourcev1.Resource{
+			Attributes: []*commonv1.KeyValue{
+				otlpKV("service.name", otlpString("checkout")),
+				otlpKV("deployment.environment", otlpString("staging")),
+			},
+		},
+		ScopeSpans: []*tracepbv1.ScopeSpans{
+			{
+				Spans: []*tracepbv1.Span{
+					{
+						TraceId: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+						SpanId:  []byte{1, 2, 3, 4, 5, 6, 7, 8},
+						Name:    "fallback-env",
+					},
+				},
+			},
+		},
+	}
+
+	rows := processResourceSpans(resourceSpan)
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 trace row, got %d", len(rows))
+	}
+
+	if rows[0].DeploymentEnvironment != "staging" {
+		t.Fatalf("expected fallback deployment environment %q, got %q", "staging", rows[0].DeploymentEnvironment)
+	}
+}
+
+func TestProcessResourceSpansScopeAttributesNullWhenEmpty(t *testing.T) {
+	t.Parallel()
+
+	span := &tracepbv1.Span{
+		TraceId: []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+		SpanId:  []byte{1, 2, 3, 4, 5, 6, 7, 8},
+		Name:    "no-scope-attrs",
+	}
+
+	cases := []struct {
+		name  string
+		scope *commonv1.InstrumentationScope
+	}{
+		{"nil scope", nil},
+		{"scope without attributes", &commonv1.InstrumentationScope{Name: "bare", Version: "1.0"}},
+		{
+			// Entries that encode to nothing must also yield NULL, not "{}".
+			"scope with only unencodable attributes",
+			&commonv1.InstrumentationScope{
+				Name:       "empties",
+				Attributes: []*commonv1.KeyValue{nil, otlpKV("", otlpString("dropped"))},
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			resourceSpan := &tracepbv1.ResourceSpans{
+				ScopeSpans: []*tracepbv1.ScopeSpans{
+					{Scope: tc.scope, Spans: []*tracepbv1.Span{span}},
+				},
+			}
+
+			rows := processResourceSpans(resourceSpan)
+			if len(rows) != 1 {
+				t.Fatalf("expected 1 trace row, got %d", len(rows))
+			}
+
+			// "" in the row struct stores NULL via NULLIF in the INSERT.
+			if rows[0].ScopeAttributes != "" {
+				t.Fatalf("expected empty scope attributes, got %q", rows[0].ScopeAttributes)
+			}
+		})
+	}
 }
 
 func TestExtractAttributeValuePreservesZeroValues(t *testing.T) {

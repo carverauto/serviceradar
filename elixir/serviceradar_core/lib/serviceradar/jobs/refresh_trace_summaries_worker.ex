@@ -37,6 +37,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   @upsert_sql """
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
+    root_service_namespace, deployment_environment,
     root_span_kind, start_time_unix_nano, end_time_unix_nano, duration_ms,
     status_code, status_message, service_set, span_count, error_count, refreshed_at
   )
@@ -46,6 +47,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     max(t.span_id) FILTER (WHERE t.parent_span_id IS NULL),
     max(t.name) FILTER (WHERE t.parent_span_id IS NULL),
     max(t.service_name) FILTER (WHERE t.parent_span_id IS NULL),
+    COALESCE(max(t.service_namespace) FILTER (WHERE t.parent_span_id IS NULL), ''),
+    COALESCE(max(t.deployment_environment) FILTER (WHERE t.parent_span_id IS NULL), ''),
     max(t.kind) FILTER (WHERE t.parent_span_id IS NULL),
     min(t.start_time_unix_nano),
     max(t.end_time_unix_nano),
@@ -69,6 +72,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     root_span_id = EXCLUDED.root_span_id,
     root_span_name = EXCLUDED.root_span_name,
     root_service_name = EXCLUDED.root_service_name,
+    root_service_namespace = EXCLUDED.root_service_namespace,
+    deployment_environment = EXCLUDED.deployment_environment,
     root_span_kind = EXCLUDED.root_span_kind,
     start_time_unix_nano = EXCLUDED.start_time_unix_nano,
     end_time_unix_nano = EXCLUDED.end_time_unix_nano,
@@ -84,6 +89,8 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     otel_trace_summaries.root_span_id IS DISTINCT FROM EXCLUDED.root_span_id OR
     otel_trace_summaries.root_span_name IS DISTINCT FROM EXCLUDED.root_span_name OR
     otel_trace_summaries.root_service_name IS DISTINCT FROM EXCLUDED.root_service_name OR
+    otel_trace_summaries.root_service_namespace IS DISTINCT FROM EXCLUDED.root_service_namespace OR
+    otel_trace_summaries.deployment_environment IS DISTINCT FROM EXCLUDED.deployment_environment OR
     otel_trace_summaries.root_span_kind IS DISTINCT FROM EXCLUDED.root_span_kind OR
     otel_trace_summaries.start_time_unix_nano IS DISTINCT FROM EXCLUDED.start_time_unix_nano OR
     otel_trace_summaries.end_time_unix_nano IS DISTINCT FROM EXCLUDED.end_time_unix_nano OR

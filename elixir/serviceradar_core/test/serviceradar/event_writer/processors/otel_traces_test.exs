@@ -37,6 +37,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
           "scope_version" => "1.0.0",
           "status_code" => 1,
           "status_message" => "OK",
+          "trace_state" => "congo=t61rcWkgMzE",
+          "scope_attributes" => %{"zeta" => 1, "alpha" => "a"},
+          "dropped_attributes_count" => 2,
+          "dropped_events_count" => 1,
+          "dropped_links_count" => 4,
+          "service_namespace" => "payments",
+          "deployment_environment" => "dev",
           "attributes" => %{"http.method" => "GET", "http.url" => "/api/users"},
           "resource_attributes" => %{"service.name" => "api-gateway"},
           "events" => [%{"name" => "request_start", "timestamp" => 1_705_315_800_000_000_000}],
@@ -57,6 +64,14 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.service_version == "1.5.0"
       assert result.status_code == 1
       assert result.status_message == "OK"
+      assert result.trace_state == "congo=t61rcWkgMzE"
+      # Scope attributes are stored as sorted-key JSON text
+      assert result.scope_attributes == ~s({"alpha":"a","zeta":1})
+      assert result.dropped_attributes_count == 2
+      assert result.dropped_events_count == 1
+      assert result.dropped_links_count == 4
+      assert result.service_namespace == "payments"
+      assert result.deployment_environment == "dev"
       assert result.attributes
       assert result.resource_attributes
       assert result.events
@@ -79,6 +94,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
           "scopeVersion" => "1.0.0",
           "statusCode" => 0,
           "statusMessage" => "Success",
+          "traceState" => "camel=1",
+          "scopeAttributes" => %{"b" => 2, "a" => 1},
+          "droppedAttributesCount" => 7,
+          "droppedEventsCount" => 8,
+          "droppedLinksCount" => 9,
+          "serviceNamespace" => "camel-ns",
+          "deploymentEnvironment" => "camel-env",
           "resourceAttributes" => %{"env" => "prod"}
         })
 
@@ -94,6 +116,13 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.service_name == "camel-service"
       assert result.service_version == "2.0.0"
       assert result.service_instance == "camel-instance"
+      assert result.trace_state == "camel=1"
+      assert result.scope_attributes == ~s({"a":1,"b":2})
+      assert result.dropped_attributes_count == 7
+      assert result.dropped_events_count == 8
+      assert result.dropped_links_count == 9
+      assert result.service_namespace == "camel-ns"
+      assert result.deployment_environment == "camel-env"
     end
 
     test "handles bigint overflow in timestamps" do
@@ -124,7 +153,62 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert result.service_name == "unknown"
       assert result.trace_id == nil
       assert result.span_id == nil
+      assert result.trace_state == nil
+      assert result.scope_attributes == nil
+      assert result.dropped_attributes_count == 0
+      assert result.dropped_events_count == 0
+      assert result.dropped_links_count == 0
+      assert result.service_namespace == ""
+      assert result.deployment_environment == ""
       assert %DateTime{} = result.timestamp
+    end
+
+    test "derives namespace and environment from resource attributes" do
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "0123456789abcdef0123456789abcdef",
+          "span_id" => "0123456789abcdef",
+          "resource_attributes" => %{
+            "service.namespace" => "checkout",
+            "deployment.environment.name" => "staging",
+            "deployment.environment" => "prod"
+          }
+        })
+
+      result = OtelTraces.parse_message(%{data: json_data, metadata: %{}})
+
+      assert result.service_namespace == "checkout"
+      # deployment.environment.name wins over deployment.environment
+      assert result.deployment_environment == "staging"
+    end
+
+    test "falls back to legacy deployment.environment resource attribute" do
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "0123456789abcdef0123456789abcdef",
+          "span_id" => "0123456789abcdef",
+          "resource_attributes" => %{"deployment.environment" => "prod"}
+        })
+
+      result = OtelTraces.parse_message(%{data: json_data, metadata: %{}})
+
+      assert result.service_namespace == ""
+      assert result.deployment_environment == "prod"
+    end
+
+    test "normalizes empty trace_state and scope_attributes to nil" do
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "0123456789abcdef0123456789abcdef",
+          "span_id" => "0123456789abcdef",
+          "trace_state" => "",
+          "scope_attributes" => %{}
+        })
+
+      result = OtelTraces.parse_message(%{data: json_data, metadata: %{}})
+
+      assert result.trace_state == nil
+      assert result.scope_attributes == nil
     end
 
     test "encodes complex attributes as JSON" do
@@ -228,6 +312,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
         kind: :SPAN_KIND_SERVER,
         start_time_unix_nano: 1_705_315_800_123_456_789,
         end_time_unix_nano: 1_705_315_800_223_456_789,
+        trace_state: "congo=t61rcWkgMzE",
+        dropped_attributes_count: 3,
+        dropped_events_count: 1,
+        dropped_links_count: 2,
         attributes: [
           %KeyValue{key: "http.method", value: %AnyValue{value: {:string_value, "GET"}}}
         ],
@@ -264,12 +352,33 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
                 %KeyValue{
                   key: "service.version",
                   value: %AnyValue{value: {:string_value, "0.1.0"}}
+                },
+                %KeyValue{
+                  key: "service.namespace",
+                  value: %AnyValue{value: {:string_value, "checkout"}}
+                },
+                %KeyValue{
+                  key: "deployment.environment",
+                  value: %AnyValue{value: {:string_value, "prod"}}
                 }
               ]
             },
             scope_spans: [
               %ScopeSpans{
-                scope: %InstrumentationScope{name: "scope", version: "1.2.3"},
+                scope: %InstrumentationScope{
+                  name: "scope",
+                  version: "1.2.3",
+                  attributes: [
+                    %KeyValue{
+                      key: "zeta",
+                      value: %AnyValue{value: {:int_value, 1}}
+                    },
+                    %KeyValue{
+                      key: "alpha",
+                      value: %AnyValue{value: {:string_value, "a"}}
+                    }
+                  ]
+                },
                 spans: [root_span, child_span]
               }
             ]
@@ -306,6 +415,19 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert root.status_code == 2
       assert root.status_message == "boom"
 
+      # Span fidelity fields
+      assert root.trace_state == "congo=t61rcWkgMzE"
+      assert root.dropped_attributes_count == 3
+      assert root.dropped_events_count == 1
+      assert root.dropped_links_count == 2
+
+      # Scope attributes stored as sorted-key JSON
+      assert root.scope_attributes == ~s({"alpha":"a","zeta":1})
+
+      # Resource namespace/environment extraction
+      assert root.service_namespace == "checkout"
+      assert root.deployment_environment == "prod"
+
       # Timestamp derives from start_time_unix_nano at microsecond precision
       assert root.timestamp ==
                DateTime.from_unix!(div(1_705_315_800_123_456_789, 1000), :microsecond)
@@ -326,6 +448,65 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTracesTest do
       assert child.status_code == 0
       assert child.status_message == nil
       assert child.service_name == "proto-service"
+
+      # Empty trace_state stored as NULL; proto3 zero counts stay 0
+      assert child.trace_state == nil
+      assert child.dropped_attributes_count == 0
+      assert child.dropped_events_count == 0
+      assert child.dropped_links_count == 0
+      assert child.scope_attributes == ~s({"alpha":"a","zeta":1})
+      assert child.service_namespace == "checkout"
+      assert child.deployment_environment == "prod"
+    end
+
+    test "prefers deployment.environment.name over deployment.environment" do
+      request = %ExportTraceServiceRequest{
+        resource_spans: [
+          %ResourceSpans{
+            resource: %Resource{
+              attributes: [
+                %KeyValue{
+                  key: "service.name",
+                  value: %AnyValue{value: {:string_value, "env-service"}}
+                },
+                %KeyValue{
+                  key: "deployment.environment.name",
+                  value: %AnyValue{value: {:string_value, "staging"}}
+                },
+                %KeyValue{
+                  key: "deployment.environment",
+                  value: %AnyValue{value: {:string_value, "prod"}}
+                }
+              ]
+            },
+            scope_spans: [
+              %ScopeSpans{
+                scope: %InstrumentationScope{name: "scope"},
+                spans: [
+                  %Span{
+                    trace_id: @raw_trace_id,
+                    span_id: @root_span_id,
+                    start_time_unix_nano: 1_705_315_800_123_456_789,
+                    end_time_unix_nano: 1_705_315_800_223_456_789
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+
+      [row] =
+        OtelTraces.parse_message(%{
+          data: ExportTraceServiceRequest.encode(request),
+          metadata: %{}
+        })
+
+      assert row.deployment_environment == "staging"
+      # No service.namespace resource attribute defaults to ''
+      assert row.service_namespace == ""
+      # Scope without attributes stores NULL, never "{}"
+      assert row.scope_attributes == nil
     end
 
     test "returns nil for undecodable payloads" do

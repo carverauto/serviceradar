@@ -180,6 +180,122 @@ fn duration_ms_range_translates_for_trace_summaries() {
 }
 
 // ---------------------------------------------------------------------------
+// Service namespace / deployment environment correlation columns
+// ---------------------------------------------------------------------------
+
+#[test]
+fn traces_select_includes_correlation_columns() {
+    let response = translate("in:traces time:last_24h");
+    for column in [
+        "trace_state",
+        "scope_attributes",
+        "service_namespace",
+        "deployment_environment",
+        "dropped_attributes_count",
+        "dropped_events_count",
+        "dropped_links_count",
+    ] {
+        assert!(
+            response.sql.contains(column),
+            "expected {column} in traces selection: {}",
+            response.sql
+        );
+    }
+}
+
+#[test]
+fn trace_summaries_select_includes_namespace_and_environment_columns() {
+    let response = translate("in:otel_trace_summaries time:last_24h");
+    for column in ["root_service_namespace", "deployment_environment"] {
+        assert!(
+            response.sql.contains(column),
+            "expected {column} in trace summaries selection: {}",
+            response.sql
+        );
+    }
+}
+
+#[test]
+fn namespace_and_environment_filters_translate_for_traces() {
+    let response =
+        translate("in:traces service_namespace:payments deployment_environment:prod time:last_24h");
+    assert!(
+        response.sql.contains(r#""service_namespace" = $3"#),
+        "expected service_namespace equality filter: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains(r#""deployment_environment" = $4"#),
+        "expected deployment_environment equality filter: {}",
+        response.sql
+    );
+    for value in ["payments", "prod"] {
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Text(text) if text == value)),
+            "expected {value} bind, got: {:?}",
+            response.params
+        );
+    }
+}
+
+#[test]
+fn namespace_like_and_environment_list_filters_translate_for_traces() {
+    let response = translate(
+        "in:traces service_namespace:pay% deployment_environment:(prod,staging) time:last_24h",
+    );
+    assert!(
+        response.sql.contains(r#""service_namespace" ILIKE $3"#),
+        "expected service_namespace ILIKE filter: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains(r#""deployment_environment" = ANY($4)"#),
+        "expected deployment_environment list filter: {}",
+        response.sql
+    );
+    assert!(
+        response.params.iter().any(|param| matches!(
+            param,
+            BindParam::TextArray(values) if values == &["prod".to_string(), "staging".to_string()]
+        )),
+        "expected environment list bind, got: {:?}",
+        response.params
+    );
+}
+
+#[test]
+fn namespace_and_environment_filters_translate_for_trace_summaries() {
+    let response = translate(
+        "in:otel_trace_summaries root_service_namespace:payments deployment_environment:prod time:last_24h",
+    );
+    assert!(
+        response.sql.contains("root_service_namespace = $3"),
+        "expected root_service_namespace filter: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("deployment_environment = $4"),
+        "expected deployment_environment filter: {}",
+        response.sql
+    );
+    for value in ["payments", "prod"] {
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Text(text) if text == value)),
+            "expected {value} bind, got: {:?}",
+            response.params
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // rollup_stats:red for traces
 // ---------------------------------------------------------------------------
 
@@ -226,6 +342,44 @@ fn rollup_stats_red_reads_spans_red_1h() {
         "expected service bind, got: {:?}",
         response.params
     );
+}
+
+#[test]
+fn rollup_stats_red_supports_namespace_and_environment_filters() {
+    let response = translate(
+        "in:traces service_name:web service_namespace:payments deployment_environment:prod rollup_stats:red time:last_24h",
+    );
+
+    assert!(
+        response.sql.contains("FROM spans_red_1h"),
+        "expected spans_red_1h source: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("service_name = $3"),
+        "expected service_name filter: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("service_namespace = $4"),
+        "expected service_namespace filter: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("deployment_environment = $5"),
+        "expected deployment_environment filter: {}",
+        response.sql
+    );
+    for value in ["web", "payments", "prod"] {
+        assert!(
+            response
+                .params
+                .iter()
+                .any(|param| matches!(param, BindParam::Text(text) if text == value)),
+            "expected {value} bind, got: {:?}",
+            response.params
+        );
+    }
 }
 
 #[test]

@@ -97,6 +97,9 @@ const (
 		$16,$17
 	) ON CONFLICT DO NOTHING`
 
+	// trace_state ($20) and scope_attributes ($21) are nullable: the row
+	// struct carries "" when the span has no tracestate / the scope has no
+	// attributes, and NULLIF stores NULL instead of an empty string.
 	otelTracesInsertSQL = `INSERT INTO %s (
 		timestamp,
 		trace_id,
@@ -116,12 +119,21 @@ const (
 		attributes,
 		resource_attributes,
 		events,
-		links
+		links,
+		trace_state,
+		scope_attributes,
+		dropped_attributes_count,
+		dropped_events_count,
+		dropped_links_count,
+		service_namespace,
+		deployment_environment
 	) VALUES (
 		$1,$2,$3,NULLIF($4,''),$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18,$19
+		$16,$17,$18,$19,NULLIF($20,''),
+		NULLIF($21,''),$22,$23,$24,$25,
+		$26
 	) ON CONFLICT DO NOTHING`
 )
 
@@ -265,6 +277,13 @@ func (inserter otelTraceInserter) QueueRow(batch *pgx.Batch, query string, rowIn
 		row.ResourceAttributes,
 		row.Events,
 		row.Links,
+		row.TraceState,
+		row.ScopeAttributes,
+		row.DroppedAttributesCount,
+		row.DroppedEventsCount,
+		row.DroppedLinksCount,
+		row.ServiceNamespace,
+		row.DeploymentEnvironment,
 	)
 }
 
