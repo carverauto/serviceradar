@@ -42,6 +42,18 @@ const (
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED TelemetryPayloadKind = 0
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT  TelemetryPayloadKind = 1
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG    TelemetryPayloadKind = 2
+	// OTLP relay payload kinds (RelayOtlp / otlp-relay:v1). The record payload
+	// is exactly one encoded OTLP ExportTraceServiceRequest /
+	// ExportLogsServiceRequest / ExportMetricsServiceRequest chunk, chunked
+	// ONCE at the edge so one TelemetryRecord maps to one NATS message
+	// upstream.
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_TRACES  TelemetryPayloadKind = 3
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_LOGS    TelemetryPayloadKind = 4
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_METRICS TelemetryPayloadKind = 5
+	// Metrics the edge collector derived locally from other signals (e.g.
+	// span-derived RED metrics), kept distinct from pass-through OTLP_METRICS
+	// so core can route them to the derived-metrics subject.
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC TelemetryPayloadKind = 6
 )
 
 // Enum value maps for TelemetryPayloadKind.
@@ -50,11 +62,19 @@ var (
 		0: "TELEMETRY_PAYLOAD_KIND_UNSPECIFIED",
 		1: "TELEMETRY_PAYLOAD_KIND_OCSF_EVENT",
 		2: "TELEMETRY_PAYLOAD_KIND_OTEL_LOG",
+		3: "TELEMETRY_PAYLOAD_KIND_OTLP_TRACES",
+		4: "TELEMETRY_PAYLOAD_KIND_OTLP_LOGS",
+		5: "TELEMETRY_PAYLOAD_KIND_OTLP_METRICS",
+		6: "TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC",
 	}
 	TelemetryPayloadKind_value = map[string]int32{
-		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED": 0,
-		"TELEMETRY_PAYLOAD_KIND_OCSF_EVENT":  1,
-		"TELEMETRY_PAYLOAD_KIND_OTEL_LOG":    2,
+		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED":         0,
+		"TELEMETRY_PAYLOAD_KIND_OCSF_EVENT":          1,
+		"TELEMETRY_PAYLOAD_KIND_OTEL_LOG":            2,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_TRACES":         3,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_LOGS":           4,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_METRICS":        5,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC": 6,
 	}
 )
 
@@ -1136,6 +1156,116 @@ func (x *TelemetryBatch) GetCounters() *TelemetryCounters {
 	return nil
 }
 
+// OtlpRelayFrame is one acked relay unit the add-on ships to the agent on the
+// RelayOtlp response stream. relay_id is a persistent, strictly increasing
+// sequence number assigned by the add-on's durable spool; it identifies the
+// frame for acknowledgement and never resets across reconnects (unacked
+// frames are re-sent with their original relay_ids). batch reuses
+// TelemetryBatch with the OTLP payload kinds; each TelemetryRecord.payload is
+// one pre-chunked Export*ServiceRequest, so the agent can forward a frame
+// verbatim as the GatewayServiceStatus.message bytes for source ==
+// "otlp-relay" without re-chunking.
+type OtlpRelayFrame struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	RelayId       uint64                 `protobuf:"varint,1,opt,name=relay_id,json=relayId,proto3" json:"relay_id,omitempty"`
+	Batch         *TelemetryBatch        `protobuf:"bytes,2,opt,name=batch,proto3" json:"batch,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OtlpRelayFrame) Reset() {
+	*x = OtlpRelayFrame{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[16]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OtlpRelayFrame) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OtlpRelayFrame) ProtoMessage() {}
+
+func (x *OtlpRelayFrame) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[16]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OtlpRelayFrame.ProtoReflect.Descriptor instead.
+func (*OtlpRelayFrame) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{16}
+}
+
+func (x *OtlpRelayFrame) GetRelayId() uint64 {
+	if x != nil {
+		return x.RelayId
+	}
+	return 0
+}
+
+func (x *OtlpRelayFrame) GetBatch() *TelemetryBatch {
+	if x != nil {
+		return x.Batch
+	}
+	return nil
+}
+
+// OtlpRelayAck is the agent-to-add-on acknowledgement watermark on the
+// RelayOtlp request stream. acked_relay_id confirms that every frame with
+// relay_id <= acked_relay_id has been accepted upstream by the agent-gateway;
+// the add-on may then release those frames from its spool. Acks are
+// cumulative, so the agent may coalesce them.
+type OtlpRelayAck struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AckedRelayId  uint64                 `protobuf:"varint,1,opt,name=acked_relay_id,json=ackedRelayId,proto3" json:"acked_relay_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OtlpRelayAck) Reset() {
+	*x = OtlpRelayAck{}
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OtlpRelayAck) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OtlpRelayAck) ProtoMessage() {}
+
+func (x *OtlpRelayAck) ProtoReflect() protoreflect.Message {
+	mi := &file_agent_addon_v1_addon_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OtlpRelayAck.ProtoReflect.Descriptor instead.
+func (*OtlpRelayAck) Descriptor() ([]byte, []int) {
+	return file_agent_addon_v1_addon_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *OtlpRelayAck) GetAckedRelayId() uint64 {
+	if x != nil {
+		return x.AckedRelayId
+	}
+	return 0
+}
+
 var File_agent_addon_v1_addon_proto protoreflect.FileDescriptor
 
 const file_agent_addon_v1_addon_proto_rawDesc = "" +
@@ -1239,17 +1369,27 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\x0eTelemetryBatch\x12D\n" +
 	"\x06source\x18\x01 \x01(\v2,.serviceradar.agent.addon.v1.TelemetrySourceR\x06source\x12F\n" +
 	"\arecords\x18\x02 \x03(\v2,.serviceradar.agent.addon.v1.TelemetryRecordR\arecords\x12J\n" +
-	"\bcounters\x18\x03 \x01(\v2..serviceradar.agent.addon.v1.TelemetryCountersR\bcounters*\x8a\x01\n" +
+	"\bcounters\x18\x03 \x01(\v2..serviceradar.agent.addon.v1.TelemetryCountersR\bcounters\"n\n" +
+	"\x0eOtlpRelayFrame\x12\x19\n" +
+	"\brelay_id\x18\x01 \x01(\x04R\arelayId\x12A\n" +
+	"\x05batch\x18\x02 \x01(\v2+.serviceradar.agent.addon.v1.TelemetryBatchR\x05batch\"4\n" +
+	"\fOtlpRelayAck\x12$\n" +
+	"\x0eacked_relay_id\x18\x01 \x01(\x04R\fackedRelayId*\xb1\x02\n" +
 	"\x14TelemetryPayloadKind\x12&\n" +
 	"\"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!TELEMETRY_PAYLOAD_KIND_OCSF_EVENT\x10\x01\x12#\n" +
-	"\x1fTELEMETRY_PAYLOAD_KIND_OTEL_LOG\x10\x022\x9c\x05\n" +
+	"\x1fTELEMETRY_PAYLOAD_KIND_OTEL_LOG\x10\x02\x12&\n" +
+	"\"TELEMETRY_PAYLOAD_KIND_OTLP_TRACES\x10\x03\x12$\n" +
+	" TELEMETRY_PAYLOAD_KIND_OTLP_LOGS\x10\x04\x12'\n" +
+	"#TELEMETRY_PAYLOAD_KIND_OTLP_METRICS\x10\x05\x12.\n" +
+	"*TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC\x10\x062\x85\x06\n" +
 	"\fAddonService\x12[\n" +
 	"\x04Info\x12(.serviceradar.agent.addon.v1.InfoRequest\x1a).serviceradar.agent.addon.v1.InfoResponse\x12j\n" +
 	"\tConfigure\x12-.serviceradar.agent.addon.v1.ConfigureRequest\x1a..serviceradar.agent.addon.v1.ConfigureResponse\x12a\n" +
 	"\x06Health\x12*.serviceradar.agent.addon.v1.HealthRequest\x1a+.serviceradar.agent.addon.v1.HealthResponse\x12u\n" +
 	"\x0fStreamTelemetry\x123.serviceradar.agent.addon.v1.StreamTelemetryRequest\x1a+.serviceradar.agent.addon.v1.TelemetryBatch0\x01\x12z\n" +
-	"\x0fStreamArtifacts\x123.serviceradar.agent.addon.v1.StreamArtifactsRequest\x1a0.serviceradar.agent.addon.v1.ArtifactUploadChunk0\x01\x12m\n" +
+	"\x0fStreamArtifacts\x123.serviceradar.agent.addon.v1.StreamArtifactsRequest\x1a0.serviceradar.agent.addon.v1.ArtifactUploadChunk0\x01\x12g\n" +
+	"\tRelayOtlp\x12).serviceradar.agent.addon.v1.OtlpRelayAck\x1a+.serviceradar.agent.addon.v1.OtlpRelayFrame(\x010\x01\x12m\n" +
 	"\n" +
 	"RunCommand\x12..serviceradar.agent.addon.v1.RunCommandRequest\x1a/.serviceradar.agent.addon.v1.RunCommandResponseBAZ?github.com/carverauto/serviceradar/proto/agent/addon/v1;addonpbb\x06proto3"
 
@@ -1266,7 +1406,7 @@ func file_agent_addon_v1_addon_proto_rawDescGZIP() []byte {
 }
 
 var file_agent_addon_v1_addon_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 21)
+var file_agent_addon_v1_addon_proto_msgTypes = make([]protoimpl.MessageInfo, 23)
 var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(TelemetryPayloadKind)(0),      // 0: serviceradar.agent.addon.v1.TelemetryPayloadKind
 	(HealthResponse_Status)(0),     // 1: serviceradar.agent.addon.v1.HealthResponse.Status
@@ -1286,41 +1426,46 @@ var file_agent_addon_v1_addon_proto_goTypes = []any{
 	(*TelemetryCounters)(nil),      // 15: serviceradar.agent.addon.v1.TelemetryCounters
 	(*TelemetryRecord)(nil),        // 16: serviceradar.agent.addon.v1.TelemetryRecord
 	(*TelemetryBatch)(nil),         // 17: serviceradar.agent.addon.v1.TelemetryBatch
-	nil,                            // 18: serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
-	nil,                            // 19: serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
-	nil,                            // 20: serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
-	nil,                            // 21: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
-	nil,                            // 22: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	(*OtlpRelayFrame)(nil),         // 18: serviceradar.agent.addon.v1.OtlpRelayFrame
+	(*OtlpRelayAck)(nil),           // 19: serviceradar.agent.addon.v1.OtlpRelayAck
+	nil,                            // 20: serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	nil,                            // 21: serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	nil,                            // 22: serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	nil,                            // 23: serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	nil,                            // 24: serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
 }
 var file_agent_addon_v1_addon_proto_depIdxs = []int32{
 	1,  // 0: serviceradar.agent.addon.v1.HealthResponse.status:type_name -> serviceradar.agent.addon.v1.HealthResponse.Status
-	18, // 1: serviceradar.agent.addon.v1.RunCommandRequest.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
-	19, // 2: serviceradar.agent.addon.v1.RunCommandResponse.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
-	20, // 3: serviceradar.agent.addon.v1.ArtifactMetadata.attributes:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
+	20, // 1: serviceradar.agent.addon.v1.RunCommandRequest.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandRequest.MetadataEntry
+	21, // 2: serviceradar.agent.addon.v1.RunCommandResponse.metadata:type_name -> serviceradar.agent.addon.v1.RunCommandResponse.MetadataEntry
+	22, // 3: serviceradar.agent.addon.v1.ArtifactMetadata.attributes:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata.AttributesEntry
 	12, // 4: serviceradar.agent.addon.v1.ArtifactUploadChunk.metadata:type_name -> serviceradar.agent.addon.v1.ArtifactMetadata
-	21, // 5: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
+	23, // 5: serviceradar.agent.addon.v1.TelemetrySource.metadata:type_name -> serviceradar.agent.addon.v1.TelemetrySource.MetadataEntry
 	0,  // 6: serviceradar.agent.addon.v1.TelemetryRecord.payload_kind:type_name -> serviceradar.agent.addon.v1.TelemetryPayloadKind
-	22, // 7: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
+	24, // 7: serviceradar.agent.addon.v1.TelemetryRecord.metadata:type_name -> serviceradar.agent.addon.v1.TelemetryRecord.MetadataEntry
 	14, // 8: serviceradar.agent.addon.v1.TelemetryBatch.source:type_name -> serviceradar.agent.addon.v1.TelemetrySource
 	16, // 9: serviceradar.agent.addon.v1.TelemetryBatch.records:type_name -> serviceradar.agent.addon.v1.TelemetryRecord
 	15, // 10: serviceradar.agent.addon.v1.TelemetryBatch.counters:type_name -> serviceradar.agent.addon.v1.TelemetryCounters
-	2,  // 11: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
-	4,  // 12: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
-	6,  // 13: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
-	8,  // 14: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
-	9,  // 15: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:input_type -> serviceradar.agent.addon.v1.StreamArtifactsRequest
-	10, // 16: serviceradar.agent.addon.v1.AddonService.RunCommand:input_type -> serviceradar.agent.addon.v1.RunCommandRequest
-	3,  // 17: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
-	5,  // 18: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
-	7,  // 19: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
-	17, // 20: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
-	13, // 21: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:output_type -> serviceradar.agent.addon.v1.ArtifactUploadChunk
-	11, // 22: serviceradar.agent.addon.v1.AddonService.RunCommand:output_type -> serviceradar.agent.addon.v1.RunCommandResponse
-	17, // [17:23] is the sub-list for method output_type
-	11, // [11:17] is the sub-list for method input_type
-	11, // [11:11] is the sub-list for extension type_name
-	11, // [11:11] is the sub-list for extension extendee
-	0,  // [0:11] is the sub-list for field type_name
+	17, // 11: serviceradar.agent.addon.v1.OtlpRelayFrame.batch:type_name -> serviceradar.agent.addon.v1.TelemetryBatch
+	2,  // 12: serviceradar.agent.addon.v1.AddonService.Info:input_type -> serviceradar.agent.addon.v1.InfoRequest
+	4,  // 13: serviceradar.agent.addon.v1.AddonService.Configure:input_type -> serviceradar.agent.addon.v1.ConfigureRequest
+	6,  // 14: serviceradar.agent.addon.v1.AddonService.Health:input_type -> serviceradar.agent.addon.v1.HealthRequest
+	8,  // 15: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:input_type -> serviceradar.agent.addon.v1.StreamTelemetryRequest
+	9,  // 16: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:input_type -> serviceradar.agent.addon.v1.StreamArtifactsRequest
+	19, // 17: serviceradar.agent.addon.v1.AddonService.RelayOtlp:input_type -> serviceradar.agent.addon.v1.OtlpRelayAck
+	10, // 18: serviceradar.agent.addon.v1.AddonService.RunCommand:input_type -> serviceradar.agent.addon.v1.RunCommandRequest
+	3,  // 19: serviceradar.agent.addon.v1.AddonService.Info:output_type -> serviceradar.agent.addon.v1.InfoResponse
+	5,  // 20: serviceradar.agent.addon.v1.AddonService.Configure:output_type -> serviceradar.agent.addon.v1.ConfigureResponse
+	7,  // 21: serviceradar.agent.addon.v1.AddonService.Health:output_type -> serviceradar.agent.addon.v1.HealthResponse
+	17, // 22: serviceradar.agent.addon.v1.AddonService.StreamTelemetry:output_type -> serviceradar.agent.addon.v1.TelemetryBatch
+	13, // 23: serviceradar.agent.addon.v1.AddonService.StreamArtifacts:output_type -> serviceradar.agent.addon.v1.ArtifactUploadChunk
+	18, // 24: serviceradar.agent.addon.v1.AddonService.RelayOtlp:output_type -> serviceradar.agent.addon.v1.OtlpRelayFrame
+	11, // 25: serviceradar.agent.addon.v1.AddonService.RunCommand:output_type -> serviceradar.agent.addon.v1.RunCommandResponse
+	19, // [19:26] is the sub-list for method output_type
+	12, // [12:19] is the sub-list for method input_type
+	12, // [12:12] is the sub-list for extension type_name
+	12, // [12:12] is the sub-list for extension extendee
+	0,  // [0:12] is the sub-list for field type_name
 }
 
 func init() { file_agent_addon_v1_addon_proto_init() }
@@ -1334,7 +1479,7 @@ func file_agent_addon_v1_addon_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_agent_addon_v1_addon_proto_rawDesc), len(file_agent_addon_v1_addon_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   21,
+			NumMessages:   23,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

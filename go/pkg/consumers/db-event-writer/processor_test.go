@@ -10,6 +10,7 @@ import (
 	commonv1 "go.opentelemetry.io/proto/otlp/common/v1"
 	logsv1 "go.opentelemetry.io/proto/otlp/logs/v1"
 	resourcev1 "go.opentelemetry.io/proto/otlp/resource/v1"
+	tracepbv1 "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -59,6 +60,35 @@ func TestGetTableForSubject_MultiStreamRouting(t *testing.T) {
 				t.Fatalf("expected table %q, got %q", tc.want, got)
 			}
 		})
+	}
+}
+
+func TestGetTableForSubject_ExactMatchBeatsPrefixMatch(t *testing.T) {
+	t.Parallel()
+
+	// The broad "otel.metrics" mapping is listed first; the exact
+	// "otel.metrics.raw" mapping must still win.
+	p := &Processor{
+		streams: []StreamConfig{
+			{Subject: "otel.metrics", Table: "otel_metrics"},
+			{Subject: "otel.metrics.raw", Table: "otel_metric_points"},
+		},
+	}
+
+	tests := []struct {
+		subject string
+		want    string
+	}{
+		{subject: "otel.metrics.raw", want: "otel_metric_points"},
+		{subject: "demo.otel.metrics.raw", want: "otel_metric_points"},
+		{subject: "otel.metrics.derived", want: "otel_metrics"},
+		{subject: "otel.metrics", want: "otel_metrics"},
+	}
+
+	for _, tc := range tests {
+		if got := p.getTableForSubject(tc.subject); got != tc.want {
+			t.Fatalf("subject %q: expected table %q, got %q", tc.subject, tc.want, got)
+		}
 	}
 }
 
@@ -180,7 +210,7 @@ func TestParseJSONLogsPreservesSignalSchemaAttributes(t *testing.T) {
 	}
 }
 
-func TestParseOTELLogsPreservesFlattenedSignalSchemaAttributes(t *testing.T) {
+func TestParseOTELLogsStoresSignalSchemaAttributesAsJSON(t *testing.T) {
 	req := &collectlogsv1.ExportLogsServiceRequest{
 		ResourceLogs: []*logsv1.ResourceLogs{
 			{
@@ -223,8 +253,22 @@ func TestParseOTELLogsPreservesFlattenedSignalSchemaAttributes(t *testing.T) {
 		t.Fatalf("expected 1 row, got %d", len(rows))
 	}
 
-	if !strings.Contains(rows[0].Attributes, "service_radar.signal_schema.schema_id=com.carverauto.test.log") {
-		t.Fatalf("expected flattened signal schema attributes to be preserved, got %s", rows[0].Attributes)
+	var attrs map[string]any
+	if err := json.Unmarshal([]byte(rows[0].Attributes), &attrs); err != nil {
+		t.Fatalf("expected attributes to be JSON, got %s: %v", rows[0].Attributes, err)
+	}
+
+	if got := attrs["service_radar.signal_schema.schema_id"]; got != "com.carverauto.test.log" {
+		t.Fatalf("expected signal schema attributes to be preserved as JSON, got %s", rows[0].Attributes)
+	}
+
+	var resourceAttrs map[string]any
+	if err := json.Unmarshal([]byte(rows[0].ResourceAttributes), &resourceAttrs); err != nil {
+		t.Fatalf("expected resource attributes to be JSON, got %s: %v", rows[0].ResourceAttributes, err)
+	}
+
+	if got := resourceAttrs["service.name"]; got != "test-addon" {
+		t.Fatalf("expected resource attributes to be preserved as JSON, got %s", rows[0].ResourceAttributes)
 	}
 }
 
@@ -423,6 +467,277 @@ func TestParseOCSFEvent(t *testing.T) {
 
 	if !row.CreatedAt.Before(time.Now().Add(1 * time.Minute)) {
 		t.Fatalf("expected created_at to be near now")
+	}
+}
+
+func TestParseJSONLogsMarshalsStructuredBody(t *testing.T) {
+	payload := []byte(`{"body":{"action":"login","count":2},"timestamp":1700000000}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.otel.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row, got %d", len(rows))
+	}
+
+	if rows[0].Body != `{"action":"login","count":2}` {
+		t.Fatalf("expected structured body to be JSON-encoded, got %q", rows[0].Body)
+	}
+}
+
+func TestParseJSONLogsMarshalsArrayBody(t *testing.T) {
+	payload := []byte(`{"body":[{"step":"first"},{"step":"second"}],"timestamp":1700000000}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.otel.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+
+	if rows[0].Body != `[{"step":"first"},{"step":"second"}]` {
+		t.Fatalf("expected array body to be JSON-encoded, got %q", rows[0].Body)
+	}
+}
+
+func TestParseJSONLogsPreservesNanosecondTimestampPrecision(t *testing.T) {
+	payload := []byte(`{"message":"precise","timestamp":1705315800123456789}`)
+
+	rows, ok := parseJSONLogs(payload, "logs.otel.processed")
+	if !ok {
+		t.Fatalf("expected JSON log parse to succeed")
+	}
+
+	if got := rows[0].Timestamp.UnixNano(); got != 1705315800123456789 {
+		t.Fatalf("expected nanosecond-precise timestamp 1705315800123456789, got %d", got)
+	}
+}
+
+func TestNormalizeSeverityFallbacks(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		entry      map[string]interface{}
+		wantText   string
+		wantNumber int32
+	}{
+		{
+			name:       "number only trace band",
+			entry:      map[string]interface{}{"severity_number": 3},
+			wantText:   "TRACE",
+			wantNumber: 3,
+		},
+		{
+			name:       "number only debug band",
+			entry:      map[string]interface{}{"severity_number": 7},
+			wantText:   "DEBUG",
+			wantNumber: 7,
+		},
+		{
+			name:       "number only info band",
+			entry:      map[string]interface{}{"severity_number": 12},
+			wantText:   "INFO",
+			wantNumber: 12,
+		},
+		{
+			name:       "number only warn band",
+			entry:      map[string]interface{}{"severity_number": 16},
+			wantText:   "WARN",
+			wantNumber: 16,
+		},
+		{
+			name:       "number only error band",
+			entry:      map[string]interface{}{"severity_number": 20},
+			wantText:   "ERROR",
+			wantNumber: 20,
+		},
+		{
+			name:       "number only fatal band",
+			entry:      map[string]interface{}{"severity_number": 24},
+			wantText:   "FATAL",
+			wantNumber: 24,
+		},
+		{
+			name:       "unrecognized text falls back to sender number",
+			entry:      map[string]interface{}{"severity_text": "weirdlevel", "severity_number": 18},
+			wantText:   "ERROR",
+			wantNumber: 18,
+		},
+		{
+			name:       "recognized text never overwrites sender number",
+			entry:      map[string]interface{}{"severity_text": "error", "severity_number": 17},
+			wantText:   "ERROR",
+			wantNumber: 17,
+		},
+		{
+			name:       "java severe maps to error",
+			entry:      map[string]interface{}{"severity_text": "SEVERE"},
+			wantText:   "ERROR",
+			wantNumber: 19,
+		},
+		{
+			name:       "java warning maps to warn",
+			entry:      map[string]interface{}{"severity_text": "WARNING"},
+			wantText:   "WARN",
+			wantNumber: 15,
+		},
+		{
+			name:       "java fine maps to debug",
+			entry:      map[string]interface{}{"severity_text": "FINE"},
+			wantText:   "DEBUG",
+			wantNumber: 7,
+		},
+		{
+			name:       "java finest maps to trace",
+			entry:      map[string]interface{}{"severity_text": "FINEST"},
+			wantText:   "TRACE",
+			wantNumber: 3,
+		},
+		{
+			name:       "no severity signal stays empty instead of INFO",
+			entry:      map[string]interface{}{"message": "hello"},
+			wantText:   "",
+			wantNumber: 0,
+		},
+		{
+			name:       "unspecified zero number stays empty",
+			entry:      map[string]interface{}{"severity_number": 0},
+			wantText:   "",
+			wantNumber: 0,
+		},
+		{
+			name:       "json number severity_number is honored",
+			entry:      map[string]interface{}{"severity_number": json.Number("14")},
+			wantText:   "WARN",
+			wantNumber: 14,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			text, number := normalizeSeverity(tc.entry)
+			if text != tc.wantText || number != tc.wantNumber {
+				t.Fatalf("expected (%q, %d), got (%q, %d)", tc.wantText, tc.wantNumber, text, number)
+			}
+		})
+	}
+}
+
+func TestProcessResourceSpansNilResourceIngestsAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	resourceSpan := &tracepbv1.ResourceSpans{
+		Resource: nil,
+		ScopeSpans: []*tracepbv1.ScopeSpans{
+			{
+				Spans: []*tracepbv1.Span{
+					{
+						TraceId:           []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+						SpanId:            []byte{1, 2, 3, 4, 5, 6, 7, 8},
+						Name:              "orphan-span",
+						StartTimeUnixNano: 1705315800123456789,
+						EndTimeUnixNano:   1705315800123456999,
+					},
+				},
+			},
+		},
+	}
+
+	rows := processResourceSpans(resourceSpan)
+	if len(rows) != 1 {
+		t.Fatalf("expected nil-resource span to be ingested, got %d rows", len(rows))
+	}
+
+	if rows[0].ServiceName != unknownString {
+		t.Fatalf("expected service name %q, got %q", unknownString, rows[0].ServiceName)
+	}
+
+	if rows[0].ResourceAttributes != "{}" {
+		t.Fatalf("expected empty resource attributes object, got %q", rows[0].ResourceAttributes)
+	}
+
+	// Absent resource: the promoted columns fall back to their NOT NULL
+	// DEFAULT '' contract values, and the nullable columns stay "" (NULL).
+	if rows[0].ServiceNamespace != "" || rows[0].DeploymentEnvironment != "" {
+		t.Fatalf("expected empty namespace/environment defaults, got %q %q",
+			rows[0].ServiceNamespace, rows[0].DeploymentEnvironment)
+	}
+
+	if rows[0].TraceState != "" || rows[0].ScopeAttributes != "" {
+		t.Fatalf("expected empty trace state and scope attributes, got %q %q",
+			rows[0].TraceState, rows[0].ScopeAttributes)
+	}
+
+	if rows[0].DroppedAttributesCount != 0 || rows[0].DroppedEventsCount != 0 || rows[0].DroppedLinksCount != 0 {
+		t.Fatalf("expected zero dropped counts, got %d %d %d",
+			rows[0].DroppedAttributesCount, rows[0].DroppedEventsCount, rows[0].DroppedLinksCount)
+	}
+}
+
+func TestSafeUint32ToInt32CapsAtMaxInt32(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		input uint32
+		want  int32
+	}{
+		{0, 0},
+		{42, 42},
+		{2147483647, 2147483647},
+		{2147483648, 2147483647},
+		{4294967295, 2147483647},
+	}
+
+	for _, tc := range cases {
+		if got := safeUint32ToInt32(tc.input); got != tc.want {
+			t.Fatalf("safeUint32ToInt32(%d): expected %d, got %d", tc.input, tc.want, got)
+		}
+	}
+}
+
+func TestParseOTELLogsNilResourceIngestsAsUnknown(t *testing.T) {
+	t.Parallel()
+
+	req := &collectlogsv1.ExportLogsServiceRequest{
+		ResourceLogs: []*logsv1.ResourceLogs{
+			{
+				Resource: nil,
+				ScopeLogs: []*logsv1.ScopeLogs{
+					{
+						LogRecords: []*logsv1.LogRecord{
+							{
+								Body: &commonv1.AnyValue{
+									Value: &commonv1.AnyValue_StringValue{StringValue: "orphan log"},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	payload, err := proto.Marshal(req)
+	if err != nil {
+		t.Fatalf("failed to marshal OTEL logs request: %v", err)
+	}
+
+	rows, err := parseOTELLogs(payload, "logs.otel.processed")
+	if err != nil {
+		t.Fatalf("expected OTEL log parse to succeed: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("expected nil-resource log to be ingested, got %d rows", len(rows))
+	}
+
+	if rows[0].ServiceName != "unknown" {
+		t.Fatalf("expected service name %q, got %q", "unknown", rows[0].ServiceName)
+	}
+
+	if rows[0].Body != "orphan log" {
+		t.Fatalf("unexpected body: %q", rows[0].Body)
 	}
 }
 

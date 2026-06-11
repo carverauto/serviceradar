@@ -28,6 +28,7 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/connectivity"
@@ -209,6 +210,8 @@ func (g *GatewayClient) buildDialOptions(ctx context.Context) ([]grpc.DialOption
 			Timeout:             defaultKeepaliveTTL,
 			PermitWithoutStream: true,
 		}),
+		// Create client spans and propagate W3C trace context to the gateway.
+		grpc.WithStatsHandler(otelgrpc.NewClientHandler()),
 	}
 
 	if g.security != nil && g.security.Mode != "" && g.security.Mode != models.SecurityModeNone {

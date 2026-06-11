@@ -9,7 +9,9 @@ DROP TABLE IF EXISTS endpoint_inventory_current_package_counts;
 DROP TABLE IF EXISTS endpoint_inventory_current_cpe_counts;
 DROP TABLE IF EXISTS endpoint_inventory_package_counts_hourly;
 DROP TABLE IF EXISTS endpoint_inventory_cpe_counts_hourly;
-DROP TABLE IF EXISTS ocsf_devices;
+-- CASCADE: the virtualization_* tables (dropped further below) hold FKs to
+-- ocsf_devices, and seeding retries re-run this file over a populated schema.
+DROP TABLE IF EXISTS ocsf_devices CASCADE;
 
 CREATE TABLE ocsf_devices (
     -- OCSF Core Identity
@@ -62,6 +64,13 @@ CREATE TABLE ocsf_devices (
     deleted_reason      TEXT
 );
 
+-- The SRQL engine schema-qualifies device-identity correlation lookups as
+-- platform.ocsf_devices (the production schema); expose the fixture table
+-- under that name as well. The DROP ... CASCADE above removes this view on
+-- re-runs, so it is recreated here right after the table.
+CREATE SCHEMA IF NOT EXISTS platform;
+CREATE OR REPLACE VIEW platform.ocsf_devices AS SELECT * FROM public.ocsf_devices;
+
 CREATE TABLE device_agent_availability (
     id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
     device_uid          TEXT        NOT NULL REFERENCES ocsf_devices(uid) ON DELETE CASCADE,
@@ -92,7 +101,7 @@ CREATE TABLE endpoint_inventory_scans (
     package_count               INT         NOT NULL DEFAULT 0,
     enabled_sources             TEXT[]      NOT NULL DEFAULT '{}',
     manager_counts              JSONB       NOT NULL DEFAULT '{}',
-    source_summaries            JSONB       NOT NULL DEFAULT '[]',
+    source_summaries            JSONB[]     NOT NULL DEFAULT '{}',
     artifact_count              INT         NOT NULL DEFAULT 0,
     current                     BOOLEAN     NOT NULL DEFAULT FALSE,
     last_successful_scan_at     TIMESTAMPTZ,
@@ -295,6 +304,9 @@ CREATE TABLE logs (
     attributes          TEXT,
     resource_attributes TEXT,
     created_at          TIMESTAMPTZ NOT NULL,
+    ingest_identity      TEXT NOT NULL DEFAULT '',
+    ingest_agent_id      TEXT NOT NULL DEFAULT '',
+    ingest_partition     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (timestamp, id)
 );
 
@@ -349,6 +361,7 @@ CREATE TABLE otel_traces (
     trace_id             TEXT,
     span_id              TEXT        NOT NULL,
     parent_span_id       TEXT,
+    trace_state          TEXT,
     name                 TEXT,
     kind                 INT,
     start_time_unix_nano BIGINT,
@@ -356,15 +369,24 @@ CREATE TABLE otel_traces (
     service_name         TEXT,
     service_version      TEXT,
     service_instance     TEXT,
+    service_namespace    TEXT NOT NULL DEFAULT '',
+    deployment_environment TEXT NOT NULL DEFAULT '',
     scope_name           TEXT,
     scope_version        TEXT,
+    scope_attributes     TEXT,
     status_code          INT,
     status_message       TEXT,
     attributes           TEXT,
     resource_attributes  TEXT,
     events               TEXT,
     links                TEXT,
+    dropped_attributes_count INT NOT NULL DEFAULT 0,
+    dropped_events_count INT NOT NULL DEFAULT 0,
+    dropped_links_count  INT NOT NULL DEFAULT 0,
     created_at           TIMESTAMPTZ NOT NULL,
+    ingest_identity      TEXT NOT NULL DEFAULT '',
+    ingest_agent_id      TEXT NOT NULL DEFAULT '',
+    ingest_partition     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (timestamp, trace_id, span_id)
 );
 
@@ -390,6 +412,9 @@ CREATE TABLE otel_metrics (
     level            TEXT,
     unit             TEXT,
     created_at       TIMESTAMPTZ NOT NULL,
+    ingest_identity      TEXT NOT NULL DEFAULT '',
+    ingest_agent_id      TEXT NOT NULL DEFAULT '',
+    ingest_partition     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (timestamp, span_name, service_name, span_id)
 );
 

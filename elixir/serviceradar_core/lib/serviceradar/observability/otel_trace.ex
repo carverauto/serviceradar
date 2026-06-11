@@ -81,12 +81,22 @@ defmodule ServiceRadar.Observability.OtelTrace do
         :service_instance,
         :scope_name,
         :scope_version,
+        :scope_attributes,
         :status_code,
         :status_message,
+        :trace_state,
         :attributes,
         :resource_attributes,
         :events,
-        :links
+        :links,
+        :dropped_attributes_count,
+        :dropped_events_count,
+        :dropped_links_count,
+        :service_namespace,
+        :deployment_environment,
+        :ingest_identity,
+        :ingest_agent_id,
+        :ingest_partition
       ]
     end
   end
@@ -168,6 +178,22 @@ defmodule ServiceRadar.Observability.OtelTrace do
       description "Service instance ID"
     end
 
+    attribute :service_namespace, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Service namespace from OTel resource (service.namespace, '' when unset)"
+    end
+
+    attribute :deployment_environment, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Deployment environment from OTel resource " <>
+                    "(deployment.environment.name falling back to deployment.environment, '' when unset)"
+    end
+
     # Instrumentation scope
     attribute :scope_name, :string do
       public? true
@@ -179,6 +205,11 @@ defmodule ServiceRadar.Observability.OtelTrace do
       description "Instrumentation scope version"
     end
 
+    attribute :scope_attributes, :string do
+      public? true
+      description "Instrumentation scope attributes as sorted-key JSON (NULL when empty)"
+    end
+
     # Status
     attribute :status_code, :integer do
       public? true
@@ -188,6 +219,11 @@ defmodule ServiceRadar.Observability.OtelTrace do
     attribute :status_message, :string do
       public? true
       description "Status message"
+    end
+
+    attribute :trace_state, :string do
+      public? true
+      description "W3C trace state (NULL when empty)"
     end
 
     # JSON-encoded fields (stored as TEXT in Go schema)
@@ -209,6 +245,51 @@ defmodule ServiceRadar.Observability.OtelTrace do
     attribute :links, :string do
       public? true
       description "Span links as JSON string"
+    end
+
+    # Span fidelity counters from the OTLP source
+    attribute :dropped_attributes_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Number of span attributes dropped at the source"
+    end
+
+    attribute :dropped_events_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Number of span events dropped at the source"
+    end
+
+    attribute :dropped_links_count, :integer do
+      allow_nil? false
+      default 0
+      public? true
+      description "Number of span links dropped at the source"
+    end
+
+    # Ingest attribution (stamped by the agent gateway at publish time)
+    attribute :ingest_identity, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Publisher identity that ingested the span (Sr-Ingest-Identity header, '' when absent)"
+    end
+
+    attribute :ingest_agent_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Agent that ingested the span (Sr-Agent-Id header, '' when absent)"
+    end
+
+    attribute :ingest_partition, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
     end
 
     attribute :created_at, :utc_datetime_usec do

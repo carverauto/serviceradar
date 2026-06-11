@@ -128,6 +128,43 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
 
       assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
     end
+
+    test "resolution invalidates a confirmed alias across distinct MAC identity",
+         %{actor: actor} do
+      mac_a = unique_mac()
+      mac_b = unique_mac()
+      ip = unique_ip()
+
+      {:ok, alias_owner} = create_device(actor, "alias-owner-mac")
+      {:ok, updating_device} = create_device(actor, "alias-updater-mac")
+
+      {:ok, _} = register_identifier(actor, alias_owner.uid, :mac, mac_a)
+      {:ok, _} = register_identifier(actor, updating_device.uid, :mac, mac_b)
+
+      {:ok, alias_state} = create_confirmed_alias(actor, alias_owner.uid, ip)
+
+      # A recycled IP must never merge two devices on distinct hardware
+      # (different MACs) — the network-agnostic tell of pod/DHCP churn. The
+      # poisoned alias is staled instead of merging the two devices.
+      assert {:ok, resolved} =
+               IdentityReconciler.resolve_device_id(
+                 %{
+                   device_id: nil,
+                   ip: ip,
+                   mac: mac_b,
+                   partition: "default",
+                   metadata: %{}
+                 },
+                 actor: actor
+               )
+
+      assert resolved == updating_device.uid
+
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(alias_owner.uid, false, actor: actor)
+
+      assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
   end
 
   describe "merge cooldown (oscillation breaker)" do

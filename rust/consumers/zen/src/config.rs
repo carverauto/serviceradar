@@ -170,6 +170,14 @@ pub struct Config {
     pub decision_groups: Vec<DecisionGroupConfig>,
     #[serde(default)]
     pub discover_rules_from_kv: bool,
+    /// When true (the default), an OTEL log message for which no decision
+    /// rule exists is republished unchanged to the result subject
+    /// (passthrough) instead of being consumed-and-ACKed silently. Fresh
+    /// installs therefore deliver `logs.otel` -> `logs.otel.processed`
+    /// without a KV bootstrap rule. Set to false to restore strict mode
+    /// (drop unmatched messages).
+    #[serde(default = "default_passthrough_when_unmatched")]
+    pub passthrough_when_unmatched: bool,
     #[serde(default)]
     pub nats_creds_file: Option<String>,
     #[serde(default = "default_kv_bucket")]
@@ -185,6 +193,10 @@ pub struct Config {
 
 fn default_kv_bucket() -> String {
     "serviceradar-datasvc".to_string()
+}
+
+fn default_passthrough_when_unmatched() -> bool {
+    true
 }
 
 fn default_stream_replicas() -> usize {
@@ -369,6 +381,39 @@ mod tests {
     use super::*;
 
     #[test]
+    fn passthrough_when_unmatched_defaults_to_true() {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "nats_url": "nats://127.0.0.1:4222",
+                "stream_name": "events",
+                "consumer_name": "zen",
+                "subjects": ["logs.otel"],
+                "decision_keys": ["passthrough"],
+                "agent_id": "agent-01"
+            }"#,
+        )
+        .unwrap();
+        assert!(cfg.passthrough_when_unmatched);
+    }
+
+    #[test]
+    fn passthrough_when_unmatched_parses_strict_mode() {
+        let cfg: Config = serde_json::from_str(
+            r#"{
+                "nats_url": "nats://127.0.0.1:4222",
+                "stream_name": "events",
+                "consumer_name": "zen",
+                "subjects": ["logs.otel"],
+                "decision_keys": ["passthrough"],
+                "agent_id": "agent-01",
+                "passthrough_when_unmatched": false
+            }"#,
+        )
+        .unwrap();
+        assert!(!cfg.passthrough_when_unmatched);
+    }
+
+    #[test]
     fn test_security_config_mode_detection() {
         let sec = SecurityConfig {
             cert_file: Some("cert.pem".to_string()),
@@ -446,6 +491,7 @@ mod tests {
             decision_keys: Vec::new(),
             decision_groups: Vec::new(),
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: String::new(),
             agent_id: String::new(),
@@ -471,6 +517,7 @@ mod tests {
             decision_keys: vec!["passthrough".to_string()],
             decision_groups: Vec::new(),
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: "serviceradar-datasvc".to_string(),
             agent_id: "agent-01".to_string(),
@@ -501,6 +548,7 @@ mod tests {
             decision_keys: vec!["passthrough".to_string()],
             decision_groups: Vec::new(),
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: "serviceradar-datasvc".to_string(),
             agent_id: "agent-01".to_string(),
@@ -569,6 +617,7 @@ mod tests {
                 format: MessageFormat::Json,
             }],
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: "test-kv".to_string(),
             agent_id: "test-agent".to_string(),

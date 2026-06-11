@@ -65,6 +65,13 @@ pub use server::ServeError;
 /// Capability advertised by add-ons that support native telemetry streaming.
 pub const CAPABILITY_NATIVE_TELEMETRY_V1: &str = "native-telemetry:v1";
 
+/// Capability advertised by add-ons that serve the acked OTLP relay stream
+/// (`AddonService.RelayOtlp`). Unlike [`CAPABILITY_NATIVE_TELEMETRY_V1`]
+/// (lossy, fire-and-forget), relay frames carry a persistent monotonic
+/// `relay_id` and stay in the add-on's durable spool until the agent acks
+/// them after gateway acceptance, giving at-least-once delivery.
+pub const CAPABILITY_OTLP_RELAY_V1: &str = "otlp-relay:v1";
+
 pub const SIGNAL_SCHEMA_METADATA_PRODUCER_ID: &str = "serviceradar.signal_schema.producer_id";
 pub const SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION: &str =
     "serviceradar.signal_schema.producer_version";
@@ -82,6 +89,16 @@ pub const SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND: &str = "serviceradar.signal_schem
 /// Stream item type used by [`Addon::stream_telemetry`].
 pub type TelemetryStream =
     Pin<Box<dyn Stream<Item = Result<pb::TelemetryBatch, tonic::Status>> + Send + 'static>>;
+
+/// Outbound frame stream returned by [`Addon::relay_otlp`] (add-on -> agent).
+pub type OtlpRelayStream =
+    Pin<Box<dyn Stream<Item = Result<pb::OtlpRelayFrame, tonic::Status>> + Send + 'static>>;
+
+/// Inbound ack-watermark stream passed to [`Addon::relay_otlp`]
+/// (agent -> add-on). The server adapter boxes tonic's request stream into
+/// this alias so implementations (and tests) are not tied to a transport.
+pub type OtlpRelayAckStream =
+    Pin<Box<dyn Stream<Item = Result<pb::OtlpRelayAck, tonic::Status>> + Send + 'static>>;
 
 /// Coarse health of an add-on, mirroring `HealthResponse.Status` in the proto
 /// and the Go `addon.HealthStatus` enum.
@@ -346,6 +363,27 @@ pub trait Addon: Send + Sync + 'static {
             metadata: Default::default(),
         })
     }
+
+    /// Optional acked OTLP relay stream (`AddonService.RelayOtlp`). Add-ons
+    /// that advertise [`CAPABILITY_OTLP_RELAY_V1`] should override this
+    /// method: emit `OtlpRelayFrame`s with persistent monotonic `relay_id`s
+    /// from the durable spool, and release spooled frames as the cumulative
+    /// ack watermarks arrive on `acks`. The agent (the RPC client) acks a
+    /// frame only after the agent-gateway accepted it inside a
+    /// GatewayServiceStatus envelope with source == "otlp-relay", so unacked
+    /// frames must be re-sent (original `relay_id`s) after a reconnect.
+    ///
+    /// The default rejects the call with UNIMPLEMENTED so add-ons without the
+    /// capability fail loudly instead of silently dropping an acked relay.
+    //
+    // tonic::Status is the natural error type at this gRPC seam (the server
+    // adapter forwards it verbatim); its size is tonic's concern, not ours.
+    #[allow(clippy::result_large_err)]
+    fn relay_otlp(&self, _acks: OtlpRelayAckStream) -> Result<OtlpRelayStream, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "add-on does not implement otlp-relay:v1",
+        ))
+    }
 }
 
 #[cfg(test)]
@@ -378,5 +416,55 @@ mod tests {
             record.metadata.get(SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT),
             Some(&"display/dns_activity.display.json".to_owned())
         );
+    }
+
+    /// An add-on that implements only the required contract (no otlp-relay:v1).
+    struct RelaylessAddon;
+
+    #[async_trait]
+    impl Addon for RelaylessAddon {
+        async fn info(&self) -> anyhow::Result<Info> {
+            Ok(Info::default())
+        }
+
+        async fn configure(&self, _config_json: &[u8]) -> anyhow::Result<ConfigureResult> {
+            Ok(ConfigureResult::default())
+        }
+
+        async fn health(&self) -> anyhow::Result<Health> {
+            Ok(Health::default())
+        }
+    }
+
+    #[test]
+    fn relay_otlp_defaults_to_unimplemented() {
+        let err = RelaylessAddon
+            .relay_otlp(Box::pin(tokio_stream::empty()))
+            .err()
+            .expect("default relay_otlp must reject the call");
+        assert_eq!(err.code(), tonic::Code::Unimplemented);
+    }
+
+    #[test]
+    fn otlp_relay_wire_types_match_contract() {
+        assert_eq!(pb::TelemetryPayloadKind::OtlpTraces as i32, 3);
+        assert_eq!(pb::TelemetryPayloadKind::OtlpLogs as i32, 4);
+        assert_eq!(pb::TelemetryPayloadKind::OtlpMetrics as i32, 5);
+        assert_eq!(pb::TelemetryPayloadKind::OtlpDerivedMetric as i32, 6);
+
+        let frame = pb::OtlpRelayFrame {
+            relay_id: 42,
+            batch: Some(
+                TelemetryBatchBuilder::new("otel-collector", "default")
+                    .push_record(pb::TelemetryRecord {
+                        payload_kind: pb::TelemetryPayloadKind::OtlpTraces as i32,
+                        payload: b"export-request-chunk".to_vec(),
+                        ..Default::default()
+                    })
+                    .build(),
+            ),
+        };
+        let ack = pb::OtlpRelayAck { acked_relay_id: 42 };
+        assert_eq!(ack.acked_relay_id, frame.relay_id);
     }
 }

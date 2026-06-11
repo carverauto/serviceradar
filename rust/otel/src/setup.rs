@@ -58,6 +58,16 @@ pub fn log_configuration_info(config: &Config) {
 
     // Log gRPC TLS configuration (delegated to tls module)
     crate::tls::log_tls_info(config);
+
+    // Log ingestion authentication posture (never the tokens themselves)
+    if config.auth.enabled {
+        info!(
+            "OTLP ingestion authentication enforced ({} token(s) configured)",
+            config.auth.tokens.len()
+        );
+    } else {
+        info!("OTLP ingestion authentication disabled (trusted network mode)");
+    }
 }
 
 #[cfg(test)]
@@ -71,10 +81,11 @@ mod tests {
             server: ServerConfig {
                 bind_address: "127.0.0.1".to_string(),
                 port: 8080,
-                metrics: None,
+                ..ServerConfig::default()
             },
             nats: None,
             grpc_tls: None,
+            ..Default::default()
         };
 
         let addr = parse_bind_address(&config).unwrap();
@@ -88,10 +99,11 @@ mod tests {
             server: ServerConfig {
                 bind_address: "invalid".to_string(),
                 port: 8080,
-                metrics: None,
+                ..ServerConfig::default()
             },
             nats: None,
             grpc_tls: None,
+            ..Default::default()
         };
 
         let result = parse_bind_address(&config);

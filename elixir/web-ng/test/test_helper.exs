@@ -191,8 +191,25 @@ _ =
       attributes TEXT,
       resource_attributes TEXT,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      ingest_identity TEXT NOT NULL DEFAULT '',
+      ingest_agent_id TEXT NOT NULL DEFAULT '',
+      ingest_partition TEXT NOT NULL DEFAULT '',
       PRIMARY KEY (timestamp, id)
     )
+    """,
+    []
+  )
+
+# Older test databases may have a logs table predating the ingest
+# attribution columns; align them with the migration contract.
+_ =
+  SQL.query!(
+    repo,
+    """
+    ALTER TABLE logs
+      ADD COLUMN IF NOT EXISTS ingest_identity TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS ingest_agent_id TEXT NOT NULL DEFAULT '',
+      ADD COLUMN IF NOT EXISTS ingest_partition TEXT NOT NULL DEFAULT ''
     """,
     []
   )

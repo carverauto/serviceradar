@@ -39,6 +39,7 @@ const (
 	AddonService_Health_FullMethodName          = "/serviceradar.agent.addon.v1.AddonService/Health"
 	AddonService_StreamTelemetry_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamTelemetry"
 	AddonService_StreamArtifacts_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamArtifacts"
+	AddonService_RelayOtlp_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/RelayOtlp"
 	AddonService_RunCommand_FullMethodName      = "/serviceradar.agent.addon.v1.AddonService/RunCommand"
 )
 
@@ -74,6 +75,24 @@ type AddonServiceClient interface {
 	// InfoResponse.capabilities. Add-ons send bounded chunks; the agent stages the
 	// bytes through agent-gateway and never exposes object-store credentials.
 	StreamArtifacts(ctx context.Context, in *StreamArtifactsRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[ArtifactUploadChunk], error)
+	// RelayOtlp is the acked add-on-to-agent OTLP relay stream. The agent only
+	// calls this RPC for add-ons that advertise the otlp-relay:v1 capability in
+	// InfoResponse.capabilities. The add-on is the gRPC server (go-plugin
+	// transport), but the AGENT is the RPC client: it opens the stream, reads
+	// OtlpRelayFrame messages off the response stream, and writes OtlpRelayAck
+	// watermarks on the request stream.
+	//
+	// Unlike StreamTelemetry (lossy, fire-and-forget), RelayOtlp is an
+	// at-least-once delivery contract: every frame carries a persistent,
+	// monotonically increasing relay_id assigned by the add-on's durable spool,
+	// and the frame remains the add-on's responsibility (spooled on disk) until
+	// the agent acks it. The agent forwards each frame to the agent-gateway
+	// inside a GatewayServiceStatus envelope with source == "otlp-relay"
+	// (GatewayServiceStatus.message = the encoded TelemetryBatch) and acks the
+	// add-on only after the gateway confirms the forward succeeded. After a
+	// reconnect the add-on re-sends every unacked frame, resuming from its last
+	// acked watermark with the original relay_ids.
+	RelayOtlp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OtlpRelayAck, OtlpRelayFrame], error)
 	// RunCommand executes a bounded, platform-scheduled command against a local
 	// add-on instance. The control plane records an addon.run_command command,
 	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
@@ -158,6 +177,19 @@ func (c *addonServiceClient) StreamArtifacts(ctx context.Context, in *StreamArti
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_StreamArtifactsClient = grpc.ServerStreamingClient[ArtifactUploadChunk]
 
+func (c *addonServiceClient) RelayOtlp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OtlpRelayAck, OtlpRelayFrame], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AddonService_ServiceDesc.Streams[2], AddonService_RelayOtlp_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[OtlpRelayAck, OtlpRelayFrame]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_RelayOtlpClient = grpc.BidiStreamingClient[OtlpRelayAck, OtlpRelayFrame]
+
 func (c *addonServiceClient) RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunCommandResponse)
@@ -200,6 +232,24 @@ type AddonServiceServer interface {
 	// InfoResponse.capabilities. Add-ons send bounded chunks; the agent stages the
 	// bytes through agent-gateway and never exposes object-store credentials.
 	StreamArtifacts(*StreamArtifactsRequest, grpc.ServerStreamingServer[ArtifactUploadChunk]) error
+	// RelayOtlp is the acked add-on-to-agent OTLP relay stream. The agent only
+	// calls this RPC for add-ons that advertise the otlp-relay:v1 capability in
+	// InfoResponse.capabilities. The add-on is the gRPC server (go-plugin
+	// transport), but the AGENT is the RPC client: it opens the stream, reads
+	// OtlpRelayFrame messages off the response stream, and writes OtlpRelayAck
+	// watermarks on the request stream.
+	//
+	// Unlike StreamTelemetry (lossy, fire-and-forget), RelayOtlp is an
+	// at-least-once delivery contract: every frame carries a persistent,
+	// monotonically increasing relay_id assigned by the add-on's durable spool,
+	// and the frame remains the add-on's responsibility (spooled on disk) until
+	// the agent acks it. The agent forwards each frame to the agent-gateway
+	// inside a GatewayServiceStatus envelope with source == "otlp-relay"
+	// (GatewayServiceStatus.message = the encoded TelemetryBatch) and acks the
+	// add-on only after the gateway confirms the forward succeeded. After a
+	// reconnect the add-on re-sends every unacked frame, resuming from its last
+	// acked watermark with the original relay_ids.
+	RelayOtlp(grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]) error
 	// RunCommand executes a bounded, platform-scheduled command against a local
 	// add-on instance. The control plane records an addon.run_command command,
 	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
@@ -230,6 +280,9 @@ func (UnimplementedAddonServiceServer) StreamTelemetry(*StreamTelemetryRequest, 
 }
 func (UnimplementedAddonServiceServer) StreamArtifacts(*StreamArtifactsRequest, grpc.ServerStreamingServer[ArtifactUploadChunk]) error {
 	return status.Errorf(codes.Unimplemented, "method StreamArtifacts not implemented")
+}
+func (UnimplementedAddonServiceServer) RelayOtlp(grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]) error {
+	return status.Errorf(codes.Unimplemented, "method RelayOtlp not implemented")
 }
 func (UnimplementedAddonServiceServer) RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RunCommand not implemented")
@@ -331,6 +384,13 @@ func _AddonService_StreamArtifacts_Handler(srv interface{}, stream grpc.ServerSt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_StreamArtifactsServer = grpc.ServerStreamingServer[ArtifactUploadChunk]
 
+func _AddonService_RelayOtlp_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AddonServiceServer).RelayOtlp(&grpc.GenericServerStream[OtlpRelayAck, OtlpRelayFrame]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_RelayOtlpServer = grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]
+
 func _AddonService_RunCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RunCommandRequest)
 	if err := dec(in); err != nil {
@@ -383,6 +443,12 @@ var AddonService_ServiceDesc = grpc.ServiceDesc{
 			StreamName:    "StreamArtifacts",
 			Handler:       _AddonService_StreamArtifacts_Handler,
 			ServerStreams: true,
+		},
+		{
+			StreamName:    "RelayOtlp",
+			Handler:       _AddonService_RelayOtlp_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "agent/addon/v1/addon.proto",

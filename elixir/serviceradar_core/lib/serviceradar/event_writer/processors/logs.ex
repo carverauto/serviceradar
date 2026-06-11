@@ -24,6 +24,9 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
   alias ServiceRadar.EventWriter.FieldParser
+  alias ServiceRadar.EventWriter.IngestAttribution
+  alias ServiceRadar.EventWriter.OtelId
+  alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
 
@@ -36,8 +39,11 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def process_batch(messages) do
+    SignalTelemetry.emit(:logs, :received, length(messages))
+
     # DB connection's search_path determines the schema
-    rows = build_rows(messages)
+    {rows, rejected} = build_rows(messages)
+    SignalTelemetry.emit(:logs, :rejected, rejected)
 
     if Enum.empty?(rows) do
       {:ok, 0}
@@ -52,18 +58,29 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    case Jason.decode(data) do
-      {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
-      {:error, _} = error -> parse_log_payload(error, data, metadata)
-    end
+    attribution = IngestAttribution.from_metadata(metadata)
+
+    case_result =
+      case Jason.decode(data) do
+        {:ok, _} = decoded -> parse_log_payload(decoded, data, metadata)
+        {:error, _} = error -> parse_log_payload(error, data, metadata)
+      end
+
+    IngestAttribution.attach(case_result, attribution)
   end
 
   # Private functions
 
   defp build_rows(messages) do
-    messages
-    |> Enum.flat_map(&List.wrap(parse_message(&1)))
-    |> Enum.reject(&is_nil/1)
+    parsed = Enum.map(messages, &parse_message/1)
+    rejected = Enum.count(parsed, &is_nil/1)
+
+    rows =
+      parsed
+      |> Enum.reject(&is_nil/1)
+      |> Enum.flat_map(&List.wrap/1)
+
+    {rows, rejected}
   end
 
   defp insert_log_rows(rows) do
@@ -79,6 +96,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       )
 
     maybe_promote_logs(rows)
+    SignalTelemetry.emit(:logs, :written, count)
     LogPubSub.broadcast_ingest(%{count: count})
     {:ok, count}
   end
@@ -106,8 +124,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
       id: log_id,
       timestamp: parse_timestamp(json),
       observed_timestamp: observed_timestamp,
-      trace_id: FieldParser.get_field(json, "trace_id", "traceId"),
-      span_id: FieldParser.get_field(json, "span_id", "spanId"),
+      trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
+      span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
       trace_flags: parse_trace_flags(json),
       severity_text:
         FieldParser.get_field(json, "severity_text", "severityText") || json["severity"] ||
@@ -312,8 +330,8 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
         %{
           id: log_id,
           timestamp: parse_otel_timestamp(log_record),
-          trace_id: bytes_to_hex(log_record.trace_id),
-          span_id: bytes_to_hex(log_record.span_id),
+          trace_id: OtelId.normalize_trace_id(log_record.trace_id),
+          span_id: OtelId.normalize_span_id(log_record.span_id),
           severity_text: log_record.severity_text,
           severity_number: FieldParser.safe_bigint(log_record.severity_number),
           body: any_value_to_body(log_record.body),
@@ -562,8 +580,4 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   defp empty_metadata_value?(%{} = map), do: map_size(map) == 0
   defp empty_metadata_value?([]), do: true
   defp empty_metadata_value?(_value), do: false
-
-  defp bytes_to_hex(<<>>), do: nil
-  defp bytes_to_hex(nil), do: nil
-  defp bytes_to_hex(bytes) when is_binary(bytes), do: Base.encode16(bytes, case: :lower)
 end

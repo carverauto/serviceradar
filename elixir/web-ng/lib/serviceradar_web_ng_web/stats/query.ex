@@ -109,6 +109,27 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   end
 
   @doc """
+  Build SRQL query for span RED (rate/errors/duration) stats.
+
+  Returns: total, errors, slow, error_rate, avg_duration_ms, p50_duration_ms,
+  p95_duration_ms, max_duration_ms.
+  Uses the `spans_red_1h` CAGG computed over ALL spans (not just slow samples).
+  """
+  @spec metrics_red(keyword()) :: String.t()
+  def metrics_red(opts \\ []) do
+    time = Keyword.get(opts, :time, @default_time_window)
+    service_name = Keyword.get(opts, :service_name)
+
+    base = "in:otel_traces time:#{time} rollup_stats:red"
+
+    if is_binary(service_name) and service_name != "" do
+      "#{base} service_name:\"#{escape_value(service_name)}\""
+    else
+      base
+    end
+  end
+
+  @doc """
   Build SRQL query for services availability stats.
 
   Returns: total, available, unavailable, availability_pct.

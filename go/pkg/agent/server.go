@@ -300,12 +300,25 @@ func (s *Server) initAddonManager() {
 	if s.addonTelemetry == nil {
 		s.addonTelemetry = newAddonTelemetryBuffer(defaultAddonTelemetryQueueSize)
 	}
+	if s.addonOtlpRelay == nil {
+		s.addonOtlpRelay = newAddonOtlpRelayDeps()
+	}
+
+	localOtlpEndpoint := ""
+	if s.config != nil {
+		localOtlpEndpoint = strings.TrimSpace(s.config.LocalOtlpEndpoint)
+	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
 		CredentialResolver: s.credentialBroker,
 		TelemetryHandler:   s.handleAddonTelemetry,
 		ArtifactHandler:    s.handleAddonArtifact,
-		Logger:             s.logger.WithComponent("agent.addon"),
+		OtlpRelayRunner:    s.runAddonOtlpRelay,
+		// Fallback self-telemetry endpoint (agent.local_otlp_endpoint); the
+		// endpoint derived from a sidecar otel-collector add-on's delivered
+		// config wins inside the manager.
+		LocalOtlpEndpoint: localOtlpEndpoint,
+		Logger:            s.logger.WithComponent("agent.addon"),
 	})
 }
 

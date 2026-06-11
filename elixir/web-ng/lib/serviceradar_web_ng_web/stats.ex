@@ -60,15 +60,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
           informational: non_neg_integer()
         }
 
-  @type metrics_summary :: %{
-          total: non_neg_integer(),
-          slow_spans: non_neg_integer(),
-          error_spans: non_neg_integer(),
-          avg_duration_ms: float(),
-          p95_duration_ms: float(),
-          max_duration_ms: float(),
-          sample_size: non_neg_integer()
-        }
+  @type metrics_summary :: Extract.metrics_red()
 
   @type trace_rollup_status :: %{
           healthy?: boolean(),
@@ -208,60 +200,34 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   @doc """
-  Fetch metric overview counts and duration stats from the hourly metrics CAGG.
+  Fetch span RED (rate/errors/duration) stats using the rollup_stats pattern.
 
-  This is intentionally rollup-only. Observability stat cards should not fall
-  back to raw `otel_metrics` counts on page load because high-volume installs can
-  make those scans expensive.
+  Backs the metrics stat cards. Uses the `spans_red_1h` CAGG computed over ALL
+  spans, so totals/percentiles are unbiased (unlike the slow-sample-only
+  `otel_metrics` rows). This is intentionally rollup-only: stat cards should
+  not fall back to raw row scans on page load.
+
+  ## Options
+
+    * `:time` - Time range filter (default: "last_24h")
+    * `:service_name` - Filter by service name (optional)
+    * `:srql_module` - SRQL module to use (default from config)
+
+  ## Examples
+
+      Stats.metrics_summary()
+      Stats.metrics_summary(time: "last_6h")
+      Stats.metrics_summary(service_name: "core-elx")
   """
   @spec metrics_summary(keyword()) :: metrics_summary()
   def metrics_summary(opts \\ []) do
-    time_window = Keyword.get(opts, :time, "last_24h")
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+    query = Query.metrics_red(opts)
 
-    with true <- repo_started?(),
-         {:ok, cutoff} <- cutoff_for_time_window(time_window) do
-      query =
-        from(s in "otel_metrics_hourly_stats",
-          where: s.bucket >= ^cutoff,
-          select: %{
-            total_count: sum(s.total_count),
-            error_count: sum(s.error_count),
-            slow_count: sum(s.slow_count),
-            avg_duration_ms:
-              fragment(
-                "CASE WHEN SUM(?) > 0 THEN SUM(? * ?) / SUM(?) ELSE 0 END",
-                s.total_count,
-                s.avg_duration_ms,
-                s.total_count,
-                s.total_count
-              ),
-            p95_duration_ms: max(s.p95_duration_ms),
-            max_duration_ms: max(s.max_duration_ms)
-          }
-        )
-
-      case Repo.one(query) do
-        %{total_count: total} = stats when not is_nil(total) ->
-          %{
-            total: to_int(total),
-            slow_spans: to_int(stats.slow_count),
-            error_spans: to_int(stats.error_count),
-            avg_duration_ms: to_float(stats.avg_duration_ms),
-            p95_duration_ms: to_float(stats.p95_duration_ms),
-            max_duration_ms: to_float(stats.max_duration_ms),
-            sample_size: to_int(total)
-          }
-
-        _ ->
-          empty_metrics_summary()
-      end
-    else
-      _ -> empty_metrics_summary()
-    end
-  rescue
-    error ->
-      Logger.warning("Failed to query metrics rollup stats: #{Exception.message(error)}")
-      empty_metrics_summary()
+    query
+    |> srql_module.query(%{scope: scope})
+    |> Extract.metrics_red()
   end
 
   @doc """
@@ -454,17 +420,7 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   @spec empty_metrics_summary() :: metrics_summary()
-  def empty_metrics_summary do
-    %{
-      total: 0,
-      slow_spans: 0,
-      error_spans: 0,
-      avg_duration_ms: 0.0,
-      p95_duration_ms: 0.0,
-      max_duration_ms: 0.0,
-      sample_size: 0
-    }
-  end
+  defdelegate empty_metrics_summary(), to: Extract, as: :empty_metrics_red
 
   @spec empty_trace_rollup_status() :: trace_rollup_status()
   def empty_trace_rollup_status do
@@ -493,7 +449,11 @@ defmodule ServiceRadarWebNGWeb.Stats do
     end
   end
 
-  defp repo_started?, do: is_pid(Process.whereis(Repo))
+  # ServiceRadarWebNG.Repo is a defdelegate shim and never a registered
+  # process; the actual repo process is ServiceRadar.Repo. Checking the shim
+  # name made this guard permanently false and silently disabled every
+  # caller (the metrics cards were hardwired to zero for that reason).
+  defp repo_started?, do: is_pid(Process.whereis(ServiceRadar.Repo))
 
   defp traces_rollup_exists? do
     case SQL.query(
@@ -622,9 +582,4 @@ defmodule ServiceRadarWebNGWeb.Stats do
   end
 
   defp to_int(_), do: 0
-
-  defp to_float(value) when is_float(value), do: value
-  defp to_float(value) when is_integer(value), do: value * 1.0
-  defp to_float(%Decimal{} = value), do: Decimal.to_float(value)
-  defp to_float(_), do: 0.0
 end

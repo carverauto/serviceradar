@@ -91,6 +91,7 @@ defmodule ServiceRadar.Observability do
     # OTel resources - these map to existing TimescaleDB hypertables/views
     # with migrate?: false so Ash doesn't try to manage the schema
     resource ServiceRadar.Observability.OtelMetric
+    resource ServiceRadar.Observability.OtelMetricPoint
     resource ServiceRadar.Observability.OtelTrace
     resource ServiceRadar.Observability.OtelTraceSummary
   end

@@ -1,0 +1,48 @@
+{{- $logCollectorOtlp := (default (dict) .Values.logCollector).otlp | default dict -}}
+{{- $otlpService := default (dict) $logCollectorOtlp.service -}}
+{{- if $otlpService.enabled }}
+# Dedicated Service for OTLP ingest into the log-collector.
+# Defaults to ClusterIP (no public IP): expose externally either through the
+# shared gateway routes (logCollector.otlp.gateway, preferred) or by opting
+# in to type=LoadBalancer for a dedicated public IP.
+# OTLP/gRPC is served on port 4317 with server TLS issued by the ServiceRadar
+# private CA: external senders must trust the ServiceRadar root CA bundle or
+# disable certificate verification (insecure skip-verify).
+apiVersion: v1
+kind: Service
+metadata:
+  name: serviceradar-otlp
+  labels:
+    app.kubernetes.io/part-of: serviceradar
+    app.kubernetes.io/name: serviceradar-otlp
+    app.kubernetes.io/component: otlp-ingest
+  {{- with $otlpService.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $otlpService.type | default "ClusterIP" }}
+  {{- if and (ne ($otlpService.type | default "ClusterIP") "ClusterIP") $otlpService.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ $otlpService.externalTrafficPolicy }}
+  {{- end }}
+  {{- if $otlpService.loadBalancerIP }}
+  loadBalancerIP: {{ $otlpService.loadBalancerIP | quote }}
+  {{- end }}
+  {{- if $otlpService.loadBalancerClass }}
+  loadBalancerClass: {{ $otlpService.loadBalancerClass | quote }}
+  {{- end }}
+  selector:
+    app: serviceradar-log-collector
+  ports:
+  - name: otlp-grpc
+    port: {{ $otlpService.port | default 4317 }}
+    targetPort: {{ $otlpService.targetPort | default 4317 }}
+    protocol: TCP
+  {{- $otlpHttp := default (dict) $otlpService.http }}
+  {{- if $otlpHttp.enabled }}
+  - name: otlp-http
+    port: {{ $otlpHttp.port | default 4318 }}
+    targetPort: {{ $otlpHttp.targetPort | default 4318 }}
+    protocol: TCP
+  {{- end }}
+{{- end }}

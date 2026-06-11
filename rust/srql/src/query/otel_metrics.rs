@@ -8,10 +8,11 @@ use crate::{
         component as col_component, grpc_method as col_grpc_method,
         grpc_service as col_grpc_service, grpc_status_code as col_grpc_status,
         http_method as col_http_method, http_route as col_http_route,
-        http_status_code as col_http_status, is_slow as col_is_slow, level as col_level,
-        metric_type as col_metric_type, otel_metrics, service_name as col_service_name,
-        span_id as col_span_id, span_kind as col_span_kind, span_name as col_span_name,
-        timestamp as col_timestamp, trace_id as col_trace_id,
+        http_status_code as col_http_status, ingest_agent_id as col_ingest_agent_id,
+        ingest_identity as col_ingest_identity, ingest_partition as col_ingest_partition,
+        is_slow as col_is_slow, level as col_level, metric_type as col_metric_type, otel_metrics,
+        service_name as col_service_name, span_id as col_span_id, span_kind as col_span_kind,
+        span_name as col_span_name, timestamp as col_timestamp, trace_id as col_trace_id,
     },
     time::TimeRange,
 };
@@ -147,7 +148,8 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
     match filter.field.as_str() {
         "trace_id" | "span_id" | "service_name" | "service" | "span_name" | "span_kind"
         | "metric_type" | "type" | "component" | "level" | "http_method" | "http_route"
-        | "http_status_code" | "grpc_service" | "grpc_method" | "grpc_status_code" => {
+        | "http_status_code" | "grpc_service" | "grpc_method" | "grpc_status_code"
+        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
             collect_text_params(params, filter)
         }
         "is_slow" => {
@@ -203,6 +205,15 @@ fn apply_filter<'a>(mut query: MetricsQuery<'a>, filter: &Filter) -> Result<Metr
         }
         "grpc_status_code" => {
             query = apply_text_filter!(query, filter, col_grpc_status)?;
+        }
+        "ingest_identity" => {
+            query = apply_text_filter!(query, filter, col_ingest_identity)?;
+        }
+        "ingest_agent_id" => {
+            query = apply_text_filter!(query, filter, col_ingest_agent_id)?;
+        }
+        "ingest_partition" => {
+            query = apply_text_filter!(query, filter, col_ingest_partition)?;
         }
         "is_slow" => {
             let value = parse_bool(filter.value.as_scalar()?)?;
@@ -458,6 +469,9 @@ fn build_stats_filter_clause(filter: &Filter) -> Result<Option<(String, Vec<SqlB
         "grpc_service" => build_text_clause("grpc_service", filter, &mut binds)?,
         "grpc_method" => build_text_clause("grpc_method", filter, &mut binds)?,
         "grpc_status_code" => build_text_clause("grpc_status_code", filter, &mut binds)?,
+        "ingest_identity" => build_text_clause("ingest_identity", filter, &mut binds)?,
+        "ingest_agent_id" => build_text_clause("ingest_agent_id", filter, &mut binds)?,
+        "ingest_partition" => build_text_clause("ingest_partition", filter, &mut binds)?,
         "is_slow" => {
             let value = parse_bool(filter.value.as_scalar()?)?;
             binds.push(SqlBindValue::Bool(value));
@@ -595,17 +609,12 @@ mod tests {
     use crate::parser::{Entity, Filter, FilterOp, FilterValue};
     use chrono::{Duration as ChronoDuration, TimeZone, Utc};
 
-    #[test]
-    fn unknown_filter_field_returns_error() {
+    fn base_plan(filters: Vec<Filter>) -> QueryPlan {
         let start = Utc.with_ymd_and_hms(2025, 1, 1, 0, 0, 0).unwrap();
         let end = start + ChronoDuration::hours(1);
-        let plan = QueryPlan {
+        QueryPlan {
             entity: Entity::OtelMetrics,
-            filters: vec![Filter {
-                field: "unknown_field".into(),
-                op: FilterOp::Eq,
-                value: FilterValue::Scalar("test".to_string()),
-            }],
+            filters,
             order: Vec::new(),
             limit: 100,
             offset: 0,
@@ -614,7 +623,77 @@ mod tests {
             downsample: None,
             rollup_stats: None,
             include_deleted: false,
-        };
+        }
+    }
+
+    #[test]
+    fn ingest_identity_eq_filter_generates_sql_and_bind() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_identity".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("spiffe://sr/agent/edge-1".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_identity\" = $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "spiffe://sr/agent/edge-1"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_agent_id_like_filter_uses_ilike() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_agent_id".into(),
+            op: FilterOp::Like,
+            value: FilterValue::Scalar("%edge%".to_string()),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_agent_id\" ILIKE $3"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::Text(value) if value == "%edge%"),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn ingest_partition_in_filter_generates_any_clause() {
+        let plan = base_plan(vec![Filter {
+            field: "ingest_partition".into(),
+            op: FilterOp::In,
+            value: FilterValue::List(vec!["default".into(), "tenant-a".into()]),
+        }]);
+
+        let (sql, params) = to_sql_and_params(&plan).expect("sql should generate");
+
+        assert!(
+            sql.contains("\"otel_metrics\".\"ingest_partition\" = ANY($3)"),
+            "{sql}"
+        );
+        assert!(
+            matches!(&params[2], BindParam::TextArray(values)
+                if values == &vec!["default".to_string(), "tenant-a".to_string()]),
+            "params: {params:?}"
+        );
+    }
+
+    #[test]
+    fn unknown_filter_field_returns_error() {
+        let plan = base_plan(vec![Filter {
+            field: "unknown_field".into(),
+            op: FilterOp::Eq,
+            value: FilterValue::Scalar("test".to_string()),
+        }]);
 
         let result = build_query(&plan);
         match result {

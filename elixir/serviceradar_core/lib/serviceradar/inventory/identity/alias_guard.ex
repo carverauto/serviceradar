@@ -26,10 +26,12 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
            Resolver.lookup_alias_device_id(ip, partition, actor),
          true <- alias_device_id != device_id,
          false <- Ids.service_device_id?(alias_device_id) do
-      if distinct_agent_identity_conflict?(alias_device_id, device_id, actor) do
-        # A bare IP sighting must never override agent identity. The alias is
-        # pointing at a device that belongs to a different agent — invalidate
-        # it so it stops feeding merge attempts.
+      if distinct_strong_identity_conflict?(alias_device_id, device_id, actor) do
+        # A bare IP must never merge two devices that carry distinct strong
+        # identity. Different agents — or different MACs, the network-agnostic
+        # tell that a recycling IP (a churned pod address, a reused DHCP lease)
+        # has rebound to other hardware — mean these are different hosts.
+        # Invalidate the alias so the recycled IP stops feeding merge attempts.
         invalidate_ip_alias(ip, partition, alias_device_id, device_id, actor)
       else
         _ =
@@ -45,6 +47,44 @@ defmodule ServiceRadar.Inventory.Identity.AliasGuard do
     end
 
     :ok
+  end
+
+  @doc """
+  Whether two devices hold distinct STRONG identity — different agents, or
+  different MACs. A shared bare IP must never merge across such a conflict.
+
+  Distinct MACs are the network-agnostic signal that a recycling IP (a churned
+  pod address, a reused DHCP lease) has rebound to different hardware — no IP
+  range list or per-deployment config required.
+  """
+  @spec distinct_strong_identity_conflict?(String.t(), String.t(), term()) :: boolean()
+  def distinct_strong_identity_conflict?(device_a, device_b, actor) do
+    distinct_agent_identity_conflict?(device_a, device_b, actor) or
+      distinct_mac_conflict?(device_a, device_b, actor)
+  end
+
+  defp distinct_mac_conflict?(device_a, device_b, actor) do
+    macs_a = device_macs(device_a, actor)
+    macs_b = device_macs(device_b, actor)
+
+    macs_a != [] and macs_b != [] and
+      MapSet.disjoint?(MapSet.new(macs_a), MapSet.new(macs_b))
+  end
+
+  defp device_macs(device_id, actor) do
+    query_opts = if actor, do: [actor: actor], else: []
+
+    DeviceIdentifier
+    |> Ash.Query.filter(device_id == ^device_id and identifier_type == :mac)
+    |> Ash.read(query_opts)
+    |> case do
+      {:ok, identifiers} -> identifiers |> Enum.map(& &1.identifier_value) |> Enum.uniq()
+      _ -> []
+    end
+  rescue
+    e ->
+      Logger.warning("Failed to load MAC identities for #{device_id}: #{inspect(e)}")
+      []
   end
 
   @doc """

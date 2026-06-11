@@ -100,6 +100,15 @@ func Init(ctx context.Context, config *Config) error {
 
 		instance.otelWriter = otelWriter
 		output = NewMultiWriter(output, otelWriter)
+
+		// Stand up the global TracerProvider alongside OTel logging so
+		// gRPC servers/clients emit and propagate trace context.
+		if err := EnsureTracing(ctx, TracingConfig{
+			ServiceName: config.OTel.ServiceName,
+			OTel:        &config.OTel,
+		}); err != nil {
+			return err
+		}
 	}
 
 	instance.logger = zerolog.New(output).

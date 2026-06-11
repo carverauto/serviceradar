@@ -318,7 +318,53 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
-    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics()
+    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics() ++ observability_signal_metrics()
+  end
+
+  @doc """
+  Returns EventWriter per-signal counters and observability health gauges.
+  """
+  @spec observability_signal_metrics() :: list()
+  def observability_signal_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.event_writer.signal.count",
+        event_name: [:serviceradar, :event_writer, :signal],
+        measurement: :count,
+        tags: [:signal, :outcome],
+        description:
+          "EventWriter per-signal volume (signal: logs/traces/metrics/metric_points; " <>
+            "outcome: received/written/rejected/relayed)"
+      ),
+      sum("serviceradar.otlp_relay.spool.dropped.count",
+        event_name: [:serviceradar, :otlp_relay, :spool],
+        measurement: :dropped,
+        tags: [:agent_id],
+        description:
+          "OTLP edge relay records evicted/dropped at the agent-side spool " <>
+            "(delta carried on each relay TelemetryBatch)"
+      ),
+      last_value("serviceradar.otlp_relay.spool.queue_depth.value",
+        event_name: [:serviceradar, :otlp_relay, :spool],
+        measurement: :queue_depth,
+        tags: [:agent_id],
+        description: "OTLP edge relay spool depth reported by the most recent relay frame"
+      ),
+      counter("serviceradar.otlp_relay.record_rejected.count",
+        event_name: [:serviceradar, :otlp_relay, :record_rejected],
+        measurement: :count,
+        tags: [:agent_id],
+        description: "OTLP relay records dropped in core because their payload kind is unroutable"
+      ),
+      last_value("serviceradar.observability.root_span_ratio.ratio",
+        event_name: [:serviceradar, :observability, :root_span_ratio],
+        measurement: :ratio,
+        description:
+          "Share of spans ingested in the recent window that are root spans " <>
+            "(parent_span_id IS NULL); sustained high values indicate lost parent linkage"
+      )
+    ]
   end
 
   @doc """

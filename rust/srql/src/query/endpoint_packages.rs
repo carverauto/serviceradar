@@ -151,7 +151,11 @@ struct EndpointPackageRollupSql {
 
 impl EndpointPackageRollupSql {
     fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
-        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+        // Keep the native `$N` placeholders: diesel's BoxedSqlQuery passes the
+        // SQL string to Postgres verbatim and only appends bind values, so a
+        // `?` placeholder is parsed by Postgres as a (jsonb) operator and the
+        // query fails with a syntax error.
+        let mut query = sql_query(self.sql.clone()).into_boxed::<Pg>();
 
         for bind in &self.binds {
             query = bind.apply(query);

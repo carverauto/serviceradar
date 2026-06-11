@@ -4,9 +4,11 @@ defmodule ServiceRadar.StatusHandlerTest do
   alias Netprobepb.FlowAttributionEvent
   alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryCounters
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias Serviceradar.Agent.Addon.V1.TelemetrySource
   alias ServiceRadar.EventWriter.AttributedFlowJoiner
+  alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.StatusHandler
 
   setup do
@@ -455,6 +457,240 @@ defmodule ServiceRadar.StatusHandlerTest do
 
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
     end
+  end
+
+  describe "otlp-relay source" do
+    setup do
+      original = Application.get_env(:serviceradar_core, StatusHandler, [])
+
+      Application.put_env(:serviceradar_core, StatusHandler,
+        otlp_relay_publisher: {__MODULE__, :relay_publish, [self()]}
+      )
+
+      on_exit(fn ->
+        if original == [] do
+          Application.delete_env(:serviceradar_core, StatusHandler)
+        else
+          Application.put_env(:serviceradar_core, StatusHandler, original)
+        end
+      end)
+
+      :ok
+    end
+
+    test "routes records to per-kind subjects with verbatim payloads and gateway-derived headers" do
+      traces_payload = <<0xDE, 0xAD, 0x01, 255, 0, 17>>
+      logs_payload = <<0xBE, 0xEF, 0x02>>
+      metrics_payload = <<0xCA, 0xFE, 0x03>>
+      derived_payload = <<0xF0, 0x0D, 0x04>>
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "otel-collector", source_instance: "edge-1"},
+          records: [
+            %TelemetryRecord{
+              event_id: "r-1",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+              payload: traces_payload
+            },
+            %TelemetryRecord{
+              event_id: "r-2",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+              payload: logs_payload
+            },
+            %TelemetryRecord{
+              event_id: "r-3",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_METRICS,
+              payload: metrics_payload
+            },
+            %TelemetryRecord{
+              event_id: "r-4",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC,
+              payload: derived_payload
+            }
+          ]
+        })
+
+      assert {:reply, :ok, %{}} =
+               StatusHandler.handle_call({:status_update, relay_status(batch)}, self(), %{})
+
+      expected_headers = [
+        {"Sr-Agent-Id", "agent-1"},
+        {"Sr-Partition", "prod-east"},
+        {"Sr-Ingest-Identity", "agent:agent-1"}
+      ]
+
+      assert_receive {:relay_published, "otel.traces.raw", ^traces_payload, traces_opts}
+      assert Keyword.get(traces_opts, :headers) == expected_headers
+
+      assert_receive {:relay_published, "logs.otel", ^logs_payload, logs_opts}
+      assert Keyword.get(logs_opts, :headers) == expected_headers
+
+      assert_receive {:relay_published, "otel.metrics.raw", ^metrics_payload, metrics_opts}
+      assert Keyword.get(metrics_opts, :headers) == expected_headers
+
+      assert_receive {:relay_published, "otel.metrics.derived", ^derived_payload, derived_opts}
+      assert Keyword.get(derived_opts, :headers) == expected_headers
+
+      refute_receive {:relay_published, _subject, _payload, _opts}
+    end
+
+    test "stamps headers from the gateway-authenticated view, ignoring payload-claimed identity" do
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{
+            source_type: "otel-collector",
+            source_instance: "edge-1",
+            metadata: %{
+              "partition" => "spoofed-partition",
+              "agent_id" => "spoofed-agent"
+            }
+          },
+          records: [
+            %TelemetryRecord{
+              event_id: "r-1",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+              payload: <<1, 2, 3>>,
+              metadata: %{
+                "Sr-Agent-Id" => "spoofed-agent",
+                "Sr-Partition" => "spoofed-partition",
+                "Sr-Ingest-Identity" => "token:spoofed"
+              }
+            }
+          ]
+        })
+
+      assert {:reply, :ok, %{}} =
+               StatusHandler.handle_call({:status_update, relay_status(batch)}, self(), %{})
+
+      assert_receive {:relay_published, "otel.traces.raw", <<1, 2, 3>>, opts}
+
+      # The cert-derived (gateway-authenticated) identity in the status map
+      # wins over anything carried inside the payload.
+      assert Keyword.get(opts, :headers) == [
+               {"Sr-Agent-Id", "agent-1"},
+               {"Sr-Partition", "prod-east"},
+               {"Sr-Ingest-Identity", "agent:agent-1"}
+             ]
+    end
+
+    test "propagates publish failures as errors so the gateway NACKs the agent" do
+      Application.put_env(:serviceradar_core, StatusHandler,
+        otlp_relay_publisher: {__MODULE__, :relay_publish_fail, [self()]}
+      )
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          records: [
+            %TelemetryRecord{
+              event_id: "r-1",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+              payload: <<9>>
+            }
+          ]
+        })
+
+      assert {:reply, {:error, {:otlp_relay_publish_failed, :nats_down}}, %{}} =
+               StatusHandler.handle_call({:status_update, relay_status(batch)}, self(), %{})
+
+      assert_receive {:relay_publish_attempt, "otel.traces.raw", <<9>>, _opts}
+    end
+
+    test "returns a decode error for malformed relay batches" do
+      assert {:reply, {:error, :otlp_relay_decode_failed}, %{}} =
+               StatusHandler.handle_call(
+                 {:status_update, relay_status(<<255, 255, 255, 255>>)},
+                 self(),
+                 %{}
+               )
+    end
+
+    test "skips records with unroutable payload kinds without failing the frame" do
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          records: [
+            %TelemetryRecord{
+              event_id: "skip",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: "{}"
+            },
+            %TelemetryRecord{
+              event_id: "keep",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS,
+              payload: <<7>>
+            }
+          ]
+        })
+
+      assert {:reply, :ok, %{}} =
+               StatusHandler.handle_call({:status_update, relay_status(batch)}, self(), %{})
+
+      assert_receive {:relay_published, "logs.otel", <<7>>, _opts}
+      refute_receive {:relay_published, _subject, "{}", _opts}
+    end
+
+    test "emits spool counters and per-signal relayed counts" do
+      handler_id = {__MODULE__, :otlp_relay_telemetry}
+
+      :telemetry.attach_many(
+        handler_id,
+        [[:serviceradar, :otlp_relay, :spool], SignalTelemetry.event()],
+        &__MODULE__.forward_telemetry/4,
+        self()
+      )
+
+      on_exit(fn -> :telemetry.detach(handler_id) end)
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          counters: %TelemetryCounters{received: 10, emitted: 8, dropped: 2, queue_depth: 5},
+          records: [
+            %TelemetryRecord{
+              event_id: "r-1",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OTLP_TRACES,
+              payload: <<1>>
+            }
+          ]
+        })
+
+      assert {:reply, :ok, %{}} =
+               StatusHandler.handle_call({:status_update, relay_status(batch)}, self(), %{})
+
+      assert_receive {:telemetry_event, [:serviceradar, :otlp_relay, :spool], measurements, meta}
+      assert measurements.dropped == 2
+      assert measurements.queue_depth == 5
+      assert meta.agent_id == "agent-1"
+      assert meta.partition_id == "prod-east"
+
+      assert_receive {:telemetry_event, [:serviceradar, :event_writer, :signal], %{count: 1},
+                      %{signal: :traces, outcome: :relayed}}
+    end
+  end
+
+  defp relay_status(message) do
+    %{
+      source: "otlp-relay",
+      service_type: "otlp-relay",
+      service_name: "otlp-relay",
+      agent_id: "agent-1",
+      gateway_id: "gateway-a",
+      partition: "prod-east",
+      message: message
+    }
+  end
+
+  def relay_publish(subject, payload, opts, pid) do
+    send(pid, {:relay_published, subject, payload, opts})
+    :ok
+  end
+
+  def relay_publish_fail(subject, payload, opts, pid) do
+    send(pid, {:relay_publish_attempt, subject, payload, opts})
+    {:error, :nats_down}
+  end
+
+  def forward_telemetry(event, measurements, metadata, pid) do
+    send(pid, {:telemetry_event, event, measurements, metadata})
   end
 
   def stub_publish(subject, payload, fun) when is_function(fun, 2), do: fun.(subject, payload)

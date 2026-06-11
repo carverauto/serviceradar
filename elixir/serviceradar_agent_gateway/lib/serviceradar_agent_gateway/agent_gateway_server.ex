@@ -59,12 +59,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   # they get a large cap like results/sysmon and are rejected (never truncated)
   # if they ever exceed it.
   @max_flow_attribution_message_bytes 15 * 1024 * 1024
+  # OTLP relay statuses carry one ready-to-publish OTLP protobuf chunk each
+  # (chunked at the edge to <=900 KiB, 1 record = 1 NATS message). Like the
+  # other protobuf payloads they must never be truncated, so they share the
+  # large strict cap.
+  @max_otlp_relay_message_bytes 15 * 1024 * 1024
   @max_stream_status_chunk_bytes 16 * 1024 * 1024
   @max_stream_status_window_bytes 64 * 1024 * 1024
   @max_config_chunk_payload_bytes 1 * 1024 * 1024
   @max_stream_config_chunk_bytes 2 * 1024 * 1024
   @max_stream_config_window_bytes 64 * 1024 * 1024
   @agent_gateway_component_types [:agent]
+  @otlp_relay_source "otlp-relay"
 
   # Gateway identifier (node name or configured ID)
   defp gateway_id do
@@ -326,23 +332,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       services
       |> Enum.reject(&is_nil/1)
       |> Enum.reduce({0, []}, fn
-        %Monitoring.GatewayServiceStatus{} = service, {count, directives} ->
-          try do
-            service_directives = process_service_status(service, metadata)
-            {count + 1, directives ++ service_directives}
-          rescue
-            e in GRPC.RPCError ->
-              log_invalid_service_status(metadata, service, e)
-
-              {count, directives}
-
-            e ->
-              Logger.warning(
-                "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
-              )
-
-              {count, directives}
-          end
+        %Monitoring.GatewayServiceStatus{} = service, acc ->
+          process_push_service(service, metadata, acc)
 
         _other, acc ->
           acc
@@ -408,6 +399,36 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
     :ok
   end
+
+  # OTLP relay statuses get honest failure semantics: any validation or forward
+  # error fails the whole RPC so the agent retries from its edge spool (no
+  # silent drops, no false acks). Everything else keeps the lenient
+  # drop-and-log behavior.
+  defp process_push_service(service, metadata, {count, directives}) do
+    if otlp_relay_service?(service) do
+      {count + 1, directives ++ process_service_status(service, metadata)}
+    else
+      try do
+        service_directives = process_service_status(service, metadata)
+        {count + 1, directives ++ service_directives}
+      rescue
+        e in GRPC.RPCError ->
+          log_invalid_service_status(metadata, service, e)
+
+          {count, directives}
+
+        e ->
+          Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
+
+          {count, directives}
+      end
+    end
+  end
+
+  defp otlp_relay_service?(%Monitoring.GatewayServiceStatus{source: source}) when is_binary(source),
+    do: String.trim(source) == @otlp_relay_source
+
+  defp otlp_relay_service?(_service), do: false
 
   # Process a single service status and forward to the core
   defp process_service_status(service, metadata) do
@@ -504,7 +525,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       response_time: normalize_response_time(service.response_time),
       agent_id: metadata.agent_id,
       gateway_id: metadata.gateway_id,
-      partition: normalize_partition(service.partition || metadata.partition),
+      partition: status_partition(service, metadata, source),
       source: source,
       kv_store_id: service.kv_store_id || metadata.kv_store_id,
       timestamp: metadata.timestamp,
@@ -515,6 +536,14 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       is_final: Map.get(metadata, :is_final, true)
     }
   end
+
+  # OTLP relay attribution is stamped downstream (core StatusHandler headers)
+  # from the gateway-authenticated view, so the relay partition must come from
+  # the mTLS-cert-derived metadata — never from the payload-supplied service
+  # field.
+  defp status_partition(_service, metadata, @otlp_relay_source), do: normalize_partition(metadata.partition)
+
+  defp status_partition(service, metadata, _source), do: normalize_partition(service.partition || metadata.partition)
 
   defp normalize_service_message(nil, source), do: normalize_message("", source)
 
@@ -529,7 +558,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp normalize_response_time(rt) when is_integer(rt) and rt > 86_400_000, do: 86_400_000
   defp normalize_response_time(_), do: 0
 
-  defp forward_service_status(service, status) do
+  @doc false
+  def forward_service_status(service, status) do
     case StatusProcessor.process(status) do
       :ok ->
         []
@@ -538,8 +568,18 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
         gateway_status_directives(service, result)
 
       {:error, reason} ->
-        Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
-        []
+        if status.source == @otlp_relay_source do
+          # Honest ack semantics for the relay: failing the whole gRPC call
+          # makes the agent retry the frame from its spool instead of the
+          # gateway acking data it could not deliver. Relay StreamStatus calls
+          # carry only relay statuses, so failing the call is safe.
+          Logger.warning("Failed to forward otlp-relay status from agent #{status.agent_id}: #{inspect(reason)}")
+
+          raise GRPC.RPCError, status: :unavailable, message: "otlp-relay forward failed"
+        else
+          Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+          []
+        end
     end
   end
 
@@ -624,6 +664,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp max_message_bytes("plugin-result"), do: @max_results_message_bytes
   defp max_message_bytes("workload-identity"), do: @max_workload_identity_message_bytes
   defp max_message_bytes("flow-attribution"), do: @max_flow_attribution_message_bytes
+  defp max_message_bytes(@otlp_relay_source), do: @max_otlp_relay_message_bytes
   defp max_message_bytes("addon:" <> _addon_id), do: @max_flow_attribution_message_bytes
   defp max_message_bytes(_source), do: @max_status_message_bytes
 
@@ -636,7 +677,8 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
       "snmp-metrics",
       "plugin-result",
       "workload-identity",
-      "flow-attribution"
+      "flow-attribution",
+      @otlp_relay_source
     ]
   end
 
@@ -1461,18 +1503,29 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  defp process_chunk_services(services, metadata) do
+  @doc false
+  def process_chunk_services(services, metadata) do
     Enum.flat_map(services, fn service ->
-      try do
+      if otlp_relay_service?(service) do
+        # Relay statuses bypass the lenient drop-and-log rescue: any failure
+        # raises out of stream_status so the whole call fails and the agent
+        # retries the frame from its edge spool.
         process_service_status(service, metadata)
-      rescue
-        e in GRPC.RPCError ->
-          log_invalid_service_status(metadata, service, e)
-          []
+      else
+        try do
+          process_service_status(service, metadata)
+        rescue
+          e in GRPC.RPCError ->
+            log_invalid_service_status(metadata, service, e)
+            []
 
-        e ->
-          Logger.warning("Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}")
-          []
+          e ->
+            Logger.warning(
+              "Dropping service status from agent #{metadata.agent_id} due to error: #{Exception.message(e)}"
+            )
+
+            []
+        end
       end
     end)
   end

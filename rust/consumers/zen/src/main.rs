@@ -28,6 +28,7 @@ mod otel_metrics;
 mod rule_discovery;
 mod rule_watcher;
 mod spiffe;
+mod telemetry;
 
 use config::{subject_matches, Config};
 use engine::build_engine;
@@ -153,6 +154,8 @@ async fn main() -> Result<()> {
         });
     }
 
+    telemetry::spawn_periodic_logger();
+
     info!("waiting for messages on subjects: {:?}", cfg.subjects);
     let mut shutdown = pin!(shutdown_signal());
 
@@ -184,6 +187,13 @@ async fn main() -> Result<()> {
                         warn!("processing failed: {e}");
                         match message.info() {
                             Ok(info) if info.delivered >= MAX_RETRIES => {
+                                // Permanent drop: the message is ACKed without
+                                // ever having been forwarded.
+                                if let Some(counters) = telemetry::counters_for_format(
+                                    &cfg.message_format_for_subject(&message.subject),
+                                ) {
+                                    counters.record_rejected();
+                                }
                                 if let Err(e) = message.ack().await {
                                     warn!("failed to Ack: {e}");
                                 } else {

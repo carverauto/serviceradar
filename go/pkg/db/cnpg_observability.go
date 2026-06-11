@@ -12,9 +12,10 @@ import (
 )
 
 const (
-	defaultLogsTable    = "logs"
-	defaultMetricsTable = "otel_metrics"
-	defaultTracesTable  = "otel_traces"
+	defaultLogsTable         = "logs"
+	defaultMetricsTable      = "otel_metrics"
+	defaultMetricPointsTable = "otel_metric_points"
+	defaultTracesTable       = "otel_traces"
 )
 
 const (
@@ -36,12 +37,16 @@ const (
 		scope_version,
 		scope_attributes,
 		attributes,
-		resource_attributes
+		resource_attributes,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
-		$1,$2,$3,$4,$5,
+		$1,$2,NULLIF($3,''),NULLIF($4,''),$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18
+		$16,$17,$18,$19,$20,
+		$21
 	) ON CONFLICT DO NOTHING`
 
 	otelMetricsInsertSQL = `INSERT INTO %s (
@@ -63,14 +68,49 @@ const (
 		is_slow,
 		component,
 		level,
-		unit
+		unit,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
 		$1,$2,$3,$4,$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18,$19
+		$16,$17,$18,$19,$20,
+		$21,$22
 	) ON CONFLICT DO NOTHING`
 
+	otelMetricPointsInsertSQL = `INSERT INTO %s (
+		timestamp,
+		metric_name,
+		metric_type,
+		unit,
+		temporality,
+		is_monotonic,
+		service_name,
+		service_instance_id,
+		scope_name,
+		start_time_unix_nano,
+		attributes,
+		attributes_hash,
+		value,
+		count,
+		sum,
+		bucket_counts,
+		explicit_bounds,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
+	) VALUES (
+		$1,$2,$3,$4,$5,
+		$6,$7,$8,$9,$10,
+		$11,$12,$13,$14,$15,
+		$16,$17,$18,$19,$20
+	) ON CONFLICT DO NOTHING`
+
+	// trace_state ($20) and scope_attributes ($21) are nullable: the row
+	// struct carries "" when the span has no tracestate / the scope has no
+	// attributes, and NULLIF stores NULL instead of an empty string.
 	otelTracesInsertSQL = `INSERT INTO %s (
 		timestamp,
 		trace_id,
@@ -90,12 +130,24 @@ const (
 		attributes,
 		resource_attributes,
 		events,
-		links
+		links,
+		trace_state,
+		scope_attributes,
+		dropped_attributes_count,
+		dropped_events_count,
+		dropped_links_count,
+		service_namespace,
+		deployment_environment,
+		ingest_identity,
+		ingest_agent_id,
+		ingest_partition
 	) VALUES (
-		$1,$2,$3,$4,$5,
+		$1,$2,$3,NULLIF($4,''),$5,
 		$6,$7,$8,$9,$10,
 		$11,$12,$13,$14,$15,
-		$16,$17,$18,$19
+		$16,$17,$18,$19,NULLIF($20,''),
+		NULLIF($21,''),$22,$23,$24,$25,
+		$26,$27,$28,$29
 	) ON CONFLICT DO NOTHING`
 )
 
@@ -136,6 +188,9 @@ func (inserter otelLogInserter) QueueRow(batch *pgx.Batch, query string, rowInde
 		row.ScopeAttributes,
 		row.Attributes,
 		row.ResourceAttributes,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -171,6 +226,45 @@ func (inserter otelMetricInserter) QueueRow(batch *pgx.Batch, query string, rowI
 		row.Component,
 		row.Level,
 		row.Unit,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
+	)
+}
+
+type otelMetricPointInserter struct {
+	rows []models.OTELMetricPointRow
+}
+
+func (inserter otelMetricPointInserter) RowCount() int { return len(inserter.rows) }
+
+func (inserter otelMetricPointInserter) TimestampAt(rowIndex int) time.Time {
+	return inserter.rows[rowIndex].Timestamp
+}
+
+func (inserter otelMetricPointInserter) QueueRow(batch *pgx.Batch, query string, rowIndex int, timestamp time.Time) {
+	row := inserter.rows[rowIndex]
+	batch.Queue(query,
+		timestamp,
+		row.MetricName,
+		row.MetricType,
+		row.Unit,
+		row.Temporality,
+		row.IsMonotonic,
+		row.ServiceName,
+		row.ServiceInstanceID,
+		row.ScopeName,
+		row.StartTimeUnixNano,
+		row.Attributes,
+		row.AttributesHash,
+		row.Value,
+		row.Count,
+		row.Sum,
+		row.BucketCounts,
+		row.ExplicitBounds,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -206,6 +300,16 @@ func (inserter otelTraceInserter) QueueRow(batch *pgx.Batch, query string, rowIn
 		row.ResourceAttributes,
 		row.Events,
 		row.Links,
+		row.TraceState,
+		row.ScopeAttributes,
+		row.DroppedAttributesCount,
+		row.DroppedEventsCount,
+		row.DroppedLinksCount,
+		row.ServiceNamespace,
+		row.DeploymentEnvironment,
+		row.IngestIdentity,
+		row.IngestAgentID,
+		row.IngestPartition,
 	)
 }
 
@@ -215,6 +319,10 @@ func buildOTELLogsInsertQuery(sanitizedTable string) string {
 
 func buildOTELMetricsInsertQuery(sanitizedTable string) string {
 	return fmt.Sprintf(otelMetricsInsertSQL, sanitizedTable)
+}
+
+func buildOTELMetricPointsInsertQuery(sanitizedTable string) string {
+	return fmt.Sprintf(otelMetricPointsInsertSQL, sanitizedTable)
 }
 
 func buildOTELTracesInsertQuery(sanitizedTable string) string {
@@ -285,6 +393,21 @@ func (db *DB) InsertOTELLogs(ctx context.Context, table string, rows []models.OT
 // InsertOTELMetrics persists OTEL metric rows into the configured CNPG table.
 func (db *DB) InsertOTELMetrics(ctx context.Context, table string, rows []models.OTELMetricRow) error {
 	return db.insertOTEL(ctx, table, defaultMetricsTable, "metrics", buildOTELMetricsInsertQuery, otelMetricInserter{rows: rows})
+}
+
+// InsertOTELMetricPoints persists real OTLP metric data points (sum, gauge,
+// histogram) into the configured CNPG table. ON CONFLICT DO NOTHING on the
+// (timestamp, metric_name, service_name, attributes_hash) primary key dedupes
+// double-ingest against the Elixir EventWriter.
+func (db *DB) InsertOTELMetricPoints(ctx context.Context, table string, rows []models.OTELMetricPointRow) error {
+	return db.insertOTEL(
+		ctx,
+		table,
+		defaultMetricPointsTable,
+		"metric points",
+		buildOTELMetricPointsInsertQuery,
+		otelMetricPointInserter{rows: rows},
+	)
 }
 
 // InsertOTELTraces persists OTEL trace rows into the configured CNPG table.

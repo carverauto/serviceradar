@@ -1,6 +1,7 @@
 package dbeventwriter
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -19,6 +20,7 @@ const (
 	severityERROR = "ERROR"
 	severityWARN  = "WARN"
 	severityDEBUG = "DEBUG"
+	severityTRACE = "TRACE"
 
 	securitySeverityEmergency = "emergency"
 	securitySeverityAlert     = "alert"
@@ -90,8 +92,13 @@ var jsonLogReservedKeys = map[string]struct{}{
 }
 
 func parseJSONLogs(payload []byte, subject string) ([]models.OTELLogRow, bool) {
+	// UseNumber keeps integers as json.Number so uint64 nanosecond
+	// timestamps don't lose precision by rounding through float64.
+	decoder := json.NewDecoder(bytes.NewReader(payload))
+	decoder.UseNumber()
+
 	var decoded interface{}
-	if err := json.Unmarshal(payload, &decoded); err != nil {
+	if err := decoder.Decode(&decoded); err != nil {
 		return nil, false
 	}
 
@@ -126,7 +133,7 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 		}
 	}
 
-	body := firstString(entry, "body", "message", "msg", "summary", "short_message", "event", "log")
+	body := extractJSONLogBody(entry)
 	if body == "" {
 		body = snmpBodyFromVarbinds(entry)
 	}
@@ -221,8 +228,8 @@ func buildJSONLogRow(entry map[string]interface{}, subject string) models.OTELLo
 	return models.OTELLogRow{
 		Timestamp:          timestamp,
 		ObservedTimestamp:  observedTimestamp,
-		TraceID:            firstString(entry, "trace_id", "traceId"),
-		SpanID:             firstString(entry, "span_id", "spanId"),
+		TraceID:            NormalizeTraceID(firstString(entry, "trace_id", "traceId")),
+		SpanID:             NormalizeSpanID(firstString(entry, "span_id", "spanId")),
 		TraceFlags:         traceFlags,
 		SeverityText:       severityText,
 		SeverityNumber:     severityNumber,
@@ -307,35 +314,70 @@ func buildAttributesMap(entry map[string]interface{}, reserved map[string]struct
 	return attributes
 }
 
+// normalizeSeverity derives (severity_text, severity_number) for a JSON log
+// entry. The sender's severity_number is never overwritten: when present and
+// non-zero it is returned verbatim, with text normalized from severity_text
+// when recognizable and classified from the OTLP severity ranges otherwise
+// (1-4 TRACE, 5-8 DEBUG, 9-12 INFO, 13-16 WARN, 17-20 ERROR, 21-24 FATAL).
+// With no usable severity signal at all, both stay empty/zero rather than
+// fabricating INFO.
 func normalizeSeverity(entry map[string]interface{}) (string, int32) {
-	if severity := firstString(entry, "severity_text"); severity != "" {
-		if isWAFFinding(entry, firstString(entry, "event_name", "eventName")) {
-			return normalizeSecuritySeverityText(severity)
-		}
+	senderNumber, hasSenderNumber := senderSeverityNumber(entry)
 
-		return normalizeSeverityText(severity)
-	}
-
-	if severity := firstString(entry, "severity"); severity != "" {
-		if isWAFFinding(entry, firstString(entry, "event_name", "eventName")) {
-			return normalizeSecuritySeverityText(severity)
-		}
-
-		return normalizeSeverityText(severity)
-	}
-
-	if level, ok := entry["level"]; ok {
-		return severityFromLevel(level)
-	}
-
-	if severityNum, ok := entry["severity_number"]; ok {
-		if value, ok := parseNumeric(severityNum); ok {
-			text := severityTextFromNumber(int32(value))
-			return text, int32(value)
+	text, number, ok := severityFromText(entry)
+	if !ok {
+		if level, present := entry["level"]; present {
+			text, number = severityFromLevel(level)
+			ok = true
 		}
 	}
 
-	return severityINFO, severityNumberForText(severityINFO)
+	if ok {
+		if hasSenderNumber {
+			number = senderNumber
+		}
+
+		return text, number
+	}
+
+	if hasSenderNumber {
+		return severityTextFromNumber(senderNumber), senderNumber
+	}
+
+	return "", 0
+}
+
+// senderSeverityNumber extracts an explicit severity_number from the entry.
+// 0 is SEVERITY_NUMBER_UNSPECIFIED in OTLP, so it does not count.
+func senderSeverityNumber(entry map[string]interface{}) (int32, bool) {
+	value, ok := firstValue(entry, "severity_number", "severityNumber")
+	if !ok {
+		return 0, false
+	}
+
+	numeric, ok := parseNumeric(value)
+	if !ok || numeric == 0 {
+		return 0, false
+	}
+
+	return int32(numeric), true
+}
+
+// severityFromText normalizes severity_text/severity tokens. Unrecognized
+// tokens report ok=false so the caller can fall back to severity_number
+// classification instead of defaulting to INFO.
+func severityFromText(entry map[string]interface{}) (text string, number int32, ok bool) {
+	severity := firstString(entry, "severity_text", "severity")
+	if severity == "" {
+		return "", 0, false
+	}
+
+	if isWAFFinding(entry, firstString(entry, "event_name", "eventName")) {
+		text, number = normalizeSecuritySeverityText(severity)
+		return text, number, true
+	}
+
+	return recognizedSeverityText(severity)
 }
 
 func isWAFFinding(entry map[string]interface{}, eventName string) bool {
@@ -372,23 +414,37 @@ func normalizeSecuritySeverityText(text string) (string, int32) {
 	}
 }
 
-func normalizeSeverityText(text string) (string, int32) {
-	normalized := strings.ToLower(strings.TrimSpace(text))
-
-	switch normalized {
+// recognizedSeverityText maps well-known severity tokens (including
+// java.util.logging styles: SEVERE, WARNING, FINE/FINER/FINEST) to canonical
+// text and the default OTLP number for that band. Unknown tokens report
+// ok=false.
+func recognizedSeverityText(text string) (string, int32, bool) {
+	switch strings.ToLower(strings.TrimSpace(text)) {
 	case securitySeverityFatal, securitySeverityCritical, securitySeverityEmergency, securitySeverityAlert, "very high", "very_high":
-		return severityFATAL, severityNumberForText(severityFATAL)
-	case "high", securitySeverityError:
-		return severityERROR, severityNumberForText(severityERROR)
+		return severityFATAL, severityNumberForText(severityFATAL), true
+	case "high", securitySeverityError, "severe", "err":
+		return severityERROR, severityNumberForText(severityERROR), true
 	case "medium", "warn", securitySeverityWarning:
-		return severityWARN, severityNumberForText(severityWARN)
-	case "low", securitySeverityInfo, "informational", "notice", "unknown":
-		return severityINFO, severityNumberForText(severityINFO)
-	case "debug", "trace":
-		return severityDEBUG, severityNumberForText(severityDEBUG)
+		return severityWARN, severityNumberForText(severityWARN), true
+	case "low", securitySeverityInfo, "informational", "notice":
+		return severityINFO, severityNumberForText(severityINFO), true
+	case "debug", "fine":
+		return severityDEBUG, severityNumberForText(severityDEBUG), true
+	case "trace", "finer", "finest":
+		return severityTRACE, severityNumberForText(severityTRACE), true
 	default:
-		return severityINFO, severityNumberForText(severityINFO)
+		return "", 0, false
 	}
+}
+
+// normalizeSeverityText keeps the legacy INFO fallback for callers that need
+// a definite level (GELF-style string levels).
+func normalizeSeverityText(text string) (string, int32) {
+	if normalized, number, ok := recognizedSeverityText(text); ok {
+		return normalized, number
+	}
+
+	return severityINFO, severityNumberForText(severityINFO)
 }
 
 func severityFromLevel(level interface{}) (string, int32) {
@@ -420,6 +476,9 @@ func severityFromGELF(level int) (string, int32) {
 	}
 }
 
+// severityTextFromNumber classifies an OTLP severity number into its band:
+// 1-4 TRACE, 5-8 DEBUG, 9-12 INFO, 13-16 WARN, 17-20 ERROR, 21+ FATAL.
+// 0/unspecified yields empty text rather than a fabricated INFO.
 func severityTextFromNumber(value int32) string {
 	switch {
 	case value >= 21:
@@ -432,8 +491,10 @@ func severityTextFromNumber(value int32) string {
 		return severityINFO
 	case value >= 5:
 		return severityDEBUG
+	case value >= 1:
+		return severityTRACE
 	default:
-		return severityINFO
+		return ""
 	}
 }
 
@@ -447,7 +508,7 @@ func severityNumberForText(text string) int32 {
 		return 15
 	case severityDEBUG:
 		return 7
-	case "TRACE":
+	case severityTRACE:
 		return 3
 	default:
 		return 11
@@ -481,6 +542,42 @@ func firstString(entry map[string]interface{}, keys ...string) string {
 			}
 		}
 	}
+	return ""
+}
+
+// extractJSONLogBody resolves the log body from the well-known body keys.
+// Mirrors the Elixir Logs processor's extract_body/1: a string wins, a
+// char-code array is promoted to a string, and a structured (map/array)
+// value is JSON-encoded into the body column instead of being dropped.
+func extractJSONLogBody(entry map[string]interface{}) string {
+	for _, key := range []string{"body", "message", "msg", "summary", "short_message", "event", "log"} {
+		value, ok := entry[key]
+		if !ok {
+			continue
+		}
+
+		if text, ok := value.(string); ok {
+			if trimmed := strings.TrimSpace(text); trimmed != "" {
+				return trimmed
+			}
+
+			continue
+		}
+
+		// OTEL logs can arrive with `body` encoded as a JSON array of char
+		// codes, e.g. [84,101,115,116] for "Test".
+		if text, ok := stringFromCharCodeArray(value); ok {
+			return text
+		}
+
+		switch value.(type) {
+		case map[string]interface{}, []interface{}:
+			if encoded, err := json.Marshal(value); err == nil {
+				return string(encoded)
+			}
+		}
+	}
+
 	return ""
 }
 
@@ -584,22 +681,50 @@ func parseFlexibleTime(value interface{}) (time.Time, bool) {
 		if parsed, err := time.Parse(time.RFC3339, text); err == nil {
 			return parsed, true
 		}
+		if integer, err := strconv.ParseInt(text, 10, 64); err == nil {
+			return timeFromInteger(integer), true
+		}
 		if numeric, err := strconv.ParseFloat(text, 64); err == nil {
 			return timeFromNumeric(numeric), true
 		}
 	case json.Number:
+		// Integer path first: uint64 nanosecond timestamps lose precision
+		// when rounded through float64.
+		if integer, err := typed.Int64(); err == nil {
+			return timeFromInteger(integer), true
+		}
 		if numeric, err := typed.Float64(); err == nil {
 			return timeFromNumeric(numeric), true
 		}
 	case float64:
 		return timeFromNumeric(typed), true
 	case int64:
-		return timeFromNumeric(float64(typed)), true
+		return timeFromInteger(typed), true
 	case int:
-		return timeFromNumeric(float64(typed)), true
+		return timeFromInteger(int64(typed)), true
 	}
 
 	return time.Time{}, false
+}
+
+// timeFromInteger interprets an integer epoch value by magnitude
+// (seconds/millis/micros/nanos) without a float64 round trip, preserving
+// full nanosecond precision.
+func timeFromInteger(value int64) time.Time {
+	if value <= 0 {
+		return time.Time{}
+	}
+
+	switch {
+	case value > 1_000_000_000_000_000_000: // nanoseconds
+		return time.Unix(0, value)
+	case value > 1_000_000_000_000_000: // microseconds
+		return time.Unix(value/1_000_000, (value%1_000_000)*int64(time.Microsecond))
+	case value > 1_000_000_000_000: // milliseconds
+		return time.Unix(value/1_000, (value%1_000)*int64(time.Millisecond))
+	default: // seconds
+		return time.Unix(value, 0)
+	}
 }
 
 func timeFromNumeric(value float64) time.Time {

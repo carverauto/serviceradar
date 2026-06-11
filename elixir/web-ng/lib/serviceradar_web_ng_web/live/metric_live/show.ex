@@ -77,8 +77,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
                   Logs
                 </.link>
                 <.link
-                  :if={is_binary(Map.get(@metric, "trace_id")) and Map.get(@metric, "trace_id") != ""}
-                  href={correlated_trace_href(@metric)}
+                  :if={is_binary(trace_detail_path(@metric))}
+                  navigate={trace_detail_path(@metric)}
                   class="btn btn-xs btn-outline"
                 >
                   Trace
@@ -499,19 +499,38 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
     trace_id = Map.get(metric, "trace_id")
 
     q =
-      "in:logs trace_id:\"#{escape_srql(trace_id)}\" time:last_24h sort:timestamp:desc limit:50"
+      "in:logs trace_id:\"#{escape_srql(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc limit:50"
 
     "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
   end
 
-  defp correlated_trace_href(metric) do
-    trace_id = Map.get(metric, "trace_id")
+  # Bound the correlated-logs query around the metric's own timestamp (±1h)
+  # instead of a hardcoded relative window: samples older than the relative
+  # window would otherwise pivot to an empty logs page.
+  defp correlated_logs_time_window(metric) do
+    case parse_timestamp(Map.get(metric, "timestamp")) do
+      {:ok, dt} ->
+        from = dt |> DateTime.add(-3600, :second) |> iso8601_z()
+        to = dt |> DateTime.add(3600, :second) |> iso8601_z()
+        "time:[#{from},#{to}]"
 
-    q =
-      "in:otel_trace_summaries trace_id:\"#{escape_srql(trace_id)}\" time:last_24h sort:timestamp:desc limit:20"
-
-    "/observability?" <> URI.encode_query(%{tab: "traces", q: q, limit: 20})
+      _ ->
+        "time:last_24h"
+    end
   end
+
+  defp iso8601_z(dt) do
+    dt |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+  end
+
+  defp trace_detail_path(metric) when is_map(metric) do
+    case ServiceRadarWebNGWeb.TraceLive.Show.normalize_trace_id(Map.get(metric, "trace_id")) do
+      {:ok, trace_id} -> "/observability/traces/#{trace_id}"
+      :error -> nil
+    end
+  end
+
+  defp trace_detail_path(_), do: nil
 
   defp format_timestamp(row) do
     ts = Map.get(row, "timestamp")

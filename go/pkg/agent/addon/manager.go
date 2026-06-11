@@ -61,7 +61,23 @@ type Config struct {
 	CredentialResolver    coreaddon.CredentialResolver
 	TelemetryHandler      func(addonID string, batch *coreaddon.TelemetryBatch)
 	ArtifactHandler       ArtifactHandler
-	Logger                zerolog.Logger
+	// OtlpRelayRunner, when set, is invoked on its own goroutine for every
+	// running add-on that advertises CapabilityOtlpRelayV1 and supports the
+	// client-side relay stream. It owns the acked OTLP relay pump for one
+	// add-on instance and must return promptly when ctx is cancelled: the
+	// manager cancels ctx when the add-on stops, restarts, or turns
+	// unhealthy, and on agent shutdown, then re-invokes the runner when the
+	// add-on is healthy again (the add-on resumes from its durable ack
+	// watermark, so stop/start is lossless).
+	OtlpRelayRunner func(ctx context.Context, addonID string, client coreaddon.OtlpRelayClient)
+	// LocalOtlpEndpoint is a static fallback OTLP endpoint for add-on
+	// self-telemetry (agent config knob), used only when the desired add-on
+	// set does not include a sidecar-supervised otel-collector to derive the
+	// endpoint from (for example, a collector running as a systemd add-on or
+	// host service). The endpoint derived from the otel-collector add-on's
+	// delivered config always wins.
+	LocalOtlpEndpoint string
+	Logger            zerolog.Logger
 }
 
 func applyDefaults(cfg Config) Config {
@@ -105,6 +121,11 @@ type Manager struct {
 	mu      sync.Mutex
 	runners map[string]*runner
 	closed  bool
+	// localOtlpEndpoint is the self-telemetry OTLP endpoint injected into
+	// spawned add-on environments, derived from the otel-collector add-on's
+	// delivered config on every Apply (falling back to cfg.LocalOtlpEndpoint,
+	// then ""). Read at spawn time so restarts pick up the current value.
+	localOtlpEndpoint string
 }
 
 var _ AddonManager = (*Manager)(nil)
@@ -131,6 +152,16 @@ func (m *Manager) Apply(_ context.Context, specs []Spec) error {
 	desired := make(map[string]Spec, len(specs))
 	for _, s := range specs {
 		desired[s.ID] = s
+	}
+
+	// Self-telemetry: derive the local OTLP endpoint from the otel-collector
+	// add-on's delivered config (cross-add-on config access happens here, at
+	// reconcile time, where every desired spec is in hand). Add-ons spawned
+	// or restarted from now on export to it; already-running add-ons keep
+	// their spawn-time environment until their next restart.
+	m.localOtlpEndpoint = localOtlpEndpointFromSpecs(specs)
+	if m.localOtlpEndpoint == "" {
+		m.localOtlpEndpoint = m.cfg.LocalOtlpEndpoint
 	}
 
 	// Collect runners to tear down and shut them down AFTER releasing the lock:
@@ -189,10 +220,19 @@ func (m *Manager) SetCredentialResolver(resolver coreaddon.CredentialResolver) {
 // startRunnerLocked creates and starts a supervisor for spec. The caller holds m.mu.
 func (m *Manager) startRunnerLocked(spec Spec) {
 	r := newRunner(spec, m.cfg)
+	r.localOtlpEndpoint = m.currentLocalOtlpEndpoint
 	m.runners[spec.ID] = r
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
 	go r.run(ctx)
+}
+
+// currentLocalOtlpEndpoint returns the self-telemetry OTLP endpoint derived
+// by the most recent Apply ("" when no collector is configured).
+func (m *Manager) currentLocalOtlpEndpoint() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.localOtlpEndpoint
 }
 
 // Status returns a stable snapshot of every supervised add-on.
@@ -283,6 +323,10 @@ type runner struct {
 
 	cancel context.CancelFunc
 	done   chan struct{}
+
+	// localOtlpEndpoint, when non-nil, supplies the current self-telemetry
+	// OTLP endpoint at spawn time (nil in tests that build runners directly).
+	localOtlpEndpoint func() string
 
 	reconfigure chan struct{}
 
@@ -429,10 +473,22 @@ func (r *runner) runOnce(ctx context.Context) error {
 	spec := r.currentSpec()
 	r.setState(StateStarting, "")
 
+	cmd := exec.CommandContext(ctx, spec.BinaryPath, spec.Args...) //nolint:gosec // path comes from a verified, signed add-on artifact
+
+	// Self-telemetry env convention (10.5): point the add-on at the local
+	// otel-collector when one is configured. addonProcessEnv handles the
+	// loop guard (never the collector itself), the operator opt-out, and
+	// explicit-endpoint precedence.
+	localEndpoint := ""
+	if r.localOtlpEndpoint != nil {
+		localEndpoint = r.localOtlpEndpoint()
+	}
+	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
+
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  coreaddon.Handshake,
 		Plugins:          coreaddon.ClientPluginSet(),
-		Cmd:              exec.CommandContext(ctx, spec.BinaryPath, spec.Args...), //nolint:gosec // path comes from a verified, signed add-on artifact
+		Cmd:              cmd,
 		AllowedProtocols: []goplugin.Protocol{goplugin.ProtocolGRPC},
 		AutoMTLS:         true,
 		Logger:           r.hclogger,
@@ -495,7 +551,83 @@ func (r *runner) runOnce(ctx context.Context) error {
 		}
 	}
 
-	return r.supervise(ctx, client, ac, pid)
+	var relay *relayLifecycle
+	if hasCapability(capabilities, coreaddon.CapabilityOtlpRelayV1) && r.cfg.OtlpRelayRunner != nil {
+		if relayClient, ok := ac.(coreaddon.OtlpRelayClient); ok {
+			relay = newRelayLifecycle(ctx, r.id, relayClient, r.cfg.OtlpRelayRunner)
+			relay.start()
+			defer relay.stop()
+		}
+	}
+
+	return r.supervise(ctx, client, ac, pid, relay)
+}
+
+// relayLifecycle ties the OTLP relay runner goroutine to the add-on's health
+// transitions: the pump runs while the add-on is running and healthy, stops
+// when it degrades or turns unhealthy, and restarts when it recovers. The
+// add-on resumes from its durable ack watermark on every restart, so the
+// stop/start cycle is lossless. A nil *relayLifecycle is a no-op.
+type relayLifecycle struct {
+	parent  context.Context
+	addonID string
+	client  coreaddon.OtlpRelayClient
+	runner  func(ctx context.Context, addonID string, client coreaddon.OtlpRelayClient)
+
+	mu     sync.Mutex
+	cancel context.CancelFunc
+	done   chan struct{}
+}
+
+func newRelayLifecycle(
+	parent context.Context,
+	addonID string,
+	client coreaddon.OtlpRelayClient,
+	runner func(ctx context.Context, addonID string, client coreaddon.OtlpRelayClient),
+) *relayLifecycle {
+	return &relayLifecycle{parent: parent, addonID: addonID, client: client, runner: runner}
+}
+
+// start launches the relay runner goroutine if it is not already running.
+func (l *relayLifecycle) start() {
+	if l == nil {
+		return
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if l.cancel != nil || l.parent.Err() != nil {
+		return
+	}
+
+	ctx, cancel := context.WithCancel(l.parent)
+	done := make(chan struct{})
+	l.cancel = cancel
+	l.done = done
+
+	go func() {
+		defer close(done)
+		l.runner(ctx, l.addonID, l.client)
+	}()
+}
+
+// stop cancels the relay runner and waits for it to return.
+func (l *relayLifecycle) stop() {
+	if l == nil {
+		return
+	}
+
+	l.mu.Lock()
+	cancel, done := l.cancel, l.done
+	l.cancel, l.done = nil, nil
+	l.mu.Unlock()
+
+	if cancel == nil {
+		return
+	}
+	cancel()
+	<-done
 }
 
 func (r *runner) runCommand(parent context.Context, invocation CommandInvocation) (coreaddon.CommandResult, error) {
@@ -595,8 +727,9 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 }
 
 // supervise polls health and applies reconfiguration until the add-on exits or
-// the context is cancelled.
-func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac coreaddon.Addon, pid int) error {
+// the context is cancelled. relay (which may be nil) is stopped while the
+// add-on is degraded/unhealthy and restarted when it recovers.
+func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac coreaddon.Addon, pid int, relay *relayLifecycle) error {
 	ticker := time.NewTicker(r.cfg.HealthInterval)
 	defer ticker.Stop()
 
@@ -620,6 +753,7 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 				failures++
 				if failures >= r.cfg.UnhealthyThreshold {
 					r.setUnhealthy(pid, errString(err))
+					relay.stop()
 				}
 				if client.Exited() {
 					r.setExited(errString(err))
@@ -630,6 +764,11 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 
 			failures = 0
 			r.setHealthy(pid, h)
+			if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
+				relay.stop()
+			} else {
+				relay.start()
+			}
 		}
 	}
 }

@@ -87,6 +87,16 @@ defmodule ServiceRadar.Observability.OtelTraceSummary do
       description "Service name of the root span"
     end
 
+    attribute :root_service_namespace, :string do
+      public? true
+      description "Service namespace of the root span ('' when unset)"
+    end
+
+    attribute :deployment_environment, :string do
+      public? true
+      description "Deployment environment of the root span ('' when unset)"
+    end
+
     attribute :root_span_kind, :integer do
       public? true
       description "Kind of the root span"

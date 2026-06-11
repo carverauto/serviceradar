@@ -30,6 +30,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Inventory.InterfaceThresholdWorker",
     "ServiceRadar.Jobs.AlertsRetentionWorker",
     "ServiceRadar.Jobs.RefreshTraceSummariesWorker",
+    "ServiceRadar.Jobs.RootSpanRatioWorker",
     "ServiceRadar.Jobs.SecurityEventsRetentionWorker",
     "ServiceRadar.NetworkDiscovery.TopologyStateCleanupWorker",
     "ServiceRadar.ObjectStore.RetentionWorker",

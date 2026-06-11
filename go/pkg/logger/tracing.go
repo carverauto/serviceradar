@@ -19,6 +19,7 @@ package logger
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -28,6 +29,16 @@ import (
 	semconv "go.opentelemetry.io/otel/semconv/v1.31.0"
 	otelTrace "go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc/credentials"
+)
+
+// Globals manage the process-wide TracerProvider lifecycle so that
+// EnsureTracing is idempotent and Shutdown can flush pending spans.
+//
+//nolint:gochecknoglobals // needed for proper OTel shutdown handling
+var (
+	ensureTracingOnce sync.Once
+	ensureTracingErr  error
+	tracerProvider    *trace.TracerProvider
 )
 
 // TracingConfig holds the configuration for OpenTelemetry tracing setup
@@ -62,6 +73,31 @@ type TracingConfig struct {
 //	defer func() { tp.Shutdown(context.Background()) }()
 //	defer rootSpan.End()
 func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.TracerProvider, context.Context, otelTrace.Span, error) {
+	tp, err := newTracerProvider(ctx, &config)
+	if err != nil {
+		return nil, ctx, nil, err
+	}
+
+	// Create a tracer for this service
+	tracer := otel.Tracer(config.ServiceName)
+
+	// Create a root span for the service lifetime
+	spanName := config.ServiceName + ".main"
+	ctx, rootSpan := tracer.Start(ctx, spanName)
+
+	// Debug logging if enabled
+	if config.Debug {
+		logTracingInitialization(config, rootSpan)
+	}
+
+	return tp, ctx, rootSpan, nil
+}
+
+// newTracerProvider builds a TracerProvider (with an OTLP gRPC exporter when
+// the OTel config is enabled and has an endpoint), registers it as the global
+// TracerProvider, and installs the W3C TraceContext+Baggage propagator.
+// It mutates config to apply service name/version defaults.
+func newTracerProvider(ctx context.Context, config *TracingConfig) (*trace.TracerProvider, error) {
 	// Set defaults
 	if config.ServiceName == "" {
 		config.ServiceName = "serviceradar"
@@ -79,7 +115,7 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.Tracer
 		),
 	)
 	if err != nil {
-		return nil, ctx, nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
+		return nil, fmt.Errorf("failed to create OpenTelemetry resource: %w", err)
 	}
 
 	// Create TracerProvider options
@@ -91,7 +127,7 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.Tracer
 	if config.OTel != nil && config.OTel.Enabled && config.OTel.Endpoint != "" {
 		exporter, err := createTraceExporter(ctx, config.OTel)
 		if err != nil {
-			return nil, ctx, nil, fmt.Errorf("failed to create trace exporter: %w", err)
+			return nil, fmt.Errorf("failed to create trace exporter: %w", err)
 		}
 
 		// Use BatchSpanProcessor for efficient trace exporting
@@ -109,19 +145,54 @@ func InitializeTracing(ctx context.Context, config TracingConfig) (*trace.Tracer
 		propagation.Baggage{},
 	))
 
-	// Create a tracer for this service
-	tracer := otel.Tracer(config.ServiceName)
+	return tp, nil
+}
 
-	// Create a root span for the service lifetime
-	spanName := config.ServiceName + ".main"
-	ctx, rootSpan := tracer.Start(ctx, spanName)
-
-	// Debug logging if enabled
-	if config.Debug {
-		logTracingInitialization(config, rootSpan)
+// EnsureTracing initializes the process-wide OpenTelemetry TracerProvider
+// exactly once. It sets the global TracerProvider and the W3C
+// TraceContext+Baggage propagator so that gRPC servers/clients instrumented
+// with otelgrpc create spans with correct parents and propagate context on
+// outbound calls. Spans are exported via OTLP gRPC when config.OTel is
+// enabled with an endpoint (the same configuration used for OTel logs).
+//
+// The provider is flushed and shut down by Shutdown / ShutdownOTEL.
+// Subsequent calls are no-ops and return the first initialization error.
+func EnsureTracing(ctx context.Context, config TracingConfig) error {
+	if config.OTel == nil || !config.OTel.Enabled || config.OTel.Endpoint == "" {
+		return nil
 	}
 
-	return tp, ctx, rootSpan, nil
+	ensureTracingOnce.Do(func() {
+		tp, err := newTracerProvider(ctx, &config)
+		if err != nil {
+			ensureTracingErr = err
+			return
+		}
+
+		tracerProvider = tp
+
+		if config.Logger != nil {
+			config.Logger.Debug().
+				Str("service", config.ServiceName).
+				Str("endpoint", config.OTel.Endpoint).
+				Msg("Initialized OpenTelemetry tracing")
+		}
+	})
+
+	return ensureTracingErr
+}
+
+// shutdownTracerProvider flushes and shuts down the TracerProvider created by
+// EnsureTracing, if any. Called from ShutdownOTEL.
+func shutdownTracerProvider(ctx context.Context) error {
+	if tracerProvider == nil {
+		return nil
+	}
+
+	err := tracerProvider.Shutdown(ctx)
+	tracerProvider = nil
+
+	return err
 }
 
 // GetTracer returns a tracer for the given name.

@@ -28,8 +28,13 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.PowerDNS
+  alias ServiceRadar.Otel
+  alias ServiceRadar.Otel.Propagation
 
   require Logger
+
+  # Maximum number of upstream trace contexts linked onto a batch span.
+  @max_batch_links 8
 
   @doc """
   Starts the Broadway pipeline.
@@ -97,6 +102,95 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   # DB connection's search_path determines the schema
   @impl true
   def handle_batch(batcher, messages, batch_info, _context) do
+    subject = batch_subject(messages)
+
+    with_batch_span(subject, messages, fn ->
+      run_batch(batcher, messages, batch_info)
+    end)
+  end
+
+  @doc false
+  # Wraps non-telemetry batch processing in a consumer span carrying span
+  # links to the upstream trace contexts found in message headers.
+  #
+  # Telemetry subjects (otel.>, logs.>, including otel.metrics.>) are
+  # explicitly excluded: creating a span while persisting spans/logs/metrics
+  # would emit telemetry about telemetry and self-amplify the signal stream.
+  def with_batch_span(subject, messages, fun) when is_function(fun, 0) do
+    if telemetry_subject?(subject) do
+      fun.()
+    else
+      Otel.span(
+        "event_writer.process_batch",
+        %{
+          kind: :consumer,
+          links: batch_links(messages),
+          attributes: %{
+            "messaging.system" => "nats",
+            "messaging.operation.name" => "process",
+            "messaging.destination.name" => subject,
+            "messaging.batch.message_count" => length(messages)
+          }
+        },
+        fun
+      )
+    end
+  end
+
+  @doc false
+  # True for subjects carrying OTel/log telemetry payloads (otel.>, logs.>,
+  # which includes otel.metrics.>); the batch consumer span must never be
+  # created for these.
+  def telemetry_subject?(subject) when is_binary(subject) do
+    String.starts_with?(subject, "otel.") or String.starts_with?(subject, "logs.")
+  end
+
+  def telemetry_subject?(_subject), do: false
+
+  @doc false
+  # Builds span links from the W3C trace-context headers of up to
+  # @max_batch_links distinct messages (deduplicated by trace/span id).
+  def batch_links(messages) when is_list(messages) do
+    messages
+    |> Enum.reduce_while([], fn message, acc ->
+      if length(acc) >= @max_batch_links do
+        {:halt, acc}
+      else
+        case Propagation.extract_link(message_headers(message)) do
+          nil -> {:cont, acc}
+          link -> {:cont, put_new_link(acc, link)}
+        end
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  def batch_links(_messages), do: []
+
+  defp put_new_link(links, %{trace_id: trace_id, span_id: span_id} = link) do
+    duplicate? =
+      Enum.any?(links, fn %{trace_id: existing_trace, span_id: existing_span} ->
+        existing_trace == trace_id and existing_span == span_id
+      end)
+
+    if duplicate?, do: links, else: [link | links]
+  end
+
+  defp put_new_link(links, _link), do: links
+
+  defp message_headers(%{metadata: metadata}) when is_map(metadata),
+    do: Map.get(metadata, :headers)
+
+  defp message_headers(_message), do: nil
+
+  defp batch_subject([message | _rest]) do
+    metadata = Map.get(message, :metadata) || %{}
+    metadata[:base_subject] || normalize_subject(metadata[:subject])
+  end
+
+  defp batch_subject(_messages), do: ""
+
+  defp run_batch(batcher, messages, batch_info) do
     processor = get_processor(batcher)
     start_time = System.monotonic_time(:millisecond)
 
@@ -132,6 +226,9 @@ defmodule ServiceRadar.EventWriter.Pipeline do
           reason: inspect(reason),
           message_count: length(messages)
         )
+
+        # No-op when no batch span is active (telemetry subjects).
+        Otel.set_error(reason)
 
         Enum.map(messages, &Message.failed(&1, reason))
     end
