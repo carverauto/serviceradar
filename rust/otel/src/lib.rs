@@ -1,6 +1,7 @@
 use log::{debug, error, info, warn};
 use tonic::{Request, Response, Status};
 
+pub mod auth;
 pub mod cli;
 pub mod config;
 pub mod http_server;
@@ -63,7 +64,7 @@ pub mod opentelemetry {
     }
 }
 
-use crate::output::{PerformanceMetric, TelemetryOutput};
+use crate::output::{IngestContext, PerformanceMetric, TelemetryOutput};
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
@@ -244,6 +245,7 @@ impl ServiceRadarCollector {
     pub async fn handle_traces(
         &self,
         trace_data: ExportTraceServiceRequest,
+        ctx: &IngestContext,
     ) -> Result<ExportTraceServiceResponse, ExportError> {
         let span_count = trace_data
             .resource_spans
@@ -430,7 +432,9 @@ impl ServiceRadarCollector {
             );
             metrics::record_received("span_metrics", performance_metrics.len());
             let publish_result = publish_with_retry("span_metrics", || async {
-                output.publish_derived_metrics(&performance_metrics).await
+                output
+                    .publish_derived_metrics(&performance_metrics, ctx)
+                    .await
             })
             .await;
             match publish_result {
@@ -485,7 +489,7 @@ impl ServiceRadarCollector {
         if let Some(output) = self.output_handle() {
             debug!("Forwarding traces to NATS");
             let publish_result = publish_with_retry("traces", || async {
-                output.publish_traces(&trace_data).await
+                output.publish_traces(&trace_data, ctx).await
             })
             .await;
             match publish_result {
@@ -524,6 +528,7 @@ impl ServiceRadarCollector {
     pub async fn handle_metrics(
         &self,
         metrics_data: ExportMetricsServiceRequest,
+        ctx: &IngestContext,
     ) -> Result<ExportMetricsServiceResponse, ExportError> {
         let resource_metric_count = metrics_data.resource_metrics.len();
         let mut scope_metric_count = 0usize;
@@ -593,7 +598,7 @@ impl ServiceRadarCollector {
         if let Some(output) = self.output_handle() {
             debug!("Forwarding raw OTLP metrics to NATS");
             let publish_result = publish_with_retry("metrics", || async {
-                output.publish_raw_metrics(&metrics_data).await
+                output.publish_raw_metrics(&metrics_data, ctx).await
             })
             .await;
             match publish_result {
@@ -629,6 +634,7 @@ impl ServiceRadarCollector {
     pub async fn handle_logs(
         &self,
         logs_data: ExportLogsServiceRequest,
+        ctx: &IngestContext,
     ) -> Result<ExportLogsServiceResponse, ExportError> {
         let logs_count = logs_data
             .resource_logs
@@ -685,9 +691,10 @@ impl ServiceRadarCollector {
         let mut rejected_log_records = 0usize;
         if let Some(output) = self.output_handle() {
             debug!("Forwarding logs to NATS");
-            let publish_result =
-                publish_with_retry("logs", || async { output.publish_logs(&logs_data).await })
-                    .await;
+            let publish_result = publish_with_retry("logs", || async {
+                output.publish_logs(&logs_data, ctx).await
+            })
+            .await;
             match publish_result {
                 Ok(outcome) => {
                     rejected_log_records = outcome.rejected;
@@ -717,13 +724,25 @@ impl ServiceRadarCollector {
     }
 }
 
+/// Reads the identity established by the ingestion-auth interceptor
+/// ([`crate::auth::grpc_auth_interceptor`]) back out of the gRPC request
+/// extensions; absent extension (interceptor not installed) means anonymous.
+fn grpc_ingest_context(extensions: &tonic::Extensions) -> IngestContext {
+    IngestContext {
+        identity: extensions
+            .get::<crate::auth::AuthenticatedIdentity>()
+            .and_then(|identity| identity.0.clone()),
+    }
+}
+
 #[tonic::async_trait]
 impl TraceService for ServiceRadarCollector {
     async fn export(
         &self,
         request: Request<ExportTraceServiceRequest>,
     ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        self.handle_traces(request.into_inner())
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_traces(request.into_inner(), &ctx)
             .await
             .map(Response::new)
             .map_err(|e| Status::unavailable(e.message))
@@ -736,7 +755,8 @@ impl MetricsService for ServiceRadarCollector {
         &self,
         request: Request<ExportMetricsServiceRequest>,
     ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
-        self.handle_metrics(request.into_inner())
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_metrics(request.into_inner(), &ctx)
             .await
             .map(Response::new)
             .map_err(|e| Status::unavailable(e.message))
@@ -749,7 +769,8 @@ impl LogsService for ServiceRadarCollector {
         &self,
         request: Request<ExportLogsServiceRequest>,
     ) -> Result<Response<ExportLogsServiceResponse>, Status> {
-        self.handle_logs(request.into_inner())
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_logs(request.into_inner(), &ctx)
             .await
             .map(Response::new)
             .map_err(|e| Status::unavailable(e.message))
@@ -1071,6 +1092,23 @@ mod tests {
         metric_calls: std::sync::atomic::AtomicUsize,
         rejected: usize,
         fail: bool,
+        /// Last [`IngestContext`] seen by any publish method, for asserting
+        /// identity threading from the listeners into the output backend.
+        last_ctx: std::sync::Mutex<Option<IngestContext>>,
+    }
+
+    impl MockOutput {
+        fn record_ctx(&self, ctx: &IngestContext) {
+            *self.last_ctx.lock().unwrap() = Some(ctx.clone());
+        }
+
+        fn last_identity(&self) -> Option<String> {
+            self.last_ctx
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|ctx| ctx.identity.clone())
+        }
     }
 
     impl MockOutput {
@@ -1090,7 +1128,9 @@ mod tests {
         async fn publish_traces(
             &self,
             traces: &ExportTraceServiceRequest,
+            ctx: &IngestContext,
         ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
             self.trace_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let spans = traces
@@ -1105,7 +1145,9 @@ mod tests {
         async fn publish_logs(
             &self,
             logs: &ExportLogsServiceRequest,
+            ctx: &IngestContext,
         ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
             self.log_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             let records = logs
@@ -1120,7 +1162,9 @@ mod tests {
         async fn publish_raw_metrics(
             &self,
             _metrics: &ExportMetricsServiceRequest,
+            ctx: &IngestContext,
         ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
             self.metric_calls
                 .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
             self.outcome(0)
@@ -1129,7 +1173,9 @@ mod tests {
         async fn publish_derived_metrics(
             &self,
             metrics: &[PerformanceMetric],
+            ctx: &IngestContext,
         ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
             self.outcome(metrics.len())
         }
     }
@@ -1140,7 +1186,7 @@ mod tests {
         let collector = ServiceRadarCollector::with_output(output.clone());
 
         let response = collector
-            .handle_traces(create_test_trace_request())
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
             .await
             .unwrap();
         assert!(response.partial_success.is_none());
@@ -1150,7 +1196,7 @@ mod tests {
         );
 
         let response = collector
-            .handle_logs(create_test_logs_request())
+            .handle_logs(create_test_logs_request(), &IngestContext::anonymous())
             .await
             .unwrap();
         assert!(response.partial_success.is_none());
@@ -1169,7 +1215,7 @@ mod tests {
         let collector = ServiceRadarCollector::with_output(output);
 
         let response = collector
-            .handle_traces(create_test_trace_request())
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
             .await
             .unwrap();
         let partial = response.partial_success.expect("partial_success expected");
@@ -1185,12 +1231,76 @@ mod tests {
         });
         let collector = ServiceRadarCollector::with_output(output.clone());
 
-        let result = collector.handle_traces(create_test_trace_request()).await;
+        let result = collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await;
         assert!(result.is_err());
         // publish_with_retry retries exactly once before failing the export.
         assert_eq!(
             output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
             2
         );
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_identity_threads_into_output_context() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+        let ctx = IngestContext {
+            identity: Some("tenant-a".to_string()),
+        };
+
+        collector
+            .handle_traces(create_test_trace_request(), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+
+        collector
+            .handle_logs(create_test_logs_request(), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+
+        collector
+            .handle_metrics(
+                ExportMetricsServiceRequest {
+                    resource_metrics: vec![],
+                },
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_anonymous_requests_publish_without_identity() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), None);
+        assert!(output.last_ctx.lock().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_grpc_export_reads_identity_from_interceptor_extensions() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let mut request = tonic::Request::new(create_test_trace_request());
+        request
+            .extensions_mut()
+            .insert(crate::auth::AuthenticatedIdentity(Some(
+                "tenant-grpc".to_string(),
+            )));
+
+        let response = TraceService::export(&collector, request).await.unwrap();
+        assert!(response.into_inner().partial_success.is_none());
+        assert_eq!(output.last_identity(), Some("tenant-grpc".to_string()));
     }
 }

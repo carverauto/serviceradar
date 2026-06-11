@@ -121,7 +121,7 @@
 - [x] 7.5 Helm: external OTLP exposure (LoadBalancer service default-on +
       values-demo wiring; Gateway/route option documented); NetworkPolicy
       toggle for cross-namespace senders
-- [ ] 7.6 Ingestion token auth (header/metadata) with identity stamped on the
+- [x] 7.6 Ingestion token auth (header/metadata) with identity stamped on the
       NATS envelope; configurable off
 - [x] 7.7 Collector publish path: remove global mutex serialization
       (clone JetStream context / bounded concurrency) to prevent

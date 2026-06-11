@@ -1044,6 +1044,32 @@ logCollector:
       # (otlp.gateway) fronts the listener inside the cluster; envoy then
       # forwards plain HTTP to the pod and no BackendTLSPolicy is needed.
       tlsEnabled: true
+    # SigNoz-style ingestion-key authentication for BOTH OTLP listeners
+    # (gRPC 4317 and HTTP 4318). Default disabled: in-cluster / trusted
+    # network senders keep exporting anonymously. When enabled, every
+    # external export must present the ingestion key on each request:
+    #   x-serviceradar-ingestion-key: <key>      (preferred)
+    #   authorization: Bearer <key>              (alias)
+    # Requests without a valid key are rejected (gRPC UNAUTHENTICATED /
+    # HTTP 401); CORS preflight (OPTIONS) stays open. The key value is read
+    # from an existing Kubernetes Secret mounted into the pod (never inlined
+    # in values/ConfigMaps), and the Secret key name doubles as the sender
+    # identity stamped on every ingested message (NATS header
+    # Sr-Ingest-Identity) for downstream attribution.
+    #
+    # Issue a key:
+    #   kubectl create secret generic otlp-ingestion-key \
+    #     --from-literal=tenant-a="$(openssl rand -hex 32)"
+    #   then set: enabled: true, secretName: otlp-ingestion-key,
+    #   secretKey: tenant-a
+    auth:
+      enabled: false
+      # Name of an existing Secret in the release namespace holding the
+      # ingestion key. Required when enabled.
+      secretName: ""
+      # Key within the Secret whose value is the ingestion token. Also used
+      # as the authenticated sender identity for attribution.
+      secretKey: "ingestion-key"
     service:
       enabled: true
       # Service type: ClusterIP (default), LoadBalancer, or NodePort.

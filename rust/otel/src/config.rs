@@ -12,6 +12,43 @@ pub struct Config {
     pub server: ServerConfig,
     pub nats: Option<NATSConfigTOML>,
     pub grpc_tls: Option<GRPCTLSConfig>,
+    /// Token-based ingestion authentication for both OTLP listeners
+    /// (`[auth]`). Disabled by default for trusted networks.
+    #[serde(default)]
+    pub auth: AuthConfig,
+}
+
+/// Ingestion authentication (`[auth]`) for the OTLP/gRPC and OTLP/HTTP
+/// listeners. When `enabled`, every export must present a configured token
+/// via the `x-serviceradar-ingestion-key` header/metadata key (or
+/// `authorization: Bearer <token>`); the matched entry's identity is stamped
+/// on published NATS messages (`Sr-Ingest-Identity`) for downstream
+/// attribution.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct AuthConfig {
+    /// Enforce ingestion authentication (default: false). Tokens listed
+    /// below still resolve identities when enforcement is off.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Accepted tokens and the sender identity each maps to.
+    #[serde(default)]
+    pub tokens: Vec<AuthTokenEntry>,
+}
+
+/// One accepted ingestion token (`[[auth.tokens]]`): exactly one of `token`
+/// (inline) or `token_file` (path whose trimmed contents are the token —
+/// the same file-based secret idiom as NATS creds/TLS keys) must be set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthTokenEntry {
+    /// Identity attributed to exports authenticated with this token.
+    pub identity: String,
+    /// Inline token value.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    /// Path to a file containing the token (trimmed on load). Preferred for
+    /// secret-managed deployments (e.g. Kubernetes Secret volumes).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_file: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -295,6 +332,14 @@ impl Config {
                 ca_file: Some("/path/to/grpc-ca.pem".to_string()),
                 client_auth: ClientAuthMode::Required,
             }),
+            auth: AuthConfig {
+                enabled: false,
+                tokens: vec![AuthTokenEntry {
+                    identity: "tenant-a".to_string(),
+                    token: Some("replace-with-ingestion-key".to_string()),
+                    token_file: None,
+                }],
+            },
         };
 
         toml::to_string_pretty(&example)
@@ -469,6 +514,7 @@ url = "nats://test:4222"
             },
             nats: None,
             grpc_tls: None,
+            auth: AuthConfig::default(),
         };
 
         assert_eq!(config.bind_address(), "127.0.0.1:8080");
@@ -485,6 +531,7 @@ url = "nats://test:4222"
                 ca_file: None,
                 client_auth: ClientAuthMode::default(),
             }),
+            auth: AuthConfig::default(),
         };
 
         let tls = config.grpc_tls.unwrap();
@@ -672,6 +719,7 @@ key_file = "/grpc.key"
                 }),
             }),
             grpc_tls: None,
+            auth: AuthConfig::default(),
         };
 
         let nats_config = config.nats_config().unwrap();
@@ -712,11 +760,69 @@ max_inflight_publishes = 4
     }
 
     #[test]
+    fn test_auth_defaults_to_disabled_with_no_tokens() {
+        let config: Config = toml::from_str("").unwrap();
+        assert!(!config.auth.enabled);
+        assert!(config.auth.tokens.is_empty());
+    }
+
+    #[test]
+    fn test_auth_parses_inline_token_array() {
+        let toml_content = r#"
+[auth]
+enabled = true
+tokens = [
+    { token = "secret-a", identity = "tenant-a" },
+    { token_file = "/etc/serviceradar/ingest-auth/key", identity = "tenant-b" },
+]
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert!(config.auth.enabled);
+        assert_eq!(config.auth.tokens.len(), 2);
+        assert_eq!(config.auth.tokens[0].identity, "tenant-a");
+        assert_eq!(config.auth.tokens[0].token.as_deref(), Some("secret-a"));
+        assert!(config.auth.tokens[0].token_file.is_none());
+        assert_eq!(config.auth.tokens[1].identity, "tenant-b");
+        assert!(config.auth.tokens[1].token.is_none());
+        assert_eq!(
+            config.auth.tokens[1].token_file.as_deref(),
+            Some("/etc/serviceradar/ingest-auth/key")
+        );
+    }
+
+    #[test]
+    fn test_auth_parses_array_of_tables() {
+        let toml_content = r#"
+[auth]
+enabled = false
+
+[[auth.tokens]]
+identity = "tenant-a"
+token = "secret-a"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert!(!config.auth.enabled);
+        assert_eq!(config.auth.tokens.len(), 1);
+        assert_eq!(config.auth.tokens[0].identity, "tenant-a");
+    }
+
+    #[test]
+    fn test_auth_entry_requires_identity() {
+        let toml_content = r#"
+[auth]
+enabled = true
+tokens = [{ token = "secret-a" }]
+"#;
+        assert!(toml::from_str::<Config>(toml_content).is_err());
+    }
+
+    #[test]
     fn test_example_toml_generation() {
         let example = Config::example_toml();
         assert!(example.contains("[server]"));
         assert!(example.contains("[nats]"));
         assert!(example.contains("[grpc_tls]"));
+        assert!(example.contains("[auth]"));
         assert!(example.contains("bind_address"));
         assert!(example.contains("url"));
         assert!(example.contains("cert_file"));

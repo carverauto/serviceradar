@@ -101,6 +101,7 @@ mod tests {
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: None,
+            ..Default::default()
         };
 
         let result = setup_grpc_tls(&config).unwrap();
@@ -113,6 +114,7 @@ mod tests {
             server: ServerConfig::default(),
             nats: None,
             grpc_tls: None,
+            ..Default::default()
         };
 
         // This should not panic
@@ -130,6 +132,7 @@ mod tests {
                 ca_file: Some("/test-ca.pem".to_string()),
                 client_auth: crate::config::ClientAuthMode::Required,
             }),
+            ..Default::default()
         };
 
         // This should not panic
@@ -160,6 +163,7 @@ mod tests {
                 ca_file: Some("/nonexistent/ca.pem".to_string()),
                 client_auth: crate::config::ClientAuthMode::None,
             }),
+            ..Default::default()
         };
 
         let result = setup_grpc_tls(&config).unwrap();
@@ -186,6 +190,7 @@ mod tests {
                 ca_file: Some("/nonexistent/ca.pem".to_string()),
                 client_auth: crate::config::ClientAuthMode::Required,
             }),
+            ..Default::default()
         };
 
         // Required client auth with an unreadable CA must fail loudly.

@@ -27,6 +27,29 @@ use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
 
+/// NATS message header carrying the authenticated sender identity for
+/// downstream attribution. Stamped on every chunk published for a request
+/// whose [`IngestContext::identity`] is set; consumers that do not know the
+/// header ignore it.
+pub const INGEST_IDENTITY_HEADER: &str = "Sr-Ingest-Identity";
+
+/// Per-request ingestion context threaded from the listener (gRPC
+/// interceptor / HTTP auth check) through the export handlers into the
+/// output backend. `identity: None` means the request was anonymous
+/// (token enforcement off on a trusted network).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IngestContext {
+    /// Authenticated sender identity from the matched ingestion token.
+    pub identity: Option<String>,
+}
+
+impl IngestContext {
+    /// Context for an anonymous (unauthenticated) request.
+    pub fn anonymous() -> Self {
+        Self::default()
+    }
+}
+
 /// Per-export delivery accounting returned by every output backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct PublishOutcome {
@@ -50,18 +73,30 @@ pub struct PublishOutcome {
 #[tonic::async_trait]
 pub trait TelemetryOutput: Send + Sync {
     /// Publishes an OTLP trace export. `rejected` counts individual spans
-    /// that can never be published (oversize).
-    async fn publish_traces(&self, traces: &ExportTraceServiceRequest) -> Result<PublishOutcome>;
+    /// that can never be published (oversize). `ctx` carries the
+    /// authenticated sender identity to stamp on the message envelope.
+    async fn publish_traces(
+        &self,
+        traces: &ExportTraceServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<PublishOutcome>;
 
     /// Publishes an OTLP logs export. `rejected` counts individual log
-    /// records that can never be published (oversize).
-    async fn publish_logs(&self, logs: &ExportLogsServiceRequest) -> Result<PublishOutcome>;
+    /// records that can never be published (oversize). `ctx` carries the
+    /// authenticated sender identity to stamp on the message envelope.
+    async fn publish_logs(
+        &self,
+        logs: &ExportLogsServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<PublishOutcome>;
 
     /// Publishes a raw OTLP metrics export. `rejected` counts individual
-    /// metric data points that can never be published (oversize).
+    /// metric data points that can never be published (oversize). `ctx`
+    /// carries the authenticated sender identity to stamp on the envelope.
     async fn publish_raw_metrics(
         &self,
         metrics: &ExportMetricsServiceRequest,
+        ctx: &IngestContext,
     ) -> Result<PublishOutcome>;
 
     /// Publishes collector-derived span performance metrics (best-effort;
@@ -69,6 +104,7 @@ pub trait TelemetryOutput: Send + Sync {
     async fn publish_derived_metrics(
         &self,
         metrics: &[PerformanceMetric],
+        ctx: &IngestContext,
     ) -> Result<PublishOutcome>;
 }
 

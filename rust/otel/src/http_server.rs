@@ -30,10 +30,12 @@ use prost::Message;
 use tokio::net::TcpListener;
 
 use crate::ServiceRadarCollector;
+use crate::auth::IngestAuth;
 use crate::config::Config;
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
+use crate::output::IngestContext;
 
 const CONTENT_TYPE_PROTOBUF: &str = "application/x-protobuf";
 
@@ -53,6 +55,9 @@ pub struct HttpServerOptions {
     pub allowed_origins: Vec<String>,
     pub max_request_bytes: usize,
     pub tls_identity: Option<TlsIdentityPem>,
+    /// Ingestion-token authentication shared with the gRPC listener
+    /// (`[auth]`); [`IngestAuth::disabled`] when enforcement is off.
+    pub auth: Arc<IngestAuth>,
 }
 
 impl HttpServerOptions {
@@ -93,11 +98,15 @@ impl HttpServerOptions {
             }
         };
 
+        let auth = IngestAuth::from_config(&config.auth)
+            .map_err(|e| format!("invalid [auth] configuration: {e}"))?;
+
         Ok(Some(Self {
             addr,
             allowed_origins: config.server.http.allowed_origins.clone(),
             max_request_bytes: config.server.max_request_bytes,
             tls_identity,
+            auth: Arc::new(auth),
         }))
     }
 }
@@ -195,10 +204,6 @@ async fn handle_request(
         .map(str::to_owned);
     let cors_origin = resolve_cors_origin(&options.allowed_origins, origin.as_deref());
 
-    if req.method() == Method::OPTIONS {
-        return preflight_response(cors_origin);
-    }
-
     let (parts, body) = req.into_parts();
     let body = match Limited::new(body, options.max_request_bytes)
         .collect()
@@ -251,6 +256,26 @@ async fn handle_otlp(
     collector: &ServiceRadarCollector,
     cors_origin: Option<String>,
 ) -> Response<Full<Bytes>> {
+    // CORS preflight stays unauthenticated so browser SDKs can negotiate
+    // before sending credentialed exports.
+    if method == Method::OPTIONS {
+        return preflight_response(cors_origin);
+    }
+
+    // Ingestion authentication (no-op when [auth] enforcement is off; a
+    // matching token still resolves the sender identity for attribution).
+    let credential = crate::auth::credential_from_http_headers(headers);
+    let ctx = match options.auth.authenticate(credential.as_deref()) {
+        Ok(identity) => IngestContext { identity },
+        Err(e) => {
+            return error_response(
+                StatusCode::UNAUTHORIZED,
+                e.message().to_string(),
+                cors_origin,
+            );
+        }
+    };
+
     if method != Method::POST {
         return error_response(
             StatusCode::METHOD_NOT_ALLOWED,
@@ -342,7 +367,7 @@ async fn handle_otlp(
                 Ok(request) => request,
                 Err(e) => return decode_error_response(e, cors_origin),
             };
-            match collector.handle_traces(request).await {
+            match collector.handle_traces(request, &ctx).await {
                 Ok(response) => protobuf_response(response.encode_to_vec(), cors_origin),
                 Err(e) => retryable_error_response(e.message, cors_origin),
             }
@@ -352,7 +377,7 @@ async fn handle_otlp(
                 Ok(request) => request,
                 Err(e) => return decode_error_response(e, cors_origin),
             };
-            match collector.handle_logs(request).await {
+            match collector.handle_logs(request, &ctx).await {
                 Ok(response) => protobuf_response(response.encode_to_vec(), cors_origin),
                 Err(e) => retryable_error_response(e.message, cors_origin),
             }
@@ -362,7 +387,7 @@ async fn handle_otlp(
                 Ok(request) => request,
                 Err(e) => return decode_error_response(e, cors_origin),
             };
-            match collector.handle_metrics(request).await {
+            match collector.handle_metrics(request, &ctx).await {
                 Ok(response) => protobuf_response(response.encode_to_vec(), cors_origin),
                 Err(e) => retryable_error_response(e.message, cors_origin),
             }
@@ -428,7 +453,7 @@ fn preflight_response(cors_origin: Option<String>) -> Response<Full<Bytes>> {
             .header(header::ACCESS_CONTROL_ALLOW_METHODS, "POST, OPTIONS")
             .header(
                 header::ACCESS_CONTROL_ALLOW_HEADERS,
-                "Content-Type, Content-Encoding",
+                "Content-Type, Content-Encoding, Authorization, X-Serviceradar-Ingestion-Key",
             )
             .header(header::ACCESS_CONTROL_MAX_AGE, "3600"),
         cors_origin,
@@ -500,7 +525,25 @@ mod tests {
             allowed_origins: vec!["*".to_string()],
             max_request_bytes: 1024 * 1024,
             tls_identity: None,
+            auth: Arc::new(IngestAuth::disabled()),
         }
+    }
+
+    /// Options with token enforcement on: one token "secret-a" -> "tenant-a".
+    fn test_options_with_auth() -> HttpServerOptions {
+        let mut options = test_options();
+        options.auth = Arc::new(
+            IngestAuth::from_config(&crate::config::AuthConfig {
+                enabled: true,
+                tokens: vec![crate::config::AuthTokenEntry {
+                    identity: "tenant-a".to_string(),
+                    token: Some("secret-a".to_string()),
+                    token_file: None,
+                }],
+            })
+            .unwrap(),
+        );
+        options
     }
 
     async fn test_collector() -> ServiceRadarCollector {
@@ -773,5 +816,274 @@ mod tests {
 
         let options = HttpServerOptions::from_config(&config).unwrap().unwrap();
         assert!(options.tls_identity.is_none());
+    }
+
+    /// Minimal output backend capturing the [`IngestContext`] each publish
+    /// receives, to assert HTTP-layer identity threading.
+    #[derive(Default)]
+    struct CaptureOutput {
+        last_identity: std::sync::Mutex<Option<Option<String>>>,
+    }
+
+    impl CaptureOutput {
+        fn record(&self, ctx: &IngestContext) {
+            *self.last_identity.lock().unwrap() = Some(ctx.identity.clone());
+        }
+    }
+
+    #[tonic::async_trait]
+    impl crate::output::TelemetryOutput for CaptureOutput {
+        async fn publish_traces(
+            &self,
+            _traces: &ExportTraceServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record(ctx);
+            Ok(Default::default())
+        }
+
+        async fn publish_logs(
+            &self,
+            _logs: &ExportLogsServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record(ctx);
+            Ok(Default::default())
+        }
+
+        async fn publish_raw_metrics(
+            &self,
+            _metrics: &ExportMetricsServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record(ctx);
+            Ok(Default::default())
+        }
+
+        async fn publish_derived_metrics(
+            &self,
+            _metrics: &[crate::output::PerformanceMetric],
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record(ctx);
+            Ok(Default::default())
+        }
+    }
+
+    fn empty_traces_body() -> Bytes {
+        Bytes::from(
+            ExportTraceServiceRequest {
+                resource_spans: vec![],
+            }
+            .encode_to_vec(),
+        )
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_missing_token_returns_401() {
+        let collector = test_collector().await;
+        let options = test_options_with_auth();
+
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &protobuf_headers(),
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = String::from_utf8(response_bytes(response).await.to_vec()).unwrap();
+        assert!(body.contains("x-serviceradar-ingestion-key"));
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_invalid_token_returns_401() {
+        let collector = test_collector().await;
+        let options = test_options_with_auth();
+
+        let mut headers = protobuf_headers();
+        headers.insert(
+            crate::auth::INGESTION_KEY_HEADER,
+            HeaderValue::from_static("wrong"),
+        );
+
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &headers,
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        let body = String::from_utf8(response_bytes(response).await.to_vec()).unwrap();
+        assert!(body.contains("invalid ingestion token"));
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_valid_ingestion_key_is_accepted() {
+        let collector = test_collector().await;
+        let options = test_options_with_auth();
+
+        let mut headers = protobuf_headers();
+        headers.insert(
+            crate::auth::INGESTION_KEY_HEADER,
+            HeaderValue::from_static("secret-a"),
+        );
+
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &headers,
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_bearer_alias_is_accepted_and_threads_identity() {
+        let output = std::sync::Arc::new(CaptureOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+        let options = test_options_with_auth();
+
+        let mut headers = protobuf_headers();
+        headers.insert(
+            header::AUTHORIZATION,
+            HeaderValue::from_static("Bearer secret-a"),
+        );
+
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &headers,
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            *output.last_identity.lock().unwrap(),
+            Some(Some("tenant-a".to_string()))
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_enabled_options_preflight_bypasses_auth() {
+        let collector = test_collector().await;
+        let options = test_options_with_auth();
+
+        // No credentials at all: preflight must still succeed.
+        let response = handle_otlp(
+            &Method::OPTIONS,
+            "/v1/traces",
+            &HeaderMap::new(),
+            Bytes::new(),
+            &options,
+            &collector,
+            Some("*".to_string()),
+        )
+        .await;
+
+        assert_eq!(response.status(), StatusCode::NO_CONTENT);
+        assert_eq!(
+            response
+                .headers()
+                .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+                .unwrap(),
+            "Content-Type, Content-Encoding, Authorization, X-Serviceradar-Ingestion-Key"
+        );
+    }
+
+    #[tokio::test]
+    async fn auth_disabled_allows_anonymous_and_attributes_matching_tokens() {
+        let output = std::sync::Arc::new(CaptureOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+        // Enforcement off but a token is configured.
+        let mut options = test_options_with_auth();
+        options.auth = Arc::new(
+            IngestAuth::from_config(&crate::config::AuthConfig {
+                enabled: false,
+                tokens: vec![crate::config::AuthTokenEntry {
+                    identity: "tenant-a".to_string(),
+                    token: Some("secret-a".to_string()),
+                    token_file: None,
+                }],
+            })
+            .unwrap(),
+        );
+
+        // Anonymous export passes with no identity.
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &protobuf_headers(),
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(*output.last_identity.lock().unwrap(), Some(None));
+
+        // A matching token still resolves the identity.
+        let mut headers = protobuf_headers();
+        headers.insert(
+            crate::auth::INGESTION_KEY_HEADER,
+            HeaderValue::from_static("secret-a"),
+        );
+        let response = handle_otlp(
+            &Method::POST,
+            "/v1/traces",
+            &headers,
+            empty_traces_body(),
+            &options,
+            &collector,
+            None,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            *output.last_identity.lock().unwrap(),
+            Some(Some("tenant-a".to_string()))
+        );
+    }
+
+    #[test]
+    fn from_config_builds_auth_from_auth_section() {
+        let mut config = Config::default();
+        config.auth.enabled = true;
+        config.auth.tokens = vec![crate::config::AuthTokenEntry {
+            identity: "tenant-a".to_string(),
+            token: Some("secret-a".to_string()),
+            token_file: None,
+        }];
+
+        let options = HttpServerOptions::from_config(&config).unwrap().unwrap();
+        assert!(options.auth.enabled());
+        assert_eq!(
+            options.auth.authenticate(Some("secret-a")).unwrap(),
+            Some("tenant-a".to_string())
+        );
+
+        // Invalid auth config (enabled without tokens) must fail fast.
+        let mut bad = Config::default();
+        bad.auth.enabled = true;
+        assert!(HttpServerOptions::from_config(&bad).is_err());
     }
 }

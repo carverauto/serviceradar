@@ -177,6 +177,16 @@ async fn start_otel(config_path: &str) -> Result<()> {
     let addr = otel_cfg.bind_address().parse()?;
     let nats_config = otel_cfg.nats_config();
     let grpc_tls_config = setup_grpc_tls(&otel_cfg).map_err(|e| anyhow::anyhow!("{e}"))?;
+    // Ingestion-token auth shared by the OTLP/gRPC interceptor and the
+    // OTLP/HTTP listener (which builds its own copy from the same [auth]
+    // section). Fails fast on unreadable token files / invalid entries.
+    let ingest_auth = std::sync::Arc::new(
+        otel::auth::IngestAuth::from_config(&otel_cfg.auth)
+            .map_err(|e| anyhow::anyhow!("invalid [auth] configuration: {e}"))?,
+    );
+    if ingest_auth.enabled() {
+        info!("OTLP ingestion authentication enforced");
+    }
     let collector = create_collector(nats_config)
         .await
         .map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -213,6 +223,7 @@ async fn start_otel(config_path: &str) -> Result<()> {
         grpc_tls_config,
         collector,
         otel_cfg.server.max_request_bytes,
+        ingest_auth,
     )
     .await
     .map_err(|e| anyhow::anyhow!("{e}"))?;

@@ -10,7 +10,9 @@ use tokio::time::timeout;
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
-use crate::output::{PerformanceMetric, PublishOutcome, TelemetryOutput};
+use crate::output::{
+    INGEST_IDENTITY_HEADER, IngestContext, PerformanceMetric, PublishOutcome, TelemetryOutput,
+};
 
 use super::NATSOutput;
 use super::chunker::{
@@ -18,13 +20,32 @@ use super::chunker::{
     split_traces_request,
 };
 
+/// Builds the NATS headers stamped on every chunk published for an
+/// authenticated request (`Sr-Ingest-Identity: <identity>`). Downstream
+/// consumers (zen, db-event-writer) ignore headers they do not know.
+fn identity_headers(identity: &str) -> async_nats::HeaderMap {
+    let mut headers = async_nats::HeaderMap::new();
+    headers.insert(INGEST_IDENTITY_HEADER, identity);
+    headers
+}
+
 impl NATSOutput {
     /// Publishes one encoded chunk and waits for the JetStream ack.
     ///
     /// Holds no lock across the publish/ack awaits; a semaphore permit
     /// bounds the number of concurrently in-flight chunk publishes across
     /// all export requests.
-    async fn publish_chunk(&self, subject: &str, payload: Vec<u8>, signal: &str) -> Result<()> {
+    ///
+    /// When `identity` is set the chunk is published with the
+    /// `Sr-Ingest-Identity` header so downstream consumers can attribute
+    /// the data to the authenticated sender.
+    async fn publish_chunk(
+        &self,
+        subject: &str,
+        payload: Vec<u8>,
+        signal: &str,
+        identity: Option<&str>,
+    ) -> Result<()> {
         let _permit = self
             .publish_permits
             .acquire()
@@ -33,7 +54,19 @@ impl NATSOutput {
 
         let (js, generation) = self.current_jetstream().await?;
 
-        let ack: PublishAckFuture = match js.publish(subject.to_string(), payload.into()).await {
+        let publish_result = match identity {
+            Some(identity) => {
+                js.publish_with_headers(
+                    subject.to_string(),
+                    identity_headers(identity),
+                    payload.into(),
+                )
+                .await
+            }
+            None => js.publish(subject.to_string(), payload.into()).await,
+        };
+
+        let ack: PublishAckFuture = match publish_result {
             Ok(future) => future,
             Err(e) => {
                 error!("Failed to publish {signal} to NATS: {e}");
@@ -81,7 +114,11 @@ impl TelemetryOutput for NATSOutput {
     /// Publishes traces to NATS. `rejected` counts individual spans dropped
     /// because a single span's encoded size exceeds the publish budget;
     /// callers report these via OTLP partial_success.
-    async fn publish_traces(&self, traces: &ExportTraceServiceRequest) -> Result<PublishOutcome> {
+    async fn publish_traces(
+        &self,
+        traces: &ExportTraceServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<PublishOutcome> {
         let span_count = traces
             .resource_spans
             .iter()
@@ -127,7 +164,7 @@ impl TelemetryOutput for NATSOutput {
                 trace_chunks.len(),
                 payload.len()
             );
-            self.publish_chunk(&traces_subject, payload, "traces")
+            self.publish_chunk(&traces_subject, payload, "traces", ctx.identity.as_deref())
                 .await?;
         }
 
@@ -145,7 +182,11 @@ impl TelemetryOutput for NATSOutput {
     /// Publishes logs to NATS. `rejected` counts individual log records
     /// dropped because a single record's encoded size exceeds the publish
     /// budget; callers report these via OTLP partial_success.
-    async fn publish_logs(&self, logs: &ExportLogsServiceRequest) -> Result<PublishOutcome> {
+    async fn publish_logs(
+        &self,
+        logs: &ExportLogsServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<PublishOutcome> {
         let logs_count = logs
             .resource_logs
             .iter()
@@ -195,7 +236,8 @@ impl TelemetryOutput for NATSOutput {
                 log_chunks.len(),
                 payload.len()
             );
-            self.publish_chunk(&logs_subject, payload, "logs").await?;
+            self.publish_chunk(&logs_subject, payload, "logs", ctx.identity.as_deref())
+                .await?;
         }
 
         info!(
@@ -212,6 +254,7 @@ impl TelemetryOutput for NATSOutput {
     async fn publish_derived_metrics(
         &self,
         metrics: &[PerformanceMetric],
+        ctx: &IngestContext,
     ) -> Result<PublishOutcome> {
         if metrics.is_empty() {
             return Ok(PublishOutcome::default());
@@ -235,8 +278,13 @@ impl TelemetryOutput for NATSOutput {
             });
         }
 
-        self.publish_chunk(&otel_metrics_subject, json_payload, "derived metrics")
-            .await?;
+        self.publish_chunk(
+            &otel_metrics_subject,
+            json_payload,
+            "derived metrics",
+            ctx.identity.as_deref(),
+        )
+        .await?;
 
         info!(
             "Successfully published {} performance metrics to NATS",
@@ -254,6 +302,7 @@ impl TelemetryOutput for NATSOutput {
     async fn publish_raw_metrics(
         &self,
         metrics_request: &ExportMetricsServiceRequest,
+        ctx: &IngestContext,
     ) -> Result<PublishOutcome> {
         debug!("Publishing raw OTLP metrics request to NATS");
 
@@ -289,8 +338,13 @@ impl TelemetryOutput for NATSOutput {
                 metric_chunks.len(),
                 payload.len()
             );
-            self.publish_chunk(&raw_subject, payload, "raw metrics")
-                .await?;
+            self.publish_chunk(
+                &raw_subject,
+                payload,
+                "raw metrics",
+                ctx.identity.as_deref(),
+            )
+            .await?;
         }
 
         info!(
@@ -301,5 +355,19 @@ impl TelemetryOutput for NATSOutput {
             published: data_point_count.saturating_sub(rejected),
             rejected,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_headers_carry_sr_ingest_identity() {
+        let headers = identity_headers("tenant-a");
+        assert_eq!(
+            headers.get(INGEST_IDENTITY_HEADER).map(|v| v.as_str()),
+            Some("tenant-a")
+        );
     }
 }

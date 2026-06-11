@@ -7,11 +7,14 @@ use hyper_util::server::conn::auto::Builder as ConnBuilder;
 use log::{debug, error, info};
 use std::convert::Infallible;
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use tonic::codec::CompressionEncoding;
+use tonic::service::interceptor::InterceptedService;
 use tonic::transport::{Server, ServerTlsConfig};
 
 use crate::ServiceRadarCollector;
+use crate::auth::{IngestAuth, grpc_auth_interceptor};
 use crate::opentelemetry::proto::collector::logs::v1::logs_service_server::LogsServiceServer;
 use crate::opentelemetry::proto::collector::metrics::v1::metrics_service_server::MetricsServiceServer;
 use crate::opentelemetry::proto::collector::trace::v1::trace_service_server::TraceServiceServer;
@@ -39,11 +42,17 @@ pub async fn create_collector(
 /// `max_request_bytes` bounds the decoded size of a single OTLP export
 /// request (tonic's default of 4 MiB is far too small for stock OTel
 /// Collector batching); wire it from `config.server.max_request_bytes`.
+///
+/// `auth` enforces ingestion-token authentication on every export when
+/// enabled ([`crate::auth`]); pass [`IngestAuth::disabled`] for trusted
+/// networks. The interceptor also resolves the sender identity attached to
+/// published messages.
 pub async fn start_server(
     addr: SocketAddr,
     grpc_tls_config: Option<ServerTlsConfig>,
     collector: ServiceRadarCollector,
     max_request_bytes: usize,
+    auth: Arc<IngestAuth>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     info!("OTEL Collector listening on {addr} (max request size: {max_request_bytes} bytes)");
     debug!("Starting gRPC server");
@@ -56,6 +65,11 @@ pub async fn start_server(
         server_builder = server_builder.tls_config(tls)?;
     }
 
+    if auth.enabled() {
+        info!("OTLP ingestion authentication enforced on gRPC listener");
+    }
+    let interceptor = grpc_auth_interceptor(auth);
+
     let trace_collector = collector.clone();
     let logs_collector = collector.clone();
     let metrics_collector = collector;
@@ -64,21 +78,30 @@ pub async fn start_server(
     // negotiate gzip by default; without accept_compressed they receive a
     // permanent UNIMPLEMENTED. Accept gzip + zstd and compress responses
     // with gzip when the client advertises support.
-    let trace_service = TraceServiceServer::new(trace_collector)
-        .accept_compressed(CompressionEncoding::Gzip)
-        .accept_compressed(CompressionEncoding::Zstd)
-        .send_compressed(CompressionEncoding::Gzip)
-        .max_decoding_message_size(max_request_bytes);
-    let logs_service = LogsServiceServer::new(logs_collector)
-        .accept_compressed(CompressionEncoding::Gzip)
-        .accept_compressed(CompressionEncoding::Zstd)
-        .send_compressed(CompressionEncoding::Gzip)
-        .max_decoding_message_size(max_request_bytes);
-    let metrics_service = MetricsServiceServer::new(metrics_collector)
-        .accept_compressed(CompressionEncoding::Gzip)
-        .accept_compressed(CompressionEncoding::Zstd)
-        .send_compressed(CompressionEncoding::Gzip)
-        .max_decoding_message_size(max_request_bytes);
+    let trace_service = InterceptedService::new(
+        TraceServiceServer::new(trace_collector)
+            .accept_compressed(CompressionEncoding::Gzip)
+            .accept_compressed(CompressionEncoding::Zstd)
+            .send_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(max_request_bytes),
+        interceptor.clone(),
+    );
+    let logs_service = InterceptedService::new(
+        LogsServiceServer::new(logs_collector)
+            .accept_compressed(CompressionEncoding::Gzip)
+            .accept_compressed(CompressionEncoding::Zstd)
+            .send_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(max_request_bytes),
+        interceptor.clone(),
+    );
+    let metrics_service = InterceptedService::new(
+        MetricsServiceServer::new(metrics_collector)
+            .accept_compressed(CompressionEncoding::Gzip)
+            .accept_compressed(CompressionEncoding::Zstd)
+            .send_compressed(CompressionEncoding::Gzip)
+            .max_decoding_message_size(max_request_bytes),
+        interceptor,
+    );
 
     let result = server_builder
         .add_service(trace_service)

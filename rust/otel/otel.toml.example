@@ -70,3 +70,28 @@ timeout_secs = 30
 # do server-side TLS) should use "optional" or "none"; "required" rejects
 # every stock external producer at the TLS handshake.
 # client_auth = "required"
+
+# Token-based ingestion authentication for BOTH OTLP listeners (gRPC 4317
+# and HTTP 4318). Disabled by default: on trusted networks exports are
+# accepted anonymously. When enabled, every export must present a configured
+# token via either header/metadata key:
+#   x-serviceradar-ingestion-key: <token>
+#   authorization: Bearer <token>
+# Invalid or missing tokens are rejected (gRPC UNAUTHENTICATED / HTTP 401);
+# CORS preflight (OPTIONS) requests are never authenticated.
+#
+# Each token maps to an identity that is stamped on every published NATS
+# message as the `Sr-Ingest-Identity` header for downstream attribution.
+# Exactly one of `token` (inline) or `token_file` (path whose trimmed
+# contents are the token; preferred for secret-managed deployments) must be
+# set per entry. Tokens also resolve identities when enforcement is off.
+# [auth]
+# enabled = false
+#
+# [[auth.tokens]]
+# identity = "tenant-a"
+# token = "replace-with-ingestion-key"
+#
+# [[auth.tokens]]
+# identity = "tenant-b"
+# token_file = "/etc/serviceradar/ingest-auth/ingestion-key"
