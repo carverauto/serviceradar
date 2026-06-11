@@ -61,6 +61,7 @@ type Server struct {
 	flowPublisher      *flowPublisher
 	addonManager       agentaddon.AddonManager
 	addonTelemetry     *addonTelemetryBuffer
+	addonOtlpRelay     *addonOtlpRelayDeps
 	objectStore        ObjectStore
 }
 

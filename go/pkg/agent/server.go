@@ -300,9 +300,13 @@ func (s *Server) initAddonManager() {
 	if s.addonTelemetry == nil {
 		s.addonTelemetry = newAddonTelemetryBuffer(defaultAddonTelemetryQueueSize)
 	}
+	if s.addonOtlpRelay == nil {
+		s.addonOtlpRelay = newAddonOtlpRelayDeps()
+	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
 		TelemetryHandler: s.handleAddonTelemetry,
+		OtlpRelayRunner:  s.runAddonOtlpRelay,
 		Logger:           s.logger.WithComponent("agent.addon"),
 	})
 }

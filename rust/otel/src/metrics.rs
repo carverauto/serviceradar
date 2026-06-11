@@ -75,6 +75,16 @@ lazy_static! {
         "Total OTLP records rejected by the collector, by signal and reason",
         &["signal", "reason"]
     ).unwrap();
+
+    // Agent-forward backend: records evicted from the durable relay spool
+    // before the agent acked them (oldest-first overflow / age eviction).
+    // These are real data loss at the edge; the same totals ride upstream in
+    // TelemetryCounters.dropped on outgoing relay batches.
+    pub static ref OTEL_RELAY_SPOOL_EVICTED_TOTAL: CounterVec = register_counter_vec!(
+        "otel_relay_spool_evicted_records_total",
+        "Total OTLP records evicted unacknowledged from the agent-forward relay spool, by signal",
+        &["signal"]
+    ).unwrap();
 }
 
 /// Record items received for a signal ("traces", "metrics", "logs", "span_metrics").
@@ -110,6 +120,16 @@ pub fn record_rejected(signal: &str, reason: &str, count: usize) {
     if count > 0 {
         OTEL_RECORDS_REJECTED_TOTAL
             .with_label_values(&[signal, reason])
+            .inc_by(count as f64);
+    }
+}
+
+/// Record records evicted unacked from the agent-forward relay spool for a
+/// signal ("traces", "logs", "metrics", "derived_metrics", "other").
+pub fn record_spool_evicted(signal: &str, count: u64) {
+    if count > 0 {
+        OTEL_RELAY_SPOOL_EVICTED_TOTAL
+            .with_label_values(&[signal])
             .inc_by(count as f64);
     }
 }
@@ -231,6 +251,27 @@ mod tests {
         assert_eq!(
             OTEL_PUBLISH_FAILURES_TOTAL
                 .with_label_values(&[signal])
+                .get(),
+            0.0
+        );
+    }
+
+    #[test]
+    fn test_record_spool_evicted_increments_counter() {
+        let signal = "test_spool_evicted_signal";
+        record_spool_evicted(signal, 3);
+        record_spool_evicted(signal, 2);
+        assert_eq!(
+            OTEL_RELAY_SPOOL_EVICTED_TOTAL
+                .with_label_values(&[signal])
+                .get(),
+            5.0
+        );
+        // Zero counts must not create a series.
+        record_spool_evicted("test_spool_evicted_zero_signal", 0);
+        assert_eq!(
+            OTEL_RELAY_SPOOL_EVICTED_TOTAL
+                .with_label_values(&["test_spool_evicted_zero_signal"])
                 .get(),
             0.0
         );

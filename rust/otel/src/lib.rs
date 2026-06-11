@@ -1,6 +1,7 @@
 use log::{debug, error, info, warn};
 use tonic::{Request, Response, Status};
 
+pub mod agent_forward;
 pub mod auth;
 pub mod cli;
 pub mod config;

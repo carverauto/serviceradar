@@ -11,6 +11,9 @@ defmodule ServiceRadar.EventWriter.SignalTelemetry do
   - `:received` — messages handed to a processor batch
   - `:written`  — rows actually inserted
   - `:rejected` — messages dropped because they could not be decoded
+  - `:relayed`  — edge OTLP relay chunks republished to NATS by the
+    StatusHandler (counted per NATS message, i.e. per OTLP protobuf chunk,
+    not per contained record)
 
   Signals: `:logs`, `:traces`, `:metrics` (span-derived samples), and
   `:metric_points` (OTLP data points).
@@ -18,7 +21,7 @@ defmodule ServiceRadar.EventWriter.SignalTelemetry do
 
   @event [:serviceradar, :event_writer, :signal]
   @signals [:logs, :traces, :metrics, :metric_points]
-  @outcomes [:received, :written, :rejected]
+  @outcomes [:received, :written, :rejected, :relayed]
 
   @doc "Telemetry event name for per-signal counters."
   @spec event() :: [atom()]

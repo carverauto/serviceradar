@@ -178,14 +178,14 @@
       backend (existing, central), agent-forward backend (new), optional
       OTLP-exporter backend; protocol surface (gRPC/HTTP, partial_success,
       counters, auth modes) stays shared so edge inherits all conformance work
-- [ ] 10.2 Agent/gateway telemetry relay: forwarding RPC (or stream reuse) on
+- [x] 10.2 Agent/gateway telemetry relay: forwarding RPC (or stream reuse) on
       the agent→gateway channel carrying encoded OTLP batches; gateway/core
       republishes onto the standard NATS subjects with agent id/partition
       attribution stamped from the agent's mTLS identity
-- [ ] 10.3 Package the collector as a native add-on (addon-sdk, signing,
+- [x] 10.3 Package the collector as a native add-on (addon-sdk, signing,
       delivery models, edge-ops lifecycle); configuration via streamed agent
       config (listen address/ports, buffer bounds, output backend)
-- [ ] 10.4 Bounded on-disk store-and-forward buffer with oldest-first
+- [x] 10.4 Bounded on-disk store-and-forward buffer with oldest-first
       eviction + eviction accounting; drain on reconnect (agent-channel
       transport only — leaf JetStream mode gets durability from the leaf)
 - [ ] 10.4b Leaf JetStream transport mode: config selects local leaf URL +

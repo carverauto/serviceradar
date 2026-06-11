@@ -16,6 +16,75 @@ pub struct Config {
     /// (`[auth]`). Disabled by default for trusted networks.
     #[serde(default)]
     pub auth: AuthConfig,
+    /// Output backend selection (`[output]`). Defaults to the JetStream
+    /// backend, preserving existing deployments.
+    #[serde(default)]
+    pub output: OutputConfig,
+    /// Agent-forward spool settings (`[agent_forward]`), used when
+    /// `output.backend = "agent"`. Optional: defaults apply when omitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent_forward: Option<AgentForwardConfig>,
+}
+
+/// `[output]` — selects the [`crate::output::TelemetryOutput`] backend the
+/// collector publishes through (design D8).
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+pub struct OutputConfig {
+    #[serde(default)]
+    pub backend: OutputBackend,
+}
+
+/// The configured output backend.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputBackend {
+    /// JetStream publish (central deployment / NATS leaf at the edge).
+    #[default]
+    Jetstream,
+    /// Edge add-on shape: chunks are spooled durably and relayed through the
+    /// local serviceradar-agent (`AddonService.RelayOtlp`).
+    Agent,
+    /// Reserved (design D8): direct OTLP re-export to a central endpoint.
+    /// Parsing is allowed so configs can be staged ahead of support, but
+    /// selecting it fails at startup until implemented.
+    Otlp,
+}
+
+/// `[agent_forward]` — durable relay spool settings for the `agent` backend.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AgentForwardConfig {
+    /// Directory holding spool segments + the watermark file.
+    #[serde(default = "default_spool_dir")]
+    pub spool_dir: String,
+    /// Total spool budget in bytes before oldest-segment eviction
+    /// (default 256 MiB).
+    #[serde(default = "default_spool_max_bytes")]
+    pub max_bytes: u64,
+    /// Optional age bound in seconds for spooled-but-unacked segments.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_age_secs: Option<u64>,
+}
+
+impl Default for AgentForwardConfig {
+    fn default() -> Self {
+        Self {
+            spool_dir: default_spool_dir(),
+            max_bytes: default_spool_max_bytes(),
+            max_age_secs: None,
+        }
+    }
+}
+
+impl AgentForwardConfig {
+    /// Converts the TOML/JSON section into the spool runtime configuration.
+    pub fn spool_config(&self) -> crate::agent_forward::spool::SpoolConfig {
+        crate::agent_forward::spool::SpoolConfig {
+            dir: PathBuf::from(&self.spool_dir),
+            max_bytes: self.max_bytes,
+            max_age: self.max_age_secs.map(Duration::from_secs),
+            segment_max_bytes: crate::agent_forward::spool::DEFAULT_SEGMENT_MAX_BYTES,
+        }
+    }
 }
 
 /// Ingestion authentication (`[auth]`) for the OTLP/gRPC and OTLP/HTTP
@@ -340,6 +409,8 @@ impl Config {
                     token_file: None,
                 }],
             },
+            output: OutputConfig::default(),
+            agent_forward: None,
         };
 
         toml::to_string_pretty(&example)
@@ -394,6 +465,14 @@ fn default_metrics_port() -> u16 {
 
 fn default_max_request_bytes() -> usize {
     64 * 1024 * 1024 // 64 MiB
+}
+
+fn default_spool_dir() -> String {
+    "/var/lib/serviceradar/otel-spool".to_string()
+}
+
+fn default_spool_max_bytes() -> u64 {
+    crate::agent_forward::spool::DEFAULT_SPOOL_MAX_BYTES
 }
 
 fn default_http_enabled() -> bool {
@@ -515,6 +594,7 @@ url = "nats://test:4222"
             nats: None,
             grpc_tls: None,
             auth: AuthConfig::default(),
+            ..Default::default()
         };
 
         assert_eq!(config.bind_address(), "127.0.0.1:8080");
@@ -532,6 +612,7 @@ url = "nats://test:4222"
                 client_auth: ClientAuthMode::default(),
             }),
             auth: AuthConfig::default(),
+            ..Default::default()
         };
 
         let tls = config.grpc_tls.unwrap();
@@ -720,6 +801,7 @@ key_file = "/grpc.key"
             }),
             grpc_tls: None,
             auth: AuthConfig::default(),
+            ..Default::default()
         };
 
         let nats_config = config.nats_config().unwrap();
@@ -827,6 +909,74 @@ tokens = [{ token = "secret-a" }]
         assert!(example.contains("url"));
         assert!(example.contains("cert_file"));
         assert!(example.contains("key_file"));
+    }
+
+    #[test]
+    fn test_output_backend_defaults_to_jetstream() {
+        let config: Config = toml::from_str("").unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Jetstream);
+        assert!(config.agent_forward.is_none());
+    }
+
+    #[test]
+    fn test_output_backend_parses_agent_with_spool_settings() {
+        let toml_content = r#"
+[output]
+backend = "agent"
+
+[agent_forward]
+spool_dir = "/var/tmp/otel-spool"
+max_bytes = 1048576
+max_age_secs = 600
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Agent);
+        let agent_forward = config.agent_forward.unwrap();
+        assert_eq!(agent_forward.spool_dir, "/var/tmp/otel-spool");
+        assert_eq!(agent_forward.max_bytes, 1024 * 1024);
+        assert_eq!(agent_forward.max_age_secs, Some(600));
+
+        let spool = agent_forward.spool_config();
+        assert_eq!(spool.dir, PathBuf::from("/var/tmp/otel-spool"));
+        assert_eq!(spool.max_bytes, 1024 * 1024);
+        assert_eq!(spool.max_age, Some(Duration::from_secs(600)));
+    }
+
+    #[test]
+    fn test_agent_forward_defaults() {
+        let toml_content = r#"
+[output]
+backend = "agent"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Agent);
+        // The section itself is optional; defaults apply on construction.
+        let defaults = AgentForwardConfig::default();
+        assert_eq!(defaults.spool_dir, "/var/lib/serviceradar/otel-spool");
+        assert_eq!(
+            defaults.max_bytes,
+            crate::agent_forward::spool::DEFAULT_SPOOL_MAX_BYTES
+        );
+        assert!(defaults.max_age_secs.is_none());
+    }
+
+    #[test]
+    fn test_output_backend_parses_otlp_reserved_value() {
+        let toml_content = r#"
+[output]
+backend = "otlp"
+"#;
+        let config: Config = toml::from_str(toml_content).unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Otlp);
+    }
+
+    #[test]
+    fn test_output_backend_rejects_unknown_value() {
+        let toml_content = r#"
+[output]
+backend = "carrier-pigeon"
+"#;
+        assert!(toml::from_str::<Config>(toml_content).is_err());
     }
 
     #[test]

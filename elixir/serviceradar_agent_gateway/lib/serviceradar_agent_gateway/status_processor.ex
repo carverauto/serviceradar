@@ -175,6 +175,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       {:error, :not_available} ->
         forward_distributed(status, handler)
+
+      # Synchronous handlers can reply with a real failure (e.g. the
+      # otlp-relay NATS publish failed); propagate it instead of crashing.
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -237,6 +242,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp ack_result_status?(%{source: source, service_type: service_type})
        when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
 
+  # OTLP relay statuses need an honest ack: the gateway only confirms the
+  # frame to the agent after core has published it to NATS, so they are
+  # forwarded synchronously (GenServer.call) and must never fall back to the
+  # lossy StatusBuffer (should_buffer?/1 intentionally excludes them).
+  defp ack_result_status?(%{source: source}) when source in ["otlp-relay", :otlp_relay], do: true
+
   defp ack_result_status?(_status), do: false
 
   # Find a node that has the handler running
@@ -258,6 +269,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
+  # "otlp-relay" is intentionally NOT buffered: a buffered relay frame would be
+  # acked to the agent before delivery (false ack) and could be silently dropped
+  # by the bounded StatusBuffer. Relay durability lives at the edge spool, so
+  # failures must surface as errors and fail the gRPC call instead.
   defp should_buffer?(status), do: results_router_source?(status)
 
   defp results_router_source?(status) do

@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "OTEL Collector Add-on Configuration",
+  "description": "Operator configuration delivered over the Configure RPC and parsed into the otel crate's collector config. The output backend is always forced to the durable agent-forward spool (otlp-relay:v1); there is no NATS/JetStream section in this deployment shape.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "OTLP listener configuration.",
+      "properties": {
+        "bind_address": {
+          "type": "string",
+          "description": "Address the OTLP/gRPC listener binds.",
+          "default": "0.0.0.0"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "OTLP/gRPC port.",
+          "default": 4317
+        },
+        "max_request_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum accepted OTLP export request size in bytes (gRPC decode limit and HTTP body limit).",
+          "default": 67108864
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Optional Prometheus metrics listener.",
+          "properties": {
+            "bind_address": { "type": "string", "default": "0.0.0.0" },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": 9090
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "OTLP/HTTP listener (port 4318 by default).",
+          "properties": {
+            "enabled": { "type": "boolean", "default": true },
+            "bind_address": { "type": "string", "default": "0.0.0.0" },
+            "port": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 65535,
+              "default": 4318
+            },
+            "allowed_origins": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "CORS origins allowed for browser-based OTLP exporters.",
+              "default": ["*"]
+            },
+            "tls_enabled": {
+              "type": "boolean",
+              "description": "Serve TLS on the HTTP listener (reuses the grpc_tls certificate when configured).",
+              "default": true
+            }
+          }
+        }
+      }
+    },
+    "grpc_tls": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Optional TLS for the OTLP listeners.",
+      "required": ["cert_file", "key_file"],
+      "properties": {
+        "cert_file": { "type": "string" },
+        "key_file": { "type": "string" },
+        "ca_file": { "type": "string" },
+        "client_auth": {
+          "type": "string",
+          "enum": ["required", "optional", "none"],
+          "description": "Client certificate policy when ca_file is set.",
+          "default": "required"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Token-based ingestion authentication for both OTLP listeners. Note: token identities are advisory at the edge — the gateway stamps the authoritative identity from the agent's mTLS certificate.",
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "tokens": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["identity"],
+            "properties": {
+              "identity": { "type": "string" },
+              "token": { "type": "string" },
+              "token_file": { "type": "string" }
+            }
+          },
+          "default": []
+        }
+      }
+    },
+    "agent_forward": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Durable relay spool settings (the durability owner between OTLP OK and gateway ack).",
+      "properties": {
+        "spool_dir": {
+          "type": "string",
+          "description": "Directory holding spool segments and the ack-watermark file.",
+          "default": "/var/lib/serviceradar/otel-spool"
+        },
+        "max_bytes": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total spool budget in bytes before oldest-segment eviction.",
+          "default": 268435456
+        },
+        "max_age_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Optional age bound in seconds for spooled-but-unacked segments."
+        }
+      }
+    }
+  }
+}

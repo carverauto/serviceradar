@@ -223,6 +223,13 @@ func NewPushLoop(server *Server, gateway *agentgateway.GatewayClient, interval t
 	}
 	remoteConsoleManager.desktopAdapter = desktopRDPHelperAdapter{HelperPathResolver: pushLoop.remoteAccessRDPAdapterPath}
 
+	// The add-on OTLP relay pumps are registered with the add-on manager at
+	// server construction, before the gateway client exists; hand them the
+	// gateway now that it does.
+	if gateway != nil && server != nil {
+		bindAddonOtlpRelayGateway(server, gateway, pushLoop.getSourceIP)
+	}
+
 	return pushLoop
 }
 

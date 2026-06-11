@@ -37,6 +37,40 @@ pub async fn create_collector(
     }
 }
 
+/// Creates a collector for the configured `[output] backend`, plugging the
+/// selected backend into the [`ServiceRadarCollector::with_output`] seam:
+///
+/// - `jetstream` (default): the existing NATS/JetStream backend driven by
+///   the `[nats]` section (disabled output when absent);
+/// - `agent`: the edge agent-forward backend — opens the durable relay spool
+///   from `[agent_forward]` (defaults applied when the section is omitted);
+/// - `otlp`: reserved (design D8); selecting it is a startup error.
+pub async fn create_collector_from_config(
+    config: &crate::config::Config,
+) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
+    use crate::config::OutputBackend;
+
+    match config.output.backend {
+        OutputBackend::Jetstream => create_collector(config.nats_config()).await,
+        OutputBackend::Agent => {
+            let agent_forward = config.agent_forward.clone().unwrap_or_default();
+            info!(
+                "Agent-forward output enabled - spool: {}, max_bytes: {}, max_age_secs: {:?}",
+                agent_forward.spool_dir, agent_forward.max_bytes, agent_forward.max_age_secs
+            );
+            let spool = crate::agent_forward::spool::Spool::open(agent_forward.spool_config())
+                .map_err(|e| -> Box<dyn std::error::Error> {
+                    format!("failed to open agent-forward spool: {e:#}").into()
+                })?;
+            let output = crate::agent_forward::AgentForwardOutput::new(Arc::new(spool));
+            Ok(ServiceRadarCollector::with_output(Arc::new(output)))
+        }
+        OutputBackend::Otlp => {
+            Err("output backend \"otlp\" is reserved and not implemented yet".into())
+        }
+    }
+}
+
 /// Starts the gRPC server with the given configuration.
 ///
 /// `max_request_bytes` bounds the decoded size of a single OTLP export
@@ -183,6 +217,58 @@ mod tests {
     async fn test_create_collector_without_nats() {
         let result = create_collector(None).await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_collector_from_config_default_backend_is_jetstream() {
+        // No [nats] section: the JetStream path builds a collector without an
+        // output backend (same as create_collector(None)).
+        let config = crate::config::Config::default();
+        assert!(create_collector_from_config(&config).await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_create_collector_from_config_agent_backend_opens_spool() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = crate::config::Config {
+            output: crate::config::OutputConfig {
+                backend: crate::config::OutputBackend::Agent,
+            },
+            agent_forward: Some(crate::config::AgentForwardConfig {
+                spool_dir: dir.path().to_string_lossy().into_owned(),
+                max_bytes: 1024 * 1024,
+                max_age_secs: None,
+            }),
+            ..Default::default()
+        };
+        let collector = create_collector_from_config(&config).await.unwrap();
+        // The agent-forward backend is wired through the with_output seam:
+        // exports must be accepted (durably spooled) without NATS.
+        let response = collector
+            .handle_logs(
+                crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest {
+                    resource_logs: vec![],
+                },
+                &crate::output::IngestContext::anonymous(),
+            )
+            .await
+            .unwrap();
+        assert!(response.partial_success.is_none());
+    }
+
+    #[tokio::test]
+    async fn test_create_collector_from_config_otlp_backend_is_reserved() {
+        let config = crate::config::Config {
+            output: crate::config::OutputConfig {
+                backend: crate::config::OutputBackend::Otlp,
+            },
+            ..Default::default()
+        };
+        let err = create_collector_from_config(&config)
+            .await
+            .map(|_| ())
+            .expect_err("otlp backend must be rejected until implemented");
+        assert!(err.to_string().contains("otlp"));
     }
 
     #[test]

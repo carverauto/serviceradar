@@ -335,7 +335,27 @@ defmodule ServiceRadar.Telemetry do
         tags: [:signal, :outcome],
         description:
           "EventWriter per-signal volume (signal: logs/traces/metrics/metric_points; " <>
-            "outcome: received/written/rejected)"
+            "outcome: received/written/rejected/relayed)"
+      ),
+      sum("serviceradar.otlp_relay.spool.dropped.count",
+        event_name: [:serviceradar, :otlp_relay, :spool],
+        measurement: :dropped,
+        tags: [:agent_id],
+        description:
+          "OTLP edge relay records evicted/dropped at the agent-side spool " <>
+            "(delta carried on each relay TelemetryBatch)"
+      ),
+      last_value("serviceradar.otlp_relay.spool.queue_depth.value",
+        event_name: [:serviceradar, :otlp_relay, :spool],
+        measurement: :queue_depth,
+        tags: [:agent_id],
+        description: "OTLP edge relay spool depth reported by the most recent relay frame"
+      ),
+      counter("serviceradar.otlp_relay.record_rejected.count",
+        event_name: [:serviceradar, :otlp_relay, :record_rejected],
+        measurement: :count,
+        tags: [:agent_id],
+        description: "OTLP relay records dropped in core because their payload kind is unroutable"
       ),
       last_value("serviceradar.observability.root_span_ratio.ratio",
         event_name: [:serviceradar, :observability, :root_span_ratio],

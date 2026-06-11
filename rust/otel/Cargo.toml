@@ -9,6 +9,13 @@ path = "src/lib.rs"
 doctest = false
 
 [dependencies]
+# Agent-forward edge backend: the durable relay spool stores
+# OtlpRelayFrame/TelemetryBatch messages from the shared add-on contract.
+# Depending on the SDK crate (instead of recompiling the vendored proto)
+# guarantees the otel crate and the otel-addon binary use the *same*
+# generated types.
+addon-sdk = { path = "../addon-sdk" }
+uuid = { version = "1", features = ["v4"] }
 tonic = { workspace = true }
 prost = { workspace = true }
 tokio = { workspace = true, features = ["full"] }

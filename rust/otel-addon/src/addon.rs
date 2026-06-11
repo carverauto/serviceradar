@@ -1,0 +1,678 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+//! The [`Addon`] implementation: Configure builds (or rebuilds) the OTLP
+//! collector around the agent-forward spool; RelayOtlp drains that spool to
+//! the agent with cumulative-ack watermarking.
+
+use std::net::SocketAddr;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+
+use addon_sdk::{
+    Addon, CAPABILITY_OTLP_RELAY_V1, ConfigureResult, Health, HealthStatus, Info,
+    OtlpRelayAckStream, OtlpRelayStream,
+};
+use async_trait::async_trait;
+use log::{debug, error, info, warn};
+use sha2::{Digest as _, Sha256};
+use tokio::task::JoinHandle;
+use tokio_stream::StreamExt as _;
+use tokio_stream::wrappers::ReceiverStream;
+
+use otel::ServiceRadarCollector;
+use otel::agent_forward::AgentForwardOutput;
+use otel::agent_forward::spool::{Spool, SpoolConfig};
+use otel::config::{Config as CollectorConfig, OutputBackend};
+
+pub const ADDON_ID: &str = "otel-collector";
+const ADDON_VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// Spool fill ratio at which Health reports Degraded (90%).
+const SPOOL_DEGRADED_NUM: u64 = 9;
+const SPOOL_DEGRADED_DEN: u64 = 10;
+
+/// A listener that fails to start is retried a few times (e.g. the previous
+/// runtime's socket is still closing during a reconfigure) and then the task
+/// exits, which Health surfaces as Degraded.
+const LISTENER_START_ATTEMPTS: u32 = 5;
+const LISTENER_RETRY_DELAY: Duration = Duration::from_millis(500);
+
+/// Relay frames buffered between the spool reader task and the gRPC stream.
+const RELAY_CHANNEL_DEPTH: usize = 16;
+
+#[derive(Default)]
+pub struct OtelCollectorAddon {
+    state: Mutex<State>,
+}
+
+#[derive(Default)]
+struct State {
+    /// Hash of the currently-applied configuration (change detection).
+    config_hash: String,
+    /// Durable relay spool shared by the collector output and RelayOtlp.
+    spool: Option<Arc<Spool>>,
+    /// Spool settings backing `spool`, for reuse detection on reconfigure.
+    spool_config: Option<SpoolConfig>,
+    runtime: Option<Runtime>,
+}
+
+/// Listener tasks for the currently-applied configuration.
+struct Runtime {
+    grpc: JoinHandle<()>,
+    http: Option<JoinHandle<()>>,
+    metrics: Option<JoinHandle<()>>,
+}
+
+impl Runtime {
+    fn shutdown(&self) {
+        self.grpc.abort();
+        if let Some(http) = &self.http {
+            http.abort();
+        }
+        if let Some(metrics) = &self.metrics {
+            metrics.abort();
+        }
+    }
+
+    /// Name of the first listener whose task has exited, if any.
+    fn down_listener(&self) -> Option<&'static str> {
+        if self.grpc.is_finished() {
+            return Some("OTLP/gRPC");
+        }
+        if self.http.as_ref().is_some_and(JoinHandle::is_finished) {
+            return Some("OTLP/HTTP");
+        }
+        if self.metrics.as_ref().is_some_and(JoinHandle::is_finished) {
+            return Some("metrics");
+        }
+        None
+    }
+}
+
+/// Everything Configure validates *before* it tears down the previous
+/// runtime, so a bad config never kills a working collector.
+struct PreparedRuntime {
+    collector: ServiceRadarCollector,
+    grpc_addr: SocketAddr,
+    grpc_tls: Option<tonic::transport::ServerTlsConfig>,
+    max_request_bytes: usize,
+    ingest_auth: Arc<otel::auth::IngestAuth>,
+    http_options: Option<otel::http_server::HttpServerOptions>,
+    metrics_addr: Option<SocketAddr>,
+}
+
+impl OtelCollectorAddon {
+    fn lock_state(&self) -> MutexGuard<'_, State> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    #[cfg(test)]
+    fn spool_for_tests(&self) -> Option<Arc<Spool>> {
+        self.lock_state().spool.clone()
+    }
+}
+
+fn reject(config_hash: String, error: impl Into<String>) -> ConfigureResult {
+    let error = error.into();
+    warn!("rejecting configuration: {error}");
+    ConfigureResult {
+        config_hash,
+        accepted: false,
+        error,
+    }
+}
+
+/// Parses the operator config (validated upstream against
+/// `addons/otel-collector/config.schema.json`) into the collector config,
+/// forcing the agent-forward backend regardless of input.
+fn parse_config(config_json: &[u8]) -> Result<CollectorConfig, String> {
+    let trimmed: &[u8] = {
+        let s = std::str::from_utf8(config_json).unwrap_or("");
+        s.trim().as_bytes()
+    };
+    let mut config: CollectorConfig = if trimmed.is_empty() {
+        CollectorConfig::default()
+    } else {
+        serde_json::from_slice(trimmed).map_err(|e| format!("invalid configuration JSON: {e}"))?
+    };
+    // The add-on deployment shape always relays through the agent; a
+    // JetStream/NATS section in the payload is ignored by construction.
+    config.output.backend = OutputBackend::Agent;
+    Ok(config)
+}
+
+/// Validates the config and builds everything needed to start listeners.
+fn prepare_runtime(
+    config: &CollectorConfig,
+    spool: &Arc<Spool>,
+) -> Result<PreparedRuntime, String> {
+    let grpc_addr: SocketAddr = config
+        .bind_address()
+        .parse()
+        .map_err(|e| format!("invalid OTLP/gRPC bind address: {e}"))?;
+
+    let grpc_tls = otel::tls::setup_grpc_tls(config).map_err(|e| e.to_string())?;
+
+    let ingest_auth = otel::auth::IngestAuth::from_config(&config.auth)
+        .map_err(|e| format!("invalid [auth] configuration: {e}"))?;
+
+    let http_options =
+        otel::http_server::HttpServerOptions::from_config(config).map_err(|e| e.to_string())?;
+
+    let metrics_addr = match config.metrics_address() {
+        Some(addr) => Some(
+            addr.parse::<SocketAddr>()
+                .map_err(|e| format!("invalid metrics bind address: {e}"))?,
+        ),
+        None => None,
+    };
+
+    let output = AgentForwardOutput::new(Arc::clone(spool));
+    let collector = ServiceRadarCollector::with_output(Arc::new(output));
+
+    Ok(PreparedRuntime {
+        collector,
+        grpc_addr,
+        grpc_tls,
+        max_request_bytes: config.server.max_request_bytes,
+        ingest_auth: Arc::new(ingest_auth),
+        http_options,
+        metrics_addr,
+    })
+}
+
+/// Spawns the listener tasks. A listener retries startup a few times and
+/// then gives up; the finished task is what Health reports as Degraded.
+fn spawn_runtime(prepared: PreparedRuntime) -> Runtime {
+    let PreparedRuntime {
+        collector,
+        grpc_addr,
+        grpc_tls,
+        max_request_bytes,
+        ingest_auth,
+        http_options,
+        metrics_addr,
+    } = prepared;
+
+    let grpc_collector = collector.clone();
+    let grpc = tokio::spawn(async move {
+        for attempt in 1..=LISTENER_START_ATTEMPTS {
+            let tls = grpc_tls.clone();
+            // Errors are flattened to String immediately: the boxed listener
+            // error is not Send and must not live across the retry sleep.
+            let result = otel::server::start_server(
+                grpc_addr,
+                tls,
+                grpc_collector.clone(),
+                max_request_bytes,
+                Arc::clone(&ingest_auth),
+            )
+            .await
+            .map_err(|e| e.to_string());
+            match result {
+                Ok(()) => return,
+                Err(e) => {
+                    error!("OTLP/gRPC listener failed (attempt {attempt}): {e}");
+                    tokio::time::sleep(LISTENER_RETRY_DELAY).await;
+                }
+            }
+        }
+        error!("OTLP/gRPC listener giving up after {LISTENER_START_ATTEMPTS} attempts");
+    });
+
+    let http = http_options.map(|options| {
+        let http_collector = collector.clone();
+        tokio::spawn(async move {
+            for attempt in 1..=LISTENER_START_ATTEMPTS {
+                let result =
+                    otel::http_server::start_http_server(options.clone(), http_collector.clone())
+                        .await
+                        .map_err(|e| e.to_string());
+                match result {
+                    Ok(()) => return,
+                    Err(e) => {
+                        error!("OTLP/HTTP listener failed (attempt {attempt}): {e}");
+                        tokio::time::sleep(LISTENER_RETRY_DELAY).await;
+                    }
+                }
+            }
+            error!("OTLP/HTTP listener giving up after {LISTENER_START_ATTEMPTS} attempts");
+        })
+    });
+
+    let metrics = metrics_addr.map(|addr| {
+        tokio::spawn(async move {
+            let result = otel::server::start_metrics_server(addr)
+                .await
+                .map_err(|e| e.to_string());
+            if let Err(e) = result {
+                error!("metrics server failed: {e}");
+            }
+        })
+    });
+
+    Runtime {
+        grpc,
+        http,
+        metrics,
+    }
+}
+
+#[async_trait]
+impl Addon for OtelCollectorAddon {
+    async fn info(&self) -> anyhow::Result<Info> {
+        Ok(Info {
+            id: ADDON_ID.to_string(),
+            version: ADDON_VERSION.to_string(),
+            capabilities: vec![CAPABILITY_OTLP_RELAY_V1.to_string()],
+        })
+    }
+
+    async fn configure(&self, config_json: &[u8]) -> anyhow::Result<ConfigureResult> {
+        let mut hasher = Sha256::new();
+        hasher.update(config_json);
+        let config_hash = hex::encode(hasher.finalize());
+
+        let config = match parse_config(config_json) {
+            Ok(config) => config,
+            Err(e) => return Ok(reject(config_hash, e)),
+        };
+
+        let agent_forward = config.agent_forward.clone().unwrap_or_default();
+        let spool_config = agent_forward.spool_config();
+
+        let mut state = self.lock_state();
+
+        if state.config_hash == config_hash && state.runtime.is_some() {
+            debug!("configuration unchanged (hash {config_hash}); keeping current runtime");
+            return Ok(ConfigureResult {
+                config_hash,
+                accepted: true,
+                error: String::new(),
+            });
+        }
+
+        // Reuse the open spool when its settings are unchanged so the relay
+        // reader, watermark, and relay_id sequence carry across listener
+        // reconfigurations; otherwise open the new location.
+        let spool = match (&state.spool, &state.spool_config) {
+            (Some(spool), Some(existing)) if *existing == spool_config => Arc::clone(spool),
+            _ => match Spool::open(spool_config.clone()) {
+                Ok(spool) => Arc::new(spool),
+                Err(e) => {
+                    return Ok(reject(
+                        config_hash,
+                        format!("failed to open relay spool: {e:#}"),
+                    ));
+                }
+            },
+        };
+
+        // Validate everything before touching the running collector: a bad
+        // config must never kill a working one.
+        let prepared = match prepare_runtime(&config, &spool) {
+            Ok(prepared) => prepared,
+            Err(e) => return Ok(reject(config_hash, e)),
+        };
+
+        if let Some(old) = state.runtime.take() {
+            info!("configuration changed; restarting OTLP listeners");
+            old.shutdown();
+        }
+
+        info!(
+            "starting OTEL collector add-on: grpc={}, http={}, spool={} (max {} bytes)",
+            prepared.grpc_addr,
+            prepared
+                .http_options
+                .as_ref()
+                .map(|o| o.addr.to_string())
+                .unwrap_or_else(|| "disabled".to_string()),
+            agent_forward.spool_dir,
+            agent_forward.max_bytes,
+        );
+
+        state.runtime = Some(spawn_runtime(prepared));
+        state.spool = Some(spool);
+        state.spool_config = Some(spool_config);
+        state.config_hash = config_hash.clone();
+
+        Ok(ConfigureResult {
+            config_hash,
+            accepted: true,
+            error: String::new(),
+        })
+    }
+
+    async fn health(&self) -> anyhow::Result<Health> {
+        let state = self.lock_state();
+
+        let Some(runtime) = &state.runtime else {
+            return Ok(Health {
+                status: HealthStatus::Degraded,
+                version: ADDON_VERSION.to_string(),
+                degradation_reason: "awaiting configuration".to_string(),
+            });
+        };
+
+        if let Some(listener) = runtime.down_listener() {
+            return Ok(Health {
+                status: HealthStatus::Degraded,
+                version: ADDON_VERSION.to_string(),
+                degradation_reason: format!("{listener} listener is down"),
+            });
+        }
+
+        if let Some(spool) = &state.spool {
+            let stats = spool.stats();
+            let max_bytes = spool.max_bytes();
+            if max_bytes > 0 && stats.total_bytes * SPOOL_DEGRADED_DEN >= max_bytes * SPOOL_DEGRADED_NUM
+            {
+                return Ok(Health {
+                    status: HealthStatus::Degraded,
+                    version: ADDON_VERSION.to_string(),
+                    degradation_reason: format!(
+                        "relay spool >=90% full ({} of {} bytes; {} records evicted)",
+                        stats.total_bytes,
+                        max_bytes,
+                        stats.evicted.total()
+                    ),
+                });
+            }
+        }
+
+        Ok(Health {
+            status: HealthStatus::Healthy,
+            version: ADDON_VERSION.to_string(),
+            degradation_reason: String::new(),
+        })
+    }
+
+    /// Streams spooled frames to the agent and consumes cumulative ack
+    /// watermarks. The reader resumes from the persisted watermark, so every
+    /// unacked frame is replayed (with its original relay_id) when the agent
+    /// reopens the stream after a reconnect.
+    #[allow(clippy::result_large_err)] // tonic::Status is the gRPC seam's error type
+    fn relay_otlp(&self, acks: OtlpRelayAckStream) -> Result<OtlpRelayStream, tonic::Status> {
+        let spool = self
+            .lock_state()
+            .spool
+            .clone()
+            .ok_or_else(|| tonic::Status::unavailable("collector not configured yet"))?;
+
+        // Ack consumer: advance the durable watermark; the spool releases
+        // fully-acked segments and wakes any reader.
+        let ack_spool = Arc::clone(&spool);
+        tokio::spawn(async move {
+            let mut acks = acks;
+            while let Some(item) = acks.next().await {
+                match item {
+                    Ok(ack) => {
+                        if let Err(e) = ack_spool.advance_watermark(ack.acked_relay_id) {
+                            error!(
+                                "failed to advance relay watermark to {}: {e:#}",
+                                ack.acked_relay_id
+                            );
+                            break;
+                        }
+                        debug!("relay watermark advanced to {}", ack.acked_relay_id);
+                    }
+                    Err(status) => {
+                        debug!("relay ack stream closed: {status}");
+                        break;
+                    }
+                }
+            }
+        });
+
+        // Frame pump: drain the spool from the watermark, then follow new
+        // appends until the agent drops the stream.
+        let (tx, rx) = tokio::sync::mpsc::channel(RELAY_CHANNEL_DEPTH);
+        let mut reader = spool.reader();
+        tokio::spawn(async move {
+            loop {
+                match reader.try_next() {
+                    Ok(Some(frame)) => {
+                        if tx.send(Ok(frame)).await.is_err() {
+                            debug!("relay stream dropped by agent; stopping pump");
+                            return;
+                        }
+                    }
+                    Ok(None) => {
+                        let position = reader.position();
+                        tokio::select! {
+                            _ = tx.closed() => {
+                                debug!("relay stream dropped by agent; stopping pump");
+                                return;
+                            }
+                            _ = spool.wait_for_frame_after(position) => {}
+                        }
+                    }
+                    Err(e) => {
+                        error!("relay spool read failed: {e:#}");
+                        let _ = tx
+                            .send(Err(tonic::Status::internal(format!(
+                                "relay spool read failed: {e}"
+                            ))))
+                            .await;
+                        return;
+                    }
+                }
+            }
+        });
+
+        Ok(Box::pin(ReceiverStream::new(rx)))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use addon_sdk::pb::{
+        OtlpRelayAck, TelemetryBatch, TelemetryPayloadKind, TelemetryRecord, TelemetrySource,
+    };
+    use std::time::Instant;
+
+    fn config_json(spool_dir: &std::path::Path, max_bytes: u64) -> Vec<u8> {
+        serde_json::json!({
+            "server": {
+                "bind_address": "127.0.0.1",
+                "port": 0,
+                "http": { "enabled": false }
+            },
+            "agent_forward": {
+                "spool_dir": spool_dir.to_string_lossy(),
+                "max_bytes": max_bytes
+            }
+        })
+        .to_string()
+        .into_bytes()
+    }
+
+    fn test_batch(payload: Vec<u8>) -> TelemetryBatch {
+        TelemetryBatch {
+            source: Some(TelemetrySource {
+                source_type: ADDON_ID.to_string(),
+                source_instance: "test".to_string(),
+                metadata: Default::default(),
+            }),
+            records: vec![TelemetryRecord {
+                event_id: "evt".to_string(),
+                observed_time_unix_nano: 1,
+                event_time_unix_nano: 0,
+                payload_kind: TelemetryPayloadKind::OtlpTraces as i32,
+                payload,
+                metadata: Default::default(),
+            }],
+            counters: None,
+        }
+    }
+
+    fn ack_stream() -> (
+        tokio::sync::mpsc::Sender<Result<OtlpRelayAck, tonic::Status>>,
+        OtlpRelayAckStream,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+        (tx, Box::pin(ReceiverStream::new(rx)))
+    }
+
+    #[tokio::test]
+    async fn info_advertises_otlp_relay_capability() {
+        let addon = OtelCollectorAddon::default();
+        let info = addon.info().await.unwrap();
+        assert_eq!(info.id, "otel-collector");
+        assert_eq!(info.capabilities, vec!["otlp-relay:v1".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn configure_rejects_invalid_json() {
+        let addon = OtelCollectorAddon::default();
+        let result = addon.configure(b"{not json").await.unwrap();
+        assert!(!result.accepted);
+        assert!(result.error.contains("invalid configuration JSON"));
+        assert!(!result.config_hash.is_empty());
+    }
+
+    #[tokio::test]
+    async fn health_is_degraded_before_configuration() {
+        let addon = OtelCollectorAddon::default();
+        let health = addon.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Degraded);
+        assert!(health.degradation_reason.contains("awaiting configuration"));
+    }
+
+    #[tokio::test]
+    async fn relay_before_configuration_is_unavailable() {
+        let addon = OtelCollectorAddon::default();
+        let (_ack_tx, acks) = ack_stream();
+        let err = addon.relay_otlp(acks).err().expect("must reject");
+        assert_eq!(err.code(), tonic::Code::Unavailable);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn configure_starts_runtime_and_reports_healthy() {
+        let dir = tempfile::tempdir().unwrap();
+        let addon = OtelCollectorAddon::default();
+
+        let result = addon
+            .configure(&config_json(dir.path(), 1024 * 1024))
+            .await
+            .unwrap();
+        assert!(result.accepted, "error: {}", result.error);
+        assert!(!result.config_hash.is_empty());
+
+        // Give the gRPC listener a beat to bind (port 0 always succeeds).
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let health = addon.health().await.unwrap();
+        assert_eq!(
+            health.status,
+            HealthStatus::Healthy,
+            "reason: {}",
+            health.degradation_reason
+        );
+
+        // Re-applying the identical config is a no-op with the same hash.
+        let again = addon
+            .configure(&config_json(dir.path(), 1024 * 1024))
+            .await
+            .unwrap();
+        assert!(again.accepted);
+        assert_eq!(again.config_hash, result.config_hash);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn relay_streams_frames_and_acks_advance_watermark() {
+        let dir = tempfile::tempdir().unwrap();
+        let addon = OtelCollectorAddon::default();
+        addon
+            .configure(&config_json(dir.path(), 1024 * 1024))
+            .await
+            .unwrap();
+
+        let spool = addon.spool_for_tests().expect("spool after configure");
+        let relay_id = spool.append_batch(test_batch(vec![42; 64])).unwrap();
+
+        let (ack_tx, acks) = ack_stream();
+        let mut stream = addon.relay_otlp(acks).expect("relay stream");
+
+        let frame = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("frame within timeout")
+            .expect("stream open")
+            .expect("frame ok");
+        assert_eq!(frame.relay_id, relay_id);
+        assert_eq!(
+            frame.batch.unwrap().records[0].payload,
+            vec![42u8; 64],
+            "frame carries the spooled batch verbatim"
+        );
+
+        ack_tx
+            .send(Ok(OtlpRelayAck {
+                acked_relay_id: relay_id,
+            }))
+            .await
+            .unwrap();
+
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            if spool.stats().watermark == relay_id {
+                break;
+            }
+            assert!(Instant::now() < deadline, "watermark never advanced");
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+
+        // A frame appended while the stream is open must be delivered too.
+        let second = spool.append_batch(test_batch(vec![7; 16])).unwrap();
+        let frame = tokio::time::timeout(Duration::from_secs(5), stream.next())
+            .await
+            .expect("second frame within timeout")
+            .expect("stream open")
+            .expect("frame ok");
+        assert_eq!(frame.relay_id, second);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn health_degrades_when_spool_nears_capacity() {
+        let dir = tempfile::tempdir().unwrap();
+        let addon = OtelCollectorAddon::default();
+        addon
+            .configure(&config_json(dir.path(), 4096))
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(200)).await;
+
+        let spool = addon.spool_for_tests().expect("spool after configure");
+        // Fill past 90% of the 4096-byte budget (eviction does not kick in:
+        // everything is still in the active segment).
+        for _ in 0..40 {
+            spool.append_batch(test_batch(vec![1; 64])).unwrap();
+        }
+        assert!(spool.stats().total_bytes * 10 >= 4096 * 9);
+
+        let health = addon.health().await.unwrap();
+        assert_eq!(health.status, HealthStatus::Degraded);
+        assert!(
+            health.degradation_reason.contains("spool"),
+            "reason: {}",
+            health.degradation_reason
+        );
+    }
+}
