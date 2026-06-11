@@ -27,6 +27,8 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
   @callback create_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
   @callback update_assignment(map(), map(), map()) :: {:ok, map()} | {:error, term()}
   @callback disable_assignment(map(), map()) :: {:ok, map()} | {:error, term()}
+  @callback find_enabled_assignment(String.t(), String.t(), map()) ::
+              {:ok, map() | nil} | {:error, term()}
 
   @spec reconcile(map(), [map()], keyword()) :: {:ok, reconcile_result()} | {:error, [String.t()]}
   def reconcile(policy, input_defs, opts \\ []) do
@@ -101,8 +103,15 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
 
   defp upsert_one(spec, nil, stats, actor, store) do
     case store.create_assignment(spec, actor) do
-      {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
-      {:error, reason} -> {:halt, {:error, reason}}
+      {:ok, _} ->
+        {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+
+      {:error, reason} ->
+        if duplicate_enabled_assignment?(reason) do
+          adopt_existing_assignment(spec, stats, actor, store, reason)
+        else
+          {:halt, {:error, reason}}
+        end
     end
   end
 
@@ -116,6 +125,42 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       end
     end
   end
+
+  # Converge instead of duplicating. The plugin is already enabled for this
+  # agent under a drifted assignment — an older policy_id/source_key whose row
+  # `list_policy_assignments/2` no longer matches for the current policy. Adopt
+  # that single row (update it to the desired policy spec) so there is exactly
+  # one enabled assignment per (agent, package), owned by the current rule. This
+  # is the golden path: no orphaned enabled rows are left behind, and the next
+  # reconcile is a clean matching no-op.
+  defp adopt_existing_assignment(spec, stats, actor, store, create_reason) do
+    case store.find_enabled_assignment(spec.agent_uid, spec.plugin_package_id, actor) do
+      {:ok, nil} ->
+        {:halt, {:error, create_reason}}
+
+      {:ok, existing} ->
+        case store.update_assignment(existing, spec, actor) do
+          {:ok, _} -> {:cont, {:ok, %{stats | upserted: stats.upserted + 1}}}
+          {:error, reason} -> {:halt, {:error, reason}}
+        end
+
+      {:error, reason} ->
+        {:halt, {:error, reason}}
+    end
+  end
+
+  defp duplicate_enabled_assignment?(%Ash.Error.Invalid{errors: errors}) do
+    Enum.any?(errors, &duplicate_enabled_assignment?/1)
+  end
+
+  defp duplicate_enabled_assignment?(%Ash.Error.Changes.InvalidAttribute{
+         field: :plugin_package_id,
+         message: message
+       }) do
+    is_binary(message) and String.contains?(message, "already enabled")
+  end
+
+  defp duplicate_enabled_assignment?(_), do: false
 
   defp disable_one(assignment, count, _actor, _store) when not assignment.enabled do
     {:cont, {:ok, count}}
@@ -199,6 +244,19 @@ defmodule ServiceRadar.Plugins.PolicyAssignmentReconciler do
       assignment
       |> Ash.Changeset.for_update(:update, %{enabled: false})
       |> Ash.update(actor: actor, authorize?: true)
+    end
+
+    @impl true
+    def find_enabled_assignment(agent_uid, plugin_package_id, actor) do
+      PluginAssignment
+      |> Ash.Query.for_read(:by_agent, %{agent_uid: agent_uid}, actor: actor)
+      |> Ash.Query.filter(plugin_package_id == ^plugin_package_id and enabled == true)
+      |> Ash.read(actor: actor)
+      |> case do
+        {:ok, [assignment | _]} -> {:ok, assignment}
+        {:ok, []} -> {:ok, nil}
+        {:error, reason} -> {:error, reason}
+      end
     end
 
     defp disable_manual_duplicate({:ok, assignment}, spec, actor) do

@@ -109,22 +109,51 @@ func normalizeGuestIP(value string) string {
 }
 
 func primaryIP(interfaces []proxmoxGuestNetworkInterface) string {
+	// Prefer the configured VM NICs (net0/net1...). On a Kubernetes node the
+	// guest agent also reports cali*/kube-ipvs0/vxlan interfaces carrying
+	// ClusterIP VIPs and overlay IPs (no ConfigKey); picking one of those as
+	// the device's primary IP is wrong and non-deterministic (it depends on
+	// guest-agent interface order). The configured NIC carries the host's real
+	// address, and the merge unions the agent-discovered IP onto it.
+	if ip := firstUsableIP(interfaces, true); ip != "" {
+		return ip
+	}
+
+	return firstUsableIP(interfaces, false)
+}
+
+func firstUsableIP(interfaces []proxmoxGuestNetworkInterface, configuredOnly bool) string {
 	for _, iface := range interfaces {
+		if configuredOnly && iface.ConfigKey == "" {
+			continue
+		}
+
 		for _, ip := range iface.IPAddresses {
 			if plain := stripIPPrefix(ip); plain != "" && !isLoopbackOrLinkLocal(plain) {
 				return plain
 			}
 		}
 	}
+
 	return ""
 }
 
 func primaryMAC(interfaces []proxmoxGuestNetworkInterface) string {
+	// Prefer the configured VM NIC MAC — the stable hardware identity used for
+	// reconciliation — over a CNI veth MAC (cali*/vxlan, often a random or
+	// all-e MAC like ee:ee:ee:ee:ee:ee).
+	for _, iface := range interfaces {
+		if iface.ConfigKey != "" && iface.MACAddress != "" {
+			return iface.MACAddress
+		}
+	}
+
 	for _, iface := range interfaces {
 		if iface.MACAddress != "" {
 			return iface.MACAddress
 		}
 	}
+
 	return ""
 }
 
