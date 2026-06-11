@@ -9,7 +9,7 @@
 //! Planned backends (see
 //! `openspec/changes/refactor-otel-signal-correlation/design.md`, D8):
 //!
-//! - **JetStream** ([`crate::nats_output::NATSOutput`]) — the existing
+//! - **JetStream** ([`crate::nats::NATSOutput`]) — the existing
 //!   central-deployment backend; also the preferred edge transport when a
 //!   site runs a NATS leaf node (pointed at the local leaf).
 //! - **Agent-forward** (planned) — edge add-on backend that hands encoded

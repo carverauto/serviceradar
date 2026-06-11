@@ -36,6 +36,14 @@ rust_test(
     crate = ":otel_lib",
 )
 
+rust_test(
+    name = "otel_nats_chunking_test",
+    srcs = ["tests/nats_chunking.rs"],
+    crate_root = "tests/nats_chunking.rs",
+    edition = "2024",
+    deps = [":otel_lib"] + crate_deps(["prost"]),
+)
+
 filegroup(
     name = "otel_proto_srcs",
     srcs = [

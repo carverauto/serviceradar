@@ -4,7 +4,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use crate::nats_output::NATSConfig;
+use crate::nats::NATSConfig;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -336,7 +336,7 @@ fn default_stream_replicas() -> usize {
 }
 
 fn default_max_inflight_publishes() -> usize {
-    crate::nats_output::DEFAULT_MAX_INFLIGHT_PUBLISHES
+    crate::nats::DEFAULT_MAX_INFLIGHT_PUBLISHES
 }
 
 fn default_metrics_bind_address() -> String {

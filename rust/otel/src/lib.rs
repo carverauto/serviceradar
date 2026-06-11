@@ -5,7 +5,7 @@ pub mod cli;
 pub mod config;
 pub mod http_server;
 pub mod metrics;
-pub mod nats_output;
+pub mod nats;
 pub mod output;
 pub mod server;
 pub mod setup;
@@ -144,13 +144,13 @@ pub struct ServiceRadarCollector {
 
 impl ServiceRadarCollector {
     pub async fn new(
-        nats_config: Option<nats_output::NATSConfig>,
+        nats_config: Option<nats::NATSConfig>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
 
         let output: Option<Arc<OutputSlot>> = if let Some(config) = nats_config {
             debug!("Initializing NATS output for collector");
-            match nats_output::NATSOutput::new(config).await {
+            match nats::NATSOutput::new(config).await {
                 Ok(output) => {
                     debug!("NATS output created successfully");
                     let output: Arc<dyn TelemetryOutput> = Arc::new(output);
@@ -201,10 +201,10 @@ impl ServiceRadarCollector {
     }
 
     /// Reconfigure NATS output at runtime. If None, disables output. If Some, rebuilds the output.
-    pub async fn reconfigure_nats(&self, nats_config: Option<nats_output::NATSConfig>) {
+    pub async fn reconfigure_nats(&self, nats_config: Option<nats::NATSConfig>) {
         debug!("Reconfiguring NATS output for collector");
         match nats_config {
-            Some(cfg) => match nats_output::NATSOutput::new(cfg).await {
+            Some(cfg) => match nats::NATSOutput::new(cfg).await {
                 Ok(new_output) => {
                     if let Some(slot) = &self.output {
                         Self::swap_output(slot, Arc::new(new_output));
@@ -220,7 +220,7 @@ impl ServiceRadarCollector {
             None => {
                 if let Some(slot) = &self.output {
                     // Replace with a disabled output that drops
-                    Self::swap_output(slot, Arc::new(nats_output::NATSOutput::disabled()));
+                    Self::swap_output(slot, Arc::new(nats::NATSOutput::disabled()));
                     info!("NATS output disabled via reconfiguration");
                 } else {
                     debug!("NATS output already disabled");
@@ -484,9 +484,10 @@ impl ServiceRadarCollector {
         let mut rejected_spans = 0usize;
         if let Some(output) = self.output_handle() {
             debug!("Forwarding traces to NATS");
-            let publish_result =
-                publish_with_retry("traces", || async { output.publish_traces(&trace_data).await })
-                    .await;
+            let publish_result = publish_with_retry("traces", || async {
+                output.publish_traces(&trace_data).await
+            })
+            .await;
             match publish_result {
                 Ok(outcome) => {
                     rejected_spans = outcome.rejected;
@@ -1144,9 +1145,7 @@ mod tests {
             .unwrap();
         assert!(response.partial_success.is_none());
         assert_eq!(
-            output
-                .trace_calls
-                .load(std::sync::atomic::Ordering::SeqCst),
+            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
             1
         );
 
@@ -1155,7 +1154,10 @@ mod tests {
             .await
             .unwrap();
         assert!(response.partial_success.is_none());
-        assert_eq!(output.log_calls.load(std::sync::atomic::Ordering::SeqCst), 1);
+        assert_eq!(
+            output.log_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
     }
 
     #[tokio::test]
@@ -1187,9 +1189,7 @@ mod tests {
         assert!(result.is_err());
         // publish_with_retry retries exactly once before failing the export.
         assert_eq!(
-            output
-                .trace_calls
-                .load(std::sync::atomic::Ordering::SeqCst),
+            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
             2
         );
     }

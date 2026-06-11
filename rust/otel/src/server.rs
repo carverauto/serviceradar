@@ -18,7 +18,7 @@ use crate::opentelemetry::proto::collector::trace::v1::trace_service_server::Tra
 
 /// Creates a ServiceRadar collector with the given NATS configuration
 pub async fn create_collector(
-    nats_config: Option<crate::nats_output::NATSConfig>,
+    nats_config: Option<crate::nats::NATSConfig>,
 ) -> Result<ServiceRadarCollector, Box<dyn std::error::Error>> {
     debug!("Creating ServiceRadar collector");
 
