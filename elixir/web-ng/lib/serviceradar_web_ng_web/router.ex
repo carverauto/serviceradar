@@ -746,6 +746,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/cameras", CameraLive.Index, :index)
       live("/cameras/:camera_source_id", CameraLive.Show, :show)
       live("/observability/metrics/:span_id", MetricLive.Show, :show)
+      live("/observability/traces/:trace_id", TraceLive.Show, :show)
       live("/logs", LogLive.Index, :index)
       live("/logs/:log_id", LogLive.Show, :show)
       live("/services", ServiceLive.Index, :index)
@@ -814,6 +815,10 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/flows/app-rules/new", Settings.NetflowLive.Index, :new_app_rule)
       live("/settings/flows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
       live("/settings/mail", Settings.MailLive, :index)
+
+      # "Send your telemetry" onboarding (OTLP endpoints, ingestion keys,
+      # exporter snippets, first-data checker)
+      live("/settings/telemetry-onboarding", Settings.TelemetryOnboardingLive, :index)
 
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)

@@ -278,6 +278,7 @@ mod tests {
             decision_keys: vec!["passthrough".to_string()],
             decision_groups: Vec::new(),
             discover_rules_from_kv: false,
+            passthrough_when_unmatched: true,
             nats_creds_file: None,
             kv_bucket: "serviceradar-datasvc".to_string(),
             agent_id: "agent-01".to_string(),

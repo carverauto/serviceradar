@@ -47,6 +47,13 @@ const (
 	// CapabilityNativeTelemetryV1 marks add-ons that can stream telemetry batches
 	// to the local agent over AddonService.StreamTelemetry.
 	CapabilityNativeTelemetryV1 = "native-telemetry:v1"
+
+	// CapabilityOtlpRelayV1 marks add-ons that serve the acked OTLP relay stream
+	// over AddonService.RelayOtlp. Unlike native-telemetry:v1 (lossy), frames
+	// carry a persistent monotonic relay_id and stay in the add-on's durable
+	// spool until the agent acks them after gateway acceptance, giving
+	// at-least-once delivery.
+	CapabilityOtlpRelayV1 = "otlp-relay:v1"
 )
 
 // Handshake is the go-plugin handshake shared by the agent and every add-on.
@@ -83,11 +90,38 @@ type TelemetryClient interface {
 	StreamTelemetry(ctx context.Context) (<-chan *addonpb.TelemetryBatch, error)
 }
 
+// OtlpRelaySource is implemented by add-ons that serve the acked OTLP relay
+// stream (AddonService.RelayOtlp). Add-ons advertise this support with
+// CapabilityOtlpRelayV1 in Info; the agent never opens the stream otherwise.
+//
+// The add-on emits OtlpRelayFrame messages (persistent monotonic relay_id)
+// on the returned channel and consumes cumulative ack watermarks from acks:
+// an ack value n confirms every frame with relay_id <= n was accepted by the
+// agent-gateway and may be released from the add-on's durable spool. The
+// implementation should stop (and close its channel) when ctx is done or
+// acks is closed; on a later reconnect it re-sends every unacked frame with
+// the original relay_ids.
+type OtlpRelaySource interface {
+	RelayOtlp(ctx context.Context, acks <-chan uint64) (<-chan *addonpb.OtlpRelayFrame, error)
+}
+
+// OtlpRelayClient is implemented by client-side adapters that can drive a
+// remote add-on's acked OTLP relay stream. frames yields the add-on's relay
+// frames; the caller sends cumulative ack watermarks on acks AFTER the
+// agent-gateway accepted the corresponding frames (never before — the ack is
+// what releases the add-on's spool). The frames channel is closed when the
+// stream ends; the caller should close acks when it stops acking.
+type OtlpRelayClient interface {
+	RelayOtlp(ctx context.Context) (frames <-chan *addonpb.OtlpRelayFrame, acks chan<- uint64, err error)
+}
+
 type TelemetryBatch = addonpb.TelemetryBatch
 type TelemetryRecord = addonpb.TelemetryRecord
 type TelemetrySourceInfo = addonpb.TelemetrySource
 type TelemetryCounters = addonpb.TelemetryCounters
 type TelemetryPayloadKind = addonpb.TelemetryPayloadKind
+type OtlpRelayFrame = addonpb.OtlpRelayFrame
+type OtlpRelayAck = addonpb.OtlpRelayAck
 
 // Info describes a running add-on.
 type Info struct {

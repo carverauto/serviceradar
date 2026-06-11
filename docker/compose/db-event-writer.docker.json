@@ -28,16 +28,16 @@
       "table": "logs"
     },
     {
-      "subject": "otel.traces",
+      "subject": "otel.traces.raw",
       "table": "otel_traces"
     },
     {
-      "subject": "otel.metrics",
+      "subject": "otel.metrics.derived",
       "table": "otel_metrics"
     },
     {
       "subject": "otel.metrics.raw",
-      "table": "otel_metrics"
+      "table": "otel_metric_points"
     }
   ],
   "cnpg": {

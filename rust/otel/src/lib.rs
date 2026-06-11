@@ -1,10 +1,14 @@
 use log::{debug, error, info, warn};
 use tonic::{Request, Response, Status};
 
+pub mod agent_forward;
+pub mod auth;
 pub mod cli;
 pub mod config;
+pub mod http_server;
 pub mod metrics;
-pub mod nats_output;
+pub mod nats;
+pub mod output;
 pub mod server;
 pub mod setup;
 pub mod tls;
@@ -61,41 +65,98 @@ pub mod opentelemetry {
     }
 }
 
-use crate::nats_output::PerformanceMetric;
+use crate::output::{IngestContext, PerformanceMetric, TelemetryOutput};
 use opentelemetry::proto::collector::logs::v1::logs_service_server::LogsService;
 use opentelemetry::proto::collector::logs::v1::{
     ExportLogsPartialSuccess, ExportLogsServiceRequest, ExportLogsServiceResponse,
 };
 use opentelemetry::proto::collector::metrics::v1::metrics_service_server::MetricsService;
 use opentelemetry::proto::collector::metrics::v1::{
-    ExportMetricsServiceRequest, ExportMetricsServiceResponse,
+    ExportMetricsPartialSuccess, ExportMetricsServiceRequest, ExportMetricsServiceResponse,
 };
 use opentelemetry::proto::collector::trace::v1::trace_service_server::TraceService;
 use opentelemetry::proto::collector::trace::v1::{
-    ExportTraceServiceRequest, ExportTraceServiceResponse,
+    ExportTracePartialSuccess, ExportTraceServiceRequest, ExportTraceServiceResponse,
 };
 use opentelemetry::proto::metrics::v1::Metric;
 use opentelemetry::proto::metrics::v1::metric::Data as MetricData;
-use std::sync::Arc;
-use tokio::sync::Mutex;
+use std::sync::{Arc, RwLock};
+
+/// Backoff before the single NATS publish retry attempt.
+const NATS_PUBLISH_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// Attempt a NATS publish, retrying once after a brief backoff on failure.
+///
+/// Returns the result of the retry if the first attempt fails. Callers decide
+/// whether a final failure is fatal for the OTLP export (primary signals NACK
+/// the request so SDK clients retransmit; derived data stays best-effort).
+async fn publish_with_retry<T, F, Fut>(signal: &str, mut attempt: F) -> anyhow::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = anyhow::Result<T>>,
+{
+    match attempt().await {
+        Ok(value) => Ok(value),
+        Err(first_err) => {
+            warn!(
+                "Failed to publish {signal} to NATS (retrying once after {}ms): {first_err}",
+                NATS_PUBLISH_RETRY_DELAY.as_millis()
+            );
+            tokio::time::sleep(NATS_PUBLISH_RETRY_DELAY).await;
+            attempt().await
+        }
+    }
+}
+
+/// Error returned when an export could not be durably accepted (the NATS
+/// publish failed even after a retry). The OTLP/gRPC surface maps this to
+/// UNAVAILABLE and the OTLP/HTTP surface maps it to 503 so stock SDK
+/// exporters retransmit the batch.
+#[derive(Debug)]
+pub struct ExportError {
+    pub message: String,
+}
+
+impl std::fmt::Display for ExportError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ExportError {}
+
+/// Builds the partial_success error message for records rejected because a
+/// single record exceeded the maximum encoded size.
+fn oversize_partial_message(rejected: usize) -> String {
+    format!("{rejected} records exceeded max encoded size")
+}
+
+/// Hot-swappable handle to the active output backend.
+///
+/// The `RwLock` is only ever held long enough to clone the inner `Arc`
+/// (per-export reads) or swap it (runtime reconfiguration) — never across a
+/// publish await — so concurrent exports publish without any global
+/// serialization (the old `Arc<Mutex<NATSOutput>>` head-of-line blocking).
+type OutputSlot = RwLock<Arc<dyn TelemetryOutput>>;
 
 #[derive(Clone)]
 pub struct ServiceRadarCollector {
-    nats_output: Option<Arc<Mutex<nats_output::NATSOutput>>>,
+    output: Option<Arc<OutputSlot>>,
 }
 
 impl ServiceRadarCollector {
     pub async fn new(
-        nats_config: Option<nats_output::NATSConfig>,
+        nats_config: Option<nats::NATSConfig>,
     ) -> Result<Self, Box<dyn std::error::Error>> {
         debug!("Creating ServiceRadarCollector");
 
-        let nats_output = if let Some(config) = nats_config {
+        let output: Option<Arc<OutputSlot>> = if let Some(config) = nats_config {
             debug!("Initializing NATS output for collector");
-            match nats_output::NATSOutput::new(config).await {
+            match nats::NATSOutput::new(config).await {
                 Ok(output) => {
                     debug!("NATS output created successfully");
-                    Some(Arc::new(Mutex::new(output)))
+                    let output: Arc<dyn TelemetryOutput> = Arc::new(output);
+                    Some(Arc::new(RwLock::new(output)))
                 }
                 Err(e) => {
                     error!("Failed to initialize NATS output: {e}");
@@ -108,24 +169,48 @@ impl ServiceRadarCollector {
         };
 
         debug!(
-            "ServiceRadarCollector created with NATS output: {}",
-            nats_output.is_some()
+            "ServiceRadarCollector created with output backend: {}",
+            output.is_some()
         );
-        Ok(Self { nats_output })
+        Ok(Self { output })
+    }
+
+    /// Builds a collector around an arbitrary output backend.
+    ///
+    /// This is the seam the planned agent-forward and OTLP-exporter edge
+    /// backends (and tests) plug into; see [`crate::output`] for the backend
+    /// roadmap.
+    pub fn with_output(output: Arc<dyn TelemetryOutput>) -> Self {
+        Self {
+            output: Some(Arc::new(RwLock::new(output))),
+        }
+    }
+
+    /// Clones the current output backend handle out of the slot. The lock is
+    /// released before any publish await.
+    fn output_handle(&self) -> Option<Arc<dyn TelemetryOutput>> {
+        self.output.as_ref().map(|slot| match slot.read() {
+            Ok(guard) => Arc::clone(&guard),
+            Err(poisoned) => Arc::clone(&poisoned.into_inner()),
+        })
+    }
+
+    fn swap_output(slot: &OutputSlot, new_output: Arc<dyn TelemetryOutput>) {
+        match slot.write() {
+            Ok(mut guard) => *guard = new_output,
+            Err(poisoned) => *poisoned.into_inner() = new_output,
+        }
     }
 
     /// Reconfigure NATS output at runtime. If None, disables output. If Some, rebuilds the output.
-    pub async fn reconfigure_nats(&self, nats_config: Option<nats_output::NATSConfig>) {
+    pub async fn reconfigure_nats(&self, nats_config: Option<nats::NATSConfig>) {
         debug!("Reconfiguring NATS output for collector");
         match nats_config {
-            Some(cfg) => match nats_output::NATSOutput::new(cfg).await {
+            Some(cfg) => match nats::NATSOutput::new(cfg).await {
                 Ok(new_output) => {
-                    if let Some(arc) = &self.nats_output {
-                        {
-                            let mut guard = arc.lock().await;
-                            *guard = new_output;
-                            info!("NATS output reconfigured successfully");
-                        }
+                    if let Some(slot) = &self.output {
+                        Self::swap_output(slot, Arc::new(new_output));
+                        info!("NATS output reconfigured successfully");
                     } else {
                         warn!("NATS output not initialized; restart required to enable output");
                     }
@@ -135,13 +220,10 @@ impl ServiceRadarCollector {
                 }
             },
             None => {
-                if let Some(arc) = &self.nats_output {
-                    {
-                        let mut guard = arc.lock().await;
-                        // Replace with a disabled output that drops
-                        *guard = nats_output::NATSOutput::disabled();
-                        info!("NATS output disabled via reconfiguration");
-                    }
+                if let Some(slot) = &self.output {
+                    // Replace with a disabled output that drops
+                    Self::swap_output(slot, Arc::new(nats::NATSOutput::disabled()));
+                    info!("NATS output disabled via reconfiguration");
                 } else {
                     debug!("NATS output already disabled");
                 }
@@ -153,19 +235,19 @@ impl ServiceRadarCollector {
 impl std::fmt::Debug for ServiceRadarCollector {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServiceRadarCollector")
-            .field("nats_output", &self.nats_output.is_some())
+            .field("output", &self.output.is_some())
             .finish()
     }
 }
 
-#[tonic::async_trait]
-impl TraceService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP traces export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_traces(
         &self,
-        request: Request<ExportTraceServiceRequest>,
-    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
-        let trace_data = request.into_inner();
-
+        trace_data: ExportTraceServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<ExportTraceServiceResponse, ExportError> {
         let span_count = trace_data
             .resource_spans
             .iter()
@@ -182,6 +264,7 @@ impl TraceService for ServiceRadarCollector {
             trace_data.resource_spans.len(),
             span_count
         );
+        metrics::record_received("traces", span_count);
 
         // Calculate durations and collect performance metrics for NATS publishing
         let mut performance_metrics = Vec::new();
@@ -340,18 +423,31 @@ impl TraceService for ServiceRadarCollector {
             }
         }
 
-        // Publish performance metrics to NATS
+        // Publish performance metrics to the output backend
         if performance_metrics.is_empty() {
             // Nothing to publish
-        } else if let Some(nats) = &self.nats_output {
+        } else if let Some(output) = self.output_handle() {
             debug!(
                 "Publishing {} performance metrics to NATS",
                 performance_metrics.len()
             );
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_metrics(&performance_metrics).await {
-                error!("Failed to publish performance metrics to NATS: {e}");
-                // Don't fail the request, just log the error
+            metrics::record_received("span_metrics", performance_metrics.len());
+            let publish_result = publish_with_retry("span_metrics", || async {
+                output
+                    .publish_derived_metrics(&performance_metrics, ctx)
+                    .await
+            })
+            .await;
+            match publish_result {
+                Ok(outcome) => metrics::record_published("span_metrics", outcome.published),
+                Err(e) => {
+                    metrics::record_publish_failure("span_metrics", performance_metrics.len());
+                    // Derived span metrics stay best-effort: losing them must
+                    // not force SDK clients to retransmit the spans they are
+                    // derived from. The primary span publish below is what
+                    // decides the request outcome.
+                    error!("Failed to publish performance metrics to NATS after retry: {e}");
+                }
             }
         }
 
@@ -386,33 +482,55 @@ impl TraceService for ServiceRadarCollector {
             }
         }
 
-        // Send to NATS if configured
-        if let Some(nats) = &self.nats_output {
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing spans; downstream writers dedupe on primary key, so retries
+        // are safe.
+        let mut rejected_spans = 0usize;
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding traces to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_traces(&trace_data).await {
-                error!("Failed to publish traces to NATS: {e}");
-                // Don't fail the request, just log the error
+            let publish_result = publish_with_retry("traces", || async {
+                output.publish_traces(&trace_data, ctx).await
+            })
+            .await;
+            match publish_result {
+                Ok(outcome) => {
+                    rejected_spans = outcome.rejected;
+                    metrics::record_published("traces", outcome.published);
+                }
+                Err(e) => {
+                    metrics::record_publish_failure("traces", span_count);
+                    error!("Failed to publish traces to NATS after retry: {e}");
+                    return Err(ExportError {
+                        message: format!("failed to publish traces to NATS after retry: {e}"),
+                    });
+                }
             }
         } else {
             debug!("No NATS output configured, traces received but not forwarded");
         }
 
         debug!("OTEL export request completed successfully");
-        Ok(Response::new(ExportTraceServiceResponse {
-            partial_success: None,
-        }))
+        // Per the OTLP spec, partial_success is unset on full success and
+        // carries the rejected count when individual records were dropped
+        // (e.g. a single span too large to ever publish).
+        Ok(ExportTraceServiceResponse {
+            partial_success: (rejected_spans > 0).then(|| ExportTracePartialSuccess {
+                rejected_spans: rejected_spans as i64,
+                error_message: oversize_partial_message(rejected_spans),
+            }),
+        })
     }
 }
 
-#[tonic::async_trait]
-impl MetricsService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP metrics export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_metrics(
         &self,
-        request: Request<ExportMetricsServiceRequest>,
-    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
-        let metrics_data = request.into_inner();
-
+        metrics_data: ExportMetricsServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<ExportMetricsServiceResponse, ExportError> {
         let resource_metric_count = metrics_data.resource_metrics.len();
         let mut scope_metric_count = 0usize;
         let mut metric_count = 0usize;
@@ -432,6 +550,7 @@ impl MetricsService for ServiceRadarCollector {
             "Received OTEL metrics export request: {} resource sets, {} scope sets, {} metrics, {} data points",
             resource_metric_count, scope_metric_count, metric_count, data_point_count
         );
+        metrics::record_received("metrics", data_point_count);
 
         if log::log_enabled!(log::Level::Debug) {
             for (index, resource_metrics) in metrics_data.resource_metrics.iter().enumerate() {
@@ -473,30 +592,51 @@ impl MetricsService for ServiceRadarCollector {
             }
         }
 
-        if let Some(nats) = &self.nats_output {
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing metric points.
+        let mut rejected_data_points = 0usize;
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding raw OTLP metrics to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_raw_metrics(&metrics_data).await {
-                error!("Failed to publish raw OTLP metrics to NATS: {e}");
+            let publish_result = publish_with_retry("metrics", || async {
+                output.publish_raw_metrics(&metrics_data, ctx).await
+            })
+            .await;
+            match publish_result {
+                Ok(outcome) => {
+                    rejected_data_points = outcome.rejected;
+                    metrics::record_published("metrics", outcome.published);
+                }
+                Err(e) => {
+                    metrics::record_publish_failure("metrics", data_point_count);
+                    error!("Failed to publish raw OTLP metrics to NATS after retry: {e}");
+                    return Err(ExportError {
+                        message: format!("failed to publish metrics to NATS after retry: {e}"),
+                    });
+                }
             }
         } else {
             debug!("No NATS output configured, metrics received but not forwarded");
         }
 
-        Ok(Response::new(ExportMetricsServiceResponse {
-            partial_success: None,
-        }))
+        // partial_success stays unset on full success per the OTLP spec.
+        Ok(ExportMetricsServiceResponse {
+            partial_success: (rejected_data_points > 0).then(|| ExportMetricsPartialSuccess {
+                rejected_data_points: rejected_data_points as i64,
+                error_message: oversize_partial_message(rejected_data_points),
+            }),
+        })
     }
 }
 
-#[tonic::async_trait]
-impl LogsService for ServiceRadarCollector {
-    async fn export(
+impl ServiceRadarCollector {
+    /// Shared OTLP logs export handler used by both the gRPC and HTTP
+    /// transports.
+    pub async fn handle_logs(
         &self,
-        request: Request<ExportLogsServiceRequest>,
-    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
-        let logs_data = request.into_inner();
-
+        logs_data: ExportLogsServiceRequest,
+        ctx: &IngestContext,
+    ) -> Result<ExportLogsServiceResponse, ExportError> {
         let logs_count = logs_data
             .resource_logs
             .iter()
@@ -513,6 +653,7 @@ impl LogsService for ServiceRadarCollector {
             logs_data.resource_logs.len(),
             logs_count
         );
+        metrics::record_received("logs", logs_count);
 
         // Log some debug details about the logs
         if log::log_enabled!(log::Level::Debug) {
@@ -545,25 +686,95 @@ impl LogsService for ServiceRadarCollector {
             }
         }
 
-        // Send to NATS if configured
-        if let Some(nats) = &self.nats_output {
+        // Send to NATS if configured. A publish failure (after one retry)
+        // fails the export so SDK clients retransmit instead of silently
+        // losing log records.
+        let mut rejected_log_records = 0usize;
+        if let Some(output) = self.output_handle() {
             debug!("Forwarding logs to NATS");
-            let mut nats_output = nats.lock().await;
-            if let Err(e) = nats_output.publish_logs(&logs_data).await {
-                error!("Failed to publish logs to NATS: {e}");
-                // Don't fail the request, just log the error
+            let publish_result = publish_with_retry("logs", || async {
+                output.publish_logs(&logs_data, ctx).await
+            })
+            .await;
+            match publish_result {
+                Ok(outcome) => {
+                    rejected_log_records = outcome.rejected;
+                    metrics::record_published("logs", outcome.published);
+                }
+                Err(e) => {
+                    metrics::record_publish_failure("logs", logs_count);
+                    error!("Failed to publish logs to NATS after retry: {e}");
+                    return Err(ExportError {
+                        message: format!("failed to publish logs to NATS after retry: {e}"),
+                    });
+                }
             }
         } else {
             debug!("No NATS output configured, logs received but not forwarded");
         }
 
         debug!("OTEL logs export request completed successfully");
-        Ok(Response::new(ExportLogsServiceResponse {
-            partial_success: Some(ExportLogsPartialSuccess {
-                rejected_log_records: 0,
-                error_message: String::new(),
+        // Per the OTLP spec, partial_success MUST be unset on full success;
+        // it is only populated when log records were actually rejected.
+        Ok(ExportLogsServiceResponse {
+            partial_success: (rejected_log_records > 0).then(|| ExportLogsPartialSuccess {
+                rejected_log_records: rejected_log_records as i64,
+                error_message: oversize_partial_message(rejected_log_records),
             }),
-        }))
+        })
+    }
+}
+
+/// Reads the identity established by the ingestion-auth interceptor
+/// ([`crate::auth::grpc_auth_interceptor`]) back out of the gRPC request
+/// extensions; absent extension (interceptor not installed) means anonymous.
+fn grpc_ingest_context(extensions: &tonic::Extensions) -> IngestContext {
+    IngestContext {
+        identity: extensions
+            .get::<crate::auth::AuthenticatedIdentity>()
+            .and_then(|identity| identity.0.clone()),
+    }
+}
+
+#[tonic::async_trait]
+impl TraceService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportTraceServiceRequest>,
+    ) -> Result<Response<ExportTraceServiceResponse>, Status> {
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_traces(request.into_inner(), &ctx)
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
+    }
+}
+
+#[tonic::async_trait]
+impl MetricsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportMetricsServiceRequest>,
+    ) -> Result<Response<ExportMetricsServiceResponse>, Status> {
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_metrics(request.into_inner(), &ctx)
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
+    }
+}
+
+#[tonic::async_trait]
+impl LogsService for ServiceRadarCollector {
+    async fn export(
+        &self,
+        request: Request<ExportLogsServiceRequest>,
+    ) -> Result<Response<ExportLogsServiceResponse>, Status> {
+        let ctx = grpc_ingest_context(request.extensions());
+        self.handle_logs(request.into_inner(), &ctx)
+            .await
+            .map(Response::new)
+            .map_err(|e| Status::unavailable(e.message))
     }
 }
 
@@ -720,6 +931,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_publish_with_retry_first_attempt_succeeds() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            attempts.set(attempts.get() + 1);
+            async { Ok(()) }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_retry_recovers_on_second_attempt() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            let attempt = attempts.get() + 1;
+            attempts.set(attempt);
+            async move {
+                if attempt == 1 {
+                    Err(anyhow::anyhow!("transient NATS failure"))
+                } else {
+                    Ok(())
+                }
+            }
+        })
+        .await;
+
+        assert!(result.is_ok());
+        assert_eq!(attempts.get(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_publish_with_retry_fails_after_two_attempts() {
+        let attempts = std::cell::Cell::new(0u32);
+        let result = publish_with_retry("test", || {
+            attempts.set(attempts.get() + 1);
+            async { Err::<(), anyhow::Error>(anyhow::anyhow!("NATS still down")) }
+        })
+        .await;
+
+        assert!(result.is_err());
+        assert_eq!(attempts.get(), 2);
+        assert!(result.unwrap_err().to_string().contains("NATS still down"));
+    }
+
+    #[tokio::test]
     async fn test_collector_debug_impl() {
         let collector = ServiceRadarCollector::new(None).await.unwrap();
         let debug_str = format!("{:?}", collector);
@@ -771,10 +1029,8 @@ mod tests {
         assert!(response.is_ok());
         let response = response.unwrap();
         let inner = response.into_inner();
-        assert!(inner.partial_success.is_some());
-        let partial_success = inner.partial_success.unwrap();
-        assert_eq!(partial_success.rejected_log_records, 0);
-        assert!(partial_success.error_message.is_empty());
+        // OTLP spec: partial_success MUST be unset on full success.
+        assert!(inner.partial_success.is_none());
     }
 
     fn create_test_logs_request() -> ExportLogsServiceRequest {
@@ -826,5 +1082,226 @@ mod tests {
                 schema_url: "https://opentelemetry.io/schemas/1.4.0".to_string(),
             }],
         }
+    }
+
+    /// Test double for the output seam: counts calls, optionally fails or
+    /// reports rejected records.
+    #[derive(Default)]
+    struct MockOutput {
+        trace_calls: std::sync::atomic::AtomicUsize,
+        log_calls: std::sync::atomic::AtomicUsize,
+        metric_calls: std::sync::atomic::AtomicUsize,
+        rejected: usize,
+        fail: bool,
+        /// Last [`IngestContext`] seen by any publish method, for asserting
+        /// identity threading from the listeners into the output backend.
+        last_ctx: std::sync::Mutex<Option<IngestContext>>,
+    }
+
+    impl MockOutput {
+        fn record_ctx(&self, ctx: &IngestContext) {
+            *self.last_ctx.lock().unwrap() = Some(ctx.clone());
+        }
+
+        fn last_identity(&self) -> Option<String> {
+            self.last_ctx
+                .lock()
+                .unwrap()
+                .as_ref()
+                .and_then(|ctx| ctx.identity.clone())
+        }
+    }
+
+    impl MockOutput {
+        fn outcome(&self, total: usize) -> anyhow::Result<crate::output::PublishOutcome> {
+            if self.fail {
+                anyhow::bail!("mock output failure");
+            }
+            Ok(crate::output::PublishOutcome {
+                published: total.saturating_sub(self.rejected),
+                rejected: self.rejected,
+            })
+        }
+    }
+
+    #[tonic::async_trait]
+    impl TelemetryOutput for MockOutput {
+        async fn publish_traces(
+            &self,
+            traces: &ExportTraceServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
+            self.trace_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let spans = traces
+                .resource_spans
+                .iter()
+                .flat_map(|rs| rs.scope_spans.iter())
+                .map(|ss| ss.spans.len())
+                .sum();
+            self.outcome(spans)
+        }
+
+        async fn publish_logs(
+            &self,
+            logs: &ExportLogsServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
+            self.log_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let records = logs
+                .resource_logs
+                .iter()
+                .flat_map(|rl| rl.scope_logs.iter())
+                .map(|sl| sl.log_records.len())
+                .sum();
+            self.outcome(records)
+        }
+
+        async fn publish_raw_metrics(
+            &self,
+            _metrics: &ExportMetricsServiceRequest,
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
+            self.metric_calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            self.outcome(0)
+        }
+
+        async fn publish_derived_metrics(
+            &self,
+            metrics: &[PerformanceMetric],
+            ctx: &IngestContext,
+        ) -> anyhow::Result<crate::output::PublishOutcome> {
+            self.record_ctx(ctx);
+            self.outcome(metrics.len())
+        }
+    }
+
+    #[tokio::test]
+    async fn test_collector_publishes_through_output_trait() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let response = collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await
+            .unwrap();
+        assert!(response.partial_success.is_none());
+        assert_eq!(
+            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+
+        let response = collector
+            .handle_logs(create_test_logs_request(), &IngestContext::anonymous())
+            .await
+            .unwrap();
+        assert!(response.partial_success.is_none());
+        assert_eq!(
+            output.log_calls.load(std::sync::atomic::Ordering::SeqCst),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn test_collector_reports_partial_success_from_output_rejections() {
+        let output = Arc::new(MockOutput {
+            rejected: 1,
+            ..MockOutput::default()
+        });
+        let collector = ServiceRadarCollector::with_output(output);
+
+        let response = collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await
+            .unwrap();
+        let partial = response.partial_success.expect("partial_success expected");
+        assert_eq!(partial.rejected_spans, 1);
+        assert!(partial.error_message.contains("max encoded size"));
+    }
+
+    #[tokio::test]
+    async fn test_collector_maps_output_failure_to_export_error_after_retry() {
+        let output = Arc::new(MockOutput {
+            fail: true,
+            ..MockOutput::default()
+        });
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let result = collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await;
+        assert!(result.is_err());
+        // publish_with_retry retries exactly once before failing the export.
+        assert_eq!(
+            output.trace_calls.load(std::sync::atomic::Ordering::SeqCst),
+            2
+        );
+    }
+
+    #[tokio::test]
+    async fn test_authenticated_identity_threads_into_output_context() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+        let ctx = IngestContext {
+            identity: Some("tenant-a".to_string()),
+        };
+
+        collector
+            .handle_traces(create_test_trace_request(), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+
+        collector
+            .handle_logs(create_test_logs_request(), &ctx)
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+
+        collector
+            .handle_metrics(
+                ExportMetricsServiceRequest {
+                    resource_metrics: vec![],
+                },
+                &ctx,
+            )
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), Some("tenant-a".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_anonymous_requests_publish_without_identity() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        collector
+            .handle_traces(create_test_trace_request(), &IngestContext::anonymous())
+            .await
+            .unwrap();
+        assert_eq!(output.last_identity(), None);
+        assert!(output.last_ctx.lock().unwrap().is_some());
+    }
+
+    #[tokio::test]
+    async fn test_grpc_export_reads_identity_from_interceptor_extensions() {
+        let output = Arc::new(MockOutput::default());
+        let collector = ServiceRadarCollector::with_output(output.clone());
+
+        let mut request = tonic::Request::new(create_test_trace_request());
+        request
+            .extensions_mut()
+            .insert(crate::auth::AuthenticatedIdentity(Some(
+                "tenant-grpc".to_string(),
+            )));
+
+        let response = TraceService::export(&collector, request).await.unwrap();
+        assert!(response.into_inner().partial_success.is_none());
+        assert_eq!(output.last_identity(), Some("tenant-grpc".to_string()));
     }
 }

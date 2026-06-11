@@ -22,8 +22,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       json_data =
         Jason.encode!(%{
           "timestamp" => "2024-01-15T10:30:00Z",
-          "trace_id" => "trace-123",
-          "span_id" => "span-456",
+          "trace_id" => "0123456789abcdef0123456789abcdef",
+          "span_id" => "0123456789abcdef",
           "severity_text" => "INFO",
           "severity_number" => 9,
           "body" => "Application started successfully",
@@ -40,8 +40,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       result = Logs.parse_message(message)
 
       assert result.timestamp == ~U[2024-01-15 10:30:00Z]
-      assert result.trace_id == "trace-123"
-      assert result.span_id == "span-456"
+      assert result.trace_id == "0123456789abcdef0123456789abcdef"
+      assert result.span_id == "0123456789abcdef"
       assert result.severity_text == "INFO"
       assert result.severity_number == 9
       assert result.body == "Application started successfully"
@@ -59,8 +59,8 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
     test "parses camelCase fields" do
       json_data =
         Jason.encode!(%{
-          "traceId" => "trace-camel",
-          "spanId" => "span-camel",
+          "traceId" => "ABCDEF0123456789ABCDEF0123456789",
+          "spanId" => "ABCDEF0123456789",
           "severityText" => "ERROR",
           "severityNumber" => 17,
           "serviceName" => "camel-service",
@@ -76,8 +76,9 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
 
       result = Logs.parse_message(message)
 
-      assert result.trace_id == "trace-camel"
-      assert result.span_id == "span-camel"
+      # Uppercase hex ids are downcased to the canonical form
+      assert result.trace_id == "abcdef0123456789abcdef0123456789"
+      assert result.span_id == "abcdef0123456789"
       assert result.severity_text == "ERROR"
       assert result.severity_number == 17
       assert result.service_name == "camel-service"
@@ -196,6 +197,82 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result == nil
     end
 
+    test "normalizes non-canonical ids to nil" do
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => "trace-123",
+          "span_id" => "span-4567-bad",
+          "body" => "garbage ids"
+        })
+
+      result = Logs.parse_message(%{data: json_data, metadata: %{}})
+
+      assert result.trace_id == nil
+      assert result.span_id == nil
+    end
+
+    test "folds legacy double-hex ids arriving via JSON" do
+      trace_hex = "0123456789abcdef0123456789abcdef"
+      span_hex = "0123456789abcdef"
+
+      json_data =
+        Jason.encode!(%{
+          "trace_id" => Base.encode16(trace_hex, case: :lower),
+          "span_id" => Base.encode16(span_hex, case: :lower),
+          "body" => "double hex"
+        })
+
+      result = Logs.parse_message(%{data: json_data, metadata: %{}})
+
+      assert result.trace_id == trace_hex
+      assert result.span_id == span_hex
+    end
+
+    test "protobuf bytes fields carrying ascii hex are not hexed again" do
+      # The Erlang OTLP logs exporter copies hex Logger metadata verbatim
+      # into the protobuf bytes fields.
+      trace_hex = "0123456789abcdef0123456789abcdef"
+      span_hex = "0123456789abcdef"
+
+      log_record = %LogRecord{
+        time_unix_nano: 1_705_315_800_000_000_000,
+        body: %AnyValue{value: {:string_value, "ascii hex ids"}},
+        trace_id: trace_hex,
+        span_id: span_hex
+      }
+
+      request = %ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{scope_logs: [%ScopeLogs{log_records: [log_record]}]}
+        ]
+      }
+
+      [row] = Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+      assert row.trace_id == trace_hex
+      assert row.span_id == span_hex
+    end
+
+    test "protobuf empty and zero ids are stored as nil" do
+      log_record = %LogRecord{
+        time_unix_nano: 1_705_315_800_000_000_000,
+        body: %AnyValue{value: {:string_value, "no span context"}},
+        trace_id: <<>>,
+        span_id: :binary.copy(<<0>>, 8)
+      }
+
+      request = %ExportLogsServiceRequest{
+        resource_logs: [
+          %ResourceLogs{scope_logs: [%ScopeLogs{log_records: [log_record]}]}
+        ]
+      }
+
+      [row] = Logs.parse_message(%{data: ExportLogsServiceRequest.encode(request), metadata: %{}})
+
+      assert row.trace_id == nil
+      assert row.span_id == nil
+    end
+
     test "parses protobuf ExportLogsServiceRequest" do
       trace_id = <<1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16>>
       span_id = <<1, 2, 3, 4, 5, 6, 7, 8>>
@@ -253,6 +330,43 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert row.span_id == Base.encode16(span_id, case: :lower)
       assert row.attributes["custom"] == "value"
       assert row.id
+    end
+  end
+
+  describe "parse_message/1 ingest attribution" do
+    @sr_headers [
+      {"Sr-Ingest-Identity", "spiffe://serviceradar/gateway/gw-1"},
+      {"Sr-Agent-Id", "agent-7"},
+      {"Sr-Partition", "site-a"}
+    ]
+
+    test "maps Sr-* headers onto the ingest columns" do
+      data =
+        Jason.encode!(%{
+          "timestamp" => "2024-01-15T10:30:00Z",
+          "body" => "hello",
+          "service_name" => "svc"
+        })
+
+      row =
+        Logs.parse_message(%{
+          data: data,
+          metadata: %{subject: "logs.otel", headers: @sr_headers}
+        })
+
+      assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
+      assert row.ingest_agent_id == "agent-7"
+      assert row.ingest_partition == "site-a"
+    end
+
+    test "absent headers default the ingest columns to empty strings" do
+      data = Jason.encode!(%{"timestamp" => "2024-01-15T10:30:00Z", "body" => "hello"})
+
+      row = Logs.parse_message(%{data: data, metadata: %{subject: "logs.otel"}})
+
+      assert row.ingest_identity == ""
+      assert row.ingest_agent_id == ""
+      assert row.ingest_partition == ""
     end
   end
 end

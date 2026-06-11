@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   alias ServiceRadar.Observability.NetflowPortScanFlag
   alias ServiceRadar.ReferenceData.ServicePorts
   alias ServiceRadarWebNG.Repo
+  alias ServiceRadarWebNGWeb.MetricSeries
   alias ServiceRadarWebNGWeb.NetflowVisualize.Query, as: NFQuery
   alias ServiceRadarWebNGWeb.NetflowVisualize.State, as: NFState
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -112,15 +113,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
      |> assign(:current_params, %{})
      |> assign(:log_view_params, %{})
      |> assign(:trace_rollup_status, Stats.empty_trace_rollup_status())
-     |> assign(:metrics_stats, %{
-       total: 0,
-       slow_spans: 0,
-       error_spans: 0,
-       error_rate: 0.0,
-       avg_duration_ms: 0.0,
-       p95_duration_ms: 0.0,
-       sample_size: 0
-     })
+     |> assign(:metrics_stats, empty_metrics_stats())
+     |> assign(:metrics_view, "samples")
+     |> assign(:otlp_metric_names, [])
+     |> assign(:otlp_selected_metric, nil)
+     |> assign(:otlp_metric_series, [])
      |> assign(:limit, @default_limit)
      |> stream_configure(:logs, dom_id: &log_dom_id/1)
      |> stream_configure(:events, dom_id: &event_dom_id/1)
@@ -150,6 +147,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     netflow_graph_mode =
       parse_netflow_graph_mode(Map.get(params, "graph") || Map.get(netflow_viz_state, "graph"))
 
+    metrics_view = if tab == "metrics", do: parse_metrics_view(Map.get(params, "mview")), else: "samples"
+
+    otlp_selected_metric =
+      if tab == "metrics" and metrics_view == "points",
+        do: normalize_string(Map.get(params, "metric"))
+
     same_tab_query_change =
       socket.assigns[:_initial_load_done] && tab == socket.assigns[:_loaded_tab]
 
@@ -177,6 +180,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_view, netflow_view)
         |> assign(:netflow_auto_open, netflow_auto_open)
         |> assign(:netflow_viz_state, netflow_viz_state)
+        |> assign(:metrics_view, metrics_view)
+        |> assign(:otlp_selected_metric, otlp_selected_metric)
         |> ensure_srql_entity(entity, default_limit)
         |> SRQLPage.sync_from_params(params, uri,
           default_limit: default_limit,
@@ -231,6 +236,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         |> assign(:netflow_view, netflow_view)
         |> assign(:netflow_auto_open, netflow_auto_open)
         |> assign(:netflow_viz_state, netflow_viz_state)
+        |> assign(:metrics_view, metrics_view)
+        |> assign(:otlp_selected_metric, otlp_selected_metric)
+        |> assign(:otlp_metric_names, [])
+        |> assign(:otlp_metric_series, [])
         |> ensure_srql_entity(entity, default_limit)
         |> SRQLPage.sync_from_params(params, uri,
           default_limit: default_limit,
@@ -708,6 +717,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp maybe_apply_netflow_nf_state(params, tab) when is_map(params) and tab == "netflows" do
     nf_raw = Map.get(params, "nf")
 
+    maybe_apply_decoded_netflow_nf_state(params, nf_raw)
+  end
+
+  defp maybe_apply_netflow_nf_state(params, _tab), do: params
+
+  # Without an explicit `nf` state param there is nothing to restore;
+  # decoding `nil` yields the default state, which would clobber an explicit
+  # time window in `q` with the default netflow window.
+  defp maybe_apply_decoded_netflow_nf_state(params, nf_raw) when nf_raw in [nil, ""], do: params
+
+  defp maybe_apply_decoded_netflow_nf_state(params, nf_raw) do
     case NFState.decode_param(nf_raw) do
       {:ok, state} when is_map(state) ->
         query =
@@ -745,8 +765,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         params
     end
   end
-
-  defp maybe_apply_netflow_nf_state(params, _tab), do: params
 
   defp extract_netflow_viz_state(params) when is_map(params) do
     case NFState.decode_param(Map.get(params, "nf")) do
@@ -1059,6 +1077,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 limit={@limit}
                 live?={@logs_live?}
               />
+              <.metrics_panel_controls
+                :if={@active_tab == "metrics"}
+                view={@metrics_view}
+                srql={@srql}
+                limit={@limit}
+              />
               <.netflow_presets
                 :if={@active_tab == "netflows"}
                 srql={@srql}
@@ -1082,12 +1106,30 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               count={length(@logs)}
             />
             <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
-            <.metrics_table
-              :if={@active_tab == "metrics"}
-              id="metrics"
-              metrics={@metrics}
-              sparklines={@sparklines}
-            />
+            <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
+              <div
+                id="metrics-pane-label-samples"
+                class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60"
+              >
+                Span samples (slow-span exemplars)
+              </div>
+              <.metrics_table id="metrics" metrics={@metrics} sparklines={@sparklines} />
+            </div>
+            <div :if={@active_tab == "metrics" and @metrics_view == "points"}>
+              <div
+                id="metrics-pane-label-points"
+                class="mb-2 text-xs font-semibold uppercase tracking-wide text-base-content/60"
+              >
+                OTLP metrics
+              </div>
+              <.otlp_points_view
+                names={@otlp_metric_names}
+                selected={@otlp_selected_metric}
+                series={@otlp_metric_series}
+                srql={@srql}
+                limit={@limit}
+              />
+            </div>
             <.events_table
               :if={@active_tab == "events"}
               id="events"
@@ -1113,7 +1155,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               view={@netflow_view}
             />
 
-            <div class="mt-4 pt-4 border-t border-base-200">
+            <div
+              :if={@active_tab != "metrics" or @metrics_view == "samples"}
+              class="mt-4 pt-4 border-t border-base-200"
+            >
               <.ui_pagination
                 prev_cursor={Map.get(@pagination, "prev_cursor")}
                 next_cursor={Map.get(@pagination, "next_cursor")}
@@ -3404,24 +3449,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Traces" value={format_compact_int(@total)} icon="hero-clock" />
+      <.obs_stat
+        title="Total Traces"
+        value={format_compact_int(@total)}
+        icon="hero-clock"
+        href={traces_card_href("in:otel_trace_summaries sort:timestamp:desc")}
+      />
       <.obs_stat
         title="Successful"
         value={format_compact_int(@successful)}
         icon="hero-check-circle"
         tone="success"
+        href={traces_card_href("in:otel_trace_summaries error_count:0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_traces)}
         icon="hero-x-circle"
         tone={if @error_traces > 0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Avg Duration"
@@ -3464,24 +3517,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
     ~H"""
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-      <.obs_stat title="Total Metrics" value={format_compact_int(@total)} icon="hero-chart-bar" />
+      <.obs_stat
+        title="Total Metrics"
+        value={format_compact_int(@total)}
+        icon="hero-chart-bar"
+        href={metrics_card_href("in:otel_metrics sort:timestamp:desc")}
+      />
       <.obs_stat
         title="Slow Spans"
         value={format_compact_int(@slow_spans)}
         icon="hero-bolt"
         tone={if @slow_spans > 0, do: "warning", else: "success"}
+        href={metrics_card_href("in:otel_metrics is_slow:true sort:timestamp:desc")}
       />
       <.obs_stat
         title="Errors"
         value={format_compact_int(@error_spans)}
         icon="hero-exclamation-triangle"
         tone={if @error_spans > 0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Error Rate"
         value={"#{format_pct(@error_rate)}%"}
         icon="hero-trending-up"
         tone={if @error_rate > 1.0, do: "error", else: "success"}
+        href={traces_card_href("in:otel_trace_summaries error_count:>0 sort:timestamp:desc")}
       />
       <.obs_stat
         title="Avg Duration"
@@ -3506,6 +3567,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   attr(:subtitle, :string, default: nil)
   attr(:icon, :string, required: true)
   attr(:tone, :string, default: "neutral", values: ~w(neutral success warning error info))
+  attr(:href, :string, default: nil)
 
   defp obs_stat(assigns) do
     {bg, fg} =
@@ -3520,17 +3582,51 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     assigns = assigns |> assign(:bg, bg) |> assign(:fg, fg)
 
     ~H"""
-    <div class="rounded-xl border border-base-200 bg-base-100 p-3">
-      <div class="flex items-center gap-2">
-        <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
-          <.icon name={@icon} class={["size-4", @fg]} />
-        </div>
-        <div class="min-w-0">
-          <div class="text-xs text-base-content/60 truncate">{@title}</div>
-          <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
-          <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
-            {@subtitle}
-          </div>
+    <.link
+      :if={is_binary(@href)}
+      patch={@href}
+      class="block rounded-xl border border-base-200 bg-base-100 p-3 hover:bg-base-200/40 transition-colors cursor-pointer"
+    >
+      <.obs_stat_body
+        title={@title}
+        value={@value}
+        subtitle={@subtitle}
+        icon={@icon}
+        bg={@bg}
+        fg={@fg}
+      />
+    </.link>
+    <div :if={not is_binary(@href)} class="rounded-xl border border-base-200 bg-base-100 p-3">
+      <.obs_stat_body
+        title={@title}
+        value={@value}
+        subtitle={@subtitle}
+        icon={@icon}
+        bg={@bg}
+        fg={@fg}
+      />
+    </div>
+    """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:value, :string, required: true)
+  attr(:subtitle, :string, default: nil)
+  attr(:icon, :string, required: true)
+  attr(:bg, :string, required: true)
+  attr(:fg, :string, required: true)
+
+  defp obs_stat_body(assigns) do
+    ~H"""
+    <div class="flex items-center gap-2">
+      <div class={["size-8 rounded-lg flex items-center justify-center shrink-0", @bg]}>
+        <.icon name={@icon} class={["size-4", @fg]} />
+      </div>
+      <div class="min-w-0">
+        <div class="text-xs text-base-content/60 truncate">{@title}</div>
+        <div class="text-lg font-bold tabular-nums truncate">{@value}</div>
+        <div :if={is_binary(@subtitle)} class="text-[10px] text-base-content/50 truncate">
+          {@subtitle}
         </div>
       </div>
     </div>
@@ -3668,10 +3764,11 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           </tr>
 
           <%= for {trace, idx} <- Enum.with_index(@traces) do %>
+            <% trace_path = trace_detail_path(trace) %>
             <tr
               id={"#{@id}-row-#{idx}"}
-              class="hover:bg-base-200/40 cursor-pointer transition-colors"
-              phx-click={JS.navigate(correlate_trace_href(trace))}
+              class={["hover:bg-base-200/40 transition-colors", trace_path && "cursor-pointer"]}
+              phx-click={trace_path && JS.navigate(trace_path)}
             >
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
               <td
@@ -3771,7 +3868,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               >
                 <span class="inline-flex items-center gap-2">
                   <span class={metric_type_badge_class(metric)}>
-                    {Map.get(metric, "metric_type") || "—"}
+                    {metric_type_label(metric)}
                   </span>
                 </span>
               </td>
@@ -3791,6 +3888,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               </td>
               <td class="whitespace-nowrap text-xs font-mono text-right">
                 {format_metric_value(metric)}
+                <span
+                  :if={cumulative_metric?(metric)}
+                  class="ml-1 font-sans text-[10px] text-base-content/50"
+                  title="Raw cumulative counter value; rate rendering arrives with OTLP metric points"
+                >
+                  cumulative
+                </span>
               </td>
               <td class="whitespace-nowrap text-xs">
                 <.metric_viz metric={metric} sparklines={@sparklines} />
@@ -3817,6 +3921,183 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
           <% end %>
         </tbody>
       </table>
+    </div>
+    """
+  end
+
+  attr(:view, :string, required: true)
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  # Toggle between the legacy span-sample exemplars and real OTLP metric
+  # points (in:otel_metric_points). Patch links keep the toggle URL-driven,
+  # matching the rest of the pane's navigation.
+  defp metrics_panel_controls(assigns) do
+    ~H"""
+    <div id="metrics-view-toggle" class="join">
+      <.link
+        patch={metrics_view_href(@srql, @limit, "samples")}
+        class={["btn btn-xs join-item", @view == "samples" && "btn-active"]}
+      >
+        Span samples
+      </.link>
+      <.link
+        patch={metrics_view_href(@srql, @limit, "points")}
+        class={["btn btn-xs join-item", @view == "points" && "btn-active"]}
+      >
+        OTLP metrics
+      </.link>
+    </div>
+    """
+  end
+
+  attr(:names, :list, default: [])
+  attr(:selected, :any, default: nil)
+  attr(:series, :list, default: [])
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  defp otlp_points_view(assigns) do
+    ~H"""
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div class="lg:col-span-1 overflow-x-auto">
+        <table id="otlp-metric-names" class="table table-sm table-zebra w-full">
+          <thead>
+            <tr>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60">
+                Metric
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24">
+                Type
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-16">
+                Unit
+              </th>
+              <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+                Points
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :if={@names == []}>
+              <td colspan="4" class="text-sm text-base-content/60 py-8 text-center">
+                No OTLP metric points found in the active window.
+              </td>
+            </tr>
+            <%= for {entry, idx} <- Enum.with_index(@names) do %>
+              <tr
+                id={"otlp-metric-name-#{idx}"}
+                class={[
+                  "hover:bg-base-200/40 transition-colors",
+                  @selected == entry.name && "bg-base-200/60"
+                ]}
+              >
+                <td class="text-xs max-w-[16rem]">
+                  <.link
+                    patch={otlp_metric_href(@srql, @limit, entry.name)}
+                    class="link link-hover font-mono break-all"
+                  >
+                    {entry.name}
+                  </.link>
+                </td>
+                <td class="whitespace-nowrap text-xs">
+                  <span class={otlp_type_badge_class(entry.type)}>{entry.type || "—"}</span>
+                </td>
+                <td class="whitespace-nowrap text-xs">{entry.unit || "—"}</td>
+                <td class="whitespace-nowrap text-xs font-mono text-right">
+                  {format_compact_int(entry.points)}
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="lg:col-span-2">
+        <div :if={is_nil(@selected)} class="text-sm text-base-content/60 py-8 text-center">
+          Select a metric to load its recent points.
+        </div>
+        <div :if={is_binary(@selected)}>
+          <div class="mb-3 flex flex-wrap items-center gap-2">
+            <span class="font-mono text-sm font-semibold break-all">{@selected}</span>
+            <span :if={@series != []} class="badge badge-sm badge-ghost">
+              temporality: {otlp_temporality_label(List.first(@series))}
+            </span>
+            <span class="text-xs text-base-content/60">
+              {length(@series)} series · grouped by attributes
+            </span>
+          </div>
+          <div :if={@series == []} class="text-sm text-base-content/60 py-8 text-center">
+            No points found for this metric.
+          </div>
+          <div class="space-y-2">
+            <%= for {series, idx} <- Enum.with_index(@series) do %>
+              <.otlp_series_card series={series} idx={idx} />
+            <% end %>
+          </div>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr(:series, :map, required: true)
+  attr(:idx, :integer, required: true)
+
+  defp otlp_series_card(assigns) do
+    ~H"""
+    <div
+      id={"otlp-series-#{@idx}"}
+      class="rounded-xl border border-base-200 bg-base-100 p-3 flex flex-wrap items-center gap-3"
+    >
+      <div class="min-w-0 flex-1">
+        <div
+          class="text-xs font-mono text-base-content/70 truncate max-w-[28rem]"
+          title={@series.attributes || @series.attributes_hash}
+        >
+          {@series.attributes || "(no attributes)"}
+        </div>
+        <div class="mt-1 flex items-center gap-2 text-[10px] text-base-content/50">
+          <span class={otlp_type_badge_class(@series.metric_type)}>
+            {@series.metric_type || "—"}
+          </span>
+          <span>{otlp_kind_label(@series.kind)}</span>
+          <span>temporality: {otlp_temporality_label(@series)}</span>
+          <span>{@series.point_count} pts</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <%= case @series.kind do %>
+          <% :rate -> %>
+            <span class="text-xs text-base-content/60">current rate</span>
+            <span class="text-sm font-mono font-semibold">
+              {format_otlp_rate(@series.current_rate)}
+            </span>
+            <.sparkline :if={length(@series.rates) >= 3} data={@series.rates} />
+          <% :delta_sum -> %>
+            <span class="text-xs text-base-content/60">sum over window</span>
+            <span class="text-sm font-mono font-semibold">
+              {format_series_number(@series.window_sum)}{otlp_unit_suffix(@series.unit)}
+            </span>
+            <.sparkline :if={length(@series.values) >= 3} data={@series.values} />
+          <% :gauge -> %>
+            <span class="text-xs text-base-content/60">last value</span>
+            <span class="text-sm font-mono font-semibold">
+              {format_series_number(@series.last_value)}{otlp_unit_suffix(@series.unit)}
+            </span>
+            <.sparkline :if={length(@series.values) >= 3} data={@series.values} />
+          <% :histogram -> %>
+            <span class="text-xs text-base-content/60">histogram</span>
+            <span class="text-sm font-mono font-semibold">
+              count {format_series_number(@series.histogram_count)} · sum {format_series_number(
+                @series.histogram_sum
+              )}
+            </span>
+          <% _ -> %>
+            <span class="text-base-content/30">—</span>
+        <% end %>
+      </div>
     </div>
     """
   end
@@ -6029,8 +6310,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       "histogram" -> "badge badge-sm badge-info"
       "gauge" -> "badge badge-sm badge-success"
       "counter" -> "badge badge-sm badge-primary"
+      "span" -> "badge badge-sm badge-warning"
       _ -> "badge badge-sm badge-ghost"
     end
+  end
+
+  # Span performance samples and OTLP metric points are distinct signals;
+  # label them so the pane doesn't present slow-span samples as "metrics".
+  defp metric_type_label(metric) do
+    case metric |> Map.get("metric_type") |> normalize_severity() do
+      "" -> "—"
+      "span" -> "span sample"
+      "sum" -> "sum (cumulative)"
+      other -> other
+    end
+  end
+
+  # Falco/OTLP sums are raw cumulative counters today; rate rendering arrives
+  # once otel_metric_points data flows.
+  defp cumulative_metric?(metric) do
+    normalize_severity(Map.get(metric, "metric_type")) == "sum"
   end
 
   defp format_metric_value(metric) do
@@ -6649,7 +6948,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp panel_subtitle("logs", true), do: "Streaming newest log updates. Click any log entry to view full details."
   defp panel_subtitle("logs", false), do: "Click any log entry to view full details."
-  defp panel_subtitle("traces", _), do: "Click a trace to jump to correlated logs."
+  defp panel_subtitle("traces", _), do: "Click a trace to open the span waterfall."
 
   defp panel_subtitle("metrics", _), do: "Click a metric to jump to correlated logs (if trace_id is present)."
 
@@ -6716,6 +7015,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:sparklines, sparklines)
     |> assign(:trace_stats, empty_trace_stats())
     |> assign(:trace_latency, empty_trace_latency())
+    |> apply_otlp_points_assigns(srql_module, scope)
   end
 
   defp apply_tab_assigns(socket, "events", _srql_module) do
@@ -6885,6 +7185,31 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> assign(:metrics_stats, empty_metrics_stats())
   end
 
+  # The OTLP points view is loaded only when active: a metric-name rollup for
+  # the list plus (when a metric is selected) its recent raw points.
+  defp apply_otlp_points_assigns(socket, srql_module, scope) do
+    if Map.get(socket.assigns, :metrics_view, "samples") == "points" do
+      query = socket.assigns |> Map.get(:srql, %{}) |> Map.get(:query, "")
+      names = load_otlp_metric_names(srql_module, scope, query)
+      selected = Map.get(socket.assigns, :otlp_selected_metric)
+
+      series =
+        if is_binary(selected) and selected != "" do
+          load_otlp_metric_series(srql_module, scope, selected)
+        else
+          []
+        end
+
+      socket
+      |> assign(:otlp_metric_names, names)
+      |> assign(:otlp_metric_series, series)
+    else
+      socket
+      |> assign(:otlp_metric_names, [])
+      |> assign(:otlp_metric_series, [])
+    end
+  end
+
   defp maybe_auto_open_netflow(socket, scope) do
     if Map.get(socket.assigns, :netflow_auto_open, false) do
       case List.first(Map.get(socket.assigns, :netflows, [])) do
@@ -6906,9 +7231,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp dispatch_tab_load(socket, tab, params, uri) do
     cond do
       !socket.assigns[:_initial_load_done] ->
-        # Initial page load — defer so the page shell renders immediately
-        send(self(), {:load_tab_data, tab, params, uri})
-        socket
+        # Initial connected mount — load synchronously so the first connected
+        # render already contains the list. The page shell was already painted
+        # by the dead render; deferring here used to produce a connected
+        # render with an empty list ("No metrics found.") whose data only
+        # existed in a follow-up diff, so the initial tab load dropped its
+        # results until the user manually re-ran the query.
+        load_tab(socket, tab, params, uri)
 
       tab != socket.assigns[:_loaded_tab] ->
         # Tab switch — load synchronously for instant transition (no flash)
@@ -7027,10 +7356,147 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp stream_active_tab(socket, _tab), do: socket
 
-  defp build_metrics_stats(_srql_module, scope) do
-    metrics = Stats.metrics_summary(scope: scope)
-    Map.put(metrics, :error_rate, compute_error_rate(metrics.total, metrics.error_spans))
+  defp build_metrics_stats(srql_module, scope) do
+    # rollup_stats:red over spans_red_1h already includes error_rate (0-100).
+    Stats.metrics_summary(srql_module: srql_module, scope: scope)
   end
+
+  defp parse_metrics_view("points"), do: "points"
+  defp parse_metrics_view(_), do: "samples"
+
+  # Scope the OTLP points rollup to the pane's active window (time: token of
+  # the current query) and service filter, mirroring how the stat cards
+  # interpret the query bar.
+  defp otlp_points_base_query(current_query) do
+    query = to_string(current_query || "")
+    window = extract_time_from_query(query) || "last_24h"
+    service = extract_filter_from_query(query, "service_name")
+
+    base = "in:otel_metric_points time:#{window}"
+
+    if non_empty_string?(service) do
+      base <> ~s| service_name:"#{escape_srql_value(service)}"|
+    else
+      base
+    end
+  end
+
+  defp load_otlp_metric_names(srql_module, scope, current_query) do
+    base = otlp_points_base_query(current_query)
+    names_query = ~s|#{base} stats:"count() as points by metric_name" sort:points:desc limit:100|
+
+    # otel_metric_points stats only support count() by a single field, so
+    # type/unit/temporality come from a best-effort sample of recent points.
+    sample_query = ~s|#{base} sort:timestamp:desc limit:250|
+
+    name_rows = extract_stats_rows(srql_module.query(names_query, %{scope: scope}))
+    sample_rows = extract_result_rows(srql_module.query(sample_query, %{scope: scope}))
+
+    meta =
+      Enum.reduce(sample_rows, %{}, fn row, acc ->
+        name = Map.get(row, "metric_name")
+
+        if is_binary(name) and name != "" and not Map.has_key?(acc, name) do
+          Map.put(acc, name, %{
+            type: row |> Map.get("metric_type") |> normalize_severity() |> presence(),
+            unit: normalize_string(Map.get(row, "unit")),
+            temporality: row |> Map.get("temporality") |> normalize_severity() |> presence()
+          })
+        else
+          acc
+        end
+      end)
+
+    name_rows
+    |> Enum.map(fn row ->
+      name = row |> Map.get("metric_name") |> to_string()
+      info = Map.get(meta, name, %{})
+
+      %{
+        name: name,
+        points: to_int(Map.get(row, "points")),
+        type: Map.get(info, :type),
+        unit: Map.get(info, :unit),
+        temporality: Map.get(info, :temporality)
+      }
+    end)
+    |> Enum.reject(&(&1.name == ""))
+  rescue
+    e ->
+      Logger.warning("Failed to load OTLP metric names: #{inspect(e)}")
+      []
+  end
+
+  defp load_otlp_metric_series(srql_module, scope, name) do
+    query = ~s|in:otel_metric_points metric_name:"#{escape_srql_value(name)}" sort:timestamp:desc limit:500|
+
+    query
+    |> srql_module.query(%{scope: scope})
+    |> extract_result_rows()
+    |> MetricSeries.series()
+  rescue
+    e ->
+      Logger.warning("Failed to load OTLP metric points: #{inspect(e)}")
+      []
+  end
+
+  defp extract_result_rows({:ok, %{"results" => results}}) when is_list(results), do: Enum.filter(results, &is_map/1)
+
+  defp extract_result_rows(_), do: []
+
+  defp presence(""), do: nil
+  defp presence(value), do: value
+
+  defp metrics_view_href(srql, limit, view) do
+    params = %{tab: "metrics", q: Map.get(srql, :query, ""), limit: limit}
+    params = if view == "points", do: Map.put(params, :mview, "points"), else: params
+    ~p"/observability?#{params}"
+  end
+
+  defp otlp_metric_href(srql, limit, name) do
+    ~p"/observability?#{%{tab: "metrics", q: Map.get(srql, :query, ""), limit: limit, mview: "points", metric: name}}"
+  end
+
+  defp otlp_type_badge_class(type) do
+    case type do
+      "histogram" -> "badge badge-sm badge-info"
+      "gauge" -> "badge badge-sm badge-success"
+      "sum" -> "badge badge-sm badge-primary"
+      _ -> "badge badge-sm badge-ghost"
+    end
+  end
+
+  defp otlp_kind_label(:rate), do: "rate (cumulative counter)"
+  defp otlp_kind_label(:delta_sum), do: "delta sum"
+  defp otlp_kind_label(:gauge), do: "gauge"
+  defp otlp_kind_label(:histogram), do: "histogram"
+  defp otlp_kind_label(_), do: "—"
+
+  # Temporality is labeled from the stored field — no hardcoded assumption
+  # once real point data is available.
+  defp otlp_temporality_label(%{temporality: temporality}) when is_binary(temporality) and temporality != "",
+    do: temporality
+
+  defp otlp_temporality_label(_), do: "—"
+
+  defp format_otlp_rate(rate) when is_number(rate), do: "#{format_series_number(rate)}/s"
+  defp format_otlp_rate(_), do: "—"
+
+  defp otlp_unit_suffix(unit) when is_binary(unit) and unit not in ["", "1"], do: " #{unit}"
+  defp otlp_unit_suffix(_), do: ""
+
+  defp format_series_number(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp format_series_number(value) when is_float(value) do
+    cond do
+      value == trunc(value) -> Integer.to_string(trunc(value))
+      abs(value) >= 100 -> :erlang.float_to_binary(value, decimals: 1)
+      abs(value) >= 1 -> :erlang.float_to_binary(value, decimals: 2)
+      true -> :erlang.float_to_binary(value, decimals: 4)
+    end
+  end
+
+  defp format_series_number(_), do: "—"
 
   defp maybe_load_log_summary(socket, srql_module, scope) do
     # If we already attempted to load the summary (even if still 0 while async
@@ -7080,15 +7546,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   end
 
   defp empty_metrics_stats do
-    %{
-      total: 0,
-      slow_spans: 0,
-      error_spans: 0,
-      error_rate: 0.0,
-      avg_duration_ms: 0.0,
-      p95_duration_ms: 0.0,
-      sample_size: 0
-    }
+    Stats.empty_metrics_summary()
   end
 
   defp empty_event_summary do
@@ -8403,12 +8861,6 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     |> Enum.group_by(& &1.metric_name, fn row -> numeric_to_float(row.avg_value) end)
   end
 
-  defp compute_error_rate(total, errors) when is_integer(total) and total > 0 do
-    Float.round(errors / total * 100.0, 1)
-  end
-
-  defp compute_error_rate(_total, _errors), do: 0.0
-
   defp format_pct(value) when is_float(value), do: :erlang.float_to_binary(value, decimals: 1)
   defp format_pct(value) when is_integer(value), do: Integer.to_string(value)
   defp format_pct(_), do: "0.0"
@@ -8471,20 +8923,41 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
-  defp correlate_trace_href(trace) do
-    trace_id = trace |> Map.get("trace_id") |> escape_srql_value()
-    q = "in:logs trace_id:\"#{trace_id}\" time:last_24h sort:timestamp:desc"
-    "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
+  defp trace_detail_path(trace) do
+    case ServiceRadarWebNGWeb.TraceLive.Show.normalize_trace_id(Map.get(trace, "trace_id")) do
+      {:ok, trace_id} -> "/observability/traces/#{trace_id}"
+      :error -> nil
+    end
   end
+
+  # Stat-card click-through targets (same patch pattern as the logs cards).
+  defp traces_card_href(q), do: ~p"/observability?#{%{tab: "traces", q: q}}"
+  defp metrics_card_href(q), do: ~p"/observability?#{%{tab: "metrics", q: q}}"
 
   defp correlate_metric_href(metric) do
     trace_id = Map.get(metric, "trace_id")
 
     if is_binary(trace_id) and trace_id != "" do
-      q = "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" time:last_24h sort:timestamp:desc"
+      q =
+        "in:logs trace_id:\"#{escape_srql_value(trace_id)}\" #{correlated_logs_time_window(metric)} sort:timestamp:desc"
+
       "/observability?" <> URI.encode_query(%{tab: "logs", q: q, limit: 50})
     else
       "/observability?" <> URI.encode_query(%{tab: "logs"})
+    end
+  end
+
+  # Correlation windows derive from the source signal's own timestamp (±1h)
+  # rather than a fixed relative window that can miss older samples.
+  defp correlated_logs_time_window(metric) do
+    case parse_timestamp(Map.get(metric, "timestamp") || Map.get(metric, "observed_timestamp")) do
+      {:ok, dt} ->
+        from = dt |> DateTime.add(-3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        to = dt |> DateTime.add(3600, :second) |> DateTime.truncate(:second) |> DateTime.to_iso8601()
+        "time:[#{from},#{to}]"
+
+      _ ->
+        "time:last_24h"
     end
   end
 

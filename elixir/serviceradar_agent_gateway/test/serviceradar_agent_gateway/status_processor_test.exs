@@ -114,4 +114,61 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     assert {:error, :not_available} = StatusProcessor.process(status)
   end
+
+  describe "otlp-relay source" do
+    test "forwards otlp-relay statuses synchronously via GenServer.call" do
+      parent = self()
+
+      handler_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", from, {:status_update, status}} ->
+              GenServer.reply(from, :ok)
+              send(parent, {:called, status})
+          end
+        end)
+
+      Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+      assert :ok = StatusProcessor.process(relay_status())
+
+      assert_receive {:called, forwarded}
+      assert forwarded.source == "otlp-relay"
+      assert forwarded.message == relay_status().message
+    end
+
+    test "propagates core handler errors for otlp-relay statuses" do
+      handler_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", from, {:status_update, _status}} ->
+              GenServer.reply(from, {:error, {:otlp_relay_publish_failed, :nats_down}})
+          end
+        end)
+
+      Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+      assert {:error, {:otlp_relay_publish_failed, :nats_down}} =
+               StatusProcessor.process(relay_status())
+    end
+
+    test "returns an error instead of buffering when core is unavailable" do
+      # No StatusHandler is registered. Unlike results/addon sources, an
+      # otlp-relay status must never fall into the lossy StatusBuffer (the
+      # buffered path would return :ok and falsely ack the relay frame).
+      assert {:error, :not_available} = StatusProcessor.process(relay_status())
+    end
+  end
+
+  defp relay_status do
+    %{
+      service_name: "otlp-relay",
+      service_type: "otlp-relay",
+      source: "otlp-relay",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<1, 2, 3>>
+    }
+  end
 end

@@ -100,6 +100,29 @@ logCollector:
     limits:
       cpu: "1"
       memory: "1Gi"
+  # External OTLP ingest via the shared envoy gateway (no dedicated public
+  # IP; rides the serviceradar-shared-gateway address).
+  #   OTLP/HTTP : https://otlp-demo.serviceradar.cloud/v1/{traces,logs,metrics}
+  #               TLS terminates at the gateway with the public wildcard cert;
+  #               envoy forwards plaintext in-cluster (http.tlsEnabled=false).
+  #   OTLP/gRPC : otlp-demo.grpc.serviceradar.cloud:50052 — TLS passthrough to
+  #               the collector; senders must trust the ServiceRadar private
+  #               root CA (or use insecure skip-verify).
+  # The opt-in dedicated LoadBalancer mode (service.type=LoadBalancer plus a
+  # MetalLB pool annotation/pinned IP) remains available but is off here to
+  # avoid consuming a public IP.
+  otlp:
+    http:
+      tlsEnabled: false
+    service:
+      enabled: true
+      type: ClusterIP
+      http:
+        enabled: true
+    gateway:
+      enabled: true
+      httpHostname: "otlp-demo.serviceradar.cloud"
+      grpcHostname: "otlp-demo.grpc.serviceradar.cloud"
 
 agentGateway:
   enabled: true

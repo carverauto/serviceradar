@@ -130,7 +130,11 @@ func main() {
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,
-		DisableTelemetry:  true,
+		// Telemetry enabled so web-ng -> core-elx -> datasvc traces compose
+		// end-to-end. Span volume rides the parent sampling decision
+		// (health/reflection chatter is already filtered by the lifecycle
+		// infra filter); a TelemetryFilter can scope this further later.
+		DisableTelemetry: false,
 		RegisterGRPCServices: []lifecycle.GRPCServiceRegistrar{
 			func(srv *ggrpc.Server) error {
 				proto.RegisterKVServiceServer(srv, server)

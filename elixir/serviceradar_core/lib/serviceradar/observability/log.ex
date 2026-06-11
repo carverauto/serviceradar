@@ -42,7 +42,10 @@ defmodule ServiceRadar.Observability.Log do
     :scope_version,
     :scope_attributes,
     :attributes,
-    :resource_attributes
+    :resource_attributes,
+    :ingest_identity,
+    :ingest_agent_id,
+    :ingest_partition
   ]
 
   postgres do
@@ -214,6 +217,29 @@ defmodule ServiceRadar.Observability.Log do
     attribute :resource_attributes, :string do
       public? true
       description "Resource attributes"
+    end
+
+    # Ingest attribution (stamped by the agent gateway at publish time)
+    attribute :ingest_identity, :string do
+      allow_nil? false
+      default ""
+      public? true
+
+      description "Publisher identity that ingested the log (Sr-Ingest-Identity header, '' when absent)"
+    end
+
+    attribute :ingest_agent_id, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Agent that ingested the log (Sr-Agent-Id header, '' when absent)"
+    end
+
+    attribute :ingest_partition, :string do
+      allow_nil? false
+      default ""
+      public? true
+      description "Partition/site of the ingesting agent (Sr-Partition header, '' when absent)"
     end
 
     # Timestamps

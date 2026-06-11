@@ -83,6 +83,16 @@ func NewLoggerImpl(ctx context.Context, config *logger.Config) (*LoggerImpl, err
 		}
 
 		output = logger.NewMultiWriter(output, otelWriter)
+
+		// Stand up the process-wide TracerProvider alongside OTel logging
+		// so otelgrpc-instrumented servers/clients emit spans and propagate
+		// trace context. Idempotent; flushed by ShutdownLogger.
+		if err := logger.EnsureTracing(ctx, logger.TracingConfig{
+			ServiceName: config.OTel.ServiceName,
+			OTel:        &config.OTel,
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	// Start building the logger's context, but don't create the logger yet.

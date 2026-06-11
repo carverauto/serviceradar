@@ -425,6 +425,10 @@ func ShutdownOTEL() error {
 		firstErr = err
 	}
 
+	if err := shutdownTracerProvider(ctx); err != nil && firstErr == nil {
+		firstErr = err
+	}
+
 	return firstErr
 }
 

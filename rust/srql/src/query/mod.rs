@@ -144,6 +144,7 @@ mod graph_cypher;
 mod interfaces;
 mod logs;
 mod memory_metrics;
+mod otel_metric_points;
 mod otel_metrics;
 mod process_metrics;
 mod services;
@@ -257,6 +258,9 @@ impl QueryEngine {
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
+                Entity::OtelMetricPoints => {
+                    otel_metric_points::execute(&mut conn, &plan).await?
+                }
                 Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                     timeseries_metrics::execute(&mut conn, &plan).await?
                 }
@@ -342,6 +346,7 @@ fn build_query_plan(
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
     let (filters, include_deleted) = extract_include_deleted(filters)?;
+    let filters = normalize_telemetry_id_filters(&ast.entity, filters)?;
 
     Ok(QueryPlan {
         entity: ast.entity,
@@ -562,6 +567,116 @@ fn parse_bool_str(value: &str) -> Result<bool> {
             "invalid boolean value '{value}'"
         ))),
     }
+}
+
+/// Observability entities whose trace/span identifier filters follow the
+/// canonical OTel id contract (32-char lowercase hex trace ids, 16-char
+/// lowercase hex span ids).
+fn entity_uses_telemetry_ids(entity: &Entity) -> bool {
+    matches!(
+        entity,
+        Entity::Traces | Entity::Logs | Entity::OtelMetrics | Entity::TraceSummaries
+    )
+}
+
+/// Returns `(canonical_field_name, expected_hex_length)` for telemetry id
+/// filter fields on observability entities.
+fn telemetry_id_spec(entity: &Entity, field: &str) -> Option<(&'static str, usize)> {
+    if !entity_uses_telemetry_ids(entity) {
+        return None;
+    }
+    match field {
+        "trace_id" => Some(("trace_id", 32)),
+        "span_id" => Some(("span_id", 16)),
+        "parent_span_id" => Some(("parent_span_id", 16)),
+        "root_span_id" => Some(("root_span_id", 16)),
+        _ => None,
+    }
+}
+
+/// Normalizes trace/span id filter values on observability entities before
+/// SQL generation: case-folds hex input to lowercase and rejects values that
+/// are not well-formed ids (32-char hex for trace ids, 16-char hex for span
+/// ids). Empty values are rejected so a query errors loudly instead of
+/// silently matching nothing. LIKE patterns are case-folded and restricted to
+/// hex digits plus SQL wildcards.
+fn normalize_telemetry_id_filters(entity: &Entity, filters: Vec<Filter>) -> Result<Vec<Filter>> {
+    filters
+        .into_iter()
+        .map(|mut filter| {
+            let Some((field, len)) = telemetry_id_spec(entity, filter.field.as_str()) else {
+                return Ok(filter);
+            };
+
+            match filter.op {
+                crate::parser::FilterOp::Eq
+                | crate::parser::FilterOp::NotEq
+                | crate::parser::FilterOp::In
+                | crate::parser::FilterOp::NotIn => {
+                    filter.value = match filter.value {
+                        crate::parser::FilterValue::Scalar(value) => {
+                            crate::parser::FilterValue::Scalar(normalize_telemetry_id_value(
+                                field, len, &value,
+                            )?)
+                        }
+                        crate::parser::FilterValue::List(values) => {
+                            crate::parser::FilterValue::List(
+                                values
+                                    .iter()
+                                    .map(|value| normalize_telemetry_id_value(field, len, value))
+                                    .collect::<Result<Vec<_>>>()?,
+                            )
+                        }
+                    };
+                }
+                crate::parser::FilterOp::Like | crate::parser::FilterOp::NotLike => {
+                    if let crate::parser::FilterValue::Scalar(value) = &filter.value {
+                        filter.value = crate::parser::FilterValue::Scalar(
+                            normalize_telemetry_id_pattern(field, len, value)?,
+                        );
+                    }
+                }
+                // Other operators are rejected downstream by the per-entity
+                // text-filter handling; leave the value untouched here.
+                _ => {}
+            }
+
+            Ok(filter)
+        })
+        .collect()
+}
+
+fn normalize_telemetry_id_value(field: &str, len: usize, raw: &str) -> Result<String> {
+    let value = raw.trim().to_ascii_lowercase();
+    if value.is_empty() {
+        return Err(ServiceError::InvalidRequest(format!(
+            "{field} filter value must not be empty; expected a {len}-character hex string"
+        )));
+    }
+    if value.len() != len || !value.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid {field} '{raw}': expected a {len}-character hex string"
+        )));
+    }
+    Ok(value)
+}
+
+fn normalize_telemetry_id_pattern(field: &str, len: usize, raw: &str) -> Result<String> {
+    let pattern = raw.trim().to_ascii_lowercase();
+    if pattern.is_empty() {
+        return Err(ServiceError::InvalidRequest(format!(
+            "{field} filter value must not be empty; expected a {len}-character hex string"
+        )));
+    }
+    if !pattern
+        .bytes()
+        .all(|b| b.is_ascii_hexdigit() || b == b'%' || b == b'_')
+    {
+        return Err(ServiceError::InvalidRequest(format!(
+            "invalid {field} pattern '{raw}': expected hex digits (optionally with % or _ wildcards); full ids are {len}-character hex strings"
+        )));
+    }
+    Ok(pattern)
 }
 
 fn normalize_device_field(entity: &Entity, field: &str) -> Option<String> {
@@ -813,6 +928,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Logs => logs::to_sql_and_params(&plan)?,
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
+            Entity::OtelMetricPoints => otel_metric_points::to_sql_and_params(&plan)?,
             Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                 timeseries_metrics::to_sql_and_params(&plan)?
             }

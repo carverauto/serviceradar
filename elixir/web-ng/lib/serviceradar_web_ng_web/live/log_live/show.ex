@@ -378,9 +378,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
   attr :log, :map, required: true
 
   defp log_details(assigns) do
-    # Fields shown in summary or body (exclude from details)
+    # Fields shown in summary or body (exclude from details). The ingest_*
+    # columns are rendered as dedicated rows below, so they are excluded from
+    # the generic field loop.
     summary_fields =
-      ~w(id log_id severity_text severity_number timestamp service_name scope_name trace_id span_id body message)
+      ~w(id log_id severity_text severity_number timestamp service_name scope_name trace_id span_id body message) ++
+        ingest_fields()
 
     # Get remaining fields
     detail_fields =
@@ -400,14 +403,48 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
       |> assign(:parsed_attributes, parsed_attributes)
       |> assign(:parsed_resource_attributes, parsed_resource_attributes)
       |> assign(:source_device_uid, Map.get(assigns.log, "source_device_uid"))
+      |> assign(:has_ingest?, Enum.any?(ingest_fields(), &has_value?(assigns.log, &1)))
 
     ~H"""
-    <div :if={@detail_fields != []} class="rounded-xl border border-base-200 bg-base-100">
+    <div
+      :if={@detail_fields != [] or @has_ingest?}
+      class="rounded-xl border border-base-200 bg-base-100"
+    >
       <div class="px-4 py-3 border-b border-base-200">
         <span class="text-sm font-semibold">Additional Metadata</span>
       </div>
 
       <div class="divide-y divide-base-200">
+        <div
+          :if={has_value?(@log, "ingest_identity")}
+          id="log-ingest-identity"
+          class="px-4 py-3 flex items-start gap-4"
+        >
+          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Identity</span>
+          <span class="text-sm flex-1 break-all font-mono text-xs">
+            {Map.get(@log, "ingest_identity")}
+          </span>
+        </div>
+        <div
+          :if={has_value?(@log, "ingest_agent_id")}
+          id="log-ingest-agent"
+          class="px-4 py-3 flex items-start gap-4"
+        >
+          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Agent</span>
+          <span class="text-sm flex-1 break-all font-mono text-xs">
+            {Map.get(@log, "ingest_agent_id")}
+          </span>
+        </div>
+        <div
+          :if={has_value?(@log, "ingest_partition")}
+          id="log-ingest-partition"
+          class="px-4 py-3 flex items-start gap-4"
+        >
+          <span class="text-xs text-base-content/50 w-36 shrink-0 pt-0.5">Ingest Partition</span>
+          <span class="text-sm flex-1 break-all font-mono text-xs">
+            {Map.get(@log, "ingest_partition")}
+          </span>
+        </div>
         <%= for field <- @detail_fields do %>
           <%= if field == "attributes" and is_map(@parsed_attributes) do %>
             <.parsed_attributes_section attributes={@parsed_attributes} title="Attributes" />
@@ -434,6 +471,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     </div>
     """
   end
+
+  defp ingest_fields, do: ~w(ingest_identity ingest_agent_id ingest_partition)
 
   attr :attributes, :map, required: true
   attr :title, :string, default: "Attributes"

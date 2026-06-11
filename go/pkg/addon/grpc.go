@@ -24,6 +24,8 @@ import (
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
 	goplugin "github.com/hashicorp/go-plugin"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // GRPCPlugin adapts an Addon implementation to the go-plugin gRPC transport. The
@@ -131,6 +133,61 @@ func (s *grpcServer) StreamTelemetry(
 	}
 }
 
+// RelayOtlp bridges the generated bidi stream to the optional OtlpRelaySource
+// contract. Add-ons that do not advertise otlp-relay:v1 (and so do not
+// implement OtlpRelaySource) report UNIMPLEMENTED, mirroring the Rust SDK's
+// default, so a misdirected agent fails loudly instead of silently dropping
+// an acked relay.
+func (s *grpcServer) RelayOtlp(stream addonpb.AddonService_RelayOtlpServer) error {
+	source, ok := s.impl.(OtlpRelaySource)
+	if !ok {
+		return status.Error(codes.Unimplemented, "add-on does not implement otlp-relay:v1")
+	}
+
+	ctx := stream.Context()
+
+	// Pump ack watermarks from the agent into the implementation. The channel
+	// closes when the agent half-closes (io.EOF) or the stream breaks, which
+	// tells the implementation to stop releasing spool segments.
+	acks := make(chan uint64)
+	go func() {
+		defer close(acks)
+		for {
+			ack, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case acks <- ack.GetAckedRelayId():
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	frames, err := source.RelayOtlp(ctx, acks)
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case frame, ok := <-frames:
+			if !ok {
+				return nil
+			}
+			if frame == nil {
+				continue
+			}
+			if err := stream.Send(frame); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 // grpcClient adapts the generated AddonServiceClient to the Addon interface.
 type grpcClient struct {
 	client addonpb.AddonServiceClient
@@ -138,6 +195,7 @@ type grpcClient struct {
 
 var _ Addon = (*grpcClient)(nil)
 var _ TelemetryClient = (*grpcClient)(nil)
+var _ OtlpRelayClient = (*grpcClient)(nil)
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
 	resp, err := c.client.Info(ctx, &addonpb.InfoRequest{})
@@ -203,4 +261,52 @@ func (c *grpcClient) StreamTelemetry(ctx context.Context) (<-chan *addonpb.Telem
 	}()
 
 	return out, nil
+}
+
+// RelayOtlp opens the acked OTLP relay stream against the remote add-on. The
+// returned frames channel yields the add-on's OtlpRelayFrame messages and is
+// closed when the stream ends; the caller sends cumulative ack watermarks on
+// the returned acks channel only after gateway acceptance, and closes it to
+// half-close the send direction.
+func (c *grpcClient) RelayOtlp(ctx context.Context) (<-chan *addonpb.OtlpRelayFrame, chan<- uint64, error) {
+	stream, err := c.client.RelayOtlp(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	frames := make(chan *addonpb.OtlpRelayFrame)
+	go func() {
+		defer close(frames)
+		for {
+			frame, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	acks := make(chan uint64)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case watermark, ok := <-acks:
+				if !ok {
+					_ = stream.CloseSend()
+					return
+				}
+				if err := stream.Send(&addonpb.OtlpRelayAck{AckedRelayId: watermark}); err != nil {
+					return
+				}
+			}
+		}
+	}()
+
+	return frames, acks, nil
 }

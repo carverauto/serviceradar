@@ -29,6 +29,18 @@ defmodule ServiceRadarWebNGWeb.Stats.Extract do
           availability_pct: float()
         }
 
+  @type metrics_red :: %{
+          total: non_neg_integer(),
+          slow_spans: non_neg_integer(),
+          error_spans: non_neg_integer(),
+          error_rate: float(),
+          avg_duration_ms: float(),
+          p50_duration_ms: float(),
+          p95_duration_ms: float(),
+          max_duration_ms: float(),
+          sample_size: non_neg_integer()
+        }
+
   @doc """
   Extract logs severity stats from SRQL response.
 
@@ -79,6 +91,52 @@ defmodule ServiceRadarWebNGWeb.Stats.Extract do
   @spec empty_traces_summary() :: traces_summary()
   def empty_traces_summary do
     %{total: 0, errors: 0, avg_duration_ms: 0.0, p95_duration_ms: 0.0}
+  end
+
+  @doc """
+  Extract span RED stats (`rollup_stats:red` over `spans_red_1h`) from an SRQL
+  response.
+
+  The payload carries `total`, `errors`, `slow`, `error_rate` (0-100 float),
+  `avg_duration_ms`, `p50_duration_ms`, `p95_duration_ms`, and
+  `max_duration_ms`. The result keeps the legacy metrics-summary key names
+  (`slow_spans`, `error_spans`, `sample_size`) so stat cards keep working.
+  """
+  @spec metrics_red({:ok, map()} | {:error, term()}) :: metrics_red()
+  def metrics_red({:ok, %{"results" => [%{} = payload | _]}}) do
+    total = to_int(Map.get(payload, "total", 0))
+
+    %{
+      total: total,
+      slow_spans: to_int(Map.get(payload, "slow", 0)),
+      error_spans: to_int(Map.get(payload, "errors", 0)),
+      error_rate: to_float(Map.get(payload, "error_rate", 0.0)),
+      avg_duration_ms: to_float(Map.get(payload, "avg_duration_ms", 0.0)),
+      p50_duration_ms: to_float(Map.get(payload, "p50_duration_ms", 0.0)),
+      p95_duration_ms: to_float(Map.get(payload, "p95_duration_ms", 0.0)),
+      max_duration_ms: to_float(Map.get(payload, "max_duration_ms", 0.0)),
+      sample_size: total
+    }
+  end
+
+  def metrics_red(_), do: empty_metrics_red()
+
+  @doc """
+  Return empty span RED stats.
+  """
+  @spec empty_metrics_red() :: metrics_red()
+  def empty_metrics_red do
+    %{
+      total: 0,
+      slow_spans: 0,
+      error_spans: 0,
+      error_rate: 0.0,
+      avg_duration_ms: 0.0,
+      p50_duration_ms: 0.0,
+      p95_duration_ms: 0.0,
+      max_duration_ms: 0.0,
+      sample_size: 0
+    }
   end
 
   @doc """

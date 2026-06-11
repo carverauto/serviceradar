@@ -24,13 +24,14 @@ members = [
     "rust/fieldsurvey-sidekick",
     "rust/rdp-adapter",
     "rust/addon-sdk",
+    "rust/otel-addon",
 ]
 exclude = [
     "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",
 ]
 
 [workspace.dependencies]
-tonic = { version = "0.12", features = ["tls"] }
+tonic = { version = "0.12", features = ["tls", "gzip", "zstd"] }
 prost = "0.13"
 tonic-build = "0.12"
 tokio = { version = "1" }

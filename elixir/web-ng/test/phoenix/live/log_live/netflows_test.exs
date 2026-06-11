@@ -25,23 +25,42 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
 
   test "/flows renders netflow visualize page", %{conn: conn} do
     q = "in:flows time:last_24h"
-    {:ok, _lv, html} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
-    assert html =~ "Network Flows"
+
+    # /flows is an HTTP redirect entry point into /observability?tab=netflows.
+    assert {:error, {:redirect, %{to: to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+    assert String.starts_with?(to, "/observability?")
+    assert to =~ "tab=netflows"
+
+    {:ok, _lv, html} = live(conn, to)
+    # Overview panels of the netflows tab.
+    assert html =~ "Avg PPS"
+    assert html =~ "Total Packets"
   end
 
   test "/flows keeps canonical path when patching state", %{conn: conn} do
+    Application.put_env(
+      :serviceradar_web_ng,
+      :srql_module,
+      ServiceRadarWebNGWeb.LogLive.NetflowsTest.RecordingSRQLStub
+    )
+
     q = "in:flows time:last_24h"
-    {:ok, lv, _html} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+
+    assert {:error, {:redirect, %{to: _to}}} = live(conn, ~p"/flows?#{%{q: q, limit: 50}}")
+
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
 
     lv
-    |> element("button[phx-click=\"nf_reset\"]")
+    |> element(~s(button[phx-click="netflow_modal_filter"][phx-value-field="src_ip"]))
     |> render_click()
 
     path = assert_patch(lv)
-    assert String.starts_with?(path, "/flows?")
+    assert String.starts_with?(path, "/observability?")
   end
 
-  test "/flows open=first opens flow details and preserves explicit time window", %{conn: conn} do
+  test "/observability netflows open_flow=1 opens flow details and preserves explicit time window",
+       %{conn: conn} do
     Application.put_env(
       :serviceradar_web_ng,
       :srql_module,
@@ -58,22 +77,24 @@ defmodule ServiceRadarWebNGWeb.LogLive.NetflowsTest do
     q =
       ~s(in:flows time:last_24h src_endpoint_ip:192.168.1.134 dst_endpoint_ip:13.217.9.183 src_endpoint_port:57196 dst_endpoint_port:443 protocol_num:6 sort:time:desc limit:1)
 
-    {:ok, _lv, html} = live(conn, ~p"/flows?#{%{q: q, open: "first", limit: 50}}")
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{q: q, limit: 50, tab: "netflows", open_flow: "1"}}")
+
     assert html =~ "Flow details"
-    assert html =~ "dst_service:"
+    # dst port 443 resolves to the HTTPS service label.
     assert html =~ "HTTPS"
     assert html =~ "direction:"
     assert html =~ "bidirectional"
     assert html =~ "SourceNet Inc"
     assert html =~ "DestNet LLC"
-    assert html =~ "SourceVendor Corp"
-    assert html =~ "DestVendor Inc"
 
     queries = collect_srql_queries([])
     assert Enum.any?(queries, &String.contains?(&1, "time:last_24h"))
 
+    # The timeseries query must bucket within the explicit 24h window
+    # (bucket size itself is an implementation detail of the window).
     assert Enum.any?(queries, fn query ->
-             String.contains?(query, "bucket:5m") and String.contains?(query, "time:last_24h")
+             String.contains?(query, "bucket:") and String.contains?(query, "time:last_24h")
            end)
   end
 

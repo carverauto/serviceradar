@@ -4425,12 +4425,14 @@ dependencies = [
 name = "otel"
 version = "0.1.0"
 dependencies = [
+ "addon-sdk",
  "anyhow",
  "async-nats",
  "chrono",
  "clap 4.6.1",
  "config-bootstrap",
  "env_logger 0.11.10",
+ "flate2 1.1.9",
  "hex",
  "http-body-util",
  "hyper",
@@ -4439,15 +4441,40 @@ dependencies = [
  "log 0.4.30",
  "prometheus",
  "prost 0.13.5",
+ "rustix 1.1.4",
  "rustls",
+ "rustls-pemfile",
  "serde 1.0.228",
  "serde_json 1.0.150",
  "tempfile",
  "tokio",
+ "tokio-rustls",
  "tokio-stream",
  "toml 0.8.23",
  "tonic 0.12.3",
  "tonic-build",
+ "uuid 1.23.1",
+]
+
+[[package]]
+name = "otel-addon"
+version = "0.1.0"
+dependencies = [
+ "addon-sdk",
+ "anyhow",
+ "async-trait",
+ "env_logger 0.11.10",
+ "hex",
+ "log 0.4.30",
+ "otel",
+ "prost 0.13.5",
+ "serde_json 1.0.150",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "tokio-stream",
+ "tonic 0.12.3",
+ "uuid 1.23.1",
 ]
 
 [[package]]
@@ -7812,6 +7839,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "bytes",
+ "flate2 1.1.9",
  "h2",
  "http",
  "http-body",
@@ -7831,6 +7859,7 @@ dependencies = [
  "tower-layer",
  "tower-service",
  "tracing",
+ "zstd",
 ]
 
 [[package]]
@@ -9386,3 +9415,31 @@ name = "zmij"
 version = "1.0.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8848ee67ecc8aedbaf3e4122217aff892639231befc6a1b58d29fff4c2cabaa"
+
+[[package]]
+name = "zstd"
+version = "0.13.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e91ee311a569c327171651566e07972200e76fcfe2242a4fa446149a3881c08a"
+dependencies = [
+ "zstd-safe",
+]
+
+[[package]]
+name = "zstd-safe"
+version = "7.2.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+dependencies = [
+ "zstd-sys",
+]
+
+[[package]]
+name = "zstd-sys"
+version = "2.0.15+zstd.1.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eb81183ddd97d0c74cedf1d50d85c8d08c1b8b68ee863bdee9e706eedba1a237"
+dependencies = [
+ "cc",
+ "pkg-config",
+]

@@ -354,6 +354,9 @@ diesel::table! {
         attributes -> Nullable<Text>,
         resource_attributes -> Nullable<Text>,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 
@@ -415,6 +418,7 @@ diesel::table! {
         trace_id -> Nullable<Text>,
         span_id -> Text,
         parent_span_id -> Nullable<Text>,
+        trace_state -> Nullable<Text>,
         name -> Nullable<Text>,
         kind -> Nullable<Int4>,
         start_time_unix_nano -> Nullable<Int8>,
@@ -422,15 +426,24 @@ diesel::table! {
         service_name -> Nullable<Text>,
         service_version -> Nullable<Text>,
         service_instance -> Nullable<Text>,
+        service_namespace -> Text,
+        deployment_environment -> Text,
         scope_name -> Nullable<Text>,
         scope_version -> Nullable<Text>,
+        scope_attributes -> Nullable<Text>,
         status_code -> Nullable<Int4>,
         status_message -> Nullable<Text>,
         attributes -> Nullable<Text>,
         resource_attributes -> Nullable<Text>,
         events -> Nullable<Text>,
         links -> Nullable<Text>,
+        dropped_attributes_count -> Int4,
+        dropped_events_count -> Int4,
+        dropped_links_count -> Int4,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 
@@ -458,6 +471,37 @@ diesel::table! {
         level -> Nullable<Text>,
         unit -> Nullable<Text>,
         created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
+    otel_metric_points (timestamp, metric_name, service_name, attributes_hash) {
+        timestamp -> Timestamptz,
+        metric_name -> Text,
+        metric_type -> Nullable<Text>,
+        unit -> Nullable<Text>,
+        temporality -> Nullable<Text>,
+        is_monotonic -> Nullable<Bool>,
+        service_name -> Text,
+        attributes -> Nullable<Text>,
+        attributes_hash -> Text,
+        value -> Nullable<Float8>,
+        count -> Nullable<Int8>,
+        sum -> Nullable<Float8>,
+        bucket_counts -> Nullable<Text>,
+        explicit_bounds -> Nullable<Text>,
+        start_time_unix_nano -> Nullable<Int8>,
+        scope_name -> Text,
+        service_instance_id -> Text,
+        created_at -> Timestamptz,
+        ingest_identity -> Text,
+        ingest_agent_id -> Text,
+        ingest_partition -> Text,
     }
 }
 

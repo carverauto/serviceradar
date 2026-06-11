@@ -200,7 +200,7 @@ fn build_summary_query(plan: &QueryPlan) -> Result<TraceSummarySql> {
 
     // Data mode: return trace summary rows
     let mut sql = String::from(
-        "SELECT\n    timestamp,\n    trace_id,\n    root_span_id,\n    root_span_name,\n    root_service_name,\n    root_span_kind,\n    start_time_unix_nano,\n    end_time_unix_nano,\n    duration_ms,\n    status_code,\n    status_message,\n    service_set,\n    span_count,\n    error_count\nFROM otel_trace_summaries",
+        "SELECT\n    timestamp,\n    trace_id,\n    root_span_id,\n    root_span_name,\n    root_service_name,\n    root_service_namespace,\n    deployment_environment,\n    root_span_kind,\n    start_time_unix_nano,\n    end_time_unix_nano,\n    duration_ms,\n    status_code,\n    status_message,\n    service_set,\n    span_count,\n    error_count\nFROM otel_trace_summaries",
     );
 
     // Build WHERE clause for time range and filters
@@ -249,6 +249,12 @@ fn build_filters_clause_raw(plan: &QueryPlan) -> Result<(Vec<String>, Vec<SqlBin
             }
             "root_service_name" => {
                 add_text_condition(&mut clauses, &mut binds, "root_service_name", filter)?
+            }
+            "root_service_namespace" => {
+                add_text_condition(&mut clauses, &mut binds, "root_service_namespace", filter)?
+            }
+            "deployment_environment" | "deployment.environment" => {
+                add_text_condition(&mut clauses, &mut binds, "deployment_environment", filter)?
             }
             "status_code" => add_int_condition(&mut clauses, &mut binds, "status_code", filter)?,
             "root_span_kind" => {
@@ -361,26 +367,34 @@ fn add_int_condition(
     }
 }
 
+fn numeric_comparison_sql(column: &str, op: &FilterOp) -> Result<String> {
+    let operator = match op {
+        FilterOp::Eq => "=",
+        FilterOp::NotEq => "<>",
+        FilterOp::Gt => ">",
+        FilterOp::Gte => ">=",
+        FilterOp::Lt => "<",
+        FilterOp::Lte => "<=",
+        _ => {
+            return Err(ServiceError::InvalidRequest(format!(
+                "{column} filter only supports equality or numeric comparisons"
+            )))
+        }
+    };
+    Ok(format!("{column} {operator} ?"))
+}
+
 fn add_i64_condition(
     clauses: &mut Vec<String>,
     binds: &mut Vec<SqlBindValue>,
     column: &str,
     filter: &Filter,
 ) -> Result<()> {
-    match filter.op {
-        FilterOp::Eq | FilterOp::NotEq => {
-            let value = parse_i64(filter)?;
-            clauses.push(match filter.op {
-                FilterOp::Eq => format!("{column} = ?"),
-                _ => format!("{column} <> ?"),
-            });
-            binds.push(SqlBindValue::BigInt(value));
-            Ok(())
-        }
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "{column} filter only supports equality"
-        ))),
-    }
+    let clause = numeric_comparison_sql(column, &filter.op)?;
+    let value = parse_i64(filter)?;
+    clauses.push(clause);
+    binds.push(SqlBindValue::BigInt(value));
+    Ok(())
 }
 
 fn add_float_condition(
@@ -389,20 +403,11 @@ fn add_float_condition(
     column: &str,
     filter: &Filter,
 ) -> Result<()> {
-    match filter.op {
-        FilterOp::Eq | FilterOp::NotEq => {
-            let value = parse_f64(filter)?;
-            clauses.push(match filter.op {
-                FilterOp::Eq => format!("{column} = ?"),
-                _ => format!("{column} <> ?"),
-            });
-            binds.push(SqlBindValue::Float(value));
-            Ok(())
-        }
-        _ => Err(ServiceError::InvalidRequest(format!(
-            "{column} filter only supports equality"
-        ))),
-    }
+    let clause = numeric_comparison_sql(column, &filter.op)?;
+    let value = parse_f64(filter)?;
+    clauses.push(clause);
+    binds.push(SqlBindValue::Float(value));
+    Ok(())
 }
 
 fn parse_i32(filter: &Filter) -> Result<i32> {

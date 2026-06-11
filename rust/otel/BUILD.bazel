@@ -26,7 +26,14 @@ rust_library(
     crate_root = "src/lib.rs",
     edition = "2024",
     crate_name = "otel",
-    deps = all_crate_deps(normal = True, normal_dev = True) + [":build_script", "//rust/kvutil:kvutil"],
+    # addon-sdk is a path dep (the agent_forward spool stores the shared
+    # OtlpRelayFrame/TelemetryBatch wire types), so it is a bazel label
+    # rather than a crate_universe dep.
+    deps = all_crate_deps(normal = True, normal_dev = True) + [
+        ":build_script",
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/kvutil:kvutil",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )
@@ -34,6 +41,14 @@ rust_library(
 rust_test(
     name = "otel_lib_test",
     crate = ":otel_lib",
+)
+
+rust_test(
+    name = "otel_nats_chunking_test",
+    srcs = ["tests/nats_chunking.rs"],
+    crate_root = "tests/nats_chunking.rs",
+    edition = "2024",
+    deps = [":otel_lib"] + crate_deps(["prost"]),
 )
 
 filegroup(

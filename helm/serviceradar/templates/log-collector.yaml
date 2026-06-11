@@ -2,6 +2,8 @@
 {{- $logCollectorLiveness := $logCollectorProbes.liveness | default dict -}}
 {{- $logCollectorReadiness := $logCollectorProbes.readiness | default dict -}}
 {{- $logCollectorData := .Values.logCollector.data | default dict -}}
+{{- $otlpAuth := default (dict) (default (dict) .Values.logCollector.otlp).auth -}}
+{{- $otlpAuthKey := default "ingestion-key" $otlpAuth.secretKey -}}
 {{- $logCollectorDataEnabled := true -}}
 {{- if hasKey $logCollectorData "enabled" -}}
 {{- $logCollectorDataEnabled = $logCollectorData.enabled -}}
@@ -58,6 +60,35 @@ data:
     [server]
     bind_address = "0.0.0.0"
     port = 4317
+
+{{- $otlpListenerHttp := default (dict) (default (dict) .Values.logCollector.otlp).http }}
+{{- $otlpHttpTlsEnabled := true }}
+{{- if hasKey $otlpListenerHttp "tlsEnabled" }}
+{{- $otlpHttpTlsEnabled = $otlpListenerHttp.tlsEnabled }}
+{{- end }}
+    # OTLP/HTTP listener. tls_enabled=true (default) reuses the [grpc_tls]
+    # server certificate; false serves plaintext HTTP for deployments where a
+    # TLS-terminating gateway (logCollector.otlp.gateway) fronts the listener.
+    [server.http]
+    enabled = true
+    bind_address = "0.0.0.0"
+    port = 4318
+    tls_enabled = {{ ternary "true" "false" $otlpHttpTlsEnabled }}
+{{- if $otlpAuth.enabled }}
+
+    # SigNoz-style ingestion-key auth (logCollector.otlp.auth): every export
+    # on 4317/4318 must present the key from Secret
+    # {{ required "logCollector.otlp.auth.secretName is required when logCollector.otlp.auth.enabled=true" $otlpAuth.secretName }}/{{ $otlpAuthKey }}
+    # via 'x-serviceradar-ingestion-key: <key>' or 'authorization: Bearer
+    # <key>'. The secret key name is the sender identity stamped on
+    # published messages (Sr-Ingest-Identity).
+    [auth]
+    enabled = true
+
+    [[auth.tokens]]
+    identity = {{ $otlpAuthKey | quote }}
+    token_file = "/etc/serviceradar/ingest-auth/{{ $otlpAuthKey }}"
+{{- end }}
 
     [nats]
     url = "tls://serviceradar-nats:4222"
@@ -215,6 +246,11 @@ spec:
           mountPath: /etc/serviceradar/creds
           readOnly: true
         {{- end }}
+        {{- if $otlpAuth.enabled }}
+        - name: otlp-ingest-auth
+          mountPath: /etc/serviceradar/ingest-auth
+          readOnly: true
+        {{- end }}
         - name: log-collector-data
           mountPath: /var/lib/serviceradar
         - name: logs
@@ -235,6 +271,14 @@ spec:
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds
+      {{- end }}
+      {{- if $otlpAuth.enabled }}
+      - name: otlp-ingest-auth
+        secret:
+          secretName: {{ required "logCollector.otlp.auth.secretName is required when logCollector.otlp.auth.enabled=true" $otlpAuth.secretName | quote }}
+          items:
+            - key: {{ $otlpAuthKey | quote }}
+              path: {{ $otlpAuthKey | quote }}
       {{- end }}
       - name: log-collector-data
         {{- if $logCollectorData.existingClaim }}

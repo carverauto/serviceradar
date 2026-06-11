@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,11 +112,22 @@ func NewServer(addr string, log logger.Logger, opts ...ServerOption) *Server {
 	}
 
 	if !s.telemetryDisabled {
-		handlerOpts := []otelgrpc.Option{}
-		if s.telemetryFilter != nil {
-			handlerOpts = append(handlerOpts, otelgrpc.WithFilter(func(info *grpcstats.RPCTagInfo) bool {
-				return s.telemetryFilter(info)
-			}))
+		userFilter := s.telemetryFilter
+		handlerOpts := []otelgrpc.Option{
+			otelgrpc.WithFilter(func(info *grpcstats.RPCTagInfo) bool {
+				// Never trace infrastructure RPCs (health probes,
+				// reflection); they would otherwise dominate as
+				// single-span root traces.
+				if isInfraRPC(info.FullMethodName) {
+					return false
+				}
+
+				if userFilter != nil {
+					return userFilter(info)
+				}
+
+				return true
+			}),
 		}
 
 		defaultOpts = append([]grpc.ServerOption{grpc.StatsHandler(otelgrpc.NewServerHandler(handlerOpts...))}, defaultOpts...)
@@ -173,6 +185,13 @@ func WithServerOptions(opt ...grpc.ServerOption) ServerOption {
 
 // TelemetryFilter allows callers to suppress traces for matching RPCs.
 type TelemetryFilter func(*grpcstats.RPCTagInfo) bool
+
+// isInfraRPC reports whether a full method name belongs to infrastructure
+// services (health checks, reflection) that should never emit spans.
+func isInfraRPC(fullMethod string) bool {
+	return strings.HasPrefix(fullMethod, "/grpc.health.v1.Health/") ||
+		strings.HasPrefix(fullMethod, "/grpc.reflection.")
+}
 
 // WithTelemetryFilter configures a filter to determine which RPCs emit telemetry.
 func WithTelemetryFilter(filter TelemetryFilter) ServerOption {

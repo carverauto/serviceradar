@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "addon_activation.go",
         "addon_capabilities.go",
+        "addon_otlp_relay.go",
         "addon_systemd.go",
         "addon_telemetry.go",
         "app_tcp_route.go",
@@ -84,6 +85,7 @@ go_library(
         "sync_runtime.go",
         "sync_source_drivers.go",
         "sysmon_service.go",
+        "telemetry_local.go",
         "test_helpers.go",
         "types.go",
     ],
@@ -144,6 +146,7 @@ go_test(
     srcs = [
         "addon_activation_test.go",
         "addon_capabilities_test.go",
+        "addon_otlp_relay_test.go",
         "addon_systemd_test.go",
         "banner_grab_handler_test.go",
         "bumblebee_config_test.go",
@@ -194,6 +197,7 @@ go_test(
         "sysmon_config_bench_test.go",
         "sysmon_drain_test.go",
         "sysmon_service_test.go",
+        "telemetry_local_test.go",
     ],
     data = [
         "//addons/bumblebee-scan:bumblebee_scan_systemd_units",

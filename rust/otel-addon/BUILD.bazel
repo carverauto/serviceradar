@@ -1,0 +1,35 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+load("@rust_crates//:defs.bzl", "all_crate_deps")
+
+package(default_visibility = ["//visibility:public"])
+
+# The OTEL collector packaged as a native agent add-on (agent-sidecar,
+# otlp-relay:v1). Mirrors //rust/log-collector's binary shape; the addon-sdk
+# and otel libs are path deps, so they are bazel labels rather than
+# crate_universe deps.
+rust_binary(
+    name = "serviceradar-otel-addon",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = all_crate_deps(normal = True) + [
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/otel:otel_lib",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)
+
+rust_test(
+    name = "otel_addon_test",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/main.rs",
+    edition = "2024",
+    deps = all_crate_deps(
+        normal = True,
+        normal_dev = True,
+    ) + [
+        "//rust/addon-sdk:addon_sdk",
+        "//rust/otel:otel_lib",
+    ],
+    proc_macro_deps = all_crate_deps(proc_macro = True),
+)

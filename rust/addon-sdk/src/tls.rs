@@ -125,11 +125,14 @@ pub fn build_server_mtls(client_cert_pem: &str) -> Result<ServerMtls, MtlsError>
 /// Parses the first PEM `CERTIFICATE` block into DER bytes.
 fn parse_first_cert_der(pem: &str) -> Result<Vec<u8>, MtlsError> {
     let mut reader = std::io::BufReader::new(pem.as_bytes());
-    for item in rustls_pemfile::certs(&mut reader) {
-        let der = item.map_err(MtlsError::ClientCertParse)?;
-        return Ok(der.as_ref().to_vec());
+    let mut certs = rustls_pemfile::certs(&mut reader);
+    match certs.next() {
+        Some(item) => {
+            let der = item.map_err(MtlsError::ClientCertParse)?;
+            Ok(der.as_ref().to_vec())
+        }
+        None => Err(MtlsError::NoClientCert),
     }
-    Err(MtlsError::NoClientCert)
 }
 
 /// Generates a self-signed `localhost` certificate matching go-plugin's
