@@ -8,8 +8,11 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
   alias ServiceRadar.Ash.Page
   alias ServiceRadar.EventWriter.OCSF
+  alias ServiceRadar.EventWriter.Pipeline
+  alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
+  alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
@@ -310,6 +313,113 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert active_alert.metadata["incident_group_values"] == %{"device" => device_uid}
   end
 
+  test "causal prediction anomaly routes to ocsf_events and device-grouped alerts", %{
+    actor: actor
+  } do
+    unique = System.unique_integer([:positive])
+    device_uid = "sr:anomaly-device-#{unique}"
+    alert_title = "Anomaly detection #{unique}"
+
+    {:ok, rule} =
+      StatefulAlertRule
+      |> Ash.Changeset.for_create(
+        :create,
+        %{
+          name: "anomaly-detection-#{unique}",
+          enabled: true,
+          signal: :event,
+          match: %{
+            "subject_prefix" => "signals.causal.predictions",
+            "attribute_equals" => %{"signal_type" => "causal", "event_type" => "anomaly"}
+          },
+          group_by: ["device"],
+          threshold: 1,
+          window_seconds: 300,
+          bucket_seconds: 60,
+          cooldown_seconds: 60,
+          renotify_seconds: 3600,
+          event: %{
+            "log_name" => "alert.health.anomaly_detection",
+            "message" => "Anomaly detection finding detected"
+          },
+          alert: %{
+            "title" => alert_title,
+            "severity" => "warning"
+          }
+        },
+        actor: actor
+      )
+      |> Ash.create()
+
+    observed_at = DateTime.to_unix(DateTime.utc_now(), :nanosecond)
+
+    sample = %{
+      series_key: "sysmon:memory:#{device_uid}",
+      event_id: "sample-#{unique}",
+      order_key: "sample-#{unique}",
+      value: 97.5,
+      observed_at_unix_nano: observed_at,
+      subject: "metrics.sysmon.memory",
+      metric_class: "sysmon.memory",
+      metadata: %{"device_uid" => device_uid, "host_id" => "host-#{unique}"}
+    }
+
+    verdict = %{
+      state: "anomalous",
+      anomalous: true,
+      breached: true,
+      include_in_baseline: false,
+      next_consecutive_anomalous: 5,
+      score: 3.8,
+      reason: "rolling z-score breached",
+      baseline_count: 48,
+      sample_value: 97.5,
+      observed_at_unix_nano: observed_at,
+      signals: []
+    }
+
+    subject = VerdictEmitter.subject(sample)
+    payload = VerdictEmitter.payload(sample, verdict, subject)
+
+    broadway_message =
+      Pipeline.transform(
+        %{
+          data: Jason.encode!(payload),
+          metadata: %{subject: subject, received_at: DateTime.utc_now()},
+          ack_data: %{}
+        },
+        []
+      )
+
+    message = Pipeline.handle_message(:default, broadway_message, %{})
+
+    assert message.batcher == :bmp_causal
+    assert CausalSignals.table_name() == "ocsf_events"
+
+    row = CausalSignals.parse_message(%{data: message.data, metadata: message.metadata})
+
+    assert row.class_uid == 2004
+    assert row.type_uid == 200_401
+    assert row.device == %{"uid" => device_uid}
+
+    assert {:ok, 1} = CausalSignals.process_batch([message])
+    assert persisted_ocsf_event?(row)
+
+    assert :ok = StatefulAlertEngine.evaluate_events([alert_evaluation_row(row)])
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+      |> Enum.filter(fn alert -> alert.title == alert_title end)
+
+    assert [active_alert] = active_alerts
+    assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
+    assert active_alert.metadata["incident_group_key"] == "device=#{device_uid}"
+    assert active_alert.metadata["incident_group_values"] == %{"device" => device_uid}
+  end
+
   test "deduplicates repeated event bursts into one active incident and rolls over after cooldown gap",
        %{actor: actor} do
     unique = System.unique_integer([:positive])
@@ -537,4 +647,25 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   defp metadata_value(_, _), do: nil
+
+  defp persisted_ocsf_event?(%{id: id, time: %DateTime{} = time}) do
+    {:ok, uuid} = Ecto.UUID.load(id)
+
+    case ServiceRadar.Repo.query(
+           "SELECT 1 FROM platform.ocsf_events WHERE id = $1::uuid AND time = $2 LIMIT 1",
+           [uuid, time]
+         ) do
+      {:ok, %{num_rows: 1}} -> true
+      _ -> false
+    end
+  end
+
+  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
+    case Ecto.UUID.load(id) do
+      {:ok, uuid} -> %{row | id: uuid}
+      :error -> row
+    end
+  end
+
+  defp alert_evaluation_row(row), do: row
 end
