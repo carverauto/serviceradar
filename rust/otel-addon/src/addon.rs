@@ -161,28 +161,41 @@ fn reject(config_hash: String, error: impl Into<String>) -> ConfigureResult {
 }
 
 /// Parses the operator config (validated upstream against
-/// `addons/otel-collector/config.schema.json`) into the collector config,
-/// forcing the agent-forward backend regardless of input.
+/// `addons/otel-collector/config.schema.json`) into the collector config.
+/// The required/default add-on shape omits `[output]` and relays through the
+/// agent; explicit `output.backend = "jetstream"` is preserved for leaf-edge
+/// deployments with a local NATS leaf.
 fn parse_config(config_json: &[u8]) -> Result<CollectorConfig, String> {
     let trimmed: &[u8] = {
         let s = std::str::from_utf8(config_json).unwrap_or("");
         s.trim().as_bytes()
     };
-    let mut config: CollectorConfig = if trimmed.is_empty() {
-        CollectorConfig::default()
+
+    let (mut config, explicit_backend): (CollectorConfig, bool) = if trimmed.is_empty() {
+        (CollectorConfig::default(), false)
     } else {
-        serde_json::from_slice(trimmed).map_err(|e| format!("invalid configuration JSON: {e}"))?
+        let value: serde_json::Value = serde_json::from_slice(trimmed)
+            .map_err(|e| format!("invalid configuration JSON: {e}"))?;
+        let explicit_backend = value
+            .get("output")
+            .and_then(|output| output.get("backend"))
+            .is_some();
+        let config = serde_json::from_value(value)
+            .map_err(|e| format!("invalid configuration JSON: {e}"))?;
+        (config, explicit_backend)
     };
-    // The add-on deployment shape always relays through the agent; a
-    // JetStream/NATS section in the payload is ignored by construction.
-    config.output.backend = OutputBackend::Agent;
+
+    if !explicit_backend {
+        config.output.backend = OutputBackend::Agent;
+    }
+
     Ok(config)
 }
 
 /// Validates the config and builds everything needed to start listeners.
 fn prepare_runtime(
     config: &CollectorConfig,
-    spool: &Arc<Spool>,
+    collector: ServiceRadarCollector,
 ) -> Result<PreparedRuntime, String> {
     let grpc_addr: SocketAddr = config
         .bind_address()
@@ -205,9 +218,6 @@ fn prepare_runtime(
         None => None,
     };
 
-    let output = AgentForwardOutput::new(Arc::clone(spool));
-    let collector = ServiceRadarCollector::with_output(Arc::new(output));
-
     Ok(PreparedRuntime {
         collector,
         grpc_addr,
@@ -217,6 +227,31 @@ fn prepare_runtime(
         http_options,
         metrics_addr,
     })
+}
+
+fn prepare_agent_runtime(
+    config: &CollectorConfig,
+    spool: &Arc<Spool>,
+) -> Result<PreparedRuntime, String> {
+    let output = AgentForwardOutput::new(Arc::clone(spool));
+    let collector = ServiceRadarCollector::with_output(Arc::new(output));
+    prepare_runtime(config, collector)
+}
+
+async fn prepare_direct_runtime(config: &CollectorConfig) -> Result<PreparedRuntime, String> {
+    let collector = match config.output.backend {
+        OutputBackend::Jetstream => otel::server::create_collector_from_config(config)
+            .await
+            .map_err(|e| e.to_string())?,
+        OutputBackend::Otlp => {
+            return Err("output backend \"otlp\" is reserved and not implemented yet".to_string());
+        }
+        OutputBackend::Agent => {
+            return Err("agent output must use the RelayOtlp spool runtime".to_string());
+        }
+    };
+
+    prepare_runtime(config, collector)
 }
 
 /// Spawns the listener tasks. A listener retries startup a few times and
@@ -319,97 +354,147 @@ impl Addon for OtelCollectorAddon {
             Err(e) => return Ok(reject(config_hash, e)),
         };
 
-        let agent_forward = config.agent_forward.clone().unwrap_or_default();
-        let spool_config = agent_forward.spool_config();
+        match config.output.backend {
+            OutputBackend::Agent => {
+                let agent_forward = config.agent_forward.clone().unwrap_or_default();
+                let spool_config = agent_forward.spool_config();
 
-        let mut state = self.lock_state();
+                let mut state = self.lock_state();
 
-        if state.config_hash == config_hash && state.runtime.is_some() {
-            debug!("configuration unchanged (hash {config_hash}); keeping current runtime");
-            return Ok(ConfigureResult {
-                config_hash,
-                accepted: true,
-                error: String::new(),
-            });
-        }
-
-        // Reuse the open spool when its settings are unchanged so the relay
-        // reader, watermark, and relay_id sequence carry across listener
-        // reconfigurations. Changed bounds at the same location reconfigure
-        // the live spool in place (a smaller max_bytes/max_age evicts down
-        // immediately, no teardown); only a new directory opens a new spool.
-        let spool = match (&state.spool, &state.spool_config) {
-            (Some(spool), Some(existing)) if *existing == spool_config => Arc::clone(spool),
-            (Some(spool), Some(existing)) if existing.dir == spool_config.dir => {
-                if let Err(e) = spool.reconfigure(spool_config.clone()) {
-                    return Ok(reject(
+                if state.config_hash == config_hash && state.runtime.is_some() {
+                    debug!("configuration unchanged (hash {config_hash}); keeping current runtime");
+                    return Ok(ConfigureResult {
                         config_hash,
-                        format!("failed to apply new spool bounds: {e:#}"),
-                    ));
+                        accepted: true,
+                        error: String::new(),
+                    });
                 }
+
+                // Reuse the open spool when its settings are unchanged so the
+                // relay reader, watermark, and relay_id sequence carry across
+                // listener reconfigurations. Changed bounds at the same
+                // location reconfigure the live spool in place; only a new
+                // directory opens a new spool.
+                let spool = match (&state.spool, &state.spool_config) {
+                    (Some(spool), Some(existing)) if *existing == spool_config => Arc::clone(spool),
+                    (Some(spool), Some(existing)) if existing.dir == spool_config.dir => {
+                        if let Err(e) = spool.reconfigure(spool_config.clone()) {
+                            return Ok(reject(
+                                config_hash,
+                                format!("failed to apply new spool bounds: {e:#}"),
+                            ));
+                        }
+                        info!(
+                            "applied new spool bounds in place: max {} bytes, free-disk floor {} bytes",
+                            spool_config.max_bytes, spool_config.min_free_disk_bytes
+                        );
+                        Arc::clone(spool)
+                    }
+                    _ => match Spool::open(spool_config.clone()) {
+                        Ok(spool) => Arc::new(spool),
+                        Err(e) => {
+                            return Ok(reject(
+                                config_hash,
+                                format!("failed to open relay spool: {e:#}"),
+                            ));
+                        }
+                    },
+                };
+
+                // Validate everything before touching the running collector: a
+                // bad config must never kill a working one.
+                let prepared = match prepare_agent_runtime(&config, &spool) {
+                    Ok(prepared) => prepared,
+                    Err(e) => return Ok(reject(config_hash, e)),
+                };
+
+                if let Some(old) = state.runtime.take() {
+                    info!("configuration changed; restarting OTLP listeners");
+                    old.shutdown();
+                }
+
                 info!(
-                    "applied new spool bounds in place: max {} bytes, free-disk floor {} bytes",
-                    spool_config.max_bytes, spool_config.min_free_disk_bytes
+                    "starting OTEL collector add-on: grpc={}, http={}, output=agent, spool={} (max {} bytes)",
+                    prepared.grpc_addr,
+                    prepared
+                        .http_options
+                        .as_ref()
+                        .map(|o| o.addr.to_string())
+                        .unwrap_or_else(|| "disabled".to_string()),
+                    agent_forward.spool_dir,
+                    agent_forward.max_bytes,
                 );
-                Arc::clone(spool)
-            }
-            _ => match Spool::open(spool_config.clone()) {
-                Ok(spool) => Arc::new(spool),
-                Err(e) => {
-                    return Ok(reject(
-                        config_hash,
-                        format!("failed to open relay spool: {e:#}"),
+
+                // (Re)start the usage monitor when the spool instance changed
+                // (or on first configure); a reused/reconfigured spool keeps
+                // its monitor.
+                let spool_replaced = state
+                    .spool
+                    .as_ref()
+                    .is_none_or(|prev| !Arc::ptr_eq(prev, &spool));
+                if spool_replaced || state.monitor.as_ref().is_none_or(JoinHandle::is_finished) {
+                    if let Some(old) = state.monitor.take() {
+                        old.abort();
+                    }
+                    state.monitor = Some(spawn_spool_monitor(
+                        Arc::clone(&spool),
+                        self.telemetry_tx.clone(),
+                        ADDON_VERSION,
                     ));
                 }
-            },
-        };
 
-        // Validate everything before touching the running collector: a bad
-        // config must never kill a working one.
-        let prepared = match prepare_runtime(&config, &spool) {
-            Ok(prepared) => prepared,
-            Err(e) => return Ok(reject(config_hash, e)),
-        };
-
-        if let Some(old) = state.runtime.take() {
-            info!("configuration changed; restarting OTLP listeners");
-            old.shutdown();
-        }
-
-        info!(
-            "starting OTEL collector add-on: grpc={}, http={}, spool={} (max {} bytes)",
-            prepared.grpc_addr,
-            prepared
-                .http_options
-                .as_ref()
-                .map(|o| o.addr.to_string())
-                .unwrap_or_else(|| "disabled".to_string()),
-            agent_forward.spool_dir,
-            agent_forward.max_bytes,
-        );
-
-        // (Re)start the usage monitor when the spool instance changed (or on
-        // first configure); a reused/reconfigured spool keeps its monitor —
-        // the monitor reads bounds from the spool on every sample.
-        let spool_replaced = state
-            .spool
-            .as_ref()
-            .is_none_or(|prev| !Arc::ptr_eq(prev, &spool));
-        if spool_replaced || state.monitor.as_ref().is_none_or(JoinHandle::is_finished) {
-            if let Some(old) = state.monitor.take() {
-                old.abort();
+                state.runtime = Some(spawn_runtime(prepared));
+                state.spool = Some(spool);
+                state.spool_config = Some(spool_config);
+                state.config_hash = config_hash.clone();
             }
-            state.monitor = Some(spawn_spool_monitor(
-                Arc::clone(&spool),
-                self.telemetry_tx.clone(),
-                ADDON_VERSION,
-            ));
-        }
+            OutputBackend::Jetstream | OutputBackend::Otlp => {
+                {
+                    let state = self.lock_state();
+                    if state.config_hash == config_hash && state.runtime.is_some() {
+                        debug!(
+                            "configuration unchanged (hash {config_hash}); keeping current runtime"
+                        );
+                        return Ok(ConfigureResult {
+                            config_hash,
+                            accepted: true,
+                            error: String::new(),
+                        });
+                    }
+                }
 
-        state.runtime = Some(spawn_runtime(prepared));
-        state.spool = Some(spool);
-        state.spool_config = Some(spool_config);
-        state.config_hash = config_hash.clone();
+                let prepared = match prepare_direct_runtime(&config).await {
+                    Ok(prepared) => prepared,
+                    Err(e) => return Ok(reject(config_hash, e)),
+                };
+
+                let mut state = self.lock_state();
+
+                if let Some(old) = state.runtime.take() {
+                    info!("configuration changed; restarting OTLP listeners");
+                    old.shutdown();
+                }
+                if let Some(old) = state.monitor.take() {
+                    old.abort();
+                }
+
+                info!(
+                    "starting OTEL collector add-on: grpc={}, http={}, output={:?}",
+                    prepared.grpc_addr,
+                    prepared
+                        .http_options
+                        .as_ref()
+                        .map(|o| o.addr.to_string())
+                        .unwrap_or_else(|| "disabled".to_string()),
+                    config.output.backend,
+                );
+
+                state.runtime = Some(spawn_runtime(prepared));
+                state.spool = None;
+                state.spool_config = None;
+                state.config_hash = config_hash.clone();
+            }
+        }
 
         Ok(ConfigureResult {
             config_hash,
@@ -469,11 +554,21 @@ impl Addon for OtelCollectorAddon {
     /// reopens the stream after a reconnect.
     #[allow(clippy::result_large_err)] // tonic::Status is the gRPC seam's error type
     fn relay_otlp(&self, acks: OtlpRelayAckStream) -> Result<OtlpRelayStream, tonic::Status> {
-        let spool = self
-            .lock_state()
-            .spool
-            .clone()
-            .ok_or_else(|| tonic::Status::unavailable("collector not configured yet"))?;
+        let (spool, configured) = {
+            let state = self.lock_state();
+            (state.spool.clone(), state.runtime.is_some())
+        };
+        let spool = match (spool, configured) {
+            (Some(spool), _) => spool,
+            (None, true) => {
+                return Err(tonic::Status::unavailable(
+                    "collector is not configured for agent relay",
+                ));
+            }
+            (None, false) => {
+                return Err(tonic::Status::unavailable("collector not configured yet"));
+            }
+        };
 
         // Ack consumer: advance the durable watermark; the spool releases
         // fully-acked segments and wakes any reader.
@@ -584,6 +679,19 @@ mod tests {
         .into_bytes()
     }
 
+    fn direct_leaf_config_json() -> Vec<u8> {
+        serde_json::json!({
+            "output": { "backend": "jetstream" },
+            "server": {
+                "bind_address": "127.0.0.1",
+                "port": 0,
+                "http": { "enabled": false }
+            }
+        })
+        .to_string()
+        .into_bytes()
+    }
+
     fn test_batch(payload: Vec<u8>) -> TelemetryBatch {
         TelemetryBatch {
             source: Some(TelemetrySource {
@@ -634,6 +742,19 @@ mod tests {
         assert!(!result.config_hash.is_empty());
     }
 
+    #[test]
+    fn parse_config_without_output_defaults_to_agent_relay() {
+        let dir = tempfile::tempdir().unwrap();
+        let config = parse_config(&config_json(dir.path(), 1024 * 1024)).unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Agent);
+    }
+
+    #[test]
+    fn parse_config_with_explicit_jetstream_preserves_direct_leaf_backend() {
+        let config = parse_config(&direct_leaf_config_json()).unwrap();
+        assert_eq!(config.output.backend, OutputBackend::Jetstream);
+    }
+
     #[tokio::test]
     async fn health_is_degraded_before_configuration() {
         let addon = OtelCollectorAddon::default();
@@ -679,6 +800,30 @@ mod tests {
             .unwrap();
         assert!(again.accepted);
         assert_eq!(again.config_hash, result.config_hash);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn configure_accepts_direct_leaf_jetstream_without_relay_spool() {
+        let addon = OtelCollectorAddon::default();
+
+        let result = addon.configure(&direct_leaf_config_json()).await.unwrap();
+        assert!(result.accepted, "error: {}", result.error);
+        assert!(addon.spool_for_tests().is_none());
+        assert!(addon.lock_state().monitor.is_none());
+
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let health = addon.health().await.unwrap();
+        assert_eq!(
+            health.status,
+            HealthStatus::Healthy,
+            "reason: {}",
+            health.degradation_reason
+        );
+
+        let (_ack_tx, acks) = ack_stream();
+        let err = addon.relay_otlp(acks).err().expect("relay disabled");
+        assert_eq!(err.code(), tonic::Code::Unavailable);
+        assert!(err.message().contains("not configured for agent relay"));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

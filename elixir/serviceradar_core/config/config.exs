@@ -123,6 +123,8 @@ config :serviceradar_core, :plugin_storage,
   signing_secret: nil,
   download_ttl_seconds: 86_400
 
+config :serviceradar_core, :required_agent_addons, ["otel-collector"]
+
 config :serviceradar_core,
   age_graph_name: "platform_graph"
 

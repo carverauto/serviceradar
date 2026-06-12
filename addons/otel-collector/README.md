@@ -2,14 +2,28 @@
 
 Edge OpenTelemetry collector for ServiceRadar, packaged as a native
 agent-sidecar add-on. It serves local OTLP/gRPC (4317) and OTLP/HTTP (4318)
-listeners, spools accepted telemetry durably on disk, and relays it to the
-supervising serviceradar-agent over the acked `otlp-relay:v1` stream — no new
-inbound ports, no egress beyond the agent's existing gateway connection.
+listeners. The required/default install spools accepted telemetry durably on
+disk and relays it to the supervising serviceradar-agent over the acked
+`otlp-relay:v1` stream: no new inbound ports, no egress beyond the agent's
+existing gateway connection. Sites with a local NATS leaf can explicitly use
+direct JetStream publishing instead.
 
 - Runtime implementation: `rust/otel-addon` (binary `serviceradar-otel-addon`)
   on top of the collector library in `rust/otel`.
 - Operator configuration schema: [`config.schema.json`](config.schema.json),
   delivered via streamed agent config and surfaced in the add-on settings UI.
+
+## Output transports
+
+The add-on supports both Phase 0.12 transport shapes:
+
+- **Gateway relay (default/required):** omit `output`, or set
+  `{"output":{"backend":"agent"}}`. The add-on writes a bounded local spool
+  and the supervising agent relays frames to the gateway with cumulative
+  acknowledgements.
+- **Direct-to-leaf:** set `{"output":{"backend":"jetstream"}}` and configure
+  `nats.url` to the local NATS leaf. In this mode the collector publishes to
+  JetStream directly and `RelayOtlp` is intentionally unavailable.
 
 ## Spool sizing and retention
 
