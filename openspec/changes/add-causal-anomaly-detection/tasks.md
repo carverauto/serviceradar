@@ -37,7 +37,7 @@
 - [x] 3.1 core-elx emits `anomaly` + `capacity_forecast` verdicts on `signals.causal.predictions.*` with deterministic IDs; OCSF `detection_finding` (class_uid 2004) shape for anomalies. `rust/causal-engine` **consumes** these as causal evidence (the detector does not live there).
 - [x] 3.2 Confirm the existing `CausalSignals` processor + `pipeline.ex` route these into `ocsf_events` and `StatefulAlertEngine.evaluate_events/1` raises `device.uid`-grouped alerts — no inbound changes; add coverage only.
 - [x] 3.3 Align with `add-ocsf-finding-model` finding/event split when it lands (finding = durable deduped object; event references it).
-- [ ] 3.4 Scaling: verify capacity scales with core-elx replica count (Horde redistributes context ownership; Broadway concurrency absorbs bursts). No standalone consumer, no external autoscaler.
+- [x] 3.4 Scaling: verify capacity scales with core-elx replica count (Horde redistributes context ownership; Broadway concurrency absorbs bursts). No standalone consumer, no external autoscaler.
 
 ## 4. Configuration (CNPG-backed, Helm-seeded, settings UI)
 - [ ] 4.1 `AnomalyDetectionConfig` + forecast-config Ash resource(s) in CNPG: N-sigma, window size/duration, confirm-slots, min-samples, per-metric-class overrides (interface/RED/cpu/mem/disk), forecast horizon, warning threshold, model choice.

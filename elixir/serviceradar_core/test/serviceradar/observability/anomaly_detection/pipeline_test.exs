@@ -39,6 +39,31 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     refute_receive {:evaluate, _sample}
   end
 
+  test "Broadway topology scales processors while keeping one JetStream cursor" do
+    config =
+      config(
+        consumer_name: "analysis-scaling-test",
+        processor_concurrency: 12,
+        batch_size: 25,
+        batch_timeout: 250
+      )
+
+    options = Pipeline.broadway_options(config)
+
+    assert options[:name] == Pipeline
+    assert options[:context] == config
+    assert get_in(options, [:producer, :concurrency]) == 1
+    assert get_in(options, [:processors, :default, :concurrency]) == 12
+
+    assert {ServiceRadar.EventWriter.Producer, producer_config} =
+             get_in(options, [:producer, :module])
+
+    assert producer_config.consumer_name == "analysis-scaling-test"
+    assert producer_config.batch_size == 25
+    assert producer_config.batch_timeout == 250
+    assert producer_config.streams == config.streams
+  end
+
   test "extracts enabled samples and invokes the reasoner" do
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
     config = config(enabled_subjects: ["metrics.sysmon.*"])
