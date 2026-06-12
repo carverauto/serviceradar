@@ -226,11 +226,13 @@ primary remediation workflow.
 Endpoint inventory, Trivy, Falco, Bumblebee, and PowerDNS all feed the Security
 experience through OCSF-derived contracts.
 
-- `/security` is the tactical work queue. It shows current scanner coverage,
-  security finding severity, scan activity, DNS security activity, normalized
-  Trivy vulnerability rows, and active finding drill-downs.
-- `/dashboards/security-findings` is a customizable dashboard package. It is for
-  operators who want editable posture panels and saved SRQL-backed widgets.
+- `/security` is the triage entry point. It links to the canonical security
+  dashboard, common SRQL drill-downs, feed settings, and selected finding or
+  detection detail panels.
+- `/dashboards/security-findings` is the canonical data surface for current
+  security posture. It owns source coverage, security finding severity, scan
+  activity, DNS security activity, normalized vulnerability rows, and editable
+  SRQL-backed widgets.
 - Device **Software** tabs are the remediation view for host packages and
   endpoint vulnerability matches.
 - Raw event pages are audit and troubleshooting context. Integrations should
@@ -257,7 +259,9 @@ Use these checks when endpoint inventory or scanner data looks incomplete:
   disabled sources.
 - Check package-set hash and artifact hash changes to verify whether a new scan
   produced new evidence.
-- Check `/security` for scan activity and source coverage.
+- Check `/dashboards/security-findings` for scan activity and source coverage.
+- Use `/security` when starting triage or opening a bookmarked finding or
+  detection detail panel.
 - Use Observability drill-downs for raw OCSF events when a display contract or
   normalized child row is missing.
 - If normalized Trivy child rows are empty while aggregate Trivy events exist,

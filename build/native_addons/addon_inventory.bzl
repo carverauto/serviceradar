@@ -16,6 +16,26 @@ Each entry's "language" selects how the per-arch binary is produced:
 
 ADDON_BUNDLES = [
     {
+        # Advisory feed producer add-on. Runs as an agent-sidecar go-plugin
+        # producer for CISA KEV, NVD CVE 2.0, and VulnCheck feeds, emitting the
+        # generic advisory-feed:v1 contract through scheduled producer commands.
+        "name": "advisory_producer_addon_bundle",
+        "addon_id": "advisory-producer",
+        "repository_name": "serviceradar-addon-advisory-producer",
+        "language": "go",
+        "binary": "//go/cmd/serviceradar-advisory-producer:serviceradar-advisory-producer",
+        "binary_name": "serviceradar-advisory-producer",
+        "platforms": [
+            ("linux", "amd64"),
+            ("linux", "arm64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/advisory-producer:addon.yaml"),
+            ("config.schema.json", "//addons/advisory-producer:config.schema.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
+    {
         # netprobe host-network-visibility add-on (migrate-netprobe-to-native-addon).
         # Carved out of the base serviceradar-agent package: the //rust/netprobe
         # binary is now packaged here as a signed per-arch pushed-artifact bundle

@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"time"
 
 	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/proto"
@@ -269,7 +270,15 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 	specs := make([]agentaddon.Spec, 0, len(assignments))
 	desiredSystemd := make(map[string]bool)
 	desiredEphemeral := make(map[string]bool)
-	allApplied := true
+	// blockAck stays true only while every assignment either succeeded or failed in a
+	// way that may clear on its own (transient). A PERMANENT artifact-delivery failure
+	// (404 not-found, sha mismatch, invalid signature, incomplete reference, …) is
+	// recorded as per-add-on failure status and backed off, but does NOT block the
+	// config-version ack: the assignment is broken upstream, so wedging the whole config
+	// apply would only freeze every other config section behind a permanently-404ing
+	// artifact (the live ns05 bug).
+	blockAck := false
+	now := time.Now()
 
 	for _, a := range assignments {
 		if a == nil || !a.GetEnabled() {
@@ -288,11 +297,13 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 
 		switch classifyAddonSupervision(supervision) {
 		case addonDispatchSidecar:
-			if spec, ok, applied := p.buildSidecarAddonSpec(ctx, a, delivery); ok {
+			if spec, ok, disposition := p.buildSidecarAddonSpec(ctx, a, delivery, now); ok {
 				specs = append(specs, spec)
-				allApplied = allApplied && applied
-			} else {
-				allApplied = false
+				if disposition == addonDeliveryTransientFailure {
+					blockAck = true
+				}
+			} else if disposition == addonDeliveryTransientFailure {
+				blockAck = true
 			}
 		case addonDispatchConfigToggle:
 			// Compiled-in capability selected by this assignment; it self-configures
@@ -304,23 +315,25 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not cause a running unit to be uninstalled by reconciliation.
 			desiredSystemd[a.GetAddonId()] = true
-			if !p.applySystemdAddon(ctx, a, delivery, supervision) {
-				allApplied = false
+			if p.applySystemdAddon(ctx, a, delivery, supervision, now) == addonDeliveryTransientFailure {
+				blockAck = true
 			}
 		case addonDispatchEphemeral:
 			// Mark desired regardless of this round's outcome so a transient delivery
 			// failure does not deregister a still-desired helper.
 			desiredEphemeral[a.GetAddonId()] = true
-			if !p.applyEphemeralAddon(ctx, a, delivery) {
-				allApplied = false
+			if p.applyEphemeralAddon(ctx, a, delivery, now) == addonDeliveryTransientFailure {
+				blockAck = true
 			}
 		case addonDispatchUnsupported:
+			// An unsupported supervision model is permanent (the agent will never grow
+			// support mid-run), so record it and move on rather than wedging the ack.
 			p.logger.Warn().
 				Str("addon", a.GetAddonId()).
 				Str("delivery", delivery).
 				Str("supervision", supervision).
 				Msg("Add-on supervision model not supported by this agent; assignment not applied")
-			allApplied = false
+			p.recordAddonDeliveryFailure(a, errAddonSupervisionUnsupported, now)
 		}
 	}
 
@@ -333,6 +346,8 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		}
 	}
 	p.pruneAddonCache(present)
+	// Drop delivery-failure records (and their backoff) for add-ons no longer assigned.
+	p.pruneAddonDeliveryFailures(present)
 
 	// Uninstall systemd units for add-ons that are no longer desired (disabled/removed).
 	p.reconcileSystemdAddons(ctx, desiredSystemd)
@@ -350,41 +365,45 @@ func (p *PushLoop) applyAddonAssignments(ctx context.Context, assignments []*pro
 		p.logger.Info().Int("addons", len(specs)).Msg("Applied native add-on assignments")
 	}
 
-	return allApplied
+	// Only transient delivery failures defer the config-version ack. Permanent ones were
+	// recorded as per-add-on failure status and backed off above, so the agent acks the
+	// config version and stops re-applying the whole config every poll.
+	return !blockAck
 }
 
 // buildSidecarAddonSpec stages an agent-sidecar add-on and returns its supervised
 // go-plugin spec. On a delivery/capability failure it falls back to the last-known-good
 // spec (so a running add-on keeps running unchanged) or, with no cached spec, skips it.
-// The second returned bool reports whether a spec should be supervised. The third
-// reports whether this round fully applied the desired assignment; fallback specs
-// keep existing processes alive but still defer config version acknowledgement so
-// pushed-artifact delivery is retried on the next config poll.
-func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) (agentaddon.Spec, bool, bool) {
+// The second returned bool reports whether a spec should be supervised. The third return
+// is the delivery disposition: only a transient failure defers the config-version ack;
+// a permanent failure (recorded + backed off in deliverAddonArtifact) keeps any running
+// process alive on its last-known-good spec but lets the ack proceed.
+func (p *PushLoop) buildSidecarAddonSpec(
+	ctx context.Context,
+	a *proto.AddonAssignmentConfig,
+	delivery string,
+	now time.Time,
+) (agentaddon.Spec, bool, addonDeliveryDisposition) {
 	freshlyStaged := delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != ""
 
-	binaryPath, err := p.stageAndCapability(ctx, a, delivery)
+	binaryPath, disposition, err := p.deliverAddonArtifact(ctx, a, delivery, now)
 	if err != nil {
-		// Delivery/verification/capability failed. Reuse the cached last-known-good spec
-		// so a running add-on keeps running exactly as it was rather than pairing an old
-		// binary with new config; with no cached spec the add-on was not running here, so
-		// skip it until delivery succeeds.
+		// Delivery/verification/capability failed (or is in backoff). Reuse the cached
+		// last-known-good spec so a running add-on keeps running exactly as it was rather
+		// than pairing an old binary with new config; with no cached spec the add-on was
+		// not running here, so skip it until delivery succeeds.
 		cached, hit := p.lastGoodAddonSpec(a.GetAddonId())
 		if !hit {
-			p.logger.Warn().
-				Err(err).
-				Str("addon", a.GetAddonId()).
-				Msg("Failed to deliver pushed-artifact add-on and no last-known-good assignment; not applied")
+			p.logSidecarDeliveryFailure(a, err, disposition,
+				"Failed to deliver pushed-artifact add-on and no last-known-good assignment; not applied")
 
-			return agentaddon.Spec{}, false, false
+			return agentaddon.Spec{}, false, disposition
 		}
 
-		p.logger.Warn().
-			Err(err).
-			Str("addon", a.GetAddonId()).
-			Msg("Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
+		p.logSidecarDeliveryFailure(a, err, disposition,
+			"Pushed-artifact add-on delivery failed; keeping last-known-good assignment")
 
-		return cached, true, false
+		return cached, true, disposition
 	}
 
 	if binaryPath == "" {
@@ -393,7 +412,7 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 			Str("delivery", delivery).
 			Msg("Add-on sidecar assignment missing a binary path; not applied")
 
-		return agentaddon.Spec{}, false, false
+		return agentaddon.Spec{}, false, addonDeliverySucceeded
 	}
 
 	spec := agentaddon.Spec{
@@ -413,7 +432,28 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 		p.rememberAddonSpec(spec)
 	}
 
-	return spec, true, true
+	return spec, true, addonDeliverySucceeded
+}
+
+// logSidecarDeliveryFailure logs an add-on delivery failure at a severity matching its
+// disposition: a permanent failure (404/sha/signature) is expected to recur until the
+// artifact is fixed/uploaded, so it is logged at info to avoid warn-spam every poll,
+// while a transient failure stays at warn.
+func (p *PushLoop) logSidecarDeliveryFailure(
+	a *proto.AddonAssignmentConfig,
+	err error,
+	disposition addonDeliveryDisposition,
+	msg string,
+) {
+	event := p.logger.Warn()
+	if disposition == addonDeliveryPermanentFailure {
+		event = p.logger.Info()
+	}
+	event.
+		Err(err).
+		Str("addon", a.GetAddonId()).
+		Bool("permanent", disposition == addonDeliveryPermanentFailure).
+		Msg(msg)
 }
 
 // applySystemdAddon stages a systemd-supervised add-on and then installs + enables its
@@ -423,41 +463,57 @@ func (p *PushLoop) buildSidecarAddonSpec(ctx context.Context, a *proto.AddonAssi
 // delivery, discovery, or install failure it rolls `current` back to the prior version
 // and leaves any already-installed units untouched (reconciliation keeps them because the
 // add-on is still desired).
-func (p *PushLoop) applySystemdAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery, supervision string) bool {
+func (p *PushLoop) applySystemdAddon(
+	ctx context.Context,
+	a *proto.AddonAssignmentConfig,
+	delivery, supervision string,
+	now time.Time,
+) addonDeliveryDisposition {
 	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" && p.systemdAddonAssignmentCurrent(a, "") {
 		p.logger.Debug().
 			Str("addon", a.GetAddonId()).
 			Str("version", a.GetVersion()).
 			Msg("Systemd add-on already staged and installed; skipping unchanged package activation")
+		p.clearAddonDeliveryFailure(a.GetAddonId())
 
-		return true
+		return addonDeliverySucceeded
 	}
 
 	root := resolveAddonArtifactRoot("")
 	priorTarget, _ := readAddonCurrentTarget(filepath.Join(root, a.GetAddonId()))
 
-	if _, err := p.stageAndCapability(ctx, a, delivery); err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("addon", a.GetAddonId()).
-			Msg("Systemd add-on delivery failed; leaving current state unchanged")
+	if _, disposition, err := p.deliverAddonArtifact(ctx, a, delivery, now); err != nil {
+		p.logSidecarDeliveryFailure(a, err, disposition,
+			"Systemd add-on delivery failed; leaving current state unchanged")
 
-		return false
+		return disposition
 	}
 
 	if err := applyStagedAddonRuntimeConfig("", a); err != nil {
 		if rbErr := rollbackAddonCurrent(root, a.GetAddonId(), priorTarget); rbErr != nil {
 			p.logger.Error().Err(rbErr).Str("addon", a.GetAddonId()).Msg("Rollback failed after systemd add-on config write failure")
 		}
-		p.logger.Warn().
-			Err(err).
-			Str("addon", a.GetAddonId()).
-			Msg("Systemd add-on config write failed; leaving current state unchanged")
+		// A staged runtime-config write failure (e.g. ambiguous/missing config) will not
+		// fix itself on the next poll; record it and let the ack proceed.
+		disposition := classifyAddonDeliveryError(err)
+		if disposition == addonDeliveryPermanentFailure {
+			p.recordAddonDeliveryFailure(a, err, now)
+		}
+		p.logSidecarDeliveryFailure(a, err, disposition,
+			"Systemd add-on config write failed; leaving current state unchanged")
 
-		return false
+		return disposition
 	}
 
-	return p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater)
+	if !p.reconcileStagedSystemdUnits(ctx, a, supervision, "", priorTarget, installStagedAddonSystemdUnitsViaUpdater) {
+		// Unit discovery/install failure: treat as transient (the agent-updater may be
+		// momentarily unavailable) so the ack defers and the install is retried promptly.
+		return addonDeliveryTransientFailure
+	}
+
+	p.clearAddonDeliveryFailure(a.GetAddonId())
+
+	return addonDeliverySucceeded
 }
 
 func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig, runtimeRoot string) bool {
@@ -657,15 +713,18 @@ func (p *PushLoop) reconcileSystemdAddons(ctx context.Context, desired map[strin
 // remote-access spawning rdp-adapter per session) can look it up. On a delivery/capability
 // failure it leaves any previously-registered path in place (the add-on stays desired, so
 // reconciliation will not deregister it) and retries on the next round.
-func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssignmentConfig, delivery string) bool {
-	resolved, err := p.stageAndCapability(ctx, a, delivery)
+func (p *PushLoop) applyEphemeralAddon(
+	ctx context.Context,
+	a *proto.AddonAssignmentConfig,
+	delivery string,
+	now time.Time,
+) addonDeliveryDisposition {
+	resolved, disposition, err := p.deliverAddonArtifact(ctx, a, delivery, now)
 	if err != nil {
-		p.logger.Warn().
-			Err(err).
-			Str("addon", a.GetAddonId()).
-			Msg("Ephemeral-helper add-on delivery failed; leaving current state unchanged")
+		p.logSidecarDeliveryFailure(a, err, disposition,
+			"Ephemeral-helper add-on delivery failed; leaving current state unchanged")
 
-		return false
+		return disposition
 	}
 
 	if resolved == "" {
@@ -674,7 +733,7 @@ func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssign
 			Str("delivery", delivery).
 			Msg("Ephemeral-helper add-on missing a binary path; not applied")
 
-		return false
+		return addonDeliverySucceeded
 	}
 
 	p.rememberEphemeralHelper(a.GetAddonId(), resolved)
@@ -683,7 +742,7 @@ func (p *PushLoop) applyEphemeralAddon(ctx context.Context, a *proto.AddonAssign
 		Str("path", resolved).
 		Msg("Staged ephemeral-helper add-on (available for on-demand invocation)")
 
-	return true
+	return addonDeliverySucceeded
 }
 
 // rememberEphemeralHelper records the resolved binary path of a staged ephemeral-helper

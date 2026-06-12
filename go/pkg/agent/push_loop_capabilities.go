@@ -98,6 +98,11 @@ func (p *PushLoop) buildAgentCapabilityGatewayStatus(
 	}
 	sidecars = append(sidecars, agentaddon.ToProtoStatuses(addonStatuses)...)
 	sidecars = append(sidecars, p.systemdAddonStatuses(resolveAddonArtifactRoot(""), sidecars)...)
+	// Surface add-ons whose pushed-artifact delivery failed permanently (404, sha
+	// mismatch, bad signature, …) so the control plane shows the failure instead of the
+	// add-on silently vanishing. Skip any add-on that already has a real status entry
+	// (a last-known-good process still running keeps reporting its actual state).
+	sidecars = append(sidecars, p.addonDeliveryFailureStatuses(sidecars)...)
 
 	corpusRevisions := p.netprobeCorpusRevisions()
 	sweepBannerGrab := p.sweepBannerGrabCapabilityStatus(sidecars, corpusRevisions)

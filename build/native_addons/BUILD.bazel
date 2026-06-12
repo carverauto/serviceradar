@@ -65,6 +65,7 @@ sh_test(
     args = [
         "$(rootpath //go/tools/addon-manifest-validator:addon-manifest-validator)",
         "$(rootpath //addons/sample-addon:addon.yaml)",
+        "$(rootpath //addons/advisory-producer:addon.yaml)",
         "$(rootpath //addons/rust-sample-addon:addon.yaml)",
         "$(rootpath //addons/netprobe:addon.yaml)",
         "$(rootpath //addons/powerdns:addon.yaml)",
@@ -76,6 +77,7 @@ sh_test(
         "$(rootpath //addons/scalibr-endpoint-inventory:addon.yaml)",
     ],
     data = [
+        "//addons/advisory-producer:addon.yaml",
         "//addons/bumblebee-scan:addon.yaml",
         "//addons/endpoint-inventory:addon.yaml",
         "//addons/scalibr-endpoint-inventory:addon.yaml",

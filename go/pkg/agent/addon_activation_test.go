@@ -936,6 +936,10 @@ func TestGatewayAddonHTTPClientUsesPublicWebTLS(t *testing.T) {
 	}
 }
 
+// TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails covers a TRANSIENT delivery
+// failure: the assignment references an object-store artifact but the agent has no object
+// store configured (ErrAddonObjectStoreUnavailable). That may clear once the store comes
+// up, so the config-version ack is deferred and delivery retried on the next poll.
 func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
 	pl := &PushLoop{
 		server: &Server{
@@ -962,7 +966,7 @@ func TestApplyConfigResponseDefersVersionWhenAddonDeliveryFails(t *testing.T) {
 	}, "poll")
 
 	if ok {
-		t.Fatal("applyConfigResponse() = true, want false when add-on delivery fails")
+		t.Fatal("applyConfigResponse() = true, want false when add-on delivery fails transiently")
 	}
 	if got := pl.getConfigVersion(); got != "old-version" {
 		t.Fatalf("config version = %q, want old-version", got)

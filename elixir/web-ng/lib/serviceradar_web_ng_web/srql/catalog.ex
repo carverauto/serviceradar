@@ -232,6 +232,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
         "device_id",
         "uid",
         "source_device_uid",
+        "finding_uid",
         "purl",
         "purl_canonical",
         "canonical_purl",

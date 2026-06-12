@@ -12,6 +12,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   @default_frame_limit 500
   @max_frame_limit 2_000
   @max_frames 12
+  @default_frame_timeout_ms 10_000
+  @max_frame_timeout_ms 30_000
+  @default_frame_concurrency 6
   @event_frame_entities ~w(events security_findings scan_activity dns_activity)
 
   @spec run([map()], term(), keyword()) :: [map()]
@@ -21,10 +24,23 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     limit = frame_limit(opts)
     srql_module = Keyword.get(opts, :srql_module, srql_module())
     device_resolver = Keyword.get(opts, :device_resolver, DeviceCorrelation)
+    timeout = frame_timeout(opts)
+    max_concurrency = frame_concurrency(opts)
 
     data_frames
     |> Enum.take(@max_frames)
-    |> Enum.map(&run_frame(&1, scope, srql_module, device_resolver, limit))
+    |> Task.async_stream(&run_frame(&1, scope, srql_module, device_resolver, limit),
+      max_concurrency: max_concurrency,
+      timeout: timeout,
+      on_timeout: :kill_task,
+      ordered: true
+    )
+    |> Enum.zip(Enum.take(data_frames, @max_frames))
+    |> Enum.map(fn
+      {{:ok, frame}, _source_frame} -> frame
+      {{:exit, :timeout}, source_frame} -> timeout_frame(source_frame, limit)
+      {{:exit, reason}, source_frame} -> failed_frame(source_frame, limit, reason)
+    end)
   end
 
   def run(_data_frames, _scope, _opts), do: []
@@ -72,9 +88,14 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
 
   defp run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit) do
     case run_arrow_frame(base, query, scope, srql_module, limit) do
-      {:ok, frame} -> frame
-      {:fallback, _reason} -> run_json_frame(base, query, scope, srql_module, device_resolver, limit)
-      {:error, reason} -> error_frame(base, reason)
+      {:ok, frame} ->
+        frame
+
+      {:fallback, _reason} ->
+        run_json_frame(base, query, scope, srql_module, device_resolver, limit)
+
+      {:error, reason} ->
+        error_frame(base, reason)
     end
   end
 
@@ -341,6 +362,41 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     })
   end
 
+  defp timeout_frame(frame, default_limit), do: failed_frame(frame, default_limit, :frame_timeout)
+
+  defp failed_frame(frame, default_limit, reason) when is_map(frame) do
+    id = normalize_string(frame["id"] || frame[:id]) || "frame"
+    query = normalize_string(frame["query"] || frame[:query])
+    requested_encoding = normalize_string(frame["encoding"] || frame[:encoding]) || "json_rows"
+    limit = frame_limit(frame["limit"] || frame[:limit], default_limit)
+
+    %{
+      "id" => id,
+      "query" => query,
+      "requested_encoding" => requested_encoding,
+      "encoding" => "json_rows",
+      "limit" => limit,
+      "required" => required?(frame),
+      "status" => "error",
+      "error" => format_error(reason),
+      "results" => []
+    }
+  end
+
+  defp failed_frame(_frame, default_limit, reason) do
+    %{
+      "id" => "invalid",
+      "query" => nil,
+      "requested_encoding" => "json_rows",
+      "encoding" => "json_rows",
+      "limit" => default_limit,
+      "required" => true,
+      "status" => "error",
+      "error" => format_error(reason),
+      "results" => []
+    }
+  end
+
   defp required?(frame) do
     case frame_value(frame, "required", :required) do
       false -> false
@@ -375,6 +431,31 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
 
   defp frame_limit(_value, default), do: default
 
+  defp frame_timeout(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:frame_timeout_ms, @default_frame_timeout_ms)
+    |> normalize_positive_integer(@default_frame_timeout_ms)
+    |> min(@max_frame_timeout_ms)
+  end
+
+  defp frame_concurrency(opts) when is_list(opts) do
+    opts
+    |> Keyword.get(:max_concurrency, @default_frame_concurrency)
+    |> normalize_positive_integer(@default_frame_concurrency)
+    |> min(@max_frames)
+  end
+
+  defp normalize_positive_integer(value, _default) when is_integer(value), do: max(value, 1)
+
+  defp normalize_positive_integer(value, default) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {int, ""} -> normalize_positive_integer(int, default)
+      _ -> default
+    end
+  end
+
+  defp normalize_positive_integer(_value, default), do: default
+
   defp normalize_string(value) when is_binary(value) do
     value = String.trim(value)
     if value == "", do: nil, else: value
@@ -388,7 +469,8 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp response_value(response, "schema") when is_map(response),
     do: Map.get(response, "schema") || Map.get(response, :schema)
 
-  defp response_value(response, "viz") when is_map(response), do: Map.get(response, "viz") || Map.get(response, :viz)
+  defp response_value(response, "viz") when is_map(response),
+    do: Map.get(response, "viz") || Map.get(response, :viz)
 
   defp response_value(_response, _key), do: nil
 
