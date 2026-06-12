@@ -10,8 +10,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
   use GenServer
 
+  alias ServiceRadar.Observability.AnomalyDetection.BaselineSeeder
+  alias ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint
   alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
   alias ServiceRadar.Observability.CausalReasoner
+
+  require Logger
 
   @default_max_events 600
   @default_window_size 300
@@ -23,8 +27,23 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :series_key,
     :max_events,
     :reasoner,
+    :checkpoint_store,
+    :checkpoint_opts,
+    :baseline_seeder,
+    :baseline_seed_opts,
+    :suppress_until_warmed?,
+    checkpoint_restored?: false,
+    live_update_count: 0,
     updates: [],
     verdicts: %{},
+    base_context: %{
+      baseline: [],
+      min_samples: @default_min_samples,
+      window_size: @default_window_size,
+      n_sigma: @default_n_sigma,
+      confirm_slots: @default_confirm_slots,
+      consecutive_anomalous: 0
+    },
     context: %{
       baseline: [],
       min_samples: @default_min_samples,
@@ -74,13 +93,22 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   @impl true
   def init(opts) do
     series_key = Keyword.fetch!(opts, :series_key)
+    context = context_from_opts(opts)
 
-    {:ok,
-     %__MODULE__{
-       series_key: series_key,
-       max_events: Keyword.get(opts, :max_events, @default_max_events),
-       reasoner: Keyword.get(opts, :reasoner, reasoner())
-     }}
+    state = %__MODULE__{
+      series_key: series_key,
+      max_events: Keyword.get(opts, :max_events, @default_max_events),
+      reasoner: Keyword.get(opts, :reasoner, reasoner()),
+      checkpoint_store: Keyword.get(opts, :checkpoint_store, ContextCheckpoint),
+      checkpoint_opts: Keyword.get(opts, :checkpoint_opts, []),
+      baseline_seeder: Keyword.get(opts, :baseline_seeder, BaselineSeeder),
+      baseline_seed_opts: Keyword.get(opts, :baseline_seed_opts, []),
+      suppress_until_warmed?: Keyword.get(opts, :suppress_until_warmed?, true),
+      base_context: context,
+      context: context
+    }
+
+    {:ok, load_checkpoint(state)}
   end
 
   @impl true
@@ -92,13 +120,24 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
         {:reply, {:ok, state.verdicts[update.event_id]}, state}
 
       append_update?(state.updates, update) ->
-        {state, verdict} = append_and_fold(state, update)
-        {:reply, {:ok, verdict}, state}
+        state =
+          state
+          |> seed_baseline(sample)
+          |> append_and_fold(update)
+          |> maybe_suppress_verdict(update.event_id)
+          |> save_checkpoint()
+
+        {:reply, {:ok, state.verdicts[update.event_id]}, state}
 
       true ->
-        case put_update(state, update) do
+        case state |> seed_baseline(sample) |> put_update(update) do
           {:ok, state} ->
-            state = rebuild(state)
+            state =
+              state
+              |> rebuild()
+              |> maybe_suppress_verdict(update.event_id)
+              |> save_checkpoint()
+
             {:reply, {:ok, state.verdicts[update.event_id]}, state}
 
           {:drop, reason} ->
@@ -116,12 +155,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
        series_key: state.series_key,
        update_count: length(state.updates),
        event_ids: Enum.map(state.updates, & &1.event_id),
+       checkpoint_restored?: state.checkpoint_restored?,
+       live_update_count: state.live_update_count,
+       base_context: state.base_context,
        context: state.context,
        verdicts: state.verdicts
      }, state}
   end
 
   defp put_update(state, update) do
+    existing? = Enum.any?(state.updates, &(&1.event_id == update.event_id))
+
     {updates, _dropped} =
       [update | state.updates]
       |> Enum.uniq_by(& &1.event_id)
@@ -129,7 +173,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> trim_updates(state.max_events)
 
     if Enum.any?(updates, &(&1.event_id == update.event_id)) do
-      {:ok, %{state | updates: updates}}
+      {:ok, %{state | updates: updates, live_update_count: live_update_count(state, existing?)}}
     else
       {:drop, :outside_window}
     end
@@ -145,12 +189,26 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> Map.drop(Enum.map(dropped, & &1.event_id))
       |> Map.put(update.event_id, verdict)
 
-    {%{state | updates: updates, context: context, verdicts: verdicts}, verdict}
+    %{
+      state
+      | updates: updates,
+        context: context,
+        verdicts: verdicts,
+        live_update_count: live_update_count(state, false)
+    }
+  end
+
+  defp live_update_count(state, existing?) do
+    if existing? or state.checkpoint_restored? do
+      state.live_update_count
+    else
+      state.live_update_count + 1
+    end
   end
 
   defp rebuild(state) do
     {context, verdicts} =
-      Enum.reduce(state.updates, {initial_context(), %{}}, fn update, {context, verdicts} ->
+      Enum.reduce(state.updates, {state.base_context, %{}}, fn update, {context, verdicts} ->
         {context, verdict} = reason_update(state.reasoner, context, update)
         {context, Map.put(verdicts, update.event_id, verdict)}
       end)
@@ -197,6 +255,186 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     end
   end
 
+  defp maybe_suppress_verdict(state, event_id) do
+    if warming?(state) and anomalous?(state.verdicts[event_id]) do
+      %{state | verdicts: Map.update!(state.verdicts, event_id, &suppress_verdict/1)}
+    else
+      state
+    end
+  end
+
+  defp anomalous?(verdict) when is_map(verdict) do
+    Map.get(verdict, :anomalous, Map.get(verdict, "anomalous", false)) == true
+  end
+
+  defp anomalous?(_verdict), do: false
+
+  defp suppress_verdict(nil), do: nil
+
+  defp suppress_verdict(verdict) do
+    state = Map.get(verdict, :state, Map.get(verdict, "state"))
+    reason = Map.get(verdict, :reason, Map.get(verdict, "reason"))
+
+    verdict
+    |> Map.put(:state, "warming")
+    |> Map.put(:anomalous, false)
+    |> Map.put(:suppressed, true)
+    |> Map.put(:suppressed_state, state)
+    |> Map.put(:reason, reason || "context warming")
+  end
+
+  defp warming?(state) do
+    state.suppress_until_warmed? and not state.checkpoint_restored? and
+      state.live_update_count < state.context.min_samples
+  end
+
+  defp seed_baseline(%{checkpoint_restored?: true} = state, _sample), do: state
+  defp seed_baseline(%{updates: [_ | _]} = state, _sample), do: state
+
+  defp seed_baseline(state, sample) do
+    case state.baseline_seeder.seed(sample, state.baseline_seed_opts) do
+      {:ok, []} ->
+        state
+
+      {:ok, values} ->
+        baseline =
+          values
+          |> Enum.filter(&is_number/1)
+          |> Enum.take(-state.base_context.window_size)
+
+        seeded = %{state.base_context | baseline: baseline}
+        %{state | base_context: seeded, context: seeded}
+
+      {:error, reason} ->
+        Logger.warning("anomaly baseline seed failed",
+          series_key: state.series_key,
+          reason: inspect(reason)
+        )
+
+        state
+    end
+  end
+
+  defp load_checkpoint(state) do
+    case state.checkpoint_store.load(state.series_key, state.checkpoint_opts) do
+      {:ok, nil} ->
+        state
+
+      {:ok, %{} = checkpoint} ->
+        restore_checkpoint(state, checkpoint)
+
+      {:error, reason} ->
+        Logger.warning("anomaly context checkpoint load failed",
+          series_key: state.series_key,
+          reason: inspect(reason)
+        )
+
+        state
+    end
+  end
+
+  defp restore_checkpoint(state, checkpoint) do
+    base_context =
+      checkpoint
+      |> checkpoint_value(:base_context, state.base_context)
+      |> normalize_context(state.base_context)
+
+    context =
+      checkpoint
+      |> checkpoint_value(:context, base_context)
+      |> normalize_context(base_context)
+
+    %{
+      state
+      | updates:
+          checkpoint
+          |> checkpoint_value(:updates, [])
+          |> Enum.map(&deserialize_update/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.sort_by(& &1.order_key)
+          |> keep_trimmed_updates(state.max_events),
+        verdicts:
+          checkpoint
+          |> checkpoint_value(:verdicts, %{})
+          |> normalize_verdicts(),
+        base_context: base_context,
+        context: context,
+        checkpoint_restored?: true,
+        live_update_count: 0
+    }
+  end
+
+  defp save_checkpoint(state) do
+    case state.checkpoint_store.save(
+           state.series_key,
+           checkpoint_payload(state),
+           state.checkpoint_opts
+         ) do
+      :ok ->
+        state
+
+      {:error, reason} ->
+        Logger.warning("anomaly context checkpoint save failed",
+          series_key: state.series_key,
+          reason: inspect(reason)
+        )
+
+        state
+    end
+  end
+
+  defp checkpoint_payload(state) do
+    %{
+      version: 1,
+      series_key: state.series_key,
+      updates: Enum.map(state.updates, &serialize_update/1),
+      verdicts: state.verdicts,
+      base_context: state.base_context,
+      context: state.context,
+      saved_at_unix_nano: System.system_time(:nanosecond)
+    }
+  end
+
+  defp serialize_update(update) do
+    %{
+      event_id: update.event_id,
+      order_key: encode_term(update.order_key),
+      sample: update.sample
+    }
+  end
+
+  defp deserialize_update(%{} = update) do
+    with event_id when is_binary(event_id) <- checkpoint_value(update, :event_id),
+         {:ok, order_key} <- decode_term(checkpoint_value(update, :order_key)),
+         %{} = sample <- checkpoint_value(update, :sample, %{}) do
+      %{
+        event_id: event_id,
+        order_key: order_key,
+        sample: normalize_sample(sample)
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp deserialize_update(_update), do: nil
+
+  defp encode_term(term) do
+    term
+    |> :erlang.term_to_binary()
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp decode_term(value) when is_binary(value) do
+    with {:ok, binary} <- Base.url_decode64(value, padding: false) do
+      {:ok, :erlang.binary_to_term(binary, [:safe])}
+    end
+  rescue
+    ArgumentError -> :error
+  end
+
+  defp decode_term(_value), do: :error
+
   defp fold_context(context, sample, verdict) do
     baseline =
       if include_in_baseline?(verdict) do
@@ -225,16 +463,91 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     Map.get(verdict, :include_in_baseline, Map.get(verdict, "include_in_baseline", true))
   end
 
-  defp initial_context do
+  defp context_from_opts(opts) do
     %{
       baseline: [],
-      min_samples: @default_min_samples,
-      window_size: @default_window_size,
-      n_sigma: @default_n_sigma,
-      confirm_slots: @default_confirm_slots,
+      min_samples: Keyword.get(opts, :min_samples, @default_min_samples),
+      window_size: Keyword.get(opts, :window_size, @default_window_size),
+      n_sigma: Keyword.get(opts, :n_sigma, @default_n_sigma),
+      confirm_slots: Keyword.get(opts, :confirm_slots, @default_confirm_slots),
       consecutive_anomalous: 0
     }
   end
+
+  defp normalize_context(context, fallback) when is_map(context) do
+    %{
+      baseline:
+        context
+        |> checkpoint_value(:baseline, fallback.baseline)
+        |> numeric_list(fallback.baseline),
+      min_samples: positive_int(checkpoint_value(context, :min_samples), fallback.min_samples),
+      window_size: positive_int(checkpoint_value(context, :window_size), fallback.window_size),
+      n_sigma: number(checkpoint_value(context, :n_sigma), fallback.n_sigma),
+      confirm_slots:
+        positive_int(checkpoint_value(context, :confirm_slots), fallback.confirm_slots),
+      consecutive_anomalous:
+        non_negative_int(
+          checkpoint_value(context, :consecutive_anomalous),
+          fallback.consecutive_anomalous
+        )
+    }
+  end
+
+  defp normalize_context(_context, fallback), do: fallback
+
+  defp numeric_list(values, _fallback) when is_list(values), do: Enum.filter(values, &is_number/1)
+  defp numeric_list(_values, fallback), do: fallback
+
+  defp normalize_sample(sample) do
+    %{
+      series_key: checkpoint_value(sample, :series_key),
+      event_id: checkpoint_value(sample, :event_id),
+      order_key: checkpoint_value(sample, :order_key),
+      value: checkpoint_value(sample, :value),
+      observed_at_unix_nano: checkpoint_value(sample, :observed_at_unix_nano),
+      subject: checkpoint_value(sample, :subject),
+      metric_class: checkpoint_value(sample, :metric_class),
+      metadata: checkpoint_value(sample, :metadata, %{})
+    }
+  end
+
+  defp normalize_verdicts(verdicts) when is_map(verdicts) do
+    Map.new(verdicts, fn {event_id, verdict} -> {event_id, normalize_verdict(verdict)} end)
+  end
+
+  defp normalize_verdicts(_verdicts), do: %{}
+
+  defp normalize_verdict(verdict) when is_map(verdict) do
+    %{}
+    |> maybe_put(:state, checkpoint_value(verdict, :state))
+    |> maybe_put(:anomalous, checkpoint_value(verdict, :anomalous))
+    |> maybe_put(:reason, checkpoint_value(verdict, :reason))
+    |> maybe_put(:include_in_baseline, checkpoint_value(verdict, :include_in_baseline))
+    |> maybe_put(
+      :next_consecutive_anomalous,
+      checkpoint_value(verdict, :next_consecutive_anomalous)
+    )
+    |> maybe_put(:suppressed, checkpoint_value(verdict, :suppressed))
+    |> maybe_put(:suppressed_state, checkpoint_value(verdict, :suppressed_state))
+  end
+
+  defp normalize_verdict(_verdict), do: %{}
+
+  defp maybe_put(map, _key, nil), do: map
+  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+
+  defp checkpoint_value(map, key, default \\ nil) when is_map(map) do
+    Map.get(map, key, Map.get(map, to_string(key), default))
+  end
+
+  defp positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value, fallback), do: fallback
+
+  defp non_negative_int(value, _fallback) when is_integer(value) and value >= 0, do: value
+  defp non_negative_int(_value, fallback), do: fallback
+
+  defp number(value, _fallback) when is_number(value), do: value
+  defp number(_value, fallback), do: fallback
 
   defp normalize_update(sample) do
     sample = Map.new(sample)
@@ -303,6 +616,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       _ ->
         nil
     end
+  end
+
+  defp keep_trimmed_updates(updates, max_events) do
+    {updates, _dropped} = trim_updates(updates, max_events)
+    updates
   end
 
   defp trim_updates(updates, max_events) when length(updates) > max_events do
