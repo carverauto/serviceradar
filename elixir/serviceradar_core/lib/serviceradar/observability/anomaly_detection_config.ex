@@ -1,0 +1,130 @@
+defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
+  @moduledoc """
+  Deployment-level anomaly detection tuning.
+
+  This singleton stores the default detector parameters and class-specific
+  overrides that later hot-reload phases will apply to live per-series context.
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Observability,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  @manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                 permission: "observability.alerts.manage"}
+  @fields [
+    :n_sigma,
+    :window_size,
+    :window_duration_seconds,
+    :confirm_slots,
+    :min_samples,
+    :metric_class_overrides
+  ]
+  @default_metric_class_overrides %{
+    "interface" => %{},
+    "red" => %{},
+    "cpu" => %{},
+    "memory" => %{},
+    "disk" => %{}
+  }
+
+  postgres do
+    table "anomaly_detection_configs"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  code_interface do
+    define :get_settings, action: :get_singleton
+    define :create_settings, action: :create
+    define :update_settings, action: :update
+  end
+
+  actions do
+    defaults [:read]
+
+    read :get_singleton do
+      description "Get the singleton anomaly detection configuration"
+      get? true
+      filter expr(key == "default")
+    end
+
+    create :create do
+      description "Create anomaly detection configuration"
+      accept @fields
+      change set_attribute(:key, "default")
+    end
+
+    update :update do
+      description "Update anomaly detection configuration"
+      accept @fields
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_with_permission(@manage_check)
+    action_with_permission([:create, :update], @manage_check)
+  end
+
+  attributes do
+    attribute :key, :string do
+      allow_nil? false
+      default "default"
+      primary_key? true
+      public? false
+    end
+
+    attribute :n_sigma, :float do
+      allow_nil? false
+      default 3.0
+      public? true
+      constraints min: 0.1, max: 20.0
+      description "Z-score threshold used to classify an evaluation slot as anomalous"
+    end
+
+    attribute :window_size, :integer do
+      allow_nil? false
+      default 300
+      public? true
+      constraints min: 2, max: 86_400
+      description "Maximum samples retained in the rolling baseline window"
+    end
+
+    attribute :window_duration_seconds, :integer do
+      allow_nil? false
+      default 900
+      public? true
+      constraints min: 1, max: 86_400
+      description "Target wall-clock duration represented by the rolling window"
+    end
+
+    attribute :confirm_slots, :integer do
+      allow_nil? false
+      default 5
+      public? true
+      constraints min: 1, max: 10_000
+      description "Consecutive anomalous slots required before emitting a finding"
+    end
+
+    attribute :min_samples, :integer do
+      allow_nil? false
+      default 30
+      public? true
+      constraints min: 1, max: 86_400
+      description "Minimum clean baseline samples required before findings may emit"
+    end
+
+    attribute :metric_class_overrides, :map do
+      allow_nil? false
+      default @default_metric_class_overrides
+      public? true
+      description "Per-metric-class overrides keyed by interface, red, cpu, memory, or disk"
+    end
+
+    timestamps()
+  end
+end

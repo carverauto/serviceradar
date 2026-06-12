@@ -1,0 +1,129 @@
+defmodule ServiceRadar.Observability.CapacityForecastConfig do
+  @moduledoc """
+  Deployment-level capacity forecasting tuning.
+
+  This singleton stores the forecast horizon, warning threshold, model choice,
+  and class-specific overrides used by the scheduled capacity forecasting job.
+  """
+
+  use Ash.Resource,
+    domain: ServiceRadar.Observability,
+    data_layer: AshPostgres.DataLayer,
+    authorizers: [Ash.Policy.Authorizer]
+
+  @manage_check {ServiceRadar.Policies.Checks.ActorHasPermission,
+                 permission: "observability.alerts.manage"}
+  @fields [
+    :forecast_horizon_seconds,
+    :warning_horizon_seconds,
+    :warning_threshold_percent,
+    :model,
+    :minimum_history_points,
+    :metric_class_overrides
+  ]
+  @default_metric_class_overrides %{
+    "interface" => %{},
+    "cpu" => %{},
+    "memory" => %{},
+    "disk" => %{}
+  }
+
+  postgres do
+    table "capacity_forecast_configs"
+    repo ServiceRadar.Repo
+    schema "platform"
+  end
+
+  code_interface do
+    define :get_settings, action: :get_singleton
+    define :create_settings, action: :create
+    define :update_settings, action: :update
+  end
+
+  actions do
+    defaults [:read]
+
+    read :get_singleton do
+      description "Get the singleton capacity forecast configuration"
+      get? true
+      filter expr(key == "default")
+    end
+
+    create :create do
+      description "Create capacity forecast configuration"
+      accept @fields
+      change set_attribute(:key, "default")
+    end
+
+    update :update do
+      description "Update capacity forecast configuration"
+      accept @fields
+    end
+  end
+
+  policies do
+    import ServiceRadar.Policies
+
+    system_bypass()
+    read_with_permission(@manage_check)
+    action_with_permission([:create, :update], @manage_check)
+  end
+
+  attributes do
+    attribute :key, :string do
+      allow_nil? false
+      default "default"
+      primary_key? true
+      public? false
+    end
+
+    attribute :forecast_horizon_seconds, :integer do
+      allow_nil? false
+      default 7_776_000
+      public? true
+      constraints min: 3_600, max: 63_115_200
+      description "Projection horizon for capacity forecasts"
+    end
+
+    attribute :warning_horizon_seconds, :integer do
+      allow_nil? false
+      default 2_592_000
+      public? true
+      constraints min: 3_600, max: 63_115_200
+      description "Emit warnings when exhaustion is projected inside this horizon"
+    end
+
+    attribute :warning_threshold_percent, :float do
+      allow_nil? false
+      default 80.0
+      public? true
+      constraints min: 1.0, max: 100.0
+      description "Utilization percentage treated as capacity exhaustion for forecasts"
+    end
+
+    attribute :model, :atom do
+      allow_nil? false
+      default :linear
+      public? true
+      constraints one_of: [:linear, :seasonal_linear, :holt_winters]
+      description "Forecast model identifier"
+    end
+
+    attribute :minimum_history_points, :integer do
+      allow_nil? false
+      default 72
+      public? true
+      constraints min: 2, max: 35_040
+      description "Minimum aggregate samples required before producing a forecast"
+    end
+
+    attribute :metric_class_overrides, :map do
+      allow_nil? false
+      default @default_metric_class_overrides
+      public? true
+      description "Per-metric-class forecast overrides keyed by interface, cpu, memory, or disk"
+    end
+
+    timestamps()
+  end
+end

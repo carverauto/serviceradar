@@ -40,7 +40,7 @@
 - [x] 3.4 Scaling: verify capacity scales with core-elx replica count (Horde redistributes context ownership; Broadway concurrency absorbs bursts). No standalone consumer, no external autoscaler.
 
 ## 4. Configuration (CNPG-backed, Helm-seeded, settings UI)
-- [ ] 4.1 `AnomalyDetectionConfig` + forecast-config Ash resource(s) in CNPG: N-sigma, window size/duration, confirm-slots, min-samples, per-metric-class overrides (interface/RED/cpu/mem/disk), forecast horizon, warning threshold, model choice.
+- [x] 4.1 `AnomalyDetectionConfig` + forecast-config Ash resource(s) in CNPG: N-sigma, window size/duration, confirm-slots, min-samples, per-metric-class overrides (interface/RED/cpu/mem/disk), forecast horizon, warning threshold, model choice.
 - [ ] 4.2 Helm chart defaults seed the config on first boot (no redeploy needed to change them afterward).
 - [ ] 4.3 Engine reads config from CNPG with periodic refresh / hot-reload so edits take effect without restarting the detector.
 - [ ] 4.4 Settings UI editor for the config (mirror the observability-rule-management / settings patterns); RBAC-gated.
