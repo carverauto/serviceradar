@@ -259,9 +259,10 @@ impl QueryEngine {
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
                 Entity::OtelMetricPoints => otel_metric_points::execute(&mut conn, &plan).await?,
-                Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
-                    timeseries_metrics::execute(&mut conn, &plan).await?
-                }
+                Entity::RperfMetrics
+                | Entity::TimeseriesMetrics
+                | Entity::TimeseriesMetricInterfaceHourly
+                | Entity::SnmpMetrics => timeseries_metrics::execute(&mut conn, &plan).await?,
                 Entity::CpuMetrics => cpu_metrics::execute(&mut conn, &plan).await?,
                 Entity::MemoryMetrics => memory_metrics::execute(&mut conn, &plan).await?,
                 Entity::DiskMetrics => disk_metrics::execute(&mut conn, &plan).await?,
@@ -421,6 +422,7 @@ pub(super) fn supports_hourly_cagg(entity: &Entity) -> bool {
             | Entity::DiskMetrics
             | Entity::ProcessMetrics
             | Entity::TimeseriesMetrics
+            | Entity::TimeseriesMetricInterfaceHourly
             | Entity::SnmpMetrics
             | Entity::RperfMetrics
             | Entity::Flows
@@ -436,6 +438,7 @@ pub(super) fn cagg_table_for_entity(entity: &Entity) -> Option<&'static str> {
         Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
             Some("timeseries_metrics_hourly")
         }
+        Entity::TimeseriesMetricInterfaceHourly => Some("timeseries_metrics_interface_hourly"),
         Entity::Flows => Some("ocsf_network_activity_5m_traffic"),
         _ => None,
     }
@@ -476,14 +479,18 @@ pub(super) fn cagg_column_for_entity(
             ("max", "memory_usage") => Some("max_memory_usage"),
             _ => None,
         },
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
-            match (agg.as_str(), field.as_str()) {
-                ("avg", "value") => Some("avg_value"),
-                ("min", "value") => Some("min_value"),
-                ("max", "value") => Some("max_value"),
-                _ => None,
+        Entity::TimeseriesMetrics
+        | Entity::TimeseriesMetricInterfaceHourly
+        | Entity::SnmpMetrics
+        | Entity::RperfMetrics => match (agg.as_str(), field.as_str()) {
+            ("avg", "value") => Some("avg_value"),
+            ("min", "value") => Some("min_value"),
+            ("max", "value") => Some("max_value"),
+            ("avg", "rate_per_second") | ("avg", "avg_rate_per_second") => {
+                Some("avg_rate_per_second")
             }
-        }
+            _ => None,
+        },
         Entity::Flows => match (agg.as_str(), field.as_str()) {
             ("sum", "bytes_total") => Some("bytes_total"),
             ("sum", "packets_total") => Some("packets_total"),
@@ -499,7 +506,9 @@ fn is_hourly_cagg_eligible_query(entity: &Entity, has_stats: bool, has_downsampl
 }
 
 fn max_time_range_days_for_ast(ast: &QueryAst) -> i64 {
-    if is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some()) {
+    if matches!(ast.entity, Entity::TimeseriesMetricInterfaceHourly)
+        || is_hourly_cagg_eligible_query(&ast.entity, ast.stats.is_some(), ast.downsample.is_some())
+    {
         CAGG_MAX_TIME_RANGE_DAYS
     } else {
         90
@@ -927,9 +936,10 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             Entity::Gateways => gateways::to_sql_and_params(&plan)?,
             Entity::OtelMetrics => otel_metrics::to_sql_and_params(&plan)?,
             Entity::OtelMetricPoints => otel_metric_points::to_sql_and_params(&plan)?,
-            Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
-                timeseries_metrics::to_sql_and_params(&plan)?
-            }
+            Entity::RperfMetrics
+            | Entity::TimeseriesMetrics
+            | Entity::TimeseriesMetricInterfaceHourly
+            | Entity::SnmpMetrics => timeseries_metrics::to_sql_and_params(&plan)?,
             Entity::CpuMetrics => cpu_metrics::to_sql_and_params(&plan)?,
             Entity::MemoryMetrics => memory_metrics::to_sql_and_params(&plan)?,
             Entity::DiskMetrics => disk_metrics::to_sql_and_params(&plan)?,

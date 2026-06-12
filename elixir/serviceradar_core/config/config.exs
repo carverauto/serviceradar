@@ -6,6 +6,8 @@
 
 import Config
 
+alias ServiceRadar.Observability.CapacityForecasting.Worker
+
 # Ash configuration
 config :ash,
   include_embedded_source_by_default?: false,
@@ -46,6 +48,7 @@ config :serviceradar_core, Oban,
        {"*/15 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
        {"17 * * * *", ServiceRadar.Jobs.PruneStaleAgentsWorker, queue: :maintenance},
        {"17 3 * * *", ServiceRadar.Observability.DataRetentionWorker, queue: :maintenance},
+       {"41 * * * *", Worker, args: %{"trigger" => "cron"}, queue: :maintenance},
        {"*/10 * * * *", ServiceRadar.Edge.RemoteAccessRecordingReaperWorker, queue: :maintenance},
        {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker, queue: :maintenance},
        {"23 3 * * *", ServiceRadar.Jobs.SecurityEventsRetentionWorker, queue: :maintenance}
@@ -109,6 +112,12 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
     remote_access_ssh_certificate_issue: [limit: 10, window_seconds: 60],
     api_default: [limit: 120, window_seconds: 60]
   }
+
+config :serviceradar_core, Worker,
+  enabled: true,
+  horizon_seconds: 90 * 24 * 60 * 60,
+  min_points: 24,
+  seasonal_period: 24
 
 config :serviceradar_core, :object_store_retention,
   enabled?: true,

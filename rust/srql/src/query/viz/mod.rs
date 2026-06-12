@@ -77,6 +77,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         && matches!(
             plan.entity,
             Entity::TimeseriesMetrics
+                | Entity::TimeseriesMetricInterfaceHourly
                 | Entity::SnmpMetrics
                 | Entity::RperfMetrics
                 | Entity::CpuMetrics
@@ -151,9 +152,10 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::TraceSummaries => observability::trace_summaries(),
         Entity::OtelMetrics => observability::otel_metrics(),
         Entity::OtelMetricPoints => observability::otel_metric_points(),
-        Entity::TimeseriesMetrics | Entity::SnmpMetrics | Entity::RperfMetrics => {
-            metrics::timeseries_metrics()
-        }
+        Entity::TimeseriesMetrics
+        | Entity::TimeseriesMetricInterfaceHourly
+        | Entity::SnmpMetrics
+        | Entity::RperfMetrics => metrics::timeseries_metrics(),
         Entity::CpuMetrics => metrics::cpu_metrics(),
         Entity::MemoryMetrics => metrics::memory_metrics(),
         Entity::DiskMetrics => metrics::disk_metrics(),

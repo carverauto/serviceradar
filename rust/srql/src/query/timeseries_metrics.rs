@@ -21,7 +21,7 @@ use diesel::query_builder::{
     AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery as DieselSqlQuery,
 };
 use diesel::sql_query;
-use diesel::sql_types::{Array, Jsonb, Nullable, Text, Timestamptz};
+use diesel::sql_types::{Array, BigInt, Float8, Jsonb, Nullable, Text, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 use serde_json::Value;
@@ -70,6 +70,7 @@ struct TimeseriesStatsPayload {
 
 const RPERF_METRIC_TYPE: &str = "rperf";
 const SNMP_METRIC_TYPE: &str = "snmp";
+const INTERFACE_HOURLY_TABLE: &str = "timeseries_metrics_interface_hourly";
 
 #[derive(Clone, Copy)]
 enum MetricScope<'a> {
@@ -78,6 +79,10 @@ enum MetricScope<'a> {
 }
 
 pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> Result<Vec<Value>> {
+    if matches!(plan.entity, Entity::TimeseriesMetricInterfaceHourly) {
+        return execute_interface_hourly(conn, plan).await;
+    }
+
     let scope = ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
@@ -100,6 +105,11 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
+    if matches!(plan.entity, Entity::TimeseriesMetricInterfaceHourly) {
+        let sql = build_interface_hourly_query(plan, false)?;
+        return Ok((rewrite_placeholders(&sql.sql), sql.binds));
+    }
+
     let scope = ensure_entity(plan)?;
 
     if let Some(spec) = parse_stats_spec(plan.stats.as_ref().map(|s| s.as_raw()))? {
@@ -155,6 +165,306 @@ fn ensure_entity(plan: &QueryPlan) -> Result<MetricScope<'static>> {
         Entity::RperfMetrics => Ok(MetricScope::Forced(RPERF_METRIC_TYPE)),
         _ => Err(ServiceError::InvalidRequest(
             "entity not supported by timeseries metrics query".into(),
+        )),
+    }
+}
+
+struct InterfaceHourlySql {
+    sql: String,
+    binds: Vec<BindParam>,
+}
+
+async fn execute_interface_hourly(
+    conn: &mut AsyncPgConnection,
+    plan: &QueryPlan,
+) -> Result<Vec<Value>> {
+    let sql = build_interface_hourly_query(plan, true)?;
+    let mut query = sql_query(rewrite_placeholders(&sql.sql)).into_boxed::<Pg>();
+
+    for bind in sql.binds {
+        query = bind_interface_hourly_param(query, bind)?;
+    }
+
+    let rows: Vec<TimeseriesStatsPayload> = query
+        .load::<TimeseriesStatsPayload>(conn)
+        .await
+        .map_err(|err| ServiceError::Internal(err.into()))?;
+
+    Ok(rows
+        .into_iter()
+        .filter_map(|row| row.payload.map(serde_json::Value::from))
+        .collect())
+}
+
+fn build_interface_hourly_query(plan: &QueryPlan, payload: bool) -> Result<InterfaceHourlySql> {
+    if plan.stats.is_some() {
+        return Err(ServiceError::InvalidRequest(
+            "stats are not supported for timeseries_metrics_interface_hourly".into(),
+        ));
+    }
+
+    let mut clauses = Vec::new();
+    let mut binds = Vec::new();
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("bucket >= ? AND bucket <= ?".to_string());
+        binds.push(BindParam::timestamptz(*start));
+        binds.push(BindParam::timestamptz(*end));
+    }
+
+    for filter in &plan.filters {
+        if let Some(clause) = build_interface_hourly_filter_clause(filter, &mut binds)? {
+            clauses.push(clause);
+        }
+    }
+
+    binds.push(BindParam::Int(plan.limit));
+    binds.push(BindParam::Int(plan.offset));
+
+    let select_sql = if payload {
+        "jsonb_build_object(\
+            'bucket', bucket, \
+            'device_id', device_id, \
+            'target_device_ip', target_device_ip, \
+            'if_index', if_index, \
+            'metric_type', metric_type, \
+            'metric_name', metric_name, \
+            'series_key', series_key, \
+            'avg_value', avg_value, \
+            'min_value', min_value, \
+            'max_value', max_value, \
+            'delta_value', delta_value, \
+            'duration_seconds', duration_seconds, \
+            'avg_rate_per_second', avg_rate_per_second, \
+            'sample_count', sample_count\
+        ) AS payload"
+    } else {
+        "bucket, device_id, target_device_ip, if_index, metric_type, metric_name, \
+         series_key, avg_value, min_value, max_value, delta_value, duration_seconds, \
+         avg_rate_per_second, sample_count"
+    };
+
+    let where_sql = if clauses.is_empty() {
+        String::new()
+    } else {
+        format!(" WHERE {}", clauses.join(" AND "))
+    };
+
+    Ok(InterfaceHourlySql {
+        sql: format!(
+            "SELECT {select_sql} FROM {INTERFACE_HOURLY_TABLE}{where_sql}{} LIMIT ? OFFSET ?",
+            build_interface_hourly_order_clause(&plan.order)
+        ),
+        binds,
+    })
+}
+
+fn build_interface_hourly_filter_clause(
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    match filter.field.as_str() {
+        "device_id" | "target_device_ip" | "metric_type" | "metric_name" | "series_key" => {
+            build_interface_hourly_text_filter(filter.field.as_str(), filter, binds)
+        }
+        "if_index" => build_interface_hourly_int_filter("if_index", filter, binds),
+        "avg_value"
+        | "min_value"
+        | "max_value"
+        | "delta_value"
+        | "duration_seconds"
+        | "avg_rate_per_second" => {
+            build_interface_hourly_float_filter(filter.field.as_str(), filter, binds)
+        }
+        "sample_count" => build_interface_hourly_int_filter("sample_count", filter, binds),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported filter field for timeseries_metrics_interface_hourly: '{other}'"
+        ))),
+    }
+}
+
+fn build_interface_hourly_text_filter(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    match filter.op {
+        FilterOp::Eq | FilterOp::NotEq | FilterOp::Like | FilterOp::NotLike => {
+            binds.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            let op = match filter.op {
+                FilterOp::Eq => "=",
+                FilterOp::NotEq => "<>",
+                FilterOp::Like => "ILIKE",
+                FilterOp::NotLike => "NOT ILIKE",
+                _ => unreachable!(),
+            };
+            Ok(Some(format!("{column} {op} ?")))
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(None);
+            }
+            binds.push(BindParam::TextArray(values));
+            let op = if matches!(filter.op, FilterOp::In) {
+                "= ANY"
+            } else {
+                "<> ALL"
+            };
+            Ok(Some(format!("{column} {op}(?)")))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for text filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn build_interface_hourly_int_filter(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    match filter.op {
+        FilterOp::Eq
+        | FilterOp::NotEq
+        | FilterOp::Gt
+        | FilterOp::Gte
+        | FilterOp::Lt
+        | FilterOp::Lte => {
+            let value = filter
+                .value
+                .as_scalar()?
+                .parse::<i64>()
+                .map_err(|_| ServiceError::InvalidRequest(format!("invalid {column} value")))?;
+            binds.push(BindParam::Int(value));
+            Ok(Some(format!(
+                "{column} {} ?",
+                comparison_operator(&filter.op).expect("comparison op")
+            )))
+        }
+        FilterOp::In | FilterOp::NotIn => {
+            let values = parse_i32_list(filter.value.as_list()?)?;
+            if values.is_empty() {
+                return Ok(None);
+            }
+            binds.push(BindParam::IntArray(
+                values.into_iter().map(i64::from).collect(),
+            ));
+            let op = if matches!(filter.op, FilterOp::In) {
+                "= ANY"
+            } else {
+                "<> ALL"
+            };
+            Ok(Some(format!("{column} {op}(?)")))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for integer filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn build_interface_hourly_float_filter(
+    column: &str,
+    filter: &Filter,
+    binds: &mut Vec<BindParam>,
+) -> Result<Option<String>> {
+    match filter.op {
+        FilterOp::Eq
+        | FilterOp::NotEq
+        | FilterOp::Gt
+        | FilterOp::Gte
+        | FilterOp::Lt
+        | FilterOp::Lte => {
+            binds.push(BindParam::Float(parse_f64(filter.value.as_scalar()?)?));
+            Ok(Some(format!(
+                "{column} {} ?",
+                comparison_operator(&filter.op).expect("comparison op")
+            )))
+        }
+        _ => Err(ServiceError::InvalidRequest(format!(
+            "unsupported operator for numeric filter: {:?}",
+            filter.op
+        ))),
+    }
+}
+
+fn comparison_operator(op: &FilterOp) -> Option<&'static str> {
+    match op {
+        FilterOp::Eq => Some("="),
+        FilterOp::NotEq => Some("<>"),
+        FilterOp::Gt => Some(">"),
+        FilterOp::Gte => Some(">="),
+        FilterOp::Lt => Some("<"),
+        FilterOp::Lte => Some("<="),
+        _ => None,
+    }
+}
+
+fn build_interface_hourly_order_clause(order: &[OrderClause]) -> String {
+    let clauses: Vec<String> = order
+        .iter()
+        .filter_map(|clause| {
+            interface_hourly_order_column(clause.field.as_str()).map(|column| {
+                let direction = match clause.direction {
+                    OrderDirection::Asc => "ASC",
+                    OrderDirection::Desc => "DESC",
+                };
+                format!("{column} {direction}")
+            })
+        })
+        .collect();
+
+    if clauses.is_empty() {
+        " ORDER BY bucket DESC".to_string()
+    } else {
+        format!(" ORDER BY {}", clauses.join(", "))
+    }
+}
+
+fn interface_hourly_order_column(field: &str) -> Option<&'static str> {
+    match field {
+        "bucket" | "time" | "timestamp" => Some("bucket"),
+        "device_id" => Some("device_id"),
+        "target_device_ip" => Some("target_device_ip"),
+        "if_index" => Some("if_index"),
+        "metric_type" => Some("metric_type"),
+        "metric_name" => Some("metric_name"),
+        "series_key" => Some("series_key"),
+        "avg_value" => Some("avg_value"),
+        "min_value" => Some("min_value"),
+        "max_value" => Some("max_value"),
+        "delta_value" => Some("delta_value"),
+        "duration_seconds" => Some("duration_seconds"),
+        "avg_rate_per_second" => Some("avg_rate_per_second"),
+        "sample_count" => Some("sample_count"),
+        _ => None,
+    }
+}
+
+fn bind_interface_hourly_param<'a>(
+    query: BoxedSqlQuery<'a, Pg, DieselSqlQuery>,
+    param: BindParam,
+) -> Result<BoxedSqlQuery<'a, Pg, DieselSqlQuery>> {
+    match param {
+        BindParam::Text(value) => Ok(query.bind::<Text, _>(value)),
+        BindParam::TextArray(values) => Ok(query.bind::<Array<Text>, _>(values)),
+        BindParam::IntArray(values) => Ok(query.bind::<Array<BigInt>, _>(values)),
+        BindParam::Int(value) => Ok(query.bind::<BigInt, _>(value)),
+        BindParam::Float(value) => Ok(query.bind::<Float8, _>(value)),
+        BindParam::Timestamptz(value) => {
+            let timestamp = chrono::DateTime::parse_from_rfc3339(&value)
+                .map(|dt| dt.with_timezone(&Utc))
+                .map_err(|err| {
+                    ServiceError::Internal(anyhow::anyhow!(
+                        "invalid timestamptz bind {value:?}: {err}"
+                    ))
+                })?;
+            Ok(query.bind::<Timestamptz, _>(timestamp))
+        }
+        BindParam::Bool(_) | BindParam::Uuid(_) => Err(ServiceError::InvalidRequest(
+            "unsupported bind type for timeseries_metrics_interface_hourly".into(),
         )),
     }
 }

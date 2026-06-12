@@ -192,6 +192,43 @@ fn translate_downsample_emits_time_bucket_query() {
 }
 
 #[test]
+fn translate_timeseries_metric_interface_hourly_reads_interface_cagg() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:timeseries_metric_interface_hourly time:last_180d sort:bucket:asc limit:5000"
+            .to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("FROM timeseries_metrics_interface_hourly"),
+        "expected interface hourly CAGG, got: {}",
+        response.sql
+    );
+    assert!(
+        response.sql.contains("ORDER BY bucket ASC"),
+        "expected bucket ordering, got: {}",
+        response.sql
+    );
+
+    let max_placeholder = super::max_dollar_placeholder(&response.sql);
+    assert_eq!(
+        max_placeholder,
+        response.params.len(),
+        "sql placeholders must match params length\nsql: {}\nparams: {:?}",
+        response.sql,
+        response.params
+    );
+}
+
+#[test]
 fn translate_downsample_respects_value_field() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {
