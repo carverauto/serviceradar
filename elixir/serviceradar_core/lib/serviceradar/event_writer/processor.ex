@@ -10,11 +10,13 @@ defmodule ServiceRadar.EventWriter.Processor do
       defmodule MyApp.Processors.Telemetry do
         @behaviour ServiceRadar.EventWriter.Processor
 
+        alias ServiceRadar.EventWriter.BulkInsert
+
         @impl true
         def process_batch(messages) do
           rows = Enum.map(messages, &parse_message/1)
 
-          case MyApp.Repo.insert_all("timeseries_metrics", rows, on_conflict: :nothing) do
+          case BulkInsert.insert_all("timeseries_metrics", rows, on_conflict: :nothing) do
             {count, _} -> {:ok, count}
           end
         rescue

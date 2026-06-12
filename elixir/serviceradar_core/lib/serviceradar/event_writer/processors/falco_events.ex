@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.FieldParser
@@ -320,7 +321,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     rows_for_insert = Enum.map(rows, &encode_text_columns/1)
 
     {count, _} =
-      ServiceRadar.Repo.insert_all("logs", rows_for_insert,
+      BulkInsert.insert_all("logs", rows_for_insert,
         on_conflict: :nothing,
         returning: false
       )
@@ -332,7 +333,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp insert_event_rows(rows) do
     {count, inserted} =
-      ServiceRadar.Repo.insert_all("ocsf_events", rows,
+      BulkInsert.insert_all("ocsf_events", rows,
         on_conflict: :nothing,
         returning: [:id]
       )

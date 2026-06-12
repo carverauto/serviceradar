@@ -15,6 +15,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.Monitoring.OcsfEvent
   alias ServiceRadar.Observability.BmpSettingsRuntime
   alias ServiceRadar.Observability.CausalPubSub
@@ -141,8 +142,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp insert_rows(_table, []), do: 0
 
   defp insert_rows(table, rows) when is_list(rows) do
-    {count, _} =
-      ServiceRadar.Repo.insert_all(table, rows, on_conflict: :nothing, returning: false)
+    {count, _} = BulkInsert.insert_all(table, rows, on_conflict: :nothing, returning: false)
 
     count
   end
