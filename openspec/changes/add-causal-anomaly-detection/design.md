@@ -214,7 +214,15 @@ Customers will deploy **NATS leaf nodes** in their own networks. A leaf node is 
 3. **UUIDv8 stamped at edge ingress** — "first contact" is the edge gateway/collector, giving one clock domain per site; per-series context is single-site so its total order is correct. Cross-site total order is not required (a series lives at one site).
 4. **Detection stays cloud-side** in this change (core-elx consumes the federated hub); pushing detection to the edge is a later option, not precluded.
 
-Building edge/leaf deployment (leaf JetStream domain, stream source/mirror to hub, edge agent-gateway packaging) is **future work** — this decision only ensures Phase 0 does not preclude it.
+**Key principle — OTLP is terminated locally; NATS crosses the WAN.** Edge-emitted OTEL never travels to a cloud collector as OTLP. It is terminated *at the edge* (turned into NATS messages locally) and the **leaf→hub federation** carries it to the cloud. So the collector is deployable per-site, not a central chokepoint:
+- **Agent's own OTEL** → agent → agent-gateway (LAN gRPC) → gateway publishes `otel.*.raw` to the local leaf. No collector needed.
+- **Plugin/add-on/local-app OTLP (OTel SDK)** → a *local* OTLP terminator (an edge `rust/otel` collector, or the gateway hosting an OTLP receiver) → publishes `otel.*.raw` to the local leaf. (An SDK speaks OTLP-on-the-wire and cannot publish to NATS itself, so it needs a terminator *near it*.)
+- **Add-on-protocol telemetry** → returned via `CommandResult` → agent → gateway → local leaf.
+- The **cloud** collector only terminates OTLP from cloud-resident emitters + external apps reaching the cloud OTLP gateway over the internet — the same bridge, cloud instance.
+
+What crosses the WAN is always **NATS** (leaf → hub, store-and-forward), never raw OTLP to a distant collector — which is what makes it work on intermittent links.
+
+Building edge/leaf deployment (leaf JetStream domain, stream source/mirror to hub, edge agent-gateway + edge collector packaging) is **future work** — this decision only ensures Phase 0 does not preclude it.
 
 ## Risks / Trade-offs
 
