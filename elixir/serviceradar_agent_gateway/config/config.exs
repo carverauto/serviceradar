@@ -10,6 +10,11 @@ config :serviceradar_agent_gateway, :metrics,
   ip: {0, 0, 0, 0},
   port: 9090
 
+config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.sysmon",
+  connection: ServiceRadar.NATS.Connection
+
 # General application configuration
 config :serviceradar_agent_gateway,
   namespace: ServiceRadarAgentGateway

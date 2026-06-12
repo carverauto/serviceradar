@@ -221,6 +221,22 @@ spec:
                   }
                 }
               },
+              # Agent gateway publishes shadow sysmon metrics during the
+              # causal-anomaly Phase 0 cutover. It is not a general NATS
+              # producer and cannot publish flow attribution or events.
+              {
+                user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
+                permissions: {
+                  publish: {
+                    allow: ["metrics.sysmon.>"]
+                    deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.>"]
+                  }
+                  subscribe: {
+                    allow: []
+                    deny: ["\$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
+                  }
+                }
+              },
               # Datasvc (B-5 subject-scoping): query-side service that reads
               # attributed flows for this partition plus catalog events and
               # config. PublishAllow does not include any flow.attributed.*
