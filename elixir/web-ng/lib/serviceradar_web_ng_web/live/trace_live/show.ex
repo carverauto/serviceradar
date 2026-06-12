@@ -14,6 +14,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   @nanos_per_second 1_000_000_000
 
   @trace_id_pattern ~r/^[0-9a-f]{32}$/
+  @span_id_pattern ~r/^[0-9a-f]{16}$/
 
   @doc """
   Normalizes a candidate trace id to canonical 32-char lowercase hex.
@@ -33,6 +34,24 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
   def normalize_trace_id(_value), do: :error
 
+  @doc """
+  Normalizes a candidate span id to canonical 16-char lowercase hex.
+
+  Returns `{:ok, span_id}` or `:error`. Mirrors `normalize_trace_id/1` and is
+  shared with views that deep-link into a specific span of the waterfall.
+  """
+  def normalize_span_id(value) when is_binary(value) do
+    id = value |> String.trim() |> String.downcase()
+
+    if Regex.match?(@span_id_pattern, id) do
+      {:ok, id}
+    else
+      :error
+    end
+  end
+
+  def normalize_span_id(_value), do: :error
+
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
@@ -47,6 +66,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
      |> assign(:root_service, nil)
      |> assign(:root_operation, nil)
      |> assign(:expanded_idx, nil)
+     |> assign(:highlight_idx, nil)
      |> assign(:span_truncated?, false)
      |> assign(:span_limit_display, @span_limit)
      |> assign(:state, :not_found)
@@ -57,7 +77,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   @impl true
-  def handle_params(%{"trace_id" => raw}, _uri, socket) do
+  def handle_params(%{"trace_id" => raw} = params, _uri, socket) do
     case normalize_trace_id(raw) do
       {:ok, trace_id} ->
         {:noreply,
@@ -65,7 +85,9 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
          |> assign(:trace_id, trace_id)
          |> assign(:page_title, "Trace #{String.slice(trace_id, 0, 8)}")
          |> assign(:expanded_idx, nil)
-         |> load_trace(srql_module(), trace_id)}
+         |> assign(:highlight_idx, nil)
+         |> load_trace(srql_module(), trace_id)
+         |> maybe_expand_span(Map.get(params, "span"))}
 
       :error ->
         {:noreply,
@@ -91,7 +113,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
       end
 
     expanded = if socket.assigns.expanded_idx == idx, do: nil, else: idx
-    {:noreply, assign(socket, :expanded_idx, expanded)}
+    {:noreply, socket |> assign(:expanded_idx, expanded) |> assign(:highlight_idx, nil)}
   end
 
   @impl true
@@ -198,7 +220,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
                 <%= for {row, idx} <- Enum.with_index(@rows) do %>
                   <tr
                     id={"trace-spans-row-#{idx}"}
-                    class="hover:bg-base-200/40 cursor-pointer transition-colors"
+                    class={[
+                      "hover:bg-base-200/40 cursor-pointer transition-colors",
+                      @highlight_idx == idx && "ring-2 ring-inset ring-primary/60 bg-primary/5"
+                    ]}
                     phx-click="toggle_span"
                     phx-value-idx={idx}
                   >
@@ -443,6 +468,21 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
       _ ->
         load_logs(socket, srql, trace_id, derive_log_window(min_start, max_end, summary))
+    end
+  end
+
+  # Deep-link support: when the URL carries a valid `?span=` that matches a
+  # loaded span, auto-expand that span's detail panel and highlight its row.
+  # Unknown, malformed, or absent span params are ignored.
+  defp maybe_expand_span(socket, span_param) do
+    with {:ok, span_id} <- normalize_span_id(span_param),
+         idx when is_integer(idx) <-
+           Enum.find_index(socket.assigns.rows, &(&1.span_id == span_id)) do
+      socket
+      |> assign(:expanded_idx, idx)
+      |> assign(:highlight_idx, idx)
+    else
+      _ -> socket
     end
   end
 
