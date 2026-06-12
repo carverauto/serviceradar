@@ -14,6 +14,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   alias ServiceRadar.Observability.AnomalyDetection.Config
   alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
+  alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
 
   require Logger
 
@@ -103,8 +104,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   defp analyze_samples(samples, subject) do
     Enum.reduce_while(samples, :ok, fn sample, :ok ->
       case context_engine().evaluate(sample) do
-        {:ok, _verdict} ->
-          {:cont, :ok}
+        {:ok, verdict} ->
+          case maybe_emit_verdict(sample, verdict) do
+            :ok -> {:cont, :ok}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
 
         {:drop, reason} ->
           emit(:dropped, 1, subject, reason)
@@ -116,11 +120,43 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     end)
   end
 
+  defp maybe_emit_verdict(sample, verdict) do
+    if anomalous?(verdict) and not suppressed?(verdict) do
+      case verdict_emitter().emit(sample, verdict) do
+        :ok -> :ok
+        {:error, reason} -> {:error, {:anomaly_verdict_emit_failed, reason}}
+        other -> {:error, {:unexpected_anomaly_verdict_emit_result, other}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp anomalous?(verdict) when is_map(verdict) do
+    Map.get(verdict, :anomalous, Map.get(verdict, "anomalous", false)) == true
+  end
+
+  defp anomalous?(_verdict), do: false
+
+  defp suppressed?(verdict) when is_map(verdict) do
+    Map.get(verdict, :suppressed, Map.get(verdict, "suppressed", false)) == true
+  end
+
+  defp suppressed?(_verdict), do: false
+
   defp context_engine do
     Application.get_env(
       :serviceradar_core,
       :anomaly_detection_context_engine,
       ContextEngine
+    )
+  end
+
+  defp verdict_emitter do
+    Application.get_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      VerdictEmitter
     )
   end
 
