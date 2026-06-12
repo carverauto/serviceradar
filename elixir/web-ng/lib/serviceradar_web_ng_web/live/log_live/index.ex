@@ -48,6 +48,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   @netflow_sankey_max_mids 8
   @netflow_sankey_max_dests 10
   @default_netflow_stack_mode "ports"
+  @multi_span_filter "span_count:>1"
+  @default_traces_query_base "in:otel_trace_summaries time:last_24h"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -1079,6 +1081,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
                 limit={@limit}
                 live?={@logs_live?}
               />
+              <.traces_panel_controls :if={@active_tab == "traces"} srql={@srql} limit={@limit} />
               <.metrics_panel_controls
                 :if={@active_tab == "metrics"}
                 view={@metrics_view}
@@ -1107,7 +1110,13 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               logs={@streams.logs}
               count={length(@logs)}
             />
-            <.traces_table :if={@active_tab == "traces"} id="traces" traces={@traces} />
+            <.traces_table
+              :if={@active_tab == "traces"}
+              id="traces"
+              traces={@traces}
+              query={Map.get(@srql, :query) || ""}
+              limit={@limit}
+            />
             <div :if={@active_tab == "metrics" and @metrics_view == "samples"}>
               <div
                 id="metrics-pane-label-samples"
@@ -3734,8 +3743,17 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   attr(:id, :string, required: true)
   attr(:traces, :list, default: [])
+  attr(:query, :string, default: "")
+  attr(:limit, :integer, default: @default_limit)
 
   defp traces_table(assigns) do
+    {sort_field, sort_dir} = trace_sort_state(assigns.query)
+
+    assigns =
+      assigns
+      |> assign(:sort_field, sort_field)
+      |> assign(:sort_dir, sort_dir)
+
     ~H"""
     <div class="overflow-x-auto">
       <table id={@id} class="table table-sm table-zebra w-full">
@@ -3751,7 +3769,34 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               Operation
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
-              Duration
+              <.link
+                id={"#{@id}-sort-duration"}
+                patch={traces_sort_href(@query, "duration_ms", @limit)}
+                class="inline-flex items-center gap-1 hover:text-primary"
+                title="Sort by duration"
+              >
+                Duration
+                <.icon
+                  :if={@sort_field == "duration_ms"}
+                  name={if @sort_dir == "asc", do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-3"
+                />
+              </.link>
+            </th>
+            <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-20 text-right">
+              <.link
+                id={"#{@id}-sort-spans"}
+                patch={traces_sort_href(@query, "span_count", @limit)}
+                class="inline-flex items-center gap-1 hover:text-primary"
+                title="Sort by span count"
+              >
+                Spans
+                <.icon
+                  :if={@sort_field == "span_count"}
+                  name={if @sort_dir == "asc", do: "hero-chevron-up", else: "hero-chevron-down"}
+                  class="size-3"
+                />
+              </.link>
             </th>
             <th class="whitespace-nowrap text-xs font-semibold text-base-content/70 bg-base-200/60 w-24 text-right">
               Errors
@@ -3760,7 +3805,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
         </thead>
         <tbody>
           <tr :if={@traces == []}>
-            <td colspan="5" class="text-sm text-base-content/60 py-8 text-center">
+            <td colspan="6" class="text-sm text-base-content/60 py-8 text-center">
               No traces found.
             </td>
           </tr>
@@ -3785,6 +3830,12 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono text-right">
                 {format_duration_ms(trace_duration_ms(trace))}
               </td>
+              <td
+                id={"#{@id}-row-#{idx}-spans"}
+                class="whitespace-nowrap text-xs font-mono text-right"
+              >
+                {Map.get(trace, "span_count", 0) |> to_int()}
+              </td>
               <td class="whitespace-nowrap text-xs font-mono text-right">
                 <span class={error_count_class(trace_error_count(trace))}>
                   {trace_error_count(trace)}
@@ -3796,6 +3847,83 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       </table>
     </div>
     """
+  end
+
+  attr(:srql, :map, required: true)
+  attr(:limit, :integer, required: true)
+
+  defp traces_panel_controls(assigns) do
+    query = Map.get(assigns.srql, :query) || ""
+
+    assigns =
+      assigns
+      |> assign(:active?, multi_span_active?(query))
+      |> assign(:href, traces_multi_span_href(query, assigns.limit))
+
+    ~H"""
+    <div class="flex items-center gap-2">
+      <span class="text-[10px] uppercase tracking-wider text-base-content/50">Filter</span>
+      <.ui_button
+        id="traces-multi-span-toggle"
+        patch={@href}
+        size="xs"
+        variant="ghost"
+        active={@active?}
+        class="rounded-full"
+        title={if @active?, do: "Show all traces", else: "Show only traces with more than one span"}
+      >
+        Multi-span
+      </.ui_button>
+    </div>
+    """
+  end
+
+  defp trace_sort_state(query) do
+    case Regex.run(~r/(?:^|\s)sort:([A-Za-z0-9_]+)(?::(asc|desc))?(?=\s|$)/, to_string(query)) do
+      [_, field] -> {field, "desc"}
+      [_, field, dir] -> {field, dir}
+      _ -> {nil, nil}
+    end
+  end
+
+  defp traces_sort_href(query, field, limit) do
+    {current_field, current_dir} = trace_sort_state(query)
+    dir = if current_field == field and current_dir == "desc", do: "asc", else: "desc"
+
+    base =
+      case strip_filter(to_string(query), "sort") do
+        "" -> @default_traces_query_base
+        cleaned -> cleaned
+      end
+
+    params = maybe_put_param(%{tab: "traces", limit: limit}, :q, base <> " sort:#{field}:#{dir}")
+
+    "/observability?" <> URI.encode_query(params)
+  end
+
+  defp multi_span_active?(query) do
+    query |> to_string() |> String.split() |> Enum.member?(@multi_span_filter)
+  end
+
+  defp traces_multi_span_href(query, limit) do
+    query = to_string(query)
+
+    new_query =
+      if multi_span_active?(query) do
+        query
+        |> String.split()
+        |> Enum.reject(&(&1 == @multi_span_filter))
+        |> Enum.join(" ")
+      else
+        case String.trim(query) do
+          "" -> "#{@default_traces_query_base} sort:timestamp:desc #{@multi_span_filter}"
+          cleaned -> cleaned <> " #{@multi_span_filter}"
+        end
+      end
+
+    params = maybe_put_param(%{tab: "traces", limit: limit}, :q, new_query)
+
+    "/observability?" <> URI.encode_query(params)
   end
 
   attr(:id, :string, required: true)
