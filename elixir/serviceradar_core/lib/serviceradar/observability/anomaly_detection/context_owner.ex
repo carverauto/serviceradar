@@ -242,9 +242,30 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
     %{
       event_id: event_id,
-      order_key: Map.get(sample, :order_key) || fallback_order_key(sample, event_id),
+      order_key: normalize_order_key(Map.get(sample, :order_key), sample, event_id),
       sample: sample
     }
+  end
+
+  defp normalize_order_key({timestamp, key, sample_timestamp, sample_key}, _sample, _event_id)
+       when is_integer(timestamp) and is_binary(key) and is_integer(sample_timestamp) and
+              is_binary(sample_key),
+       do: {timestamp, key, sample_timestamp, sample_key}
+
+  defp normalize_order_key({timestamp, key}, sample, event_id) when is_integer(timestamp) do
+    {timestamp, to_string(key), Map.get(sample, :observed_at_unix_nano) || 0, event_id}
+  end
+
+  defp normalize_order_key(key, sample, event_id) when is_binary(key) do
+    timestamp = order_timestamp(sample)
+    {timestamp, key, Map.get(sample, :observed_at_unix_nano) || 0, event_id}
+  end
+
+  defp normalize_order_key(nil, sample, event_id), do: fallback_order_key(sample, event_id)
+
+  defp normalize_order_key(key, sample, event_id) do
+    timestamp = order_timestamp(sample)
+    {timestamp, inspect(key), Map.get(sample, :observed_at_unix_nano) || 0, event_id}
   end
 
   defp fallback_event_id(sample) do
@@ -264,8 +285,24 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   end
 
   defp fallback_order_key(sample, event_id) do
-    timestamp = Map.get(sample, :observed_at_unix_nano) || 0
-    {timestamp, event_id}
+    timestamp = order_timestamp(sample)
+    {timestamp, event_id, Map.get(sample, :observed_at_unix_nano) || 0, event_id}
+  end
+
+  defp order_timestamp(sample) do
+    metadata_value(sample, :ingress_timestamp_unix_nano) ||
+      Map.get(sample, :observed_at_unix_nano) ||
+      0
+  end
+
+  defp metadata_value(sample, key) do
+    case Map.get(sample, :metadata) do
+      metadata when is_map(metadata) ->
+        Map.get(metadata, key) || Map.get(metadata, to_string(key))
+
+      _ ->
+        nil
+    end
   end
 
   defp trim_updates(updates, max_events) when length(updates) > max_events do

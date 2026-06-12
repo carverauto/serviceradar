@@ -40,6 +40,39 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert snapshot.context.baseline == [10.0, 20.0]
   end
 
+  test "UUIDv8 order keys make out-of-order replays deterministic" do
+    {:ok, pid} = start_owner()
+
+    newer = "00000645-50df-8e80-8000-000000000002"
+    older = "00000645-50de-8e80-8000-000000000001"
+
+    assert {:ok, _verdict} = ContextOwner.evaluate(pid, uuid_sample(newer, 2, 20.0))
+    assert {:ok, _verdict} = ContextOwner.evaluate(pid, uuid_sample(older, 1, 10.0))
+    assert {:ok, _verdict} = ContextOwner.evaluate(pid, uuid_sample(older, 1, 99.0))
+
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.event_ids == [older, newer]
+    assert snapshot.context.baseline == [10.0, 20.0]
+  end
+
+  test "normalizes mixed binary and tuple order keys by timestamp" do
+    {:ok, pid} = start_owner()
+
+    assert {:ok, _verdict} =
+             ContextOwner.evaluate(pid, %{
+               sample("binary-key", 1, 10.0)
+               | order_key: "00000645-50de-8e80-8000-000000000001"
+             })
+
+    assert {:ok, _verdict} = ContextOwner.evaluate(pid, sample("tuple-key", 2, 20.0))
+
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.event_ids == ["binary-key", "tuple-key"]
+    assert snapshot.context.baseline == [10.0, 20.0]
+  end
+
   test "withholds breached samples from the baseline and carries the consecutive counter" do
     {:ok, pid} = start_owner(reasoner: __MODULE__.WithholdReasoner)
 
@@ -127,6 +160,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       order_key: {order, event_id},
       value: value,
       observed_at_unix_nano: order,
+      subject: "otel.metrics.derived",
+      metric_class: "test"
+    }
+  end
+
+  defp uuid_sample(event_id, observed_at_unix_nano, value) do
+    %{
+      series_key: "series-1",
+      event_id: event_id,
+      order_key: event_id,
+      value: value,
+      observed_at_unix_nano: observed_at_unix_nano,
       subject: "otel.metrics.derived",
       metric_class: "test"
     }
