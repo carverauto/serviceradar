@@ -2,12 +2,12 @@
 # openspec/changes/refactor-otel-signal-correlation/edge-relay-plan.md).
 #
 # The add-on runs the ServiceRadar OTEL collector at the edge as an
-# agent-sidecar: local OTLP/gRPC (4317) + OTLP/HTTP (4318) listeners, a
-# durable on-disk relay spool, and the acked AddonService.RelayOtlp stream
-# (capability otlp-relay:v1). The supervising agent forwards relay frames to
-# the agent-gateway over its existing mTLS channel and acks them back only
-# after gateway acceptance; identity/partition are stamped upstream from the
-# agent's certificate, never locally.
+# agent-sidecar: local OTLP/gRPC (4317) + OTLP/HTTP (4318) listeners. The
+# required/default shape uses a durable on-disk relay spool and the acked
+# AddonService.RelayOtlp stream (capability otlp-relay:v1). Sites with a
+# local NATS leaf can explicitly set output.backend=jetstream to publish
+# directly to the leaf instead. Identity/partition are stamped upstream from
+# the agent/gateway trust path, never locally.
 #
 # id/capabilities/binary intentionally match the values the binary reports
 # from its own Info() RPC (rust/otel-addon/src/addon.rs) so the manifest and
@@ -17,10 +17,10 @@ name: OTEL Collector Add-on
 version: 0.1.0
 description: >-
   Edge OpenTelemetry collector for ServiceRadar. Accepts OTLP traces, logs,
-  and metrics on local gRPC/HTTP listeners, spools them durably on disk, and
-  relays them to the supervising agent over the acked otlp-relay:v1 stream so
-  buffered telemetry survives agent/gateway disconnects and is delivered
-  after reconnect.
+  and metrics on local gRPC/HTTP listeners. The default required install
+  spools them durably on disk and relays them to the supervising agent over
+  the acked otlp-relay:v1 stream; sites with a local NATS leaf can explicitly
+  switch to direct JetStream leaf publishing.
 
 kind: native
 delivery: pushed-artifact     # compiled-in | pushed-artifact | os-package

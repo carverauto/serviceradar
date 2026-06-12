@@ -54,6 +54,8 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   # Default intervals
   @default_heartbeat_interval_sec 30
   @default_config_poll_interval_sec 300
+  @required_addons_config_key :required_agent_addons
+  @default_required_addon_ids ["otel-collector"]
 
   @type check_config :: %{
           check_id: String.t(),
@@ -384,24 +386,66 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Enum.sort_by(&addon_assignment_precedence/1)
       |> Enum.uniq_by(&logical_addon_id/1)
 
-    case assignments do
-      [] ->
-        []
+    assigned_addon_ids = MapSet.new(assignments, &logical_addon_id/1)
+    required_addons = required_agent_addon_specs(assigned_addon_ids)
 
-      _ ->
-        # Resolve the agent's compatibility profile only when there are assignments
-        # to compile, so the common no-add-on path avoids the extra registry lookup.
-        profile = resolve_agent_addon_profile(agent_id, actor)
+    if assignments == [] and required_addons == [] do
+      []
+    else
+      profile = resolve_agent_addon_profile(agent_id, actor)
 
+      assignment_configs =
         assignments
         |> Enum.map(&build_deliverable_addon_assignment_config(&1, profile))
         |> Enum.reject(&is_nil/1)
+
+      required_configs =
+        required_addons
+        |> Enum.map(&build_deliverable_required_addon_config(&1, profile, actor))
+        |> Enum.reject(&is_nil/1)
+
+      assignment_configs ++ required_configs
     end
   rescue
     e ->
       Logger.warning("Error loading addon assignments: #{inspect(e)}")
       []
   end
+
+  defp required_agent_addon_specs(assigned_addon_ids) do
+    :serviceradar_core
+    |> Application.get_env(@required_addons_config_key, @default_required_addon_ids)
+    |> List.wrap()
+    |> Enum.map(&normalize_required_agent_addon_spec/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&MapSet.member?(assigned_addon_ids, &1.addon_id))
+    |> Enum.uniq_by(& &1.addon_id)
+  end
+
+  defp normalize_required_agent_addon_spec(addon_id) when is_binary(addon_id) do
+    case String.trim(addon_id) do
+      "" -> nil
+      addon_id -> %{addon_id: addon_id, enabled: true, args: [], params: %{}}
+    end
+  end
+
+  defp normalize_required_agent_addon_spec(spec) when is_map(spec) do
+    spec = normalize_map(spec)
+    addon_id = spec |> fetch_map_value(:addon_id, "") |> to_string() |> String.trim()
+
+    if addon_id == "" do
+      nil
+    else
+      %{
+        addon_id: addon_id,
+        enabled: fetch_map_value(spec, :enabled, true) != false,
+        args: normalize_string_list(fetch_map_value(spec, :args, [])),
+        params: normalize_map(fetch_map_value(spec, :params, %{}))
+      }
+    end
+  end
+
+  defp normalize_required_agent_addon_spec(_spec), do: nil
 
   defp ensure_addon_package_loaded(
          %AddonAssignment{addon_package: %AddonPackage{}} = assignment,
@@ -460,12 +504,64 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     artifact = select_addon_artifact(package.artifacts, profile.os, profile.arch)
 
     if deliverable_addon_assignment?(assignment, profile, artifact) do
-      build_addon_assignment_config(assignment, artifact)
+      build_addon_config(
+        logical_addon_id(assignment),
+        package,
+        artifact,
+        enabled: assignment.enabled,
+        args: assignment.args || [],
+        params: normalize_map(assignment.params)
+      )
     end
   end
 
-  defp build_addon_assignment_config(%AddonAssignment{} = assignment, artifact) do
-    package = assignment.addon_package
+  defp build_deliverable_required_addon_config(%{addon_id: addon_id} = spec, profile, actor) do
+    with %AddonPackage{} = package <- load_required_addon_package(addon_id, actor) do
+      artifact = select_addon_artifact(package.artifacts, profile.os, profile.arch)
+
+      if deliverable_required_addon_package?(package, profile, artifact) do
+        build_addon_config(addon_id, package, artifact,
+          enabled: spec.enabled,
+          args: spec.args,
+          params: spec.params
+        )
+      end
+    end
+  end
+
+  defp load_required_addon_package(addon_id, actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:by_addon_id, %{addon_id: addon_id}, actor: actor)
+    |> Ash.Query.filter(status == :approved)
+    |> Ash.Query.sort(approved_at: :desc, updated_at: :desc, inserted_at: :desc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, packages} ->
+        packages
+        |> Enum.reject(&(&1.verification_status == "blob_missing"))
+        |> List.first()
+
+      {:error, error} ->
+        Logger.warning(
+          "Skipping required add-on #{addon_id}: package lookup failed: #{inspect(error)}"
+        )
+
+        nil
+    end
+    |> case do
+      nil ->
+        Logger.warning("Skipping required add-on #{addon_id}: no approved package is available")
+        nil
+
+      %AddonPackage{} = package ->
+        package
+    end
+  end
+
+  defp build_addon_config(addon_id, %AddonPackage{} = package, artifact, opts) do
+    enabled = Keyword.get(opts, :enabled, true)
+    args = Keyword.get(opts, :args, [])
+    params = Keyword.get(opts, :params, %{})
 
     # Mint a gateway-proxied download request for the selected per-arch artifact so
     # agents fetch it over HTTPS through the agent-gateway artifact endpoint instead
@@ -475,12 +571,12 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     download_request = StorageToken.download_addon_request(package.id, artifact[:object_key])
 
     %{
-      addon_id: logical_addon_id(assignment),
+      addon_id: addon_id,
       version: package.version,
-      enabled: assignment.enabled,
+      enabled: enabled,
       binary_path: addon_binary_path(package),
-      args: assignment.args || [],
-      params: normalize_map(assignment.params),
+      args: args,
+      params: normalize_map(params),
       capabilities: effective_addon_capabilities(package),
       os_capabilities: addon_os_capabilities(package),
       delivery: package.delivery,
@@ -528,6 +624,34 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp deliverable_addon_assignment?(_assignment, _profile, _artifact), do: false
+
+  defp deliverable_required_addon_package?(%AddonPackage{} = package, profile, artifact) do
+    cond do
+      not agent_platform_allowed?(package, profile.os) ->
+        Logger.warning(
+          "Skipping required add-on #{package.addon_id}: package #{package.id} does not support agent platform #{inspect(profile.os)}"
+        )
+
+        false
+
+      not agent_version_allowed?(package, profile.version) ->
+        Logger.warning(
+          "Skipping required add-on #{package.addon_id}: package #{package.id} requires base agent #{inspect(addon_base_agent_requirement(package))}, got #{inspect(profile.version)}"
+        )
+
+        false
+
+      package.delivery == :pushed_artifact and not artifact_selected?(artifact) ->
+        Logger.warning(
+          "Skipping required add-on #{package.addon_id}: package #{package.id} has no verified artifact for #{inspect(profile.os)}/#{inspect(profile.arch)}"
+        )
+
+        false
+
+      true ->
+        true
+    end
+  end
 
   # Resolves the target agent's add-on compatibility profile from registry
   # metadata. Platform comes from metadata because Go agents report runtime

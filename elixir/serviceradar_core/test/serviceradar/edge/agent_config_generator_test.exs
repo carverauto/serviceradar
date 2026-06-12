@@ -29,6 +29,17 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
 
   setup do
     unique_id = :erlang.unique_integer([:positive])
+    old_required_addons = Application.get_env(:serviceradar_core, :required_agent_addons)
+
+    Application.put_env(:serviceradar_core, :required_agent_addons, [])
+
+    on_exit(fn ->
+      if is_nil(old_required_addons) do
+        Application.delete_env(:serviceradar_core, :required_agent_addons)
+      else
+        Application.put_env(:serviceradar_core, :required_agent_addons, old_required_addons)
+      end
+    end)
 
     actor = %{
       id: Ash.UUID.generate(),
@@ -1631,6 +1642,110 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.addon_id == package.addon_id
     end
 
+    test "required otel collector add-on is compiled without an explicit assignment", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      Application.put_env(:serviceradar_core, :required_agent_addons, ["otel-collector"])
+
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0"
+        })
+
+      object_key =
+        "native-addons/otel-collector/0.1.0/linux/amd64/#{String.duplicate("c", 64)}.tar.gz"
+
+      sha = String.duplicate("d", 64)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          addon_id: "otel-collector",
+          version: "0.1.#{unique_id}",
+          binary: "serviceradar-otel-addon",
+          capabilities: ["otlp-relay:v1", "native-telemetry:v1"],
+          approved_capabilities: ["otlp-relay:v1", "native-telemetry:v1"],
+          delivery: :pushed_artifact,
+          supervision: :agent_sidecar,
+          requires: %{"base_agent" => ">=1.2.0", "platforms" => ["linux"]},
+          artifacts: %{
+            "linux/amd64" => %{
+              "object_key" => object_key,
+              "sha256" => sha,
+              "signature" => "sig-#{unique_id}"
+            }
+          }
+        )
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.addon_id == "otel-collector"
+      assert addon.enabled == true
+      assert addon.delivery == :pushed_artifact
+      assert addon.supervision == :agent_sidecar
+      assert addon.binary_path == "/opt/sr/bin/serviceradar-otel-addon"
+      assert addon.capabilities == ["otlp-relay:v1", "native-telemetry:v1"]
+      assert addon.artifact_object_key == object_key
+      assert addon.artifact_sha256 == sha
+      assert addon.artifact_signature == "sig-#{unique_id}"
+      assert addon.target_os == "linux"
+      assert addon.target_arch == "amd64"
+
+      proto = AgentConfigGenerator.to_proto_response(config)
+      assert [proto_addon] = proto.addons
+      assert proto_addon.addon_id == "otel-collector"
+      assert proto_addon.version == package.version
+      assert proto_addon.delivery == "pushed_artifact"
+      assert proto_addon.supervision == "agent_sidecar"
+      assert proto_addon.config_json == ""
+    end
+
+    test "explicit otel collector assignment suppresses the required default duplicate", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      Application.put_env(:serviceradar_core, :required_agent_addons, ["otel-collector"])
+
+      {:ok, _agent} =
+        create_connected_agent(actor, agent_uid, %{"os" => "linux", "arch" => "amd64"}, %{
+          version: "1.2.0"
+        })
+
+      artifact = %{
+        "object_key" =>
+          "native-addons/otel-collector/0.1.0/linux/amd64/#{String.duplicate("e", 64)}.tar.gz",
+        "sha256" => String.duplicate("f", 64),
+        "signature" => "sig-#{unique_id}"
+      }
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          addon_id: "otel-collector",
+          version: "0.1.#{unique_id}",
+          binary: "serviceradar-otel-addon",
+          capabilities: ["otlp-relay:v1", "native-telemetry:v1"],
+          approved_capabilities: ["otlp-relay:v1", "native-telemetry:v1"],
+          delivery: :pushed_artifact,
+          supervision: :agent_sidecar,
+          requires: %{"base_agent" => ">=1.2.0", "platforms" => ["linux"]},
+          artifacts: %{"linux/amd64" => artifact}
+        )
+
+      {:ok, _assignment} =
+        assign_addon(actor, agent_uid, package, %{
+          "agent_forward" => %{"max_bytes" => 1_048_576}
+        })
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert [addon] = config.addons
+      assert addon.addon_id == "otel-collector"
+      assert addon.params == %{"agent_forward" => %{"max_bytes" => 1_048_576}}
+    end
+
     test "bumblebee add-on assignment is emitted for k8s-agent when compatible", %{
       actor: actor,
       unique_id: unique_id
@@ -1728,6 +1843,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
     supervision = Keyword.get(opts, :supervision, :config_toggle)
     artifacts = Keyword.get(opts, :artifacts, %{})
     addon_id = Keyword.get(opts, :addon_id, "sample-addon-#{unique_id}")
+    version = Keyword.get(opts, :version, "1.0.0")
     binary = Keyword.get(opts, :binary, "sample-addon-#{unique_id}")
     requires = Keyword.get(opts, :requires, %{})
 
@@ -1737,7 +1853,7 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
         :create,
         %{
           addon_id: addon_id,
-          version: "1.0.0",
+          version: version,
           name: "Sample Addon #{unique_id}",
           binary: binary,
           install_path: "/opt/sr/bin",

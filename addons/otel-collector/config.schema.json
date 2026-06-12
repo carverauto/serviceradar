@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "title": "OTEL Collector Add-on Configuration",
-  "description": "Operator configuration delivered over the Configure RPC and parsed into the otel crate's collector config. The output backend is always forced to the durable agent-forward spool (otlp-relay:v1); there is no NATS/JetStream section in this deployment shape.",
+  "description": "Operator configuration delivered over the Configure RPC and parsed into the otel crate's collector config. Omitted output defaults to durable gateway relay through the supervising agent (otlp-relay:v1). Set output.backend to jetstream, with nats settings, when the edge has a local NATS leaf and should publish directly.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -109,11 +109,76 @@
         }
       }
     },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Output transport. Omit this section for the required/default gateway-relay add-on shape. Set backend to jetstream for direct-to-leaf publishing through a local NATS leaf.",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["agent", "jetstream"],
+          "default": "agent"
+        }
+      }
+    },
+    "nats": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "NATS/JetStream output settings used only when output.backend is jetstream. Point url at the local NATS leaf for direct-to-leaf edge durability.",
+      "required": ["url"],
+      "properties": {
+        "url": { "type": "string" },
+        "subject": {
+          "type": "string",
+          "default": "events.otlp"
+        },
+        "logs_subject": { "type": "string" },
+        "stream": {
+          "type": "string",
+          "default": "events"
+        },
+        "creds_file": { "type": "string" },
+        "timeout_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 10
+        },
+        "max_bytes": {
+          "type": "integer",
+          "default": 1073741824
+        },
+        "max_age_secs": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 86400
+        },
+        "stream_replicas": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1
+        },
+        "max_inflight_publishes": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 32
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cert_file", "key_file"],
+          "properties": {
+            "cert_file": { "type": "string" },
+            "key_file": { "type": "string" },
+            "ca_file": { "type": "string" }
+          }
+        }
+      }
+    },
     "agent_forward": {
       "type": "object",
       "additionalProperties": false,
       "title": "Relay spool retention",
-      "description": "Durable relay spool settings (the durability owner between OTLP OK and gateway ack). The spool is bounded: when any bound is reached, the oldest sealed segments are evicted first and every evicted record is counted in delivery accounting — telemetry is never allowed to fill the disk. Changing these bounds takes effect immediately on the running add-on, without a restart. Sizing hint: 256 MiB buffers roughly tens of minutes of moderate edge volume; for long-outage durability use the NATS leaf JetStream transport instead of a larger spool.",
+      "description": "Durable relay spool settings for the default agent/gateway relay backend (the durability owner between OTLP OK and gateway ack). Ignored when output.backend is jetstream. The spool is bounded: when any bound is reached, the oldest sealed segments are evicted first and every evicted record is counted in delivery accounting — telemetry is never allowed to fill the disk. Changing these bounds takes effect immediately on the running add-on, without a restart. Sizing hint: 256 MiB buffers roughly tens of minutes of moderate edge volume; for long-outage durability use the NATS leaf JetStream transport instead of a larger spool.",
       "properties": {
         "spool_dir": {
           "type": "string",
