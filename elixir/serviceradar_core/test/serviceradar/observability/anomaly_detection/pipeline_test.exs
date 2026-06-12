@@ -6,14 +6,21 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   alias ServiceRadar.Observability.AnomalyDetection.Pipeline
 
   setup do
-    previous_reasoner = Application.get_env(:serviceradar_core, :anomaly_detection_reasoner)
+    previous_context_engine =
+      Application.get_env(:serviceradar_core, :anomaly_detection_context_engine)
+
     previous_pid = Application.get_env(:serviceradar_core, :anomaly_detection_pipeline_test_pid)
 
-    Application.put_env(:serviceradar_core, :anomaly_detection_reasoner, __MODULE__.ReasonerStub)
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.ContextEngineStub
+    )
+
     Application.put_env(:serviceradar_core, :anomaly_detection_pipeline_test_pid, self())
 
     on_exit(fn ->
-      restore_env(:anomaly_detection_reasoner, previous_reasoner)
+      restore_env(:anomaly_detection_context_engine, previous_context_engine)
       restore_env(:anomaly_detection_pipeline_test_pid, previous_pid)
     end)
 
@@ -25,7 +32,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     config = config(enabled_subjects: ["otel.metrics.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
-    refute_receive {:reason, _context, _sample}
+    refute_receive {:evaluate, _sample}
   end
 
   test "extracts enabled samples and invokes the reasoner" do
@@ -34,17 +41,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
     assert ^message = Pipeline.handle_message(:default, message, config)
 
-    assert_receive {:reason, context, sample}
-    assert context.baseline == []
-    assert context.confirm_slots == 5
+    assert_receive {:evaluate, sample}
     assert sample.value == 50.0
+    assert is_binary(sample.event_id)
+    assert is_tuple(sample.order_key)
   end
 
   test "marks messages failed when the reasoner returns an error" do
     Application.put_env(
       :serviceradar_core,
-      :anomaly_detection_reasoner,
-      __MODULE__.FailingReasoner
+      :anomaly_detection_context_engine,
+      __MODULE__.FailingContextEngine
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
@@ -80,12 +87,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     assert_receive :nacked
   end
 
-  defmodule ReasonerStub do
+  defmodule ContextEngineStub do
     @moduledoc false
-    def reason(context, sample) do
+    def evaluate(sample) do
       send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
-        :reason,
-        context,
+        :evaluate,
         sample
       })
 
@@ -93,9 +99,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     end
   end
 
-  defmodule FailingReasoner do
+  defmodule FailingContextEngine do
     @moduledoc false
-    def reason(_context, _sample), do: {:error, "bad sample"}
+    def evaluate(_sample), do: {:error, "bad sample"}
   end
 
   defp config(opts) do

@@ -11,6 +11,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
       })
 
     assert sample.series_key == "sysmon:memory:host-1"
+    assert is_binary(sample.event_id)
+    assert {1_781_222_400_000_000_000, _hash} = sample.order_key
     assert sample.value == 50.0
     assert sample.observed_at_unix_nano == 1_781_222_400_000_000_000
     assert sample.metric_class == "sysmon.memory"
