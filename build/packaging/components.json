@@ -11,7 +11,6 @@
           "trapd",
           "flow-collector",
           "nats",
-          "zen",
           "snmp",
           "rperf-checker"
         ],
@@ -226,87 +225,6 @@
     "systemd_service": {
       "dest": "/lib/systemd/system/serviceradar-datasvc.service",
       "source": "build/packaging/datasvc/systemd/serviceradar-datasvc.service"
-    },
-    "version": "1.0.58"
-  },
-  {
-    "additional_dirs": [
-      "/var/log/zen",
-      "/etc/serviceradar/zen/rules"
-    ],
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "rust",
-      "output_path": "/usr/local/bin/serviceradar-zen",
-      "source_path": "rust/consumers/zen"
-    },
-    "conffiles": [
-      "/etc/serviceradar/consumers/zen-consumer.json",
-      "/etc/serviceradar/zen/rules/cef_severity.json",
-      "/etc/serviceradar/zen/rules/falco_normalize.json",
-      "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
-      "/etc/serviceradar/zen/rules/passthrough.json",
-      "/etc/serviceradar/zen/rules/snmp_severity.json",
-      "/etc/serviceradar/zen/rules/strip_full_message.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/consumers/zen-consumer.json",
-        "source": "build/packaging/zen/config/zen-consumer.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/cef_severity.json",
-        "source": "build/packaging/zen/rules/cef_severity.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/falco_normalize.json",
-        "source": "build/packaging/zen/rules/falco_normalize.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
-        "source": "build/packaging/zen/rules/netflow_to_ocsf.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/passthrough.json",
-        "source": "build/packaging/zen/rules/passthrough.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/snmp_severity.json",
-        "source": "build/packaging/zen/rules/snmp_severity.json"
-      },
-      {
-        "dest": "/etc/serviceradar/zen/rules/strip_full_message.json",
-        "source": "build/packaging/zen/rules/strip_full_message.json"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "rust/consumers/zen/Dockerfile"
-    },
-    "description": "ServiceRadar Zen Consumer Service",
-    "maintainer": "Carver Automation Corporation <mfreeman@carverauto.dev>",
-    "name": "zen",
-    "package_name": "serviceradar-zen",
-    "postinst": {
-      "source": "build/packaging/zen/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/zen/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.rust.zen",
-      "release": "1"
-    },
-    "section": "net",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-zen.service",
-      "source": "build/packaging/zen/systemd/serviceradar-zen.service"
     },
     "version": "1.0.58"
   },

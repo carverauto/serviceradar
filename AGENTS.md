@@ -58,7 +58,7 @@ ServiceRadar is a multi-component system made up of Go services (core, sync, reg
 
 ## Repository Layout
 
-- `go/cmd/` – Go binaries (agent, cli, data-services, faker, db-event-writer, tools).
+- `go/cmd/` – Go binaries (agent, cli, data-services, faker, tools).
 - `go/pkg/` – Shared Go packages: identity map, registry, sync integrations, database clients.
 - `rust/srql/` – SRQL translator/service backed by Diesel + CNPG.
 - `docs/docs/` – User and architecture documentation (notably `architecture.md`, `agents.md`).
@@ -140,7 +140,7 @@ Use this when the diff only touches `elixir/web-ng/**` and you want a faster `de
    - If only `elixir/web-ng/**` changed, rebuild just `serviceradar-web-ng` and copy the other images forward to the new immutable tag.
 2. Copy unchanged images from the current demo tag to the new tag:
    - `/tmp/gobin/crane cp registry.carverauto.dev/serviceradar/<image>:sha-<old> registry.carverauto.dev/serviceradar/<image>:sha-<new>`
-   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-db-event-writer`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, `serviceradar-zen`, and `arancini`.
+   - Repeat for `serviceradar-agent`, `serviceradar-agent-gateway`, `serviceradar-core-elx`, `serviceradar-datasvc`, `serviceradar-faker`, `serviceradar-flow-collector`, `serviceradar-log-collector`, `serviceradar-rperf-client`, `serviceradar-tools`, `serviceradar-trapd`, and `arancini`.
 3. Rebuild the production `web-ng` release locally:
    - `cd elixir/web-ng`
    - `MIX_ENV=prod HEX_HTTP_CONCURRENCY=1 HEX_HTTP_TIMEOUT=120 mix deps.compile`
@@ -606,15 +606,17 @@ ServiceRadar is single-deployment. Do not add multitenancy features, per-custome
 
 **CRITICAL:** All tables, indexes, and constraints belong in the `platform` schema. Do not create or reference objects in the `public` schema. In migrations, set `prefix: "platform"` for new tables/indexes/constraints and avoid `prefix: "public"` in references.
 
-The `db-event-writer` Go service must NEVER create database schema or run DDL statements. It is a data ingestion service only - it writes to existing tables but does not create or modify schema.
+Ingestion services must NEVER create database schema or run DDL statements. They
+write to existing tables but do not create or modify schema.
 
 This rule exists because:
 - Elixir migrations provide a single source of truth for schema
 - Ecto migrations support up/down rollbacks and version tracking
 - Having schema scattered across Go and Elixir creates maintenance nightmares
-- The db-event-writer may be replaced or scaled differently than schema management
+- Ingestion services may be replaced or scaled differently than schema management
 
-If you need a new table, view, or materialized view that db-event-writer will write to, create the migration in Elixir first.
+If you need a new table, view, or materialized view that ingestion will write to,
+create the migration in Elixir first.
 
 ## Code Generation
 

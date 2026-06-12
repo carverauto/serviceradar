@@ -40,31 +40,27 @@ Traps complement polling by pushing urgent events:
 
 ## Trap Processing Pipeline
 
-1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream stream `events` on the `logs.snmp` subject so the zen decision group matches without additional rewrites.
-2. `serviceradar-zen` attaches to the same stream using the `zen-consumer` durable. The SNMP decision group listens for `logs.snmp`, mutates the payload, and republishes it with the `.processed` suffix (`logs.snmp.processed`).
-3. `serviceradar-db-event-writer` drains the `.processed` subjects and bulk loads the results into the CNPG tables. Keeping raw and processed subjects in one stream lets you replay traps after adjusting rules.
+1. `serviceradar-trapd` publishes each decoded trap as JSON to the NATS JetStream
+   stream `events` on the `logs.snmp` subject.
+2. `serviceradar_core` consumes the same raw subject, evaluates the bundled Zen
+   rules through a Rustler NIF, and persists the normalized trap log into CNPG.
+3. Keeping raw subjects in one stream lets you replay traps after adjusting code
+   or bundled rules.
 
 ## Default Trap Rules
 
-- `snmp_severity` normalizes the severity field to a known value if the trap does not supply one. Review the JSON under `build/packaging/zen/rules/snmp_severity.json`.
+- `snmp_severity` normalizes the severity field to a known value if the trap
+  does not supply one. Review the bundled JSON under
+  `elixir/serviceradar_core/priv/zen/rules/snmp_severity.json`.
 - `passthrough` is available for cases where you only need the `.processed` suffix without transformations; it copies the input event unchanged.
 
 These and the syslog-focused rules share the same GoRules/zen runtime. Use the Rule Builder UI to manage them; see the [Rule Builder](./rule-builder.md) guide.
 
 ## Managing Rules
 
-- Use **Settings → Events** to manage Zen normalization rules for SNMP traps.
-- In normal operation, rule distribution is handled by the control plane. You should not need to write NATS keys by hand.
-- For advanced debugging, you can update or add rules with the `zen-put-rule` helper inside the `serviceradar-tools` container. Example:
-
-  ```bash
-  kubectl -n <namespace> exec deploy/serviceradar-tools -- \
-    zen-put-rule --agent default-agent --stream events \
-    --subject logs.snmp --rule snmp_severity \
-    --file /etc/serviceradar/zen/rules/snmp_severity.json
-  ```
-
-  Substitute `passthrough` when you want to register the no-op rule for additional subjects (for example OTEL logs).
+- Use **Settings -> Events** to manage rule templates for SNMP traps.
+- In normal operation, rule distribution is handled by the control plane. You
+  should not need to write NATS keys by hand.
 
 ## Validate Collection
 

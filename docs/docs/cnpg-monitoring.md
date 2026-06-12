@@ -32,11 +32,11 @@ GROUP BY bucket
 ORDER BY bucket;
 ```
 
-Create three panels that hit `platform.logs`, `platform.otel_metrics`, and `platform.otel_traces`. Grafana’s stacked bar visualization makes pipeline gaps obvious—missing buckets mean `serviceradar-db-event-writer` is not keeping up. Keep a single-stat panel that runs `SELECT COUNT(*) FROM platform.events WHERE created_at >= now() - INTERVAL '5 minutes';` to power an alert when ingestion drops to zero.
+Create three panels that hit `platform.logs`, `platform.otel_metrics`, and `platform.otel_traces`. Grafana's stacked bar visualization makes pipeline gaps obvious; missing buckets mean the core-elx ingestion workers are not keeping up. Keep a single-stat panel that runs `SELECT COUNT(*) FROM platform.events WHERE created_at >= now() - INTERVAL '5 minutes';` to power an alert when ingestion drops to zero.
 
-### db-event-writer Heatmap
+### Ingestion Heatmap
 
-Build a table panel from `pg_stat_activity` to watch the pgx consumers:
+Build a table panel from `pg_stat_activity` to watch ingestion database work:
 
 ```sql
 SELECT
@@ -230,13 +230,13 @@ should land in `lt_100`) and use it to tune alert thresholds.
 | Ingestion Stall | `SELECT COUNT(*) FROM platform.logs WHERE created_at >= now() - INTERVAL '5 minutes'` | `< 1` row triggers paging |
 | Retention Lag | `timescaledb_information.job_stats.last_successful_finish` | older than 15 minutes |
 | PVC Growth | `hypertable_detailed_size.total_bytes` | >10% growth per hour |
-| pgx Errors | `kubectl logs deploy/serviceradar-db-event-writer | grep "cnpg"` | any non-zero error rate should alert |
+| Ingestion Errors | `kubectl logs deploy/serviceradar-core | grep "cnpg"` | any non-zero error rate should alert |
 | Slow Query Load (Warning) | `cnpg_slow_query_total` | `> 5` statements for 10m |
 | Slow Query Load (Critical) | `cnpg_slow_query_total` | `> 20` statements for 10m |
 | Slow Query Time Burn | `cnpg_slow_query_time_ms_total` | sustained increase >2x baseline |
 | Extreme Latency Bucket | `latency_bucket = gte_5000` | any non-zero for 5m |
 
-Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_container_status_restarts_total`) and container CPU saturation (`container_cpu_usage_seconds_total`) for the CNPG and db-event-writer pods.
+Reuse your existing Prometheus stack to alert on pod restarts (`kube_pod_container_status_restarts_total`) and container CPU saturation (`container_cpu_usage_seconds_total`) for the CNPG and core pods.
 
 ## Trigram Indexes for Text Search
 

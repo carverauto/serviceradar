@@ -20,7 +20,6 @@ datasvc|serviceradar-datasvc
 agent|serviceradar-agent
 log-collector|serviceradar-log-collector
 trapd|serviceradar-trapd
-zen|serviceradar-zen
 rperf-client|serviceradar-rperf-client
 EOF
 )

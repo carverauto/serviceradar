@@ -23,7 +23,6 @@
 {{- $pg := default (dict) .Values.spire.postgres -}}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
-{{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
@@ -464,27 +463,6 @@ data:
         }
       }
   
-  zen-checker.json: |
-      {
-        "name": "zen",
-        "type": "grpc",
-        "address": "serviceradar-zen:50040",
-        "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "gateway",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$zenSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        }
-      }
-  
   trapd-checker.json: |
       {
         "name": "trapd",
@@ -523,92 +501,6 @@ data:
             "key_file": "agent-key.pem",
             "ca_file": "root.pem",
             "client_ca_file": "root.pem"
-          }
-        }
-      }
-  
-  zen.json: |
-      {
-        "nats_url": "tls://serviceradar-nats:4222",
-      {{ if or .Values.natsCreds.platform .Values.natsCreds.autoGenerate }}
-        "nats_creds_file": "/etc/serviceradar/creds/platform.creds",
-      {{ end }}
-        "stream_name": "events",
-        "stream_replicas": {{ default 1 .Values.zen.streamReplicas }},
-        "consumer_name": "zen-consumer",
-        "subjects": ["logs.syslog", "logs.snmp", "logs.otel"],
-        "discover_rules_from_kv": true,
-        "decision_groups": [
-          {
-            "name": "syslog",
-            "subjects": ["logs.syslog"],
-            "rules": [],
-            "format": "json"
-          },
-          {
-            "name": "snmp",
-            "subjects": ["logs.snmp"],
-            "rules": [],
-            "format": "json"
-          },
-          {
-            "name": "otel_logs",
-            "subjects": ["logs.otel"],
-            "rules": [],
-            "format": "protobuf"
-          }
-        ],
-        "agent_id": "default-agent",
-        "kv_address": "serviceradar-datasvc:50057",
-        "kv_bucket": "serviceradar-datasvc",
-        "listen_addr": "0.0.0.0:50040",
-        "result_subject_suffix": ".processed",
-        "security": {
-          "cert_file": "/etc/serviceradar/certs/zen.pem",
-          "key_file": "/etc/serviceradar/certs/zen-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
-        },
-        "grpc_security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "zen",
-          "trust_domain": "{{$trustDomain}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "cert_file": "/etc/serviceradar/certs/zen.pem",
-          "key_file": "/etc/serviceradar/certs/zen-key.pem",
-          "ca_file": "/etc/serviceradar/certs/root.pem"
-        },
-        "kv_security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "zen",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$datasvcSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "zen.pem",
-            "key_file": "zen-key.pem",
-            "ca_file": "root.pem"
-          }
-        },
-        "logging": {
-          "level": "info",
-          "debug": false,
-          "output": "stdout",
-          "time_format": "",
-          "otel": {
-            "enabled": true,
-            "endpoint": "serviceradar-log-collector:4317",
-            "service_name": "serviceradar-zen",
-            "batch_timeout": "5s",
-            "insecure": false,
-            "headers": {},
-            "tls": {
-              "cert_file": "/etc/serviceradar/certs/zen.pem",
-              "key_file": "/etc/serviceradar/certs/zen-key.pem",
-              "ca_file": "/etc/serviceradar/certs/root.pem",
-              "server_name": "serviceradar-log-collector"
-            }
           }
         }
       }
@@ -809,17 +701,6 @@ data:
           },
           {
             user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-            permissions: {
-              publish: {
-                allow: [">"]
-              }
-              subscribe: {
-                allow: [">"]
-              }
-            }
-          },
-          {
-            user: "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: [">"]
@@ -1146,10 +1027,8 @@ data:
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
             {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
-            {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
             {"identity": "CN=serviceradar-falcosidekick,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-tools,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"}

@@ -373,8 +373,7 @@ is complete.
   discovery/mapping, sysmon, WASM plugin checks.
 - **Bulk-collector path (NATS JetStream, stream `events`):** `flowgger`
   (syslog), `trapd` (SNMP traps), `otel` (OTLP), `flow-collector`
-  (NetFlow/sFlow) → `zen-consumer` (OCSF normalization) → `db-event-writer` →
-  CNPG.
+  (NetFlow/sFlow) -> core-elx EventWriter normalization/persistence -> CNPG.
 - **Causal-signal path (NATS):** BMP/BGP (`ARANCINI_CAUSAL` stream), SIEM
   (`siem.events.>`), MTR/other (`signals.causal.>`) → `CausalSignals`
   processor → `ocsf_events` / `bmp_routing_events` in CNPG.

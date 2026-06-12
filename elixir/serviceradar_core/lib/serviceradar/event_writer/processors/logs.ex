@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Observability.LogPromotion
   alias ServiceRadar.Observability.LogPubSub
+  alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
 
   require Logger
 
@@ -103,12 +104,23 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   end
 
   defp parse_log_payload({:ok, json}, _data, metadata) do
-    parse_json_log(json, metadata)
+    json
+    |> normalize_json_log(metadata)
+    |> parse_json_log(metadata)
   end
 
   defp parse_log_payload({:error, _}, data, metadata) do
     parse_protobuf_log(data, metadata)
   end
+
+  defp normalize_json_log(json, metadata) when is_map(json) do
+    case ZenNormalizer.normalize_json(metadata[:subject], json) do
+      {:ok, normalized} when is_map(normalized) -> normalized
+      _ -> json
+    end
+  end
+
+  defp normalize_json_log(json, _metadata), do: json
 
   defp parse_json_log(json, metadata) when is_map(json) do
     log_id = generated_uuid()

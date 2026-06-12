@@ -416,50 +416,6 @@ declare_multiarch_image_index(
 )
 
 declare_service_container_amd64(
-    name = "zen_image_amd64",
-    runtime = "ubuntu",
-    image_title = "serviceradar-zen",
-    files = {
-        "//rust/consumers/zen:zen": "usr/local/bin/serviceradar-zen",
-        "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
-        "//docker/compose:entrypoint-zen.sh": "usr/local/bin/entrypoint.sh",
-        "//docker/compose:zen-install-rules.sh": "usr/local/bin/zen-install-rules.sh",
-        "//build/packaging/zen:config/zen-consumer.json": "etc/serviceradar/zen.json",
-        "//rust/consumers/zen:data/cef_severity.json": "var/lib/serviceradar/data/cef_severity.json",
-        "//rust/consumers/zen:data/snmp_severity.json": "var/lib/serviceradar/data/snmp_severity.json",
-        "//rust/consumers/zen:data/passthrough.json": "var/lib/serviceradar/data/passthrough.json",
-        "//rust/consumers/zen:data/strip_full_message.json": "var/lib/serviceradar/data/strip_full_message.json",
-        "//rust/flow-collector:data/flows/netflow_to_ocsf.json": "var/lib/serviceradar/data/netflow_to_ocsf.json",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-zen": "0755",
-        "usr/local/bin/zen-put-rule": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "usr/local/bin/zen-install-rules.sh": "0755",
-        "etc/serviceradar/zen.json": "0644",
-        "var/lib/serviceradar/data/cef_severity.json": "0644",
-        "var/lib/serviceradar/data/snmp_severity.json": "0644",
-        "var/lib/serviceradar/data/passthrough.json": "0644",
-        "var/lib/serviceradar/data/strip_full_message.json": "0644",
-    },
-    empty_dirs = [
-        "etc/serviceradar/certs",
-        "var/log/serviceradar",
-        "var/lib/serviceradar",
-    ],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-zen"],
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50040/tcp"],
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-zen:local"],
-)
-
-declare_multiarch_image_index(
-    name = "zen_image_multiarch",
-    image = ":zen_image_amd64",
-)
-
-declare_service_container_amd64(
     name = "config_updater_image_amd64",
     runtime = "alpine_netutils",
     image_title = "serviceradar-config-updater",
@@ -512,7 +468,6 @@ declare_custom_base_service_container_amd64(
     repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-tools:local"],
     files = {
         "//go/cmd/cli:cli": "usr/local/bin/serviceradar-cli",
-        "//rust/consumers/zen:zen_put_rule": "usr/local/bin/zen-put-rule",
         "//docker/compose:tools-entrypoint.sh": "usr/local/bin/entrypoint.sh",
         "//docker/compose:tools-profile.sh": "etc/profile.d/serviceradar-tools.sh",
         "//docker/compose:tools-motd.txt": "etc/motd",
@@ -520,7 +475,6 @@ declare_custom_base_service_container_amd64(
     },
     modes = {
         "usr/local/bin/serviceradar-cli": "0755",
-        "usr/local/bin/zen-put-rule": "0755",
         "usr/local/bin/entrypoint.sh": "0755",
         "etc/profile.d/serviceradar-tools.sh": "0644",
         "etc/motd": "0644",

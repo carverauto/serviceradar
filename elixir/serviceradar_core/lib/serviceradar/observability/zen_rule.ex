@@ -2,8 +2,8 @@ defmodule ServiceRadar.Observability.ZenRule do
   @moduledoc """
   Zen rule definitions for log normalization.
 
-  Rules compile to GoRules/Zen JSON decision models and are synced to KV so
-  the zen consumer can reload them without manual JSON edits.
+  Rules compile to GoRules/Zen JSON decision models. The ingestion path evaluates
+  Zen rules in core-elx through the Rustler NIF.
   """
 
   use ServiceRadar.Observability.ZenPresetResource,

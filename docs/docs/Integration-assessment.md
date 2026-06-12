@@ -435,9 +435,8 @@ Three feeds, three responsibilities:
   aggregates via `stats:`, `bucket:`, and `rollup_stats:`), and structural
   snapshots (AGE topology via `graph_cypher`).
 - **JetStream subscriber.** Live deltas. Subscribes to `signals.causal.>`,
-  the OCSF-normalized output of `zen-consumer`, and `arancini.updates.>`
-  plus `siem.events.>` for the existing causal-signal paths. Sub-second
-  reactivity.
+  core-elx-normalized OCSF/event outputs, and `arancini.updates.>` plus
+  `siem.events.>` for the existing causal-signal paths. Sub-second reactivity.
 - **Scoped CDC via pgoutput.** Closes the gap that not all writers traverse
   JetStream. The edge-agent path (`serviceradar-agent` to `agent-gateway`
   to `core` to CNPG over mTLS gRPC) doesn't publish to JetStream today, so

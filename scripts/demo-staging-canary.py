@@ -17,7 +17,6 @@ SERVICE_TAG_KEYS = [
     "otel",
     "trapd",
     "flowgger",
-    "zen",
     "sync",
     "rperfClient",
     "faker",

@@ -790,36 +790,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  zen:
-    image: registry.carverauto.dev/serviceradar/serviceradar-zen:${APP_TAG:-latest}
-    container_name: serviceradar-zen-mtls
-    ports:
-      - "50040:50040"
-    volumes:
-      - ./docker/compose/zen.docker.json:/etc/serviceradar/zen.json:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
-      - zen-data:/var/lib/serviceradar
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/zen.json
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-    depends_on:
-      nats:
-        condition: service_started
-      datasvc:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50040 --attempts 1 --interval 1s --quiet"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   web-ng:
     image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
@@ -991,7 +961,6 @@ volumes:
   trapd-data:
   flow-data:
   bmp-data:
-  zen-data:
 
 networks:
   serviceradar-net:

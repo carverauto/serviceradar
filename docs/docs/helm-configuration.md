@@ -38,9 +38,7 @@ HA profile overlay
   - `core`
   - `webNg`
   - `agentGateway`
-  - `dbEventWriter`
   - `datasvc`
-  - `zen`
   - `logCollector`
   - `logCollector.tcpCollector`
   - `trapd`
@@ -52,7 +50,6 @@ JetStream sizing values
 - The shared `events` stream is created and reconciled by multiple services. The important knobs are:
   - `logCollector.streamReplicas`
   - `logCollector.streamMaxBytes`
-  - `zen.streamReplicas`
   - `trapd.streamReplicas`
   - `flowCollector.streamReplicas`
   - `flowCollector.config.stream_max_bytes`
@@ -231,7 +228,6 @@ cnpg:
     route:
       core: true
       webNg: true
-      dbEventWriter: false
     parameters:
       ignore_startup_parameters: "search_path"
       max_client_conn: "2000"
@@ -259,8 +255,6 @@ Operational notes:
   `metrics` and exposes the `cnpg_pgbouncer_` metric family.
 - Keep migrations and bootstrap direct to `cnpg-rw`; PgBouncer transaction
   pooling is not appropriate for DDL, extension setup, or migration locks.
-- Keep `db-event-writer` direct unless you have validated the Go database client
-  and ingest workload against the pooler configuration.
 
 ## Deployment Provisioning
 

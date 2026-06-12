@@ -183,7 +183,7 @@ Initial scrape inventory:
 | PgBouncer | `cnpg.pooler.monitoring.podMonitor.enabled` | Scrapes CloudNativePG Pooler metrics on port `metrics`. |
 | flow-collector | Optional `ServiceMonitor` | Rendered only when `flowCollector.service.ports.metrics.enabled=true`. Disabled in demo until the metrics listener is enabled. |
 | NATS | Not scraped by default | NATS exposes JSON monitoring on 8222; add a NATS Prometheus exporter before scraping it as Prometheus metrics. |
-| log-collector, trapd, BMP collector, datasvc, zen, agent | Not scraped by default | No confirmed Prometheus metrics endpoint is exposed by the chart today. Add exporters before enabling scrape targets. |
+| log-collector, trapd, BMP collector, datasvc, agent | Not scraped by default | No confirmed Prometheus metrics endpoint is exposed by the chart today. Add exporters before enabling scrape targets. |
 
 ### HA And JetStream Sizing
 
@@ -193,7 +193,6 @@ The published chart defaults stay conservative and mostly single-replica so firs
 - `webNg.replicas=3`
 - `agentGateway.replicas=3`
 - `datasvc.replicaCount=3`
-- `zen.replicaCount=3`
 - `logCollector.replicaCount=3`
 - `logCollector.tcpCollector.replicaCount=3`
 - `trapd.replicaCount=3`
@@ -212,7 +211,6 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
 | `objectStoreRetention.nativeAddonOrphanGraceSeconds` | Grace period before deleting unreferenced native add-on objects | `604800` |
-| `zen.streamReplicas` | Replica count for zen's shared `events` stream reconciliation | `1` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `1` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |
 | `logCollector.tcpCollector.streamReplicas` | Replica count for TCP syslog writers on `events` | `1` |

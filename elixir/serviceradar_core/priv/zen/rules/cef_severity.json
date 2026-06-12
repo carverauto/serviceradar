@@ -1,22 +1,11 @@
 {
   "nodes": [
-    {
-      "id": "inputNode",
-      "type": "inputNode",
-      "name": "Request",
-      "position": {
-        "x": 80,
-        "y": 150
-      }
-    },
+    { "id": "inputNode", "type": "inputNode", "name": "Request", "position": {"x": 80, "y": 150} },
     {
       "id": "setCefSeverity",
       "type": "expressionNode",
       "name": "Set CEF Severity",
-      "position": {
-        "x": 300,
-        "y": 150
-      },
+      "position": {"x": 300, "y": 150},
       "content": {
         "expressions": [
           {
@@ -27,28 +16,10 @@
         ]
       }
     },
-    {
-      "id": "outputNode",
-      "type": "outputNode",
-      "name": "Response",
-      "position": {
-        "x": 560,
-        "y": 150
-      }
-    }
+    { "id": "outputNode", "type": "outputNode", "name": "Response", "position": {"x": 560, "y": 150} }
   ],
   "edges": [
-    {
-      "id": "e1",
-      "sourceId": "inputNode",
-      "targetId": "setCefSeverity",
-      "type": "edge"
-    },
-    {
-      "id": "e2",
-      "sourceId": "setCefSeverity",
-      "targetId": "outputNode",
-      "type": "edge"
-    }
+    {"id": "e1", "sourceId": "inputNode", "targetId": "setCefSeverity", "type": "edge"},
+    {"id": "e2", "sourceId": "setCefSeverity", "targetId": "outputNode", "type": "edge"}
   ]
 }

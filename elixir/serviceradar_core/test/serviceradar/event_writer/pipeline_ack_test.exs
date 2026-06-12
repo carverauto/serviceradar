@@ -112,4 +112,28 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert %Message{batcher: :pdns_ocsf, metadata: %{base_subject: "pdns.ocsf"}} =
              Pipeline.handle_message(:default, message, %{})
   end
+
+  test "routes raw Zen log subjects to the declared logs batcher" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    assert :logs in Pipeline.configured_batcher_names(config)
+
+    for subject <- ["logs.syslog", "logs.snmp", "logs.otel"] do
+      message = %Message{
+        data: Jason.encode!(%{"body" => "test"}),
+        metadata: %{subject: subject},
+        acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+      }
+
+      assert %Message{batcher: :logs, metadata: %{base_subject: ^subject}} =
+               Pipeline.handle_message(:default, message, %{})
+    end
+  end
 end
