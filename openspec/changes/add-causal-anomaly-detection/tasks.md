@@ -4,17 +4,21 @@
 - [ ] 0.3 Route SNMP interface telemetry (ifHCInOctets/ifHCOutOctets + `if_index`) → `metrics.snmp.*` (not durable on JetStream today).
 - [ ] 0.4 New core-elx EventWriter DB-sync processor + **durable** consumer (`deliver_policy: all`, `ack_policy: explicit`, `max_deliver: -1`) consuming the metrics stream into cpu/disk/memory/process + interface tables (mirror `processors/telemetry.ex`).
 - [ ] 0.5 **Retire the Go `db-event-writer`:** audit core-elx parity for the six tables it owns (`ocsf_events`, `logs`, `ocsf_network_activity`, `otel_traces`, `otel_metrics`, `otel_metric_points`); cut the double-write so core-elx is sole writer; delete `go/cmd/consumers/db-event-writer` + `go/pkg/consumers/db-event-writer` + its helm/config. Reversible per-table.
-- [ ] 0.6 Confirm `zen` (`rust/consumers/zen`) `*.processed` outputs are consumed by core-elx (not the removed Go persister); coordinate `add-event-writer-processor-contributions` passthrough engines (don't duplicate).
+- [ ] 0.6 **Fold the ZEN rules engine into core-elx as a Rustler NIF** (normalization runs in-process); **delete the standalone `serviceradar-zen` consumer** (`rust/consumers/zen`). Coordinate `add-event-writer-processor-contributions` passthrough engines (don't duplicate).
 - [ ] 0.7 Switch sysmon/SNMP ingestion to the JetStream consumer; verify parity; remove the direct CNPG writes (`results_router.ex:241` / `observability/sysmon_metrics_ingestor.ex:216`).
 - [ ] 0.8 Make agent-gateway the single ingress publishing all telemetry raw to JetStream.
-- [ ] 0.9 Coordinate with `update-sysmon-downsampling` so agent-side aggregation lands on the publish path, not gRPC. Update BUILD.bazel for new/removed Go/Elixir files.
+- [ ] 0.9 **Eliminate the publish-then-read-back loops:**
+  - (a) **OTLP relay** — agent-gateway publishes the OTLP chunk **directly to JetStream** at ingress; core no longer publishes-then-consumes it (`status_processor.ex:180,246`).
+  - (b) **Attributed flows** — do attribution correlation **in-process / in-cluster** (libcluster/Horde routing) and write once; remove the `flow.attributed.*` NATS self-loop (`attributed_flow_joiner.ex:62` + Flows processor consuming `flow.attributed.>`).
+  - (c) **Internal logs** — core-elx persists its own generated logs (sweep/health/onboarding/jobs/audit) **directly** (ZEN NIF inline if normalization needed); no publish→`.processed`→re-consume for the DB write. (May still publish to NATS for other live consumers, but the DB write does not depend on a round-trip.)
+- [ ] 0.10 Coordinate with `update-sysmon-downsampling` so agent-side aggregation lands on the publish path, not gRPC. Update BUILD.bazel for new/removed Go/Elixir/Rust files.
 
 ## 1. Phase 1 — real-time anomaly detection (core-elx Broadway + DeepCausality NIF)
 - [ ] 1.1 New Rustler NIF crate exposing a **pure** `reason(context, sample) -> verdict` (no resident state); deps `deep_causality_core` + `deep_causality_data_structures` (Flow API, edition 2024); update bazel Rust deps + BUILD.
 - [ ] 1.2 Implement the clean-baseline z-score in the NIF: sample variance (n−1) over the window slice, z = (x−mean)/std once filled; **withhold-anomalous-from-baseline**; fire on N-sigma over M consecutive slots (defaults N=3.0, M=5); reset on clean tick. Combine three signals (rolling / seasonal / trend) per config.
 - [ ] 1.3 Broadway consumer in core-elx over the analysis consumer (separate from DB-sync; `deliver_policy: new` + `inactive_threshold`) for `metrics.sysmon.*`, `metrics.snmp.*`, `otel.metrics.>`, `flows.raw.netflow|sflow`, `flow.attributed.>`; per-subject enable flag.
-- [ ] 1.4 **Context engine (Horde):** one owner per series/shard via `Horde.Registry` + `Horde.DynamicSupervisor`; single-writer-per-series; fold updates in **KSUID total temporal order**; idempotent; ship immutable context to the stateless reasoner.
-- [ ] 1.5 **KSUID** stamping (lean: at agent-gateway ingress) + total-order fold; tests for concurrent/out-of-order/replayed updates → deterministic context.
+- [ ] 1.4 **Context engine (Horde):** one owner per series/shard via `Horde.Registry` + `Horde.DynamicSupervisor`; single-writer-per-series; fold updates in **UUIDv8 total temporal order**; idempotent; ship immutable context to the stateless reasoner.
+- [ ] 1.5 **UUIDv8** stamping at **agent-gateway ingress** (first contact = one clock domain; carry original sample time as a field) + total-order fold; tests for concurrent/out-of-order/replayed updates → deterministic context.
 - [ ] 1.6 Context checkpoint to JetStream KV; Horde handoff rehydrates on node loss/scale; baseline cold-start from hourly CAGGs via SRQL; suppress findings until re-warmed.
 - [ ] 1.7 Per-series config (`n_sigma`, `confirm_slots`, `window_size`, `min_samples`, seasonal sensitivity) with metric-class defaults (interface / RED / cpu / mem / disk).
 - [ ] 1.8 Tests: flood that self-masks under naive baseline but stays anomalous under withhold rule; spike-vs-sustained via M-slot; cold-start seeding; Horde failover restores context without replay storm; reasoning is stateless (any pod evaluates any sample); ack-independence from DB-sync.
@@ -31,7 +35,7 @@
 - [ ] 3.1 core-elx emits `anomaly` + `capacity_forecast` verdicts on `signals.causal.predictions.*` with deterministic IDs; OCSF `detection_finding` (class_uid 2004) shape for anomalies. `rust/causal-engine` **consumes** these as causal evidence (the detector does not live there).
 - [ ] 3.2 Confirm the existing `CausalSignals` processor + `pipeline.ex` route these into `ocsf_events` and `StatefulAlertEngine.evaluate_events/1` raises `device.uid`-grouped alerts — no inbound changes; add coverage only.
 - [ ] 3.3 Align with `add-ocsf-finding-model` finding/event split when it lands (finding = durable deduped object; event references it).
-- [ ] 3.4 KEDA `ScaledObject` autoscaling core-elx pod count on JetStream consumer lag (`num_pending`); document KEDA as a k8s install requirement + static-replica fallback; Helm wiring.
+- [ ] 3.4 Scaling: verify capacity scales with core-elx replica count (Horde redistributes context ownership; Broadway concurrency absorbs bursts). No standalone consumer, no external autoscaler.
 
 ## 4. Configuration (CNPG-backed, Helm-seeded, settings UI)
 - [ ] 4.1 `AnomalyDetectionConfig` + forecast-config Ash resource(s) in CNPG: N-sigma, window size/duration, confirm-slots, min-samples, per-metric-class overrides (interface/RED/cpu/mem/disk), forecast horizon, warning threshold, model choice.

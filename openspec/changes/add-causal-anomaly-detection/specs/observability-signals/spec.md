@@ -25,13 +25,23 @@ Telemetry SHALL enter the system through a single ingress that publishes to NATS
 - **WHEN** the consolidated single-writer pipeline reaches parity for the tables previously written by the standalone persister
 - **THEN** the standalone persister SHALL be retired so a single writer owns persistence
 
+#### Scenario: No publish-then-read-back loop for persistence
+- **WHEN** a component generates or relays telemetry that must be persisted
+- **THEN** it SHALL NOT publish that record to the message bus solely to consume its own message back in order to write it to the database
+- **AND** normalization required before persistence SHALL run in-process rather than in a separate round-tripping component
+
 ### Requirement: Total-Order Context Updates
-Per-series detector context SHALL be updated in total temporal order regardless of how many producers emit updates concurrently. Each context-update event SHALL carry a time-sortable identifier, and the context engine SHALL fold updates in that total order. Folding SHALL be idempotent so that replayed or duplicated updates do not corrupt context.
+Per-series detector context SHALL be updated in total temporal order regardless of how many producers emit updates concurrently. Each context-update event SHALL carry a time-sortable identifier with an embedded high-resolution timestamp (e.g. UUIDv8), stamped once at the ingress gateway so there is a single clock domain, and the context engine SHALL fold updates in that total order. Folding SHALL be idempotent so that replayed or duplicated updates do not corrupt context.
 
 #### Scenario: Concurrent updates from multiple producers
 - **WHEN** updates for the same series arrive from multiple producers, possibly out of arrival order
 - **THEN** the context engine SHALL apply them in total temporal order by their sortable identifier
 - **AND** the resulting context SHALL be deterministic and independent of arrival order
+
+#### Scenario: Identifier stamped at ingress
+- **WHEN** a telemetry sample enters the system at the ingress gateway
+- **THEN** its time-sortable identifier SHALL be assigned there (first contact, one clock domain)
+- **AND** the original sample timestamp SHALL be preserved as a separate field
 
 #### Scenario: Replayed update is idempotent
 - **WHEN** a context-update event is delivered more than once

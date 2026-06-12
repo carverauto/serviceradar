@@ -89,14 +89,15 @@ The anomaly reasoning step SHALL be a stateless pure function of (context, sampl
 - **THEN** ownership SHALL be reassigned to another node
 - **AND** the new owner SHALL restore context from its checkpoint and resume folding updates without corrupting state
 
-### Requirement: Autoscaling on Queue Pressure
-Consumer capacity SHALL autoscale based on stream backlog (consumer pending-message lag) where the deployment platform supports it, and SHALL provide a static-capacity fallback where it does not.
+### Requirement: Horizontal Scaling via Cluster Replicas
+Analysis capacity SHALL scale by adding control-plane replicas: context ownership SHALL redistribute across the cluster automatically as replicas join or leave, and per-node concurrency SHALL absorb bursts via demand-driven backpressure. The system SHALL NOT require a separate standalone consumer deployment or an external autoscaler to function.
 
-#### Scenario: Backlog grows
-- **WHEN** the analysis consumer's pending-message backlog exceeds the configured threshold
-- **THEN** the system SHALL scale out consumer capacity
-- **AND** SHALL scale back in when the backlog drains
+#### Scenario: Replica added
+- **WHEN** a new control-plane replica joins the cluster
+- **THEN** context ownership SHALL rebalance to include it
+- **AND** analysis throughput SHALL increase without manual repartitioning
 
-#### Scenario: Autoscaler unavailable
-- **WHEN** the deployment has no autoscaler
-- **THEN** the system SHALL run at a configured static replica count and remain functional
+#### Scenario: Replica lost
+- **WHEN** a replica leaves the cluster
+- **THEN** its owned context SHALL be reassigned to surviving replicas and restored from checkpoint
+- **AND** the system SHALL continue functioning without an external autoscaler
