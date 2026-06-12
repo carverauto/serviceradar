@@ -134,6 +134,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
             deliver_policy: Keyword.get(opts, :deliver_policy, :all),
             filter_subject: subject,
             deliver_subject: Keyword.get(opts, :deliver_subject),
+            inactive_threshold: Keyword.get(opts, :inactive_threshold),
             max_ack_pending: Keyword.get(opts, :max_ack_pending, @default_max_ack_pending),
             max_deliver: Keyword.get(opts, :max_deliver, @default_max_deliver),
             replay_policy: Keyword.get(opts, :replay_policy, :instant)

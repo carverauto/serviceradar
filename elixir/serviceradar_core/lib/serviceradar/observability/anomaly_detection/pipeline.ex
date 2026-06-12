@@ -1,0 +1,187 @@
+defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
+  @moduledoc """
+  Broadway topology for live anomaly analysis samples.
+
+  This consumer is intentionally separate from EventWriter DB-sync. It owns its
+  own JetStream durable, uses `deliver_policy: :new`, and acks independently so
+  analysis can be enabled without affecting persistence cursors.
+  """
+
+  use Broadway
+
+  alias Broadway.Message
+  alias ServiceRadar.EventWriter.Producer
+  alias ServiceRadar.Observability.AnomalyDetection.Config
+  alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
+  alias ServiceRadar.Observability.CausalReasoner
+
+  require Logger
+
+  @doc """
+  Starts the analysis Broadway topology.
+  """
+  @spec start_link(Config.t()) :: GenServer.on_start()
+  def start_link(%Config{} = config) do
+    Broadway.start_link(__MODULE__,
+      name: __MODULE__,
+      context: config,
+      producer: [
+        module: {Producer, Config.to_event_writer_config(config)},
+        transformer: {__MODULE__, :transform, []},
+        concurrency: 1
+      ],
+      processors: [
+        default: [concurrency: config.processor_concurrency]
+      ]
+    )
+  end
+
+  @doc """
+  Transforms producer events into Broadway messages.
+  """
+  def transform(event, _opts) do
+    %Message{
+      data: event.data,
+      metadata: event.metadata,
+      acknowledger: {__MODULE__, :ack_ref, event.ack_data}
+    }
+  end
+
+  @doc """
+  Acknowledges processed messages back to JetStream.
+  """
+  def ack(:ack_ref, successful, failed) do
+    Enum.each(successful, &ack_message(&1, :ack))
+    Enum.each(failed, &ack_message(&1, :nack))
+    :ok
+  end
+
+  @impl true
+  def handle_message(_processor, %Message{} = message, %Config{} = config) do
+    subject = subject(message)
+
+    if Config.subject_enabled?(config, subject) do
+      analyze_message(message, subject)
+    else
+      emit(:disabled, 1, subject)
+      message
+    end
+  end
+
+  @impl true
+  def handle_failed(messages, _context) do
+    Enum.each(messages, fn message ->
+      Logger.warning("Anomaly analysis message failed",
+        subject: subject(message),
+        reason: inspect(message.status)
+      )
+    end)
+
+    messages
+  end
+
+  defp analyze_message(%Message{} = message, subject) do
+    samples = SampleExtractor.extract(message)
+
+    case analyze_samples(samples) do
+      :ok ->
+        emit(:analyzed, length(samples), subject)
+        message
+
+      {:drop, reason} ->
+        emit(:dropped, 1, subject, reason)
+        message
+
+      {:error, reason} ->
+        emit(:failed, 1, subject, reason)
+        Message.failed(message, reason)
+    end
+  end
+
+  defp analyze_samples([]), do: {:drop, :no_scalar_samples}
+
+  defp analyze_samples(samples) do
+    Enum.reduce_while(samples, :ok, fn sample, :ok ->
+      case reason(sample) do
+        {:ok, _verdict} -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp reason(sample) do
+    reasoner().reason(default_context(sample), %{
+      value: sample.value,
+      observed_at_unix_nano: sample.observed_at_unix_nano
+    })
+  end
+
+  # Phase 1.4 replaces this placeholder with Horde-owned per-series context.
+  defp default_context(_sample) do
+    %{
+      baseline: [],
+      min_samples: 30,
+      window_size: 300,
+      n_sigma: 3.0,
+      confirm_slots: 5,
+      consecutive_anomalous: 0
+    }
+  end
+
+  defp reasoner do
+    Application.get_env(:serviceradar_core, :anomaly_detection_reasoner, CausalReasoner)
+  end
+
+  defp subject(%Message{metadata: metadata}) when is_map(metadata) do
+    metadata[:base_subject] || metadata[:subject] || ""
+  end
+
+  defp subject(_message), do: ""
+
+  defp emit(event, count, subject, reason \\ nil) do
+    :telemetry.execute(
+      [:serviceradar, :anomaly_detection, :consumer, event],
+      %{count: count},
+      %{subject: subject, reason: reason}
+    )
+  end
+
+  defp ack_message(%{acknowledger: {_, _, ack_data}} = message, action) do
+    case ack_data[:ack_fun] do
+      ack_fun when is_function(ack_fun, 1) ->
+        case safe_invoke_ack(ack_fun, action) do
+          :ok ->
+            :ok
+
+          {:error, reason} ->
+            Logger.debug("Failed to publish anomaly analysis ack",
+              action: action,
+              reason: inspect(reason),
+              subject: message.metadata[:subject],
+              reply_to: message.metadata[:reply_to]
+            )
+        end
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp ack_message(_message, _action), do: :ok
+
+  defp safe_invoke_ack(ack_fun, action) when is_function(ack_fun, 1) do
+    case ack_fun.(action) do
+      {:error, _reason} = error -> error
+      _ -> :ok
+    end
+  rescue
+    error ->
+      {:error, error}
+  catch
+    :exit, reason ->
+      {:error, {:exit, reason}}
+
+    kind, reason ->
+      {:error, {kind, reason}}
+  end
+end

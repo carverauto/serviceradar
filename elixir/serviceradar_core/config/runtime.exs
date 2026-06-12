@@ -1132,6 +1132,66 @@ if config_env() == :prod do
   # Enable with EVENT_WRITER_ENABLED=true
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
 
+  anomaly_analysis_enabled =
+    System.get_env("ANOMALY_ANALYSIS_CONSUMER_ENABLED", "false") in ~w(true 1 yes)
+
+  config :serviceradar_core, :anomaly_analysis_consumer_enabled, anomaly_analysis_enabled
+
+  if anomaly_analysis_enabled do
+    anomaly_analysis_creds =
+      System.get_env("ANOMALY_ANALYSIS_NATS_CREDS_FILE") ||
+        System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+
+    if anomaly_analysis_creds in [nil, ""] do
+      raise """
+      ANOMALY_ANALYSIS_NATS_CREDS_FILE or EVENT_WRITER_NATS_CREDS_FILE is required when ANOMALY_ANALYSIS_CONSUMER_ENABLED=true.
+      Generate or provision JWT credentials and set one of those environment variables.
+      """
+    end
+
+    anomaly_nats_url =
+      System.get_env("ANOMALY_ANALYSIS_NATS_URL") ||
+        System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
+
+    anomaly_nats_uri = URI.parse(anomaly_nats_url)
+
+    anomaly_nats_tls_enabled =
+      System.get_env(
+        "ANOMALY_ANALYSIS_NATS_TLS",
+        System.get_env("EVENT_WRITER_NATS_TLS", "false")
+      ) in ~w(true 1 yes)
+
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    anomaly_nats_tls_config =
+      if anomaly_nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: ~c"nats.serviceradar"
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection,
+      nats: [
+        host: anomaly_nats_uri.host || "localhost",
+        port: anomaly_nats_uri.port || 4222,
+        user:
+          System.get_env("ANOMALY_ANALYSIS_NATS_USER") || System.get_env("EVENT_WRITER_NATS_USER"),
+        password:
+          System.get_env("ANOMALY_ANALYSIS_NATS_PASSWORD") ||
+            {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        creds_file: anomaly_analysis_creds,
+        tls: anomaly_nats_tls_config
+      ],
+      consumer_name:
+        System.get_env("ANOMALY_ANALYSIS_CONSUMER_NAME", "serviceradar-anomaly-analysis")
+  end
+
   config :serviceradar_core, ServiceRadar.NATS.Connection,
     host: nats_uri.host || "localhost",
     port: nats_uri.port || 4222,

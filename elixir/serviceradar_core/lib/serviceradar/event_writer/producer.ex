@@ -52,7 +52,7 @@ defmodule ServiceRadar.EventWriter.Producer do
   # Client API
 
   def start_link(%Config{} = config) do
-    GenStage.start_link(__MODULE__, config, name: __MODULE__)
+    GenStage.start_link(__MODULE__, config, name: config.producer_name || __MODULE__)
   end
 
   # GenStage callbacks
@@ -284,9 +284,10 @@ defmodule ServiceRadar.EventWriter.Producer do
                  description: "EventWriter consumer for #{stream.name}",
                  ack_policy: :explicit,
                  ack_wait: @ack_wait_ns,
-                 deliver_policy: :all,
+                 deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
                  max_ack_pending: @max_ack_pending,
                  max_deliver: Map.get(stream, :consumer_max_deliver, @max_deliver),
+                 inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
                  stream_retention: Map.get(stream, :stream_retention),
                  stream_storage: Map.get(stream, :stream_storage),
                  stream_discard: Map.get(stream, :stream_discard),
