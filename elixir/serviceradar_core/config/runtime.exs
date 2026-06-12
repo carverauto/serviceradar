@@ -1135,6 +1135,68 @@ if config_env() == :prod do
   anomaly_analysis_enabled =
     System.get_env("ANOMALY_ANALYSIS_CONSUMER_ENABLED", "false") in ~w(true 1 yes)
 
+  anomaly_context_checkpoint_enabled =
+    System.get_env(
+      "ANOMALY_CONTEXT_CHECKPOINT_ENABLED",
+      if(anomaly_analysis_enabled, do: "true", else: "false")
+    ) in ~w(true 1 yes)
+
+  anomaly_context_checkpoint_max_bucket_size =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_MAX_BUCKET_BYTES") do
+      nil -> nil
+      value -> String.to_integer(value)
+    end
+
+  anomaly_context_checkpoint_max_value_size =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_MAX_VALUE_BYTES") do
+      nil -> nil
+      value -> String.to_integer(value)
+    end
+
+  anomaly_context_checkpoint_storage =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_STORAGE", "file") do
+      "memory" -> :memory
+      _ -> :file
+    end
+
+  anomaly_baseline_srql_queries =
+    case System.get_env("ANOMALY_BASELINE_SRQL_QUERIES_JSON") do
+      nil ->
+        %{}
+
+      "" ->
+        %{}
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, %{} = queries} ->
+            queries
+
+          _ ->
+            raise "ANOMALY_BASELINE_SRQL_QUERIES_JSON must be a JSON object"
+        end
+    end
+
+  anomaly_baseline_seed_enabled =
+    System.get_env(
+      "ANOMALY_BASELINE_SEEDER_ENABLED",
+      if(map_size(anomaly_baseline_srql_queries) > 0, do: "true", else: "false")
+    ) in ~w(true 1 yes)
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.BaselineSeeder,
+    enabled: anomaly_baseline_seed_enabled,
+    query_templates: anomaly_baseline_srql_queries
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint,
+    enabled: anomaly_context_checkpoint_enabled,
+    bucket: System.get_env("ANOMALY_CONTEXT_CHECKPOINT_BUCKET", "serviceradar_anomaly_context"),
+    ttl_seconds:
+      String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_TTL_SECONDS") || "0"),
+    max_bucket_size: anomaly_context_checkpoint_max_bucket_size,
+    max_value_size: anomaly_context_checkpoint_max_value_size,
+    replicas: String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_REPLICAS") || "1"),
+    storage: anomaly_context_checkpoint_storage
+
   config :serviceradar_core, :anomaly_analysis_consumer_enabled, anomaly_analysis_enabled
 
   if anomaly_analysis_enabled do

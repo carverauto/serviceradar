@@ -110,6 +110,75 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert snapshot.context.baseline == [20.0, 30.0]
   end
 
+  test "rehydrates from checkpoint when a replacement owner starts" do
+    series_key = "series-handoff-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.AgentCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+
+    GenServer.stop(pid)
+
+    {:ok, replacement} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(replacement)
+
+    assert snapshot.checkpoint_restored?
+    assert snapshot.event_ids == ["e1", "e2"]
+    assert snapshot.context.baseline == [10.0, 11.0]
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(replacement, sample("e3", 3, 12.0))
+    assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0, 12.0]
+  end
+
+  test "seeds cold baselines through SRQL and suppresses anomalous findings until rewarmed" do
+    {:ok, pid} =
+      start_owner(
+        series_key: "series-1",
+        min_samples: 2,
+        reasoner: __MODULE__.AnomalyReasoner,
+        baseline_seeder: ServiceRadar.Observability.AnomalyDetection.BaselineSeeder,
+        baseline_seed_opts: [
+          enabled: true,
+          runner: __MODULE__.SRQLRunner,
+          runner_opts: [test_pid: self()],
+          query_templates: %{
+            "test" =>
+              ~S|in:timeseries_metrics series_key:"{{series_key}}" time:last_7d stats:"avg(value) as avg_value"|
+          },
+          reverse_rows: false
+        ]
+      )
+
+    assert {:ok,
+            %{
+              state: "warming",
+              anomalous: false,
+              suppressed: true,
+              suppressed_state: "anomaly"
+            }} = ContextOwner.evaluate(pid, sample("e1", 1, 100.0))
+
+    assert_received {:srql_query, query}
+    assert String.contains?(query, ~s(series_key:"series-1"))
+
+    snapshot = ContextOwner.snapshot(pid)
+    assert snapshot.base_context.baseline == [8.0, 9.0]
+    assert snapshot.live_update_count == 1
+
+    assert {:ok, %{state: "anomaly", anomalous: true}} =
+             ContextOwner.evaluate(pid, sample("e2", 2, 101.0))
+
+    refute_receive {:srql_query, _query}, 50
+  end
+
   defmodule CleanReasoner do
     @moduledoc false
     def reason(_context, _sample) do
@@ -137,6 +206,45 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       })
 
       {:ok, %{state: "clean", include_in_baseline: true, next_consecutive_anomalous: 0}}
+    end
+  end
+
+  defmodule AnomalyReasoner do
+    @moduledoc false
+    def reason(_context, _sample) do
+      {:ok, %{state: "anomaly", anomalous: true, include_in_baseline: false}}
+    end
+  end
+
+  defmodule AgentCheckpoint do
+    @moduledoc false
+    def load(series_key, opts) do
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.get(&Map.get(&1, series_key))
+      |> case do
+        nil -> {:ok, nil}
+        checkpoint -> {:ok, checkpoint}
+      end
+    end
+
+    def save(series_key, checkpoint, opts) do
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.update(&Map.put(&1, series_key, checkpoint))
+
+      :ok
+    end
+  end
+
+  defmodule SRQLRunner do
+    @moduledoc false
+    def query(query, opts) do
+      opts
+      |> Keyword.fetch!(:test_pid)
+      |> send({:srql_query, query})
+
+      {:ok, [%{"avg_value" => 8.0}, %{"avg_value" => 9.0}]}
     end
   end
 
