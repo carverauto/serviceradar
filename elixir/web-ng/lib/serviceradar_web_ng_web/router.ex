@@ -816,10 +816,6 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/flows/app-rules/:id/edit", Settings.NetflowLive.Index, :edit_app_rule)
       live("/settings/mail", Settings.MailLive, :index)
 
-      # "Send your telemetry" onboarding (OTLP endpoints, ingestion keys,
-      # exporter snippets, first-data checker)
-      live("/settings/telemetry-onboarding", Settings.TelemetryOnboardingLive, :index)
-
       # Integration sources configuration
       live("/settings/networks/integrations", Settings.IntegrationsLive.Index, :index)
       live("/settings/networks/integrations/new", Settings.IntegrationsLive.Index, :new)
@@ -841,6 +837,10 @@ defmodule ServiceRadarWebNGWeb.Router do
 
       # Endpoint inventory settings
       live("/settings/agents/endpoint-inventory", Settings.EndpointInventoryLive.Index, :index)
+
+      # "Send your telemetry" onboarding (OTLP endpoints, ingestion keys,
+      # exporter snippets, first-data checker)
+      live("/settings/agents/telemetry-onboarding", Settings.TelemetryOnboardingLive, :index)
 
       # SNMP profiles configuration
       live("/settings/snmp", Settings.SNMPProfilesLive.Index, :index)

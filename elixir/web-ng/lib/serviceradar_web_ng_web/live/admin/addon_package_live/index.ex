@@ -630,10 +630,26 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     </div>
                     <div>
                       <dt class="text-base-content/60">Verification</dt>
-                      <dd>{@selected_package.verification_status || "—"}</dd>
+                      <dd>
+                        <span class={["badge badge-xs", verification_status_badge(@selected_package)]}>
+                          {verification_status_label(@selected_package)}
+                        </span>
+                      </dd>
+                    </div>
+                    <div :if={present_text(@selected_package.verification_error)} class="col-span-2">
+                      <dt class="text-base-content/60">Verification error</dt>
+                      <dd class="text-error break-words">{@selected_package.verification_error}</dd>
                     </div>
                   </dl>
                 </div>
+              </div>
+
+              <div
+                :if={addon_blob_missing?(@selected_package)}
+                class="rounded-xl border border-error/30 bg-error/5 p-4 text-sm text-error"
+              >
+                Object storage no longer has one or more native add-on artifacts for this package.
+                Re-import the add-on before assigning it to agents.
               </div>
 
               <div
@@ -792,10 +808,14 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                 </div>
 
                 <div
-                  :if={@selected_package.status != :approved}
+                  :if={not addon_package_assignable?(@selected_package)}
                   class="rounded-lg border border-warning/30 bg-warning/5 px-3 py-2 text-xs text-warning"
                 >
-                  This add-on package is {@selected_package.status}; approve a verified package for the selected release before creating profiles or assignments.
+                  <%= if addon_blob_missing?(@selected_package) do %>
+                    Re-import this add-on package before creating profiles or assignments.
+                  <% else %>
+                    This add-on package is {@selected_package.status}; approve a verified package for the selected release before creating profiles or assignments.
+                  <% end %>
                 </div>
 
                 <%= if @addon_profiles == [] do %>
@@ -860,6 +880,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                           class="btn btn-ghost btn-xs"
                           phx-click="reconcile_profile"
                           phx-value-id={profile.id}
+                          disabled={not addon_package_assignable?(@selected_package)}
                         >
                           Reconcile
                         </button>
@@ -939,7 +960,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     <button
                       type="submit"
                       class="btn btn-primary btn-sm"
-                      disabled={@selected_package.status != :approved or not @can_assign_addons}
+                      disabled={
+                        not addon_package_assignable?(@selected_package) or not @can_assign_addons
+                      }
                     >
                       Create Profile
                     </button>
@@ -1124,7 +1147,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       type="submit"
                       class="btn btn-primary btn-sm"
                       disabled={
-                        @selected_package.status != :approved or not @can_assign_addons or
+                        not addon_package_assignable?(@selected_package) or not @can_assign_addons or
                           assignment_submit_disabled?(@assignment_form, @assignment_preview)
                       }
                     >
@@ -1137,6 +1160,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                     This add-on must be approved before it can be assigned.
                   </p>
                 <% end %>
+                <p :if={addon_blob_missing?(@selected_package)} class="text-xs text-error">
+                  This add-on cannot be assigned until its missing artifact is re-imported.
+                </p>
               </details>
             </div>
           </div>
@@ -1359,10 +1385,16 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   end
 
   defp catalog_row_status(%{package: nil}), do: "not imported"
-  defp catalog_row_status(%{package: package}), do: package.status
+
+  defp catalog_row_status(%{package: package}) do
+    if addon_blob_missing?(package), do: "blob missing", else: package.status
+  end
 
   defp catalog_row_status_badge(%{package: nil}), do: "badge-ghost"
-  defp catalog_row_status_badge(%{package: package}), do: package_status_badge(package.status)
+
+  defp catalog_row_status_badge(%{package: package}) do
+    if addon_blob_missing?(package), do: "badge-error", else: package_status_badge(package.status)
+  end
 
   defp list_assignments_for_package(package_id, scope) do
     AddonAssignments.list(%{addon_package_id: package_id}, scope: scope)
@@ -1968,6 +2000,21 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp denied_reason_text(%{denied_reason: reason}) when is_binary(reason) and reason != "", do: reason
 
   defp denied_reason_text(_package), do: "Denied or revoked packages are not eligible for delivery."
+
+  defp addon_package_assignable?(package) do
+    package.status == :approved and not addon_blob_missing?(package)
+  end
+
+  defp addon_blob_missing?(%{verification_status: "blob_missing"}), do: true
+  defp addon_blob_missing?(_package), do: false
+
+  defp verification_status_label(package) do
+    if addon_blob_missing?(package), do: "blob missing", else: package.verification_status || "unknown"
+  end
+
+  defp verification_status_badge(package) do
+    if addon_blob_missing?(package), do: "badge-error", else: "badge-ghost"
+  end
 
   defp package_status_badge(:approved), do: "badge-success"
   defp package_status_badge("approved"), do: "badge-success"

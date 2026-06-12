@@ -8,6 +8,7 @@ defmodule ServiceRadar.ObjectStore.RetentionWorker do
     max_attempts: 3,
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
+  alias ServiceRadar.ObjectStore.NativeAddonArtifactRetention
   alias ServiceRadar.ObjectStore.ReleaseArtifactRetention
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -36,10 +37,30 @@ defmodule ServiceRadar.ObjectStore.RetentionWorker do
       keep_latest =
         int_arg(args, "agent_release_keep_latest", config(:agent_release_keep_latest, 5))
 
-      case ReleaseArtifactRetention.run(dry_run?: dry_run?, keep_latest: keep_latest) do
-        {:ok, _summary} ->
-          :ok
+      native_addon_orphan_grace_seconds =
+        int_arg(
+          args,
+          "native_addon_orphan_grace_seconds",
+          config(:native_addon_orphan_grace_seconds, 604_800)
+        )
 
+      datasvc_timeout_ms =
+        int_arg(args, "datasvc_timeout_ms", config(:datasvc_timeout_ms, 30_000))
+
+      with {:ok, _release_summary} <-
+             release_retention_module().run(
+               dry_run?: dry_run?,
+               keep_latest: keep_latest,
+               timeout: datasvc_timeout_ms
+             ),
+           {:ok, _addon_summary} <-
+             native_addon_retention_module().run(
+               dry_run?: dry_run?,
+               native_addon_orphan_grace_seconds: native_addon_orphan_grace_seconds,
+               timeout: datasvc_timeout_ms
+             ) do
+        :ok
+      else
         {:error, reason} ->
           Logger.warning("ObjectStoreRetentionWorker failed", reason: inspect(reason))
           {:error, reason}
@@ -57,6 +78,11 @@ defmodule ServiceRadar.ObjectStore.RetentionWorker do
     %{"enabled" => true, "manual" => true}
     |> maybe_put("dry_run", Keyword.get(opts, :dry_run?))
     |> maybe_put("agent_release_keep_latest", Keyword.get(opts, :agent_release_keep_latest))
+    |> maybe_put(
+      "native_addon_orphan_grace_seconds",
+      Keyword.get(opts, :native_addon_orphan_grace_seconds)
+    )
+    |> maybe_put("datasvc_timeout_ms", Keyword.get(opts, :datasvc_timeout_ms))
   end
 
   defp enabled?(args) do
@@ -67,6 +93,14 @@ defmodule ServiceRadar.ObjectStore.RetentionWorker do
     :serviceradar_core
     |> Application.get_env(:object_store_retention, [])
     |> Keyword.get(key, default)
+  end
+
+  defp release_retention_module do
+    config(:release_artifact_retention_module, ReleaseArtifactRetention)
+  end
+
+  defp native_addon_retention_module do
+    config(:native_addon_artifact_retention_module, NativeAddonArtifactRetention)
   end
 
   defp bool_arg(args, key, default) do

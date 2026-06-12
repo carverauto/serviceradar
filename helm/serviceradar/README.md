@@ -207,11 +207,12 @@ The control-plane and ingest workers above rely on shared JetStream durable cons
 |-----------|---------|---------|
 | `datasvc.jetstreamReplicas` | Replica count for KV/object streams owned by datasvc | `1` |
 | `datasvc.bucketMaxBytes` | Max bytes for `KV_serviceradar-datasvc` | `5368709120` |
-| `datasvc.objectMaxBytes` | Max bytes for `OBJ_serviceradar-objects` metadata stream | `536870912` |
-| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `2147483648` |
+| `datasvc.objectMaxBytes` | Max bytes for a single object upload | `536870912` |
+| `datasvc.objectStoreBytes` | Max bytes exposed to datasvc object-store config | `17179869184` |
 | `objectStoreRetention.enabled` | Enables scheduled cleanup for ServiceRadar-owned object-store namespaces | `true` |
 | `objectStoreRetention.dryRun` | Logs retention decisions without deleting eligible objects | `false` |
 | `objectStoreRetention.agentReleaseKeepLatest` | Imported agent releases to retain when not protected by rollout state | `1` |
+| `objectStoreRetention.nativeAddonOrphanGraceSeconds` | Grace period before deleting unreferenced native add-on objects | `604800` |
 | `zen.streamReplicas` | Replica count for zen's shared `events` stream reconciliation | `1` |
 | `logCollector.streamReplicas` | Replica count for the shared `events` stream | `1` |
 | `logCollector.streamMaxBytes` | Max bytes for the shared `events` stream | `2147483648` |

@@ -116,6 +116,64 @@ func TestObjectStoreConfigIncludesMaxBytes(t *testing.T) {
 	require.Equal(t, 3, cfg.Replicas)
 }
 
+func TestObjectStoreReconciliationSetsDiscardNew(t *testing.T) {
+	t.Parallel()
+
+	if testing.Short() {
+		t.Skip("skipping embedded JetStream test in short mode")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	srv := runJetStreamServer(t, &server.Options{
+		Host:      "127.0.0.1",
+		Port:      -1,
+		JetStream: true,
+	})
+	defer srv.Shutdown()
+
+	nc, err := nats.Connect(srv.ClientURL())
+	require.NoError(t, err)
+	defer nc.Close()
+
+	js, err := jetstream.New(nc)
+	require.NoError(t, err)
+
+	store := &NATSStore{objectStoreBytes: 4096, jetstreamReplicas: 1}
+
+	_, err = js.CreateObjectStore(ctx, store.objectStoreConfig("bounded-objects"))
+	require.NoError(t, err)
+
+	stream, err := js.Stream(ctx, "OBJ_bounded-objects")
+	require.NoError(t, err)
+
+	info, err := stream.Info(ctx)
+	require.NoError(t, err)
+	require.Equal(t, jetstream.DiscardNew, info.Config.Discard)
+
+	info.Config.Discard = jetstream.DiscardOld
+	_, err = js.UpdateStream(ctx, info.Config)
+	require.NoError(t, err)
+
+	stream, err = js.Stream(ctx, "OBJ_bounded-objects")
+	require.NoError(t, err)
+
+	info, err = stream.Info(ctx)
+	require.NoError(t, err)
+	require.Equal(t, jetstream.DiscardOld, info.Config.Discard)
+
+	require.NoError(t, store.reconcileObjectStoreStreamLocked(ctx, js, "bounded-objects"))
+
+	stream, err = js.Stream(ctx, "OBJ_bounded-objects")
+	require.NoError(t, err)
+
+	info, err = stream.Info(ctx)
+	require.NoError(t, err)
+	require.Equal(t, jetstream.DiscardNew, info.Config.Discard)
+	require.EqualValues(t, 4096, info.Config.MaxBytes)
+}
+
 func TestKeyValueConfigIncludesReplicas(t *testing.T) {
 	t.Parallel()
 

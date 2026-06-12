@@ -114,6 +114,7 @@ config :serviceradar_core, :object_store_retention,
   enabled?: true,
   dry_run?: false,
   agent_release_keep_latest: 1,
+  native_addon_orphan_grace_seconds: 604_800,
   datasvc_timeout_ms: 30_000
 
 # Plugin blob storage download configuration (used to generate signed download URLs)

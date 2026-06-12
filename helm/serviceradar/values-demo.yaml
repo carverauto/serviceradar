@@ -535,11 +535,12 @@ zen:
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
-  # Keep KV small, but leave enough object-store headroom for one retained
-  # agent release plus a replacement import before retention runs.
+  # Keep KV small, but size object storage for retained agent releases, native
+  # add-on tarballs across supported OS/arch pairs, plugin blobs, and roughly 2x
+  # import/rollback headroom above the active working set.
   bucketMaxBytes: 536870912
   objectMaxBytes: 536870912
-  objectStoreBytes: 2147483648
+  objectStoreBytes: 17179869184
   data:
     # datasvc is safe to run stateless in demo because KV/object state lives in NATS.
     enabled: false
@@ -692,6 +693,7 @@ objectStoreRetention:
   enabled: true
   dryRun: false
   agentReleaseKeepLatest: 1
+  nativeAddonOrphanGraceSeconds: 604800
   pluginOrphanGraceSeconds: 604800
   datasvcTimeoutMs: 30000
   webNgMaintenanceQueueLimit: 1
