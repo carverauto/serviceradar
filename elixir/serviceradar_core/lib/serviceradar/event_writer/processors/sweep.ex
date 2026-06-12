@@ -46,6 +46,7 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   import Ecto.Query
 
   alias ServiceRadar.Ash.Page
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Inventory.Device
@@ -83,7 +84,8 @@ defmodule ServiceRadar.EventWriter.Processors.Sweep do
   defp insert_sweep_rows(rows, messages) do
     # DB connection's search_path determines the schema
     {count, _} =
-      Repo.insert_all(
+      BulkInsert.insert_all(
+        Repo,
         table_name(),
         rows,
         on_conflict: :nothing,

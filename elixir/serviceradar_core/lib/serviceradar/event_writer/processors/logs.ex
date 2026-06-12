@@ -23,6 +23,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
   alias Opentelemetry.Proto.Logs.V1.LogRecord
   alias Opentelemetry.Proto.Logs.V1.ResourceLogs
   alias Opentelemetry.Proto.Logs.V1.ScopeLogs
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
@@ -88,7 +89,7 @@ defmodule ServiceRadar.EventWriter.Processors.Logs do
 
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         table_name(),
         rows_for_insert,
         on_conflict: :nothing,

@@ -28,6 +28,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   alias Flowpb.FlowAttribution
   alias Flowpb.FlowMessage
   alias ServiceRadar.BGP.Ingestor
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.FlowEnrichment
   alias ServiceRadar.EventWriter.OCSF
@@ -278,7 +279,7 @@ defmodule ServiceRadar.EventWriter.Processors.Flows do
   defp insert_netflow_rows(rows) do
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         table_name(),
         rows,
         on_conflict: :nothing,
