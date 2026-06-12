@@ -23,7 +23,7 @@ tonic = { workspace = true }
 tonic-health = { workspace = true }
 tonic-reflection = { workspace = true }
 pem = "3"
-spiffe = { version = "0.14", default-features = false, features = ["x509-source"] }
+spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
 config-bootstrap = { path = "../../rust/config-bootstrap" }
 rustls = "0.23"
 
