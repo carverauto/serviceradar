@@ -58,5 +58,5 @@
 
 ## 7. Validation
 - [x] 7.1 `openspec validate add-causal-anomaly-detection --strict` passes.
-- [ ] 7.2 Validate live on `otel.metrics.>` (always-live in demo) before enabling flow/sysmon subjects.
+- [x] 7.2 Validate live on `otel.metrics.>` (always-live in demo) before enabling flow/sysmon subjects.
 - [ ] 7.3 `bazel test` green for the new Rust module + BUILD updates; Elixir quality contract green.
