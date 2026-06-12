@@ -1183,6 +1183,24 @@ if config_env() == :prod do
       if(map_size(anomaly_baseline_srql_queries) > 0, do: "true", else: "false")
     ) in ~w(true 1 yes)
 
+  anomaly_series_config =
+    case System.get_env("ANOMALY_DETECTION_SERIES_CONFIG_JSON") do
+      nil ->
+        %{}
+
+      "" ->
+        %{}
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, %{} = config} ->
+            config
+
+          _ ->
+            raise "ANOMALY_DETECTION_SERIES_CONFIG_JSON must be a JSON object"
+        end
+    end
+
   config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.BaselineSeeder,
     enabled: anomaly_baseline_seed_enabled,
     query_templates: anomaly_baseline_srql_queries
@@ -1196,6 +1214,9 @@ if config_env() == :prod do
     max_value_size: anomaly_context_checkpoint_max_value_size,
     replicas: String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_REPLICAS") || "1"),
     storage: anomaly_context_checkpoint_storage
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.SeriesConfig,
+    runtime_config: anomaly_series_config
 
   config :serviceradar_core, :anomaly_analysis_consumer_enabled, anomaly_analysis_enabled
 
