@@ -52,6 +52,11 @@ defmodule ServiceRadar.Identity.DeviceAliasState do
     transitions do
       # Alias lifecycle transitions
       transition :confirm, from: :detected, to: :confirmed
+
+      transition :confirm_from_sweep,
+        from: [:detected, :confirmed, :updated, :stale],
+        to: :confirmed
+
       transition :update_metadata, from: [:detected, :confirmed], to: :updated
       transition :mark_stale, from: [:detected, :confirmed, :updated], to: :stale
       transition :reactivate, from: :stale, to: :confirmed

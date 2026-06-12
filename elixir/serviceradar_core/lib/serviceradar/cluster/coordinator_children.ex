@@ -43,6 +43,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         netprobe_addon_package_seeder_child(),
         workload_identity_addon_package_seeder_child(),
         endpoint_inventory_addon_package_seeder_child(),
+        advisory_producer_addon_package_seeder_child(),
         sweep_schedule_reconciler_child(),
         ip_enrichment_scheduler_child(),
         geolite_mmdb_scheduler_child(),
@@ -181,6 +182,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp endpoint_inventory_addon_package_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Plugins.EndpointInventoryAddonPackageSeeder
+    end
+  end
+
+  defp advisory_producer_addon_package_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Plugins.AdvisoryProducerAddonPackageSeeder
     end
   end
 

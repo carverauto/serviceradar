@@ -4,6 +4,8 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.TraceLive.Show
+
   @recent_window "last_1h"
   @recent_limit 60
 
@@ -99,8 +101,18 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
               />
               <.kv label="HTTP" value={http_summary(@metric)} />
               <.kv label="gRPC" value={grpc_summary(@metric)} />
-              <.kv label="Trace ID" value={Map.get(@metric, "trace_id")} mono />
-              <.kv label="Span ID" value={Map.get(@metric, "span_id")} mono />
+              <.kv
+                label="Trace ID"
+                value={Map.get(@metric, "trace_id")}
+                href={trace_detail_path(@metric)}
+                mono
+              />
+              <.kv
+                label="Span ID"
+                value={Map.get(@metric, "span_id")}
+                href={span_detail_path(@metric)}
+                mono
+              />
               <.kv label="Component" value={Map.get(@metric, "component")} />
               <.kv label="Level" value={Map.get(@metric, "level")} />
             </div>
@@ -150,12 +162,18 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   attr :label, :string, required: true
   attr :value, :any, default: nil
   attr :mono, :boolean, default: false
+  attr :href, :string, default: nil
 
   defp kv(assigns) do
     ~H"""
     <div class="rounded-lg border border-base-200 bg-base-100 p-3">
       <div class="text-[11px] uppercase tracking-wider text-base-content/50 mb-1">{@label}</div>
-      <div class={["text-sm", @mono && "font-mono text-xs"]}>{format_value(@value)}</div>
+      <div class={["text-sm break-all", @mono && "font-mono text-xs"]}>
+        <.link :if={is_binary(@href)} navigate={@href} class="link">
+          {format_value(@value)}
+        </.link>
+        <span :if={is_nil(@href)}>{format_value(@value)}</span>
+      </div>
     </div>
     """
   end
@@ -524,13 +542,28 @@ defmodule ServiceRadarWebNGWeb.MetricLive.Show do
   end
 
   defp trace_detail_path(metric) when is_map(metric) do
-    case ServiceRadarWebNGWeb.TraceLive.Show.normalize_trace_id(Map.get(metric, "trace_id")) do
+    case Show.normalize_trace_id(Map.get(metric, "trace_id")) do
       {:ok, trace_id} -> "/observability/traces/#{trace_id}"
       :error -> nil
     end
   end
 
   defp trace_detail_path(_), do: nil
+
+  # Deep-link into the trace waterfall with the metric's own span expanded.
+  # Requires both a normalizable trace id and a 16-hex span id.
+  defp span_detail_path(metric) when is_map(metric) do
+    with {:ok, trace_id} <-
+           Show.normalize_trace_id(Map.get(metric, "trace_id")),
+         {:ok, span_id} <-
+           Show.normalize_span_id(Map.get(metric, "span_id")) do
+      "/observability/traces/#{trace_id}?span=#{span_id}"
+    else
+      :error -> nil
+    end
+  end
+
+  defp span_detail_path(_), do: nil
 
   defp format_timestamp(row) do
     ts = Map.get(row, "timestamp")

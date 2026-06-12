@@ -95,6 +95,41 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     assert html =~ "db.statement"
   end
 
+  test "?span= auto-expands and highlights the matching span", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=bbbbbbbbbbbbbbbb")
+
+    # The core.query span (waterfall row 1) is expanded without any click.
+    assert has_element?(lv, "#trace-spans-detail-1")
+
+    html = render(lv)
+    assert html =~ "boom"
+    assert html =~ "db.statement"
+
+    # The matching row carries the highlight ring.
+    assert has_element?(lv, "#trace-spans-row-1.ring-2")
+    refute has_element?(lv, "#trace-spans-row-0.ring-2")
+  end
+
+  test "?span= is normalized before matching", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=BBBBBBBBBBBBBBBB")
+
+    assert has_element?(lv, "#trace-spans-detail-1")
+    assert has_element?(lv, "#trace-spans-row-1.ring-2")
+  end
+
+  test "bogus or unknown ?span= params are ignored", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=not-a-span-id")
+
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+    refute has_element?(lv, "[id^='trace-spans-detail-']")
+
+    # A well-formed span id that is not part of this trace is also ignored.
+    {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}?span=dddddddddddddddd")
+
+    assert has_element?(lv, "#trace-spans-row-0", "GET /api/devices")
+    refute has_element?(lv, "[id^='trace-spans-detail-']")
+  end
+
   test "span inspector shows ingest identity chips only when present", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/observability/traces/#{@trace_id}")
 

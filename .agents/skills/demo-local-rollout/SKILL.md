@@ -200,3 +200,29 @@ Close with:
 - changed image digests that were signed
 - final Argo status
 - any pods still terminating or any residual risk
+
+## ArgoCD Image Updater Contention
+
+`serviceradar-demo-prod` uses argocd-image-updater with
+`write-back-method: git` to the `demo/prod-release` branch: the updater
+persists `helm/serviceradar/.argocd-source-serviceradar-demo-prod.yaml`
+(including `global.imageTag`) in git, and the Application's
+`spec.source.targetRevision` is pinned to a commit on that branch. A live
+`kubectl patch` of the Application's helm parameters can therefore be
+out-competed by the git-side override, and a freshly published semver tag
+makes the updater write a new override mid-test.
+
+Contention-free `sha-...` rollout flow:
+
+1. Advance `demo/prod-release` to the commit under test (merge/fast-forward
+   from staging) so the chart content matches the images, and in the SAME
+   commit set `global.imageTag: sha-<commit>` in
+   `.argocd-source-serviceradar-demo-prod.yaml`.
+2. Patch the Application's `spec.source.targetRevision` to that new commit
+   (and keep/align the live `global.imageTag` helm parameter).
+3. The updater stays idle during the test window because `allow-tags` only
+   matches `^v[0-9]+\.[0-9]+\.[0-9]+$` — do not push a release tag while
+   testing a sha rollout.
+4. The release cut returns demo to the semver/Image Updater path (the
+   updater writes the new v-tag override and the release process advances
+   the branch), per `$release-cut-and-demo-roll`.

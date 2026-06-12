@@ -851,8 +851,7 @@ defmodule ServiceRadarWebNG.Edge.CollectorBundleGenerator do
   end
 
   # Extract NATS leaf URL from preloaded edge site, if available
-  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}})
-       when is_binary(url) and url != "" do
+  defp edge_site_nats_url(%{edge_site: %EdgeSite{nats_leaf_url: url}}) when is_binary(url) and url != "" do
     url
   end
 

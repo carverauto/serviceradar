@@ -74,29 +74,19 @@ defmodule ServiceRadar.Repo.Migrations.BackfillCanonicalOtelIds do
       "span_id IS NOT NULL AND span_id !~ '^[0-9a-f]{16}$'"
     )
 
-    # --- otel_traces.parent_span_id: downcase, fold double-hex, then NULL
-    #     out ''/zero/non-canonical parents so roots are parent IS NULL ---
-    batched_traces_parent_update(
-      "lower(parent_span_id)",
-      "parent_span_id ~ '^[0-9A-Fa-f]+$' AND parent_span_id ~ '[A-F]'"
-    )
-
-    batched_traces_parent_update(
-      "convert_from(decode(parent_span_id, 'hex'), 'UTF8')",
-      """
-      length(parent_span_id) = 32
-        AND parent_span_id ~ '^[0-9a-f]{32}$'
-        AND convert_from(decode(parent_span_id, 'hex'), 'UTF8') ~ '^[0-9a-f]{16}$'
-      """
-    )
-
-    batched_traces_parent_update(
-      "NULL",
-      """
-      parent_span_id IS NOT NULL
-        AND (parent_span_id = repeat('0', 16) OR parent_span_id !~ '^[0-9a-f]{16}$')
-      """
-    )
+    # --- otel_traces / derived tables: ONE-TIME RESET instead of row-wise
+    #     normalization. Pre-canonical span data is definitionally
+    #     uncorrelatable (the very bug this change fixes), trace summaries
+    #     and span samples are derived from it, and short retention would
+    #     purge it within days anyway. A row-wise parent_span_id backfill
+    #     measured ~2 hours on a ~16M-row live hypertable; nothing predating
+    #     the canonical-ID contract is worth that. Post-reset writers only
+    #     ever produce canonical ids, so no future migration needs this.
+    execute("""
+    TRUNCATE #{schema()}.otel_traces,
+             #{schema()}.otel_trace_summaries,
+             #{schema()}.otel_metrics
+    """)
   end
 
   def down do

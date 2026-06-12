@@ -262,6 +262,9 @@ fn apply_filter<'a>(mut query: EventsQuery<'a>, filter: &Filter) -> Result<Event
         "device_id" | "uid" | "source_device_uid" => {
             query = apply_metadata_identity_filter(query, filter, EVENT_DEVICE_IDENTITY_KEYS)?;
         }
+        "finding_uid" => {
+            query = apply_finding_uid_filter(query, filter)?;
+        }
         "purl" | "purl_canonical" | "canonical_purl" => {
             query = apply_json_coordinate_filter(
                 query,
@@ -402,6 +405,60 @@ fn apply_metadata_identity_filter<'a>(
             clauses.push(device_inventory_identity_clause(&value));
         }
     }
+
+    if clauses.is_empty() {
+        return Ok(query);
+    }
+
+    let clause = clauses.join(" OR ");
+    let sql_clause = if negate {
+        format!("NOT ({clause})")
+    } else {
+        format!("({clause})")
+    };
+
+    Ok(query.filter(sql::<Bool>(&sql_clause)))
+}
+
+fn apply_finding_uid_filter<'a>(
+    query: EventsQuery<'a>,
+    filter: &Filter,
+) -> Result<EventsQuery<'a>> {
+    let negate = matches!(
+        filter.op,
+        crate::parser::FilterOp::NotEq | crate::parser::FilterOp::NotIn
+    );
+
+    let values = match filter.op {
+        crate::parser::FilterOp::Eq | crate::parser::FilterOp::NotEq => {
+            vec![filter.value.as_scalar()?.to_string()]
+        }
+        crate::parser::FilterOp::In | crate::parser::FilterOp::NotIn => {
+            let values = filter.value.as_list()?.to_vec();
+            if values.is_empty() {
+                return Ok(query);
+            }
+            values
+        }
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "finding_uid filter only supports equality and IN/NOT IN comparisons".into(),
+            ))
+        }
+    };
+
+    let clauses = values
+        .into_iter()
+        .map(|value| {
+            let literal = sql_string_literal(&value);
+
+            format!(
+                "metadata #>> '{{finding_info,uid}}' = {literal} OR \
+                 metadata #>> '{{security_signal,finding_uid}}' = {literal}"
+            )
+        })
+        .map(|clause| format!("({clause})"))
+        .collect::<Vec<_>>();
 
     if clauses.is_empty() {
         return Ok(query);
@@ -576,7 +633,7 @@ fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result
         | "trace_id" | "span_id" => collect_text_params(params, filter),
         "device_id" | "uid" | "source_device_uid" | "source" | "source_type" | "addon_id"
         | "purl" | "purl_canonical" | "canonical_purl" | "cpe" | "cpes" | "cve"
-        | "vulnerability_id" => Ok(()),
+        | "vulnerability_id" | "finding_uid" => Ok(()),
         "class_uid" | "category_uid" | "type_uid" | "activity_id" | "severity_id" | "status_id" => {
             params.push(BindParam::Int(i64::from(parse_i32(
                 filter.value.as_scalar()?,

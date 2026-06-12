@@ -29,6 +29,21 @@
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
 {{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
+{{- /*
+  OTel/trace export for the Go services (agent, datasvc, db-event-writer).
+  These binaries read logging.otel from their JSON config (not the OTEL_*
+  SDK env vars used by the Elixir services), and the same block also drives
+  the process-wide TracerProvider via logger.EnsureTracing. We derive it from
+  the shared otelExporter values so Go and Elixir services point at the same
+  collector. The Go OTLP exporter uses otlptracegrpc.WithEndpoint(), which
+  wants a bare host:port, so strip any scheme from otelExporter.endpoint.
+*/ -}}
+{{- $otelExporter := default (dict) .Values.otelExporter -}}
+{{- $otelEnabled := default false $otelExporter.enabled -}}
+{{- $otelEndpointRaw := default "" $otelExporter.endpoint -}}
+{{- $otelEndpoint := $otelEndpointRaw | trimPrefix "https://" | trimPrefix "http://" -}}
+{{- $otelCertDir := default "/etc/serviceradar/certs" $otelExporter.certDir -}}
+{{- $otelInsecure := default false $otelExporter.insecure -}}
 # base/configmap.yaml
 apiVersion: v1
 kind: ConfigMap
@@ -370,12 +385,28 @@ data:
           "debug": false,
           "output": "stdout",
           "time_format": "",
+{{- if and $otelEnabled $otelEndpoint }}
+          "otel": {
+            "enabled": true,
+            "endpoint": "{{ $otelEndpoint }}",
+            "service_name": "serviceradar-agent",
+            "batch_timeout": "5s",
+            "insecure": {{ $otelInsecure }},
+            "headers": {},
+            "tls": {
+              "cert_file": "{{ $otelCertDir }}/agent.pem",
+              "key_file": "{{ $otelCertDir }}/agent-key.pem",
+              "ca_file": "{{ $otelCertDir }}/root.pem"
+            }
+          }
+{{- else }}
           "otel": {
             "enabled": false
           }
+{{- end }}
         }
       }
-  
+
   sweep.json: |
       {
         "networks": {{ (.Values.sweep.networks | default (list "192.168.2.0/24" "192.168.3.1/32")) | toJson }},
@@ -1163,5 +1194,36 @@ data:
         "bucket_max_bytes": {{ default 5368709120 .Values.datasvc.bucketMaxBytes | int64 }},
         "object_max_bytes": {{ default 536870912 .Values.datasvc.objectMaxBytes | int64 }},
         "object_store_bytes": {{ default 17179869184 .Values.datasvc.objectStoreBytes | int64 }},
-        "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas | int }}
+        "jetstream_replicas": {{ default 1 .Values.datasvc.jetstreamReplicas | int }},
+{{- if and $otelEnabled $otelEndpoint }}
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+          "otel": {
+            "enabled": true,
+            "endpoint": "{{ $otelEndpoint }}",
+            "service_name": "serviceradar-datasvc",
+            "batch_timeout": "5s",
+            "insecure": {{ $otelInsecure }},
+            "headers": {},
+            "tls": {
+              "cert_file": "{{ $otelCertDir }}/kv.pem",
+              "key_file": "{{ $otelCertDir }}/kv-key.pem",
+              "ca_file": "{{ $otelCertDir }}/root.pem"
+            }
+          }
+        }
+{{- else }}
+        "logging": {
+          "level": "info",
+          "debug": false,
+          "output": "stdout",
+          "time_format": "",
+          "otel": {
+            "enabled": false
+          }
+        }
+{{- end }}
       }

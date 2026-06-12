@@ -52,6 +52,48 @@ defmodule ServiceRadar.Plugins.ProducerScheduleTest do
     assert schedule.contract["action_id"] == "advisory.refresh"
   end
 
+  test "package producer schedule contracts materialize on package update", %{
+    actor: actor,
+    uid: uid
+  } do
+    plugin_id = "updated-advisory-producer-#{uid}"
+
+    assert {:ok, package} = create_package(actor, plugin_id)
+
+    schedules =
+      package.producer_schedules ++
+        [
+          %{
+            "schedule_id" => "advisory.delta",
+            "label" => "Refresh advisory delta feed",
+            "action_id" => "advisory.delta",
+            "command_type" => "plugin.run_action",
+            "default_cadence_seconds" => 3_600,
+            "min_cadence_seconds" => 300,
+            "max_cadence_seconds" => 86_400,
+            "settings_schema" => %{"type" => "object"}
+          }
+        ]
+
+    assert {:ok, _updated_package} =
+             package
+             |> Ash.Changeset.for_update(:update, %{producer_schedules: schedules}, actor: actor)
+             |> Ash.update()
+
+    assert {:ok, schedule} =
+             ProducerSchedule
+             |> Ash.Query.filter(
+               producer_kind == :wasm_plugin and plugin_package_id == ^package.id and
+                 schedule_id == "advisory.delta"
+             )
+             |> Ash.read_one(actor: actor)
+
+    assert schedule.enabled == false
+    assert schedule.display_name == "Refresh advisory delta feed"
+    assert schedule.cadence_seconds == 3_600
+    assert schedule.contract["action_id"] == "advisory.delta"
+  end
+
   test "operator state updates preserve package contract and build plugin run payload", %{
     actor: actor,
     uid: uid

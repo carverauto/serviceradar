@@ -224,6 +224,23 @@ fn security_findings_source_matches_service_radar_source_metadata() {
 }
 
 #[test]
+fn security_findings_finding_uid_matches_metadata_contract() {
+    let query = r#"in:security_findings finding_uid:"finding-1" sort:time:desc limit:25"#;
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::SecurityFindings));
+    let (sql, _) =
+        events::to_sql_and_params(&plan).expect("should build security findings finding SQL");
+    let lower = sql.to_lowercase();
+    assert!(
+        lower.contains("metadata #>> '{finding_info,uid}'")
+            && lower.contains("metadata #>> '{security_signal,finding_uid}'")
+            && lower.contains("finding-1"),
+        "expected finding_uid filter to include Falco finding metadata contract, got: {sql}"
+    );
+}
+
+#[test]
 fn logs_source_device_uid_matches_service_radar_attributes() {
     let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
     let plan = plan_for(query);
