@@ -130,6 +130,18 @@ defmodule ServiceRadarWebNGWeb.Stats.Query do
   end
 
   @doc """
+  Build SRQL query for anomaly and at-risk capacity finding counts.
+
+  Returns: total, anomalies, at_risk, critical, high.
+  """
+  @spec anomaly_findings(keyword()) :: String.t()
+  def anomaly_findings(opts \\ []) do
+    time = Keyword.get(opts, :time, @default_time_window)
+
+    "in:events time:#{time} rollup_stats:anomaly_findings"
+  end
+
+  @doc """
   Build SRQL query for services availability stats.
 
   Returns: total, available, unavailable, availability_pct.

@@ -62,6 +62,8 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   @type metrics_summary :: Extract.metrics_red()
 
+  @type anomaly_findings_summary :: Extract.anomaly_findings()
+
   @type trace_rollup_status :: %{
           healthy?: boolean(),
           summary_table_present?: boolean(),
@@ -228,6 +230,23 @@ defmodule ServiceRadarWebNGWeb.Stats do
     query
     |> srql_module.query(%{scope: scope})
     |> Extract.metrics_red()
+  end
+
+  @doc """
+  Fetch anomaly detection finding and at-risk capacity forecast counts.
+
+  Uses the events `rollup_stats:anomaly_findings` SRQL path so UI cards share a
+  stable backend query contract instead of scanning page results.
+  """
+  @spec anomaly_findings_summary(keyword()) :: anomaly_findings_summary()
+  def anomaly_findings_summary(opts \\ []) do
+    srql_module = Keyword.get(opts, :srql_module, default_srql_module())
+    scope = Keyword.get(opts, :scope)
+    query = Query.anomaly_findings(opts)
+
+    query
+    |> srql_module.query(%{scope: scope})
+    |> Extract.anomaly_findings()
   end
 
   @doc """
@@ -421,6 +440,9 @@ defmodule ServiceRadarWebNGWeb.Stats do
 
   @spec empty_metrics_summary() :: metrics_summary()
   defdelegate empty_metrics_summary(), to: Extract, as: :empty_metrics_red
+
+  @spec empty_anomaly_findings_summary() :: anomaly_findings_summary()
+  defdelegate empty_anomaly_findings_summary(), to: Extract, as: :empty_anomaly_findings
 
   @spec empty_trace_rollup_status() :: trace_rollup_status()
   def empty_trace_rollup_status do

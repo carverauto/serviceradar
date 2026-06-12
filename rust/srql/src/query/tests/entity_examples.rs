@@ -241,6 +241,26 @@ fn security_findings_finding_uid_matches_metadata_contract() {
 }
 
 #[test]
+fn events_rollup_stats_anomaly_findings_builds_summary_payload() {
+    let query = "in:events time:last_24h rollup_stats:anomaly_findings";
+    let plan = plan_for(query);
+
+    assert!(matches!(plan.entity, Entity::Events));
+    let (sql, params) = events::to_sql_and_params(&plan).expect("should build events rollup SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("jsonb_build_object")
+            && lower.contains("'anomalies'")
+            && lower.contains("'at_risk'")
+            && lower.contains("anomaly_detection")
+            && lower.contains("capacity_forecast"),
+        "expected anomaly/capacity summary payload, got: {sql}"
+    );
+    assert_eq!(params.len(), 2);
+}
+
+#[test]
 fn logs_source_device_uid_matches_service_radar_attributes() {
     let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
     let plan = plan_for(query);

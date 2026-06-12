@@ -97,6 +97,49 @@ defmodule ServiceRadarWebNGWeb.StatsTest do
     end
   end
 
+  describe "anomaly findings rollup stats" do
+    test "builds the rollup_stats:anomaly_findings query over events" do
+      assert Query.anomaly_findings() == "in:events time:last_24h rollup_stats:anomaly_findings"
+
+      assert Query.anomaly_findings(time: "last_7d") ==
+               "in:events time:last_7d rollup_stats:anomaly_findings"
+    end
+
+    test "extracts the anomaly findings payload" do
+      payload = %{
+        "total" => 12,
+        "anomalies" => 7,
+        "at_risk" => 5,
+        "critical" => 2,
+        "high" => 3
+      }
+
+      assert Extract.anomaly_findings({:ok, %{"results" => [payload]}}) == %{
+               total: 12,
+               anomalies: 7,
+               at_risk: 5,
+               critical: 2,
+               high: 3
+             }
+    end
+
+    test "anomaly_findings_summary goes through the SRQL module" do
+      defmodule AnomalyFindingsStubSRQL do
+        @moduledoc false
+        def query(query, %{scope: :tenant_a}) do
+          send(self(), {:anomaly_findings_query, query})
+
+          {:ok, %{"results" => [%{"total" => "4", "anomalies" => "3", "at_risk" => "1"}]}}
+        end
+      end
+
+      stats = Stats.anomaly_findings_summary(srql_module: AnomalyFindingsStubSRQL, scope: :tenant_a)
+
+      assert_received {:anomaly_findings_query, "in:events time:last_24h rollup_stats:anomaly_findings"}
+      assert %{total: 4, anomalies: 3, at_risk: 1, critical: 0, high: 0} = stats
+    end
+  end
+
   describe "assess_trace_rollup_status/1" do
     test "returns healthy when assets are present and within lag threshold" do
       raw_latest = ~U[2026-03-14 12:00:00Z]

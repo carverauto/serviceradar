@@ -41,6 +41,14 @@ defmodule ServiceRadarWebNGWeb.Stats.Extract do
           sample_size: non_neg_integer()
         }
 
+  @type anomaly_findings :: %{
+          total: non_neg_integer(),
+          anomalies: non_neg_integer(),
+          at_risk: non_neg_integer(),
+          critical: non_neg_integer(),
+          high: non_neg_integer()
+        }
+
   @doc """
   Extract logs severity stats from SRQL response.
 
@@ -137,6 +145,30 @@ defmodule ServiceRadarWebNGWeb.Stats.Extract do
       max_duration_ms: 0.0,
       sample_size: 0
     }
+  end
+
+  @doc """
+  Extract anomaly and at-risk capacity finding stats from an SRQL rollup response.
+  """
+  @spec anomaly_findings({:ok, map()} | {:error, term()}) :: anomaly_findings()
+  def anomaly_findings({:ok, %{"results" => [%{} = payload | _]}}) do
+    %{
+      total: to_int(Map.get(payload, "total", 0)),
+      anomalies: to_int(Map.get(payload, "anomalies", 0)),
+      at_risk: to_int(Map.get(payload, "at_risk", 0)),
+      critical: to_int(Map.get(payload, "critical", 0)),
+      high: to_int(Map.get(payload, "high", 0))
+    }
+  end
+
+  def anomaly_findings(_), do: empty_anomaly_findings()
+
+  @doc """
+  Return empty anomaly finding stats.
+  """
+  @spec empty_anomaly_findings() :: anomaly_findings()
+  def empty_anomaly_findings do
+    %{total: 0, anomalies: 0, at_risk: 0, critical: 0, high: 0}
   end
 
   @doc """

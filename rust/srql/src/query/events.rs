@@ -1,6 +1,7 @@
 use super::{BindParam, QueryPlan};
 use crate::{
     error::{Result, ServiceError},
+    jsonb::DbJson,
     models::EventRow,
     parser::{Entity, Filter, OrderClause, OrderDirection},
     schema::ocsf_events::dsl::{
@@ -15,11 +16,14 @@ use crate::{
     },
     time::TimeRange,
 };
+use chrono::{DateTime, Utc};
+use diesel::deserialize::QueryableByName;
 use diesel::dsl::sql;
 use diesel::pg::Pg;
 use diesel::prelude::*;
-use diesel::query_builder::{AsQuery, BoxedSelectStatement, FromClause};
-use diesel::sql_types::Bool;
+use diesel::query_builder::{AsQuery, BoxedSelectStatement, BoxedSqlQuery, FromClause, SqlQuery};
+use diesel::sql_query;
+use diesel::sql_types::{Bool, Jsonb, Nullable, Timestamptz};
 use diesel::PgTextExpressionMethods;
 use diesel_async::{AsyncPgConnection, RunQueryDsl};
 
@@ -76,6 +80,20 @@ pub(super) async fn execute(
     plan: &QueryPlan,
 ) -> Result<Vec<serde_json::Value>> {
     ensure_entity(plan)?;
+
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let query = rollup_sql.to_boxed_query();
+        let rows: Vec<EventsRollupPayload> = query
+            .load::<EventsRollupPayload>(conn)
+            .await
+            .map_err(|err| ServiceError::Internal(err.into()))?;
+
+        return Ok(rows
+            .into_iter()
+            .filter_map(|row| row.payload.map(serde_json::Value::from))
+            .collect());
+    }
+
     let query = build_query(plan)?;
     let rows: Vec<EventRow> = query
         .select(EventRow::as_select())
@@ -90,6 +108,17 @@ pub(super) async fn execute(
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
     ensure_entity(plan)?;
+
+    if let Some(rollup_sql) = build_rollup_stats_query(plan)? {
+        let sql = rewrite_placeholders(&rollup_sql.sql);
+        let params = rollup_sql
+            .binds
+            .into_iter()
+            .map(bind_param_from_rollup)
+            .collect();
+        return Ok((sql, params));
+    }
+
     let query = build_query(plan)?.limit(plan.limit).offset(plan.offset);
     let sql = super::diesel_sql(&query)?;
 
@@ -117,6 +146,146 @@ pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindPar
     }
 
     Ok((sql, params))
+}
+
+#[derive(Debug, Clone)]
+struct EventsRollupSql {
+    sql: String,
+    binds: Vec<EventsRollupBind>,
+}
+
+impl EventsRollupSql {
+    fn to_boxed_query(&self) -> BoxedSqlQuery<'_, Pg, SqlQuery> {
+        let mut query = sql_query(rewrite_placeholders(&self.sql)).into_boxed::<Pg>();
+
+        for bind in &self.binds {
+            query = bind.apply(query);
+        }
+
+        query
+    }
+}
+
+#[derive(Debug, QueryableByName)]
+#[diesel(check_for_backend(diesel::pg::Pg))]
+struct EventsRollupPayload {
+    #[diesel(sql_type = Nullable<Jsonb>)]
+    payload: Option<DbJson>,
+}
+
+#[derive(Debug, Clone)]
+enum EventsRollupBind {
+    Timestamp(DateTime<Utc>),
+}
+
+impl EventsRollupBind {
+    fn apply<'a>(&self, query: BoxedSqlQuery<'a, Pg, SqlQuery>) -> BoxedSqlQuery<'a, Pg, SqlQuery> {
+        match self {
+            EventsRollupBind::Timestamp(value) => query.bind::<Timestamptz, _>(*value),
+        }
+    }
+}
+
+fn bind_param_from_rollup(value: EventsRollupBind) -> BindParam {
+    match value {
+        EventsRollupBind::Timestamp(value) => BindParam::timestamptz(value),
+    }
+}
+
+fn build_rollup_stats_query(plan: &QueryPlan) -> Result<Option<EventsRollupSql>> {
+    let stat_type = match plan.rollup_stats.as_ref() {
+        Some(stat_type) if !stat_type.trim().is_empty() => stat_type.trim(),
+        _ => return Ok(None),
+    };
+
+    match stat_type {
+        "anomaly_findings" => build_anomaly_findings_rollup_stats(plan),
+        other => Err(ServiceError::InvalidRequest(format!(
+            "unsupported rollup_stats type for events: '{other}' (supported: anomaly_findings)"
+        ))),
+    }
+}
+
+fn build_anomaly_findings_rollup_stats(plan: &QueryPlan) -> Result<Option<EventsRollupSql>> {
+    if !plan.filters.is_empty() {
+        let fields = plan
+            .filters
+            .iter()
+            .map(|filter| filter.field.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+
+        return Err(ServiceError::InvalidRequest(format!(
+            "rollup_stats:anomaly_findings does not support filters, got: '{fields}'"
+        )));
+    }
+
+    let anomaly_clause = anomaly_detection_rollup_clause();
+    let capacity_clause = capacity_forecast_at_risk_rollup_clause();
+    let mut binds = Vec::new();
+    let mut clauses = vec![format!("(({anomaly_clause}) OR ({capacity_clause}))")];
+
+    if let Some(TimeRange { start, end }) = &plan.time_range {
+        clauses.push("\"time\" >= ?".to_string());
+        binds.push(EventsRollupBind::Timestamp(*start));
+        clauses.push("\"time\" < ?".to_string());
+        binds.push(EventsRollupBind::Timestamp(*end));
+    }
+
+    let sql = format!(
+        r#"SELECT jsonb_build_object(
+    'total', COALESCE(COUNT(*), 0)::bigint,
+    'anomalies', COALESCE(COUNT(*) FILTER (WHERE {anomaly_clause}), 0)::bigint,
+    'at_risk', COALESCE(COUNT(*) FILTER (WHERE {capacity_clause}), 0)::bigint,
+    'critical', COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5), 0)::bigint,
+    'high', COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4), 0)::bigint
+) AS payload
+FROM ocsf_events
+WHERE {}"#,
+        clauses.join(" AND ")
+    );
+
+    Ok(Some(EventsRollupSql { sql, binds }))
+}
+
+fn anomaly_detection_rollup_clause() -> &'static str {
+    r#""class_uid" = 2004
+AND "category_uid" = 2
+AND (
+  metadata #>> '{service_radar,source_type}' = 'anomaly_detection'
+  OR metadata #>> '{service_radar,ocsf_class}' = 'detection_finding'
+  OR metadata #>> '{security_signal,source}' = 'anomaly_detection'
+  OR log_provider = 'anomaly_detection'
+  OR unmapped ->> 'event_type' IN ('anomaly', 'anomaly_detection')
+)"#
+}
+
+fn capacity_forecast_at_risk_rollup_clause() -> &'static str {
+    r#"(metadata ->> 'event_type' = 'capacity_forecast'
+  OR unmapped ->> 'event_type' = 'capacity_forecast'
+  OR log_provider = 'capacity_forecasting')
+AND (
+  COALESCE(severity_id, 0) >= 3
+  OR unmapped #>> '{capacity_forecast,status}' IN ('projected', 'at_risk', 'exhaustion_projected')
+  OR NULLIF(unmapped #>> '{capacity_forecast,projected_exhaustion_at}', '') IS NOT NULL
+)"#
+}
+
+fn rewrite_placeholders(sql: &str) -> String {
+    let mut rewritten = String::with_capacity(sql.len());
+    let mut index = 1;
+
+    for ch in sql.chars() {
+        if ch == '?' {
+            rewritten.push('$');
+            rewritten.push_str(&index.to_string());
+            index += 1;
+        } else {
+            rewritten.push(ch);
+        }
+    }
+
+    rewritten
 }
 
 fn ensure_entity(plan: &QueryPlan) -> Result<()> {
