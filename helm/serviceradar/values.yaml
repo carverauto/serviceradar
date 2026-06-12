@@ -944,8 +944,9 @@ datasvc:
   # Maximum size for one uploaded object payload.
   objectMaxBytes: "536870912"
   # Reserved capacity for the object stream (OBJ_serviceradar-objects).
-  # Sized for retained agent releases, native add-on tarballs across supported
-  # platforms, plugin blobs, and import headroom.
+  # Sizing target: retained agent release tarballs + all native add-on tarballs
+  # across supported OS/arch pairs + plugin blobs, then roughly 2x import and
+  # rollback headroom. Keep this comfortably above the active working set.
   objectStoreBytes: "17179869184"
   data:
     enabled: false

@@ -18,6 +18,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetention do
   @prefix "native-addons/"
   @protected_statuses [:staged, :approved]
   @deletable_statuses [:denied, :revoked]
+  @verified_status "verified"
   @blob_missing_status "blob_missing"
 
   @type summary :: %{
@@ -92,6 +93,15 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetention do
 
           packages == [] ->
             %{key: key, object: object, package: nil, action: :protect, reason: :grace_period}
+
+          Enum.any?(packages, &verified_package?/1) ->
+            %{
+              key: key,
+              object: object,
+              package: package,
+              action: :protect,
+              reason: :verified_package
+            }
 
           Enum.any?(packages, &(&1.status in @protected_statuses)) ->
             %{
@@ -269,7 +279,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetention do
     case SyncClient.get_object_info(channel, key, timeout: timeout) do
       {:ok, %Proto.GetObjectInfoResponse{found: true}} -> :present
       {:ok, %Proto.GetObjectInfoResponse{found: false}} -> :missing
-      {:error, reason} -> {:error, reason}
+      {:error, reason} -> if missing_object_error?(reason), do: :missing, else: {:error, reason}
     end
   end
 
@@ -315,6 +325,14 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetention do
   end
 
   defp approved_for_liveness?(_package), do: false
+
+  defp verified_package?(%AddonPackage{status: status, verification_status: @verified_status})
+       when status not in @deletable_statuses, do: true
+
+  defp verified_package?(_package), do: false
+
+  defp missing_object_error?(%GRPC.RPCError{status: 5}), do: true
+  defp missing_object_error?(_reason), do: false
 
   defp artifact_entry_keys(entry) when is_map(entry) do
     case normalize_key(Map.get(entry, "object_key") || Map.get(entry, :object_key)) do

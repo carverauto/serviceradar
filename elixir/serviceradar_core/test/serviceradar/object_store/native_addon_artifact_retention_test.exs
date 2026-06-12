@@ -86,6 +86,64 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
       assert plan.eligible == []
     end
 
+    test "protects verified native add-on artifacts" do
+      package =
+        package(
+          "pkg-verified",
+          :staged,
+          "native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
+          ~U[2026-01-01 00:00:00Z],
+          "verified"
+        )
+
+      plan =
+        NativeAddonArtifactRetention.plan(
+          [package],
+          MapSet.new(),
+          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz")],
+          0
+        )
+
+      assert [
+               %{
+                 key: "native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
+                 reason: :verified_package
+               }
+             ] =
+               plan.protected
+
+      assert plan.eligible == []
+    end
+
+    test "does not protect revoked verified packages after grace" do
+      package =
+        package(
+          "pkg-revoked-verified",
+          :revoked,
+          "native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
+          ~U[2026-01-01 00:00:00Z],
+          "verified"
+        )
+
+      plan =
+        NativeAddonArtifactRetention.plan(
+          [package],
+          MapSet.new(),
+          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz")],
+          0
+        )
+
+      assert [
+               %{
+                 key:
+                   "native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
+                 reason: :inactive_package
+               }
+             ] = plan.eligible
+
+      assert plan.protected == []
+    end
+
     test "deletes orphaned native add-on artifacts after grace" do
       old_created_at =
         DateTime.utc_now()
@@ -296,13 +354,20 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
     end
   end
 
-  defp package(id, status, object_key, updated_at \\ ~U[2026-01-01 00:00:00Z]) do
+  defp package(
+         id,
+         status,
+         object_key,
+         updated_at \\ ~U[2026-01-01 00:00:00Z],
+         verification_status \\ nil
+       ) do
     %AddonPackage{
       id: id,
       addon_id: "endpoint-inventory",
       version: "0.1.1",
       name: "Endpoint Inventory",
       status: status,
+      verification_status: verification_status,
       artifacts: %{"linux/amd64" => %{"object_key" => object_key}},
       inserted_at: ~U[2026-01-01 00:00:00Z],
       updated_at: updated_at

@@ -536,7 +536,8 @@ datasvc:
   replicaCount: 3
   jetstreamReplicas: 3
   # Keep KV small, but size object storage for retained agent releases, native
-  # add-on tarballs across supported platforms, plugin blobs, and import headroom.
+  # add-on tarballs across supported OS/arch pairs, plugin blobs, and roughly 2x
+  # import/rollback headroom above the active working set.
   bucketMaxBytes: 536870912
   objectMaxBytes: 536870912
   objectStoreBytes: 17179869184
