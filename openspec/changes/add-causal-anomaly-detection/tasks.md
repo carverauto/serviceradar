@@ -26,7 +26,7 @@
 - [x] 1.8 Tests: flood that self-masks under naive baseline but stays anomalous under withhold rule; spike-vs-sustained via M-slot; cold-start seeding; Horde failover restores context without replay storm; reasoning is stateless (any pod evaluates any sample); ack-independence from DB-sync.
 
 ## 2. Capacity forecasting (Elixir core, batch)
-- [ ] 2.1 New `CapacityForecast` Ash resource + raw-SQL migration (hypertable/`migrate? false` per the special-tables convention) storing per-resource slope, projected value at horizon, `projected_exhaustion_at`, confidence/interval.
+- [x] 2.1 New `CapacityForecast` Ash resource + raw-SQL migration (hypertable/`migrate? false` per the special-tables convention) storing per-resource slope, projected value at horizon, `projected_exhaustion_at`, confidence/interval.
 - [ ] 2.2 Per-interface hourly rollup migration: `timeseries_metrics_hourly` lacks an `if_index` group key — add an interface-grouped hourly CAGG (or grouping) so link-saturation runway is computable.
 - [ ] 2.3 Oban cron worker: read long-horizon CAGGs (`cpu/memory/disk/process_metrics_hourly`, `timeseries_metrics_hourly`, `flow_traffic_1h/1d`) via SRQL; fit least-squares linear trend (runway) + Holt-Winters/seasonal where seasonality matters; compute exhaustion ETA. Idempotent; string-keyed args.
 - [ ] 2.4 Join the capacity denominator from live `discovered_interfaces.speed_bps` (3 d retention, no CAGG) for interface utilization%.
