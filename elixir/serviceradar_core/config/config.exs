@@ -116,6 +116,8 @@ config :serviceradar_core, ServiceRadar.Security.RateLimiter,
 config :serviceradar_core, Worker,
   enabled: true,
   horizon_seconds: 90 * 24 * 60 * 60,
+  warning_horizon_seconds: 90 * 24 * 60 * 60,
+  emit_verdicts?: true,
   min_points: 24,
   seasonal_period: 24
 

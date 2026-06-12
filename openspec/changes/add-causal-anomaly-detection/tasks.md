@@ -30,7 +30,7 @@
 - [x] 2.2 Per-interface hourly rollup migration: `timeseries_metrics_hourly` lacks an `if_index` group key — add an interface-grouped hourly CAGG (or grouping) so link-saturation runway is computable.
 - [x] 2.3 Oban cron worker: read long-horizon CAGGs (`cpu/memory/disk/process_metrics_hourly`, `timeseries_metrics_hourly`, `flow_traffic_1h/1d`) via SRQL; fit least-squares linear trend (runway) + Holt-Winters/seasonal where seasonality matters; compute exhaustion ETA. Idempotent; string-keyed args.
 - [x] 2.4 Join the capacity denominator from live `discovered_interfaces.speed_bps` (3 d retention, no CAGG) for interface utilization%.
-- [ ] 2.5 Emit a `capacity_forecast` verdict for at-risk resources via the causal-engine emission spine.
+- [x] 2.5 Emit a `capacity_forecast` verdict for at-risk resources via the causal-engine emission spine.
 - [ ] 2.6 Tests: trend/ETA correctness on synthetic series; seasonal vs linear selection; missing-history guard (minimum length before projecting).
 
 ## 3. Emission + alert integration (reuse the existing spine)

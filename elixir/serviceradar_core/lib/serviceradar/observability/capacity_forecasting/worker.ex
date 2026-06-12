@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
   alias ServiceRadar.Observability.CapacityForecasting.Model
   alias ServiceRadar.Observability.CapacityForecasting.Source
+  alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -92,12 +93,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
           case forecast_rows(source, rows, opts) do
             {:ok, attrs} ->
               attrs
-              |> upsert(opts)
+              |> persist_and_emit(opts)
               |> case do
-                {:ok, _forecast} -> {:cont, :ok}
                 :ok -> {:cont, :ok}
                 {:error, reason} -> {:halt, {:error, reason}}
-                other -> {:halt, {:error, {:unexpected_upsert_result, other}}}
               end
 
             {:error, reason} ->
@@ -232,6 +231,60 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     |> Ash.Changeset.for_create(:upsert, attrs)
     |> Ash.create(actor: actor)
   end
+
+  defp persist_and_emit(attrs, opts) do
+    case upsert(attrs, opts) do
+      {:ok, _forecast} -> maybe_emit_verdict(attrs, opts)
+      :ok -> maybe_emit_verdict(attrs, opts)
+      {:error, reason} -> {:error, reason}
+      other -> {:error, {:unexpected_upsert_result, other}}
+    end
+  end
+
+  defp maybe_emit_verdict(attrs, opts) do
+    if emit_verdicts?(opts) and at_risk?(attrs, opts) do
+      emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
+
+      case emitter.emit(attrs, opts) do
+        :ok ->
+          :ok
+
+        other ->
+          Logger.warning("Capacity forecast verdict emit failed: #{inspect(other)}",
+            resource_key: attrs[:resource_key],
+            reason: inspect(other)
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp emit_verdicts?(opts), do: Keyword.get(opts, :emit_verdicts?, true)
+
+  defp at_risk?(
+         %{
+           status: "projected",
+           forecasted_at: %DateTime{} = forecasted_at,
+           projected_exhaustion_at: %DateTime{} = projected_exhaustion_at
+         },
+         opts
+       ) do
+    warning_horizon_seconds =
+      opts
+      |> Keyword.get(:warning_horizon_seconds, Keyword.fetch!(opts, :horizon_seconds))
+      |> positive_integer(Keyword.fetch!(opts, :horizon_seconds))
+
+    warning_ends_at = DateTime.add(forecasted_at, warning_horizon_seconds, :second)
+
+    # Already-exhausted resources remain at risk; the verdict severity clamps
+    # negative runway to the highest severity in VerdictEmitter.
+    DateTime.compare(projected_exhaustion_at, warning_ends_at) != :gt
+  end
+
+  defp at_risk?(_attrs, _opts), do: false
 
   defp group_rows(rows, source) do
     Enum.group_by(rows, &resource_key(source, &1))
