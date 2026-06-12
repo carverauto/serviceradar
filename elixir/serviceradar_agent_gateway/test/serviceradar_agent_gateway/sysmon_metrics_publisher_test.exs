@@ -38,6 +38,29 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     assert %{"metric_family" => "disk"} = Jason.decode!(disk_payload)
   end
 
+  test "preserves future downsample window metadata on published samples" do
+    Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.sysmon",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status_with_downsample_metadata())
+
+    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload}
+
+    assert %{
+             "sample" => %{
+               "downsample_window" => %{
+                 "start" => "2026-06-12T00:00:00Z",
+                 "end" => "2026-06-12T00:01:00Z"
+               },
+               "downsample_mode" => %{"cpu" => "avg", "memory" => "avg"},
+               "sample_count" => 6
+             }
+           } = Jason.decode!(cpu_payload)
+  end
+
   test "is disabled by default" do
     Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
       enabled: false,
@@ -107,6 +130,35 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
           }
         })
     }
+  end
+
+  defp sysmon_status_with_downsample_metadata do
+    put_in(
+      sysmon_status(),
+      [:message],
+      Jason.encode!(%{
+        "available" => true,
+        "response_time" => 0,
+        "status" => %{
+          "timestamp" => "2026-06-12T00:01:00Z",
+          "host_id" => "host-1",
+          "host_ip" => "10.0.0.10",
+          "agent_id" => "agent-1",
+          "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
+          "clusters" => [],
+          "disks" => [],
+          "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
+          "network" => [],
+          "processes" => [],
+          "downsample_window" => %{
+            "start" => "2026-06-12T00:00:00Z",
+            "end" => "2026-06-12T00:01:00Z"
+          },
+          "downsample_mode" => %{"cpu" => "avg", "memory" => "avg"},
+          "sample_count" => 6
+        }
+      })
+    )
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
