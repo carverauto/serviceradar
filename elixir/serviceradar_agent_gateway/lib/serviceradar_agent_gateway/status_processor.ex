@@ -17,6 +17,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   - Distributed routing for partition-aware processing
   """
 
+  alias ServiceRadarAgentGateway.SnmpMetricsPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.SysmonMetricsPublisher
 
@@ -57,11 +58,13 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       case forward(status) do
         :ok ->
           shadow_publish_sysmon_metrics(status)
+          shadow_publish_snmp_metrics(status)
           track_agent(status)
           :ok
 
         {:ok, _result} = ok ->
           shadow_publish_sysmon_metrics(status)
+          shadow_publish_snmp_metrics(status)
           track_agent(status)
           ok
 
@@ -323,6 +326,39 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :serviceradar_agent_gateway,
       :sysmon_metrics_publisher_module,
       SysmonMetricsPublisher
+    )
+  end
+
+  defp shadow_publish_snmp_metrics(status) do
+    if snmp_metrics_source?(status) do
+      case snmp_metrics_publisher().publish_snmp(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("SNMP metrics shadow publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          :ok
+      end
+    end
+  end
+
+  defp snmp_metrics_source?(%{source: source}), do: source in ["snmp-metrics", :snmp_metrics]
+  defp snmp_metrics_source?(_status), do: false
+
+  defp snmp_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :snmp_metrics_publisher_module,
+      SnmpMetricsPublisher
     )
   end
 
