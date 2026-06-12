@@ -488,7 +488,9 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   defp run_guarded(sql) do
     ServiceRadar.Repo.transaction(
       fn ->
-        case ServiceRadar.Repo.query("SELECT pg_try_advisory_xact_lock($1)", [@correlator_lock_key]) do
+        case ServiceRadar.Repo.query("SELECT pg_try_advisory_xact_lock($1)", [
+               @correlator_lock_key
+             ]) do
           {:ok, %{rows: [[true]]}} ->
             case ServiceRadar.Repo.query(sql, [], timeout: @correlation_timeout_ms) do
               {:ok, %{rows: [[num_rows]]}} -> num_rows
