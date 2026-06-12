@@ -215,12 +215,18 @@ Customers will deploy **NATS leaf nodes** in their own networks. A leaf node is 
 4. **Detection stays cloud-side** in this change (core-elx consumes the federated hub); pushing detection to the edge is a later option, not precluded.
 
 **Key principle — OTLP is terminated locally; NATS crosses the WAN.** Edge-emitted OTEL never travels to a cloud collector as OTLP. It is terminated *at the edge* (turned into NATS messages locally) and the **leaf→hub federation** carries it to the cloud. So the collector is deployable per-site, not a central chokepoint:
-- **Agent's own OTEL** → agent → agent-gateway (LAN gRPC) → gateway publishes `otel.*.raw` to the local leaf. No collector needed.
-- **Plugin/add-on/local-app OTLP (OTel SDK)** → a *local* OTLP terminator (an edge `rust/otel` collector, or the gateway hosting an OTLP receiver) → publishes `otel.*.raw` to the local leaf. (An SDK speaks OTLP-on-the-wire and cannot publish to NATS itself, so it needs a terminator *near it*.)
-- **Add-on-protocol telemetry** → returned via `CommandResult` → agent → gateway → local leaf.
-- The **cloud** collector only terminates OTLP from cloud-resident emitters + external apps reaching the cloud OTLP gateway over the internet — the same bridge, cloud instance.
+- **The local OTLP terminator at every site is the `otel-collector` agent add-on** (`addons/otel-collector`, binary `serviceradar-otel-addon`, agent-sidecar). It accepts OTLP locally (gRPC :4317 / HTTP :4318), **spools to disk durably**, and stamps identity/partition from the agent cert. **All edge OTLP — plugins, add-ons, local apps, and the agent's own telemetry — exports to this local add-on.**
+- **The add-on supports TWO output transports (configurable), because the edge does not always have NATS access:**
+  - **Gateway-relay (default; requires NO edge NATS):** relays frames over the acked **`otlp-relay:v1`** stream → agent → **agent-gateway, which publishes `otel.*.raw`** to (cloud) NATS. The add-on never needs direct NATS (reconciles "agents are NATS-denied"). This is the only delta vs today (core re-publishes via `status_handler.ex:281`).
+  - **Direct-to-NATS (when a NATS leaf is deployed at the edge):** the add-on publishes `otel.*.raw` straight to the **local leaf**, which federates to the cloud hub via JetStream leaf transport with store-and-forward.
+  Both transports end with `otel.*.raw` on NATS → core-elx consumes; the choice is per-site config (endpoint-agnostic, Decision 16 constraint #1).
+- **Durability:** the on-disk spool covers short disconnects on the gateway-relay path; the leaf + JetStream leaf transport covers multi-hour/day outages (the add-on README's own guidance).
+- **Add-on-protocol telemetry** (non-OTLP producers) → returned via `CommandResult` → agent → gateway → NATS.
+- The **cloud** `rust/otel` collector only terminates OTLP from cloud-resident emitters + external apps reaching the cloud OTLP gateway over the internet — the same bridge, cloud instance.
 
 What crosses the WAN is always **NATS** (leaf → hub, store-and-forward), never raw OTLP to a distant collector — which is what makes it work on intermittent links.
+
+**The `otel-collector` add-on MUST be a required/default add-on — auto-installed with every agent, not an optional profile assignment.** Without it an agent has no local OTLP terminator, so edge plugin/app/agent OTLP has nowhere to go; making it required guarantees local OTLP termination + durable spooling on every ServiceRadar agent. This **depends on reliable required-add-on distribution** — coordinate the native add-on **blob-eviction fix (fj #3593)**, since a required add-on whose artifact is silently evicted (DB says `verified`, gateway returns 404) would break edge OTLP everywhere. The "required add-on" mechanism (a default/always-installed set folded into every agent's compiled config, vs the current per-profile assignment) is part of this.
 
 Building edge/leaf deployment (leaf JetStream domain, stream source/mirror to hub, edge agent-gateway + edge collector packaging) is **future work** — this decision only ensures Phase 0 does not preclude it.
 
