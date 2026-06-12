@@ -348,6 +348,22 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                 phx-change="settings_validate"
                 phx-submit="settings_save"
               >
+                <input
+                  type="hidden"
+                  name="settings[anomaly_enabled]"
+                  value={to_string(@settings_form[:anomaly_enabled].value || false)}
+                />
+                <input
+                  type="hidden"
+                  name="settings[anomaly_baseline_window_seconds]"
+                  value={@settings_form[:anomaly_baseline_window_seconds].value}
+                />
+                <input
+                  type="hidden"
+                  name="settings[anomaly_threshold_percent]"
+                  value={@settings_form[:anomaly_threshold_percent].value}
+                />
+
                 <div class="mt-4 grid grid-cols-1 gap-4">
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
                     <div class="flex items-center justify-between gap-3">
@@ -488,23 +504,11 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                   </div>
 
                   <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
-                    <div class="text-xs font-semibold">Anomaly Detection (Feature Flag)</div>
-                    <div class="mt-2 grid grid-cols-1 gap-3">
-                      <.input
-                        field={@settings_form[:anomaly_enabled]}
-                        type="checkbox"
-                        label="Enable anomaly flags"
-                      />
-                      <.input
-                        field={@settings_form[:anomaly_baseline_window_seconds]}
-                        type="number"
-                        label="Baseline window seconds"
-                      />
-                      <.input
-                        field={@settings_form[:anomaly_threshold_percent]}
-                        type="number"
-                        label="Threshold percent increase"
-                      />
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="text-xs font-semibold">Anomaly Detection</div>
+                      <.link navigate={~p"/settings/anomaly-detection"} class="btn btn-sm">
+                        Open anomaly settings
+                      </.link>
                     </div>
                   </div>
 
