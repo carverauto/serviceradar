@@ -162,6 +162,25 @@ During rollout:
 4. Keep remediation workflows manual until a separate guarded-remediation
    proposal is approved and implemented.
 
+## Guarded Remediation Is Future Work
+
+This release is detect-and-alert only. It does not automatically throttle
+traffic, restart services, change polling profiles, resize resources, or mutate
+network policy.
+
+Any future automatic action must ship as a separate feature-flagged change with
+bounded-intervention gates defined before enablement:
+
+1. Trigger and score the finding.
+2. Require a persistence or duration gate.
+3. Check an already-acting interlock so repeated findings do not stack actions.
+4. Clamp the action to an approved safe envelope.
+5. Audit-log the decision, action, and operator override path.
+
+Do not wire anomaly or capacity findings directly to remediation scripts. Route
+them through events, alerts, and manual operator review until that guarded
+phase exists.
+
 ## Troubleshooting
 
 - **No findings**: confirm the relevant metric subject is enabled for analysis,

@@ -54,7 +54,7 @@
 ## 6. Docs / conventions
 - [x] 6.1 `AGENTS.md` Hard Rule + `openspec/project.md`: all metrics via JetStream first, never direct-to-DB (done in this proposal; keep in sync).
 - [x] 6.2 Operator docs for anomaly tuning (N-sigma/M-slot per metric class) and capacity-forecast interpretation under `docs/docs/`.
-- [ ] 6.3 Note the future feature-flagged guarded-remediation phase (TCAS 5-gate discipline) as a follow-up change; not implemented here.
+- [x] 6.3 Note the future feature-flagged guarded-remediation phase (TCAS 5-gate discipline) as a follow-up change; not implemented here.
 
 ## 7. Validation
 - [ ] 7.1 `openspec validate add-causal-anomaly-detection --strict` passes.
