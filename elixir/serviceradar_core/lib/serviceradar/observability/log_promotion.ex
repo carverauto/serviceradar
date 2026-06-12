@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Monitoring.AlertGenerator
@@ -80,7 +81,7 @@ defmodule ServiceRadar.Observability.LogPromotion do
   defp insert_events(events) do
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         "ocsf_events",
         events,
         on_conflict: :nothing,

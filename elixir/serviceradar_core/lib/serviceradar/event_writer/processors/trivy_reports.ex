@@ -13,6 +13,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   import Bitwise
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.DeviceCorrelation
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
@@ -704,27 +705,15 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
   defp insert_all_count(_table, [], _opts), do: 0
 
   defp insert_all_count(table, rows, opts) do
-    rows
-    |> Enum.chunk_every(500)
-    |> Enum.reduce(0, fn chunk, total ->
-      {count, _} =
-        ServiceRadar.Repo.insert_all(table, chunk, opts)
+    {count, _} = BulkInsert.insert_all(table, rows, opts)
 
-      total + count
-    end)
+    count
   end
 
   defp insert_all_returning(_table, [], _opts), do: {0, []}
 
   defp insert_all_returning(table, rows, opts) do
-    rows
-    |> Enum.chunk_every(500)
-    |> Enum.reduce({0, []}, fn chunk, {total_count, total_returned} ->
-      {count, returned} =
-        ServiceRadar.Repo.insert_all(table, chunk, opts)
-
-      {total_count + count, total_returned ++ returned}
-    end)
+    BulkInsert.insert_all(table, rows, opts)
   end
 
   defp upsert_report_rows([]), do: 0

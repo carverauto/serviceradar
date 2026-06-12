@@ -9,6 +9,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.StatefulAlertEngine
 
@@ -57,7 +58,7 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
   defp insert_event_rows(rows) do
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         table_name(),
         rows,
         on_conflict: :nothing,

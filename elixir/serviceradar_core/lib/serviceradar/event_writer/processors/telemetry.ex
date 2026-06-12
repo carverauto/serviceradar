@@ -51,6 +51,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.Observability.TimeseriesSeriesKey
 
@@ -98,7 +99,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   defp insert_telemetry_rows(rows) do
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         table_name(),
         rows,
         on_conflict: :nothing,

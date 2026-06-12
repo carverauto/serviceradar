@@ -10,6 +10,21 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
 
+  # Cross-node singleton guard: only the holder of this Postgres advisory lock
+  # runs a correlation pass, so concurrent passes on multiple `core` replicas
+  # cannot block each other on transaction/tuple locks over the same recent
+  # `ocsf_network_activity` rows. Distinct from the coordinator lock (42_600_101).
+  @correlator_lock_key 42_600_201
+
+  # Upper bound on flows considered per pass so a single statement cannot grow
+  # unbounded with flow volume and exceed the statement timeout (which left the
+  # whole window un-attributed). Newest-first so live attribution stays current;
+  # remaining backlog is drained over subsequent passes.
+  @batch_limit 5_000
+
+  # Statement/transaction timeout for a correlation pass (ms).
+  @correlation_timeout_ms 120_000
+
   @spec correlate() :: {:ok, non_neg_integer()} | {:error, term()}
   def correlate do
     sql = """
@@ -27,6 +42,8 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       FROM #{@schema}.ocsf_network_activity AS f
       WHERE f.time > now() - interval '#{@correlation_window_minutes} minutes'
         AND (f.ocsf_payload ->> 'event_type') IS DISTINCT FROM 'attributed_flow'
+      ORDER BY f.time DESC
+      LIMIT #{@batch_limit}
     ),
     attribution_sources AS NOT MATERIALIZED (
       SELECT
@@ -458,9 +475,36 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
       (SELECT count(*) FROM workload_backfills) AS affected_rows
     """
 
-    with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity(),
-         {:ok, %{rows: [[num_rows]]}} <- ServiceRadar.Repo.query(sql, []) do
-      {:ok, num_rows}
+    with {:ok, _current_backfills} <- WorkloadBackfill.backfill_current_workload_identity() do
+      run_guarded(sql)
     end
+  end
+
+  # Runs the correlation statement under a Postgres transaction-scoped advisory
+  # lock so only one `core` node executes a pass at a time. The lock is released
+  # automatically at transaction end (commit/rollback/disconnect), so a crashed
+  # node never strands the lock. If another node already holds it, this pass is a
+  # no-op (returns 0) rather than blocking.
+  defp run_guarded(sql) do
+    ServiceRadar.Repo.transaction(
+      fn ->
+        case ServiceRadar.Repo.query("SELECT pg_try_advisory_xact_lock($1)", [
+               @correlator_lock_key
+             ]) do
+          {:ok, %{rows: [[true]]}} ->
+            case ServiceRadar.Repo.query(sql, [], timeout: @correlation_timeout_ms) do
+              {:ok, %{rows: [[num_rows]]}} -> num_rows
+              {:error, reason} -> ServiceRadar.Repo.rollback(reason)
+            end
+
+          {:ok, %{rows: [[false]]}} ->
+            0
+
+          {:error, reason} ->
+            ServiceRadar.Repo.rollback(reason)
+        end
+      end,
+      timeout: @correlation_timeout_ms
+    )
   end
 end

@@ -64,6 +64,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   alias Opentelemetry.Proto.Trace.V1.Span.SpanKind
   alias Opentelemetry.Proto.Trace.V1.Status
   alias Opentelemetry.Proto.Trace.V1.Status.StatusCode
+  alias ServiceRadar.EventWriter.BulkInsert
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.IngestAttribution
   alias ServiceRadar.EventWriter.OtelId
@@ -128,7 +129,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelTraces do
   defp insert_trace_rows(rows) do
     # DB connection's search_path determines the schema
     {count, _} =
-      ServiceRadar.Repo.insert_all(
+      BulkInsert.insert_all(
         table_name(),
         rows,
         on_conflict: :nothing,
