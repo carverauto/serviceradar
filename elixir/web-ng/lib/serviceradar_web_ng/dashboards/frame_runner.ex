@@ -88,9 +88,14 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
 
   defp run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit) do
     case run_arrow_frame(base, query, scope, srql_module, limit) do
-      {:ok, frame} -> frame
-      {:fallback, _reason} -> run_json_frame(base, query, scope, srql_module, device_resolver, limit)
-      {:error, reason} -> error_frame(base, reason)
+      {:ok, frame} ->
+        frame
+
+      {:fallback, _reason} ->
+        run_json_frame(base, query, scope, srql_module, device_resolver, limit)
+
+      {:error, reason} ->
+        error_frame(base, reason)
     end
   end
 
@@ -464,7 +469,8 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp response_value(response, "schema") when is_map(response),
     do: Map.get(response, "schema") || Map.get(response, :schema)
 
-  defp response_value(response, "viz") when is_map(response), do: Map.get(response, "viz") || Map.get(response, :viz)
+  defp response_value(response, "viz") when is_map(response),
+    do: Map.get(response, "viz") || Map.get(response, :viz)
 
   defp response_value(_response, _key), do: nil
 

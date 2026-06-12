@@ -71,7 +71,7 @@
       "query": "in:security_findings class_uid:2002 sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
