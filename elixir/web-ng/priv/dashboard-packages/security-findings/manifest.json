@@ -69,7 +69,7 @@
       "query": "in:security_findings class_uid:2002 sort:time:desc limit:80",
       "encoding": "json_rows",
       "limit": 80,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -84,7 +84,7 @@
       "query": "in:security_findings source:trivy sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -101,7 +101,7 @@
       "query": "in:scan_activity source:trivy sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -118,7 +118,7 @@
       "query": "in:security_findings source:bumblebee sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -135,7 +135,7 @@
       "query": "in:scan_activity source:bumblebee sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -152,7 +152,7 @@
       "query": "in:security_findings source:falco sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -169,7 +169,7 @@
       "query": "in:security_findings source:endpoint_inventory sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",
@@ -186,7 +186,7 @@
       "query": "in:dns_activity source:powerdns sort:time:desc limit:1",
       "encoding": "json_rows",
       "limit": 1,
-      "required": true,
+      "required": false,
       "fields": [
         "id",
         "time",

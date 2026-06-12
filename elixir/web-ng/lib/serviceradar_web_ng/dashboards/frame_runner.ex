@@ -12,6 +12,9 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   @default_frame_limit 500
   @max_frame_limit 2_000
   @max_frames 12
+  # Per-frame wall-clock cap so one slow SRQL query can't stall the whole
+  # dashboard; a timed-out frame yields an error frame in place.
+  @frame_timeout_ms 30_000
   @event_frame_entities ~w(events security_findings scan_activity dns_activity)
 
   @spec run([map()], term(), keyword()) :: [map()]
@@ -22,12 +25,54 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     srql_module = Keyword.get(opts, :srql_module, srql_module())
     device_resolver = Keyword.get(opts, :device_resolver, DeviceCorrelation)
 
-    data_frames
-    |> Enum.take(@max_frames)
-    |> Enum.map(&run_frame(&1, scope, srql_module, device_resolver, limit))
+    frames = Enum.take(data_frames, @max_frames)
+
+    # Frames are independent SRQL round-trips, so run them concurrently with
+    # bounded parallelism. Ordered results + per-frame error isolation are
+    # preserved: a crashed/timed-out frame yields its error frame in place
+    # rather than failing the batch (matching the previous Enum.map contract).
+    frames
+    |> Task.async_stream(
+      &run_frame(&1, scope, srql_module, device_resolver, limit),
+      max_concurrency: max(1, min(length(frames), System.schedulers_online())),
+      timeout: @frame_timeout_ms,
+      on_timeout: :kill_task,
+      ordered: true
+    )
+    |> Enum.zip(frames)
+    |> Enum.map(fn
+      {{:ok, frame}, _orig} -> frame
+      {{:exit, reason}, orig} -> frame_exit_error(orig, reason)
+    end)
   end
 
   def run(_data_frames, _scope, _opts), do: []
+
+  # Builds an error frame for a frame whose task crashed or timed out, keeping
+  # the frame id/query so the renderer can place it in order.
+  defp frame_exit_error(orig, reason) when is_map(orig) do
+    id = normalize_string(orig["id"] || orig[:id]) || "frame"
+    query = normalize_string(orig["query"] || orig[:query])
+
+    message =
+      case reason do
+        :timeout -> "frame timed out"
+        other -> "frame failed: #{inspect(other)}"
+      end
+
+    %{
+      "id" => id,
+      "query" => query,
+      "encoding" => "json_rows",
+      "required" => required?(orig),
+      "status" => "error",
+      "error" => message,
+      "results" => []
+    }
+  end
+
+  defp frame_exit_error(_orig, reason),
+    do: %{"id" => "frame", "status" => "error", "error" => "frame failed: #{inspect(reason)}", "results" => []}
 
   defp run_frame(%{} = frame, scope, srql_module, device_resolver, default_limit) do
     id = normalize_string(frame["id"] || frame[:id]) || "frame"

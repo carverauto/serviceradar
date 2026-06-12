@@ -11,11 +11,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
   end
 
   describe "promotion thresholds" do
-    test "promotes warning and above to events" do
-      assert FalcoEvents.promote_to_event?(3)
+    test "promotes every severity to a finding (severity is a filter, not a gate)" do
       assert FalcoEvents.promote_to_event?(6)
-      refute FalcoEvents.promote_to_event?(2)
-      refute FalcoEvents.promote_to_event?(1)
+      assert FalcoEvents.promote_to_event?(3)
+      # Low/info severities now become findings too so they appear in
+      # in:security_findings rather than living only in the logs table.
+      assert FalcoEvents.promote_to_event?(2)
+      assert FalcoEvents.promote_to_event?(1)
     end
 
     test "promotes critical and emergency to alerts" do

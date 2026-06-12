@@ -52,7 +52,11 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   @doc false
   @spec promote_to_event?(non_neg_integer()) :: boolean()
-  def promote_to_event?(severity_id), do: severity_id >= OCSF.severity_medium()
+  # Every Falco event becomes a structured OCSF finding regardless of severity
+  # (severity is a filter in analytics, not a visibility gate). Alerting stays
+  # gated via promote_to_alert?/1. _severity_id is retained for signature
+  # stability and future per-rule overrides.
+  def promote_to_event?(_severity_id), do: true
 
   @doc false
   @spec promote_to_alert?(non_neg_integer()) :: boolean()
