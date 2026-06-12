@@ -9,6 +9,7 @@ alias Geolix.Adapter.MMDB2
 alias ServiceRadar.Edge.RemoteAccessSSHCACommandSigner
 alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
+alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
 alias ServiceRadar.Observability.DataRetentionWorker
@@ -1196,6 +1197,14 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
+          name: "PDNS_OCSF",
+          stream_name: "events",
+          subject: "pdns.ocsf",
+          processor: PowerDNS,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "FALCO",
           stream_name: "events",
           subject: "falco.logs",
@@ -1222,6 +1231,14 @@ if config_env() == :prod do
           name: "OTEL_TRACES",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "LOGS",
+          stream_name: "events",
+          subject: "logs.>",
+          processor: ServiceRadar.EventWriter.Processors.Logs,
           batch_size: 100,
           batch_timeout: 1_000
         },
