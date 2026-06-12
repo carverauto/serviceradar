@@ -28,30 +28,19 @@ import (
 	"github.com/nats-io/nats.go"
 )
 
-// TestPartitionCoreACL_RuntimePublishSemantics is the B-7 runtime
-// regression. The earlier shape of GeneratePartitionCoreCreds (and the
-// matching rendered nats-server.conf / helm template) listed the
-// unscoped wildcard "flow.attributed.>" on PublishDeny while listing
-// "flow.attributed.<partition>" and "flow.attributed.<partition>.>"
-// on PublishAllow. The accompanying comment claimed NATS evaluated
-// "allow-then-deny per token", but NATS publish authorization is
-// actually "any matching deny wins" — for any subject token that
-// matches both the allow set and the deny set, the publish is
-// rejected by the server. The previous shape therefore prevented the
-// partition-core from publishing to its own partition subject, while
-// the JWT-shape unit tests passed because they only asserted the
-// strings present in the credential, not the runtime behavior.
+// TestPartitionCoreACL_RuntimePublishSemantics verifies the runtime
+// authorization shape produced by GeneratePartitionCoreCreds. Core keeps
+// authority for ordinary platform subjects but no longer has a
+// flow.attributed.* publish/read-back path.
 //
 // This test boots a real nats-server in-process (same helper pattern
 // as go/pkg/trivysidecar/publisher_integration_test.go and
 // go/pkg/datasvc/nats_reconnect_test.go), seeds it with a
-// "core-alpha" identity whose Permissions mirror the post-B-7-fix
-// shape produced by GeneratePartitionCoreCreds, and asserts that:
+// "core-alpha" identity whose Permissions mirror the shape produced by
+// GeneratePartitionCoreCreds, and asserts that:
 //
-//  1. core-alpha CAN publish to flow.attributed.alpha.
-//  2. core-alpha CAN publish to flow.attributed.alpha.sub.
-//  3. core-alpha CANNOT publish to flow.attributed.beta — NATS
-//     rejects it because the subject is not in PublishAllow.
+//  1. core-alpha CAN publish to ordinary log/event subjects.
+//  2. core-alpha CANNOT publish to flow.attributed.alpha.
 //
 // Gated behind testing.Short() consistent with the other in-repo
 // embedded-NATS integration tests.
@@ -61,7 +50,7 @@ func TestPartitionCoreACL_RuntimePublishSemantics(t *testing.T) {
 	}
 
 	// Build a server config whose authorization block reflects the
-	// permissions returned by GeneratePartitionCoreCreds (post-B-7).
+	// permissions returned by GeneratePartitionCoreCreds.
 	// Using the static-user/password path keeps the test focused on
 	// publish ACL semantics; the JWT-account resolver is exercised by
 	// the unit tests above.
@@ -117,34 +106,29 @@ func TestPartitionCoreACL_RuntimePublishSemantics(t *testing.T) {
 	}
 	t.Cleanup(func() { nc.Close() })
 
-	// (1) Own-partition publish (exact subject token) must succeed.
-	if err := nc.Publish("flow.attributed.alpha", []byte(`{"own":true}`)); err != nil {
-		t.Fatalf("core-alpha publish flow.attributed.alpha: %v", err)
-	}
-	// (2) Own-partition publish (subtree) must succeed.
-	if err := nc.Publish("flow.attributed.alpha.sub", []byte(`{"sub":true}`)); err != nil {
-		t.Fatalf("core-alpha publish flow.attributed.alpha.sub: %v", err)
+	if err := nc.Publish("live.logs.internal.audit", []byte(`{"own":true}`)); err != nil {
+		t.Fatalf("core-alpha publish live.logs.internal.audit: %v", err)
 	}
 	if err := nc.Flush(); err != nil {
-		t.Fatalf("flush after own-partition publishes: %v", err)
+		t.Fatalf("flush after allowed publish: %v", err)
 	}
 	// Give the server a brief moment to surface any async permission
-	// error tied to the publishes above. There should be none.
+	// error tied to the allowed publish above. There should be none.
 	if waitForAsyncErr(coreErrChan, 200*time.Millisecond) {
-		t.Fatalf("unexpected permission violation for own-partition publish: %v", coreErrs.snapshot())
+		t.Fatalf("unexpected permission violation for allowed publish: %v", coreErrs.snapshot())
 	}
 
-	// (3) Cross-partition publish must be rejected by the server.
-	// NATS sends a -ERR 'Permissions Violation' on the protocol stream
+	// The retired attributed-flow read-back subject must be rejected by the
+	// server. NATS sends a -ERR 'Permissions Violation' on the protocol stream
 	// which surfaces through the async error handler.
-	if err := nc.Publish("flow.attributed.beta", []byte(`{"cross":true}`)); err != nil {
+	if err := nc.Publish("flow.attributed.alpha", []byte(`{"retired":true}`)); err != nil {
 		// Some client/server versions surface the violation
 		// synchronously; that is also a success signal for this
 		// regression.
 		if isPermErr(err) {
 			return
 		}
-		t.Fatalf("publish to flow.attributed.beta returned unexpected error: %v", err)
+		t.Fatalf("publish to flow.attributed.alpha returned unexpected error: %v", err)
 	}
 	if err := nc.Flush(); err != nil {
 		// Flush may itself report the permission violation,
@@ -152,55 +136,48 @@ func TestPartitionCoreACL_RuntimePublishSemantics(t *testing.T) {
 		if isPermErr(err) {
 			return
 		}
-		t.Fatalf("flush after cross-partition publish: %v", err)
+		t.Fatalf("flush after retired attributed-flow publish: %v", err)
 	}
 
 	if !waitForAsyncErr(coreErrChan, 2*time.Second) {
-		t.Fatalf("expected permission violation for cross-partition publish (flow.attributed.beta); got none")
+		t.Fatalf("expected permission violation for retired flow.attributed publish; got none")
 	}
 
 	// Confirm the recorded error is actually a permissions violation
-	// against the cross-partition subject — guards against an unrelated
+	// against the retired subject — guards against an unrelated
 	// async error masquerading as a pass.
 	last := coreErrs.last()
 	if last == nil || !isPermErr(last) {
 		t.Fatalf("expected permissions violation error, got: %v", last)
 	}
-	if !strings.Contains(last.Error(), "flow.attributed.beta") {
-		t.Fatalf("expected permission violation to reference flow.attributed.beta, got: %v", last)
+	if !strings.Contains(last.Error(), "flow.attributed.alpha") {
+		t.Fatalf("expected permission violation to reference flow.attributed.alpha, got: %v", last)
 	}
 }
 
 // partitionCorePermissions returns the static-user shape of the
 // per-partition core publish/subscribe ACL. It MUST mirror the
 // runtime shape produced by GeneratePartitionCoreCreds — if that
-// function widens or narrows the publish set, update this helper
-// (and the test will fail loudly if the new shape regresses B-7).
+// function widens or narrows the publish set, update this helper.
 func partitionCorePermissions(partitionID string) *server.Permissions {
-	attributed := "flow.attributed." + partitionID
+	_ = partitionID
 
 	return &server.Permissions{
 		Publish: &server.SubjectPermission{
 			Allow: []string{
-				attributed,
-				attributed + ".>",
 				"flow.raw.>",
 				"logs.>",
+				"live.logs.>",
 				"events.>",
 				"config.>",
 				"$JS.API.>",
 				"$JS.ACK.>",
 				"_INBOX.>",
 			},
-			// B-7: $SYS.> ONLY. A "flow.attributed.>" wildcard deny
-			// here would shadow the partition-scoped allows above.
 			Deny: []string{"$SYS.>"},
 		},
 		Subscribe: &server.SubjectPermission{
 			Allow: []string{
-				"flow.host-slice.>",
-				attributed,
-				attributed + ".>",
 				"flow.raw.>",
 				"logs.>",
 				"events.>",

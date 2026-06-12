@@ -249,13 +249,6 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: Flows,
         batch_size: 50,
         batch_timeout: 500
-      },
-      %{
-        name: "ATTRIBUTED_FLOW",
-        subject: "flow.attributed.>",
-        processor: Flows,
-        batch_size: 50,
-        batch_timeout: 500
       }
     ]
   end

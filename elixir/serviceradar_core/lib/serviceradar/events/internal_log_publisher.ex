@@ -1,8 +1,10 @@
 defmodule ServiceRadar.Events.InternalLogPublisher do
   @moduledoc """
-  Publishes internal OCSF log activity payloads to NATS as `logs.internal.*`.
+  Persists internal OCSF log activity payloads and optionally publishes them to
+  NATS as `live.logs.internal.*` for live subscribers.
   """
 
+  alias ServiceRadar.EventWriter.Processors.Logs
   alias ServiceRadar.NATS.Channels
   alias ServiceRadar.NATS.Connection
 
@@ -13,38 +15,24 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
   @spec publish(String.t(), map(), keyword()) :: :ok | {:error, term()}
   def publish(subject, payload, opts \\ []) when is_binary(subject) and is_map(payload) do
     service_name = Keyword.get(opts, :service_name, @default_service_name)
-    nats_subject = Channels.build("logs.internal.#{subject}")
+    persist_subject = Channels.build("logs.internal.#{subject}")
+    live_subject = Channels.build("live.logs.internal.#{subject}")
 
     payload = normalize_payload(payload, service_name)
 
-    # Producer span around the NATS hop: Connection.publish injects the
-    # active span context into the message headers; failures mark the span
-    # ERROR so error-rate rollups see them.
     ServiceRadar.Otel.span(
-      "internal_log.publish",
+      "internal_log.persist",
       %{
-        kind: :producer,
+        kind: :internal,
         attributes: %{
-          "messaging.system" => "nats",
-          "messaging.destination.name" => nats_subject
+          "serviceradar.log.subject" => persist_subject
         }
       },
       fn ->
         case Jason.encode(payload) do
           {:ok, json} ->
-            case Connection.publish(nats_subject, json) do
-              :ok ->
-                :ok
-
-              {:error, reason} ->
-                ServiceRadar.Otel.set_error(reason)
-
-                Logger.warning("Failed to publish internal log",
-                  subject: nats_subject,
-                  reason: inspect(reason)
-                )
-
-                {:error, reason}
+            with :ok <- persist_log(persist_subject, json, opts) do
+              maybe_publish(live_subject, json, opts)
             end
 
           {:error, reason} ->
@@ -55,6 +43,82 @@ defmodule ServiceRadar.Events.InternalLogPublisher do
       end
     )
   end
+
+  defp persist_log(subject, json, opts) do
+    message = %{
+      data: json,
+      metadata: %{
+        subject: subject,
+        received_at: DateTime.utc_now(),
+        headers: []
+      }
+    }
+
+    case process_logs(log_processor(opts), [message]) do
+      {:ok, _count} ->
+        :ok
+
+      {:error, reason} ->
+        ServiceRadar.Otel.set_error(reason)
+
+        Logger.warning("Failed to persist internal log",
+          subject: subject,
+          reason: inspect(reason)
+        )
+
+        {:error, reason}
+
+      other ->
+        ServiceRadar.Otel.set_error(other)
+
+        Logger.warning("Unexpected internal log persistence result",
+          subject: subject,
+          result: inspect(other)
+        )
+
+        {:error, other}
+    end
+  end
+
+  defp maybe_publish(subject, json, opts) do
+    if Keyword.get(opts, :publish_to_nats?, true) do
+      case publish_to_nats(publisher(opts), subject, json) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to publish internal log live copy",
+            subject: subject,
+            reason: inspect(reason)
+          )
+
+          :ok
+      end
+    else
+      :ok
+    end
+  end
+
+  defp log_processor(opts) do
+    Keyword.get(opts, :log_processor, Logs)
+  end
+
+  defp publisher(opts) do
+    Keyword.get(opts, :publisher, {Connection, :publish, []})
+  end
+
+  defp process_logs({mod, fun, extra_args}, messages) do
+    apply(mod, fun, [messages | extra_args])
+  end
+
+  defp process_logs(mod, messages) when is_atom(mod), do: mod.process_batch(messages)
+  defp process_logs(fun, messages) when is_function(fun, 1), do: fun.(messages)
+
+  defp publish_to_nats({mod, fun, extra_args}, subject, payload) do
+    apply(mod, fun, [subject, payload | extra_args])
+  end
+
+  defp publish_to_nats(fun, subject, payload) when is_function(fun, 2), do: fun.(subject, payload)
 
   defp normalize_payload(payload, service_name) do
     payload = stringify_keys(payload)

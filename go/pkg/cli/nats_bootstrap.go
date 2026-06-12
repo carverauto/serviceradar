@@ -615,6 +615,7 @@ func generatePlatformAccount(
 			"flow.attributed.>",
 			"flow.raw.>",
 			"logs.>",
+			"live.logs.>",
 			"events.>",
 			"config.>",
 			"$JS.API.>",
@@ -728,40 +729,25 @@ func GenerateAgentFlowCollectorCreds(
 }
 
 // GeneratePartitionCoreCreds issues a NATS user JWT scoped to a single
-// partition's core / control-plane identity. This is the B-5 sub-issue 2
-// building block for true per-partition publish ACLs on the
-// flow.attributed.<partition_id> subject tree.
+// partition's core / control-plane identity.
 //
 // ServiceRadar runs one deployment per partition (see
 // elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"); each
 // core-elx process knows its own partition_id at boot from
 // SERVICERADAR_OTX_PARTITION. Issuing a partition-scoped credential at
-// deployment bootstrap binds NATS publish authority for
-// flow.attributed.<partition_id> to that specific deployment, so a
-// compromised or misconfigured core in partition A cannot inject
-// attributed-flow events into partition B's stream.
+// deployment bootstrap binds NATS authority for that deployment's
+// control-plane subjects.
 //
 // The permission shape:
 //
-//   - PublishAllow lists the exact partition subject plus its subtree
-//     (flow.attributed.<partition_id> and flow.attributed.<partition_id>.>)
-//     alongside the other control subjects core legitimately publishes
-//     (flow.raw.>, logs.>, events.>, config.>, JetStream control,
-//     inboxes). NATS publish ACL semantics are "any deny wins": for any
-//     subject token that matches both the allow list and the deny list,
-//     the deny rejects the publish. Cross-partition publish is
-//     prevented by the narrowness of PublishAllow itself —
-//     flow.attributed.<otherP> is not in the allow list, so NATS
-//     implicitly denies it. We do NOT add flow.attributed.> to
-//     PublishDeny because that wildcard is a strict superset of the
-//     partition-scoped allow tokens and would shadow them at runtime
-//     (B-7 fix).
+//   - PublishAllow lists the control subjects core legitimately publishes
+//     (flow.raw.>, logs.>, live.logs.>, events.>, config.>, JetStream control,
+//     inboxes). Attributed-flow DB writes are in-process/in-cluster and
+//     no longer publish/read back through flow.attributed.*.
 //   - PublishDeny is limited to $SYS.> (reserved for the system
 //     account on every identity).
-//   - SubscribeAllow is tightened to the matching
-//     flow.attributed.<partition_id>.> subtree (defense-in-depth) plus
-//     the host-slice consumer subjects core needs for the attribution
-//     bridge.
+//   - SubscribeAllow lists the raw flow, log, event, config, JetStream,
+//     and inbox subjects core consumes.
 //   - SubscribeDeny denies $SYS.> for symmetry with other identities.
 //
 // Callers should provision per-partition core creds at deployment
@@ -781,34 +767,19 @@ func GeneratePartitionCoreCreds(
 		return nil, fmt.Errorf("%w: %q", ErrPartitionIDInvalidSubject, partitionID)
 	}
 
-	attributedSubject := "flow.attributed." + partitionID
-
 	permissions := &accounts.UserPermissions{
 		PublishAllow: []string{
-			attributedSubject,
-			attributedSubject + ".>",
 			"flow.raw.>",
 			"logs.>",
+			"live.logs.>",
 			"events.>",
 			"config.>",
 			"$JS.API.>",
 			"$JS.ACK.>",
 			"_INBOX.>",
 		},
-		// PublishDeny is intentionally limited to $SYS.>. We previously
-		// also denied "flow.attributed.>" as a fail-safe ceiling, but
-		// NATS publish authorization is "any matching deny wins": the
-		// wildcard deny is a strict superset of the partition-scoped
-		// allows above, so it would shadow them and prevent core from
-		// publishing to its own partition (B-7). Cross-partition publish
-		// is prevented by the narrowness of PublishAllow itself —
-		// flow.attributed.<otherP> is not in the allow list and is
-		// implicitly denied by NATS.
 		PublishDeny: []string{"$SYS.>"},
 		SubscribeAllow: []string{
-			"flow.host-slice.>",
-			attributedSubject,
-			attributedSubject + ".>",
 			"flow.raw.>",
 			"logs.>",
 			"events.>",

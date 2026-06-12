@@ -6,6 +6,12 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
   setup do
     existing = Process.whereis(ServiceRadar.StatusHandler)
 
+    previous_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
+
+    previous_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
+
     if is_pid(existing) do
       Process.unregister(ServiceRadar.StatusHandler)
     end
@@ -18,13 +24,16 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
       if is_pid(existing) do
         Process.register(existing, ServiceRadar.StatusHandler)
       end
+
+      restore_env(:otlp_relay_publisher_module, previous_publisher)
+      restore_env(:otlp_relay_publisher_test_pid, previous_test_pid)
     end)
 
     :ok
   end
 
-  test "relay forward failures raise out of chunk processing so the stream call fails" do
-    # No StatusHandler is registered, so forwarding fails. For otlp-relay the
+  test "relay publish failures raise out of chunk processing so the stream call fails" do
+    # Direct gateway publishing is disabled, so the relay frame cannot be acked. The
     # failure must escape the lenient drop-and-log rescue and fail the whole
     # stream_status call (the agent then retries the frame from its spool).
     assert_raise GRPC.RPCError, ~r/otlp-relay forward failed/, fn ->
@@ -43,33 +52,56 @@ defmodule ServiceRadarAgentGateway.OtlpRelayForwardingTest do
     assert AgentGatewayServer.process_chunk_services([bad_service], metadata()) == []
   end
 
-  test "relay statuses use the cert-derived partition and pass the payload through untruncated" do
+  test "relay statuses use the cert-derived partition and publish without core fallback" do
     parent = self()
 
     handler_pid =
       spawn(fn ->
         receive do
-          {:"$gen_call", from, {:status_update, status}} ->
-            GenServer.reply(from, :ok)
-            send(parent, {:called, status})
+          {:"$gen_call", _from, {:status_update, status}} ->
+            send(parent, {:unexpected_core_call, status})
         end
       end)
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :otlp_relay_publisher_module,
+      __MODULE__.PublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid, parent)
+
     service = relay_service(partition: "payload-spoofed-partition")
 
     assert AgentGatewayServer.process_chunk_services([service], metadata()) == []
 
-    assert_receive {:called, forwarded}
-    assert forwarded.source == "otlp-relay"
+    assert_receive {:otlp_relay_published, published}
+    assert published.source == "otlp-relay"
     # The mTLS-cert-derived partition (metadata) wins over the
     # payload-supplied service field.
-    assert forwarded.partition == "cert-partition"
-    assert forwarded.agent_id == "agent-1"
+    assert published.partition == "cert-partition"
+    assert published.agent_id == "agent-1"
     # Relay payloads above the default 4 KiB status cap must never be
     # truncated (truncation would corrupt the OTLP protobuf chunk).
-    assert forwarded.message == service.message
+    assert published.message == service.message
+    refute_receive {:unexpected_core_call, _status}
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
+  defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defmodule PublisherStub do
+    @moduledoc false
+    def publish_relay(status) do
+      send(Application.fetch_env!(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid), {
+        :otlp_relay_published,
+        status
+      })
+
+      :ok
+    end
   end
 
   defp relay_service(overrides \\ []) do

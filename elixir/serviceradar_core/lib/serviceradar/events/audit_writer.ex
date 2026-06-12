@@ -1,10 +1,12 @@
 defmodule ServiceRadar.Events.AuditWriter do
   @moduledoc """
-  Publishes audit logs to NATS for downstream promotion.
+  Persists audit logs for downstream promotion and optionally publishes a live
+  NATS copy.
 
   Provides a simple, idiomatic interface for recording audit trail events
-  across the Elixir stack. Payloads are published as OCSF Log Activity
-  (class_uid: 1008) to `logs.internal.audit` for downstream promotion.
+  across the Elixir stack. Payloads are persisted as OCSF Log Activity
+  (class_uid: 1008) on `logs.internal.audit` for downstream promotion; live
+  copies use `live.logs.internal.audit`.
 
   ## Usage
 

@@ -8,21 +8,11 @@
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
-to render the core/datasvc/agent NATS ACL blocks
-below. The chart's top-level `.Values.partitionId` is the source of
-truth; agent.partitionId is honored as a fallback for backwards
-compatibility with releases that only set it under .agent. This MUST
-match SERVICERADAR_OTX_PARTITION on the core-elx runtime config —
-otherwise core will publish to flow.attributed.<partition> subjects
-that are not in any allowed publish ACL, and NATS will reject the
-messages with a permissions violation.
-
-B-7 fix: the per-identity publish ACLs below do NOT deny the unscoped
-flow.attributed.> wildcard for the core/datasvc
-roles. NATS publish authorization is "any matching deny wins"; a
-wildcard deny would be a strict superset of the partition-scoped
-allow tokens and would shadow them. Cross-partition publish is
-prevented by the narrowness of each identity's PublishAllow.
+to render the core/datasvc/agent NATS ACL blocks below. The chart's
+top-level `.Values.partitionId` is the source of truth; agent.partitionId
+is honored as a fallback for backwards compatibility with releases that
+only set it under .agent. This MUST match SERVICERADAR_OTX_PARTITION on
+the core-elx runtime config.
 */}}
 {{- $partitionId := coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" -}}
 {{- $globalStorage := default (dict) .Values.global.storage -}}
@@ -166,25 +156,15 @@ spec:
                   }
                 }
               },
-              # Core platform service (B-5 subject-scoping): subscribes to
-              # flow.host-slice.> for attribution, publishes
-              # flow.attributed.{{ $partitionId }} for the owning
-              # partition, manages JetStream streams/consumers, and uses
-              # request/reply inboxes. Denied from $SYS.> (system events
-              # are scoped to the SYS account only). The unscoped
-              # flow.attributed.> wildcard is NOT in PublishDeny because
-              # NATS publish authorization is "any matching deny wins" —
-              # a wildcard deny would be a strict superset of the
-              # partition-scoped allows and would shadow them at runtime
-              # (B-7). Cross-partition publish is prevented by the
-              # narrowness of PublishAllow itself.
+              # Core platform service: manages JetStream streams/consumers,
+              # publishes normalized platform subjects, and uses request/reply
+              # inboxes. Attributed-flow DB writes are in-process/in-cluster
+              # and no longer publish/read back through flow.attributed.*.
               {
                 user: "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
                     allow: [
-                      "flow.attributed.{{ $partitionId }}",
-                      "flow.attributed.{{ $partitionId }}.>",
                       "flow.raw.>",
                       "flows.raw.>",
                       "flows.*.processed",
@@ -201,9 +181,6 @@ spec:
                   }
                   subscribe: {
                     allow: [
-                      "flow.host-slice.>",
-                      "flow.attributed.{{ $partitionId }}",
-                      "flow.attributed.{{ $partitionId }}.>",
                       "flow.raw.>",
                       "flows.raw.>",
                       "flows.*.processed",
@@ -238,12 +215,9 @@ spec:
                   }
                 }
               },
-              # Datasvc (B-5 subject-scoping): query-side service that reads
-              # attributed flows for this partition plus catalog events and
-              # config. PublishAllow does not include any flow.attributed.*
-              # token, so the wildcard deny on flow.attributed.> is omitted
-              # (B-7 consistency): subjects not in PublishAllow are already
-              # implicitly denied by NATS.
+              # Datasvc query-side service: reads catalog events/config and
+              # object/KV state. Attributed flows are queried from CNPG, not a
+              # flow.attributed.* NATS read-back stream.
               {
                 user: "CN=serviceradar-datasvc,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
@@ -262,8 +236,6 @@ spec:
                   }
                   subscribe: {
                     allow: [
-                      "flow.attributed.{{ $partitionId }}",
-                      "flow.attributed.{{ $partitionId }}.>",
                       "events.>",
                       "config.>",
                       "\$KV.{{ $kvBucket }}.>",

@@ -59,7 +59,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       case maybe_publish_otlp_relay(status) do
         :disabled ->
-          forward_then_publish(status)
+          {:error, :otlp_relay_publisher_disabled}
 
         :not_otlp_relay ->
           forward_then_publish(status)
@@ -279,13 +279,6 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
   defp ack_result_status?(%{source: source, service_type: service_type})
        when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
-
-  # Legacy OTLP relay fallback still needs an honest ack: if direct gateway
-  # publishing is disabled, the gateway only confirms the frame to the agent
-  # after core has published it to NATS. The fallback is synchronous and must
-  # never use the lossy StatusBuffer (should_buffer?/1 intentionally excludes
-  # relay frames).
-  defp ack_result_status?(%{source: source}) when source in ["otlp-relay", :otlp_relay], do: true
 
   defp ack_result_status?(_status), do: false
 

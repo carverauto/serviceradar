@@ -131,10 +131,9 @@ natsCreds:
 # elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"). The
 # value below is rendered into:
 #   * the NATS authorization block (templates/nats.yaml) — the
-#     core/datasvc/agent roles get partition-scoped
-#     `flow.attributed.<partitionId>` allow lists plus a deny wildcard on
-#     `flow.attributed.>` as a fail-safe ceiling, so cross-partition
-#     publish stays impossible even if PublishAllow is widened later.
+#     core/datasvc/agent roles get the deployment partition context used by
+#     runtime services and ACL comments. Attributed-flow DB writes no longer
+#     depend on a `flow.attributed.*` NATS read-back stream.
 #   * `SERVICERADAR_OTX_PARTITION` env on core/datasvc workloads so the
 #     runtime side (elixir/serviceradar_core/config/runtime.exs) stays
 #     consistent with what the NATS ACL was rendered against.
