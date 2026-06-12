@@ -161,15 +161,25 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   defp events_tab(path, current_scope) do
     %{
       label: "Events",
-      navigate: ~p"/settings/rules",
-      active: String.starts_with?(path, "/settings/rules"),
+      navigate: events_tab_href(current_scope),
+      active: events_active?(path),
       show: can_events_tab?(current_scope)
     }
   end
 
   defp can_events_tab?(current_scope) do
     RBAC.can?(current_scope, "observability.rules.update") or
-      RBAC.can?(current_scope, "observability.rules.create")
+      RBAC.can?(current_scope, "observability.rules.create") or
+      RBAC.can?(current_scope, "observability.alerts.manage")
+  end
+
+  defp events_tab_href(current_scope) do
+    if can_rules_tab?(current_scope), do: ~p"/settings/rules", else: ~p"/settings/anomaly-detection"
+  end
+
+  defp events_active?(path) do
+    String.starts_with?(path, "/settings/rules") or
+      String.starts_with?(path, "/settings/anomaly-detection")
   end
 
   defp dashboards_tab(path, current_scope) do
@@ -285,6 +295,48 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
   end
 
   defp show_auth_tab?(_), do: false
+
+  # Events section sub-navigation
+  attr(:current_path, :string, required: true)
+  attr(:class, :any, default: nil)
+  attr(:current_scope, :map, default: nil)
+
+  def events_nav(assigns) do
+    assigns = assign(assigns, :tabs, events_tabs(assigns.current_path, assigns[:current_scope]))
+
+    ~H"""
+    <div class={["flex flex-wrap items-center gap-2", @class]}>
+      <.ui_tabs tabs={@tabs} class="flex-wrap" size="sm" />
+    </div>
+    """
+  end
+
+  def events_tabs(current_path, current_scope) do
+    path = current_path || ""
+
+    Enum.filter(
+      [
+        %{
+          label: "Rules",
+          navigate: ~p"/settings/rules",
+          active: String.starts_with?(path, "/settings/rules"),
+          show: can_rules_tab?(current_scope)
+        },
+        %{
+          label: "Anomaly Detection",
+          navigate: ~p"/settings/anomaly-detection",
+          active: String.starts_with?(path, "/settings/anomaly-detection"),
+          show: RBAC.can?(current_scope, "observability.alerts.manage")
+        }
+      ],
+      &Map.get(&1, :show, true)
+    )
+  end
+
+  defp can_rules_tab?(current_scope) do
+    RBAC.can?(current_scope, "observability.rules.update") or
+      RBAC.can?(current_scope, "observability.rules.create")
+  end
 
   # Network section sub-navigation
   attr(:current_path, :string, required: true)

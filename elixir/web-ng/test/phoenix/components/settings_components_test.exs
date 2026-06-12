@@ -22,6 +22,22 @@ defmodule ServiceRadarWebNGWeb.SettingsComponentsTest do
     refute html =~ "Sweep Profiles"
   end
 
+  test "alert manager sees anomaly detection in the events settings subnav" do
+    scope = %Scope{permissions: MapSet.new(["observability.alerts.manage"])}
+
+    top_tabs = SettingsComponents.settings_tabs("/settings/anomaly-detection", scope)
+
+    html =
+      render_component(&SettingsComponents.events_nav/1,
+        current_path: "/settings/anomaly-detection",
+        current_scope: scope
+      )
+
+    assert Enum.any?(top_tabs, &(&1.label == "Events" and &1.active))
+    assert html =~ "Anomaly Detection"
+    refute html =~ "Rules"
+  end
+
   test "remote access tabs are hidden when SSH remote access is disabled" do
     previous = Application.get_env(:serviceradar_web_ng, :remote_access_ssh_enabled)
     previous_rdp = Application.get_env(:serviceradar_web_ng, :remote_access_desktop_rdp_enabled)

@@ -777,6 +777,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/cluster", Settings.ClusterLive.Index, :index)
       live("/settings/cluster/nodes/:node_name", NodeLive.Show, :show)
       live("/settings/rules", Settings.RulesLive.Index, :index)
+      live("/settings/anomaly-detection", Settings.AnomalyDetectionLive, :index)
 
       # Network sweep configuration
       live("/settings/networks", Settings.NetworksLive.Index, :index)
