@@ -1,3 +1,29 @@
+# ServiceRadar v1.3.0
+
+OTel trace correlation, security analytics, native add-on delivery reliability,
+and demo/release readiness.
+
+## Whats New
+
+**1.3.0**
+- Added the OTel signal correlation overhaul: external OTLP conformance, trace
+  and span discoverability improvements, canonical trace/span IDs, trace-detail
+  SRQL affordances, and Go service trace export wiring for demo.
+- Completed the security analytics pipeline with vulnerability advisory
+  producer packaging, security dashboard performance improvements, Falco
+  finding visibility, low-severity Falco surfacing, and OCSF finding-model
+  proposal work for the next architecture pass.
+- Hardened native add-on distribution by preventing silent object-store
+  eviction, increasing object-store capacity, adding reference-aware
+  `native-addons/` retention, surfacing missing blobs, and keeping failed
+  artifact downloads from blocking agent config acknowledgement.
+- Fixed agent rollout visibility so failed rollout targets are no longer hidden
+  by table truncation and active rollout views converge from database truth
+  instead of getting stuck in stale Pending state.
+- Fixed release/demo blockers including web-ng release display contracts, sweep
+  availability dedupe, one-time OTel backfill reset, clickable trace/span IDs,
+  and telemetry onboarding placement under Edge Ops settings.
+
 # ServiceRadar v1.2.99
 
 Official native add-on discovery, PowerDNS event display fixes, and hardened
