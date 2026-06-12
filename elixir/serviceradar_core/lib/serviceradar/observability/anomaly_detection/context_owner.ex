@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   alias ServiceRadar.Observability.AnomalyDetection.BaselineSeeder
   alias ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint
   alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.SeriesConfig
   alias ServiceRadar.Observability.CausalReasoner
 
   require Logger
@@ -31,8 +32,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :checkpoint_opts,
     :baseline_seeder,
     :baseline_seed_opts,
+    :series_config_resolver,
+    :series_config_opts,
+    :context_overrides,
     :suppress_until_warmed?,
     checkpoint_restored?: false,
+    series_config_applied?: false,
     live_update_count: 0,
     updates: [],
     verdicts: %{},
@@ -103,6 +108,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       checkpoint_opts: Keyword.get(opts, :checkpoint_opts, []),
       baseline_seeder: Keyword.get(opts, :baseline_seeder, BaselineSeeder),
       baseline_seed_opts: Keyword.get(opts, :baseline_seed_opts, []),
+      series_config_resolver: Keyword.get(opts, :series_config_resolver, SeriesConfig),
+      series_config_opts: Keyword.get(opts, :series_config_opts, []),
+      context_overrides: context_overrides_from_opts(opts),
       suppress_until_warmed?: Keyword.get(opts, :suppress_until_warmed?, true),
       base_context: context,
       context: context
@@ -122,6 +130,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       append_update?(state.updates, update) ->
         state =
           state
+          |> apply_series_config(sample)
           |> seed_baseline(sample)
           |> append_and_fold(update)
           |> maybe_suppress_verdict(update.event_id)
@@ -130,7 +139,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
         {:reply, {:ok, state.verdicts[update.event_id]}, state}
 
       true ->
-        case state |> seed_baseline(sample) |> put_update(update) do
+        case state
+             |> apply_series_config(sample)
+             |> seed_baseline(sample)
+             |> put_update(update) do
           {:ok, state} ->
             state =
               state
@@ -156,6 +168,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
        update_count: length(state.updates),
        event_ids: Enum.map(state.updates, & &1.event_id),
        checkpoint_restored?: state.checkpoint_restored?,
+       series_config_applied?: state.series_config_applied?,
        live_update_count: state.live_update_count,
        base_context: state.base_context,
        context: state.context,
@@ -315,6 +328,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     end
   end
 
+  defp apply_series_config(%{checkpoint_restored?: true} = state, _sample), do: state
+  defp apply_series_config(%{series_config_applied?: true} = state, _sample), do: state
+
+  defp apply_series_config(state, sample) do
+    tuning = state.series_config_resolver.resolve(sample, state.series_config_opts)
+
+    context =
+      SeriesConfig.apply_to_context(state.base_context, tuning, state.context_overrides)
+
+    %{state | base_context: context, context: context, series_config_applied?: true}
+  end
+
   defp load_checkpoint(state) do
     case state.checkpoint_store.load(state.series_key, state.checkpoint_opts) do
       {:ok, nil} ->
@@ -360,6 +385,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
         base_context: base_context,
         context: context,
         checkpoint_restored?: true,
+        series_config_applied?: true,
         live_update_count: 0
     }
   end
@@ -474,6 +500,25 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     }
   end
 
+  defp context_overrides_from_opts(opts) do
+    opts
+    |> Keyword.take([
+      :rolling_enabled,
+      :seasonal_enabled,
+      :trend_enabled,
+      :min_samples,
+      :seasonal_min_samples,
+      :trend_min_samples,
+      :window_size,
+      :n_sigma,
+      :seasonal_n_sigma,
+      :trend_n_sigma,
+      :confirm_slots,
+      :seasonal_sensitivity
+    ])
+    |> Map.new()
+  end
+
   defp normalize_context(context, fallback) when is_map(context) do
     %{
       baseline:
@@ -483,6 +528,37 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       min_samples: positive_int(checkpoint_value(context, :min_samples), fallback.min_samples),
       window_size: positive_int(checkpoint_value(context, :window_size), fallback.window_size),
       n_sigma: number(checkpoint_value(context, :n_sigma), fallback.n_sigma),
+      seasonal_n_sigma:
+        optional_number(checkpoint_value(context, :seasonal_n_sigma), fallback[:seasonal_n_sigma]),
+      trend_n_sigma:
+        optional_number(checkpoint_value(context, :trend_n_sigma), fallback[:trend_n_sigma]),
+      seasonal_sensitivity:
+        optional_number(
+          checkpoint_value(context, :seasonal_sensitivity),
+          fallback[:seasonal_sensitivity]
+        ),
+      rolling_enabled:
+        optional_boolean(checkpoint_value(context, :rolling_enabled), fallback[:rolling_enabled]),
+      seasonal_enabled:
+        optional_boolean(
+          checkpoint_value(context, :seasonal_enabled),
+          fallback[:seasonal_enabled]
+        ),
+      trend_enabled:
+        optional_boolean(checkpoint_value(context, :trend_enabled), fallback[:trend_enabled]),
+      seasonal_min_samples:
+        optional_positive_int(
+          checkpoint_value(context, :seasonal_min_samples),
+          fallback[:seasonal_min_samples]
+        ),
+      trend_min_samples:
+        optional_positive_int(
+          checkpoint_value(context, :trend_min_samples),
+          fallback[:trend_min_samples]
+        ),
+      metric_class: checkpoint_value(context, :metric_class, fallback[:metric_class]),
+      metric_group: checkpoint_value(context, :metric_group, fallback[:metric_group]),
+      series_key: checkpoint_value(context, :series_key, fallback[:series_key]),
       confirm_slots:
         positive_int(checkpoint_value(context, :confirm_slots), fallback.confirm_slots),
       consecutive_anomalous:
@@ -491,6 +567,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           fallback.consecutive_anomalous
         )
     }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
   end
 
   defp normalize_context(_context, fallback), do: fallback
@@ -548,6 +626,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
   defp number(value, _fallback) when is_number(value), do: value
   defp number(_value, fallback), do: fallback
+
+  defp optional_number(value, _fallback) when is_number(value), do: value
+  defp optional_number(_value, fallback), do: fallback
+
+  defp optional_positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp optional_positive_int(_value, fallback), do: fallback
+
+  defp optional_boolean(value, _fallback) when is_boolean(value), do: value
+  defp optional_boolean(_value, fallback), do: fallback
 
   defp normalize_update(sample) do
     sample = Map.new(sample)

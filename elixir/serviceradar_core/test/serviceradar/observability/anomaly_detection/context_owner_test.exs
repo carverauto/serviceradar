@@ -179,6 +179,39 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     refute_receive {:srql_query, _query}, 50
   end
 
+  test "applies per-series config before invoking the reasoner" do
+    {:ok, pid} =
+      start_owner(
+        reasoner: __MODULE__.ConfiguredReasoner,
+        series_config_opts: [
+          series_overrides: %{
+            "series-1" => %{
+              n_sigma: 4.5,
+              confirm_slots: 2,
+              window_size: 12,
+              min_samples: 3,
+              seasonal_enabled: true,
+              seasonal_sensitivity: 1.5
+            }
+          }
+        ]
+      )
+
+    assert {:ok, %{state: "configured"}} =
+             ContextOwner.evaluate(pid, sample("configured", 1, 10.0))
+
+    context = ContextOwner.snapshot(pid).base_context
+    assert context.n_sigma == 4.5
+    assert context.confirm_slots == 2
+    assert context.window_size == 12
+    assert context.min_samples == 3
+    assert context.seasonal_enabled
+    assert context.seasonal_sensitivity == 1.5
+    assert_in_delta context.seasonal_n_sigma, 3.0, 0.0001
+    assert context.metric_group == "red"
+    assert ContextOwner.snapshot(pid).series_config_applied?
+  end
+
   defmodule CleanReasoner do
     @moduledoc false
     def reason(_context, _sample) do
@@ -213,6 +246,23 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     @moduledoc false
     def reason(_context, _sample) do
       {:ok, %{state: "anomaly", anomalous: true, include_in_baseline: false}}
+    end
+  end
+
+  defmodule ConfiguredReasoner do
+    @moduledoc false
+
+    def reason(
+          %{
+            n_sigma: 4.5,
+            confirm_slots: 2,
+            window_size: 12,
+            min_samples: 3,
+            seasonal_enabled: true
+          },
+          _sample
+        ) do
+      {:ok, %{state: "configured", include_in_baseline: true, next_consecutive_anomalous: 0}}
     end
   end
 
@@ -254,7 +304,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
         [
           series_key: "series-#{System.unique_integer([:positive])}",
           name: nil,
-          reasoner: __MODULE__.CleanReasoner
+          reasoner: __MODULE__.CleanReasoner,
+          series_config_opts: []
         ],
         opts
       )
