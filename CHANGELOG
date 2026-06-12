@@ -1,3 +1,25 @@
+# ServiceRadar v1.3.1
+
+Release-build fix and flow-attribution stability. Supersedes the v1.3.0 tag,
+whose build never published artifacts; v1.3.1 ships everything intended for
+v1.3.0 plus the fixes below.
+
+## Whats New
+
+**1.3.1**
+- Fixed the release build failing under rustc 1.93 with an async-nats / time
+  E0119 coherence error. Bumped `spiffe` 0.14 -> 0.16 (whose `x509-source`
+  feature no longer pulls in `jwt`/`time`) and capped `time` below 0.3.47, so
+  fresh, non-RBE-cached builds compile again.
+- Stabilized flow-attribution correlation under load: the correlator is now a
+  cluster singleton via a Postgres advisory lock, each pass is bounded by a row
+  limit, the next tick is scheduled only after work completes, and a
+  `FLOW_ATTRIBUTION_CORRELATOR_ENABLED` runtime kill switch was added. This
+  eliminates the CNPG lock storm that stalled attribution in demo.
+- Bounded EventWriter bulk inserts below Postgres' 65,535 bind-parameter limit
+  (OTel traces/metrics, events, flows, falco, logs, causal, trivy, sweep,
+  telemetry), fixing oversized-batch insert failures.
+
 # ServiceRadar v1.3.0
 
 OTel trace correlation, security analytics, native add-on delivery reliability,
