@@ -34,6 +34,19 @@ Keep this managed block so 'openspec update' can refresh the instructions.
   first (the script validates a CHANGELOG entry for the version, and updates
   `VERSION`, `helm/serviceradar/Chart.yaml`, and the demo ArgoCD source). The
   user runs the release/push.
+- **All metrics/telemetry flow through NATS JetStream first — never write metrics
+  directly to the database.** Every metric source (interface/flow/OTEL metrics,
+  SNMP counters, and sysmon cpu/mem/disk/process) MUST publish to a JetStream
+  subject and be persisted into CNPG by the `event_writer` consumer pipeline.
+  Collectors and agents MUST NOT write metrics straight to CNPG, and core MUST NOT
+  ingest a metric path that bypassed JetStream. The legacy agent→gateway→core gRPC
+  `StreamStatus` path that writes sysmon metrics directly to the database is the
+  one known exception, being migrated to JetStream (see
+  `openspec/changes/add-causal-anomaly-detection`); do not add new direct-to-DB
+  metric writes. The reason is architectural, not stylistic: a metric that lands
+  straight in a hypertable is invisible to every real-time consumer (anomaly
+  detection, the causal engine) until it is queried back out. Keeping all metrics
+  on JetStream first makes every stream subscribable.
 
 # Codex Agent Guide for ServiceRadar
 

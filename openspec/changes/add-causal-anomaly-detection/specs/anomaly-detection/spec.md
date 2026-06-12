@@ -1,0 +1,54 @@
+## ADDED Requirements
+
+### Requirement: Streaming Statistical Anomaly Detection
+The system SHALL detect anomalies in live metric streams by comparing each incoming sample against a per-series learned baseline maintained in a bounded sliding window, without requiring an operator-configured static threshold. Detection SHALL run per-sample as a synchronous, Markovian computation driven by the metric stream.
+
+#### Scenario: Anomalous sample exceeds the learned baseline
+- **WHEN** a metric sample arrives for a series whose sliding window is filled
+- **THEN** the system SHALL compute a z-score `(sample - mean) / std` using the window mean and sample standard deviation (variance over n−1)
+- **AND** SHALL flag the sample as anomalous when the z-score exceeds the configured N-sigma threshold
+
+#### Scenario: Window not yet warmed
+- **WHEN** a series' sliding window has fewer than the minimum required samples
+- **THEN** the system SHALL NOT emit an anomaly verdict for that series and SHALL continue accumulating baseline samples
+
+### Requirement: Baseline Integrity Under Sustained Anomaly
+The system SHALL exclude samples flagged as anomalous from the baseline window so that a sustained surge cannot poison its own baseline and self-mask.
+
+#### Scenario: Sustained flood remains anomalous for its full duration
+- **WHEN** a series receives a prolonged run of anomalous samples
+- **THEN** the system SHALL NOT push those anomalous samples into the baseline window
+- **AND** the baseline mean SHALL remain representative of normal behavior so each flood sample continues to read anomalous until the surge ends
+
+### Requirement: Sustained-Surge Confirmation
+The system SHALL require an anomaly to persist across a configurable number of consecutive evaluation slots before raising a finding, and SHALL reset that confirmation counter on any clean sample, so that transient spikes do not generate findings.
+
+#### Scenario: Transient spike is suppressed
+- **WHEN** a series produces a single anomalous sample followed by clean samples
+- **THEN** the consecutive-anomaly counter SHALL reset and no finding SHALL be raised
+
+#### Scenario: Sustained surge is confirmed
+- **WHEN** a series produces anomalous samples across at least the configured number of consecutive slots
+- **THEN** the system SHALL raise an anomaly finding for that series
+
+### Requirement: Per-Series Configuration and Defaults
+The system SHALL provide per-series configuration for the N-sigma threshold, the consecutive-slot confirmation count, the window size, and the minimum sample count, with platform defaults applied when unset and class-specific defaults available for distinct metric classes (interface throughput, service RED, host resource).
+
+#### Scenario: Defaults applied to a new series
+- **WHEN** a metric series is observed for which no explicit configuration exists
+- **THEN** the system SHALL apply the platform/class default thresholds rather than requiring operator input before detection can run
+
+### Requirement: Baseline Cold-Start from Aggregated History
+The system SHALL seed a new or empty per-series baseline window from the long-horizon hourly continuous aggregates via on-demand query (request/response), and SHALL NOT stream TimescaleDB hypertables to do so.
+
+#### Scenario: Detection useful before a fresh window fills
+- **WHEN** the detector starts or first observes a series with an empty window
+- **THEN** the system SHALL query that series' recent normal from the hourly continuous aggregate to seed the baseline
+- **AND** SHALL transition to live-stream updates once seeded
+
+### Requirement: Bounded Per-Series State
+The system SHALL bound the memory used for per-series window state with fixed-capacity windows and SHALL evict idle series so that the working set stays bounded under high series cardinality.
+
+#### Scenario: Idle series evicted
+- **WHEN** a series has received no samples for longer than the idle retention period and the series cap is under pressure
+- **THEN** the system SHALL evict that series' window state
