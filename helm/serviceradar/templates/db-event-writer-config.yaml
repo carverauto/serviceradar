@@ -9,6 +9,12 @@
 {{- end }}
 {{- $pg := default (dict) .Values.spire.postgres }}
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName }}
+{{- /* Shared OTel/trace export for the Go db-event-writer; see serviceradar-config.yaml. */ -}}
+{{- $otelExporter := default (dict) .Values.otelExporter }}
+{{- $otelEnabled := default false $otelExporter.enabled }}
+{{- $otelEndpoint := (default "" $otelExporter.endpoint) | trimPrefix "https://" | trimPrefix "http://" }}
+{{- $otelCertDir := default "/etc/serviceradar/certs" $otelExporter.certDir }}
+{{- $otelInsecure := default false $otelExporter.insecure }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -86,18 +92,24 @@ data:
         "debug": false,
         "output": "stdout",
         "time_format": "",
+{{- if and $otelEnabled $otelEndpoint }}
         "otel": {
           "enabled": true,
-          "endpoint": "serviceradar-log-collector:4317",
+          "endpoint": "{{ $otelEndpoint }}",
           "service_name": "serviceradar-db-event-writer",
           "batch_timeout": "5s",
-          "insecure": false,
+          "insecure": {{ $otelInsecure }},
           "headers": {},
           "tls": {
-            "cert_file": "/etc/serviceradar/certs/db-event-writer.pem",
-            "key_file": "/etc/serviceradar/certs/db-event-writer-key.pem",
-            "ca_file": "/etc/serviceradar/certs/root.pem"
+            "cert_file": "{{ $otelCertDir }}/db-event-writer.pem",
+            "key_file": "{{ $otelCertDir }}/db-event-writer-key.pem",
+            "ca_file": "{{ $otelCertDir }}/root.pem"
           }
         }
+{{- else }}
+        "otel": {
+          "enabled": false
+        }
+{{- end }}
       }
     }

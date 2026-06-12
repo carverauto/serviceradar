@@ -17,6 +17,7 @@
 package datasvc
 
 import (
+	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/nats/accounts"
 )
@@ -67,4 +68,13 @@ type Config struct {
 	// NATSOperator configures the NATS account management service for namespace isolation.
 	// When configured, datasvc will expose the NATSAccountService gRPC endpoint.
 	NATSOperator *accounts.OperatorConfig `json:"nats_operator,omitempty"`
+
+	// Logging configures the logger, including OTel log/trace export. When
+	// logging.otel.enabled is set with an endpoint, the process-wide
+	// TracerProvider is initialized via logger.EnsureTracing so the
+	// otelgrpc-instrumented gRPC server emits spans and joins inbound traces
+	// propagated from callers (e.g. core-elx -> datasvc). Without this, the
+	// otelgrpc StatsHandler runs against the global no-op tracer and no spans
+	// are exported.
+	Logging *logger.Config `json:"logging,omitempty"`
 }
