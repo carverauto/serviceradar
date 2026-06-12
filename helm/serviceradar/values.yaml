@@ -903,6 +903,8 @@ agentGateway:
   clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
   kubernetesNodeBasename: "serviceradar_agent_gateway"
+  sysmonMetricsShadowEnabled: false
+  sysmonMetricsSubjectPrefix: "metrics.sysmon"
   service:
     port: 50052
     artifactPort: 50053

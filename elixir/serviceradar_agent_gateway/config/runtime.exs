@@ -4,6 +4,7 @@ import Config
 # It is executed in both release and dev/test modes.
 
 alias Cluster.Strategy.DNSPoll
+alias ServiceRadar.NATS.Connection
 
 parse_int_env = fn env_name, default ->
   case System.get_env(env_name) do
@@ -308,10 +309,51 @@ spiffe_mode =
     _ -> :filesystem
   end
 
+sysmon_metrics_shadow_enabled =
+  System.get_env("AGENT_GATEWAY_SYSMON_METRICS_SHADOW_ENABLED", "false") in ~w(true 1 yes)
+
 config :serviceradar_agent_gateway, :metrics,
   enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
   ip: {0, 0, 0, 0},
   port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
+
+config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
+  enabled: sysmon_metrics_shadow_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX", "metrics.sysmon"),
+  connection: Connection
+
+if sysmon_metrics_shadow_enabled do
+  nats_url =
+    System.get_env("AGENT_GATEWAY_NATS_URL") ||
+      System.get_env("NATS_URL", "nats://localhost:4222")
+
+  nats_uri = URI.parse(nats_url)
+  nats_tls_enabled = System.get_env("AGENT_GATEWAY_NATS_TLS", "false") in ~w(true 1 yes)
+  nats_server_name = System.get_env("AGENT_GATEWAY_NATS_SERVER_NAME", "nats.serviceradar")
+  cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+  cert_name = System.get_env("AGENT_GATEWAY_NATS_CERT_NAME", "gateway")
+
+  nats_tls_config =
+    if nats_tls_enabled do
+      [
+        verify: :verify_peer,
+        cacertfile: Path.join(cert_dir, "root.pem"),
+        certfile: Path.join(cert_dir, "#{cert_name}.pem"),
+        keyfile: Path.join(cert_dir, "#{cert_name}-key.pem"),
+        server_name_indication: String.to_charlist(nats_server_name)
+      ]
+    else
+      false
+    end
+
+  config :serviceradar_core, Connection,
+    host: nats_uri.host || "localhost",
+    port: nats_uri.port || 4222,
+    user: System.get_env("AGENT_GATEWAY_NATS_USER"),
+    password: {:system, "AGENT_GATEWAY_NATS_PASSWORD"},
+    creds_file: System.get_env("AGENT_GATEWAY_NATS_CREDS_FILE"),
+    tls: nats_tls_config
+end
 
 config :serviceradar_agent_gateway,
   camera_relay_max_sessions_per_agent: parse_int_env.("CAMERA_RELAY_MAX_SESSIONS_PER_AGENT", 16),

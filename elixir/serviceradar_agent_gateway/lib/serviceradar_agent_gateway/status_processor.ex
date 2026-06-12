@@ -18,6 +18,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   """
 
   alias ServiceRadarAgentGateway.StatusBuffer
+  alias ServiceRadarAgentGateway.SysmonMetricsPublisher
 
   require Logger
 
@@ -55,10 +56,12 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       case forward(status) do
         :ok ->
+          shadow_publish_sysmon_metrics(status)
           track_agent(status)
           :ok
 
         {:ok, _result} = ok ->
+          shadow_publish_sysmon_metrics(status)
           track_agent(status)
           ok
 
@@ -288,6 +291,39 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       "workload-identity",
       :workload_identity
     ] or package_telemetry_source?(source)
+  end
+
+  defp shadow_publish_sysmon_metrics(status) do
+    if sysmon_metrics_source?(status) do
+      case sysmon_metrics_publisher().publish_sysmon(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Sysmon metrics shadow publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          :ok
+      end
+    end
+  end
+
+  defp sysmon_metrics_source?(%{source: source}), do: source in ["sysmon-metrics", :sysmon_metrics]
+  defp sysmon_metrics_source?(_status), do: false
+
+  defp sysmon_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :sysmon_metrics_publisher_module,
+      SysmonMetricsPublisher
+    )
   end
 
   defp package_telemetry_source?(source) when is_binary(source), do: String.starts_with?(source, ["addon:", "plugin:"])

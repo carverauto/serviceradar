@@ -103,6 +103,7 @@ defmodule ServiceRadarAgentGateway.Application do
     core_children =
       [
         pubsub_child(),
+        nats_connection_child(),
         process_registry_child(),
         gateway_tracker_child(),
         agent_tracker_child(),
@@ -272,6 +273,18 @@ defmodule ServiceRadarAgentGateway.Application do
       nil
     else
       {Phoenix.PubSub, name: ServiceRadar.PubSub}
+    end
+  end
+
+  defp nats_connection_child do
+    opts = Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher, [])
+
+    if Keyword.get(opts, :enabled, false) do
+      if Process.whereis(ServiceRadar.NATS.Connection.connection_name()) do
+        nil
+      else
+        ServiceRadar.NATS.Supervisor
+      end
     end
   end
 
