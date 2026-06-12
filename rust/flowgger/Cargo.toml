@@ -50,7 +50,11 @@ serde = { version = "1", optional = true }
 serde_json = { version = "~0.8", optional = true }
 may = { version = "~0.3", optional = true }
 toml = "0.5"
-time = { version = "0.3", features = ["parsing", "formatting"] }
+# Cap below 0.3.47: time 0.3.47's `parsing` feature adds an `impl From<HourBase>
+# for <HourBase as ModifierValue>::Type` that collides with async-nats's blanket
+# `impl<Kind> From<Kind> for Error<Kind>` under rustc 1.93 coherence (E0119),
+# breaking every async-nats-dependent crate. Nothing here needs >=0.3.47.
+time = { version = ">=0.3.36, <0.3.47", features = ["parsing", "formatting"] }
 time-tz = "0.3"
 tokio       = { version = "1.45.1", features = ["rt-multi-thread", "macros", "sync", "time"] }
 tonic = { workspace = true }
@@ -58,7 +62,7 @@ prost = { workspace = true }
 tempfile = "3"
 kvutil = { path = "../../rust/kvutil" }
 tonic-health = { workspace = true }
-spiffe = { version = "0.14", default-features = false, features = ["x509-source"] }
+spiffe = { version = "0.16", default-features = false, features = ["x509-source"] }
 config-bootstrap = { path = "../../rust/config-bootstrap" }
 rustls = "0.23"
 
