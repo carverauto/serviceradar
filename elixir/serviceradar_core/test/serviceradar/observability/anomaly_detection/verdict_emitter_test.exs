@@ -61,6 +61,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
     assert decoded["class_uid"] == 2004
     assert decoded["device_uid"] == "host-a"
     assert decoded["severity_id"] == 4
+    assert decoded["finding_info"]["uid"]
+    assert decoded["finding_info"]["group_uid"] == decoded["finding_info"]["uid"]
+    assert decoded["finding_info"]["dimensions"]["device_uid"] == "host-a"
+    assert decoded["finding_info"]["dimensions"]["series_key"] == "sysmon:memory:host-a"
     assert decoded["anomaly"]["series_key"] == "sysmon:memory:host-a"
     assert decoded["anomaly"]["state"] == "anomalous"
   end
@@ -68,6 +72,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
   test "anomaly payload routes through CausalSignals as an OCSF detection finding" do
     subject = VerdictEmitter.subject(@sample)
     payload = VerdictEmitter.payload(@sample, @verdict, subject)
+
+    replay_payload =
+      @sample
+      |> Map.put(:event_id, "00000645-50df-8e80-8000-000000000099")
+      |> VerdictEmitter.payload(@verdict, subject)
 
     row =
       CausalSignals.parse_message(%{
@@ -81,8 +90,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
         metadata: %{subject: subject, received_at: DateTime.utc_now()}
       })
 
+    replay_event_row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(replay_payload),
+        metadata: %{subject: subject, received_at: DateTime.utc_now()}
+      })
+
     assert row
     assert row.id == replayed_row.id
+    assert row.id != replay_event_row.id
     assert row.class_uid == 2004
     assert row.category_uid == 2
     assert row.type_uid == 200_401
@@ -96,7 +112,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
     assert row.metadata["primary_domain"] == "health"
     assert row.metadata["service_radar"]["source_type"] == "anomaly_detection"
     assert row.metadata["service_radar"]["ocsf_class"] == "detection_finding"
+    assert row.metadata["service_radar"]["finding_uid"] == row.metadata["finding_info"]["uid"]
+    assert row.metadata["security_signal"]["finding_uid"] == row.metadata["finding_info"]["uid"]
     assert row.metadata["detection_finding"]["series_key"] == @sample.series_key
+    assert row.metadata["finding_info"]["uid"] == replay_event_row.metadata["finding_info"]["uid"]
+    assert row.metadata["finding_info"]["dimensions"]["device_uid"] == "host-a"
     assert row.unmapped["anomaly"]["reason"] == "rolling z-score breached"
   end
 end

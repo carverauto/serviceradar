@@ -48,6 +48,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitter do
       "device_id" => device_uid,
       "device_uid" => device_uid,
       "message" => message(sample, verdict),
+      "finding_info" => finding_info(sample, verdict, device_uid, series_key, metric_class),
       "anomaly" => anomaly_payload(sample, verdict, observed_at),
       "explainability" => %{
         "classification" => @event_type,
@@ -139,6 +140,42 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitter do
       true ->
         "open"
     end
+  end
+
+  defp finding_info(sample, verdict, device_uid, series_key, metric_class) do
+    uid = finding_uid(device_uid, series_key, metric_class)
+
+    %{
+      "uid" => uid,
+      "group_uid" => uid,
+      "title" => "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}",
+      "type" => "ServiceRadar Anomaly",
+      "type_id" => 99,
+      "source" => @provider,
+      "dimensions" =>
+        %{
+          "class_uid" => 2004,
+          "source" => @provider,
+          "device_uid" => device_uid,
+          "series_key" => series_key,
+          "metric_class" => metric_class,
+          "state" => string_value(value(verdict, :state)),
+          "subject" => string_value(value(sample, :subject))
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
+    }
+  end
+
+  defp finding_uid(device_uid, series_key, metric_class) do
+    stable_key =
+      Enum.map_join(
+        [@event_type, 2004, @provider, device_uid, series_key, metric_class],
+        ":",
+        &string_value/1
+      )
+
+    deterministic_uuid("anomaly:finding:#{stable_key}")
   end
 
   defp severity_id(verdict) do
@@ -259,5 +296,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitter do
   defp trim_blank(value) when is_binary(value) do
     trimmed = String.trim(value)
     if trimmed == "", do: nil, else: trimmed
+  end
+
+  defp deterministic_uuid(key) do
+    <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
+    versioned_a3 = a3 |> Bitwise.band(0x0FFF) |> Bitwise.bor(0x4000)
+    versioned_a4 = a4 |> Bitwise.band(0x3FFF) |> Bitwise.bor(0x8000)
+
+    "~8.16.0b-~4.16.0b-~4.16.0b-~4.16.0b-~12.16.0b"
+    |> :io_lib.format([a1, a2, versioned_a3, versioned_a4, a5])
+    |> IO.iodata_to_binary()
   end
 end

@@ -1038,11 +1038,22 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp anomaly_detection_metadata(normalized, payload) do
+    finding_info = anomaly_detection_finding_info(payload)
+
     normalized
     |> Map.put("primary_domain", "health")
+    |> Map.put("finding_info", finding_info)
+    |> Map.put("security_signal", %{
+      "kind" => "health",
+      "source" => "anomaly_detection",
+      "finding_uid" => finding_info["uid"],
+      "series_key" => get_in(payload, ["anomaly", "series_key"]),
+      "metric_class" => get_in(payload, ["anomaly", "metric_class"])
+    })
     |> Map.put("service_radar", %{
       "source_type" => "anomaly_detection",
       "addon_id" => "anomaly-detection",
+      "finding_uid" => finding_info["uid"],
       "device_uid" => anomaly_detection_device_uid(payload),
       "series_key" => get_in(payload, ["anomaly", "series_key"]),
       "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
@@ -1056,6 +1067,54 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "score" => get_in(payload, ["anomaly", "score"]),
       "reason" => get_in(payload, ["anomaly", "reason"])
     })
+  end
+
+  defp anomaly_detection_finding_info(payload) do
+    case payload["finding_info"] do
+      %{"uid" => uid} = finding_info when is_binary(uid) and uid != "" ->
+        finding_info
+
+      _ ->
+        device_uid = anomaly_detection_device_uid(payload)
+        series_key = get_in(payload, ["anomaly", "series_key"])
+        metric_class = get_in(payload, ["anomaly", "metric_class"])
+        uid = anomaly_detection_finding_uid(device_uid, series_key, metric_class)
+
+        %{
+          "uid" => uid,
+          "group_uid" => uid,
+          "title" => "Anomaly detection: #{metric_class || "metric"} #{series_key || "series"}",
+          "type" => "ServiceRadar Anomaly",
+          "type_id" => 99,
+          "source" => "anomaly_detection",
+          "dimensions" =>
+            %{
+              "class_uid" => @ocsf_detection_finding_class_uid,
+              "source" => "anomaly_detection",
+              "device_uid" => device_uid,
+              "series_key" => series_key,
+              "metric_class" => metric_class,
+              "state" => get_in(payload, ["anomaly", "state"]),
+              "subject" => get_in(payload, ["anomaly", "subject"])
+            }
+            |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+            |> Map.new()
+        }
+    end
+  end
+
+  defp anomaly_detection_finding_uid(device_uid, series_key, metric_class) do
+    [
+      "anomaly",
+      "finding",
+      @ocsf_detection_finding_class_uid,
+      "anomaly_detection",
+      device_uid,
+      series_key,
+      metric_class
+    ]
+    |> Enum.map_join(":", &to_string/1)
+    |> deterministic_uuid()
   end
 
   defp anomaly_detection_device(payload) do
