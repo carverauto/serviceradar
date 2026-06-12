@@ -52,3 +52,26 @@ The system SHALL bound the memory used for per-series window state with fixed-ca
 #### Scenario: Idle series evicted
 - **WHEN** a series has received no samples for longer than the idle retention period and the series cap is under pressure
 - **THEN** the system SHALL evict that series' window state
+
+### Requirement: Restart Resilience
+The detector SHALL survive restarts without replaying a stale backlog and without requiring a full re-warm from zero. Its stream consumer SHALL use a live delivery policy (new messages only), and the system SHALL persist a compact per-series state snapshot (recent window samples and confirmation counters) to durable storage so it can be restored on boot.
+
+#### Scenario: Detector restarts with persisted state
+- **WHEN** the detector restarts and a per-series snapshot exists
+- **THEN** it SHALL restore the series' window state and counters from the snapshot
+- **AND** it SHALL resume live consumption without reprocessing a backlog
+
+#### Scenario: Detector restarts without a snapshot
+- **WHEN** the detector restarts for a series that has no snapshot
+- **THEN** it SHALL cold-start the baseline from the hourly continuous aggregate and SHALL suppress findings for that series until the window re-warms to the minimum sample count
+
+### Requirement: Operator-Managed Detection Configuration
+Detection tuning parameters (N-sigma threshold, window size/duration, confirmation-slot count, minimum sample count, and per-metric-class overrides) SHALL be stored in the database, seeded from deployment defaults on first boot, and editable by operators without redeploying. The detector SHALL apply configuration changes without requiring a restart.
+
+#### Scenario: Operator changes a threshold
+- **WHEN** an operator edits the N-sigma threshold for a metric class in the configuration store
+- **THEN** the detector SHALL pick up the new value on its next configuration refresh and apply it without a restart
+
+#### Scenario: First-boot defaults
+- **WHEN** the system starts with no stored detection configuration
+- **THEN** it SHALL seed the configuration from deployment (Helm) defaults so detection runs without manual setup
