@@ -5,11 +5,14 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  ComposedChart,
+  Legend,
   Line,
   LineChart,
   PolarAngleAxis,
   RadialBar,
   RadialBarChart,
+  ReferenceLine,
   Tooltip,
   XAxis,
   YAxis,
@@ -25,8 +28,22 @@ const STATUS_COLORS = {
   info: "#38bdf8",
   primary: "#38bdf8",
 }
+const CAPACITY_FORECAST_FIELDS = {
+  forecastedAt: ["forecasted_at", "timestamp", "created_at"],
+  horizonEndsAt: ["horizon_ends_at", "projected_at"],
+  currentValue: ["current_value", "value"],
+  projectedValue: ["projected_value", "forecast_value"],
+  lowerBound: ["lower_bound"],
+  upperBound: ["upper_bound"],
+  threshold: ["exhaustion_threshold", "threshold"],
+  exhaustionAt: ["projected_exhaustion_at", "exhaustion_at"],
+  label: ["resource_label", "resource_key", "metric_name"],
+  status: ["status"],
+  confidence: ["confidence"],
+}
 
 function fieldName(field) {
+  if (typeof field === "string") return field
   return field?.name || ""
 }
 
@@ -41,6 +58,11 @@ function firstField(fields, type) {
 function firstNamedField(fields, names) {
   const wanted = new Set(names)
   return fields.find(field => wanted.has(fieldName(field)))?.name || ""
+}
+
+function firstPresentField(fields, names) {
+  const available = new Set(fields.map(fieldName))
+  return names.find(name => available.has(name)) || ""
 }
 
 function valueAt(row, field) {
@@ -75,6 +97,18 @@ function formatAxisValue(value) {
     return date.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"})
   }
   return String(value)
+}
+
+function formatDateTimeValue(value) {
+  if (value === null || value === undefined || value === "") return "—"
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
 }
 
 function booleanish(value) {
@@ -157,6 +191,60 @@ function chartFields(panel, fields) {
   const labelField = binding.label_field || binding.row_field || firstField(fields, "string") || timeField
 
   return {valueField, denominatorField, timeField, labelField}
+}
+
+function displayFlag(value) {
+  return value === true || value === "true" || value === "1" || value === "capacity_forecast"
+}
+
+export function isCapacityForecastPanel(panel, fields = []) {
+  if (displayFlag(panel?.display_config?.capacity_forecast)) return true
+
+  const names = new Set((fields || []).map(fieldName))
+
+  return (
+    names.has("forecasted_at") &&
+    names.has("current_value") &&
+    names.has("projected_value") &&
+    names.has("horizon_ends_at")
+  )
+}
+
+function capacityForecastFieldMap(fields) {
+  return Object.entries(CAPACITY_FORECAST_FIELDS).reduce((acc, [key, names]) => {
+    acc[key] = firstPresentField(fields, names)
+    return acc
+  }, {})
+}
+
+export function capacityForecastRows(rows, fields) {
+  const fieldMap = capacityForecastFieldMap(fields || [])
+
+  return (rows || [])
+    .map(row => {
+      const forecastedAt = valueAt(row, fieldMap.forecastedAt)
+      const current = numericValue(valueAt(row, fieldMap.currentValue))
+      const projected = numericValue(valueAt(row, fieldMap.projectedValue))
+
+      if (!forecastedAt || (current === null && projected === null)) return null
+
+      return {
+        name: formatDateTimeValue(forecastedAt),
+        forecastedAt,
+        horizonEndsAt: valueAt(row, fieldMap.horizonEndsAt),
+        current,
+        projected,
+        lower: numericValue(valueAt(row, fieldMap.lowerBound)),
+        upper: numericValue(valueAt(row, fieldMap.upperBound)),
+        threshold: numericValue(valueAt(row, fieldMap.threshold)),
+        exhaustionAt: valueAt(row, fieldMap.exhaustionAt),
+        label: valueAt(row, fieldMap.label),
+        status: valueAt(row, fieldMap.status),
+        confidence: numericValue(valueAt(row, fieldMap.confidence)),
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => new Date(a.forecastedAt).getTime() - new Date(b.forecastedAt).getTime())
 }
 
 function seriesRows(rows, fields, panel) {
@@ -306,6 +394,36 @@ function ChartTooltip({active, payload, label}) {
   )
 }
 
+function CapacityForecastTooltip({active, payload, label}) {
+  if (!active || !payload?.length) return null
+
+  const data = payload.find(item => item?.payload)?.payload || {}
+
+  return (
+    <div className="max-w-72 rounded-md border border-slate-700 bg-slate-950/95 px-3 py-2 text-xs shadow-xl shadow-cyan-950/30">
+      <div className="font-medium text-slate-100">{data.label || label}</div>
+      <div className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 font-mono text-slate-300">
+        <span className="text-slate-500">Current</span>
+        <span>{formatValue(data.current)}</span>
+        <span className="text-slate-500">Projected</span>
+        <span>{formatValue(data.projected)}</span>
+        {data.threshold !== null && data.threshold !== undefined ? (
+          <>
+            <span className="text-slate-500">Threshold</span>
+            <span>{formatValue(data.threshold)}</span>
+          </>
+        ) : null}
+        {data.exhaustionAt ? (
+          <>
+            <span className="text-slate-500">ETA</span>
+            <span>{formatDateTimeValue(data.exhaustionAt)}</span>
+          </>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
 function AxisChart({visual, rows}) {
   if (rows.length === 0) return <EmptyChart />
 
@@ -379,6 +497,123 @@ function AxisChart({visual, rows}) {
         />
       </LineChart>
     </ResponsiveChart>
+  )
+}
+
+function latestCapacityForecast(rows) {
+  return rows[rows.length - 1] || null
+}
+
+function firstForecastThreshold(rows) {
+  return rows.find(row => row.threshold !== null && row.threshold !== undefined)?.threshold ?? null
+}
+
+function forecastStatusTone(status, exhaustionAt) {
+  const normalized = String(status || "").toLowerCase()
+  if (["skipped", "unknown"].includes(normalized)) return "text-slate-400"
+  return exhaustionAt ? "text-amber-300" : "text-emerald-300"
+}
+
+function CapacityForecastChart({rows, fields, panel}) {
+  const chartRows = useMemo(() => capacityForecastRows(rows, fields), [rows, fields])
+  if (chartRows.length === 0) return <EmptyChart message="No capacity forecast data" />
+
+  const latest = latestCapacityForecast(chartRows)
+  const threshold = firstForecastThreshold(chartRows)
+  const unit = panel?.display_config?.unit || ""
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-3 overflow-hidden text-slate-400">
+      <div className="grid shrink-0 grid-cols-1 gap-2 text-xs sm:grid-cols-3">
+        <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <div className="text-slate-500">Current</div>
+          <div className="mt-1 font-mono text-sm text-slate-100">
+            {formatValue(latest.current)}
+            {unit}
+          </div>
+        </div>
+        <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <div className="text-slate-500">Projected</div>
+          <div className="mt-1 font-mono text-sm text-cyan-200">
+            {formatValue(latest.projected)}
+            {unit}
+          </div>
+        </div>
+        <div className="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+          <div className="text-slate-500">Exhaustion ETA</div>
+          <div className={`mt-1 truncate font-mono text-sm ${forecastStatusTone(latest.status, latest.exhaustionAt)}`}>
+            {latest.exhaustionAt ? formatDateTimeValue(latest.exhaustionAt) : "Outside horizon"}
+          </div>
+        </div>
+      </div>
+      <div className="min-h-0 flex-1">
+        <ResponsiveChart>
+          <ComposedChart data={chartRows} margin={{top: 10, right: 18, bottom: 8, left: 0}}>
+            <CartesianGrid stroke={GRID_STROKE} strokeOpacity={0.95} vertical={false} />
+            <XAxis
+              dataKey="name"
+              minTickGap={24}
+              tick={{fontSize: 11, fill: TICK_STROKE}}
+              tickLine={false}
+              axisLine={false}
+            />
+            <YAxis
+              width={44}
+              tick={{fontSize: 11, fill: TICK_STROKE}}
+              tickLine={false}
+              axisLine={false}
+            />
+            <Tooltip content={<CapacityForecastTooltip />} />
+            <Legend wrapperStyle={{fontSize: "11px", color: TICK_STROKE}} />
+            {threshold !== null ? (
+              <ReferenceLine
+                y={threshold}
+                stroke="#f59e0b"
+                strokeDasharray="4 4"
+                label={{value: "threshold", fill: "#f59e0b", fontSize: 11, position: "insideTopRight"}}
+              />
+            ) : null}
+            <Line
+              name="Current"
+              dataKey="current"
+              type="monotone"
+              stroke={CHART_COLORS[0]}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{r: 4}}
+            />
+            <Line
+              name="Projected"
+              dataKey="projected"
+              type="monotone"
+              stroke={CHART_COLORS[2]}
+              strokeDasharray="6 4"
+              strokeWidth={2}
+              dot={false}
+              activeDot={{r: 4}}
+            />
+            <Line
+              name="Upper"
+              dataKey="upper"
+              type="monotone"
+              stroke="#94a3b8"
+              strokeDasharray="2 4"
+              strokeWidth={1}
+              dot={false}
+            />
+            <Line
+              name="Lower"
+              dataKey="lower"
+              type="monotone"
+              stroke="#64748b"
+              strokeDasharray="2 4"
+              strokeWidth={1}
+              dot={false}
+            />
+          </ComposedChart>
+        </ResponsiveChart>
+      </div>
+    </div>
   )
 }
 
@@ -461,6 +696,10 @@ export function Component({
 
   if (visual === "gauge" || visual === "availability") {
     return <GaugeChart rows={rows} fields={fields} panel={panel} trend={trend} />
+  }
+
+  if (["line", "area"].includes(visual) && isCapacityForecastPanel(panel, fields)) {
+    return <CapacityForecastChart rows={rows} fields={fields} panel={panel} />
   }
 
   return (

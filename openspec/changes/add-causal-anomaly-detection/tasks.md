@@ -46,7 +46,7 @@
 - [x] 4.4 Settings UI editor for the config (mirror the observability-rule-management / settings patterns); RBAC-gated.
 
 ## 5. UI (web-ng)
-- [ ] 5.1 Capacity-forecast visualization in the authored-dashboards panel system: extend `:line`/`:area` `display_config` or add a `:capacity_forecast` `visual_type` (reuse `live/.../dashboard/plugins/timeseries.ex` SVG renderer).
+- [x] 5.1 Capacity-forecast visualization in the authored-dashboards panel system: extend `:line`/`:area` `display_config` or add a `:capacity_forecast` `visual_type` (reuse `live/.../dashboard/plugins/timeseries.ex` SVG renderer).
 - [ ] 5.2 Anomaly findings surfaced in `event_live`; anomaly/at-risk summary tile via the `Stats` + `rollup_stats` pattern; alerts appear in `alert_live` automatically via the spine.
 - [ ] 5.3 Subsume the bespoke placeholders: hardcoded "Capacity Planning" in `live/netflow_live/dashboard.ex:581` and the NetFlow "Anomaly Detection (Feature Flag)" in `live/settings/netflow_live/index.ex:491`.
 - [ ] 5.4 RBAC gates consistent with existing observability/dashboard views.

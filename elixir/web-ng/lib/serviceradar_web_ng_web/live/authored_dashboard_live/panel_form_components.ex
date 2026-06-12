@@ -204,6 +204,16 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelFormComponents do
         options={@datetime_field_options}
       />
       <.input
+        :if={@visual in ["line", "area"]}
+        field={@form[:capacity_forecast_mode]}
+        type="select"
+        label="Forecast overlay"
+        options={[
+          {"Standard trend", ""},
+          {"Capacity forecast", "capacity_forecast"}
+        ]}
+      />
+      <.input
         :if={@visual == "status_list"}
         field={@form[:status_field]}
         type="select"

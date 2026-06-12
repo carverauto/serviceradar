@@ -23,6 +23,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
       "display_label" => "",
       "unit" => "",
       "caption" => "",
+      "capacity_forecast_mode" => "",
       "table_columns" => "",
       "trend_mode" => "",
       "trend_lookback_days" => "30",
@@ -60,6 +61,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
       "display_label" => map_value(display, "label"),
       "unit" => map_value(display, "unit"),
       "caption" => map_value(display, "caption"),
+      "capacity_forecast_mode" => capacity_forecast_mode(display),
       "table_columns" => table_columns_text(map_value(display, "table_columns", [])),
       "trend_mode" => map_value(visual, "trend_mode"),
       "trend_lookback_days" => to_string(map_value(visual, "trend_lookback_days", 30)),
@@ -228,6 +230,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
     |> put_present("label", params["display_label"])
     |> put_present("unit", params["unit"])
     |> put_present("caption", params["caption"])
+    |> put_capacity_forecast(params["capacity_forecast_mode"])
     |> put_table_columns(params["table_columns"])
   end
 
@@ -249,6 +252,22 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.PanelParams do
 
   defp put_present(map, _key, value) when value in [nil, ""], do: map
   defp put_present(map, key, value), do: Map.put(map, key, value)
+
+  defp put_capacity_forecast(map, value) when value in ["capacity_forecast", "true", true] do
+    Map.put(map, "capacity_forecast", true)
+  end
+
+  defp put_capacity_forecast(map, _value), do: map
+
+  defp capacity_forecast_mode(%{"capacity_forecast" => value}) when value in [true, "true", "capacity_forecast"] do
+    "capacity_forecast"
+  end
+
+  defp capacity_forecast_mode(%{capacity_forecast: value}) when value in [true, "true", "capacity_forecast"] do
+    "capacity_forecast"
+  end
+
+  defp capacity_forecast_mode(_display), do: ""
 
   defp put_table_columns(map, value) when is_binary(value) do
     columns =
