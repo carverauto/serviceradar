@@ -523,4 +523,76 @@ mod tests {
         assert!(verdict.score.is_finite());
         assert!(!verdict.include_in_baseline);
     }
+
+    #[test]
+    fn sustained_flood_does_not_self_mask_when_breached_samples_are_withheld() {
+        let mut context = context(vec![100.0, 101.0, 99.0, 100.0], 3);
+        context.confirm_slots = Some(3);
+
+        let mut states = Vec::new();
+        let mut baseline_lengths = Vec::new();
+
+        for _ in 0..6 {
+            let verdict = reason_impl(context.clone(), sample(180.0)).unwrap();
+
+            states.push(verdict.state.clone());
+            baseline_lengths.push(context.baseline.len());
+            context.consecutive_anomalous = Some(verdict.next_consecutive_anomalous);
+
+            if verdict.include_in_baseline {
+                context.baseline.push(verdict.sample_value);
+            }
+        }
+
+        assert_eq!(
+            states,
+            vec![
+                "pending_anomaly",
+                "pending_anomaly",
+                "anomalous",
+                "anomalous",
+                "anomalous",
+                "anomalous"
+            ]
+        );
+        assert!(baseline_lengths.iter().all(|len| *len == 4));
+        assert_eq!(context.baseline, vec![100.0, 101.0, 99.0, 100.0]);
+    }
+
+    #[test]
+    fn transient_spikes_do_not_cross_sustained_confirmation_gate() {
+        let mut context = context(vec![100.0, 101.0, 99.0, 100.0], 3);
+        context.confirm_slots = Some(2);
+
+        let first_spike = reason_impl(context.clone(), sample(180.0)).unwrap();
+        assert_eq!(first_spike.state, "pending_anomaly");
+        assert!(!first_spike.anomalous);
+        assert_eq!(first_spike.next_consecutive_anomalous, 1);
+
+        context.consecutive_anomalous = Some(first_spike.next_consecutive_anomalous);
+        let clean = reason_impl(context.clone(), sample(100.5)).unwrap();
+        assert_eq!(clean.state, "clean");
+        assert_eq!(clean.next_consecutive_anomalous, 0);
+
+        context.consecutive_anomalous = Some(clean.next_consecutive_anomalous);
+        context.baseline.push(clean.sample_value);
+
+        let second_spike = reason_impl(context, sample(180.0)).unwrap();
+        assert_eq!(second_spike.state, "pending_anomaly");
+        assert!(!second_spike.anomalous);
+        assert_eq!(second_spike.next_consecutive_anomalous, 1);
+    }
+
+    #[test]
+    fn reasoner_is_stateless_across_callers_with_same_context() {
+        let context = context(vec![100.0, 101.0, 99.0, 100.0], 3);
+        let sample = sample(180.0);
+
+        let pod_a = reason_impl(context.clone(), sample).unwrap();
+        let pod_b = reason_impl(context, sample).unwrap();
+
+        assert_eq!(pod_a, pod_b);
+        assert_eq!(pod_a.next_consecutive_anomalous, 1);
+        assert_eq!(pod_b.next_consecutive_anomalous, 1);
+    }
 }

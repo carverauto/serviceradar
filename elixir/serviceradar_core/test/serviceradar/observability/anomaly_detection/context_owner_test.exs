@@ -139,6 +139,38 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0, 12.0]
   end
 
+  test "handoff returns checkpointed replay verdicts without resaving duplicate events" do
+    series_key = "series-replay-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{checkpoints: %{}, saves: %{}} end)
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.CountingCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 2
+
+    GenServer.stop(pid)
+
+    {:ok, replacement} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(replacement)
+
+    assert snapshot.checkpoint_restored?
+    assert snapshot.context.baseline == [10.0, 11.0]
+
+    assert {:ok, %{state: "clean"}} =
+             ContextOwner.evaluate(replacement, %{sample("e1", 1, 999.0) | order_key: {9, "e1"}})
+
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 2
+    assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0]
+  end
+
   test "seeds cold baselines through SRQL and suppresses anomalous findings until rewarmed" do
     {:ok, pid} =
       start_owner(
@@ -284,6 +316,38 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       |> Agent.update(&Map.put(&1, series_key, checkpoint))
 
       :ok
+    end
+  end
+
+  defmodule CountingCheckpoint do
+    @moduledoc false
+
+    def load(series_key, opts) do
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.get(&Map.get(&1.checkpoints, series_key))
+      |> case do
+        nil -> {:ok, nil}
+        checkpoint -> {:ok, checkpoint}
+      end
+    end
+
+    def save(series_key, checkpoint, opts) do
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.update(fn state ->
+        %{
+          state
+          | checkpoints: Map.put(state.checkpoints, series_key, checkpoint),
+            saves: Map.update(state.saves, series_key, 1, &(&1 + 1))
+        }
+      end)
+
+      :ok
+    end
+
+    def save_count(agent, series_key) do
+      Agent.get(agent, &Map.get(&1.saves, series_key, 0))
     end
   end
 
