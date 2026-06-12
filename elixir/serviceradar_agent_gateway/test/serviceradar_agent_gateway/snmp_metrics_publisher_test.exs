@@ -26,9 +26,9 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
 
     assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
 
-    assert_receive {:published, "metrics.snmp.interface.ifHCInOctets", in_payload}
-    assert_receive {:published, "metrics.snmp.interface.ifHCOutOctets", out_payload}
-    refute_receive {:published, "metrics.snmp.interface.ifInOctets", _payload}
+    assert_receive {:published, "metrics.snmp.interface.ifHCInOctets", in_payload, in_opts}
+    assert_receive {:published, "metrics.snmp.interface.ifHCOutOctets", out_payload, _out_opts}
+    refute_receive {:published, "metrics.snmp.interface.ifInOctets", _payload, _opts}
 
     assert %{
              "schema" => "serviceradar.snmp.interface_metric.v1",
@@ -42,8 +42,14 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
              "target_device_ip" => "10.0.0.20",
              "if_index" => 7,
              "tags" => %{"interface_uid" => "ifindex:7", "target" => "10.0.0.20"},
-             "metadata" => %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"}
+             "metadata" => %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"},
+             "ingress_id" => ingress_id,
+             "ingress_timestamp_unix_nano" => ingress_timestamp
            } = Jason.decode!(in_payload)
+
+    assert ingress_id =~ uuidv8_pattern()
+    assert is_integer(ingress_timestamp)
+    assert ingress_headers(in_opts)
 
     assert %{
              "metric_name" => "ifHCOutOctets",
@@ -59,7 +65,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     )
 
     assert :disabled = SnmpMetricsPublisher.publish_snmp(snmp_status())
-    refute_receive {:published, _subject, _payload}
+    refute_receive {:published, _subject, _payload, _opts}
   end
 
   test "reports publish failures without raising" do
@@ -77,11 +83,12 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
 
   defmodule ConnectionStub do
     @moduledoc false
-    def publish(subject, payload, _opts) do
+    def publish(subject, payload, opts) do
       send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
         :published,
         subject,
-        payload
+        payload,
+        opts
       })
 
       :ok
@@ -154,4 +161,22 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defp ingress_headers(opts) do
+    headers =
+      opts
+      |> Keyword.fetch!(:headers)
+      |> Map.new()
+
+    assert headers["Sr-Ingress-Id"] =~ uuidv8_pattern()
+    assert Integer.parse(headers["Sr-Ingress-Time-Unix-Nano"]) != :error
+    assert headers["Sr-Agent-Id"] == "agent-1"
+    assert headers["Sr-Gateway-Id"] == "gateway-1"
+    assert headers["Sr-Partition"] == "default"
+    assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+  end
+
+  defp uuidv8_pattern do
+    ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  end
 end

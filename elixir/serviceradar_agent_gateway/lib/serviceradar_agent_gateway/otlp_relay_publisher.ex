@@ -12,6 +12,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisher do
   alias Serviceradar.Agent.Addon.V1.TelemetryCounters
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadarAgentGateway.IngressId
 
   require Logger
 
@@ -40,7 +41,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisher do
   defp do_publish(status, config) do
     partition_id = status[:partition] || "default"
     agent_id = to_string(status[:agent_id] || "")
-    metadata = %{partition_id: partition_id, agent_id: agent_id}
+    metadata = %{partition_id: partition_id, agent_id: agent_id, gateway_id: status[:gateway_id]}
 
     case decode_batch(status[:message]) do
       {:ok, %TelemetryBatch{} = batch} ->
@@ -48,7 +49,7 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisher do
 
         publish_records(
           batch.records || [],
-          headers(partition_id, agent_id),
+          base_headers(partition_id, agent_id, status[:gateway_id]),
           metadata,
           config
         )
@@ -73,26 +74,40 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisher do
 
   defp decode_batch(_message), do: :error
 
-  defp headers(partition_id, agent_id) do
-    [
-      {"Sr-Agent-Id", agent_id},
-      {"Sr-Partition", partition_id},
-      {"Sr-Ingest-Identity", "agent:" <> agent_id}
-    ]
+  defp base_headers(partition_id, agent_id, gateway_id) do
+    Enum.reject(
+      [
+        {"Sr-Agent-Id", agent_id},
+        {"Sr-Gateway-Id", to_string(gateway_id || "")},
+        {"Sr-Partition", partition_id},
+        {"Sr-Ingest-Identity", "agent:" <> agent_id}
+      ],
+      fn {_key, value} -> value == "" end
+    )
   end
 
-  defp publish_records(records, headers, metadata, config) do
+  defp publish_records(records, base_headers, metadata, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
     subjects = subjects(config)
 
     Enum.reduce_while(records, :ok, fn %TelemetryRecord{} = record, :ok ->
-      publish_record(connection, subjects, record, headers, metadata)
+      publish_record(connection, subjects, record, base_headers, metadata)
     end)
   end
 
-  defp publish_record(connection, subjects, %TelemetryRecord{} = record, headers, metadata) do
+  defp publish_record(connection, subjects, %TelemetryRecord{} = record, base_headers, metadata) do
     case route(record.payload_kind, subjects) do
       {:ok, subject, signal} ->
+        ingress_time = System.system_time(:nanosecond)
+        ingress_id = IngressId.new(ingress_time)
+
+        headers =
+          base_headers ++
+            IngressId.headers(%{
+              ingress_id: ingress_id,
+              ingress_time_unix_nano: ingress_time
+            })
+
         case connection.publish(subject, record.payload, headers: headers) do
           :ok ->
             SignalTelemetry.emit(signal, :relayed, 1)

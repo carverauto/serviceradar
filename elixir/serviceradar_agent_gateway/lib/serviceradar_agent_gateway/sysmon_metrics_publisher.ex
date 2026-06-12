@@ -3,6 +3,8 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
   Publishes sysmon metric samples to the high-rate metrics stream.
   """
 
+  alias ServiceRadarAgentGateway.IngressId
+
   require Logger
 
   @app :serviceradar_agent_gateway
@@ -86,10 +88,15 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
     families
     |> Enum.reverse()
     |> Enum.reduce_while({:ok, []}, fn family, {:ok, acc} ->
-      envelope = Map.put(base, "metric_family", family)
+      ingress_context = ingress_context(status)
+
+      envelope =
+        base
+        |> Map.put("metric_family", family)
+        |> IngressId.put_payload_metadata(ingress_context)
 
       case Jason.encode(envelope) do
-        {:ok, encoded} -> {:cont, {:ok, [{family, encoded} | acc]}}
+        {:ok, encoded} -> {:cont, {:ok, [{family, encoded, ingress_context} | acc]}}
         {:error, reason} -> {:halt, {:error, {:encode_failed, family, reason}}}
       end
     end)
@@ -118,11 +125,12 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
   defp publish_messages(messages, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
     subject_prefix = Keyword.get(config, :subject_prefix, @default_subject_prefix)
-    headers = Keyword.get(config, :headers, [])
+    configured_headers = Keyword.get(config, :headers, [])
 
     errors =
-      Enum.reduce(messages, [], fn {family, payload}, acc ->
+      Enum.reduce(messages, [], fn {family, payload, ingress_context}, acc ->
         subject = "#{subject_prefix}.#{family}"
+        headers = configured_headers ++ IngressId.headers(ingress_context)
 
         case connection.publish(subject, payload, headers: headers) do
           :ok -> acc
@@ -145,5 +153,19 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
     )
 
     error
+  end
+
+  defp ingress_context(status) do
+    ingress_time = System.system_time(:nanosecond)
+    agent_id = status[:agent_id]
+
+    %{
+      ingress_time_unix_nano: ingress_time,
+      ingress_id: IngressId.new(ingress_time),
+      agent_id: agent_id,
+      gateway_id: status[:gateway_id],
+      partition: status[:partition],
+      ingest_identity: if(agent_id, do: "agent:" <> to_string(agent_id))
+    }
   end
 end
