@@ -12,6 +12,7 @@
   - (b) **Attributed flows** — do attribution correlation **in-process / in-cluster** (libcluster/Horde routing) and write once; remove the `flow.attributed.*` NATS self-loop (`attributed_flow_joiner.ex:62` + Flows processor consuming `flow.attributed.>`).
   - (c) **Internal logs** — core-elx persists its own generated logs (sweep/health/onboarding/jobs/audit) **directly** (ZEN NIF inline if normalization needed); no publish→`.processed`→re-consume for the DB write. (May still publish to NATS for other live consumers, but the DB write does not depend on a round-trip.)
 - [ ] 0.10 Coordinate with `update-sysmon-downsampling` so agent-side aggregation lands on the publish path, not gRPC. Update BUILD.bazel for new/removed Go/Elixir/Rust files.
+- [ ] 0.11 **Leaf-compatibility (forward-compat, design.md Decision 16):** every ingress publisher targets a **configurable** NATS endpoint (local leaf or cloud hub), never hardcodes cloud; subjects (`metrics.>`, `otel.>`, `flows.>`) federate cleanly to the hub stream (no leaf-local-only subjects; no publisher↔stream co-location assumption); UUIDv8 stamped at edge ingress. (Edge/leaf *deployment* itself is future work, not built here.)
 
 ## 1. Phase 1 — real-time anomaly detection (core-elx Broadway + DeepCausality NIF)
 - [ ] 1.1 New Rustler NIF crate exposing a **pure** `reason(context, sample) -> verdict` (no resident state); deps `deep_causality_core` + `deep_causality_data_structures` (Flow API, edition 2024); update bazel Rust deps + BUILD.

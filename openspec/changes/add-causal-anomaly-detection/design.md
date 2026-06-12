@@ -43,6 +43,7 @@ So **use case (a) interface bandwidth has a live stream today**; **use case (b) 
 - Streaming hypertables / building a CDC pipeline (explicitly forbidden by the existing architecture).
 - Replacing `add-interface-metric-thresholds`' static thresholds — this is the dynamic complement.
 - ML/deep-learning forecasting in V1 (start with transparent statistical models).
+- Edge/leaf *deployment* (leaf JetStream domain, stream source/mirror to hub, edge agent-gateway packaging) — future work; Phase 0 is only built leaf-*compatible* (Decision 16).
 
 ## Decisions
 
@@ -196,6 +197,20 @@ So the user's "what is going on" is justified: there are real publish-then-read-
 This is a large, necessary refactor — **Phase 0**, bundled per the scoping decision, gating Phases 1–2, reversible per defect (shadow → switch → delete).
 
 **Tradeoff to accept (honest):** consolidating ingestion + normalization + persistence + detection into core-elx couples high-volume telemetry load to the control-plane monolith. The BEAM handles this well (lightweight processes, libcluster/Horde, Broadway backpressure), and we scale by core-elx replica count (Decision 14). If ingestion-isolation/blast-radius later demands it, the **same core-elx codebase can run as a separate "consumer-role" deployment** — a topology choice, not new code or a new language. We are not building new standalone consumers in this change.
+
+### Decision 16 — Forward-compatibility: NATS leaf nodes at the edge
+
+Customers will deploy **NATS leaf nodes** in their own networks. A leaf node is a NATS server inside the customer network that makes one outbound authenticated connection to the cloud hub; locally-published subjects federate up (and survive intermittent links). The `rust/otel` collector **already contemplates this** (`output.rs:14` "site runs a NATS leaf node"; `config.rs:41` "central deployment / NATS leaf at the edge"). agent-gateway is already `partition_id`-scoped and issues edge-agent mTLS certs (`cert_issuer.ex`), so it is half-built to run at the edge.
+
+**Target topology (future deployment, not built in this change):** the ingress publishers run **at the edge, co-located with a leaf** — agents push gRPC to the *local* agent-gateway (LAN, no WAN dependency on the hot path), which publishes `metrics.*`; the edge otel collector / flow-collector / trapd publish their subjects; all to the **local leaf's JetStream**, which sources/mirrors to the cloud hub for store-and-forward durability. Cloud core-elx consumes the hub stream exactly as today. This is the resilient form of ServiceRadar's "intermittently connected sites" thesis.
+
+**Constraints Phase 0 MUST honor so it stays leaf-ready (these are in scope now even though edge deployment is not):**
+1. **Endpoint-agnostic publishers** — every ingress publisher (new agent-gateway `metrics.*` publisher, etc.) targets a *configurable* NATS endpoint (local leaf or cloud hub); never hardcode cloud. (The otel collector already does this.)
+2. **Federable subjects** — `metrics.>` / `otel.>` / `flows.>` published at a leaf route cleanly to the hub stream; no leaf-local-only subjects, no assumption the publisher and the JetStream stream are co-located.
+3. **UUIDv8 stamped at edge ingress** — "first contact" is the edge gateway/collector, giving one clock domain per site; per-series context is single-site so its total order is correct. Cross-site total order is not required (a series lives at one site).
+4. **Detection stays cloud-side** in this change (core-elx consumes the federated hub); pushing detection to the edge is a later option, not precluded.
+
+Building edge/leaf deployment (leaf JetStream domain, stream source/mirror to hub, edge agent-gateway packaging) is **future work** — this decision only ensures Phase 0 does not preclude it.
 
 ## Risks / Trade-offs
 
