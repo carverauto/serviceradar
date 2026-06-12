@@ -24,7 +24,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   @release_command_type "agent.update_release"
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
   @failed_target_statuses [:failed, :rolled_back]
-  @visible_rollout_target_limit 25
+  # Max rollout targets rendered in the detail table (per rollout). Failed
+  # targets are always included, then the table fills with the next most
+  # actionable in-flight/pending targets.
+  @target_detail_limit 50
+  # While a rollout is active, poll so targets that reach a terminal state
+  # without a command/ack (e.g. "already compliant") still converge in the UI.
+  @active_rollout_poll_ms 5_000
   @artifact_formats [
     {"Binary", "binary"},
     {"tar.gz Archive", "tar.gz"}
@@ -44,6 +50,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       AgentCommandPubSub.subscribe()
       AgentCommandPubSub.subscribe_release_targets()
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
+      Process.send_after(self(), :active_rollout_poll, @active_rollout_poll_ms)
     end
 
     if RBAC.can?(scope, "settings.edge.manage") do
@@ -275,6 +282,15 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   def handle_info({:agent_status_changed, _agent_id, _status}, socket), do: {:noreply, schedule_refresh(socket)}
 
+  def handle_info(:active_rollout_poll, socket) do
+    if connected?(socket) do
+      Process.send_after(self(), :active_rollout_poll, @active_rollout_poll_ms)
+    end
+
+    socket = if any_active_rollout?(socket), do: schedule_refresh(socket), else: socket
+    {:noreply, socket}
+  end
+
   def handle_info(:refresh_releases_page, socket) do
     {:noreply,
      socket
@@ -455,7 +471,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     remaining =
       remaining
       |> Enum.sort(&rollout_target_precedes?/2)
-      |> Enum.take(max(@visible_rollout_target_limit - length(failed), 0))
+      |> Enum.take(max(@target_detail_limit - length(failed), 0))
 
     failed ++ remaining
   end
@@ -479,10 +495,11 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
     end
   end
 
-  # Lower rank sorts first: failures, then in-flight, then everything else.
+  # Lower rank sorts first: failures, then in-flight/pending, then healthy.
   defp rollout_target_status_rank(status) when status in @failed_target_statuses, do: 0
   defp rollout_target_status_rank(status) when status in @inflight_statuses, do: 1
-  defp rollout_target_status_rank(_status), do: 2
+  defp rollout_target_status_rank(:healthy), do: 3
+  defp rollout_target_status_rank(_pending_or_other), do: 2
 
   defp compare_rollout_target_recency(left, right) do
     case compare_rollout_target_inserted_at(left.inserted_at, right.inserted_at) do
@@ -2145,6 +2162,14 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
   end
 
   defp release_command_event?(_data), do: false
+
+  # A rollout still reconciling: poll so terminal-without-command targets and
+  # late status transitions surface without a manual refresh.
+  defp any_active_rollout?(socket) do
+    socket.assigns
+    |> Map.get(:rollouts, [])
+    |> Enum.any?(fn rollout -> Map.get(rollout, :status) in [:active, :paused] end)
+  end
 
   defp schedule_refresh(socket) do
     case socket.assigns[:refresh_timer] do

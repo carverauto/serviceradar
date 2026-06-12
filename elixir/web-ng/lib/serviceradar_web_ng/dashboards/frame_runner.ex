@@ -469,8 +469,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   defp response_value(response, "schema") when is_map(response),
     do: Map.get(response, "schema") || Map.get(response, :schema)
 
-  defp response_value(response, "viz") when is_map(response),
-    do: Map.get(response, "viz") || Map.get(response, :viz)
+  defp response_value(response, "viz") when is_map(response), do: Map.get(response, "viz") || Map.get(response, :viz)
 
   defp response_value(_response, _key), do: nil
 
