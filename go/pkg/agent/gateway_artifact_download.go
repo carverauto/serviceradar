@@ -34,6 +34,31 @@ var (
 	errBumblebeeCatalogTooLarge       = errors.New("bumblebee catalog exceeds size budget")
 )
 
+// gatewayArtifactStatusError is returned when a gateway artifact download responds
+// with a non-200 status. It wraps the caller-supplied sentinel (e.g.
+// ErrAddonArtifactDownloadFailed) AND carries the HTTP status code so callers can
+// classify the failure as permanent (4xx, e.g. a 404 for a not-yet-uploaded object)
+// versus transient (5xx / gateway hiccup) without parsing the error string.
+type gatewayArtifactStatusError struct {
+	sentinel   error
+	statusCode int
+}
+
+func (e *gatewayArtifactStatusError) Error() string {
+	return fmt.Sprintf("%v: status %d", e.sentinel, e.statusCode)
+}
+
+// Unwrap exposes the caller's sentinel so errors.Is(err, ErrAddonArtifactDownloadFailed)
+// continues to match.
+func (e *gatewayArtifactStatusError) Unwrap() error {
+	return e.sentinel
+}
+
+// StatusCode reports the HTTP status code that produced the failure.
+func (e *gatewayArtifactStatusError) StatusCode() int {
+	return e.statusCode
+}
+
 type gatewayArtifactDownloader struct {
 	client      *http.Client
 	downloadURL string
@@ -93,7 +118,7 @@ func downloadGatewayArtifactHTTP(
 	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%w: status %d", statusErr, resp.StatusCode)
+		return nil, &gatewayArtifactStatusError{sentinel: statusErr, statusCode: resp.StatusCode}
 	}
 
 	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
