@@ -30,7 +30,7 @@ defmodule ServiceRadar.EventWriter.Config do
           },
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},
           %{name: "OTEL_TRACES", subject: "otel.traces.>", processor: ServiceRadar.EventWriter.Processors.OtelTraces},
-          %{name: "METRICS", subject: "metrics.>", processor: ServiceRadar.EventWriter.Processors.Telemetry},
+          %{name: "METRICS", subject: "metrics.>", processor: ServiceRadar.EventWriter.Processors.Metrics},
           %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs}
         ]
 
@@ -95,7 +95,8 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_discard) => String.t() | nil,
           optional(:stream_replicas) => pos_integer() | nil,
           optional(:stream_max_bytes) => pos_integer() | nil,
-          optional(:stream_max_age) => pos_integer() | nil
+          optional(:stream_max_age) => pos_integer() | nil,
+          optional(:consumer_max_deliver) => integer() | nil
         }
 
   @doc """
@@ -193,14 +194,15 @@ defmodule ServiceRadar.EventWriter.Config do
         name: "METRICS",
         stream_name: "metrics",
         subject: "metrics.>",
-        processor: ServiceRadar.EventWriter.Processors.Telemetry,
+        processor: ServiceRadar.EventWriter.Processors.Metrics,
         batch_size: 500,
         batch_timeout: 500,
         stream_retention: "limits",
         stream_storage: "file",
         stream_discard: "old",
         stream_max_bytes: 1_073_741_824,
-        stream_max_age: 1_800_000_000_000
+        stream_max_age: 1_800_000_000_000,
+        consumer_max_deliver: -1
       },
       %{
         name: "BMP_CAUSAL",

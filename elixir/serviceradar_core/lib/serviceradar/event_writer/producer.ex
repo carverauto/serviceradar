@@ -286,7 +286,7 @@ defmodule ServiceRadar.EventWriter.Producer do
                  ack_wait: @ack_wait_ns,
                  deliver_policy: :all,
                  max_ack_pending: @max_ack_pending,
-                 max_deliver: @max_deliver,
+                 max_deliver: Map.get(stream, :consumer_max_deliver, @max_deliver),
                  stream_retention: Map.get(stream, :stream_retention),
                  stream_storage: Map.get(stream, :stream_storage),
                  stream_discard: Map.get(stream, :stream_discard),

@@ -100,4 +100,8 @@ defmodule ServiceRadar.Observability.MemoryMetric do
       description "When the record was created"
     end
   end
+
+  identities do
+    identity :unique_memory_metric, [:timestamp, :gateway_id]
+  end
 end

@@ -81,7 +81,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert metrics.stream_name == "metrics"
       assert metrics.subject == "metrics.>"
-      assert metrics.processor == ServiceRadar.EventWriter.Processors.Telemetry
+      assert metrics.processor == ServiceRadar.EventWriter.Processors.Metrics
       assert metrics.batch_size == 500
       assert metrics.batch_timeout == 500
       assert metrics.stream_retention == "limits"
@@ -89,6 +89,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert metrics.stream_discard == "old"
       assert metrics.stream_max_bytes == 1_073_741_824
       assert metrics.stream_max_age == 1_800_000_000_000
+      assert metrics.consumer_max_deliver == -1
       refute metrics.stream_retention == "workqueue"
     end
 

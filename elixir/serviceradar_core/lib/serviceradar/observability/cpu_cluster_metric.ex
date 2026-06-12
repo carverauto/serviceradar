@@ -120,4 +120,8 @@ defmodule ServiceRadar.Observability.CpuClusterMetric do
       description "When the record was created"
     end
   end
+
+  identities do
+    identity :unique_cpu_cluster_metric, [:timestamp, :gateway_id, :cluster]
+  end
 end

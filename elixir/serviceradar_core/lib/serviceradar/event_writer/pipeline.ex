@@ -27,6 +27,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
+  alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.EventWriter.Processors.PowerDNS
   alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.Otel
@@ -395,7 +396,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:siem_causal), do: CausalSignals
   defp get_processor(:causal_signals), do: CausalSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
-  defp get_processor(:metrics), do: Telemetry
+  defp get_processor(:metrics), do: Metrics
   defp get_processor(:telemetry), do: Telemetry
   defp get_processor(:attributed_flow), do: Flows
   defp get_processor(:sflow_raw), do: Flows
