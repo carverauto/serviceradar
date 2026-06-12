@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.Config do
           },
           %{name: "OTEL_METRICS", subject: "otel.metrics.>", processor: ServiceRadar.EventWriter.Processors.OtelMetrics},
           %{name: "OTEL_TRACES", subject: "otel.traces.>", processor: ServiceRadar.EventWriter.Processors.OtelTraces},
+          %{name: "METRICS", subject: "metrics.>", processor: ServiceRadar.EventWriter.Processors.Telemetry},
           %{name: "LOGS", subject: "logs.>", processor: ServiceRadar.EventWriter.Processors.Logs}
         ]
 
@@ -83,12 +84,18 @@ defmodule ServiceRadar.EventWriter.Config do
         }
 
   @type stream_config :: %{
-          name: String.t(),
-          stream_name: String.t() | nil,
-          subject: String.t(),
-          processor: module(),
-          batch_size: pos_integer() | nil,
-          batch_timeout: pos_integer() | nil
+          required(:name) => String.t(),
+          required(:subject) => String.t(),
+          required(:processor) => module(),
+          optional(:stream_name) => String.t() | nil,
+          optional(:batch_size) => pos_integer() | nil,
+          optional(:batch_timeout) => pos_integer() | nil,
+          optional(:stream_retention) => String.t() | nil,
+          optional(:stream_storage) => String.t() | nil,
+          optional(:stream_discard) => String.t() | nil,
+          optional(:stream_replicas) => pos_integer() | nil,
+          optional(:stream_max_bytes) => pos_integer() | nil,
+          optional(:stream_max_age) => pos_integer() | nil
         }
 
   @doc """
@@ -181,6 +188,19 @@ defmodule ServiceRadar.EventWriter.Config do
         processor: ServiceRadar.EventWriter.Processors.OtelTraces,
         batch_size: 100,
         batch_timeout: 1_000
+      },
+      %{
+        name: "METRICS",
+        stream_name: "metrics",
+        subject: "metrics.>",
+        processor: ServiceRadar.EventWriter.Processors.Telemetry,
+        batch_size: 500,
+        batch_timeout: 500,
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 1_073_741_824,
+        stream_max_age: 1_800_000_000_000
       },
       %{
         name: "BMP_CAUSAL",

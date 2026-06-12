@@ -60,6 +60,8 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
       assert Pipeline.telemetry_subject?("otel.logs")
       assert Pipeline.telemetry_subject?("logs.otel")
       assert Pipeline.telemetry_subject?("logs.syslog.processed")
+      assert Pipeline.telemetry_subject?("metrics.sysmon.cpu")
+      assert Pipeline.telemetry_subject?("metrics.snmp.interface")
     end
 
     test "false for event-style subjects" do
@@ -145,7 +147,7 @@ defmodule ServiceRadar.EventWriter.PipelineBatchSpanTest do
     test "creates no span for telemetry subjects" do
       messages = [message([{"traceparent", @traceparent_a}])]
 
-      for subject <- ["otel.traces.raw", "otel.metrics.raw", "logs.otel"] do
+      for subject <- ["otel.traces.raw", "otel.metrics.raw", "logs.otel", "metrics.sysmon.cpu"] do
         result =
           Pipeline.with_batch_span(subject, messages, fn ->
             assert OpenTelemetry.Tracer.current_span_ctx() == :undefined

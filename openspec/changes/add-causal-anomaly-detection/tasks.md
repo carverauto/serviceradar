@@ -1,5 +1,5 @@
 ## 0. Phase 0 — rectify the ingestion pipeline (prerequisite)
-- [ ] 0.1 Stand up a dedicated `metrics` JetStream stream (subjects `metrics.>`), **`limits` retention — never `workqueue`** (so DB-sync and analysis consumers fan out independently), tuned for high-rate host metrics. Register in `event_writer/config.ex`.
+- [x] 0.1 Stand up a dedicated `metrics` JetStream stream (subjects `metrics.>`), **`limits` retention — never `workqueue`** (so DB-sync and analysis consumers fan out independently), tuned for high-rate host metrics. Register in `event_writer/config.ex`.
 - [ ] 0.2 **agent-gateway** publishes cpu/mem/disk/process sysmon metrics → `metrics.sysmon.*` (the agent keeps its gRPC `StreamStatus` push via `pushSysmonStatus`; **agents are NATS-denied, so the gateway is the publish boundary**), behind a cutover flag; keep the direct path in shadow.
 - [ ] 0.3 Route SNMP interface telemetry (ifHCInOctets/ifHCOutOctets + `if_index`) → `metrics.snmp.*` (not durable on JetStream today).
 - [ ] 0.4 New core-elx EventWriter DB-sync processor + **durable** consumer (`deliver_policy: all`, `ack_policy: explicit`, `max_deliver: -1`) consuming the metrics stream into cpu/disk/memory/process + interface tables (mirror `processors/telemetry.ex`).

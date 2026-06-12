@@ -28,6 +28,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.Events
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.PowerDNS
+  alias ServiceRadar.EventWriter.Processors.Telemetry
   alias ServiceRadar.Otel
   alias ServiceRadar.Otel.Propagation
 
@@ -138,14 +139,21 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   @doc false
-  # True for subjects carrying OTel/log telemetry payloads (otel.>, logs.>,
-  # which includes otel.metrics.>); the batch consumer span must never be
-  # created for these.
+  # True for subjects carrying telemetry payloads; the batch consumer span must
+  # never be created for these.
   def telemetry_subject?(subject) when is_binary(subject) do
-    String.starts_with?(subject, "otel.") or String.starts_with?(subject, "logs.")
+    String.starts_with?(subject, "otel.") or String.starts_with?(subject, "logs.") or
+      String.starts_with?(subject, "metrics.")
   end
 
   def telemetry_subject?(_subject), do: false
+
+  @doc false
+  def configured_batcher_names(%Config{} = config) do
+    config
+    |> build_batchers()
+    |> Keyword.keys()
+  end
 
   @doc false
   # Builds span links from the W3C trace-context headers of up to
@@ -330,6 +338,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       {:trivy, &trivy_subject?/1},
       {:otel_metrics, &String.starts_with?(&1, "otel.metrics")},
       {:otel_traces, &String.starts_with?(&1, "otel.traces")},
+      {:metrics, &String.starts_with?(&1, "metrics.")},
       {:logs, &String.starts_with?(&1, "logs.")},
       {:events, &String.starts_with?(&1, "events.")},
       {:telemetry, &String.starts_with?(&1, "telemetry.")},
@@ -386,7 +395,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:siem_causal), do: CausalSignals
   defp get_processor(:causal_signals), do: CausalSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
-  defp get_processor(:telemetry), do: ServiceRadar.EventWriter.Processors.Telemetry
+  defp get_processor(:metrics), do: Telemetry
+  defp get_processor(:telemetry), do: Telemetry
   defp get_processor(:attributed_flow), do: Flows
   defp get_processor(:sflow_raw), do: Flows
   defp get_processor(:netflow_raw), do: Flows
