@@ -35,6 +35,14 @@ Each telemetry type SHALL have exactly one defined ingress publisher to NATS Jet
 - **THEN** it SHALL NOT publish that record to the message bus solely to consume its own message back in order to write it to the database
 - **AND** normalization required before persistence SHALL run in-process rather than in a separate round-tripping component
 
+### Requirement: Leaf-Compatible Ingress Publishing
+Ingress publishers SHALL publish to a configurable NATS endpoint so they can run against a local NATS leaf node at a customer edge site or against the central hub, and the subjects they publish SHALL federate cleanly to the hub JetStream stream. Publishers SHALL NOT assume co-location with the JetStream stream or hardcode the central endpoint.
+
+#### Scenario: Publisher runs against an edge leaf
+- **WHEN** an ingress publisher is configured with a local NATS leaf endpoint
+- **THEN** it SHALL publish to that endpoint
+- **AND** its subjects SHALL federate to the central hub stream without reconfiguring downstream consumers
+
 ### Requirement: Total-Order Context Updates
 Per-series detector context SHALL be updated in total temporal order regardless of how many producers emit updates concurrently. Each context-update event SHALL carry a time-sortable identifier with an embedded high-resolution timestamp (e.g. UUIDv8), stamped once at the ingress gateway so there is a single clock domain, and the context engine SHALL fold updates in that total order. Folding SHALL be idempotent so that replayed or duplicated updates do not corrupt context.
 
