@@ -1,5 +1,7 @@
 import Config
 
+alias ServiceRadar.NATS.Connection
+
 # Logger configuration
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
@@ -10,10 +12,15 @@ config :serviceradar_agent_gateway, :metrics,
   ip: {0, 0, 0, 0},
   port: 9090
 
+config :serviceradar_agent_gateway, :snmp_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.snmp",
+  connection: Connection
+
 config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
   enabled: false,
   subject_prefix: "metrics.sysmon",
-  connection: ServiceRadar.NATS.Connection
+  connection: Connection
 
 # General application configuration
 config :serviceradar_agent_gateway,

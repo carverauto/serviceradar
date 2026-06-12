@@ -9,8 +9,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_publisher =
       Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher_module)
 
+    previous_snmp_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_module)
+
     previous_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid)
+
+    previous_snmp_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid)
 
     if is_pid(existing) do
       Process.unregister(ServiceRadar.StatusHandler)
@@ -26,7 +32,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       end
 
       restore_env(:sysmon_metrics_publisher_module, previous_publisher)
+      restore_env(:snmp_metrics_publisher_module, previous_snmp_publisher)
       restore_env(:sysmon_metrics_publisher_test_pid, previous_test_pid)
+      restore_env(:snmp_metrics_publisher_test_pid, previous_snmp_test_pid)
     end)
 
     :ok
@@ -167,6 +175,63 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert_receive {:shadow_publish_failed, _status}
   end
 
+  test "shadow publishes SNMP metrics after successful direct forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :snmp_metrics_publisher_module,
+      __MODULE__.SnmpPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = snmp_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:forwarded, forwarded}
+    assert_receive {:snmp_shadow_published, published}
+    assert published == forwarded
+  end
+
+  test "continues the direct SNMP path when shadow publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :snmp_metrics_publisher_module,
+      __MODULE__.FailingSnmpPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert :ok = StatusProcessor.process(snmp_status())
+
+    assert_receive {:forwarded, _forwarded}
+    assert_receive {:snmp_shadow_publish_failed, _status}
+  end
+
   test "returns forwarding error for unbuffered status when core status handler is unavailable" do
     status = %{
       service_name: "agent",
@@ -266,6 +331,34 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     }
   end
 
+  defp snmp_status do
+    %{
+      service_name: "snmp",
+      service_type: "snmp",
+      source: "snmp-metrics",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message:
+        Jason.encode!(%{
+          "results" => [
+            %{
+              "target" => "core-switch",
+              "host" => "10.0.0.20",
+              "metric" => "ifHCInOctets",
+              "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
+              "value" => 1234.5,
+              "timestamp" => "2026-06-12T00:00:00Z",
+              "data_type" => "counter",
+              "delta" => true,
+              "if_index" => 7,
+              "interface_uid" => "ifindex:7"
+            }
+          ]
+        })
+    }
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 end
@@ -279,6 +372,30 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.SysmonPublisherStub do
     })
 
     :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.SnmpPublisherStub do
+  @moduledoc false
+  def publish_snmp(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
+      :snmp_shadow_published,
+      status
+    })
+
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSnmpPublisherStub do
+  @moduledoc false
+  def publish_snmp(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
+      :snmp_shadow_publish_failed,
+      status
+    })
+
+    {:error, :nats_down}
   end
 end
 

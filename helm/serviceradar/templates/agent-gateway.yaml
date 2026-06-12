@@ -24,6 +24,8 @@
 {{- $datasvcCertName := default "gateway" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
 {{- $sysmonMetricsShadowEnabled := default false $gateway.sysmonMetricsShadowEnabled -}}
+{{- $snmpMetricsShadowEnabled := default false $gateway.snmpMetricsShadowEnabled -}}
+{{- $metricsShadowEnabled := or $sysmonMetricsShadowEnabled $snmpMetricsShadowEnabled -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -105,7 +107,11 @@ spec:
           value: {{ $sysmonMetricsShadowEnabled | quote }}
         - name: AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.sysmon" $gateway.sysmonMetricsSubjectPrefix | quote }}
-        {{- if $sysmonMetricsShadowEnabled }}
+        - name: AGENT_GATEWAY_SNMP_METRICS_SHADOW_ENABLED
+          value: {{ $snmpMetricsShadowEnabled | quote }}
+        - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
+          value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
+        {{- if $metricsShadowEnabled }}
         - name: AGENT_GATEWAY_NATS_URL
           value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
         - name: AGENT_GATEWAY_NATS_TLS
@@ -206,7 +212,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        {{- if and $sysmonMetricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+        {{- if and $metricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
@@ -238,7 +244,7 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
-      {{- if and $sysmonMetricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+      {{- if and $metricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

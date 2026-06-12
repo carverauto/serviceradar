@@ -905,6 +905,8 @@ agentGateway:
   kubernetesNodeBasename: "serviceradar_agent_gateway"
   sysmonMetricsShadowEnabled: false
   sysmonMetricsSubjectPrefix: "metrics.sysmon"
+  snmpMetricsShadowEnabled: false
+  snmpMetricsSubjectPrefix: "metrics.snmp"
   service:
     port: 50052
     artifactPort: 50053
