@@ -13,8 +13,13 @@ All metric and telemetry sources SHALL publish to a NATS JetStream subject and b
 - **THEN** they SHALL be published to a JetStream subject and persisted by the event-writer consumer
 - **AND** the legacy gRPC `StreamStatus` path that wrote sysmon metrics directly to the database SHALL be retired once the JetStream path reaches parity
 
-### Requirement: Single Telemetry Ingress and Single Database Writer
-Telemetry SHALL enter the system through a single ingress that publishes to NATS JetStream, and SHALL be persisted into the database by a single writer. The system SHALL NOT run two writers persisting the same records to the same tables, and SHALL NOT persist any telemetry path that bypassed JetStream.
+### Requirement: Defined Ingress Publisher and Single Database Writer
+Each telemetry type SHALL have exactly one defined ingress publisher to NATS JetStream, and all telemetry SHALL be persisted into the database by a single writer. The system SHALL NOT run two writers persisting the same records to the same tables, and SHALL NOT persist any telemetry path that bypassed JetStream.
+
+#### Scenario: One publisher per telemetry type
+- **WHEN** a telemetry type (e.g. OTLP, flows, SNMP traps, host metrics) is ingested
+- **THEN** exactly one component SHALL be responsible for publishing it to JetStream
+- **AND** other components SHALL forward into that publisher rather than re-publishing the same data
 
 #### Scenario: One writer per table
 - **WHEN** a telemetry record is persisted to the database
