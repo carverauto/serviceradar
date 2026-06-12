@@ -18,6 +18,8 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
     assert html =~ "NetFlow Settings"
     assert html =~ "Local CIDRs"
     assert html =~ "Optional Enrichment and Security"
+    refute html =~ "Anomaly Detection (Feature Flag)"
+    assert html =~ "Open anomaly settings"
   end
 
   test "creates a local CIDR entry", %{conn: conn, scope: scope} do
@@ -71,9 +73,6 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLiveTest do
         "ipinfo_api_key" => token,
         "threat_intel_enabled" => "true",
         "threat_intel_feed_urls_text" => "https://example.com/feed.txt\n",
-        "anomaly_enabled" => "true",
-        "anomaly_baseline_window_seconds" => "604800",
-        "anomaly_threshold_percent" => "300",
         "port_scan_enabled" => "true",
         "port_scan_window_seconds" => "300",
         "port_scan_unique_ports_threshold" => "50"

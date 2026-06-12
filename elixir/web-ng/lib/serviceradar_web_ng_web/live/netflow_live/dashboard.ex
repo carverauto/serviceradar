@@ -40,7 +40,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
     {"overview", "Overview"},
     {"topn", "Top Lists"},
     {"traffic", "Traffic"},
-    {"capacity", "Capacity"},
+    {"capacity", "Interfaces"},
     {"all", "Show All"}
   ]
 
@@ -578,7 +578,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           </div>
         </div>
 
-        <%!-- Capacity Planning Section --%>
+        <%!-- Interface utilization section --%>
         <div
           :if={
             section_visible?(@section, "capacity") and
@@ -587,7 +587,7 @@ defmodule ServiceRadarWebNGWeb.NetflowLive.Dashboard do
           class="space-y-4"
         >
           <h2 class="text-sm font-bold text-base-content uppercase tracking-wide">
-            Capacity Planning
+            Interface Utilization
           </h2>
 
           <%!-- Interface bandwidth gauges --%>
