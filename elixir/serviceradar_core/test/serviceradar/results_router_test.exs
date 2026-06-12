@@ -26,14 +26,6 @@ defmodule ServiceRadar.ResultsRouterTest do
     end
   end
 
-  defmodule TestSysmonIngestor do
-    @moduledoc false
-    def ingest(payload, status) do
-      send(self(), {:sysmon_ingest, payload, status})
-      :ok
-    end
-  end
-
   defmodule TestPluginIngestor do
     @moduledoc false
     def ingest(payload, status) do
@@ -63,7 +55,6 @@ defmodule ServiceRadar.ResultsRouterTest do
     previous = Application.get_env(:serviceradar_core, :sync_ingestor)
     previous_async = Application.get_env(:serviceradar_core, :sync_ingestor_async)
     previous_sweep = Application.get_env(:serviceradar_core, :sweep_ingestor)
-    previous_sysmon = Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor)
     previous_plugin = Application.get_env(:serviceradar_core, :plugin_result_ingestor)
     previous_endpoint = Application.get_env(:serviceradar_core, :endpoint_inventory_ingestor)
 
@@ -76,7 +67,6 @@ defmodule ServiceRadar.ResultsRouterTest do
     Application.put_env(:serviceradar_core, :sync_ingestor, TestIngestor)
     Application.put_env(:serviceradar_core, :sync_ingestor_async, false)
     Application.put_env(:serviceradar_core, :sweep_ingestor, TestSweepIngestor)
-    Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, TestSysmonIngestor)
     Application.put_env(:serviceradar_core, :plugin_result_ingestor, TestPluginIngestor)
 
     Application.put_env(
@@ -105,12 +95,6 @@ defmodule ServiceRadar.ResultsRouterTest do
         Application.delete_env(:serviceradar_core, :sweep_ingestor)
       else
         Application.put_env(:serviceradar_core, :sweep_ingestor, previous_sweep)
-      end
-
-      if is_nil(previous_sysmon) do
-        Application.delete_env(:serviceradar_core, :sysmon_metrics_ingestor)
-      else
-        Application.put_env(:serviceradar_core, :sysmon_metrics_ingestor, previous_sysmon)
       end
 
       if is_nil(previous_plugin) do
@@ -428,7 +412,7 @@ defmodule ServiceRadar.ResultsRouterTest do
     refute_receive {:sweep_ingest, _results, ^execution_id, _opts}
   end
 
-  test "routes sysmon metrics payloads" do
+  test "acknowledges sysmon metrics without direct CNPG ingestion" do
     payload = %{
       "available" => true,
       "response_time" => 123,
@@ -453,8 +437,19 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
 
-    assert_receive {:sysmon_ingest, decoded, ^status}
-    assert %{"status" => _} = decoded
+    refute_receive {:sysmon_ingest, _decoded, ^status}
+  end
+
+  test "acknowledges SNMP metrics without direct CNPG ingestion" do
+    status = %{
+      source: "snmp-metrics",
+      service_type: "snmp",
+      message: Jason.encode!(%{"results" => [%{"metric" => "ifHCInOctets", "value" => 1}]}),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
   end
 
   test "routes plugin results payloads" do

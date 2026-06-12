@@ -2,8 +2,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @moduledoc """
   Processor for the dedicated high-rate `metrics.>` stream.
 
-  Sysmon shadow messages are family envelopes emitted by the agent gateway and
-  are persisted through the same hypertable ingestor as the legacy direct path.
+  Sysmon messages are family envelopes emitted by the agent gateway and are
+  persisted through the shared hypertable ingestor.
   SNMP interface metric messages are flat scalar telemetry records and continue
   through the generic timeseries processor.
   """
@@ -15,7 +15,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   require Logger
 
-  @sysmon_schema "serviceradar.sysmon.shadow.v1"
+  @sysmon_schema "serviceradar.sysmon.metrics.v1"
+  @legacy_sysmon_schema "serviceradar.sysmon.shadow.v1"
   @snmp_schema "serviceradar.snmp.interface_metric.v1"
 
   @impl true
@@ -135,7 +136,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     schema = Map.get(json, "schema")
 
     cond do
-      schema == @sysmon_schema or String.starts_with?(subject, "metrics.sysmon.") ->
+      schema in [@sysmon_schema, @legacy_sysmon_schema] or
+          String.starts_with?(subject, "metrics.sysmon.") ->
         {:ok, :sysmon}
 
       schema == @snmp_schema or String.starts_with?(subject, "metrics.snmp.") ->

@@ -16,8 +16,6 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatusPubSub
-  alias ServiceRadar.Observability.SnmpMetricsIngestor
-  alias ServiceRadar.Observability.SysmonMetricsIngestor
   alias ServiceRadar.SweepJobs.SweepResultsIngestor
 
   require Logger
@@ -239,18 +237,11 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp handle_sysmon_metrics(status) do
-    # In schema-agnostic mode, DB schema is set by CNPG search_path
-    case decode_payload(status[:message]) do
-      {:ok, payload} -> sysmon_ingestor().ingest(payload, status)
-      {:error, reason} -> {:error, reason}
-    end
+    acknowledge_metrics_cutover(status)
   end
 
   defp handle_snmp_metrics(status) do
-    case decode_payload(status[:message]) do
-      {:ok, payload} -> snmp_ingestor().ingest(payload, status)
-      {:error, reason} -> {:error, reason}
-    end
+    acknowledge_metrics_cutover(status)
   end
 
   defp handle_plugin_results(status) do
@@ -617,16 +608,10 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp parse_integer(_value), do: nil
 
+  defp acknowledge_metrics_cutover(_status), do: :ok
+
   defp sweep_ingestor do
     Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)
-  end
-
-  defp sysmon_ingestor do
-    Application.get_env(:serviceradar_core, :sysmon_metrics_ingestor, SysmonMetricsIngestor)
-  end
-
-  defp snmp_ingestor do
-    Application.get_env(:serviceradar_core, :snmp_metrics_ingestor, SnmpMetricsIngestor)
   end
 
   defp icmp_ingestor do

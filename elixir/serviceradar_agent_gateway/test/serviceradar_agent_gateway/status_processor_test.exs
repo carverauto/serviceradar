@@ -118,7 +118,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
   end
 
-  test "shadow publishes sysmon metrics after successful direct forward" do
+  test "publishes sysmon metrics after successful status forward" do
     parent = self()
 
     Application.put_env(
@@ -144,11 +144,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
 
     assert_receive {:forwarded, forwarded}
-    assert_receive {:shadow_published, published}
+    assert_receive {:published, published}
     assert published == forwarded
   end
 
-  test "continues the direct sysmon path when shadow publishing fails" do
+  test "continues the sysmon status path when metrics publishing fails" do
     parent = self()
 
     Application.put_env(
@@ -172,10 +172,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(sysmon_status())
 
     assert_receive {:forwarded, _forwarded}
-    assert_receive {:shadow_publish_failed, _status}
+    assert_receive {:publish_failed, _status}
   end
 
-  test "shadow publishes SNMP metrics after successful direct forward" do
+  test "publishes SNMP metrics after successful status forward" do
     parent = self()
 
     Application.put_env(
@@ -201,11 +201,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
 
     assert_receive {:forwarded, forwarded}
-    assert_receive {:snmp_shadow_published, published}
+    assert_receive {:snmp_published, published}
     assert published == forwarded
   end
 
-  test "continues the direct SNMP path when shadow publishing fails" do
+  test "continues the SNMP status path when metrics publishing fails" do
     parent = self()
 
     Application.put_env(
@@ -229,7 +229,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(snmp_status())
 
     assert_receive {:forwarded, _forwarded}
-    assert_receive {:snmp_shadow_publish_failed, _status}
+    assert_receive {:snmp_publish_failed, _status}
   end
 
   test "returns forwarding error for unbuffered status when core status handler is unavailable" do
@@ -367,7 +367,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.SysmonPublisherStub do
   @moduledoc false
   def publish_sysmon(status) do
     send(Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid), {
-      :shadow_published,
+      :published,
       status
     })
 
@@ -379,7 +379,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.SnmpPublisherStub do
   @moduledoc false
   def publish_snmp(status) do
     send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
-      :snmp_shadow_published,
+      :snmp_published,
       status
     })
 
@@ -391,7 +391,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSnmpPublisherStub 
   @moduledoc false
   def publish_snmp(status) do
     send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
-      :snmp_shadow_publish_failed,
+      :snmp_publish_failed,
       status
     })
 
@@ -403,7 +403,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSysmonPublisherStu
   @moduledoc false
   def publish_sysmon(status) do
     send(Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid), {
-      :shadow_publish_failed,
+      :publish_failed,
       status
     })
 

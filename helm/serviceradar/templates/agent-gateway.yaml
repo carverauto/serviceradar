@@ -23,9 +23,19 @@
 {{- $datasvcCertDir := default "/etc/serviceradar/certs" $datasvc.certDir -}}
 {{- $datasvcCertName := default "gateway" $datasvc.certName -}}
 {{- $datasvcServerName := default "datasvc.serviceradar" $datasvc.serverName -}}
-{{- $sysmonMetricsShadowEnabled := default false $gateway.sysmonMetricsShadowEnabled -}}
-{{- $snmpMetricsShadowEnabled := default false $gateway.snmpMetricsShadowEnabled -}}
-{{- $metricsShadowEnabled := or $sysmonMetricsShadowEnabled $snmpMetricsShadowEnabled -}}
+{{- $sysmonMetricsEnabled := true -}}
+{{- if hasKey $gateway "sysmonMetricsEnabled" -}}
+{{- $sysmonMetricsEnabled = $gateway.sysmonMetricsEnabled -}}
+{{- else if hasKey $gateway "sysmonMetricsShadowEnabled" -}}
+{{- $sysmonMetricsEnabled = $gateway.sysmonMetricsShadowEnabled -}}
+{{- end -}}
+{{- $snmpMetricsEnabled := true -}}
+{{- if hasKey $gateway "snmpMetricsEnabled" -}}
+{{- $snmpMetricsEnabled = $gateway.snmpMetricsEnabled -}}
+{{- else if hasKey $gateway "snmpMetricsShadowEnabled" -}}
+{{- $snmpMetricsEnabled = $gateway.snmpMetricsShadowEnabled -}}
+{{- end -}}
+{{- $metricsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -103,15 +113,15 @@ spec:
           value: {{ default 9090 $gateway.service.metricsPort | quote }}
         - name: GATEWAY_CAPABILITIES
           value: {{ default "icmp,tcp,http,grpc" $gateway.capabilities | quote }}
-        - name: AGENT_GATEWAY_SYSMON_METRICS_SHADOW_ENABLED
-          value: {{ $sysmonMetricsShadowEnabled | quote }}
+        - name: AGENT_GATEWAY_SYSMON_METRICS_ENABLED
+          value: {{ $sysmonMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.sysmon" $gateway.sysmonMetricsSubjectPrefix | quote }}
-        - name: AGENT_GATEWAY_SNMP_METRICS_SHADOW_ENABLED
-          value: {{ $snmpMetricsShadowEnabled | quote }}
+        - name: AGENT_GATEWAY_SNMP_METRICS_ENABLED
+          value: {{ $snmpMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
-        {{- if $metricsShadowEnabled }}
+        {{- if $metricsPublishingEnabled }}
         - name: AGENT_GATEWAY_NATS_URL
           value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
         - name: AGENT_GATEWAY_NATS_TLS
@@ -212,7 +222,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        {{- if and $metricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+        {{- if and $metricsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
@@ -244,7 +254,7 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
-      {{- if and $metricsShadowEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+      {{- if and $metricsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

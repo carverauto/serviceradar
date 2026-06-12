@@ -1,10 +1,6 @@
 defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   @moduledoc """
-  Shadow-publishes SNMP interface metric samples to the high-rate metrics stream.
-
-  The direct status forwarding path remains authoritative during Phase 0.
-  Publish failures are returned to the caller for logging/telemetry, but callers
-  must not fail the agent push because of this side effect.
+  Publishes SNMP interface metric samples to the high-rate metrics stream.
   """
 
   require Logger
@@ -210,7 +206,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp log_publish_error(reason, status, error) do
-    Logger.warning("Failed to shadow-publish SNMP metrics",
+    Logger.warning("Failed to publish SNMP metrics",
       reason: inspect(reason),
       agent_id: status[:agent_id],
       gateway_id: status[:gateway_id],
