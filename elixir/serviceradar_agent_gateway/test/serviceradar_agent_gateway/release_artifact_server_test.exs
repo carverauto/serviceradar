@@ -71,9 +71,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
             resolve_identity: fn _conn ->
               {:ok, %{component_id: "agent-123", component_type: :agent}}
             end,
-            resolve_addon_artifact_download: fn "package-123",
-                                                "native-addons/pkg.tar.gz",
-                                                "agent-123" ->
+            resolve_addon_artifact_download: fn "package-123", "native-addons/pkg.tar.gz", "agent-123" ->
               {:ok,
                %{
                  object_key: "native-addons/pkg.tar.gz",
@@ -110,9 +108,7 @@ defmodule ServiceRadarAgentGateway.ReleaseArtifactServerTest do
             resolve_identity: fn _conn ->
               {:ok, %{component_id: "agent-123", component_type: :agent}}
             end,
-            resolve_agent_artifact_download: fn "catalog-source",
-                                                "catalogs/current.json",
-                                                "agent-123" ->
+            resolve_agent_artifact_download: fn "catalog-source", "catalogs/current.json", "agent-123" ->
               {:ok,
                %{
                  object_key: "catalogs/current.json",
