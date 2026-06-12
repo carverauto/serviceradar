@@ -27,8 +27,10 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   @max_grouped_contexts 32
   @routing_table "bmp_routing_events"
   @ocsf_vulnerability_finding_class_uid 2002
+  @ocsf_detection_finding_class_uid 2004
   @ocsf_findings_category_uid 2
   @ocsf_vulnerability_finding_type_uid 200_201
+  @ocsf_detection_finding_type_uid 200_401
   @ocsf_create_activity_id 1
 
   @impl true
@@ -483,10 +485,15 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   defp normalize_event_type(_), do: "unknown"
 
   defp build_ocsf_event_row(normalized, payload, raw_data, metadata) do
-    if inventory_vulnerability_signal?(normalized, payload) do
-      build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata)
-    else
-      build_causal_signal_event_row(normalized, payload, raw_data, metadata)
+    cond do
+      inventory_vulnerability_signal?(normalized, payload) ->
+        build_inventory_vulnerability_finding_row(normalized, payload, raw_data, metadata)
+
+      anomaly_detection_signal?(normalized, payload) ->
+        build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata)
+
+      true ->
+        build_causal_signal_event_row(normalized, payload, raw_data, metadata)
     end
   end
 
@@ -530,6 +537,42 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
           created_at: DateTime.utc_now()
         }
     end
+  end
+
+  defp build_anomaly_detection_finding_row(normalized, payload, raw_data, metadata) do
+    severity_id = normalized["severity_id"] || 0
+
+    %{
+      id: Ecto.UUID.dump!(normalized["event_identity"]),
+      time: normalized["event_time"],
+      class_uid: @ocsf_detection_finding_class_uid,
+      category_uid: @ocsf_findings_category_uid,
+      type_uid: @ocsf_detection_finding_type_uid,
+      activity_id: @ocsf_create_activity_id,
+      activity_name: "Create",
+      severity_id: severity_id,
+      severity: severity_name(severity_id),
+      message: anomaly_detection_message(payload),
+      status_id: nil,
+      status: payload["status"] || payload["finding_status"] || "open",
+      status_code: nil,
+      status_detail: payload["status_detail"],
+      metadata: anomaly_detection_metadata(normalized, payload),
+      observables: [],
+      trace_id: nil,
+      span_id: nil,
+      actor: %{},
+      device: anomaly_detection_device(payload),
+      src_endpoint: %{},
+      dst_endpoint: %{},
+      log_name: metadata[:subject],
+      log_provider: payload["provider"] || payload["source"] || "anomaly_detection",
+      log_level: payload["level"],
+      log_version: payload["version"] || @schema_version,
+      unmapped: payload,
+      raw_data: normalize_raw_data(raw_data),
+      created_at: DateTime.utc_now()
+    }
   end
 
   defp build_causal_signal_event_row(normalized, payload, raw_data, metadata) do
@@ -923,6 +966,26 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp inventory_vulnerability_signal?(_, _, _), do: false
 
+  defp anomaly_detection_signal?(normalized, payload) when is_map(normalized) do
+    anomaly_detection_signal?(
+      normalized["signal_type"],
+      normalized["event_type"],
+      payload
+    )
+  end
+
+  defp anomaly_detection_signal?(signal_type, event_type, payload) when is_map(payload) do
+    normalized_event_type = normalize_event_type(event_type)
+    finding_type = normalize_event_type(payload["finding_type"] || payload["findingType"])
+
+    signal_type == "causal" and
+      (payload["class_uid"] == @ocsf_detection_finding_class_uid or
+         normalized_event_type in ["anomaly", "anomaly_detection"] or
+         finding_type in ["detection", "anomaly", "anomaly_detection"])
+  end
+
+  defp anomaly_detection_signal?(_, _, _), do: false
+
   defp payload_device_uid(payload) do
     first_non_blank([
       payload["device_uid"],
@@ -961,6 +1024,59 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "cvss_score" => cvss_score(payload),
       "package" => package_context(payload)
     })
+  end
+
+  defp anomaly_detection_message(payload) do
+    payload["message"] || payload["description"] ||
+      [
+        "anomaly detection finding",
+        get_in(payload, ["anomaly", "series_key"]),
+        get_in(payload, ["anomaly", "state"])
+      ]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.join(": ")
+  end
+
+  defp anomaly_detection_metadata(normalized, payload) do
+    normalized
+    |> Map.put("primary_domain", "health")
+    |> Map.put("service_radar", %{
+      "source_type" => "anomaly_detection",
+      "addon_id" => "anomaly-detection",
+      "device_uid" => anomaly_detection_device_uid(payload),
+      "series_key" => get_in(payload, ["anomaly", "series_key"]),
+      "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
+      "ocsf_class" => "detection_finding"
+    })
+    |> Map.put("detection_finding", %{
+      "type" => "anomaly",
+      "series_key" => get_in(payload, ["anomaly", "series_key"]),
+      "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
+      "state" => get_in(payload, ["anomaly", "state"]),
+      "score" => get_in(payload, ["anomaly", "score"]),
+      "reason" => get_in(payload, ["anomaly", "reason"])
+    })
+  end
+
+  defp anomaly_detection_device(payload) do
+    case anomaly_detection_device_uid(payload) do
+      nil -> %{}
+      device_uid -> %{"uid" => device_uid}
+    end
+  end
+
+  defp anomaly_detection_device_uid(payload) do
+    first_non_blank([
+      payload["device_uid"],
+      payload["deviceUid"],
+      payload["device_id"],
+      payload["deviceId"],
+      get_in(payload, ["device", "uid"]),
+      get_in(payload, ["anomaly", "metadata", "device_uid"]),
+      get_in(payload, ["anomaly", "metadata", "device_id"]),
+      get_in(payload, ["anomaly", "metadata", "host_id"]),
+      get_in(payload, ["anomaly", "series_key"])
+    ])
   end
 
   defp inventory_vulnerability_contexts(payload) do

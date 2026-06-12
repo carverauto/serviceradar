@@ -1,0 +1,257 @@
+//! Live causal prediction evidence.
+//!
+//! Core-elx emits anomaly and capacity forecast findings on
+//! `signals.causal.predictions.*`. The fused causal engine consumes those
+//! signals as evidence by projecting each active finding into the operator-rule
+//! evidence set already evaluated by C12.
+
+use serde_json::Value;
+
+use crate::domain_model::{Context, OperatorRule};
+
+/// A causal finding emitted by core-elx and usable as C12 evidence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CausalEvidence {
+    /// Stable finding/evidence id.
+    pub rule_id: String,
+    /// Canonical or best-known entity the finding applies to.
+    pub entity_uid: String,
+    /// Whether the finding is currently active.
+    pub condition_met: bool,
+    /// Human-readable explanation.
+    pub description: String,
+}
+
+/// Parse an anomaly or capacity forecast causal prediction envelope.
+pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
+    if envelope.get("signal_type")?.as_str()? != "causal" {
+        return None;
+    }
+
+    let event_type = envelope.get("event_type")?.as_str()?;
+    if !matches!(event_type, "anomaly" | "capacity_forecast") {
+        return None;
+    }
+
+    let entity_uid = first_string(&[
+        envelope.pointer("/source_identity/entity_uid"),
+        envelope.get("device_uid"),
+        envelope.get("device_id"),
+        envelope.pointer("/routing_correlation/record_id"),
+    ])?;
+
+    let evidence_id = first_string(&[
+        envelope.pointer("/finding_info/group_uid"),
+        envelope.pointer("/finding_info/uid"),
+        envelope.pointer("/capacity_forecast/resource_key"),
+        envelope.pointer("/source_identity/resource_key"),
+        envelope.pointer("/source_identity/series_key"),
+        envelope.pointer("/routing_correlation/record_id"),
+        envelope.get("event_identity"),
+        envelope.get("id"),
+        envelope.get("event_id"),
+    ])
+    .unwrap_or_else(|| format!("{event_type}:{entity_uid}"));
+
+    let description = first_string(&[
+        envelope.get("message"),
+        envelope.pointer("/explainability/reason"),
+        envelope.pointer("/anomaly/reason"),
+        envelope.pointer("/capacity_forecast/projected_exhaustion_at"),
+    ])
+    .unwrap_or_else(|| format!("{event_type} finding for {entity_uid}"));
+
+    let status = evidence_status(envelope);
+
+    Some(CausalEvidence {
+        rule_id: format!("causal:{event_type}:{evidence_id}"),
+        entity_uid,
+        condition_met: active_status(&status),
+        description,
+    })
+}
+
+/// Upsert causal evidence into the C12 operator-rule evidence vector.
+pub fn apply_causal_evidence(ctx: &mut Context, evidence: &CausalEvidence) -> bool {
+    let rule = OperatorRule {
+        rule_id: evidence.rule_id.clone(),
+        entity_uid: evidence.entity_uid.clone(),
+        condition_met: evidence.condition_met,
+        description: evidence.description.clone(),
+    };
+
+    if let Some(existing) = ctx
+        .operator_rules
+        .iter_mut()
+        .find(|existing| existing.rule_id == evidence.rule_id)
+    {
+        let changed = existing.entity_uid != rule.entity_uid
+            || existing.condition_met != rule.condition_met
+            || existing.description != rule.description;
+        *existing = rule;
+        changed
+    } else {
+        ctx.operator_rules.push(rule);
+        true
+    }
+}
+
+fn first_string(values: &[Option<&Value>]) -> Option<String> {
+    values
+        .iter()
+        .filter_map(|value| value.and_then(Value::as_str))
+        .map(str::trim)
+        .find(|value| !value.is_empty())
+        .map(ToOwned::to_owned)
+}
+
+fn evidence_status(envelope: &Value) -> String {
+    first_string(&[
+        envelope.get("status"),
+        envelope.pointer("/anomaly/status"),
+        envelope.pointer("/anomaly/state"),
+        envelope.pointer("/capacity_forecast/status"),
+    ])
+    .unwrap_or_else(|| "open".to_string())
+}
+
+fn active_status(status: &str) -> bool {
+    !matches!(
+        status.trim().to_ascii_lowercase().as_str(),
+        "closed"
+            | "resolved"
+            | "inactive"
+            | "cleared"
+            | "clear"
+            | "normal"
+            | "ok"
+            | "healthy"
+            | "suppressed"
+            | "skipped"
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn parses_anomaly_prediction_as_causal_evidence() {
+        let evidence = parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "anomaly",
+            "event_id": "anomaly:e1",
+            "source_identity": {"entity_uid": "sr:device:a"},
+            "message": "Anomaly detected"
+        }))
+        .expect("evidence");
+
+        assert_eq!(evidence.rule_id, "causal:anomaly:anomaly:e1");
+        assert_eq!(evidence.entity_uid, "sr:device:a");
+        assert!(evidence.condition_met);
+        assert_eq!(evidence.description, "Anomaly detected");
+    }
+
+    #[test]
+    fn parses_capacity_prediction_with_record_id_fallback() {
+        let evidence = parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "capacity_forecast",
+            "event_id": "cap:e1",
+            "routing_correlation": {"record_id": "disk_usage:host-a:/"},
+            "explainability": {"reason": "disk will exhaust"}
+        }))
+        .expect("evidence");
+
+        assert_eq!(evidence.entity_uid, "disk_usage:host-a:/");
+        assert_eq!(evidence.description, "disk will exhaust");
+    }
+
+    #[test]
+    fn rejects_non_evidence_predictions() {
+        assert!(parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "root_cause",
+            "source_identity": {"entity_uid": "sr:device:a"}
+        }))
+        .is_none());
+    }
+
+    #[test]
+    fn applies_evidence_idempotently() {
+        let mut ctx = Context::default();
+        let evidence = CausalEvidence {
+            rule_id: "causal:anomaly:e1".to_string(),
+            entity_uid: "sr:device:a".to_string(),
+            condition_met: true,
+            description: "anomaly".to_string(),
+        };
+
+        assert!(apply_causal_evidence(&mut ctx, &evidence));
+        assert_eq!(ctx.operator_rules.len(), 1);
+        assert!(!apply_causal_evidence(&mut ctx, &evidence));
+        assert_eq!(ctx.operator_rules.len(), 1);
+    }
+
+    #[test]
+    fn prefers_stable_series_identity_over_per_event_id() {
+        let first = parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "anomaly",
+            "event_id": "anomaly:series-a:1781260800000000000:anomalous",
+            "status": "open",
+            "source_identity": {
+                "entity_uid": "sr:device:a",
+                "series_key": "sysmon:memory:host-a"
+            },
+            "routing_correlation": {"record_id": "sysmon:memory:host-a"},
+            "message": "Anomaly detected"
+        }))
+        .expect("first evidence");
+
+        let second = parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "anomaly",
+            "event_id": "anomaly:series-a:1781260860000000000:anomalous",
+            "status": "resolved",
+            "source_identity": {
+                "entity_uid": "sr:device:a",
+                "series_key": "sysmon:memory:host-a"
+            },
+            "routing_correlation": {"record_id": "sysmon:memory:host-a"},
+            "message": "Anomaly resolved"
+        }))
+        .expect("second evidence");
+
+        assert_eq!(first.rule_id, second.rule_id);
+        assert_eq!(first.rule_id, "causal:anomaly:sysmon:memory:host-a");
+        assert!(first.condition_met);
+        assert!(!second.condition_met);
+    }
+
+    #[test]
+    fn updates_existing_evidence_when_status_changes() {
+        let mut ctx = Context::default();
+
+        let open = CausalEvidence {
+            rule_id: "causal:anomaly:stable-finding".to_string(),
+            entity_uid: "sr:device:a".to_string(),
+            condition_met: true,
+            description: "anomaly open".to_string(),
+        };
+
+        let resolved = CausalEvidence {
+            condition_met: false,
+            description: "anomaly resolved".to_string(),
+            ..open.clone()
+        };
+
+        assert!(apply_causal_evidence(&mut ctx, &open));
+        assert!(apply_causal_evidence(&mut ctx, &resolved));
+        assert_eq!(ctx.operator_rules.len(), 1);
+        assert!(!ctx.operator_rules[0].condition_met);
+        assert_eq!(ctx.operator_rules[0].description, "anomaly resolved");
+    }
+}

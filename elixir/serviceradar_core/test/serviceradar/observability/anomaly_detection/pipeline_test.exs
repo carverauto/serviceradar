@@ -9,6 +9,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     previous_context_engine =
       Application.get_env(:serviceradar_core, :anomaly_detection_context_engine)
 
+    previous_verdict_emitter =
+      Application.get_env(:serviceradar_core, :anomaly_detection_verdict_emitter)
+
     previous_pid = Application.get_env(:serviceradar_core, :anomaly_detection_pipeline_test_pid)
 
     Application.put_env(
@@ -21,6 +24,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
     on_exit(fn ->
       restore_env(:anomaly_detection_context_engine, previous_context_engine)
+      restore_env(:anomaly_detection_verdict_emitter, previous_verdict_emitter)
       restore_env(:anomaly_detection_pipeline_test_pid, previous_pid)
     end)
 
@@ -45,6 +49,51 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     assert sample.value == 50.0
     assert is_binary(sample.event_id)
     assert is_tuple(sample.order_key)
+    refute_receive {:emit_anomaly_verdict, _sample, _verdict}
+  end
+
+  test "emits confirmed anomaly verdicts through the causal prediction emitter" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.AnomalousContextEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.VerdictEmitterStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+
+    assert_receive {:emit_anomaly_verdict, sample, verdict}
+    assert sample.series_key == "sysmon:memory:host-1"
+    assert verdict.anomalous == true
+    assert verdict.state == "anomalous"
+  end
+
+  test "marks messages failed when anomaly verdict emission fails" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.AnomalousContextEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.FailingVerdictEmitter
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert %Message{status: {:failed, {:anomaly_verdict_emit_failed, :nats_down}}} =
+             Pipeline.handle_message(:default, message, config)
   end
 
   test "marks messages failed when the reasoner returns an error" do
@@ -99,9 +148,54 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     end
   end
 
+  defmodule AnomalousContextEngine do
+    @moduledoc false
+
+    def evaluate(sample) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate,
+        sample
+      })
+
+      {:ok,
+       %{
+         state: "anomalous",
+         anomalous: true,
+         breached: true,
+         include_in_baseline: false,
+         next_consecutive_anomalous: 5,
+         score: 3.5,
+         reason: "rolling z-score breached",
+         baseline_count: 48,
+         sample_value: sample.value,
+         observed_at_unix_nano: sample.observed_at_unix_nano,
+         signals: []
+       }}
+    end
+  end
+
   defmodule FailingContextEngine do
     @moduledoc false
     def evaluate(_sample), do: {:error, "bad sample"}
+  end
+
+  defmodule VerdictEmitterStub do
+    @moduledoc false
+
+    def emit(sample, verdict) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :emit_anomaly_verdict,
+        sample,
+        verdict
+      })
+
+      :ok
+    end
+  end
+
+  defmodule FailingVerdictEmitter do
+    @moduledoc false
+    def emit(_sample, _verdict), do: {:error, :nats_down}
   end
 
   defp config(opts) do
