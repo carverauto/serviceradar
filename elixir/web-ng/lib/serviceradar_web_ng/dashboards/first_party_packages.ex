@@ -278,8 +278,12 @@ defmodule ServiceRadarWebNG.Dashboards.FirstPartyPackages do
         if dashboard_id == definition.dashboard_id do
           update_route_instance(instance, package, actor)
         else
-          {:error,
-           {:first_party_dashboard_route_in_use, %{route_slug: definition.route_slug, owner_dashboard_id: dashboard_id}}}
+          route_conflict = %{
+            route_slug: definition.route_slug,
+            owner_dashboard_id: dashboard_id
+          }
+
+          {:error, {:first_party_dashboard_route_in_use, route_conflict}}
         end
 
       {:error, reason} ->

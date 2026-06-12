@@ -275,7 +275,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitter do
   defp iso8601(_value), do: nil
 
   defp value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
-  defp value(_map, _key), do: nil
 
   defp number(value, _default) when is_number(value), do: value * 1.0
   defp number(_value, default), do: default

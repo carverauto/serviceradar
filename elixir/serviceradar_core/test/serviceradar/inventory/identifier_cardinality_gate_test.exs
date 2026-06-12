@@ -67,8 +67,7 @@ defmodule ServiceRadar.Inventory.IdentifierCardinalityGateTest do
 
     device_ids =
       from(di in DeviceIdentifier,
-        where:
-          di.identifier_type == :integration_id and like(di.identifier_value, ^"#{prefix}%"),
+        where: di.identifier_type == :integration_id and like(di.identifier_value, ^"#{prefix}%"),
         select: di.device_id
       )
       |> Repo.all()

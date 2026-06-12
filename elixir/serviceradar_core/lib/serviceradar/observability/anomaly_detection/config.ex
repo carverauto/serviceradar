@@ -201,16 +201,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     end
   end
 
-  defp parse_int(value, _default) when is_integer(value), do: value
-
   defp parse_int(value, default) when is_binary(value) do
     case Integer.parse(value) do
       {number, _} when number > 0 -> number
       _ -> default
     end
   end
-
-  defp parse_int(_value, default), do: default
 
   defp truthy?(value) when is_binary(value) do
     String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]

@@ -189,7 +189,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Model do
   end
 
   @spec least_squares([number()], [number()]) :: {float(), float()}
-  def least_squares(xs, ys) when length(xs) == length(ys) and length(xs) > 0 do
+  def least_squares([_ | _] = xs, ys) when length(xs) == length(ys) do
     n = length(xs) * 1.0
     sum_x = Enum.sum(xs) * 1.0
     sum_y = Enum.sum(ys) * 1.0

@@ -215,9 +215,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   defp build_sample(_series_key, value, _timestamp, _subject, _metric_class, _metadata)
        when not is_number(value), do: nil
 
-  defp build_sample(_series_key, value, _timestamp, _subject, _metric_class, _metadata)
-       when value != value, do: nil
-
   defp build_sample(series_key, value, timestamp, subject, metric_class, metadata) do
     %{
       series_key: series_key,
@@ -371,8 +368,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     end)
   end
 
-  defp explicit_event_identity(_metadata), do: nil
-
   defp event_id_key_type(key) when key in ["ingress_id", :ingress_id, "ingressId", :ingressId],
     do: :ingress_id
 
@@ -386,8 +381,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     Map.get(metadata, "ingress_timestamp_unix_nano") ||
       Map.get(metadata, :ingress_timestamp_unix_nano)
   end
-
-  defp ingress_timestamp(_metadata), do: nil
 
   defp stable_hash(parts) do
     parts
