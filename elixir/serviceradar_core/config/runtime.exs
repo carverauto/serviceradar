@@ -12,6 +12,7 @@ alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.EventWriter.Processors.PowerDNS
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 alias ServiceRadar.Jobs.RootSpanRatioWorker
+alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 
 # Netprobe native add-on package — signed artifact refs for the package seeder.
@@ -1054,6 +1055,40 @@ if config_env() == :prod do
       []
     end
 
+  capacity_forecasting_enabled =
+    "SERVICERADAR_CAPACITY_FORECASTING_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  capacity_forecasting_cron =
+    System.get_env("SERVICERADAR_CAPACITY_FORECASTING_CRON", "41 * * * *")
+
+  capacity_forecasting_horizon_seconds =
+    String.to_integer(
+      System.get_env("SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS") || "7776000"
+    )
+
+  capacity_forecasting_crontab =
+    if capacity_forecasting_enabled do
+      [
+        {capacity_forecasting_cron, CapacityForecastingWorker,
+         args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
+  config :serviceradar_core, CapacityForecastingWorker,
+    enabled: capacity_forecasting_enabled,
+    horizon_seconds: capacity_forecasting_horizon_seconds,
+    min_points:
+      String.to_integer(System.get_env("SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS") || "24"),
+    seasonal_period:
+      String.to_integer(
+        System.get_env("SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD") || "24"
+      )
+
   config :serviceradar_core, Oban,
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -1089,7 +1124,7 @@ if config_env() == :prod do
             queue: :maintenance},
            {"31 3 * * *", ServiceRadar.Edge.RemoteAccessVersionRetentionWorker,
             queue: :maintenance}
-         ] ++ object_store_retention_crontab}
+         ] ++ object_store_retention_crontab ++ capacity_forecasting_crontab}
     ],
     peer: Oban.Peers.Database
 

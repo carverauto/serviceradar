@@ -55,6 +55,7 @@ pub enum Entity {
     DiskMetrics,
     ProcessMetrics,
     TimeseriesMetrics,
+    TimeseriesMetricInterfaceHourly,
     SnmpMetrics,
     TraceSummaries,
     Traces,
@@ -496,6 +497,10 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
         "process_metrics" | "processes" => Ok(Entity::ProcessMetrics),
         "timeseries_metrics" | "timeseries" => Ok(Entity::TimeseriesMetrics),
+        "timeseries_metric_interface_hourly"
+        | "timeseries_metrics_interface_hourly"
+        | "interface_timeseries_metrics_hourly"
+        | "interface_metrics_hourly" => Ok(Entity::TimeseriesMetricInterfaceHourly),
         "snmp_metrics" | "snmp" => Ok(Entity::SnmpMetrics),
         "otel_trace_summaries" | "trace_summaries" | "traces_summaries" => {
             Ok(Entity::TraceSummaries)
