@@ -91,6 +91,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesConfig do
   defp merge_config(opts) do
     config()
     |> to_plain_map()
+    |> deep_merge(runtime_config())
     |> deep_merge(to_plain_map(opts))
   end
 
@@ -346,5 +347,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesConfig do
       config ->
         config
     end
+  end
+
+  defp runtime_config do
+    to_plain_map(ServiceRadar.Observability.AnomalyConfigRuntime.anomaly_series_config())
   end
 end

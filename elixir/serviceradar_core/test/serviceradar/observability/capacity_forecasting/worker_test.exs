@@ -1,12 +1,21 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
+  alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
   @forecasted_at ~U[2026-06-12 12:00:00Z]
+
+  setup do
+    AnomalyConfigRuntime.clear_cache_for_test()
+
+    on_exit(fn ->
+      AnomalyConfigRuntime.clear_cache_for_test()
+    end)
+  end
 
   defmodule Runner do
     @moduledoc false
@@ -158,6 +167,109 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.skip_reason == "insufficient_history"
     assert attrs.sample_count == 2
     assert attrs.slope_per_second == nil
+  end
+
+  test "worker merges hot-reloaded forecast settings into each run" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      capacity_forecasting_opts: [
+        horizon_seconds: 12 * 3_600,
+        warning_horizon_seconds: 6 * 3_600,
+        warning_threshold_percent: 75.0,
+        forecast_model: "linear",
+        min_points: 24,
+        capacity_metric_class_overrides: %{
+          "cpu" => %{"minimum_history_points" => 30}
+        }
+      ]
+    })
+
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query:
+        "in:cpu_metrics time:last_180d bucket:1h stats:avg(usage_percent) as avg_usage_percent",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "auto"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_runtime_config, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false
+             )
+
+    assert_received {:capacity_forecast_runtime_config, attrs}
+    assert attrs.horizon_seconds == 12 * 3_600
+    assert attrs.horizon_ends_at == DateTime.add(@forecasted_at, 12 * 3_600, :second)
+    assert attrs.exhaustion_threshold == 75.0
+    assert attrs.model == "linear"
+  end
+
+  test "runtime default forecast settings preserve source model" do
+    AnomalyConfigRuntime.put_cache_for_test(%{
+      capacity_forecasting_opts: [
+        horizon_seconds: 12 * 3_600,
+        warning_horizon_seconds: 6 * 3_600,
+        warning_threshold_percent: 75.0,
+        min_points: 24,
+        capacity_metric_class_overrides: %{}
+      ]
+    })
+
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query:
+        "in:cpu_metrics time:last_180d bucket:1h stats:avg(usage_percent) as avg_usage_percent",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "holt_winters"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_runtime_auto_model, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false
+             )
+
+    assert_received {:capacity_forecast_runtime_auto_model, attrs}
+    assert attrs.exhaustion_threshold == 75.0
+    assert attrs.model == "holt_winters_additive"
   end
 
   test "default sources cover long-horizon metric, interface, and flow aggregates" do

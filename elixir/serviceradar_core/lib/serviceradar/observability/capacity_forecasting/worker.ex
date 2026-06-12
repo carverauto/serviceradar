@@ -9,6 +9,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     unique: [period: :infinity, states: [:available, :scheduled, :executing, :retryable]]
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CapacityForecast
   alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
   alias ServiceRadar.Observability.CapacityForecasting.Model
@@ -26,7 +27,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
-    run(job, config())
+    run(job)
   end
 
   @doc """
@@ -37,6 +38,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   """
   @spec run(Oban.Job.t(), keyword()) :: :ok | {:error, term()}
   def run(%Oban.Job{args: args} = job, opts \\ []) when is_map(args) do
+    opts = merge_runtime_opts(opts)
+
     if Keyword.get(opts, :enabled, true) do
       forecasted_at = forecasted_at(job)
 
@@ -115,6 +118,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp forecast_rows(%Source{} = source, rows, opts) do
+    source = apply_capacity_config(source, opts)
     forecasted_at = Keyword.fetch!(opts, :forecasted_at)
     horizon_seconds = Keyword.fetch!(opts, :horizon_seconds)
     horizon_ends_at = Keyword.fetch!(opts, :horizon_ends_at)
@@ -164,7 +168,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp forecast_attrs(source, points, common, opts) do
-    min_points = positive_integer(Keyword.get(opts, :min_points), @default_min_points)
+    min_points =
+      opts
+      |> capacity_metric_class_override(source.metric_class)
+      |> option_value("minimum_history_points", Keyword.get(opts, :min_points))
+      |> positive_integer(@default_min_points)
 
     seasonal_period =
       positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
@@ -285,6 +293,47 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp at_risk?(_attrs, _opts), do: false
+
+  defp apply_capacity_config(%Source{} = source, opts) do
+    override = capacity_metric_class_override(opts, source.metric_class)
+
+    threshold =
+      override
+      |> option_value("warning_threshold_percent", Keyword.get(opts, :warning_threshold_percent))
+      |> option_value_fallback(option_value(override, "threshold", source.threshold))
+      |> config_number_value(source.threshold)
+
+    model =
+      override
+      |> option_value("model", Keyword.get(opts, :forecast_model))
+      |> option_value_fallback(source.model)
+
+    %{source | threshold: threshold, model: to_string(model)}
+  end
+
+  defp capacity_metric_class_override(opts, metric_class) do
+    opts
+    |> Keyword.get(:capacity_metric_class_overrides, %{})
+    |> case do
+      overrides when is_map(overrides) ->
+        Map.get(overrides, metric_class, Map.get(overrides, to_string(metric_class), %{}))
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp option_value(map, key, default) when is_map(map) do
+    Map.get(map, key, Map.get(map, String.to_existing_atom(key), default))
+  rescue
+    ArgumentError -> Map.get(map, key, default)
+  end
+
+  defp option_value(_map, _key, default), do: default
+
+  defp option_value_fallback(nil, fallback), do: fallback
+  defp option_value_fallback("", fallback), do: fallback
+  defp option_value_fallback(value, _fallback), do: value
 
   defp group_rows(rows, source) do
     Enum.group_by(rows, &resource_key(source, &1))
@@ -504,7 +553,32 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+
+  defp positive_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {number, ""} when number > 0 -> number
+      _ -> default
+    end
+  end
+
   defp positive_integer(_value, default), do: default
+
+  defp config_number_value(value, _default) when is_number(value), do: value * 1.0
+
+  defp config_number_value(value, default) when is_binary(value) do
+    case Float.parse(value) do
+      {number, ""} -> number
+      _ -> default
+    end
+  end
+
+  defp config_number_value(_value, default), do: default
+
+  defp merge_runtime_opts(opts) do
+    config()
+    |> Keyword.merge(AnomalyConfigRuntime.capacity_forecasting_opts())
+    |> Keyword.merge(opts)
+  end
 
   defp config do
     Application.get_env(:serviceradar_core, __MODULE__, [])
