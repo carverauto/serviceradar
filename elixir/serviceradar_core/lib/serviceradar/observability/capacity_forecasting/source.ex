@@ -113,12 +113,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         name: "interface_rate",
         resource_type: "interface",
         metric_class: "interface",
-        metric_name: "rate_per_second",
+        metric_name: "utilization_percent",
         query:
           "in:timeseries_metric_interface_hourly time:#{time_range} sort:bucket:asc limit:#{limit}",
         value_field: "avg_rate_per_second",
         key_fields: ["device_id", "target_device_ip", "if_index", "metric_name", "series_key"],
-        label_fields: ["target_device_ip", "if_index", "metric_name"]
+        label_fields: ["target_device_ip", "if_index", "metric_name"],
+        threshold: 100.0
       },
       %__MODULE__{
         name: "flow_bps",

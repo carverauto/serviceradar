@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.CapacityForecast
+  alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
   alias ServiceRadar.Observability.CapacityForecasting.Model
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.SRQLRunner
@@ -20,6 +21,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   @default_horizon_seconds 90 * 24 * 60 * 60
   @default_min_points 24
   @default_seasonal_period 24
+  @interface_octet_metrics ~w(ifInOctets ifOutOctets ifHCInOctets ifHCOutOctets)
 
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
@@ -87,14 +89,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
         rows
         |> group_rows(source)
         |> Enum.reduce_while(:ok, fn {_resource_key, rows}, :ok ->
-          source
-          |> forecast_rows(rows, opts)
-          |> upsert(opts)
-          |> case do
-            {:ok, _forecast} -> {:cont, :ok}
-            :ok -> {:cont, :ok}
-            {:error, reason} -> {:halt, {:error, reason}}
-            other -> {:halt, {:error, {:unexpected_upsert_result, other}}}
+          case forecast_rows(source, rows, opts) do
+            {:ok, attrs} ->
+              attrs
+              |> upsert(opts)
+              |> case do
+                {:ok, _forecast} -> {:cont, :ok}
+                :ok -> {:cont, :ok}
+                {:error, reason} -> {:halt, {:error, reason}}
+                other -> {:halt, {:error, {:unexpected_upsert_result, other}}}
+              end
+
+            {:error, reason} ->
+              {:halt, {:error, reason}}
           end
         end)
 
@@ -112,17 +119,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     forecasted_at = Keyword.fetch!(opts, :forecasted_at)
     horizon_seconds = Keyword.fetch!(opts, :horizon_seconds)
     horizon_ends_at = Keyword.fetch!(opts, :horizon_ends_at)
-    min_points = positive_integer(Keyword.get(opts, :min_points), @default_min_points)
-
-    seasonal_period =
-      positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
-
     first_row = List.first(rows) || %{}
-
-    points =
-      rows
-      |> Enum.map(&point_from_row(&1, source))
-      |> Enum.reject(&is_nil/1)
 
     common = %{
       forecasted_at: forecasted_at,
@@ -143,10 +140,40 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       }
     }
 
+    case value_context(source, first_row, opts) do
+      {:ok, %{skip_reason: reason} = context} ->
+        points =
+          rows
+          |> Enum.map(&point_from_row(&1, source, %{}))
+          |> Enum.reject(&is_nil/1)
+
+        common = Map.put(common, :metadata, Map.merge(common.metadata, context_metadata(context)))
+        {:ok, skipped_attrs(source, points, common, to_string(reason))}
+
+      {:ok, context} ->
+        points =
+          rows
+          |> Enum.map(&point_from_row(&1, source, context))
+          |> Enum.reject(&is_nil/1)
+
+        common = Map.put(common, :metadata, Map.merge(common.metadata, context_metadata(context)))
+        {:ok, forecast_attrs(source, points, common, opts)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp forecast_attrs(source, points, common, opts) do
+    min_points = positive_integer(Keyword.get(opts, :min_points), @default_min_points)
+
+    seasonal_period =
+      positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
+
     case Model.forecast(points,
            min_points: min_points,
-           horizon_seconds: horizon_seconds,
-           exhaustion_threshold: source.threshold,
+           horizon_seconds: common.horizon_seconds,
+           exhaustion_threshold: common.exhaustion_threshold,
            model: source.model,
            seasonal_period: seasonal_period
          ) do
@@ -170,24 +197,28 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
         })
 
       {:skip, reason, diagnostics} ->
-        Map.merge(common, %{
-          window_started_at: first_point_at(points),
-          window_ended_at: last_point_at(points),
-          sample_count: length(points),
-          model: source.model,
-          status: "skipped",
-          skip_reason: reason,
-          current_value: nil,
-          slope_per_second: nil,
-          intercept: nil,
-          projected_value: nil,
-          projected_exhaustion_at: nil,
-          confidence: nil,
-          lower_bound: nil,
-          upper_bound: nil,
-          metadata: Map.put(common.metadata, "diagnostics", stringify_keys(diagnostics))
-        })
+        skipped_attrs(source, points, common, reason, diagnostics)
     end
+  end
+
+  defp skipped_attrs(source, points, common, reason, diagnostics \\ %{}) do
+    Map.merge(common, %{
+      window_started_at: first_point_at(points),
+      window_ended_at: last_point_at(points),
+      sample_count: length(points),
+      model: source.model,
+      status: "skipped",
+      skip_reason: reason,
+      current_value: nil,
+      slope_per_second: nil,
+      intercept: nil,
+      projected_value: nil,
+      projected_exhaustion_at: nil,
+      confidence: nil,
+      lower_bound: nil,
+      upper_bound: nil,
+      metadata: Map.put(common.metadata, "diagnostics", stringify_keys(diagnostics))
+    })
   end
 
   defp upsert(attrs, opts) do
@@ -206,14 +237,72 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     Enum.group_by(rows, &resource_key(source, &1))
   end
 
-  defp point_from_row(row, source) do
+  defp point_from_row(row, source, context) do
     with %DateTime{} = at <- datetime_value(row, source.bucket_field),
-         value when is_number(value) <- number_value(row, source.value_field) do
+         value when is_number(value) <- source_value(row, source, context) do
       %{at: at, value: value}
     else
       _ -> nil
     end
   end
+
+  defp source_value(row, %Source{resource_type: "interface"} = source, %{speed_bps: speed_bps}) do
+    with value when is_number(value) <- number_value(row, source.value_field) do
+      InterfaceCapacity.utilization_percent(value, speed_bps)
+    end
+  end
+
+  defp source_value(row, source, _context), do: number_value(row, source.value_field)
+
+  defp value_context(%Source{resource_type: "interface"}, row, opts) do
+    resolver = Keyword.get(opts, :interface_capacity_resolver, &InterfaceCapacity.resolve/2)
+    resolver_opts = Keyword.get(opts, :interface_capacity_opts, [])
+
+    with :ok <- octet_interface_metric(row) do
+      case resolver.(row, resolver_opts) do
+        {:ok, %{speed_bps: speed_bps} = context} when is_integer(speed_bps) and speed_bps > 0 ->
+          {:ok, context}
+
+        {:ok, %{speed_bps: nil}} ->
+          {:ok, %{skip_reason: :missing_interface_capacity}}
+
+        {:ok, %{skip_reason: reason}} ->
+          {:ok, %{skip_reason: reason}}
+
+        {:ok, nil} ->
+          {:ok, %{skip_reason: :missing_interface_capacity}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    end
+  end
+
+  defp value_context(_source, _row, _opts), do: {:ok, %{}}
+
+  defp octet_interface_metric(row) do
+    case string_value(row, "metric_name") do
+      metric_name when metric_name in @interface_octet_metrics -> :ok
+      _ -> {:ok, %{skip_reason: :unsupported_interface_metric}}
+    end
+  end
+
+  defp context_metadata(%{speed_bps: speed_bps} = context) when is_integer(speed_bps) do
+    %{
+      "capacity_bps" => speed_bps,
+      "capacity_source" => string_value(context, :source),
+      "capacity_observed_at" => datetime_string(Map.get(context, :timestamp)),
+      "forecast_value_unit" => "percent",
+      "raw_value_unit" => "bytes_per_second"
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp context_metadata(%{skip_reason: reason}),
+    do: %{"capacity_skip_reason" => to_string(reason)}
+
+  defp context_metadata(_context), do: %{}
 
   defp sources(opts) do
     opts
@@ -295,6 +384,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       _ -> nil
     end
   end
+
+  defp datetime_string(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp datetime_string(%NaiveDateTime{} = value),
+    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+
+  defp datetime_string(_value), do: nil
 
   defp number_value(row, field) do
     case value(row, field) do
