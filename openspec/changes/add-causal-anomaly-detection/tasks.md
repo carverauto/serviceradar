@@ -52,7 +52,7 @@
 - [x] 5.4 RBAC gates consistent with existing observability/dashboard views.
 
 ## 6. Docs / conventions
-- [ ] 6.1 `AGENTS.md` Hard Rule + `openspec/project.md`: all metrics via JetStream first, never direct-to-DB (done in this proposal; keep in sync).
+- [x] 6.1 `AGENTS.md` Hard Rule + `openspec/project.md`: all metrics via JetStream first, never direct-to-DB (done in this proposal; keep in sync).
 - [ ] 6.2 Operator docs for anomaly tuning (N-sigma/M-slot per metric class) and capacity-forecast interpretation under `docs/docs/`.
 - [ ] 6.3 Note the future feature-flagged guarded-remediation phase (TCAS 5-gate discipline) as a follow-up change; not implemented here.
 
