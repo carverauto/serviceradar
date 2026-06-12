@@ -17,6 +17,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
       System.delete_env("ANOMALY_ANALYSIS_NATS_URL")
       System.delete_env("ANOMALY_ANALYSIS_NATS_CREDS_FILE")
       System.delete_env("ANOMALY_TEST_NATS_PASSWORD")
+      System.delete_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY")
     end)
 
     :ok
@@ -82,6 +83,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     assert Config.subject_enabled?(config, "metrics.sysmon.cpu")
     assert Config.subject_enabled?(config, "metrics.snmp.interface.ifHCInOctets")
     refute Config.subject_enabled?(config, "otel.metrics.raw")
+  end
+
+  test "loads processor concurrency for in-core Broadway scaling" do
+    System.put_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY", "12")
+
+    assert Config.load().processor_concurrency == 12
+
+    System.put_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY", "0")
+
+    assert Config.load().processor_concurrency == 4
   end
 
   test "materializes an EventWriter-compatible producer config" do

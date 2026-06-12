@@ -23,7 +23,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   """
   @spec start_link(Config.t()) :: GenServer.on_start()
   def start_link(%Config{} = config) do
-    Broadway.start_link(__MODULE__,
+    Broadway.start_link(__MODULE__, broadway_options(config))
+  end
+
+  @doc false
+  @spec broadway_options(Config.t()) :: keyword()
+  def broadway_options(%Config{} = config) do
+    [
       name: __MODULE__,
       context: config,
       producer: [
@@ -34,7 +40,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
       processors: [
         default: [concurrency: config.processor_concurrency]
       ]
-    )
+    ]
   end
 
   @doc """

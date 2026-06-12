@@ -649,7 +649,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   defp metadata_value(_, _), do: nil
 
   defp persisted_ocsf_event?(%{id: id, time: %DateTime{} = time}) do
-    {:ok, uuid} = Ecto.UUID.load(id)
+    {:ok, uuid} = uuid_query_param(id)
 
     case ServiceRadar.Repo.query(
            "SELECT 1 FROM platform.ocsf_events WHERE id = $1::uuid AND time = $2 LIMIT 1",
@@ -668,4 +668,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   end
 
   defp alert_evaluation_row(row), do: row
+
+  defp uuid_query_param(<<_::128>> = uuid), do: {:ok, uuid}
+  defp uuid_query_param(id) when is_binary(id), do: Ecto.UUID.dump(id)
 end

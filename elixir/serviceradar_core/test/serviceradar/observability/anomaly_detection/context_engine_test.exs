@@ -41,6 +41,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextEngineTest do
     assert [{^pid, _metadata}] = ProcessRegistry.lookup(ContextEngine.registry_key(series_key))
   end
 
+  test "series ownership uses the deployment-wide Horde process registry" do
+    series_key = "series-#{System.unique_integer([:positive])}"
+
+    assert {:anomaly_context, ^series_key} = ContextEngine.registry_key(series_key)
+
+    assert {:via, Horde.Registry, {ProcessRegistry, {:anomaly_context, ^series_key}}} =
+             ContextEngine.via(series_key)
+  end
+
   defmodule CleanReasoner do
     @moduledoc false
     def reason(_context, _sample) do
