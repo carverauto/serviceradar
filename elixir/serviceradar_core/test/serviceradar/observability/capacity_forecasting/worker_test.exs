@@ -1,6 +1,8 @@
 defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.Worker
 
@@ -24,6 +26,24 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
         end
 
       {:ok, rows}
+    end
+  end
+
+  defmodule VerdictEmitter do
+    @moduledoc false
+
+    def emit(attrs, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:capacity_forecast_verdict, attrs})
+      :ok
+    end
+  end
+
+  defmodule FailingVerdictEmitter do
+    @moduledoc false
+
+    def emit(attrs, opts) do
+      send(Keyword.fetch!(opts, :test_pid), {:capacity_forecast_verdict_attempt, attrs})
+      {:error, {:nats_not_connected, :reconnecting}}
     end
   end
 
@@ -58,6 +78,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                sources: [source],
                runner: Runner,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                horizon_seconds: 24 * 3_600,
                min_points: 24
              )
@@ -107,6 +128,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                sources: [source],
                runner: runner,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                min_points: 3
              )
 
@@ -161,6 +183,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: __MODULE__.InterfaceRunner,
                interface_capacity_resolver: resolver,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                horizon_seconds: 24 * 3_600,
                min_points: 24
              )
@@ -195,6 +218,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                runner: __MODULE__.InterfaceRunner,
                interface_capacity_resolver: resolver,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                min_points: 24
              )
 
@@ -287,8 +311,115 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                sources: [source],
                runner: Runner,
                upsert_fun: upsert_fun,
+               emit_verdicts?: false,
                min_points: 24
              )
+  end
+
+  test "worker emits a causal capacity forecast verdict for at-risk projections" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor -> {:ok, attrs} end
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: Runner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               horizon_seconds: 24 * 3_600,
+               warning_horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_verdict, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    assert DateTime.compare(attrs.projected_exhaustion_at, attrs.horizon_ends_at) != :gt
+  end
+
+  test "worker keeps persisted forecasts when verdict emission fails" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    log =
+      capture_log(fn ->
+        assert :ok =
+                 Worker.run(job,
+                   sources: [source],
+                   runner: Runner,
+                   upsert_fun: upsert_fun,
+                   verdict_emitter: FailingVerdictEmitter,
+                   test_pid: self(),
+                   horizon_seconds: 24 * 3_600,
+                   warning_horizon_seconds: 24 * 3_600,
+                   min_points: 24
+                 )
+      end)
+
+    assert_received {:capacity_forecast_upsert, %{status: "projected"}}
+    assert_received {:capacity_forecast_verdict_attempt, %{status: "projected"}}
+    assert log =~ "Capacity forecast verdict emit failed"
+    assert log =~ "nats_not_connected"
+  end
+
+  test "worker does not emit a verdict for skipped forecasts" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0
+    }
+
+    upsert_fun = fn attrs, _actor -> {:ok, attrs} end
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.ShortRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               min_points: 3
+             )
+
+    refute_received {:capacity_forecast_verdict, _attrs}
   end
 
   defmodule ShortRunner do

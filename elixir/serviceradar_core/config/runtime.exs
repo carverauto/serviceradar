@@ -1069,6 +1069,18 @@ if config_env() == :prod do
       System.get_env("SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS") || "7776000"
     )
 
+  capacity_forecasting_warning_horizon_seconds =
+    String.to_integer(
+      System.get_env("SERVICERADAR_CAPACITY_FORECASTING_WARNING_HORIZON_SECONDS") ||
+        Integer.to_string(capacity_forecasting_horizon_seconds)
+    )
+
+  capacity_forecasting_emit_verdicts =
+    "SERVICERADAR_CAPACITY_FORECASTING_EMIT_VERDICTS"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
   capacity_forecasting_crontab =
     if capacity_forecasting_enabled do
       [
@@ -1082,6 +1094,8 @@ if config_env() == :prod do
   config :serviceradar_core, CapacityForecastingWorker,
     enabled: capacity_forecasting_enabled,
     horizon_seconds: capacity_forecasting_horizon_seconds,
+    warning_horizon_seconds: capacity_forecasting_warning_horizon_seconds,
+    emit_verdicts?: capacity_forecasting_emit_verdicts,
     min_points:
       String.to_integer(System.get_env("SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS") || "24"),
     seasonal_period:
