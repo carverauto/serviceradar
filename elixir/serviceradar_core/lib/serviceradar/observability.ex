@@ -83,6 +83,7 @@ defmodule ServiceRadar.Observability do
     resource ServiceRadar.Observability.ProcessMetric
     resource ServiceRadar.Observability.ProcessMetricHourly
     resource ServiceRadar.Observability.TimeseriesMetricHourly
+    resource ServiceRadar.Observability.TimeseriesMetricInterfaceHourly
     resource ServiceRadar.Observability.CapacityForecast
     # MTR resources - map to TimescaleDB hypertables with migrate?: false
     resource ServiceRadar.Observability.MtrTrace
