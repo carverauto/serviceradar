@@ -60,6 +60,7 @@ defmodule ServiceRadar.EventWriter.Config do
     :batch_size,
     :batch_timeout,
     :consumer_name,
+    :producer_name,
     :streams
   ]
 
@@ -69,6 +70,7 @@ defmodule ServiceRadar.EventWriter.Config do
           batch_size: pos_integer(),
           batch_timeout: pos_integer(),
           consumer_name: String.t(),
+          producer_name: atom() | nil,
           streams: [stream_config()]
         }
 
@@ -96,7 +98,9 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_replicas) => pos_integer() | nil,
           optional(:stream_max_bytes) => pos_integer() | nil,
           optional(:stream_max_age) => pos_integer() | nil,
-          optional(:consumer_max_deliver) => integer() | nil
+          optional(:consumer_max_deliver) => integer() | nil,
+          optional(:consumer_deliver_policy) => atom() | nil,
+          optional(:consumer_inactive_threshold) => non_neg_integer() | nil
         }
 
   @doc """
@@ -112,6 +116,7 @@ defmodule ServiceRadar.EventWriter.Config do
       batch_size: load_batch_size(config),
       batch_timeout: load_batch_timeout(config),
       consumer_name: load_consumer_name(config),
+      producer_name: Keyword.get(config, :producer_name),
       streams: load_streams(config)
     }
   end
@@ -255,35 +260,45 @@ defmodule ServiceRadar.EventWriter.Config do
 
   # Private functions
 
-  defp load_nats_config(config) do
-    nats_config = Keyword.get(config, :nats, [])
+  @doc false
+  @spec build_nats_config(keyword() | map(), keyword()) :: nats_config()
+  def build_nats_config(nats_config, opts \\ [])
+      when is_list(nats_config) or is_map(nats_config) do
+    url_env = Keyword.get(opts, :url_env, "EVENT_WRITER_NATS_URL")
+    creds_file_env = Keyword.get(opts, :creds_file_env, "EVENT_WRITER_NATS_CREDS_FILE")
 
     # Check for NATS URL environment variable
-    {host, port} = parse_nats_url()
+    {host, port} = parse_nats_url(url_env)
 
     creds_file =
-      System.get_env("EVENT_WRITER_NATS_CREDS_FILE") ||
-        resolve_value(Keyword.get(nats_config, :creds_file))
+      System.get_env(creds_file_env) ||
+        resolve_value(config_get(nats_config, :creds_file))
 
     creds_file = normalize(creds_file)
-    jwt = nats_config |> Keyword.get(:jwt) |> resolve_value() |> normalize()
-    nkey_seed = nats_config |> Keyword.get(:nkey_seed) |> resolve_value() |> normalize()
+    jwt = nats_config |> config_get(:jwt) |> resolve_value() |> normalize()
+    nkey_seed = nats_config |> config_get(:nkey_seed) |> resolve_value() |> normalize()
     {jwt, nkey_seed} = load_creds(creds_file, jwt, nkey_seed)
 
     %{
-      host: host || Keyword.get(nats_config, :host, "localhost"),
-      port: port || Keyword.get(nats_config, :port, 4222),
-      user: resolve_value(Keyword.get(nats_config, :user)),
-      password: resolve_value(Keyword.get(nats_config, :password)),
-      tls: Keyword.get(nats_config, :tls, false),
+      host: host || config_get(nats_config, :host, "localhost"),
+      port: port || config_get(nats_config, :port, 4222),
+      user: resolve_value(config_get(nats_config, :user)),
+      password: resolve_value(config_get(nats_config, :password)),
+      tls: config_get(nats_config, :tls, false),
       creds_file: creds_file,
       jwt: jwt,
       nkey_seed: nkey_seed
     }
   end
 
-  defp parse_nats_url do
-    case System.get_env("EVENT_WRITER_NATS_URL") do
+  defp load_nats_config(config) do
+    config
+    |> Keyword.get(:nats, [])
+    |> build_nats_config()
+  end
+
+  defp parse_nats_url(env_name) do
+    case System.get_env(env_name) do
       nil ->
         {nil, nil}
 
@@ -319,6 +334,16 @@ defmodule ServiceRadar.EventWriter.Config do
       nil -> default_streams()
       streams when is_list(streams) -> streams
     end
+  end
+
+  defp config_get(config, key, default \\ nil)
+
+  defp config_get(config, key, default) when is_list(config) do
+    Keyword.get(config, key, default)
+  end
+
+  defp config_get(config, key, default) when is_map(config) do
+    Map.get(config, key, Map.get(config, to_string(key), default))
   end
 
   defp load_creds(nil, jwt, nkey_seed), do: {jwt, nkey_seed}

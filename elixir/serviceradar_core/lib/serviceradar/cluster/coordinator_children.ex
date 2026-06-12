@@ -8,6 +8,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
 
   use Supervisor
 
+  alias ServiceRadar.Observability.AnomalyDetection
   alias ServiceRadar.Observability.LogPromotionConsumer
 
   def start_link(opts \\ []) do
@@ -62,6 +63,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         bumblebee_catalog_scheduler_child(),
         cli_auth_scheduler_child(),
         log_promotion_consumer_child(),
+        anomaly_analysis_consumer_child(),
         event_writer_child()
       ],
       &is_nil/1
@@ -310,6 +312,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp log_promotion_consumer_child do
     if LogPromotionConsumer.enabled?() do
       LogPromotionConsumer
+    end
+  end
+
+  defp anomaly_analysis_consumer_child do
+    if AnomalyDetection.Config.enabled?() do
+      Supervisor.child_spec(AnomalyDetection.Supervisor, restart: :temporary)
     end
   end
 
