@@ -1,0 +1,136 @@
+defmodule ServiceRadar.Observability.AnomalyConfigSeederTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.Observability.AnomalyConfigSeeder
+
+  @values_path Path.expand("../../../../../helm/serviceradar/values.yaml", __DIR__)
+  @core_template_path Path.expand("../../../../../helm/serviceradar/templates/core.yaml", __DIR__)
+
+  test "anomaly seed attrs default to the Helm-backed first-boot values" do
+    attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(fn _ -> nil end)
+
+    assert attrs.n_sigma == 3.0
+    assert attrs.window_size == 300
+    assert attrs.window_duration_seconds == 900
+    assert attrs.confirm_slots == 5
+    assert attrs.min_samples == 30
+
+    assert attrs.metric_class_overrides |> Map.keys() |> Enum.sort() ==
+             ["cpu", "disk", "interface", "memory", "red"]
+  end
+
+  test "anomaly seed attrs parse Helm-rendered env values" do
+    env = %{
+      "SERVICERADAR_ANOMALY_N_SIGMA" => "4.5",
+      "SERVICERADAR_ANOMALY_WINDOW_SIZE" => "600",
+      "SERVICERADAR_ANOMALY_WINDOW_DURATION_SECONDS" => "1800",
+      "SERVICERADAR_ANOMALY_CONFIRM_SLOTS" => "7",
+      "SERVICERADAR_ANOMALY_MIN_SAMPLES" => "45",
+      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => ~s({"interface":{"n_sigma":5.0}})
+    }
+
+    attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
+
+    assert attrs.n_sigma == 4.5
+    assert attrs.window_size == 600
+    assert attrs.window_duration_seconds == 1800
+    assert attrs.confirm_slots == 7
+    assert attrs.min_samples == 45
+    assert attrs.metric_class_overrides["interface"]["n_sigma"] == 5.0
+  end
+
+  test "forecast seed attrs parse Helm-rendered env values" do
+    env = %{
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS" => "15552000",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS" => "604800",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT" => "90.0",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL" => "seasonal_linear",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_MINIMUM_HISTORY_POINTS" => "168",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" =>
+        ~s({"disk":{"warning_threshold_percent":85.0}})
+    }
+
+    attrs = AnomalyConfigSeeder.forecast_attrs_from_env(&Map.get(env, &1))
+
+    assert attrs.forecast_horizon_seconds == 15_552_000
+    assert attrs.warning_horizon_seconds == 604_800
+    assert attrs.warning_threshold_percent == 90.0
+    assert attrs.model == :seasonal_linear
+    assert attrs.minimum_history_points == 168
+    assert attrs.metric_class_overrides["disk"]["warning_threshold_percent"] == 85.0
+  end
+
+  test "anomaly seed attrs clamp out-of-range numeric env values" do
+    env = %{
+      "SERVICERADAR_ANOMALY_N_SIGMA" => "50",
+      "SERVICERADAR_ANOMALY_WINDOW_SIZE" => "1",
+      "SERVICERADAR_ANOMALY_WINDOW_DURATION_SECONDS" => "90000",
+      "SERVICERADAR_ANOMALY_CONFIRM_SLOTS" => "20000",
+      "SERVICERADAR_ANOMALY_MIN_SAMPLES" => "100000"
+    }
+
+    attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
+
+    assert attrs.n_sigma == 20.0
+    assert attrs.window_size == 2
+    assert attrs.window_duration_seconds == 86_400
+    assert attrs.confirm_slots == 10_000
+    assert attrs.min_samples == 86_400
+  end
+
+  test "forecast seed attrs clamp out-of-range numeric env values" do
+    env = %{
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS" => "1",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS" => "999999999",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT" => "500",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_MINIMUM_HISTORY_POINTS" => "1"
+    }
+
+    attrs = AnomalyConfigSeeder.forecast_attrs_from_env(&Map.get(env, &1))
+
+    assert attrs.forecast_horizon_seconds == 3_600
+    assert attrs.warning_horizon_seconds == 63_115_200
+    assert attrs.warning_threshold_percent == 100.0
+    assert attrs.minimum_history_points == 2
+  end
+
+  test "invalid env values fall back to defaults" do
+    env = %{
+      "SERVICERADAR_ANOMALY_N_SIGMA" => "not-a-float",
+      "SERVICERADAR_ANOMALY_WINDOW_SIZE" => "twelve",
+      "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" => "{bad-json",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL" => "unsupported_model",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT" => "eighty",
+      "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON" => "[]"
+    }
+
+    anomaly_attrs = AnomalyConfigSeeder.anomaly_attrs_from_env(&Map.get(env, &1))
+    forecast_attrs = AnomalyConfigSeeder.forecast_attrs_from_env(&Map.get(env, &1))
+
+    assert anomaly_attrs.n_sigma == 3.0
+    assert anomaly_attrs.window_size == 300
+    assert Map.has_key?(anomaly_attrs.metric_class_overrides, "interface")
+
+    assert forecast_attrs.model == :linear
+    assert forecast_attrs.warning_threshold_percent == 80.0
+    assert Map.has_key?(forecast_attrs.metric_class_overrides, "interface")
+  end
+
+  test "Helm values and core pod template expose first-boot config defaults" do
+    values = File.read!(@values_path)
+    template = File.read!(@core_template_path)
+
+    assert values =~ "anomalyDetectionConfig:"
+    assert values =~ "capacityForecastConfig:"
+
+    for env_name <- [
+          "SERVICERADAR_ANOMALY_N_SIGMA",
+          "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON",
+          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS",
+          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT",
+          "SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON"
+        ] do
+      assert template =~ env_name
+    end
+  end
+end
