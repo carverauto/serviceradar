@@ -9,6 +9,5 @@ release-artifacts
 !rust/flowgger/Cargo.lock
 !rust/trapd/Cargo.lock
 !rust/otel/Cargo.lock
-!rust/consumers/zen/Cargo.lock
 !rust/rperf-client/Cargo.lock
 demo-staging
