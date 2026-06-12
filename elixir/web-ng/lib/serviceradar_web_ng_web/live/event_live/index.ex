@@ -2,14 +2,13 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import Ecto.Query
   import ServiceRadarWebNGWeb.UIComponents
 
   alias Phoenix.LiveView.JS
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.Infrastructure.HealthPubSub
-  alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+  alias ServiceRadarWebNGWeb.Stats
 
   @default_limit 20
   @max_limit 100
@@ -35,6 +34,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
        low: 0,
        informational: 0
      })
+     |> assign(:finding_summary, Stats.empty_anomaly_findings_summary())
      |> assign(:limit, @default_limit)
      |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
@@ -44,17 +44,15 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   def handle_params(params, uri, socket) do
     socket = SRQLPage.load_list(socket, params, uri, :events, default_limit: @default_limit, max_limit: @max_limit)
 
-    # Compute summary from CAGG when possible, else fallback to page results
-    summary =
-      case cagg_summary(time_window_from_query(Map.get(socket.assigns, :srql, %{})[:query] || "")) do
-        {:ok, summary} -> summary
-        _ -> compute_summary(socket.assigns.events)
-      end
+    time_window = time_window_from_query(Map.get(socket.assigns, :srql, %{})[:query] || "")
+    summary = events_summary(time_window, socket.assigns.events)
+    finding_summary = Stats.anomaly_findings_summary(time: time_window, scope: socket.assigns.current_scope)
 
     {:noreply,
      socket
      |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
-     |> assign(:summary, summary)}
+     |> assign(:summary, summary)
+     |> assign(:finding_summary, finding_summary)}
   end
 
   @impl true
@@ -110,6 +108,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
           <.event_summary summary={@summary} />
+          <.event_finding_summary summary={@finding_summary} />
 
           <.ui_panel>
             <:header>
@@ -209,6 +208,75 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     """
   end
 
+  attr :summary, :map, required: true
+
+  defp event_finding_summary(assigns) do
+    total = assigns.summary.total || 0
+    anomalies = assigns.summary.anomalies || 0
+    at_risk = assigns.summary.at_risk || 0
+    critical = assigns.summary.critical || 0
+    high = assigns.summary.high || 0
+
+    assigns =
+      assigns
+      |> assign(:total, total)
+      |> assign(:anomalies, anomalies)
+      |> assign(:at_risk, at_risk)
+      |> assign(:critical, critical)
+      |> assign(:high, high)
+
+    ~H"""
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <.finding_stat
+        label="Anomaly findings"
+        count={@anomalies}
+        detail={"#{@critical} critical, #{@high} high"}
+        query="in:events source_type:anomaly_detection time:last_24h sort:time:desc"
+        color="warning"
+      />
+      <.finding_stat
+        label="At-risk capacity"
+        count={@at_risk}
+        detail="Projected exhaustion events"
+        query="in:events source:capacity_forecasting time:last_24h sort:time:desc"
+        color="error"
+      />
+      <.finding_stat
+        label="Health findings"
+        count={@total}
+        detail="Anomaly and capacity signals"
+        query="in:events source_type:(anomaly_detection,capacity_forecasting) time:last_24h sort:time:desc"
+        color="info"
+      />
+    </div>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :count, :integer, required: true
+  attr :detail, :string, required: true
+  attr :query, :string, required: true
+  attr :color, :string, required: true
+
+  defp finding_stat(assigns) do
+    ~H"""
+    <.link
+      patch={~p"/events?#{%{q: @query}}"}
+      class="rounded-xl border border-base-200 bg-base-100 p-4 hover:bg-base-200/40 transition-colors group"
+    >
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class={["text-xs font-medium uppercase tracking-wider", color_class(@color)]}>
+            {@label}
+          </div>
+          <div class="mt-1 text-xs text-base-content/60 truncate">{@detail}</div>
+        </div>
+        <div class="text-2xl font-semibold group-hover:text-primary">{@count}</div>
+      </div>
+    </.link>
+    """
+  end
+
   attr :label, :string, required: true
   attr :count, :integer, required: true
   attr :total, :integer, required: true
@@ -297,7 +365,10 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
                 <.severity_badge value={Map.get(event, "severity")} />
               </td>
               <td class="whitespace-nowrap text-xs truncate max-w-[12rem]" title={event_source(event)}>
-                {event_source(event)}
+                <div class="flex items-center gap-2 min-w-0">
+                  <span class="truncate">{event_source(event)}</span>
+                  <.finding_badge :if={finding_label(event)} label={finding_label(event)} />
+                </div>
               </td>
               <td class="text-xs truncate max-w-[32rem]" title={event_message(event)}>
                 {event_message(event)}
@@ -317,6 +388,23 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     label = severity_label(assigns.value)
 
     assigns = assigns |> assign(:variant, variant) |> assign(:label, label)
+
+    ~H"""
+    <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
+    """
+  end
+
+  attr :label, :string, required: true
+
+  defp finding_badge(assigns) do
+    variant =
+      case assigns.label do
+        "Capacity" -> "error"
+        "Anomaly" -> "warning"
+        _ -> "info"
+      end
+
+    assigns = assign(assigns, :variant, variant)
 
     ~H"""
     <.ui_badge variant={@variant} size="xs">{@label}</.ui_badge>
@@ -395,6 +483,29 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     end
   end
 
+  defp finding_label(event) when is_map(event) do
+    cond do
+      anomaly_finding?(event) -> "Anomaly"
+      capacity_forecast_event?(event) -> "Capacity"
+      true -> nil
+    end
+  end
+
+  defp finding_label(_), do: nil
+
+  defp anomaly_finding?(event) do
+    get_in(event, ["metadata", "service_radar", "source_type"]) == "anomaly_detection" or
+      get_in(event, ["metadata", "security_signal", "source"]) == "anomaly_detection" or
+      get_in(event, ["metadata", "detection_finding", "type"]) == "anomaly" or
+      Map.get(event, "log_provider") == "anomaly_detection"
+  end
+
+  defp capacity_forecast_event?(event) do
+    get_in(event, ["metadata", "event_type"]) == "capacity_forecast" or
+      get_in(event, ["unmapped", "event_type"]) == "capacity_forecast" or
+      Map.get(event, "log_provider") == "capacity_forecasting"
+  end
+
   defp event_message(event) do
     # Try various message fields in order of preference
     message =
@@ -455,58 +566,22 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         max_limit: @max_limit
       )
 
-    summary =
-      case cagg_summary(time_window_from_query(query)) do
-        {:ok, summary} -> summary
-        _ -> compute_summary(socket.assigns.events)
-      end
+    time_window = time_window_from_query(query)
+    summary = events_summary(time_window, socket.assigns.events)
+    finding_summary = Stats.anomaly_findings_summary(time: time_window, scope: socket.assigns.current_scope)
 
     socket
     |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
     |> assign(:summary, summary)
+    |> assign(:finding_summary, finding_summary)
   end
 
-  defp cagg_summary(time_window) do
-    with {:ok, cutoff} <- cutoff_for_time_window(time_window) do
-      query =
-        from(s in "ocsf_events_hourly_stats",
-          where: s.bucket >= ^cutoff,
-          group_by: s.severity_id,
-          select: {s.severity_id, sum(s.total_count)}
-        )
-
-      rows = Repo.all(query)
-
-      summary =
-        merge_event_stats(
-          %{total: 0, fatal: 0, critical: 0, high: 0, medium: 0, low: 0, informational: 0},
-          rows
-        )
-
-      {:ok, summary}
+  defp events_summary(time_window, events) do
+    case Stats.events_summary(time: time_window) do
+      %{total: total} = summary when total > 0 -> summary
+      _ -> compute_summary(events)
     end
-  rescue
-    _ -> :error
   end
-
-  defp merge_event_stats(base, rows) when is_list(rows) do
-    Enum.reduce(rows, base, fn {severity_id, total_count}, acc ->
-      count = to_int(total_count)
-      acc = Map.update!(acc, :total, &(&1 + count))
-
-      case to_int(severity_id) do
-        6 -> Map.update!(acc, :fatal, &(&1 + count))
-        5 -> Map.update!(acc, :critical, &(&1 + count))
-        4 -> Map.update!(acc, :high, &(&1 + count))
-        3 -> Map.update!(acc, :medium, &(&1 + count))
-        2 -> Map.update!(acc, :low, &(&1 + count))
-        1 -> Map.update!(acc, :informational, &(&1 + count))
-        _ -> acc
-      end
-    end)
-  end
-
-  defp merge_event_stats(base, _), do: base
 
   defp to_int(nil), do: 0
   defp to_int(value) when is_integer(value), do: value
@@ -522,22 +597,6 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   defp time_window_from_query(_), do: "last_7d"
-
-  defp cutoff_for_time_window("last_1h"), do: {:ok, DateTime.add(DateTime.utc_now(), -1, :hour)}
-  defp cutoff_for_time_window("last_24h"), do: {:ok, DateTime.add(DateTime.utc_now(), -24, :hour)}
-
-  defp cutoff_for_time_window(value) when is_binary(value) do
-    case Regex.run(~r/^last_(\d+)([hd])$/i, String.trim(value)) do
-      [_, amount, "h"] ->
-        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :hour)}
-
-      [_, amount, "d"] ->
-        {:ok, DateTime.add(DateTime.utc_now(), -String.to_integer(amount), :day)}
-
-      _ ->
-        :error
-    end
-  end
 
   defp event_summary_bucket(%{} = event) do
     [

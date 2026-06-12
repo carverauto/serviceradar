@@ -85,6 +85,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
         <div :if={is_map(@event)} class="space-y-4">
           <.event_summary event={@event} />
           <.signal_display_panel :if={is_list(@signal_display)} widgets={@signal_display} />
+          <.anomaly_detection_summary :if={anomaly_finding?(@event)} event={@event} />
+          <.capacity_forecast_summary :if={capacity_forecast_event?(@event)} event={@event} />
           <.waf_finding_summary :if={waf_event?(@event)} event={@event} />
           <.falco_runtime_summary :if={falco_event?(@event)} event={@event} />
           <.related_links related={@related} />
@@ -176,6 +178,107 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
           {Map.get(@event, "message")}
         </p>
       </div>
+    </div>
+    """
+  end
+
+  attr(:event, :map, required: true)
+
+  defp anomaly_detection_summary(assigns) do
+    finding = anomaly_detection_payload(assigns.event)
+    finding_info = nested_map(assigns.event, ["metadata", "finding_info"])
+
+    assigns =
+      assigns
+      |> assign(:finding, finding)
+      |> assign(:finding_info, finding_info)
+
+    ~H"""
+    <div class="rounded-xl border border-warning/20 bg-warning/5 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-warning uppercase tracking-wider block mb-2">
+            Anomaly Detection Finding
+          </span>
+          <h2 class="text-lg font-semibold leading-tight">
+            {map_value(@finding_info, "title") || Map.get(@event, "message") ||
+              "Anomalous metric behavior detected"}
+          </h2>
+        </div>
+        <.severity_badge value={Map.get(@event, "severity")} />
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.finding_fact label="Series" value={map_value(@finding, "series_key")} mono />
+        <.finding_fact label="Metric Class" value={map_value(@finding, "metric_class")} />
+        <.finding_fact label="State" value={map_value(@finding, "state")} />
+        <.finding_fact label="Score" value={map_value(@finding, "score")} mono />
+        <.finding_fact label="Reason" value={map_value(@finding, "reason")} />
+        <.finding_fact label="Finding UID" value={map_value(@finding_info, "uid")} mono />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:event, :map, required: true)
+
+  defp capacity_forecast_summary(assigns) do
+    forecast = capacity_forecast_payload(assigns.event)
+
+    assigns =
+      assigns
+      |> assign(:forecast, forecast)
+      |> assign(:resource, map_value(forecast, "resource_label") || map_value(forecast, "resource_key"))
+
+    ~H"""
+    <div class="rounded-xl border border-error/20 bg-error/5 p-6">
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <span class="text-xs text-error uppercase tracking-wider block mb-2">
+            Capacity Forecast
+          </span>
+          <h2 class="text-lg font-semibold leading-tight">
+            {Map.get(@event, "message") || "Resource projected to cross capacity threshold"}
+          </h2>
+        </div>
+        <.severity_badge value={Map.get(@event, "severity")} />
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <.finding_fact label="Resource" value={@resource} mono />
+        <.finding_fact label="Metric" value={map_value(@forecast, "metric_name")} />
+        <.finding_fact label="Status" value={map_value(@forecast, "status")} />
+        <.finding_fact label="Current" value={map_value(@forecast, "current_value")} mono />
+        <.finding_fact label="Projected" value={map_value(@forecast, "projected_value")} mono />
+        <.finding_fact label="Threshold" value={map_value(@forecast, "exhaustion_threshold")} mono />
+        <.finding_fact
+          label="Projected Exhaustion"
+          value={map_value(@forecast, "projected_exhaustion_at")}
+          mono
+        />
+        <.finding_fact label="Confidence" value={map_value(@forecast, "confidence")} mono />
+      </div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, default: nil)
+  attr(:mono, :boolean, default: false)
+
+  defp finding_fact(assigns) do
+    ~H"""
+    <div class="min-w-0">
+      <span class="text-xs text-base-content/50 uppercase tracking-wider block mb-1">
+        {@label}
+      </span>
+      <span class={[
+        "text-sm break-words",
+        if(@mono, do: "font-mono", else: nil),
+        if(blank?(@value), do: "text-base-content/40", else: nil)
+      ]}>
+        {display_value(@value)}
+      </span>
     </div>
     """
   end
@@ -577,6 +680,51 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
 
   defp falco_event?(_), do: false
 
+  defp anomaly_finding?(event) when is_map(event) do
+    metadata = map_value(event, "metadata") || %{}
+
+    nested_value(metadata, ["service_radar", "source_type"]) == "anomaly_detection" or
+      nested_value(metadata, ["security_signal", "source"]) == "anomaly_detection" or
+      nested_value(metadata, ["detection_finding", "type"]) == "anomaly" or
+      map_value(event, "log_provider") == "anomaly_detection"
+  end
+
+  defp anomaly_finding?(_), do: false
+
+  defp capacity_forecast_event?(event) when is_map(event) do
+    metadata = map_value(event, "metadata") || %{}
+    unmapped = map_value(event, "unmapped") || %{}
+
+    map_value(metadata, "event_type") == "capacity_forecast" or
+      map_value(unmapped, "event_type") == "capacity_forecast" or
+      map_value(event, "log_provider") == "capacity_forecasting"
+  end
+
+  defp capacity_forecast_event?(_), do: false
+
+  defp anomaly_detection_payload(event) when is_map(event) do
+    metadata = map_value(event, "metadata") || %{}
+    unmapped = map_value(event, "unmapped") || %{}
+
+    map_value(metadata, "detection_finding") ||
+      map_value(unmapped, "detection_finding") ||
+      map_value(unmapped, "anomaly") ||
+      %{}
+  end
+
+  defp anomaly_detection_payload(_), do: %{}
+
+  defp capacity_forecast_payload(event) when is_map(event) do
+    metadata = map_value(event, "metadata") || %{}
+    unmapped = map_value(event, "unmapped") || %{}
+
+    map_value(unmapped, "capacity_forecast") ||
+      map_value(metadata, "capacity_forecast") ||
+      %{}
+  end
+
+  defp capacity_forecast_payload(_), do: %{}
+
   defp falco_diagnostics(event) when is_map(event) do
     signal = get_in(event, ["metadata", "security_signal"]) || %{}
     falco = falco_payload(event)
@@ -624,6 +772,39 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   end
 
   defp security_signal(_event), do: %{}
+
+  defp nested_map(map, path) when is_map(map) and is_list(path) do
+    case nested_value(map, path) do
+      %{} = nested -> nested
+      _ -> %{}
+    end
+  end
+
+  defp nested_map(_, _), do: %{}
+
+  defp nested_value(map, [key]) when is_map(map), do: map_value(map, key)
+
+  defp nested_value(map, [key | rest]) when is_map(map) do
+    case map_value(map, key) do
+      %{} = nested -> nested_value(nested, rest)
+      _ -> nil
+    end
+  end
+
+  defp nested_value(_, _), do: nil
+
+  defp map_value(map, key) when is_map(map) and is_binary(key) do
+    Map.get(map, key) ||
+      Enum.find_value(map, fn
+        {map_key, value} when is_atom(map_key) ->
+          if Atom.to_string(map_key) == key, do: value
+
+        _ ->
+          nil
+      end)
+  end
+
+  defp map_value(_, _), do: nil
 
   defp log_attribute(event, key) when is_map(event) do
     unmapped = Map.get(event, "unmapped") || Map.get(event, :unmapped) || %{}
