@@ -121,6 +121,9 @@ type PushLoop struct {
 	addonLastGoodMu sync.Mutex
 	addonLastGood   map[string]agentaddon.Spec // last successfully applied add-on spec, by addon id
 
+	addonDeliveryMu       sync.Mutex
+	addonDeliveryFailures map[string]addonDeliveryFailure // permanent add-on artifact delivery failure, by addon id (drives backoff + status)
+
 	addonReconcileMu sync.Mutex // serializes applyAddonAssignments across the poll/control-stream/enroll goroutines
 
 	systemdAddonsMu        sync.Mutex

@@ -164,6 +164,14 @@ func waitForWatermark(t *testing.T, acks <-chan uint64, expected uint64) []uint6
 	}
 }
 
+func requireAckedFramesEventually(t *testing.T, expected uint64) {
+	t.Helper()
+
+	require.Eventually(t, func() bool {
+		return AgentOtlpRelayFramesAckedTotal() == expected
+	}, time.Second, time.Millisecond, "acked frame counter should reach expected watermark")
+}
+
 func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
 	resetAgentOtlpRelayFrameCounters()
 
@@ -203,7 +211,7 @@ func TestOtlpRelayPumpForwardsFramesThenAcks(t *testing.T) {
 	}
 
 	require.Equal(t, uint64(3), AgentOtlpRelayFramesForwardedTotal())
-	require.Equal(t, uint64(3), AgentOtlpRelayFramesAckedTotal())
+	requireAckedFramesEventually(t, 3)
 	require.Zero(t, AgentOtlpRelayFramesRetriedTotal())
 	require.Zero(t, AgentOtlpRelayFramesSkippedOversizeTotal())
 }
@@ -232,7 +240,7 @@ func TestOtlpRelayPumpRetriesWithoutAckOnGatewayFailure(t *testing.T) {
 	require.Equal(t, 3, gw.attemptCount(), "two failed attempts plus the successful one")
 	require.Equal(t, uint64(4), AgentOtlpRelayFramesRetriedTotal(), "2 frames x 2 failed attempts")
 	require.Equal(t, uint64(2), AgentOtlpRelayFramesForwardedTotal())
-	require.Equal(t, uint64(2), AgentOtlpRelayFramesAckedTotal())
+	requireAckedFramesEventually(t, 2)
 }
 
 func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
@@ -266,8 +274,7 @@ func TestOtlpRelayPumpSkipsOversizedFrameAndStillAcksIt(t *testing.T) {
 
 	require.Equal(t, uint64(1), AgentOtlpRelayFramesSkippedOversizeTotal())
 	require.Equal(t, uint64(2), AgentOtlpRelayFramesForwardedTotal())
-	require.Equal(t, uint64(3), AgentOtlpRelayFramesAckedTotal(),
-		"acked covers delivered frames plus the skipped one")
+	requireAckedFramesEventually(t, 3)
 }
 
 func TestOtlpRelayPumpAcksOversizedFrameImmediatelyWhenIdle(t *testing.T) {
@@ -288,7 +295,7 @@ func TestOtlpRelayPumpAcksOversizedFrameImmediatelyWhenIdle(t *testing.T) {
 	require.Equal(t, []uint64{7}, watermarks)
 	require.Zero(t, gw.attemptCount(), "nothing deliverable: the gateway must not be called")
 	require.Equal(t, uint64(1), AgentOtlpRelayFramesSkippedOversizeTotal())
-	require.Equal(t, uint64(1), AgentOtlpRelayFramesAckedTotal())
+	requireAckedFramesEventually(t, 1)
 	require.Zero(t, AgentOtlpRelayFramesForwardedTotal())
 }
 
