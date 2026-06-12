@@ -10,7 +10,7 @@ ServiceRadar is a distributed monitoring platform for infrastructure that lives 
 - SRQL is implemented in Rust (`rust/srql`) and embedded in `elixir/web-ng` via Rustler/NIF (no separate SRQL microservice).
 - Phoenix LiveView web UI (`elixir/web-ng/`) is served through an edge proxy (Caddy or Gateway API) and talks to the core API; legacy Next.js code remains in `web/` for reference only.
 - CNPG/Timescale stores high-volume telemetry; SRQL and the core ingest layer both target Postgres hypertables (docs/docs/architecture.md).
-- NATS JetStream is the bulk ingestion backbone for logs/flows/events. Some internal coordination may still use `datasvc` (planned to be phased out by 1.1.0), but services do not depend on nats-kv for service configuration.
+- NATS JetStream is the bulk ingestion backbone for logs, flows, events, and metrics. All telemetry MUST traverse JetStream first and be persisted into CNPG by the `event_writer` consumer pipeline; collectors and agents never write metrics directly to the database (the legacy sysmon gRPC `StreamStatus` direct-to-DB path is being migrated — see `openspec/changes/add-causal-anomaly-detection`). Some internal coordination may still use `datasvc` (planned to be phased out by 1.1.0), but services do not depend on nats-kv for service configuration.
 - SPIFFE/SPIRE handles workload identity and issues the mTLS credentials that every internal gRPC/HTTP hop relies on.
 - Tooling: Docker Compose + Helm/Kubernetes for deployments, Make + Bazel for builds/tests, GitHub Actions CI, Discord for community + alert webhooks.
 
@@ -57,6 +57,7 @@ Edge proxies terminate TLS and route traffic; the control plane compiles configu
 - All internal RPCs require mTLS. SPIFFE/SPIRE is supported in Kubernetes; Docker Compose uses non-SPIFFE mTLS bootstrapping (docs/docs/tls-security.md).
 - Core is the policy enforcement point—JWT/JWKS must stay in sync with clients or the web UI cannot reach APIs.
 - CNPG datasets (device_updates/unified_devices) must stay pruned to keep queries fast and storage bounded; follow the reset procedure before reseeding demo data.
+- All metrics/telemetry MUST be ingested via NATS JetStream and the `event_writer` pipeline; collectors and agents MUST NOT write metrics directly to CNPG. This keeps every metric stream subscribable for real-time consumers (anomaly detection, the causal engine) instead of being invisible until it lands in a hypertable.
 - Docker/Bazel outputs must target both AMD64 and ARM64; CI enforces multi-arch builds.
 
 ## External Dependencies

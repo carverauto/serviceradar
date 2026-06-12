@@ -2,6 +2,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   use ExUnit.Case, async: true
 
   alias Broadway.Message
+  alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Pipeline
 
   test "ack/3 invokes ack and nack callbacks" do
@@ -44,5 +45,27 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     }
 
     assert :ok == Pipeline.ack(:ack_ref, [message], [message])
+  end
+
+  test "routes metrics subjects to the declared metrics batcher" do
+    message = %Message{
+      data: Jason.encode!(%{"metric_name" => "cpu_usage", "value" => 42.0}),
+      metadata: %{subject: "metrics.sysmon.cpu"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    assert :metrics in Pipeline.configured_batcher_names(config)
+
+    assert %Message{batcher: :metrics, metadata: %{base_subject: "metrics.sysmon.cpu"}} =
+             Pipeline.handle_message(:default, message, %{})
   end
 end

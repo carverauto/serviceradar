@@ -54,6 +54,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert "TRIVY" in stream_names
       assert "OTEL_METRICS" in stream_names
       assert "OTEL_TRACES" in stream_names
+      assert "METRICS" in stream_names
       assert "BMP_CAUSAL" in stream_names
       assert "ARANCINI_CAUSAL" in stream_names
       assert "SIEM_CAUSAL" in stream_names
@@ -73,6 +74,22 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert attributed_flow.subject == "flow.attributed.>"
       assert attributed_flow.processor == ServiceRadar.EventWriter.Processors.Flows
+    end
+
+    test "routes host metrics through a dedicated limits-retention stream" do
+      metrics = Enum.find(Config.default_streams(), &(&1.name == "METRICS"))
+
+      assert metrics.stream_name == "metrics"
+      assert metrics.subject == "metrics.>"
+      assert metrics.processor == ServiceRadar.EventWriter.Processors.Telemetry
+      assert metrics.batch_size == 500
+      assert metrics.batch_timeout == 500
+      assert metrics.stream_retention == "limits"
+      assert metrics.stream_storage == "file"
+      assert metrics.stream_discard == "old"
+      assert metrics.stream_max_bytes == 1_073_741_824
+      assert metrics.stream_max_age == 1_800_000_000_000
+      refute metrics.stream_retention == "workqueue"
     end
 
     test "each stream has required fields" do
