@@ -52,7 +52,6 @@ image:
     datasvc: *appTag
     agent: *appTag
     agentGateway: *appTag
-    dbEventWriter: *appTag
     logCollector: *appTag
     # Deprecated: otel and flowgger are now merged into logCollector
     otel: *appTag
@@ -133,7 +132,7 @@ natsCreds:
 # elixir/serviceradar_core/CLAUDE.md "Instance Isolation Model"). The
 # value below is rendered into:
 #   * the NATS authorization block (templates/nats.yaml) — the
-#     core/datasvc/agent/db-event-writer/zen roles get partition-scoped
+#     core/datasvc/agent/zen roles get partition-scoped
 #     `flow.attributed.<partitionId>` allow lists plus a deny wildcard on
 #     `flow.attributed.>` as a fail-safe ceiling, so cross-partition
 #     publish stays impossible even if PublishAllow is widened later.
@@ -692,7 +691,6 @@ cnpg:
     route:
       core: true
       webNg: true
-      dbEventWriter: false
     parameters:
       ignore_startup_parameters: "search_path"
       max_client_conn: "1000"
@@ -924,21 +922,6 @@ agentGateway:
     requests:
       cpu: "200m"
       memory: "512Mi"
-dbEventWriter:
-  replicaCount: 3
-  cnpgMaxConnections: 4
-  # Enable database migrations on startup (creates otel_traces, logs, etc. tables)
-  enableMigrations: false
-  # Use on-disk config to avoid storing DB secrets in KV; passwords come from the secret env vars.
-  configSource: file
-  kvBootstrap:
-    enabled: true
-  data:
-    enabled: false
-    accessModes:
-      - ReadWriteOnce
-    size: 5Gi
-    storageClassName: ""
 datasvc:
   replicaCount: 3
   # Replica count for datasvc-owned JetStream streams (KV/object metadata).
@@ -1341,7 +1324,6 @@ spire:
   # Deprecated: otel and flowgger are now merged into logCollector
   otelServiceAccount: serviceradar-otel
   zenServiceAccount: serviceradar-zen
-  dbEventWriterServiceAccount: serviceradar-db-event-writer
   rperfCheckerServiceAccount: serviceradar-rperf-checker
   flowggerServiceAccount: serviceradar-flowgger
   trapdServiceAccount: serviceradar-trapd

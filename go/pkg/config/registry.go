@@ -87,17 +87,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 			"kv_address",
 		},
 	},
-	"db-event-writer": {
-		Name:        "db-event-writer",
-		DisplayName: "DB Event Writer",
-		ServiceType: "db-event-writer",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/db-event-writer.json",
-		Format:      ConfigFormatJSON,
-		CriticalFields: []string{
-			"kv_address",
-		},
-	},
 	"flowgger": {
 		Name:        "flowgger",
 		DisplayName: "Flowgger Collector",

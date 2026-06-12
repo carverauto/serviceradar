@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# CNPG smoke tests that exercise core APIs and db-event-writer ingestion.
+# CNPG smoke tests that exercise core APIs and EventWriter ingestion.
 # Usage: ./scripts/cnpg-smoke.sh [namespace]
 
 set -euo pipefail
@@ -198,7 +198,7 @@ nats --context serviceradar pub events.ocsf.processed "$MSG" >/dev/null 2>&1
 rm -f /tmp/cnpg-smoke-event.json
 '
 
-log "Waiting for db-event-writer ingestion..."
+log "Waiting for EventWriter ingestion..."
 EVENT_LOOKUP=""
 for attempt in $(seq 1 6); do
     EVENT_LOOKUP="$(kubectl exec -n "$NAMESPACE" deploy/serviceradar-tools -c tools -- env PGPASSWORD="$CNPG_PASSWORD" CNPG_USER="$CNPG_USER" CNPG_HOST="$CNPG_HOST" EVENT_ID="$EVENT_ID" bash -lc '
@@ -219,9 +219,9 @@ psql "host=$CNPG_HOST user=$CNPG_USER dbname=telemetry sslmode=verify-full sslro
      -At -c "SELECT COUNT(*) FROM ocsf_events;"
 ')"
     FALLBACK_COUNT="${FALLBACK_COUNT//[[:space:]]/}"
-    log "db-event-writer did not ingest $EVENT_ID within the polling window; events table currently has ${FALLBACK_COUNT:-0} rows"
+    log "EventWriter did not ingest $EVENT_ID within the polling window; events table currently has ${FALLBACK_COUNT:-0} rows"
 else
-    log "db-event-writer recorded event message: ${EVENT_LOOKUP}"
+    log "EventWriter recorded event message: ${EVENT_LOOKUP}"
 fi
 
 log "CNPG smoke tests completed successfully for namespace $NAMESPACE"

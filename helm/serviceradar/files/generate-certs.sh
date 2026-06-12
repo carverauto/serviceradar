@@ -76,7 +76,6 @@ generate_cert "kv" "serviceradar-datasvc" "DNS:serviceradar-datasvc,DNS:kv,DNS:d
 generate_cert "agent" "serviceradar-agent" "DNS:serviceradar-agent,DNS:agent,DNS:agent.serviceradar,DNS:serviceradar-agent.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1"
 generate_cert "gateway" "serviceradar-agent-gateway" "DNS:serviceradar-agent-gateway,DNS:agent-gateway,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway.{{ .Release.Namespace }}.svc.cluster.local,DNS:localhost,IP:127.0.0.1{{- if .Values.agentGateway.publicHostname }},DNS:{{ .Values.agentGateway.publicHostname }}{{- end }}"
 generate_cert "rperf-client" "serviceradar-rperf-client" "DNS:serviceradar-rperf-client,DNS:rperf-client,DNS:serviceradar-rperf,DNS:localhost,IP:127.0.0.1"
-generate_cert "db-event-writer" "serviceradar-db-event-writer" "DNS:serviceradar-db-event-writer,DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "zen" "serviceradar-zen" "DNS:serviceradar-zen,DNS:zen,DNS:zen.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "log-collector" "serviceradar-log-collector" "DNS:serviceradar-log-collector,DNS:log-collector,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "flow-collector" "serviceradar-flow-collector" "DNS:serviceradar-flow-collector,DNS:flow-collector,DNS:flow-collector.serviceradar,DNS:localhost,IP:127.0.0.1"

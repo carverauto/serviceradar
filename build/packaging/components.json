@@ -7,7 +7,6 @@
           "agent",
           "kv",
           "sync",
-          "event-writer",
           "log-collector",
           "trapd",
           "flow-collector",
@@ -19,55 +18,6 @@
         "root_dir": "/etc/serviceradar/certs"
       }
     }
-  },
-  {
-    "architecture": "amd64",
-    "binary": {
-      "build_method": "go",
-      "output_path": "/usr/local/bin/serviceradar-event-writer",
-      "source_path": "go/cmd/consumers/db-event-writer"
-    },
-    "conffiles": [
-      "/etc/serviceradar/consumers/db-event-writer.json"
-    ],
-    "config_files": [
-      {
-        "dest": "/etc/serviceradar/consumers/db-event-writer.json",
-        "source": "build/packaging/event-writer/config/db-event-writer.json"
-      }
-    ],
-    "deb": {
-      "depends": [
-        "systemd",
-        "jq"
-      ],
-      "dockerfile": null
-    },
-    "description": "ServiceRadar DB Event Writer Service",
-    "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-    "name": "event-writer",
-    "package_name": "serviceradar-event-writer",
-    "postinst": {
-      "source": "build/packaging/event-writer/scripts/postinstall.sh"
-    },
-    "prerm": {
-      "source": "build/packaging/event-writer/scripts/preremove.sh"
-    },
-    "priority": "optional",
-    "rpm": {
-      "depends": [
-        "systemd",
-        "jq"
-      ],
-      "dockerfile": "docker/rpm/Dockerfile.rpm.simple",
-      "release": "1"
-    },
-    "section": "utils",
-    "systemd_service": {
-      "dest": "/lib/systemd/system/serviceradar-event-writer.service",
-      "source": "build/packaging/event-writer/systemd/serviceradar-event-writer.service"
-    },
-    "version": "1.0.58"
   },
   {
     "additional_dirs": [

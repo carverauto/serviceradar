@@ -1,6 +1,7 @@
 {{- if .Values.spire.enabled }}
 {{- $ns := default .Release.Namespace .Values.spire.namespace }}
 {{- $toolsTag := include "serviceradar.imageTag" (dict "Values" .Values "service" "tools") }}
+{{- /* Keep retired workload names here so upgrades remove old ClusterSPIFFEIDs. */ -}}
 {{- $legacyNames := list
   "serviceradar-core"
   "serviceradar-web-ng"

@@ -252,7 +252,7 @@ EOF
 generate_cert "core" "core.serviceradar" "DNS:core,DNS:core-elx,DNS:core.serviceradar,DNS:serviceradar-core,DNS:agent-gateway.serviceradar,DNS:agent.serviceradar,DNS:web.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # NATS - messaging backbone, many services connect to it
-generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:log-collector.serviceradar,DNS:db-event-writer.serviceradar,DNS:localhost,IP:127.0.0.1"
+generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:nats.serviceradar,DNS:serviceradar-nats,DNS:datasvc.serviceradar,DNS:zen.serviceradar,DNS:trapd.serviceradar,DNS:log-collector.serviceradar,DNS:localhost,IP:127.0.0.1"
 
 # Services that agent connects to
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:agent.serviceradar,DNS:zen.serviceradar,DNS:core.serviceradar,DNS:localhost,IP:127.0.0.1"
@@ -262,7 +262,6 @@ generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:trapd.serviceradar,DNS
 generate_cert "gateway" "agent-gateway.serviceradar" "DNS:gateway,DNS:agent-gateway,DNS:agent-gateway-t2,DNS:agent-gateway.serviceradar,DNS:serviceradar-agent-gateway,DNS:localhost,IP:127.0.0.1"
 generate_cert "agent" "agent.serviceradar" "DNS:agent,DNS:agent-elx,DNS:agent-elx-t2,DNS:agent.serviceradar,DNS:serviceradar-agent,DNS:agent-gateway.serviceradar,DNS:localhost,IP:127.0.0.1"
 generate_cert "web" "web.serviceradar" "DNS:web,DNS:web.serviceradar,DNS:serviceradar-web-ng,DNS:web-ng,DNS:serviceradar-web,DNS:localhost,IP:127.0.0.1"
-generate_cert "db-event-writer" "db-event-writer.serviceradar" "DNS:db-event-writer,DNS:db-event-writer.serviceradar,DNS:serviceradar-db-event-writer,DNS:localhost,IP:127.0.0.1"
 CNPG_SAN="DNS:cnpg,DNS:cnpg-rw,DNS:cnpg.serviceradar,DNS:cnpg-rw.serviceradar,DNS:serviceradar-cnpg,DNS:localhost,IP:127.0.0.1"
 if [ -n "${CNPG_CERT_EXTRA_IPS:-}" ]; then
     for ip in $(echo "$CNPG_CERT_EXTRA_IPS" | tr ',' ' '); do

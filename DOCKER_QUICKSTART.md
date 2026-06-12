@@ -25,7 +25,7 @@ COMPOSE_FILE=docker-compose.yml:docker-compose.dev.yml
 - ✅ Generate mTLS certificates automatically
 - ✅ Generate random CNPG credentials stored in the cnpg-credentials volume
 - ✅ Pull/Build Docker images  
-- ✅ Start the ServiceRadar stack (CNPG, NATS, web-ng, core-elx, agent-gateway, zen, log-promotion, db-event-writer)
+- ✅ Start the ServiceRadar stack (CNPG, NATS, web-ng, core-elx, agent-gateway, zen, log-promotion)
 - ✅ Set up networking and persistent volumes
  - ✅ Run the core-elx migration runner to bootstrap schema/extensions
 

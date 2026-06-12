@@ -356,7 +356,8 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp log_subject?(subject) do
     String.starts_with?(subject, "logs.otel") or
       String.starts_with?(subject, "logs.syslog.processed") or
-      String.starts_with?(subject, "logs.snmp.processed")
+      String.starts_with?(subject, "logs.snmp.processed") or
+      String.starts_with?(subject, "logs.internal.processed")
   end
 
   defp ignore_events_subject?(subject) do

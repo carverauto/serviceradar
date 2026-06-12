@@ -191,6 +191,14 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
+        name: "LOGS",
+        stream_name: "events",
+        subject: "logs.>",
+        processor: ServiceRadar.EventWriter.Processors.Logs,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
         name: "METRICS",
         stream_name: "metrics",
         subject: "metrics.>",

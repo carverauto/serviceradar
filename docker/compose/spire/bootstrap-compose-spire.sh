@@ -18,7 +18,6 @@ WORKLOADS=$(cat <<'EOF'
 core|serviceradar-core
 datasvc|serviceradar-datasvc
 agent|serviceradar-agent
-db-event-writer|serviceradar-db-event-writer
 log-collector|serviceradar-log-collector
 trapd|serviceradar-trapd
 zen|serviceradar-zen

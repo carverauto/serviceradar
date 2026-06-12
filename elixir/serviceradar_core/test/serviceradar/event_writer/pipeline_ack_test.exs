@@ -68,4 +68,48 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert %Message{batcher: :metrics, metadata: %{base_subject: "metrics.sysmon.cpu"}} =
              Pipeline.handle_message(:default, message, %{})
   end
+
+  test "routes processed logs to the declared logs batcher" do
+    message = %Message{
+      data: Jason.encode!(%{"message" => "internal audit event"}),
+      metadata: %{subject: "logs.internal.processed.audit"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    assert :logs in Pipeline.configured_batcher_names(config)
+
+    assert %Message{batcher: :logs, metadata: %{base_subject: "logs.internal.processed.audit"}} =
+             Pipeline.handle_message(:default, message, %{})
+  end
+
+  test "routes PowerDNS OCSF to the declared pdns batcher" do
+    message = %Message{
+      data: Jason.encode!(%{"class_uid" => 4003}),
+      metadata: %{subject: "pdns.ocsf"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    assert :pdns_ocsf in Pipeline.configured_batcher_names(config)
+
+    assert %Message{batcher: :pdns_ocsf, metadata: %{base_subject: "pdns.ocsf"}} =
+             Pipeline.handle_message(:default, message, %{})
+  end
 end

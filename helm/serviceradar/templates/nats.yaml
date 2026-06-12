@@ -8,7 +8,7 @@
 {{- $objectBucket := default "serviceradar-objects" $datasvc.objectBucket -}}
 {{- /*
 B-5 sub-issue 2: partition_id is the per-deployment scoping anchor used
-to render the core/datasvc/agent/db-event-writer/zen NATS ACL blocks
+to render the core/datasvc/agent/zen NATS ACL blocks
 below. The chart's top-level `.Values.partitionId` is the source of
 truth; agent.partitionId is honored as a fallback for backwards
 compatibility with releases that only set it under .agent. This MUST
@@ -18,7 +18,7 @@ that are not in any allowed publish ACL, and NATS will reject the
 messages with a permissions violation.
 
 B-7 fix: the per-identity publish ACLs below do NOT deny the unscoped
-flow.attributed.> wildcard for the core/datasvc/db-event-writer/zen
+flow.attributed.> wildcard for the core/datasvc/zen
 roles. NATS publish authorization is "any matching deny wins"; a
 wildcard deny would be a strict superset of the partition-scoped
 allow tokens and would shadow them. Cross-partition publish is
@@ -302,38 +302,6 @@ spec:
                       "_INBOX.>"
                     ]
                     deny: ["\$SYS.>", "flow.attributed.>", "flow.host-slice.>"]
-                  }
-                }
-              },
-              # DB event-writer (B-5 subject-scoping): consumes attributed
-              # flows + events for this partition and writes them to
-              # downstream storage. Pure consumer aside from JetStream
-              # control / reply inboxes. PublishAllow does not include
-              # any flow.attributed.* token, so the wildcard deny on
-              # flow.attributed.> is omitted (B-7 consistency): subjects
-              # not in PublishAllow are already implicitly denied.
-              {
-                user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-                permissions: {
-                  publish: {
-                    allow: [
-                      "\$JS.API.>",
-                      "\$JS.ACK.>",
-                      "_INBOX.>"
-                    ]
-                    deny: ["\$SYS.>"]
-                  }
-                  subscribe: {
-                    allow: [
-                      "flow.attributed.{{ $partitionId }}",
-                      "flow.attributed.{{ $partitionId }}.>",
-                      "events.>",
-                      "logs.>",
-                      "\$JS.API.>",
-                      "\$JS.ACK.>",
-                      "_INBOX.>"
-                    ]
-                    deny: ["\$SYS.>"]
                   }
                 }
               },
