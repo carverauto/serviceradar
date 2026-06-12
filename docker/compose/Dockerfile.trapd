@@ -45,7 +45,6 @@ COPY rust/kvutil ./rust/kvutil
 COPY rust/trapd ./rust/trapd
 COPY rust/flowgger ./rust/flowgger
 COPY rust/otel ./rust/otel
-COPY rust/consumers/zen ./rust/consumers/zen
 COPY proto ./proto
 
 # Build arguments for version info (unused in Rust but kept for consistency)

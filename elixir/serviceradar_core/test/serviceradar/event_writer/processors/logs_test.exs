@@ -151,6 +151,23 @@ defmodule ServiceRadar.EventWriter.Processors.LogsTest do
       assert result.service_name == "docker-mailserver-6bbcfbc66c-p4xjt"
     end
 
+    test "applies bundled Zen rules to raw syslog JSON before parsing" do
+      result =
+        Logs.parse_message(%{
+          data:
+            Jason.encode!(%{
+              "host" => "syslog-host-1",
+              "full_message" => "full CEF payload",
+              "short_message" => "CEF:0|vendor|product|1|100|event|9|msg=blocked"
+            }),
+          metadata: %{subject: "logs.syslog"}
+        })
+
+      assert result.body == "CEF:0|vendor|product|1|100|event|9|msg=blocked"
+      assert result.severity_text == "Very High"
+      assert result.service_name == "syslog-host-1"
+    end
+
     test "drops empty nested metadata from unmatched Zen rules" do
       result =
         Logs.parse_message(%{

@@ -37,7 +37,6 @@ COPY rust/kvutil ./rust/kvutil/
 COPY rust/trapd ./rust/trapd/
 COPY rust/flowgger ./rust/flowgger/
 COPY rust/otel ./rust/otel/
-COPY rust/consumers/zen ./rust/consumers/zen
 
 # Build the Rust binary with cache mounts and copy artifacts out
 RUN --mount=type=cache,target=/root/.cargo/registry \

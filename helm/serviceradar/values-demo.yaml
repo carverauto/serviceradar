@@ -509,17 +509,6 @@ core:
     # City MMDB is large, but demo has headroom and it lets us enrich flows with city/region/lat/tz.
     GEOLITE_CITY_ENABLED: "true"
 
-zenRulesBootstrap:
-  # Safe to keep enabled again: the hook now skips unchanged rules in KV.
-  enabled: true
-
-zen:
-  replicaCount: 3
-  streamReplicas: 3
-  data:
-    # zen now uses shared durable consumers instead of local singleton state.
-    enabled: false
-
 datasvc:
   replicaCount: 3
   jetstreamReplicas: 3

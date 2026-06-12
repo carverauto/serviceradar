@@ -45,7 +45,6 @@ declare -a IMAGE_SPECS=(
   "${OCI_REPOSITORY_BASE}/arancini|index"
   "${OCI_REPOSITORY_BASE}/serviceradar-rperf-client|index"
   "${OCI_REPOSITORY_BASE}/serviceradar-faker|index"
-  "${OCI_REPOSITORY_BASE}/serviceradar-zen|index"
   "${OCI_REPOSITORY_BASE}/serviceradar-tools|single"
 )
 
@@ -169,11 +168,6 @@ check_config() {
     serviceradar-faker)
       assert_eq "$(jq -c '.config.Entrypoint // []' <<<"$config")" '[]' "${ref}:${tag} entrypoint"
       assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["/usr/local/bin/serviceradar-faker","-config","/etc/serviceradar/faker.json"]' "${ref}:${tag} cmd"
-      assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
-      ;;
-    serviceradar-zen)
-      assert_eq "$(jq -c '.config.Entrypoint' <<<"$config")" '["/usr/local/bin/entrypoint.sh"]' "${ref}:${tag} entrypoint"
-      assert_eq "$(jq -c '.config.Cmd' <<<"$config")" '["serviceradar-zen"]' "${ref}:${tag} cmd"
       assert_eq "$(jq -r '.config.WorkingDir' <<<"$config")" "/var/lib/serviceradar" "${ref}:${tag} workdir"
       ;;
     serviceradar-tools)

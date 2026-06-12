@@ -152,7 +152,7 @@ The transport path is:
 ```text
 PowerDNS Recursor -> serviceradar-powerdns-addon -> serviceradar-agent
   -> gateway StreamStatus source=addon:powerdns -> core-elx
-  -> NATS pdns.ocsf -> db-event-writer -> ocsf_events
+  -> NATS pdns.ocsf -> core-elx EventWriter -> ocsf_events
 ```
 
 This path intentionally avoids exposing the cluster OTEL collector to DNS hosts. The

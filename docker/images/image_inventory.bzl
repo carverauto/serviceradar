@@ -12,7 +12,6 @@ PUBLISHABLE_IMAGES = [
     {"image": "rperf_client_image_amd64", "push_image": "rperf_client_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-rperf-client"},
     {"image": "agent_gateway_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-agent-gateway"},
     {"image": "faker_image_amd64", "push_image": "faker_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-faker"},
-    {"image": "zen_image_amd64", "push_image": "zen_image_multiarch", "repository": "registry.carverauto.dev/serviceradar/serviceradar-zen"},
     {"image": "config_updater_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-config-updater"},
     {"image": "web_ng_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-web-ng"},
     {"image": "cert_generator_image_amd64", "repository": "registry.carverauto.dev/serviceradar/serviceradar-cert-generator"},

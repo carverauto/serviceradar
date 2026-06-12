@@ -5,7 +5,6 @@ on:
       - 'rust/rperf-client/**'
       - 'rust/rperf-server/**'
       - 'rust/trapd/**'
-      - 'rust/consumers/zen/**'
       - 'rust/log-collector/**'
       - 'rust/netprobe/**'
       - 'rust/rdp-adapter/**'
@@ -42,8 +41,6 @@ jobs:
             runner: bazel
             bazel_target: //rust/rperf-server:rperf
           - project: rust/trapd
-            runner: cargo
-          - project: rust/consumers/zen
             runner: cargo
           - project: rust/log-collector
             runner: cargo

@@ -2,7 +2,7 @@ defmodule ServiceRadarWebNGWeb.Settings.RulesLive.Index do
   @moduledoc """
   LiveView for managing log normalization, event promotion, and alert rules.
 
-  Zen rules are synced to NATS KV and picked up by serviceradar-zen.
+  Zen rules are evaluated in-process by core-elx during ingestion.
   """
 
   use ServiceRadarWebNGWeb, :live_view

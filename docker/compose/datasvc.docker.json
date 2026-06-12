@@ -34,7 +34,6 @@
       {"identity": "CN=sync.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=flowgger.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=trapd.serviceradar,O=ServiceRadar", "role": "writer"},
-      {"identity": "CN=zen.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=otel.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=rperf-client.serviceradar,O=ServiceRadar", "role": "writer"},
       {"identity": "CN=web.serviceradar,O=ServiceRadar", "role": "reader"}

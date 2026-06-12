@@ -453,8 +453,8 @@ See [Device Configuration](./netflow.md#device-configuration) for full examples.
 Enable debug logging and measure:
 1. UDP receipt → parse complete
 2. Parse complete → NATS publish
-3. NATS publish → Zen processing
-4. Zen processing → database write
+3. NATS publish -> core-elx processing
+4. Core-elx processing -> database write
 
 **Bottleneck Identification:**
 
@@ -462,18 +462,15 @@ Enable debug logging and measure:
 # Check NATS JetStream lag
 nats stream info events
 
-# Check Zen consumer lag
-docker logs zen | grep "Processing message"
-
-# Check db-event-writer throughput
-docker logs db-event-writer | grep "Batch write"
+# Check core-elx ingestion throughput
+docker logs serviceradar-core | grep "EventWriter"
 ```
 
 **Solutions:**
 
 - **Collector bottleneck**: Increase `batch_size`, more CPU
 - **NATS bottleneck**: Scale NATS cluster, check disk I/O
-- **Zen bottleneck**: Scale Zen replicas
+- **Core-elx ingestion bottleneck**: Scale core replicas or tune Broadway batches
 - **Database bottleneck**: Scale CNPG, optimize indexes, partition tables
 
 ### Still Having Issues?

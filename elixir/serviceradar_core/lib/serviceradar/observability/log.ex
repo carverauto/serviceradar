@@ -208,7 +208,7 @@ defmodule ServiceRadar.Observability.Log do
       description "Instrumentation scope attributes"
     end
 
-    # Structured attributes (stored as TEXT by db-event-writer)
+    # Structured attributes stored as TEXT for efficient ingestion.
     attribute :attributes, :string do
       public? true
       description "Log record attributes"

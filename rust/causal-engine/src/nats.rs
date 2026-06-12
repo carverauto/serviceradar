@@ -1,7 +1,6 @@
-//! Shared NATS connection (optional mTLS), mirroring `rust/srql` and
-//! `rust/consumers/zen`. Returns both the core `Client` (used by the live
-//! state-change subscriber) and a JetStream `Context` (used by the verdict
-//! emitter).
+//! Shared NATS connection (optional mTLS), mirroring `rust/srql`. Returns both
+//! the core `Client` (used by the live state-change subscriber) and a JetStream
+//! `Context` (used by the verdict emitter).
 
 use std::path::PathBuf;
 

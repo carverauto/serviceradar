@@ -372,8 +372,8 @@ format_report(Report) ->
 %% usually correct but breaks log bodies because formatted logger messages are
 %% commonly charlists (e.g. "Hello" as [72,101,108,108,111]).
 %%
-%% Downstream processors (zen -> db-event-writer) expect `body` to be a string,
-%% so convert charlist-like any_value arrays back into OTLP `string_value`.
+%% Downstream core-elx log processors expect `body` to be a string, so convert
+%% charlist-like any_value arrays back into OTLP `string_value`.
 normalize_request_map(#{resource_logs := ResourceLogs}=Req) when is_list(ResourceLogs) ->
     Req#{resource_logs := [normalize_resource_log(RL) || RL <- ResourceLogs]};
 normalize_request_map(Req) ->

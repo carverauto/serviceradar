@@ -25,27 +25,23 @@ flowchart LR
 
   NATS["NATS JetStream"]
 
-  Zen["zen-consumer\n(normalize)"]
-  Core["serviceradar_core\n(in-process log-promotion)"]
-  Writer["db-event-writer\n(persist)"]
+  Core["serviceradar_core\n(normalize + persist)"]
 
   CNPG["CNPG\n(Postgres + Timescale + AGE)"]
 
-  Syslog -->|"*.logs.syslog"| NATS
-  Trapd -->|"*.logs.snmp"| NATS
+  Syslog -->|"logs.syslog"| NATS
+  Trapd -->|"logs.snmp"| NATS
   Netflow -->|"flows.raw.>"| NATS
 
-  NATS -->|"*.logs.{syslog,snmp,otel}"| Zen --> NATS
-  NATS -->|"logs.*.processed"| Core --> NATS
-  NATS --> Writer --> CNPG
+  NATS -->|"logs.{syslog,snmp,otel}"| Core --> CNPG
+  NATS -->|"flows.raw.>"| Core --> CNPG
 ```
 
-Zen normalizes logs (syslog, SNMP traps, OTEL logs) and raw OTEL metrics.
-NetFlow data publishes to `flows.raw.>` and does not pass through Zen—it is
-written directly by the writer path. `log-promotion` is an in-process JetStream
-pull consumer running inside `serviceradar_core` (not a separate deployment); it
-subscribes to processed log subjects and promotes matching logs into OCSF
-events. `db-event-writer` persists records into CNPG.
+`serviceradar_core` is the bulk-ingestion writer for these streams. It runs the
+Zen decision rules in-process for log normalization and persists records into
+CNPG. `log-promotion` is an in-process JetStream pull consumer running inside
+`serviceradar_core` (not a separate deployment); it promotes matching logs into
+OCSF events without depending on a separate normalize-and-republish hop.
 
 ## Data Service (datasvc)
 
@@ -61,4 +57,3 @@ components manipulating JetStream buckets directly.
 CNPG is the system of record for inventory, telemetry, and analytics (Timescale hypertables and AGE graph features are enabled in the cluster).
 
 Querying happens through the web UI and SRQL, which is embedded in `web-ng`.
-

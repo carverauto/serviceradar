@@ -476,62 +476,6 @@ PACKAGES = {
             "/etc/nats/nats-server.conf",
         ],
     },
-    "zen": {
-        "package_name": "serviceradar-zen",
-        "description": "ServiceRadar Zen consumer",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd"],
-        "rpm_requires": ["systemd"],
-        "binary": {
-            "target": "//rust/consumers/zen:zen",
-            "dest": "/usr/local/bin/serviceradar-zen",
-        },
-        "files": [
-            {
-                "src": "config/zen-consumer.json",
-                "dest": "/etc/serviceradar/zen-consumer.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "rules/cef_severity.json",
-                "dest": "/usr/share/serviceradar-zen/rules/cef_severity.json",
-                "mode": "0644",
-            },
-            {
-                "src": "rules/netflow_to_ocsf.json",
-                "dest": "/usr/share/serviceradar-zen/rules/netflow_to_ocsf.json",
-                "mode": "0644",
-            },
-            {
-                "src": "rules/falco_normalize.json",
-                "dest": "/usr/share/serviceradar-zen/rules/falco_normalize.json",
-                "mode": "0644",
-            },
-            {
-                "src": "rules/passthrough.json",
-                "dest": "/usr/share/serviceradar-zen/rules/passthrough.json",
-                "mode": "0644",
-            },
-            {
-                "src": "rules/strip_full_message.json",
-                "dest": "/usr/share/serviceradar-zen/rules/strip_full_message.json",
-                "mode": "0644",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-zen.service",
-            "dest": "/lib/systemd/system/serviceradar-zen.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/zen-consumer.json",
-        ],
-    },
     "rperf": {
         "package_name": "serviceradar-rperf",
         "description": "ServiceRadar RPerf network performance server",

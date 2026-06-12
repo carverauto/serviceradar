@@ -71,12 +71,6 @@ datasvc:
   data:
     enabled: false
 
-zen:
-  replicaCount: 3
-  streamReplicas: 3
-  data:
-    enabled: false
-
 logCollector:
   replicaCount: 3
   streamReplicas: 3

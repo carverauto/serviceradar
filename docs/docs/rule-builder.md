@@ -13,16 +13,15 @@ Navigate to **Settings → Events** in the web UI.
 
 ## Log Normalization (Zen)
 
-Zen rules run first. They normalize incoming syslog, SNMP traps, and OTEL logs
-before anything is written to CNPG.
+Zen rules run first in the core-elx ingestion path. They normalize incoming
+syslog, SNMP traps, and OTEL logs before anything is written to CNPG.
 
-The deployed Zen consumer config has decision groups for partition-prefixed
-subjects:
+The bundled core-elx rule set has decision groups for these subjects:
 
-- `*.logs.syslog` — passthrough, strip full_message, CEF severity
-- `*.logs.snmp` — passthrough, SNMP severity
-- `*.logs.otel` — passthrough
-- `*.otel.metrics.raw` — passthrough (raw OTEL metrics)
+- `logs.syslog` - passthrough, strip full_message, CEF severity
+- `logs.snmp` - passthrough, SNMP severity
+- `logs.otel` - passthrough
+- `otel.metrics.raw` - passthrough (raw OTEL metrics)
 
 In the UI you can:
 
@@ -39,7 +38,7 @@ the specifics before saving.
 ### Distribution Behavior
 
 Rules are managed in the control plane and distributed automatically to the
-components that need them (for example the zen consumer pipeline).
+components that need them, including the core-elx ingestion pipeline.
 
 In normal operation, you should not need to manipulate NATS keys or internal
 storage directly. Use the UI and confirm effects by watching consumer lag and

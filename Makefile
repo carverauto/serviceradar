@@ -322,7 +322,6 @@ tidy: ## Tidy and format Go code
 	@echo "$(COLOR_BOLD)Formatting Rust code$(COLOR_RESET)"
 	@cd rust/rperf-client && $(RUSTFMT) src/*.rs
 	@cd rust/trapd && $(RUSTFMT) src/*.rs
-	@cd rust/consumers/zen && $(RUSTFMT) src/*.rs
 	@cd rust/otel && $(RUSTFMT) src/*.rs
 	@cd rust/flowgger && $(RUSTFMT) src/*.rs src/flowgger/*.rs
 
@@ -371,7 +370,6 @@ endif
 	@echo "$(COLOR_BOLD)Running Rust linter$(COLOR_RESET)"
 	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
-	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy -- -D warnings
 	@cd rust/srql && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) clippy --all-targets -- -D warnings
@@ -422,7 +420,6 @@ test: $(TEST_PREREQS) get-bun ## Run all tests with coverage
 	@echo "$(COLOR_BOLD)Running Rust tests$(COLOR_RESET)"
 	@cd rust/rperf-client && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/trapd && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
-	@cd rust/consumers/zen && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/otel && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/flowgger && RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
 	@cd rust/srql && SRQL_ALLOW_AGE_SKIP=1 RUSTUP_HOME=$(RUSTUP_HOME) CARGO_HOME=$(CARGO_HOME) $(CARGO) test
@@ -481,7 +478,6 @@ clean: ## Clean up build artifacts
 	@rm -rf serviceradar-*_* release-artifacts/
 	@cd rust/rperf-client && $(CARGO) clean
 	@cd rust/trapd && $(CARGO) clean
-	@cd rust/consumers/zen && $(CARGO) clean
 	@cd rust/otel && $(CARGO) clean
 	@cd rust/flowgger && $(CARGO) clean
 
@@ -604,14 +600,12 @@ build-binaries: generate-proto ## Build all binaries locally (Go + Rust)
 	@cd rust/rperf-client && $(CARGO) build --release
 	@cd rust/rperf-server && $(CARGO) build --release
 	@cd rust/trapd && $(CARGO) build --release
-	@cd rust/consumers/zen && $(CARGO) build --release
 	@cd rust/otel && $(CARGO) build --release
 	@cd rust/flowgger && $(CARGO) build --release
 	@mkdir -p bin
 	@cp $(RPERF_CLIENT_BUILD_DIR)/$(RPERF_CLIENT_BIN) bin/serviceradar-rperf-checker
 	@cp $(RPERF_SERVER_BUILD_DIR)/$(RPERF_SERVER_BIN) bin/serviceradar-rperf
 	@cp rust/trapd/target/release/serviceradar-trapd bin/serviceradar-trapd
-	@cp rust/consumers/zen/target/release/zen-consumer bin/serviceradar-zen-consumer
 	@cp rust/otel/target/release/serviceradar-otel bin/serviceradar-otel
 	@cp rust/flowgger/target/release/flowgger bin/serviceradar-flowgger
 

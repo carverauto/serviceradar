@@ -57,8 +57,6 @@ managed service has a descriptor that defines its key — for example:
 | Trapd | `config/trapd.json` |
 | Flowgger | `config/flowgger.toml` |
 | OTEL collector | `config/otel.toml` |
-| Zen consumer | `config/zen-consumer.json` |
-| db-event-writer | `config/db-event-writer.json` |
 | rperf checker | `config/rperf-checker.json` |
 
 Scoped services use a templated key that includes an identity. For example a

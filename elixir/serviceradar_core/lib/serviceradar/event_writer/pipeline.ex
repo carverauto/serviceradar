@@ -328,7 +328,6 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp batcher_rules do
     [
-      {:default, &ignore_logs_subject?/1},
       {:logs, &log_subject?/1},
       {:default, &ignore_events_subject?/1},
       {:bmp_causal, &bmp_causal_subject?/1},
@@ -349,13 +348,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     ]
   end
 
-  defp ignore_logs_subject?(subject) do
-    subject == "logs.syslog" or subject == "logs.snmp" or subject == "logs.otel"
-  end
-
   defp log_subject?(subject) do
     String.starts_with?(subject, "logs.otel") or
+      subject == "logs.syslog" or
       String.starts_with?(subject, "logs.syslog.processed") or
+      subject == "logs.snmp" or
       String.starts_with?(subject, "logs.snmp.processed") or
       String.starts_with?(subject, "logs.internal.processed")
   end

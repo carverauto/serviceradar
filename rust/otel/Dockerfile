@@ -17,7 +17,6 @@ COPY rust/config-bootstrap/Cargo.toml ./rust/config-bootstrap/Cargo.toml
 COPY rust/otel/Cargo.toml ./rust/otel/Cargo.toml
 COPY rust/flowgger/Cargo.toml ./rust/flowgger/Cargo.toml
 COPY rust/trapd/Cargo.toml ./rust/trapd/Cargo.toml
-COPY rust/consumers/zen/Cargo.toml ./rust/consumers/zen/Cargo.toml
 RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src rust/flowgger/src rust/trapd/src rust/otel/src && \
     printf "pub fn _stub(){}" > rust/kvutil/src/lib.rs && \
     printf "pub fn _stub(){}" > rust/config-bootstrap/src/lib.rs && \
@@ -25,9 +24,7 @@ RUN mkdir -p rust/kvutil/src rust/config-bootstrap/src rust/flowgger/src rust/tr
     printf "fn main(){}" > rust/flowgger/src/main.rs && \
     printf "pub fn _stub(){}" > rust/flowgger/src/lib.rs && \
     printf "fn main(){}" > rust/otel/src/main.rs && \
-    printf "pub fn _stub(){}" > rust/otel/src/lib.rs && \
-    mkdir -p rust/consumers/zen/src && \
-    printf "fn main(){}" > rust/consumers/zen/src/main.rs
+    printf "pub fn _stub(){}" > rust/otel/src/lib.rs
 RUN cargo fetch --manifest-path rust/otel/Cargo.toml
 
 # Now copy sources

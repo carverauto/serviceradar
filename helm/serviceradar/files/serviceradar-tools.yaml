@@ -75,7 +75,6 @@ spec:
           alias nats-kv='echo "=== KV Stores ==="; natsc kv ls 2>/dev/null || echo "KV stores not available - check NATS connection and JetStream"'
           alias nats-datasvc='echo "=== Data Service ==="; natsc obj ls 2>/dev/null || echo "object stores not available - check NATS connection and JetStream"'
           alias nats-js-status='echo "=== NATS JetStream Status ==="; natsc server info 2>/dev/null | grep -E "(Cluster|JetStream|Storage|Memory)" || echo "JetStream info not available - check connection"'
-          alias zen-rules='echo "=== Zen Rule Helper ==="; zen-put-rule --help'
           alias grpc-core='echo "Usage: grpc-core [METHOD] - Examples:"; echo "  grpc-core grpc.health.v1.Health/Check"; echo "  grpc-core list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-core:50052'
           alias grpc-agent='echo "Usage: grpc-agent [METHOD] - Examples:"; echo "  grpc-agent grpc.health.v1.Health/Check"; echo "  grpc-agent list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-agent:50051'
           alias grpc-trapd='echo "Usage: grpc-trapd [METHOD] - Examples:"; echo "  grpc-trapd grpc.health.v1.Health/Check"; echo "  grpc-trapd list"; grpcurl -cacert /etc/serviceradar/certs/root.pem -cert /etc/serviceradar/certs/tools.pem -key /etc/serviceradar/certs/tools-key.pem serviceradar-trapd:50043'
@@ -194,7 +193,6 @@ data:
     [*] DEBUGGING COMMANDS:
         test-connectivity    - Test all service connectivity
         nats-js-status      - Show NATS JetStream status
-        zen-rules           - Show zen-put-rule usage
         test-grpc           - Health check all gRPC services
         nats-cert-check     - Diagnose NATS certificate issues
     

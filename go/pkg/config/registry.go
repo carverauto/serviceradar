@@ -103,14 +103,6 @@ var serviceDescriptors = map[string]ServiceDescriptor{
 		KVKey:       "config/otel.toml",
 		Format:      ConfigFormatTOML,
 	},
-	"zen-consumer": {
-		Name:        "zen-consumer",
-		DisplayName: "Zen Consumer",
-		ServiceType: "zen-consumer",
-		Scope:       ConfigScopeGlobal,
-		KVKey:       "config/zen-consumer.json",
-		Format:      ConfigFormatJSON,
-	},
 	"trapd": {
 		Name:        "trapd",
 		DisplayName: "Trap Daemon",

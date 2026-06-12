@@ -17,7 +17,7 @@ declare -A SERVICE_GROUPS=(
     ["infrastructure"]="cert-generator config-updater"
     ["core"]="core web agent-gateway agent"
     ["data"]="datasvc"
-    ["observability"]="log-collector flow-collector trapd zen"
+    ["observability"]="log-collector flow-collector trapd"
     ["checkers"]="rperf-client"
     ["tools"]="tools"
 )
@@ -74,7 +74,7 @@ SERVICE GROUPS:
   infrastructure: cert-generator, config-updater
   core:          core, web, agent-gateway, agent
   data:          datasvc
-  observability: log-collector, flow-collector, trapd, zen
+  observability: log-collector, flow-collector, trapd
   checkers:      rperf-client
   tools:         tools
   all:           Build all services (default if no services specified)
@@ -82,7 +82,7 @@ SERVICE GROUPS:
 SERVICES:
   You can specify individual services to build:
   cert-generator, config-updater, core, web, agent-gateway, agent,
-  datasvc, log-collector, flow-collector, trapd, zen,
+  datasvc, log-collector, flow-collector, trapd,
   rperf-client, tools
 
 EXAMPLES:
@@ -314,7 +314,6 @@ declare -A SERVICE_DOCKERFILES=(
     ["log-collector"]="docker/compose/Dockerfile.log-collector"
     ["flow-collector"]="rust/flow-collector/Dockerfile"
     ["trapd"]="docker/compose/Dockerfile.trapd"
-    ["zen"]="docker/compose/Dockerfile.zen"
     ["rperf-client"]="docker/compose/Dockerfile.rperf-client"
     ["tools"]="docker/compose/Dockerfile.tools"
 )

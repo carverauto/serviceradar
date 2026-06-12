@@ -47,7 +47,6 @@ COPY rust/flowgger ./rust/flowgger
 COPY rust/otel ./rust/otel
 COPY rust/log-collector ./rust/log-collector
 COPY rust/trapd ./rust/trapd
-COPY rust/consumers/zen ./rust/consumers/zen
 COPY rust/edge-onboarding ./rust/edge-onboarding
 COPY rust/bmp-collector ./rust/bmp-collector
 COPY rust/rperf-client ./rust/rperf-client

@@ -23,7 +23,6 @@ FORCE_CERT_REGEN="${FORCE_CERT_REGEN:-false}"
 if [ "$FORCE_CERT_REGEN" != "true" ] && [ -f "$CERT_DIR/root.pem" ] && [ -f "$CERT_DIR/core.pem" ] && \
    [ -f "$CERT_DIR/nats.pem" ] && [ -f "$CERT_DIR/datasvc.pem" ] && \
    [ -f "$CERT_DIR/log-collector.pem" ] && [ -f "$CERT_DIR/trapd.pem" ] && \
-   [ -f "$CERT_DIR/zen.pem" ] && \
    [ -f "$CERT_DIR/rperf-client.pem" ] && [ -f "$CERT_DIR/agent.pem" ] && \
    [ -f "$CERT_DIR/web.pem" ]; then
     echo "All certificates already exist, nothing to generate"
@@ -118,7 +117,6 @@ generate_cert "nats" "nats.serviceradar" "DNS:nats,DNS:serviceradar-nats,DNS:loc
 generate_cert "datasvc" "datasvc.serviceradar" "DNS:datasvc,DNS:datasvc.serviceradar,DNS:serviceradar-datasvc,DNS:localhost,IP:127.0.0.1,IP:172.28.0.5"
 generate_cert "log-collector" "log-collector.serviceradar" "DNS:log-collector,DNS:serviceradar-log-collector,DNS:localhost,IP:127.0.0.1,IP:172.28.0.7"
 generate_cert "trapd" "trapd.serviceradar" "DNS:trapd,DNS:serviceradar-trapd,DNS:localhost,IP:127.0.0.1,IP:172.28.0.9"
-generate_cert "zen" "zen.serviceradar" "DNS:zen,DNS:serviceradar-zen,DNS:localhost,IP:127.0.0.1,IP:172.28.0.10"
 
 # Generate certificates for checker services
 generate_cert "rperf-client" "rperf-client.serviceradar" "DNS:rperf-client,DNS:serviceradar-rperf-client,DNS:localhost,IP:127.0.0.1"

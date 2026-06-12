@@ -21,12 +21,10 @@ flowchart TB
   subgraph Core["Core Platform (Kubernetes or Docker Compose)"]
     Ingress["Edge proxy (Ingress/Caddy)"]
     Web["web-ng (Phoenix LiveView)<br/>SRQL embedded (Rustler/NIF)"]
-    CoreSvc["core (serviceradar_core)<br/>control plane + in-process log-promotion consumer"]
+    CoreSvc["core (serviceradar_core)<br/>control plane + ingestion workers"]
     GW["agent-gateway (Elixir)"]
 
     NATS["NATS JetStream"]
-    Zen["zen-consumer"]
-    Writer["db-event-writer"]
 
     DB["CNPG (Postgres + Timescale + AGE)"]
   end
@@ -42,9 +40,7 @@ flowchart TB
   Web <-->|mTLS ERTS/RPC/PubSub| CoreSvc
 
   %% Bulk ingestion
-  NATS --> Zen --> NATS
-  NATS <--> CoreSvc
-  NATS --> Writer --> DB
+  NATS --> CoreSvc --> DB
 
   CoreSvc --> DB
   Web --> DB
@@ -76,12 +72,12 @@ See [Edge Model](./edge-model.md).
 
 ## Bulk Telemetry Pipeline (NATS JetStream)
 
-Collectors publish bulk telemetry into JetStream (commonly the `events` stream). The platform runs:
+Collectors publish bulk telemetry into JetStream (commonly the `events` and
+`metrics` streams). The platform runs:
 
-- `zen-consumer` (normalization), a standalone service
-- `log-promotion`, an in-process JetStream pull consumer inside `serviceradar_core`
-  that promotes matching logs into OCSF-style events
-- `db-event-writer` (persistence into CNPG), a standalone service
+- in-process Zen normalization and persistence workers inside `serviceradar_core`
+- `log-promotion`, an in-process JetStream pull consumer inside
+  `serviceradar_core` that promotes matching logs into OCSF-style events
 
 See [Data Pipeline](./data-pipeline.md).
 
