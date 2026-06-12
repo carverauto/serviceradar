@@ -69,6 +69,53 @@ defmodule ServiceRadarWebNGWeb.MetricLive.ShowTest do
     assert has_element?(lv, "a", "Logs")
   end
 
+  test "trace id value links to the trace detail route", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/#{@span_id}")
+
+    assert has_element?(lv, ~s(a[href="/observability/traces/#{@trace_id}"]), @trace_id)
+  end
+
+  test "span id value links to the trace detail route with the span param", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/#{@span_id}")
+
+    assert has_element?(
+             lv,
+             ~s(a[href="/observability/traces/#{@trace_id}?span=#{@span_id}"]),
+             @span_id
+           )
+  end
+
+  test "non-normalizable ids render as plain text, not links", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :double_hex_trace)
+
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/#{@span_id}")
+
+    html = render(lv)
+    double_hex = String.duplicate("66", 32)
+
+    # Values still display...
+    assert html =~ double_hex
+    assert html =~ @span_id
+    # ...but neither id is wrapped in a trace-detail anchor.
+    refute html =~ "/observability/traces/"
+    refute has_element?(lv, "a", double_hex)
+    refute has_element?(lv, "a", @span_id)
+  end
+
+  test "span id value renders as text when the span id is not 16-hex", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :short_span_id)
+
+    {:ok, lv, _html} = live(conn, ~p"/observability/metrics/#{@span_id}")
+
+    html = render(lv)
+
+    # The trace id still links, but no span deep-link is offered.
+    assert has_element?(lv, ~s(a[href="/observability/traces/#{@trace_id}"]), @trace_id)
+    refute html =~ "?span="
+    assert html =~ "0bd8"
+    refute has_element?(lv, "a", "0bd8")
+  end
+
   defmodule SRQLStub do
     @moduledoc false
     @behaviour ServiceRadarWebNG.SRQLBehaviour
@@ -90,10 +137,19 @@ defmodule ServiceRadarWebNGWeb.MetricLive.ShowTest do
     def query_request(_payload), do: {:error, :invalid_request}
 
     defp metric do
+      scenario =
+        :persistent_term.get({ServiceRadarWebNGWeb.MetricLive.ShowTest, :scenario}, :valid_trace)
+
       trace_id =
-        case :persistent_term.get({ServiceRadarWebNGWeb.MetricLive.ShowTest, :scenario}, :valid_trace) do
+        case scenario do
           :double_hex_trace -> String.duplicate("66", 32)
           _ -> "aabbccddeeff00112233445566778899"
+        end
+
+      span_id =
+        case scenario do
+          :short_span_id -> "0bd8"
+          _ -> "0bd8613253e905b1"
         end
 
       %{
@@ -101,7 +157,7 @@ defmodule ServiceRadarWebNGWeb.MetricLive.ShowTest do
         "service_name" => "core-elx",
         "metric_type" => "span",
         "span_name" => "GET /api/devices",
-        "span_id" => "0bd8613253e905b1",
+        "span_id" => span_id,
         "trace_id" => trace_id,
         "duration_ms" => 142.0,
         "is_slow" => true
