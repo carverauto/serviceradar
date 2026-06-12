@@ -114,6 +114,35 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert approved.approved_capabilities == ["flow.capture"]
   end
 
+  test "surfaces approved add-on packages with missing artifact blobs", %{conn: conn, actor: actor} do
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "missing-blob-addon",
+        name: "Missing Blob Add-on",
+        status: :approved,
+        approved_capabilities: ["addon.run"],
+        artifacts: %{
+          "linux/amd64" => %{
+            "object_key" => "native-addons/missing-blob-addon/1.0.0/linux/amd64/sha.tar.gz",
+            "sha256" => "abc",
+            "signature" => "sig"
+          }
+        },
+        verification_status: "blob_missing",
+        verification_error:
+          "native add-on artifact object missing: native-addons/missing-blob-addon/1.0.0/linux/amd64/sha.tar.gz"
+      })
+
+    {:ok, _lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert html =~ "blob missing"
+    assert html =~ "Object storage no longer has one or more native add-on artifacts"
+    assert html =~ "native-addons/missing-blob-addon/1.0.0/linux/amd64/sha.tar.gz"
+    assert html =~ "cannot be assigned until its missing artifact is re-imported"
+    assert html =~ "Re-import this add-on package before creating profiles or assignments."
+    assert html =~ ~r/<button[^>]*disabled[^>]*>\s*Create Profile/s
+  end
+
   test "cohort assignment previews unsupported agents and fans out to compatible members", %{
     conn: conn,
     actor: actor

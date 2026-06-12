@@ -23,13 +23,13 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   @release_command_type "agent.update_release"
   @inflight_statuses [:dispatched, :downloading, :verifying, :staged, :restarting]
-  # Max rollout targets rendered in the detail table (per rollout). Status-ranked
-  # so failures/in-flight always appear; raised from 8 so terminal failures in a
-  # larger cohort are never truncated out of view.
+  @failed_target_statuses [:failed, :rolled_back]
+  # Max rollout targets rendered in the detail table (per rollout). Failed
+  # targets are always included, then the table fills with the next most
+  # actionable in-flight/pending targets.
   @target_detail_limit 50
   # While a rollout is active, poll so targets that reach a terminal state
-  # WITHOUT a command/ack (e.g. "already compliant") still converge in the UI —
-  # those transitions emit no AgentCommandPubSub event to trigger a refresh.
+  # without a command/ack (e.g. "already compliant") still converge in the UI.
   @active_rollout_poll_ms 5_000
   @artifact_formats [
     {"Binary", "binary"},
@@ -48,6 +48,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
     if connected?(socket) do
       AgentCommandPubSub.subscribe()
+      AgentCommandPubSub.subscribe_release_targets()
       Phoenix.PubSub.subscribe(ServiceRadar.PubSub, "agent:registrations")
       Process.send_after(self(), :active_rollout_poll, @active_rollout_poll_ms)
     end
@@ -273,6 +274,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
 
   def handle_info({:command_result, data}, socket), do: {:noreply, maybe_refresh_for_release_command(socket, data)}
 
+  def handle_info({:release_target_status, _data}, socket), do: {:noreply, schedule_refresh(socket)}
+
   def handle_info({:agent_registered, _metadata}, socket), do: {:noreply, schedule_refresh(socket)}
 
   def handle_info({:agent_disconnected, _agent_id}, socket), do: {:noreply, schedule_refresh(socket)}
@@ -448,28 +451,57 @@ defmodule ServiceRadarWebNGWeb.Settings.AgentsLive.Releases do
       Map.new(grouped_targets, fn {rollout_id, rollout_targets} ->
         {rollout_id,
          rollout_targets
-         # Problem/non-terminal targets first so a failed target is never
-         # truncated out of the visible window (the summary counts all targets,
-         # so the detail table must surface the ones an operator needs to see).
-         |> Enum.sort(&rollout_target_precedes?/2)
-         |> Enum.sort_by(&rollout_target_status_rank(&1.status))
-         |> Enum.take(@target_detail_limit)
+         |> visible_rollout_targets()
          |> Enum.map(&rollout_target_detail(&1, agents_by_uid))}
       end)
 
     {summaries, target_details}
   end
 
-  # Lower rank sorts first. Failures and in-flight/pending targets surface
-  # ahead of healthy ones; Enum.sort_by is stable so the inserted_at/agent_id
-  # ordering from rollout_target_precedes?/2 is preserved within each rank.
-  defp rollout_target_status_rank(:failed), do: 0
-  defp rollout_target_status_rank(:rolled_back), do: 1
-  defp rollout_target_status_rank(status) when status in @inflight_statuses, do: 2
-  defp rollout_target_status_rank(:healthy), do: 4
-  defp rollout_target_status_rank(_pending_or_other), do: 3
+  # Failed (and rolled-back) targets must always be visible so operators can see
+  # the error, even when a rollout has more targets than the visible cap. Show
+  # every failed target, then fill the remaining capacity with the rest sorted
+  # so the most actionable in-flight targets come first.
+  defp visible_rollout_targets(targets) do
+    {failed, remaining} =
+      Enum.split_with(targets, &(&1.status in @failed_target_statuses))
+
+    failed = Enum.sort(failed, &rollout_target_precedes?/2)
+
+    remaining =
+      remaining
+      |> Enum.sort(&rollout_target_precedes?/2)
+      |> Enum.take(max(@target_detail_limit - length(failed), 0))
+
+    failed ++ remaining
+  end
 
   defp rollout_target_precedes?(left, right) do
+    case compare_rollout_target_status_rank(left.status, right.status) do
+      :eq -> compare_rollout_target_recency(left, right)
+      :lt -> true
+      :gt -> false
+    end
+  end
+
+  defp compare_rollout_target_status_rank(left_status, right_status) do
+    left_rank = rollout_target_status_rank(left_status)
+    right_rank = rollout_target_status_rank(right_status)
+
+    cond do
+      left_rank == right_rank -> :eq
+      left_rank < right_rank -> :lt
+      true -> :gt
+    end
+  end
+
+  # Lower rank sorts first: failures, then in-flight/pending, then healthy.
+  defp rollout_target_status_rank(status) when status in @failed_target_statuses, do: 0
+  defp rollout_target_status_rank(status) when status in @inflight_statuses, do: 1
+  defp rollout_target_status_rank(:healthy), do: 3
+  defp rollout_target_status_rank(_pending_or_other), do: 2
+
+  defp compare_rollout_target_recency(left, right) do
     case compare_rollout_target_inserted_at(left.inserted_at, right.inserted_at) do
       :eq -> to_string(left.agent_id) <= to_string(right.agent_id)
       :lt -> false

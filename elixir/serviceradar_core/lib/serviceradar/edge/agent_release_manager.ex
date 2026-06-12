@@ -7,6 +7,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.AgentCommands.PubSub, as: AgentCommandPubSub
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Edge.AgentCommand
   alias ServiceRadar.Edge.AgentCommandBus
@@ -588,11 +589,24 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
           current_version: Map.get(attrs, :current_version)
         )
 
+        broadcast_target_status_change(updated_target)
+
         {:ok, updated_target}
 
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp broadcast_target_status_change(%AgentReleaseTarget{} = target) do
+    AgentCommandPubSub.broadcast_release_target_status(%{
+      rollout_id: target.rollout_id,
+      agent_id: target.agent_id,
+      status: target.status,
+      progress_percent: target.progress_percent,
+      last_status_message: target.last_status_message,
+      last_error: target.last_error
+    })
   end
 
   defp clear_stale_last_error(attrs, status)

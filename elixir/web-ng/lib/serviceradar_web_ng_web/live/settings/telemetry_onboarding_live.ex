@@ -40,13 +40,13 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
   def mount(_params, _session, socket) do
     scope = socket.assigns.current_scope
 
-    if RBAC.can?(scope, "settings.view") do
+    if RBAC.can?(scope, "settings.edge.manage") do
       onboarding = Application.get_env(:serviceradar_web_ng, :otlp_onboarding, [])
 
       {:ok,
        socket
        |> assign(:page_title, "Telemetry Onboarding")
-       |> assign(:current_path, "/settings/telemetry-onboarding")
+       |> assign(:current_path, "/settings/agents/telemetry-onboarding")
        |> assign(:grpc_endpoint, config_string(onboarding, :grpc_endpoint))
        |> assign(:http_endpoint, config_string(onboarding, :http_endpoint))
        |> assign(:grpc_requires_private_ca, Keyword.get(onboarding, :grpc_requires_private_ca, true) != false)
@@ -139,9 +139,10 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLive do
     >
       <.settings_shell current_path={@current_path}>
         <.settings_nav current_path={@current_path} current_scope={@current_scope} />
+        <.edge_nav current_path={@current_path} current_scope={@current_scope} class="mt-2" />
 
         <section class="space-y-2">
-          <p class="text-sm font-medium text-primary">Settings</p>
+          <p class="text-sm font-medium text-primary">Edge Ops</p>
           <h1 class="text-2xl font-semibold tracking-normal">Send your telemetry</h1>
           <p class="max-w-3xl text-sm text-base-content/65">
             Point an OpenTelemetry SDK or collector at this deployment, issue an ingestion key,

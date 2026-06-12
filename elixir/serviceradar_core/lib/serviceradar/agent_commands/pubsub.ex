@@ -13,6 +13,28 @@ defmodule ServiceRadar.AgentCommands.PubSub do
     "agent:commands"
   end
 
+  @doc "Topic for agent release target status changes."
+  def release_target_topic do
+    "agent:release_targets"
+  end
+
+  @doc "Subscribe to agent release target status changes."
+  def subscribe_release_targets do
+    Phoenix.PubSub.subscribe(@pubsub, release_target_topic())
+  end
+
+  @doc """
+  Broadcast that an agent release target changed status.
+
+  Emitted on every persisted target status transition (including reconciler
+  driven terminal transitions that never flow through a command result), so
+  subscribers such as the releases LiveView can refresh their view of
+  `agent_release_targets` without a manual reload.
+  """
+  def broadcast_release_target_status(data) when is_map(data) do
+    safe_broadcast(release_target_topic(), {:release_target_status, data})
+  end
+
   @doc "Build the topic for updates belonging to one command."
   def topic(command_id) when is_binary(command_id) do
     "#{topic()}:#{command_id}"

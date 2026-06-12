@@ -52,7 +52,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
         network_tab(path, current_scope),
         mail_tab(path, current_scope),
         security_tab(path, current_scope),
-        telemetry_onboarding_tab(path, current_scope),
         events_tab(path, current_scope),
         dashboards_tab(path, current_scope),
         edge_ops_tab(path, current_scope),
@@ -124,15 +123,6 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
       navigate: ~p"/settings/security/vulnerability-feeds",
       active: String.starts_with?(path, "/settings/security"),
       show: RBAC.can?(current_scope, "settings.integrations.manage")
-    }
-  end
-
-  defp telemetry_onboarding_tab(path, current_scope) do
-    %{
-      label: "Telemetry onboarding",
-      navigate: ~p"/settings/telemetry-onboarding",
-      active: String.starts_with?(path, "/settings/telemetry-onboarding"),
-      show: RBAC.can?(current_scope, "settings.view")
     }
   end
 
@@ -690,6 +680,12 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           label: "Endpoint Inventory",
           href: ~p"/settings/agents/endpoint-inventory",
           active: String.starts_with?(path, "/settings/agents/endpoint-inventory"),
+          show: can_edge
+        },
+        %{
+          label: "Telemetry",
+          href: ~p"/settings/agents/telemetry-onboarding",
+          active: String.starts_with?(path, "/settings/agents/telemetry-onboarding"),
           show: can_edge
         },
         %{
