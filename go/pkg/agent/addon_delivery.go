@@ -198,9 +198,8 @@ type addonDeliveryFailure struct {
 	version string    // assigned version at failure time (for status reporting)
 }
 
-// recordAddonDeliveryFailure stores/refreshes the permanent-failure state for an add-on
-// and returns the stored failure.
-func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, err error, now time.Time) addonDeliveryFailure {
+// recordAddonDeliveryFailure stores/refreshes the permanent-failure state for an add-on.
+func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, err error, now time.Time) {
 	p.addonDeliveryMu.Lock()
 	defer p.addonDeliveryMu.Unlock()
 
@@ -208,15 +207,12 @@ func (p *PushLoop) recordAddonDeliveryFailure(a *proto.AddonAssignmentConfig, er
 		p.addonDeliveryFailures = make(map[string]addonDeliveryFailure)
 	}
 
-	failure := addonDeliveryFailure{
+	p.addonDeliveryFailures[strings.TrimSpace(a.GetAddonId())] = addonDeliveryFailure{
 		key:     addonDeliveryAttemptKey(a),
 		at:      now,
 		reason:  err.Error(),
 		version: strings.TrimSpace(a.GetVersion()),
 	}
-	p.addonDeliveryFailures[strings.TrimSpace(a.GetAddonId())] = failure
-
-	return failure
 }
 
 // addonDeliveryInBackoff reports whether a previously-recorded PERMANENT failure for

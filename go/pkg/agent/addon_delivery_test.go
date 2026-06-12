@@ -32,6 +32,12 @@ import (
 	"github.com/carverauto/serviceradar/proto"
 )
 
+// Static test errors (err113: tests must not construct dynamic errors inline).
+var (
+	errTestPermanentDelivery = errors.New("boom")
+	errTestTransientDelivery = errors.New("dial tcp: connection refused")
+)
+
 // newDeliveryTestPushLoop builds a PushLoop with a real (temp-dir) add-on manager and a
 // logger, suitable for exercising applyConfigResponse/applyAddonAssignments end to end.
 func newDeliveryTestPushLoop(t *testing.T) *PushLoop {
@@ -244,7 +250,7 @@ func TestAddonDeliverySuccessClearsRecordedFailure(t *testing.T) {
 	// Seed a recorded failure outside the backoff window, then a delivery with no
 	// artifact reference (nothing to stage -> success) must clear it (and not be
 	// suppressed, since we are past the backoff window).
-	pl.recordAddonDeliveryFailure(a, errors.New("boom"), time.Now().Add(-addonDeliveryFailureBackoff-time.Minute))
+	pl.recordAddonDeliveryFailure(a, errTestPermanentDelivery, time.Now().Add(-addonDeliveryFailureBackoff-time.Minute))
 	if _, disp, err := pl.deliverAddonArtifact(context.Background(), a, "compiled_in", time.Now()); err != nil || disp != addonDeliverySucceeded {
 		t.Fatalf("deliver disp=%d err=%v, want success (no artifact to stage)", disp, err)
 	}
@@ -322,7 +328,7 @@ func TestClassifyAddonDeliveryError(t *testing.T) {
 		},
 		{"download no status", ErrAddonArtifactDownloadFailed, addonDeliveryTransientFailure},
 		{"wrapped 404", fmt.Errorf("download addon artifact via gateway: %w", &gatewayArtifactStatusError{sentinel: ErrAddonArtifactDownloadFailed, statusCode: http.StatusNotFound}), addonDeliveryPermanentFailure},
-		{"connectivity", errors.New("dial tcp: connection refused"), addonDeliveryTransientFailure},
+		{"connectivity", errTestTransientDelivery, addonDeliveryTransientFailure},
 		{"context canceled", context.Canceled, addonDeliveryTransientFailure},
 	}
 
