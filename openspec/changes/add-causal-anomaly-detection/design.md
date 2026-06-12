@@ -46,15 +46,15 @@ So **use case (a) interface bandwidth has a live stream today**; **use case (b) 
 
 ## Decisions
 
-### Decision 1 — Detector lives in `rust/causal-engine` (recommended), Rustler NIF as the documented alternative
+### Decision 1 — Detector = core-elx Broadway consumer + DeepCausality Rustler NIF (pure reasoner)
 
-**Chosen: a new `anomaly` module inside `rust/causal-engine`.** Rationale:
-- DeepCausality already lives there; this is the "upgrade for the new Flow API" the platform needs (add `deep_causality_core` + `deep_causality_data_structures`).
-- The engine already has a JetStream subscriber loop (`subscriber.rs`), an `emitter` that batches multiple verdict kinds, and `EmbeddedSrql` for CAGG baseline cold-start. The detector is a new module on the existing ingest seam — no new service.
-- Keeps per-series window state (potentially thousands of series) out of the BEAM and off the core-elx hot path.
-- Positions anomalies as first-class causal evidence (a future causaloid can consume an anomaly verdict).
+**Chosen: the detector runs in core-elx as a Broadway consumer that routes each sample into a DeepCausality Rustler NIF.** The NIF is a **pure reasoning function** `reason(context, sample) -> verdict` with no resident per-series state (see Decision 14). Rationale:
+- core-elx is already a **libcluster/Horde cluster** of replicas — the right substrate to scale the consumer horizontally and to host the distributed context engine (Decision 14). A standalone Rust service would have to reinvent that clustering.
+- Broadway already consumes the metric streams and gives demand-driven backpressure + batching for free.
+- Keeping the reasoner a **stateless pure function** means it can run identically on every core-elx pod and scale by round-robin — the per-series state problem is solved by separating context from reasoning, not by pinning the engine to one place.
+- Reuses the DeepCausality dependency the platform already carries (it backs `god_view_nif` / `rust/causal-engine`); this change adds the Flow-API crates (`deep_causality_core`, `deep_causality_data_structures`).
 
-**Alternative (documented, the user floated it): Rustler NIF in the core-elx `event_writer` Broadway pipeline.** The metric subjects are already consumed by Broadway processors in core-elx, so a NIF `observe(series, value, ts) -> verdict` called per datapoint would reuse that stream consumption. Trade-off: couples detection to the ingest pipeline and holds window state in the BEAM; awkward for the long-running per-sample stream model. We keep the NIF boundary clean enough that the same detector crate could be exposed either way, but V1 ships the in-engine module.
+**The standalone `rust/causal-engine` is NOT where the detector lives** — instead it **consumes** the anomaly/capacity verdicts as causal evidence (a future causaloid). This supersedes the earlier framing that put the detector inside `rust/causal-engine`; the libcluster/Horde scaling story (Decision 14) makes the in-core-elx NIF the correct home.
 
 ### Decision 2 — Detection algorithm: clean-baseline z-score + sustained-slot confirmation
 
@@ -110,25 +110,27 @@ V1 is **detect-and-alert only**. The example's `intervene` (THROTTLE_ON) arm map
 
 **A dedicated `metrics` JetStream stream** (subjects `metrics.>`, e.g. `metrics.sysmon.*`, `metrics.snmp.*`, with flow/otel metrics migrating onto it over time) is the target for Track 0. It **MUST use `limits` (or `interest`) retention — never `workqueue`.** This is load-bearing: JetStream consumers are independent fan-out views, each with its own cursor, and under `limits` retention **an ack only advances that consumer's position; it does not delete the message.** So multiple durable consumers each receive every message.
 
-Verified live on the existing `events` stream (`retention: limits`, `discard: old`, `max_age: 1800s`): `db-event-writer` (durable, `ack_policy: explicit`, `deliver_policy: all`, `max_deliver: -1`) **and** `serviceradar-event-writer-otel-metrics` (durable, explicit ack) **both consume `otel.metrics.>` independently today.** The anomaly detector is simply a third independent consumer — its ack has zero effect on the DB-sync consumer, which keeps its own cursor and syncs to CNPG regardless. A `workqueue` stream (delete-on-first-ack) would break this and is forbidden for metrics.
+This fan-out model is verified live on the existing `events` stream (`retention: limits`, `discard: old`, `max_age: 1800s`): `db-event-writer` (durable, `deliver_policy: all`, `max_deliver: -1`) **and** `serviceradar-event-writer-otel-metrics` (durable, explicit ack) **already both consume `otel.metrics.>` independently** — which is exactly the double-write defect Phase 0 fixes (Decision 15). After Phase 0 the **DB-sync consumer is a core-elx EventWriter (Broadway) consumer, not the retired Go `db-event-writer`**; the real-time analysis consumer is a third independent consumer whose ack has zero effect on it (own cursor; `limits` retention never deletes on ack). A `workqueue` stream (delete-on-first-ack) would break this and is forbidden for metrics.
 
-Two consumer profiles, by job:
+Two consumer profiles, by job (post-Phase-0):
 
-| | DB-sync consumer (persist to CNPG) | Anomaly detector consumer |
+| | DB-sync consumer (core-elx EventWriter → CNPG) | Real-time analysis consumer (anomaly path) |
 |---|---|---|
 | Durable | yes | optional (ephemeral, or durable + short `inactive_threshold`) |
 | `deliver_policy` | `all` (catch up; no data loss) | **`new`** (live only; never replay a backlog) |
 | `ack_policy` | explicit, `max_deliver: -1` (at-least-once) | explicit or none — own cursor only |
 | Durability needed | yes — must not lose DB data | no — dropping samples during downtime is acceptable; reseeds from CAGGs |
 
+Both consume the **raw** stream **in parallel** — analysis never waits on the DB write (Decision 15).
+
 The stream's short `max_age` means the detector cannot replay a long backlog even in principle, which is why `deliver_policy: new` + CAGG cold-start is the only sane restart model (Decision 10).
 
 ### Decision 10 — Restart survival
 
-The detector's per-series windows are in-memory, so a restart must be handled explicitly:
-1. **Durable/ephemeral consumer with `deliver_policy: new`** — on reconnect it resumes live and does not replay a backlog (which the 30-min stream age forbids anyway).
-2. **Compact per-series state snapshot** persisted to a durable store (a small CNPG table or a JetStream KV bucket) on a timer + graceful shutdown: the last N window samples + running counters (consecutive-anomaly count, last-fired timestamp). On boot, restore it — exact and small (N floats per series; the window is bounded).
-3. **Cold-start fallback** for series with no snapshot (first boot, new interface): seed baseline statistics from the hourly CAGG via EmbeddedSrql and **suppress findings until the window re-warms** (the min-samples guard). A brief post-restart detection gap is acceptable and documented.
+Only the **context engine** is stateful (the reasoner is pure, Decision 14), so restart handling is confined to it:
+1. **`deliver_policy: new`** on the analysis consumer — on reconnect it resumes live and does not replay a backlog (the 30-min stream age forbids it anyway).
+2. **Per-series context checkpoint** to JetStream KV (small: last N window samples + counters + last-fired). When a Horde context-owner process is (re)placed — on restart, scale, or node-loss handoff — it **rehydrates from the KV checkpoint**, then resumes folding live KSUID-ordered updates. Because updates are KSUID-ordered and idempotent, replaying the tail after the checkpoint is safe.
+3. **Cold-start fallback** for series with no checkpoint (first boot, new interface): seed baseline statistics from the hourly CAGG via SRQL and **suppress findings until the window re-warms** (the min-samples guard). A brief post-restart/handoff detection gap is acceptable and documented.
 4. **Track 2 capacity forecasting is stateless across restarts** — it recomputes from CAGGs each run, so it has no restart concern at all.
 
 ### Decision 11 — Baseline time constants: three tiers, not one
@@ -150,18 +152,37 @@ The rolling window is deliberately **short and recent** — it is the wrong tool
 - **Three combined signals:** rolling-window z-score (sudden) · seasonal-profile deviation (off-pattern) · trend/forecast (slow exhaustion, Track 2). The detector fires on a configurable combination per metric class.
 - **Reliability guardrails:** require a minimum weeks-of-history before a bucket is trusted (fall back to the rolling window until then); use robust statistics; expose the seasonal sensitivity as a config knob (Decision 12). **Upgrade path:** STL decomposition / Holt-Winters (seasonal+trend+residual, ESD on residuals) — which also unifies with the Track 2 forecaster. **Known limitation (documented, not solved in V1):** holidays / irregular non-weekly events.
 
-### Decision 14 — Horizontal scalability: partitioned consumers, queue groups, KEDA
+### Decision 14 — Horizontal scalability: separate context from reasoning (KSUID total order + Horde)
 
-The detector is **stateful per series** (each series owns a sliding window), which dictates how it scales:
+The naive view is "the detector is stateful per series, so pin each series to one consumer (partition by series key)." That works but is rigid. The better model — and the one that fits core-elx's libcluster/Horde substrate — is to **separate context from reasoning** so the hot path is stateless:
 
-- **Stateful detector → partitioned consumers, NOT plain queue groups.** A NATS queue group round-robins messages with no affinity, which shreds a per-series window across instances. Instead **partition the metrics stream by series key** (a partition token in the subject, `hash(series_key) % N`); each detector replica owns a partition (and therefore a deterministic set of series + their windows). This is parallelism *with* affinity. **Partition count is the scaling ceiling and is hard to change later — size it generously up front.**
-- **Stateless DB-sync → queue group / shared pull consumer is fine** — no per-series state, so work-sharing across replicas is correct.
-- **KEDA autoscaling on JetStream lag:** scale replicas on consumer `num_pending` (pending messages) via the KEDA NATS JetStream scaler. KEDA is already installed and in use in the cluster (keda-operator, ScaledObjects with metrics-api triggers). Make KEDA a documented **install requirement** for ServiceRadar k8s deployments, with a static-replica fallback for non-KEDA installs.
-- **Broadway nuance:** Broadway is not a standalone pod — it is a GenStage topology inside the BEAM with its own internal concurrency and demand backpressure. So the layers are distinct: **KEDA scales the number of pods** (the standalone `rust/causal-engine` detector, or core-elx replica count); **Broadway's processor/batcher concurrency scales within a pod** via config, and KEDA must not try to drive it. KEDA is the right tool for the standalone Rust detector and for core-elx replica count; it is the wrong tool for tuning Broadway's internal stages. When scaling core-elx (Broadway DB-sync) by replicas, each replica shares the same pull consumer (queue-group semantics), and KEDA drives the replica count on lag.
+- **Reasoning is stateless and round-robinnable.** The DeepCausality NIF is a pure function `reason(context, sample) -> verdict`. It holds no resident state, so any core-elx pod can evaluate any sample. Reasoners scale by plain round-robin / queue group across all pods — **no affinity required.**
+- **The stateful surface is confined to the context engine.** Context = the small per-series state (rolling-window stats, seasonal profile, counters). The "multiple producers updating the same series' context" problem is confined here and is solved with **total temporal order via KSUID**: every context-update event carries a KSUID (k-sortable, time-ordered id); the context engine folds updates **in total temporal order**, so the result is deterministic regardless of which pod produced an update or in what order they arrived. This is event-sourcing — `context = fold(KSUID-ordered updates)` — and KSUID also gives **idempotency** (dedupe replays), making restart/replay safe.
+  - **Why KSUID, not "just use a DB transaction":** ACID transactions give *partial* (serializable) order, not a single global timeline; concurrent updates from N pods can serialize in ways that don't reflect real event time. The context fold needs **total order keyed on event time**, which a KSUID sort provides directly. This is a meaningful engineering task, not plumbing.
+- **The context engine maps onto Horde.** core-elx is already a libcluster/Horde cluster, so run **one context-owner process per series (or per shard)** under `Horde.Registry` + `Horde.DynamicSupervisor`: location-transparent (any pod routes a series' updates to its owner), **single-writer-per-series** (so the KSUID fold is enforced per series), with automatic failover/handoff on node up/down. Built on distributed Erlang/ERTS (EPMD) — you do not hand-roll term-passing. Context is small, so it can be **checkpointed to JetStream KV** (re-spawned owner rehydrates) and/or **shipped immutably in the message** to stateless reasoners.
+- **This supersedes "partition the JetStream consumer by series key."** JetStream subject partitioning can still provide ingest parallelism, but per-series ownership/ordering belongs to Horde + KSUID, which gives failover and location-transparency that static partitioning does not.
+- **KEDA autoscaling on JetStream lag:** scale **pod count** (core-elx replicas) on consumer `num_pending` via the KEDA NATS JetStream scaler. KEDA is already installed and in use (keda-operator, ScaledObjects with metrics-api triggers); make it a documented **install requirement** with a static-replica fallback for non-KEDA installs.
+- **Broadway nuance (you flagged this correctly):** Broadway is not a standalone pod — it is a GenStage topology inside the BEAM with its own internal concurrency + demand backpressure. So the layers are distinct: **KEDA scales the number of core-elx pods; Broadway's processor/batcher concurrency scales within a pod** via config, and KEDA must not try to drive Broadway's internal stages. Multiple pods share the same pull consumer (queue-group semantics) and Horde distributes series ownership across them.
 
 ### Decision 12 — Configuration lives in CNPG + settings UI, seeded from Helm
 
 All detector and forecast tuning knobs are operator-facing and MUST be editable without a redeploy: N-sigma threshold, window size/duration, confirm-slots (the "for X period"), min-samples, per-metric-class overrides (interface / RED / cpu / mem / disk), forecast horizon, warning threshold, and model choice (linear / seasonal). These are stored in **CNPG (an Ash resource)**, **seeded from Helm chart defaults on first boot**, and edited in the **settings UI**. The engine reads config from CNPG with periodic refresh / hot-reload, so changes take effect without restarting the detector. This follows the existing observability-rule-management / settings pattern; stream and consumer config (retention, subjects) remain Helm/infra-managed.
+
+### Decision 15 — Phase 0: rectify the ingestion pipeline (the prerequisite)
+
+The current pipeline is a **half-finished migration**, verified in code, with several defects this change fixes before anomaly detection is built on top:
+
+| # | Current defect (verified) | Target state |
+|---|---|---|
+| 1 | **Double-write:** for `otel_traces`/`otel_metrics`/`otel_metric_points` (and overlapping `ocsf_events`/`logs`), **both** the Go `db-event-writer` *and* core-elx EventWriter write the same rows — survivable only via identical PKs + `ON CONFLICT DO NOTHING` as a migration bridge (`otelmetricpoints.go:1-31`). | **One writer.** core-elx EventWriter (Broadway) is the **sole** CNPG persister. |
+| 2 | **`db-event-writer` (Go) is a near-dumb JetStream→CNPG persister** for six tables; an archived `rewrite-db-event-writer-elixir` already intended to replace it. | **Retire `db-event-writer`.** Finish that migration; delete the Go consumer + its config/helm. |
+| 3 | **Sysmon/host metrics bypass JetStream entirely** (gRPC `StreamStatus` → core-elx ingestors → CNPG); `db-event-writer` writes zero metrics tables. | **Sysmon + SNMP interface metrics publish to the dedicated `metrics` stream** (Decision 0/9); core-elx persists them. No direct-to-DB. |
+| 4 | **Raw→`.processed` normalization lives in a third component** (Rust `zen` rules engine): `logs.* → zen → logs.*.processed → db-event-writer → logs`. | **Keep `zen` as the normalization/rules engine, but it feeds core-elx, not a separate Go persister.** core-elx consumes the normalized subjects and is the sole writer; the third-component *persister* split is removed. (`zen` may also be folded into EventWriter passthrough engines per `add-event-writer-processor-contributions` — coordinate, don't duplicate.) |
+| 5 | **No single ingress** — collectors/rust services publish some subjects; sysmon takes gRPC; core-elx and Go both consume. | **agent-gateway is the single ingress** that publishes all telemetry raw to JetStream; everything downstream consumes from there. |
+
+On top of the clean single-writer pipeline, the **two-consumer pattern** (Marvin's "two different consumer types," not a ring buffer): both consume the **raw** stream **in parallel** with `limits` retention and independent cursors — **(a) DB-sync** (the core-elx persister) and **(b) real-time analysis** (the anomaly path). Analysis reads raw directly, **never waiting on the DB**. A ring buffer (stock-exchange style) is **rejected**: it only pays off at single-digit-microsecond latency; a DoS is not that fast and a ~5 s first-response target is fine, so the simpler two-consumer fan-out wins.
+
+This is a large, necessary refactor; it is **Phase 0** of this change (bundled per the scoping decision) and gates Phases 1–2. It is reversible per defect (each cutover is shadow → switch → delete).
 
 ## Risks / Trade-offs
 
@@ -169,19 +190,30 @@ All detector and forecast tuning knobs are operator-facing and MUST be editable 
 - **Demo metric sparsity** (flows quiet, `telemetry.>` not durable) → don't hard-depend on any one subject; CAGG cold-start makes detection useful even with thin live data; gate per-subject detection on availability.
 - **Forecast false confidence** → emit confidence intervals, require a minimum history length, and label projections as estimates; never auto-remediate off a forecast.
 - **Overlap with `add-interface-metric-thresholds`** → strictly complementary (dynamic vs static); do not author its `EventRule` requirements here.
-- **Partition-count ceiling** → too few partitions caps stateful throughput, too many wastes consumers; partition count is hard to change later. Size N generously up front and document the repartition procedure (drain → re-key → recreate consumers).
+- **db-event-writer retirement = data-path cutover** → highest-risk Phase-0 step; mitigate with shadow-write parity verification (core-elx already double-writes identical PKs) before deleting the Go consumer, per-table cutover, and a rollback path until parity is proven on all six tables.
+- **Total-order context engine is real engineering, not plumbing** → KSUID-ordered fold + idempotency must be correct under concurrent producers and restarts; ACID transactions alone do not give total order. Spec it explicitly, test reorder/replay/handoff, and keep the context small so it is cheap to ship/checkpoint.
+- **Horde operational complexity** → distributed registry/supervisor adds failure modes (split-brain, handoff races). Mitigate with KV checkpoints (owners rehydrate), per-shard (not unbounded per-series) ownership, and idempotent KSUID folds so a brief double-ownership window cannot corrupt context.
 - **Seasonal profile poisoning / cold start** → use robust statistics (median + MAD) so a past incident in the history window does not inflate the baseline; require a minimum weeks-of-history before trusting a bucket and fall back to the rolling window until warm.
 - **KEDA dependency** → autoscaling requires KEDA; provide a static-replica fallback so non-KEDA installs still function (no autoscale).
+- **Phase-0 scope size** → it is a large refactor bundled ahead of the feature; sequence behind flags, ship/verify Phase 0 before Phases 1–2, and keep each cutover reversible.
 - **bazel drift** → update BUILD files for new Rust deps/files (CI `bazel test` breaks even when `cargo`/`go test` pass).
 
 ## Migration Plan
 
-1. **Track 0 first (sysmon → JetStream), behind a cutover flag:** publish sysmon to the new subject while the gRPC `StreamStatus` write still runs (shadow); switch the CNPG writer to consume from the JetStream consumer; verify parity; remove the direct write. This is reversible at each step.
-2. Ship Track 1 detector behind a per-subject enable flag; validate on `otel.metrics.>` (always-live in demo) before enabling flow + sysmon subjects.
-3. Add the per-interface hourly rollup migration; backfill from existing raw where available (raw is only 7 d, so forecasts ramp as CAGG history accrues).
-4. Ship Track 2 forecasting cron read-only (persist + display) before wiring its verdicts into alerting.
-5. Retire the bespoke netflow capacity/anomaly placeholders once the new surfaces are live.
-6. Guarded auto-remediation is a separate later change; not in this one.
+**Phase 0 — rectify ingestion (Decision 15), each step shadow → switch → delete:**
+1. Stand up the dedicated `metrics` stream (`limits` retention). Publish sysmon + SNMP interface metrics to it while the legacy paths (gRPC `StreamStatus`, non-durable `telemetry.>`) still run in shadow.
+2. Make core-elx EventWriter the **sole** CNPG writer: for the six tables `db-event-writer` owns, verify core-elx parity (it already double-writes with identical PKs), then **retire `db-event-writer`** (delete the Go consumer, its config, helm). Confirm `zen` feeds core-elx, not the removed Go persister.
+3. Switch sysmon/SNMP ingestion to the JetStream consumer; remove the gRPC-direct CNPG writes (`results_router.ex:241` / `sysmon_metrics_ingestor.ex:216`).
+4. Route all telemetry through **agent-gateway → JetStream** as the single ingress.
+
+**Phase 1 — anomaly detection (on the clean pipeline):**
+5. Stand up the context engine (Horde owners per series, KSUID-ordered fold, KV checkpoint) + the stateless reasoner NIF; validate on `otel.metrics.>` (always-live in demo) before enabling flow + sysmon/SNMP subjects, per-subject enable flag.
+6. Add seasonal profiles (batch from CAGGs) and wire the per-sample seasonal consult.
+
+**Phase 2 — capacity forecasting:**
+7. Add the per-interface hourly rollup migration; ship the forecasting cron read-only (persist + display) before wiring verdicts into alerting.
+8. Retire the bespoke netflow capacity/anomaly placeholders once the new surfaces are live.
+9. Guarded auto-remediation is a separate later change; not in this one.
 
 ## Open Questions
 
@@ -189,4 +221,6 @@ All detector and forecast tuning knobs are operator-facing and MUST be editable 
 - Should interface anomaly baselining standardize on flow-derived bps (`flows.raw.*`) or SNMP counters (`metrics.snmp.*`) as the primary series? (Lean: flow-derived primary, SNMP secondary; both now durable.)
 - Forecast model selection per resource class — linear default with seasonal (Holt-Winters) opt-in per metric class; exposed as a config knob (Decision 12). Seasonal-baseline anomaly (Tier C, Decisions 11/13) is **in scope** — open sub-question: ship V1 with the median+MAD seasonal-profile method and treat STL/Holt-Winters as the upgrade, or start with STL? (Lean: seasonal profiles first — transparent and CAGG-friendly.)
 - Anomaly detector durability: ephemeral vs durable-with-`new`? (Lean: durable with `deliver_policy: new` + `inactive_threshold` for a stable name and clean reconnect, since it never needs backlog replay.)
-- **Partition count for the stateful detector** — the scaling ceiling, hard to change later. What initial N balances headroom vs overhead, and is the partition token a publisher concern (subject token) or a stream subject-transform? (Lean: publisher-computed `hash(series_key) % N` token in the subject; choose N generously.)
+- **Context-engine sharding granularity** — one Horde owner *per series* (simplest, most parallel, but many processes at high cardinality) vs *per shard* (`hash(series) % N` owners, fewer processes). (Lean: per-shard owners with the series as the routing key, so process count is bounded while KSUID ordering is preserved per series within a shard.)
+- **KSUID source** — stamp at the agent/publisher, at agent-gateway ingress, or derive from the metric timestamp? Total order needs a consistent monotonic-ish time source across producers. (Lean: stamp at agent-gateway ingress so there is one clock domain for the fold; carry the original sample time as a field.)
+- **db-event-writer retirement sequencing** — confirm core-elx covers 100% of the six tables (and `zen`'s `.processed` outputs) before deleting the Go consumer; is there any consumer of `db-event-writer` behavior outside these tables? (Action: audit before delete.)
