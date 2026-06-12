@@ -26,13 +26,21 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
 
     assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status())
 
-    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload}
-    assert_receive {:published, "metrics.sysmon.memory", memory_payload}
-    assert_receive {:published, "metrics.sysmon.disk", disk_payload}
-    refute_receive {:published, "metrics.sysmon.process", _payload}
+    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload, cpu_opts}
+    assert_receive {:published, "metrics.sysmon.memory", memory_payload, _memory_opts}
+    assert_receive {:published, "metrics.sysmon.disk", disk_payload, _disk_opts}
+    refute_receive {:published, "metrics.sysmon.process", _payload, _opts}
 
-    assert %{"metric_family" => "cpu", "sample" => %{"host_id" => "host-1"}} =
-             Jason.decode!(cpu_payload)
+    assert %{
+             "metric_family" => "cpu",
+             "sample" => %{"host_id" => "host-1"},
+             "ingress_id" => ingress_id,
+             "ingress_timestamp_unix_nano" => ingress_timestamp
+           } = Jason.decode!(cpu_payload)
+
+    assert ingress_id =~ uuidv8_pattern()
+    assert is_integer(ingress_timestamp)
+    assert ingress_headers(cpu_opts)
 
     assert %{"metric_family" => "memory"} = Jason.decode!(memory_payload)
     assert %{"metric_family" => "disk"} = Jason.decode!(disk_payload)
@@ -47,7 +55,7 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
 
     assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status_with_downsample_metadata())
 
-    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload}
+    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload, _opts}
 
     assert %{
              "sample" => %{
@@ -68,7 +76,7 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     )
 
     assert :disabled = SysmonMetricsPublisher.publish_sysmon(sysmon_status())
-    refute_receive {:published, _subject, _payload}
+    refute_receive {:published, _subject, _payload, _opts}
   end
 
   test "reports publish failures without raising" do
@@ -86,11 +94,12 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
 
   defmodule ConnectionStub do
     @moduledoc false
-    def publish(subject, payload, _opts) do
+    def publish(subject, payload, opts) do
       send(Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid), {
         :published,
         subject,
-        payload
+        payload,
+        opts
       })
 
       :ok
@@ -163,4 +172,22 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defp ingress_headers(opts) do
+    headers =
+      opts
+      |> Keyword.fetch!(:headers)
+      |> Map.new()
+
+    assert headers["Sr-Ingress-Id"] =~ uuidv8_pattern()
+    assert Integer.parse(headers["Sr-Ingress-Time-Unix-Nano"]) != :error
+    assert headers["Sr-Agent-Id"] == "agent-1"
+    assert headers["Sr-Gateway-Id"] == "gateway-1"
+    assert headers["Sr-Partition"] == "default"
+    assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+  end
+
+  defp uuidv8_pattern do
+    ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  end
 end

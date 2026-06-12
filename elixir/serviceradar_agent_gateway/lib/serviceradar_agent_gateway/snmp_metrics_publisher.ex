@@ -3,6 +3,8 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   Publishes SNMP interface metric samples to the high-rate metrics stream.
   """
 
+  alias ServiceRadarAgentGateway.IngressId
+
   require Logger
 
   @app :serviceradar_agent_gateway
@@ -73,10 +75,11 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
          value when not is_nil(value) <- Map.get(result, "value"),
          target_device_ip when is_binary(target_device_ip) and target_device_ip != "" <-
            target_device_ip(result) do
-      envelope = metric_envelope(status, result, metric_name, if_index, target_device_ip, value)
+      ingress_context = ingress_context(status)
+      envelope = metric_envelope(status, result, metric_name, if_index, target_device_ip, value, ingress_context)
 
       case Jason.encode(envelope) do
-        {:ok, encoded} -> {:ok, {subject(metric_name), encoded}}
+        {:ok, encoded} -> {:ok, {subject(metric_name), encoded, ingress_context}}
         {:error, reason} -> {:error, {:encode_failed, metric_name, reason}}
       end
     else
@@ -86,25 +89,28 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
 
   defp encode_message(_status, _result), do: {:ok, nil}
 
-  defp metric_envelope(status, result, metric_name, if_index, target_device_ip, value) do
-    %{
-      "schema" => "serviceradar.snmp.interface_metric.v1",
-      "source" => "snmp-metrics",
-      "timestamp" => Map.get(result, "timestamp") || status[:agent_timestamp] || status[:timestamp],
-      "gateway_id" => status[:gateway_id],
-      "agent_id" => status[:agent_id],
-      "partition" => status[:partition],
-      "metric_name" => metric_name,
-      "metric_type" => "snmp",
-      "value" => value,
-      "unit" => Map.get(result, "unit"),
-      "scale" => Map.get(result, "scale"),
-      "is_delta" => Map.get(result, "delta") || Map.get(result, "is_delta") || false,
-      "target_device_ip" => target_device_ip,
-      "if_index" => if_index,
-      "tags" => tags(result, target_device_ip, metric_name),
-      "metadata" => metadata(status, result)
-    }
+  defp metric_envelope(status, result, metric_name, if_index, target_device_ip, value, ingress_context) do
+    IngressId.put_payload_metadata(
+      %{
+        "schema" => "serviceradar.snmp.interface_metric.v1",
+        "source" => "snmp-metrics",
+        "timestamp" => Map.get(result, "timestamp") || status[:agent_timestamp] || status[:timestamp],
+        "gateway_id" => status[:gateway_id],
+        "agent_id" => status[:agent_id],
+        "partition" => status[:partition],
+        "metric_name" => metric_name,
+        "metric_type" => "snmp",
+        "value" => value,
+        "unit" => Map.get(result, "unit"),
+        "scale" => Map.get(result, "scale"),
+        "is_delta" => Map.get(result, "delta") || Map.get(result, "is_delta") || false,
+        "target_device_ip" => target_device_ip,
+        "if_index" => if_index,
+        "tags" => tags(result, target_device_ip, metric_name),
+        "metadata" => metadata(status, result)
+      },
+      ingress_context
+    )
   end
 
   defp metric_name(result) do
@@ -162,11 +168,12 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   defp publish_messages(messages, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
     subject_prefix = Keyword.get(config, :subject_prefix, @default_subject_prefix)
-    headers = Keyword.get(config, :headers, [])
+    configured_headers = Keyword.get(config, :headers, [])
 
     errors =
-      Enum.reduce(messages, [], fn {subject, payload}, acc ->
+      Enum.reduce(messages, [], fn {subject, payload, ingress_context}, acc ->
         subject = String.replace_prefix(subject, @default_subject_prefix, subject_prefix)
+        headers = configured_headers ++ IngressId.headers(ingress_context)
 
         case connection.publish(subject, payload, headers: headers) do
           :ok -> acc
@@ -214,5 +221,19 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
     )
 
     error
+  end
+
+  defp ingress_context(status) do
+    ingress_time = System.system_time(:nanosecond)
+    agent_id = status[:agent_id]
+
+    %{
+      ingress_time_unix_nano: ingress_time,
+      ingress_id: IngressId.new(ingress_time),
+      agent_id: agent_id,
+      gateway_id: status[:gateway_id],
+      partition: status[:partition],
+      ingest_identity: if(agent_id, do: "agent:" <> to_string(agent_id))
+    }
   end
 end

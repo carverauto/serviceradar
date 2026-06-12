@@ -59,23 +59,17 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisherTest do
                ])
              )
 
-    expected_headers = [
-      {"Sr-Agent-Id", "agent-1"},
-      {"Sr-Partition", "prod-east"},
-      {"Sr-Ingest-Identity", "agent:agent-1"}
-    ]
-
     assert_receive {:published, "otel.traces.raw", ^traces_payload, traces_opts}
-    assert Keyword.get(traces_opts, :headers) == expected_headers
+    assert_relay_headers(traces_opts)
 
     assert_receive {:published, "logs.otel", ^logs_payload, logs_opts}
-    assert Keyword.get(logs_opts, :headers) == expected_headers
+    assert_relay_headers(logs_opts)
 
     assert_receive {:published, "otel.metrics.raw", ^metrics_payload, metrics_opts}
-    assert Keyword.get(metrics_opts, :headers) == expected_headers
+    assert_relay_headers(metrics_opts)
 
     assert_receive {:published, "otel.metrics.derived", ^derived_payload, derived_opts}
-    assert Keyword.get(derived_opts, :headers) == expected_headers
+    assert_relay_headers(derived_opts)
 
     refute_receive {:published, _subject, _payload, _opts}
   end
@@ -184,6 +178,24 @@ defmodule ServiceRadarAgentGateway.OtlpRelayPublisherTest do
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defp assert_relay_headers(opts) do
+    headers =
+      opts
+      |> Keyword.fetch!(:headers)
+      |> Map.new()
+
+    assert headers["Sr-Agent-Id"] == "agent-1"
+    assert headers["Sr-Gateway-Id"] == "gateway-1"
+    assert headers["Sr-Partition"] == "prod-east"
+    assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+    assert headers["Sr-Ingress-Id"] =~ uuidv8_pattern()
+    assert Integer.parse(headers["Sr-Ingress-Time-Unix-Nano"]) != :error
+  end
+
+  defp uuidv8_pattern do
+    ~r/^[0-9a-f]{8}-[0-9a-f]{4}-8[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/
+  end
 
   defmodule TestConnection do
     @moduledoc false

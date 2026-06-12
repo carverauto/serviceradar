@@ -277,15 +277,28 @@ defmodule ServiceRadarAgentGateway.Application do
   end
 
   defp nats_connection_child do
-    opts = Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher, [])
-
-    if Keyword.get(opts, :enabled, false) do
+    if gateway_publisher_enabled?() do
       if Process.whereis(ServiceRadar.NATS.Connection.connection_name()) do
         nil
       else
         ServiceRadar.NATS.Supervisor
       end
     end
+  end
+
+  defp gateway_publisher_enabled? do
+    Enum.any?(
+      [
+        :sysmon_metrics_publisher,
+        :snmp_metrics_publisher,
+        :otlp_relay_publisher
+      ],
+      fn key ->
+        :serviceradar_agent_gateway
+        |> Application.get_env(key, [])
+        |> Keyword.get(:enabled, false)
+      end
+    )
   end
 
   defp process_registry_child do
