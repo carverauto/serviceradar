@@ -33,7 +33,9 @@ So **use case (a) interface bandwidth has a live stream today**; **use case (b) 
 **Goals**
 - Real-time, per-series statistical anomaly detection on live metric streams, with learned baselines (no per-interface manual thresholds).
 - Sustained-surge confirmation that does not self-mask under a prolonged flood.
+- **Seasonal-aware detection** — answer "is this abnormal for a Tuesday 9am?" via per-series day-of-week × hour-of-day profiles, consulted in real time.
 - Capacity forecasting with *time-to-exhaustion* over a multi-month horizon.
+- **Horizontally scalable, stateful consumers** — partitioned by series key, autoscaled on queue pressure (KEDA).
 - Reuse the existing causal-engine emission spine and alert pipeline end-to-end.
 
 **Non-Goals**
@@ -69,7 +71,11 @@ The control loop uses the `CausalFlow` Flow DSL conceptually (`bind(analyze) -> 
 
 The asymmetry above is treated as a **defect to fix, not a constraint to design around**. The platform rule (codified in `AGENTS.md` Hard Rules and `openspec/project.md`): **every metric source publishes to NATS JetStream first and is persisted into CNPG by the `event_writer` consumer pipeline; nothing writes metrics directly to the database.** A metric that lands straight in a hypertable is invisible to real-time consumers (anomaly detection, the causal engine) until queried back out — that is the whole problem.
 
-**Track 0 migrates sysmon** cpu/mem/disk/process off the gRPC `StreamStatus` direct-to-DB path (`push_loop_status.go:118` → `results_router.ex:241` → `sysmon_metrics_ingestor.ex:216`) onto a `telemetry.*` / `metrics.sysmon.*` JetStream subject + a new `event_writer` processor, the same shape interface/flow/OTel metrics already use. The direct CNPG write is retired; core ingests sysmon from the JetStream consumer instead. This is a prerequisite, sequenced first, behind a cutover flag (publish-and-shadow → switch the writer → remove the gRPC write).
+**Track 0 covers every metric source not already durably on JetStream**, onto a **dedicated `metrics` stream** (subjects `metrics.>`; `limits` retention — see Decision 9):
+- **Sysmon** cpu/mem/disk/process — migrate off the gRPC `StreamStatus` direct-to-DB path (`push_loop_status.go:118` → `results_router.ex:241` → `sysmon_metrics_ingestor.ex:216`) onto `metrics.sysmon.*` + a new `event_writer` processor; retire the direct CNPG write; core ingests from the JetStream consumer instead.
+- **SNMP interface telemetry** — verified **not durable on JetStream today** (`telemetry.>` is on no stream; a live `nats sub` returned nothing). Route SNMP interface counters (ifHCInOctets/ifHCOutOctets with `if_index`) onto `metrics.snmp.*` so interface anomaly detection has a reliable live feed and the data is durably persisted by the DB-sync consumer.
+
+Each is sequenced behind a cutover flag (publish-and-shadow → switch the writer → remove any legacy path). Flow/OTel metrics already on the `events`/`attributed_flow` streams may migrate onto the dedicated `metrics` stream over time for consistency, but that migration is not required by this change.
 
 ### Decision 3 — Stream feeds (after Track 0)
 
@@ -100,12 +106,72 @@ Add to `rust/causal-engine/Cargo.toml`: `deep_causality_core` (monad + `CausalFl
 
 V1 is **detect-and-alert only**. The example's `intervene` (THROTTLE_ON) arm maps to a future guarded-remediation phase governed by the TCAS-style discipline (the "arity-5" = 5 `PropagatingProcess` channels: Value·State·Context·Error·Log): (1) trigger/score, (2) persistence/duration gate, (3) already-acting interlock, (4) clamp the action to a safe envelope, (5) audit-log every override. Any auto-action ships behind a feature flag with these five gates specified before enablement.
 
+### Decision 9 — Dedicated metrics stream + consumer fan-out (the ack model)
+
+**A dedicated `metrics` JetStream stream** (subjects `metrics.>`, e.g. `metrics.sysmon.*`, `metrics.snmp.*`, with flow/otel metrics migrating onto it over time) is the target for Track 0. It **MUST use `limits` (or `interest`) retention — never `workqueue`.** This is load-bearing: JetStream consumers are independent fan-out views, each with its own cursor, and under `limits` retention **an ack only advances that consumer's position; it does not delete the message.** So multiple durable consumers each receive every message.
+
+Verified live on the existing `events` stream (`retention: limits`, `discard: old`, `max_age: 1800s`): `db-event-writer` (durable, `ack_policy: explicit`, `deliver_policy: all`, `max_deliver: -1`) **and** `serviceradar-event-writer-otel-metrics` (durable, explicit ack) **both consume `otel.metrics.>` independently today.** The anomaly detector is simply a third independent consumer — its ack has zero effect on the DB-sync consumer, which keeps its own cursor and syncs to CNPG regardless. A `workqueue` stream (delete-on-first-ack) would break this and is forbidden for metrics.
+
+Two consumer profiles, by job:
+
+| | DB-sync consumer (persist to CNPG) | Anomaly detector consumer |
+|---|---|---|
+| Durable | yes | optional (ephemeral, or durable + short `inactive_threshold`) |
+| `deliver_policy` | `all` (catch up; no data loss) | **`new`** (live only; never replay a backlog) |
+| `ack_policy` | explicit, `max_deliver: -1` (at-least-once) | explicit or none — own cursor only |
+| Durability needed | yes — must not lose DB data | no — dropping samples during downtime is acceptable; reseeds from CAGGs |
+
+The stream's short `max_age` means the detector cannot replay a long backlog even in principle, which is why `deliver_policy: new` + CAGG cold-start is the only sane restart model (Decision 10).
+
+### Decision 10 — Restart survival
+
+The detector's per-series windows are in-memory, so a restart must be handled explicitly:
+1. **Durable/ephemeral consumer with `deliver_policy: new`** — on reconnect it resumes live and does not replay a backlog (which the 30-min stream age forbids anyway).
+2. **Compact per-series state snapshot** persisted to a durable store (a small CNPG table or a JetStream KV bucket) on a timer + graceful shutdown: the last N window samples + running counters (consecutive-anomaly count, last-fired timestamp). On boot, restore it — exact and small (N floats per series; the window is bounded).
+3. **Cold-start fallback** for series with no snapshot (first boot, new interface): seed baseline statistics from the hourly CAGG via EmbeddedSrql and **suppress findings until the window re-warms** (the min-samples guard). A brief post-restart detection gap is acceptable and documented.
+4. **Track 2 capacity forecasting is stateless across restarts** — it recomputes from CAGGs each run, so it has no restart concern at all.
+
+### Decision 11 — Baseline time constants: three tiers, not one
+
+The rolling window is deliberately **short and recent** — it is the wrong tool for slow trends or seasonality, and that is by design, not a gap:
+
+- **Tier A — streaming spike detection (Track 1):** bounded rolling window, **minutes to tens of minutes**, in-memory. `baseline_duration = window_size × sample_interval`; at sysmon's 10–60 s cadence, ~30 samples = 5–30 min. Enforce a **min-samples floor (~20–30)** so the mean/variance are statistically stable (too short → noisy baseline → inflated threshold → missed spikes). This catches *sudden* surges (DoS, runaway process) well. The "baseline exceeded for X period" is a **separate knob** — the M-consecutive-slot confirmation (`M × interval`) — not the baseline length.
+- **Tier B — capacity forecasting (Track 2):** weeks–months from the CAGGs, batch. Catches *slow ramps* toward exhaustion that any short-window detector misses (boiling-frog).
+- **Tier C — seasonal-baseline anomaly (IN SCOPE — see Decision 13):** "abnormal vs the same hour last week." A short rolling z-score cannot do this (a normal Monday-9am ramp false-positives against a 5-min window). The seasonal profile is the right structure and is consulted by the streaming detector per-sample, not just a delayed batch pass.
+
+**Is the rolling window long enough for cpu/mem/disk/interface spikes?** For sudden spikes, yes — when window length is configurable per metric class and respects the min-samples floor. It is intentionally not long enough for slow trends (→ Tier B) or seasonal context (→ Tier C). The detector combines all three signals.
+
+### Decision 13 — Seasonal-baseline detection (first-class)
+
+"Is this abnormal for a Tuesday 9am?" requires modeling periodic seasonality, which the rolling window cannot. Approach:
+
+- **Seasonal profile per series, keyed by (day-of-week × hour-of-day)** — 168 buckets. Each bucket holds a **robust** center and spread (**median + MAD**, not mean/σ, so a past incident in the history does not poison the profile). Profiles are computed from the **hourly CAGGs** over the last K weeks (395-day CAGG retention ≈ 56 weeks — ample for stable weekly seasonality).
+- **Computed in batch** (refreshed ~daily), persisted to CNPG, and **consulted by the streaming detector per-sample as a second baseline.** A live sample is scored against both the short rolling window (sudden) and the seasonal bucket (off-pattern), so seasonal awareness is real-time, not a delayed batch verdict. The same profile also supports a standalone batch seasonal evaluation.
+- **Three combined signals:** rolling-window z-score (sudden) · seasonal-profile deviation (off-pattern) · trend/forecast (slow exhaustion, Track 2). The detector fires on a configurable combination per metric class.
+- **Reliability guardrails:** require a minimum weeks-of-history before a bucket is trusted (fall back to the rolling window until then); use robust statistics; expose the seasonal sensitivity as a config knob (Decision 12). **Upgrade path:** STL decomposition / Holt-Winters (seasonal+trend+residual, ESD on residuals) — which also unifies with the Track 2 forecaster. **Known limitation (documented, not solved in V1):** holidays / irregular non-weekly events.
+
+### Decision 14 — Horizontal scalability: partitioned consumers, queue groups, KEDA
+
+The detector is **stateful per series** (each series owns a sliding window), which dictates how it scales:
+
+- **Stateful detector → partitioned consumers, NOT plain queue groups.** A NATS queue group round-robins messages with no affinity, which shreds a per-series window across instances. Instead **partition the metrics stream by series key** (a partition token in the subject, `hash(series_key) % N`); each detector replica owns a partition (and therefore a deterministic set of series + their windows). This is parallelism *with* affinity. **Partition count is the scaling ceiling and is hard to change later — size it generously up front.**
+- **Stateless DB-sync → queue group / shared pull consumer is fine** — no per-series state, so work-sharing across replicas is correct.
+- **KEDA autoscaling on JetStream lag:** scale replicas on consumer `num_pending` (pending messages) via the KEDA NATS JetStream scaler. KEDA is already installed and in use in the cluster (keda-operator, ScaledObjects with metrics-api triggers). Make KEDA a documented **install requirement** for ServiceRadar k8s deployments, with a static-replica fallback for non-KEDA installs.
+- **Broadway nuance:** Broadway is not a standalone pod — it is a GenStage topology inside the BEAM with its own internal concurrency and demand backpressure. So the layers are distinct: **KEDA scales the number of pods** (the standalone `rust/causal-engine` detector, or core-elx replica count); **Broadway's processor/batcher concurrency scales within a pod** via config, and KEDA must not try to drive it. KEDA is the right tool for the standalone Rust detector and for core-elx replica count; it is the wrong tool for tuning Broadway's internal stages. When scaling core-elx (Broadway DB-sync) by replicas, each replica shares the same pull consumer (queue-group semantics), and KEDA drives the replica count on lag.
+
+### Decision 12 — Configuration lives in CNPG + settings UI, seeded from Helm
+
+All detector and forecast tuning knobs are operator-facing and MUST be editable without a redeploy: N-sigma threshold, window size/duration, confirm-slots (the "for X period"), min-samples, per-metric-class overrides (interface / RED / cpu / mem / disk), forecast horizon, warning threshold, and model choice (linear / seasonal). These are stored in **CNPG (an Ash resource)**, **seeded from Helm chart defaults on first boot**, and edited in the **settings UI**. The engine reads config from CNPG with periodic refresh / hot-reload, so changes take effect without restarting the detector. This follows the existing observability-rule-management / settings pattern; stream and consumer config (retention, subjects) remain Helm/infra-managed.
+
 ## Risks / Trade-offs
 
 - **Per-series memory at scale** → bounded `ArrayStorage` windows + a per-series cap + LRU eviction of idle series; document the working-set sizing.
 - **Demo metric sparsity** (flows quiet, `telemetry.>` not durable) → don't hard-depend on any one subject; CAGG cold-start makes detection useful even with thin live data; gate per-subject detection on availability.
 - **Forecast false confidence** → emit confidence intervals, require a minimum history length, and label projections as estimates; never auto-remediate off a forecast.
 - **Overlap with `add-interface-metric-thresholds`** → strictly complementary (dynamic vs static); do not author its `EventRule` requirements here.
+- **Partition-count ceiling** → too few partitions caps stateful throughput, too many wastes consumers; partition count is hard to change later. Size N generously up front and document the repartition procedure (drain → re-key → recreate consumers).
+- **Seasonal profile poisoning / cold start** → use robust statistics (median + MAD) so a past incident in the history window does not inflate the baseline; require a minimum weeks-of-history before trusting a bucket and fall back to the rolling window until warm.
+- **KEDA dependency** → autoscaling requires KEDA; provide a static-replica fallback so non-KEDA installs still function (no autoscale).
 - **bazel drift** → update BUILD files for new Rust deps/files (CI `bazel test` breaks even when `cargo`/`go test` pass).
 
 ## Migration Plan
@@ -119,6 +185,8 @@ V1 is **detect-and-alert only**. The example's `intervene` (THROTTLE_ON) arm map
 
 ## Open Questions
 
-- Should interface anomaly baselining standardize on flow-derived bps (`flows.raw.*`) or SNMP counters (`telemetry.>`) as the primary series, given `telemetry.>` is not durable in demo? (Lean: flow-derived primary, SNMP secondary.)
-- Forecast model selection per resource class — is linear-trend sufficient for disk runway while interface/cpu need seasonal Holt-Winters, or do we want one configurable model? (Lean: linear default, seasonal opt-in per metric class.)
-- Sysmon subject naming and stream placement: reuse `telemetry.*` (and add it as a durable subject on the `events` stream, which it is not today) vs a dedicated `metrics.sysmon.*` subject/stream? (Lean: dedicated `metrics.sysmon.*` with explicit stream config so retention/limits are tuned for high-rate host metrics.) Coordinate the agent-side aggregation with `update-sysmon-downsampling` so it lands on the publish path, not the gRPC path.
+- **RESOLVED — dedicated metrics stream:** Track 0 publishes to a dedicated `metrics` JetStream stream (`metrics.>`, `limits` retention), not the `events` stream and not the non-durable `telemetry.>`. Both sysmon (`metrics.sysmon.*`) and SNMP interface telemetry (`metrics.snmp.*`) land here. Coordinate agent-side aggregation with `update-sysmon-downsampling` so it lands on the publish path, not the gRPC path.
+- Should interface anomaly baselining standardize on flow-derived bps (`flows.raw.*`) or SNMP counters (`metrics.snmp.*`) as the primary series? (Lean: flow-derived primary, SNMP secondary; both now durable.)
+- Forecast model selection per resource class — linear default with seasonal (Holt-Winters) opt-in per metric class; exposed as a config knob (Decision 12). Seasonal-baseline anomaly (Tier C, Decisions 11/13) is **in scope** — open sub-question: ship V1 with the median+MAD seasonal-profile method and treat STL/Holt-Winters as the upgrade, or start with STL? (Lean: seasonal profiles first — transparent and CAGG-friendly.)
+- Anomaly detector durability: ephemeral vs durable-with-`new`? (Lean: durable with `deliver_policy: new` + `inactive_threshold` for a stable name and clean reconnect, since it never needs backlog replay.)
+- **Partition count for the stateful detector** — the scaling ceiling, hard to change later. What initial N balances headroom vs overhead, and is the partition token a publisher concern (subject token) or a stream subject-transform? (Lean: publisher-computed `hash(series_key) % N` token in the subject; choose N generously.)
