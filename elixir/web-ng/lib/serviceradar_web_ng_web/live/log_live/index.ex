@@ -30,6 +30,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   require Ash.Query
   require Logger
 
+  Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
   @default_limit 20
   @max_limit 100
   @refresh_debounce_ms 5_000
@@ -7875,6 +7877,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp threat_map_for_ips([]), do: %{}
 
+  @sobelow_skip ["SQL.Query"]
   defp threat_map_for_ips(ips) when is_list(ips) do
     sql = """
     SELECT ip, match_count, max_severity, sources

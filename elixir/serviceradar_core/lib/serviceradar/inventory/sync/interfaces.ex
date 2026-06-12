@@ -27,31 +27,27 @@ defmodule ServiceRadar.Inventory.Sync.Interfaces do
        when is_map(interface) do
     interface_uid = interface_uid(interface, index)
 
-    if interface_uid == "" do
-      nil
-    else
-      %{
-        timestamp: timestamp,
-        device_id: device_id,
-        interface_uid: interface_uid,
-        agent_id: update.agent_id,
-        gateway_id: update.gateway_id,
-        partition: update.partition || "default",
-        device_ip: update.ip,
-        if_name: interface_string(interface, ["name", :name]),
-        if_descr: interface_string(interface, ["description", :description]),
-        if_alias: interface_string(interface, ["alias", :alias]),
-        if_phys_address: interface_string(interface, ["mac_address", :mac_address, "mac", :mac]),
-        ip_addresses: interface_ip_addresses(interface),
-        if_type_name: interface_string(interface, ["type", :type]),
-        interface_kind: infer_interface_kind(interface),
-        classifications: ["sync"],
-        classification_meta: %{},
-        classification_source: "sync",
-        metadata: build_interface_metadata(interface),
-        created_at: timestamp
-      }
-    end
+    %{
+      timestamp: timestamp,
+      device_id: device_id,
+      interface_uid: interface_uid,
+      agent_id: update.agent_id,
+      gateway_id: update.gateway_id,
+      partition: update.partition || "default",
+      device_ip: update.ip,
+      if_name: interface_string(interface, ["name", :name]),
+      if_descr: interface_string(interface, ["description", :description]),
+      if_alias: interface_string(interface, ["alias", :alias]),
+      if_phys_address: interface_string(interface, ["mac_address", :mac_address, "mac", :mac]),
+      ip_addresses: interface_ip_addresses(interface),
+      if_type_name: interface_string(interface, ["type", :type]),
+      interface_kind: infer_interface_kind(interface),
+      classifications: ["sync"],
+      classification_meta: %{},
+      classification_source: "sync",
+      metadata: build_interface_metadata(interface),
+      created_at: timestamp
+    }
   end
 
   defp build_interface_record(_update, _device_id, _interface, _index, _timestamp), do: nil

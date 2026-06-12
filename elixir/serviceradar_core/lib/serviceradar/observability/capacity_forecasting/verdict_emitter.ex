@@ -159,8 +159,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       5 -> 90
       4 -> 75
       3 -> 55
-      2 -> 35
-      _ -> 20
     end
   end
 
