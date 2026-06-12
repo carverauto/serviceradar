@@ -1,0 +1,15 @@
+[package]
+name = "causal_reasoner_nif"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "causal_reasoner_nif"
+crate-type = ["cdylib"]
+
+[dependencies]
+deep_causality_core = "0.10.0"
+deep_causality_data_structures = "0.10.14"
+rustler = "0.37"
+
+[workspace]
