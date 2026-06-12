@@ -39,6 +39,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         snmp_profile_seeder_child(),
         role_profile_seeder_child(),
         mtr_settings_seeder_child(),
+        anomaly_config_seeder_child(),
         bumblebee_catalog_source_seeder_child(),
         bumblebee_addon_package_seeder_child(),
         netprobe_addon_package_seeder_child(),
@@ -154,6 +155,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp mtr_settings_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Observability.MtrSettingsSeeder
+    end
+  end
+
+  defp anomaly_config_seeder_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Observability.AnomalyConfigSeeder
     end
   end
 

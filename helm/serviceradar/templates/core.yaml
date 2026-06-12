@@ -34,6 +34,8 @@
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
 {{- $ansibleVals := default (dict) $coreVals.ansible -}}
+{{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
+{{- $capacityForecastConfig := default (dict) $coreVals.capacityForecastConfig -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
 {{- $deviceEnrichmentFsOverrides := default (dict) $deviceEnrichment.filesystemOverrides -}}
@@ -284,6 +286,30 @@ spec:
           value: {{ default 5 $obanQueues.integrations | quote }}
         - name: OBAN_QUEUE_NATS_ACCOUNTS
           value: {{ default 3 $obanQueues.natsAccounts | quote }}
+        - name: SERVICERADAR_ANOMALY_N_SIGMA
+          value: {{ default 3.0 $anomalyConfig.nSigma | quote }}
+        - name: SERVICERADAR_ANOMALY_WINDOW_SIZE
+          value: {{ default 300 $anomalyConfig.windowSize | quote }}
+        - name: SERVICERADAR_ANOMALY_WINDOW_DURATION_SECONDS
+          value: {{ default 900 $anomalyConfig.windowDurationSeconds | quote }}
+        - name: SERVICERADAR_ANOMALY_CONFIRM_SLOTS
+          value: {{ default 5 $anomalyConfig.confirmSlots | quote }}
+        - name: SERVICERADAR_ANOMALY_MIN_SAMPLES
+          value: {{ default 30 $anomalyConfig.minSamples | quote }}
+        - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
+          value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
+          value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
+          value: {{ default 2592000 $capacityForecastConfig.warningHorizonSeconds | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT
+          value: {{ default 80.0 $capacityForecastConfig.warningThresholdPercent | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL
+          value: {{ default "linear" $capacityForecastConfig.model | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MINIMUM_HISTORY_POINTS
+          value: {{ default 72 $capacityForecastConfig.minimumHistoryPoints | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON
+          value: {{ default (dict) $capacityForecastConfig.metricClassOverrides | toJson | quote }}
         - name: SYNC_INGESTOR_BATCH_CONCURRENCY
           value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
         - name: SYNC_INGESTOR_COALESCE_MS
