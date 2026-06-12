@@ -10,8 +10,9 @@ defmodule ServiceRadar.Infrastructure.HealthTracker do
   - **Service heartbeats** - Core, Web, and other Elixir services self-reporting
   - **Manual updates** - Admin/operator actions
 
-  Health events are persisted to `health_events`, published as `logs.internal.*`
-  payloads on NATS for promotion, and broadcast via PubSub topics.
+  Health events are persisted to `health_events`, persisted as `logs.internal.*`
+  payloads for promotion, optionally published as `live.logs.internal.*` for
+  live subscribers, and broadcast via PubSub topics.
 
   ## Architecture
 

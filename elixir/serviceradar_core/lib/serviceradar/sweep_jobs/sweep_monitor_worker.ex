@@ -4,7 +4,7 @@ defmodule ServiceRadar.SweepJobs.SweepMonitorWorker do
 
   Runs periodically to check if any enabled sweep groups haven't received
   results within their expected interval plus a grace period. When a missed
-  sweep is detected, it publishes an internal log to `logs.internal.sweep`
+  sweep is detected, it persists an internal log to `logs.internal.sweep`
   which can be promoted to an event and potentially trigger alerts via
   the StatefulAlertRule system.
 

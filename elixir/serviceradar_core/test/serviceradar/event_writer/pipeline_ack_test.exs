@@ -136,4 +136,25 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
                Pipeline.handle_message(:default, message, %{})
     end
   end
+
+  test "does not declare a flow.attributed read-back batcher" do
+    config = %Config{
+      enabled: true,
+      nats: %{},
+      batch_size: 100,
+      batch_timeout: 1_000,
+      consumer_name: "test-consumer",
+      streams: Config.default_streams()
+    }
+
+    refute :attributed_flow in Pipeline.configured_batcher_names(config)
+
+    message = %Message{
+      data: "",
+      metadata: %{subject: "flow.attributed.default"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+
+    assert %Message{batcher: :default} = Pipeline.handle_message(:default, message, %{})
+  end
 end

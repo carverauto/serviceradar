@@ -107,7 +107,7 @@ defmodule ServiceRadar.FlowAttribution.EventRows do
   defp key_part(nil), do: ""
   defp key_part(value), do: to_string(value)
 
-  # IANA protocol numbers (mirrors AttributedFlowJoiner.transport_to_proto).
+  # IANA protocol numbers.
   defp transport_to_proto(transport) when is_binary(transport) do
     case String.downcase(transport) do
       "tcp" -> 6

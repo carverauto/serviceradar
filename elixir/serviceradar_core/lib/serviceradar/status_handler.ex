@@ -6,23 +6,17 @@ defmodule ServiceRadar.StatusHandler do
 
   When `source == "flow-attribution"` the status message carries a
   `Netprobepb.FlowAttributionEventBatch` payload drained by the agent's
-  netprobe sidecar. Each contained `FlowAttributionEvent` is routed into
-  `ServiceRadar.EventWriter.AttributedFlowJoiner.put_attribution/3` for the
-  5-tuple join with host-slice flow records. The partition we tag the
-  attribution with is the partition the agent-gateway derived from the mTLS
-  certificate (carried as `status[:partition]`) — agent-claimed values cannot
-  influence the published subject.
+  netprobe sidecar. Each contained `FlowAttributionEvent` is written to CNPG
+  with the gateway-derived partition and agent identity; the in-cluster
+  correlation worker joins it against collected flow rows without publishing a
+  `flow.attributed.*` read-back message.
   """
 
   use GenServer
 
-  alias Netprobepb.FlowAttributionEvent
   alias Netprobepb.FlowAttributionEventBatch
   alias Serviceradar.Agent.Addon.V1.TelemetryBatch
-  alias Serviceradar.Agent.Addon.V1.TelemetryCounters
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
-  alias ServiceRadar.EventWriter.AttributedFlowJoiner
-  alias ServiceRadar.EventWriter.SignalTelemetry
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
   alias ServiceRadar.ResultsRouter
@@ -31,20 +25,12 @@ defmodule ServiceRadar.StatusHandler do
 
   @flow_attribution_source "flow-attribution"
   @workload_identity_source "workload-identity"
-  @otlp_relay_source "otlp-relay"
   @addon_source_prefix "addon:"
   @plugin_source_prefix "plugin:"
   @addon_ocsf_subject "pdns.ocsf"
   @addon_otel_log_subject "logs.otel.addon"
   @plugin_ocsf_subject "events.ocsf.processed"
   @plugin_otel_log_subject "logs.otel.plugin"
-  # OTLP relay republish subjects, keyed by TelemetryPayloadKind. Each relay
-  # record payload is one ready-to-publish OTLP protobuf chunk (1 record =
-  # 1 NATS message, verbatim payload).
-  @otlp_relay_traces_subject "otel.traces.raw"
-  @otlp_relay_logs_subject "logs.otel"
-  @otlp_relay_metrics_subject "otel.metrics.raw"
-  @otlp_relay_derived_metrics_subject "otel.metrics.derived"
   @signal_schema_metadata_keys %{
     producer_id: "serviceradar.signal_schema.producer_id",
     producer_version: "serviceradar.signal_schema.producer_version",
@@ -71,8 +57,6 @@ defmodule ServiceRadar.StatusHandler do
     :attributed_flow,
     :batch_decode_failed
   ]
-  @telemetry_otlp_relay_spool [:serviceradar, :otlp_relay, :spool]
-  @telemetry_otlp_relay_rejected [:serviceradar, :otlp_relay, :record_rejected]
 
   def start_link(_opts) do
     GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
@@ -153,16 +137,6 @@ defmodule ServiceRadar.StatusHandler do
     ServiceRadar.WorkloadIdentity.persist_snapshot(status)
   end
 
-  # Edge OTLP relay: the status message is a marshaled TelemetryBatch whose
-  # records each carry one ready-to-publish OTLP protobuf chunk. The return
-  # value is a real {:ok|:error, _} because the gateway forwards relay
-  # statuses synchronously and NACKs the agent on failure (the agent then
-  # retries from its edge spool).
-  defp process(%{source: source} = status, _opts)
-       when source in [@otlp_relay_source, :otlp_relay] do
-    handle_otlp_relay(status)
-  end
-
   defp process(%{source: @addon_source_prefix <> addon_id} = status, _opts) do
     handle_package_telemetry(status, :addon, addon_id)
   end
@@ -194,18 +168,10 @@ defmodule ServiceRadar.StatusHandler do
           %{partition_id: partition_id, agent_id: agent_id}
         )
 
-        Enum.each(events || [], fn
-          %FlowAttributionEvent{} = event ->
-            AttributedFlowJoiner.put_attribution(event, partition_id, agent_id: agent_id)
-
-          _ ->
-            :ok
-        end)
-
         # Persist the pushed attributions to CNPG so the correlation worker can
         # join them against collected NetFlow into attributed_flow rows. NetFlow
         # stays the flow source; netprobe only supplies the process context.
-        ServiceRadar.FlowAttribution.persist(events || [], partition_id, agent_id)
+        persist_flow_attribution(events || [], partition_id, agent_id)
 
         :ok
 
@@ -239,146 +205,19 @@ defmodule ServiceRadar.StatusHandler do
 
   defp decode_batch(_), do: :error
 
-  defp handle_otlp_relay(status) do
-    # Attribution headers come from the GATEWAY-AUTHENTICATED view only:
-    # status[:partition]/status[:agent_id] are derived from the agent's mTLS
-    # certificate by the gateway. Nothing inside the payload (batch source,
-    # record metadata) may influence the stamped identity.
-    partition_id = status[:partition] || "default"
-    agent_id = to_string(status[:agent_id] || "")
-    message = status[:message]
-
-    case decode_addon_telemetry_batch(message) do
-      {:ok, %TelemetryBatch{} = batch} ->
-        emit_otlp_relay_spool_counters(batch.counters, partition_id, agent_id)
-
-        publish_otlp_relay_records(
-          batch.records || [],
-          otlp_relay_headers(partition_id, agent_id),
-          %{partition_id: partition_id, agent_id: agent_id}
-        )
-
-      :error ->
-        Logger.warning(
-          "StatusHandler: failed to decode otlp-relay TelemetryBatch",
-          partition_id: partition_id,
-          agent_id: agent_id,
-          message_size: byte_size_or_nil(message)
-        )
-
-        {:error, :otlp_relay_decode_failed}
+  defp persist_flow_attribution(events, partition_id, agent_id) do
+    case flow_attribution_persister() do
+      {mod, fun, extra_args} -> apply(mod, fun, [events, partition_id, agent_id | extra_args])
+      fun when is_function(fun, 3) -> fun.(events, partition_id, agent_id)
+      mod when is_atom(mod) -> mod.persist(events, partition_id, agent_id)
     end
   end
 
-  defp otlp_relay_headers(partition_id, agent_id) do
-    [
-      {"Sr-Agent-Id", agent_id},
-      {"Sr-Partition", partition_id},
-      {"Sr-Ingest-Identity", "agent:" <> agent_id}
-    ]
-  end
-
-  defp publish_otlp_relay_records(records, headers, metadata) do
-    publisher = otlp_relay_publisher()
-
-    Enum.reduce_while(records, :ok, fn %TelemetryRecord{} = record, :ok ->
-      publish_otlp_relay_record(publisher, record, headers, metadata)
-    end)
-  end
-
-  defp publish_otlp_relay_record(publisher, %TelemetryRecord{} = record, headers, metadata) do
-    case otlp_relay_route(record.payload_kind) do
-      {:ok, subject, signal} ->
-        # The payload is republished verbatim; Connection.publish/3 may merge
-        # `traceparent`/`tracestate` into these headers (different keys from
-        # the Sr-* attribution headers), which is harmless for data payloads.
-        case publish_with_opts(publisher, subject, record.payload, headers: headers) do
-          :ok ->
-            SignalTelemetry.emit(signal, :relayed, 1)
-            {:cont, :ok}
-
-          {:error, reason} ->
-            log_otlp_relay_publish_failure(subject, reason, metadata)
-            {:halt, {:error, {:otlp_relay_publish_failed, reason}}}
-
-          other ->
-            log_otlp_relay_publish_failure(subject, other, metadata)
-            {:halt, {:error, {:otlp_relay_publish_failed, other}}}
-        end
-
-      :error ->
-        # Unknown payload kinds are counted and skipped rather than failing
-        # the frame: erroring would make the agent retry the same poison
-        # frame forever.
-        :telemetry.execute(@telemetry_otlp_relay_rejected, %{count: 1}, metadata)
-
-        Logger.warning(
-          "StatusHandler: dropping otlp-relay record with unroutable payload kind",
-          payload_kind: inspect(record.payload_kind),
-          event_id: record.event_id,
-          partition_id: metadata.partition_id,
-          agent_id: metadata.agent_id
-        )
-
-        {:cont, :ok}
-    end
-  end
-
-  defp otlp_relay_route(kind) when kind in [:TELEMETRY_PAYLOAD_KIND_OTLP_TRACES, 3],
-    do: {:ok, @otlp_relay_traces_subject, :traces}
-
-  defp otlp_relay_route(kind) when kind in [:TELEMETRY_PAYLOAD_KIND_OTLP_LOGS, 4],
-    do: {:ok, @otlp_relay_logs_subject, :logs}
-
-  defp otlp_relay_route(kind) when kind in [:TELEMETRY_PAYLOAD_KIND_OTLP_METRICS, 5],
-    do: {:ok, @otlp_relay_metrics_subject, :metric_points}
-
-  defp otlp_relay_route(kind) when kind in [:TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, 6],
-    do: {:ok, @otlp_relay_derived_metrics_subject, :metrics}
-
-  defp otlp_relay_route(_kind), do: :error
-
-  defp log_otlp_relay_publish_failure(subject, reason, metadata) do
-    Logger.warning(
-      "StatusHandler: failed to publish otlp-relay record",
-      subject: subject,
-      reason: inspect(reason),
-      partition_id: metadata.partition_id,
-      agent_id: metadata.agent_id
-    )
-  end
-
-  # Surfaces the edge spool counters carried on the relay TelemetryBatch
-  # (drops/evictions are deltas since the previous relay frame, queue_depth is
-  # a point-in-time gauge).
-  defp emit_otlp_relay_spool_counters(%TelemetryCounters{} = counters, partition_id, agent_id) do
-    :telemetry.execute(
-      @telemetry_otlp_relay_spool,
-      %{
-        received: counters.received || 0,
-        filtered: counters.filtered || 0,
-        emitted: counters.emitted || 0,
-        dropped: counters.dropped || 0,
-        queue_depth: counters.queue_depth || 0
-      },
-      %{partition_id: partition_id, agent_id: agent_id}
-    )
-  end
-
-  defp emit_otlp_relay_spool_counters(_counters, _partition_id, _agent_id), do: :ok
-
-  defp otlp_relay_publisher do
+  defp flow_attribution_persister do
     :serviceradar_core
     |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:otlp_relay_publisher, {Connection, :publish, []})
+    |> Keyword.get(:flow_attribution_persister, ServiceRadar.FlowAttribution)
   end
-
-  defp publish_with_opts({mod, fun, extra_args}, subject, payload, opts) do
-    apply(mod, fun, [subject, payload, opts | extra_args])
-  end
-
-  defp publish_with_opts(fun, subject, payload, opts) when is_function(fun, 3),
-    do: fun.(subject, payload, opts)
 
   defp handle_package_telemetry(status, producer_type, producer_id) do
     partition_id = status[:partition] || "default"

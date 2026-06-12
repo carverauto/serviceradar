@@ -196,7 +196,7 @@ func TestGenerateAgentFlowCollectorCreds_CrossAgentPublishDenied(t *testing.T) {
 	}
 }
 
-func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
+func TestGeneratePartitionCoreCreds_ExcludesAttributedFlowReadback(t *testing.T) {
 	seed := bootstrapTestAccount(t)
 
 	creds, err := GeneratePartitionCoreCreds("platform", seed, "partition-A", 0)
@@ -208,22 +208,15 @@ func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
 
 	pubAllow := claims.Pub.Allow
 
-	// The owning partition's exact subject + subtree must be allowed.
-	for _, required := range []string{
-		"flow.attributed.partition-A",
-		"flow.attributed.partition-A.>",
-	} {
+	for _, required := range []string{"flow.raw.>", "logs.>", "live.logs.>", "events.>", "config.>"} {
 		if !containsString(pubAllow, required) {
 			t.Errorf("publish allow missing %q: %v", required, pubAllow)
 		}
 	}
 
-	// Other partitions and the publish wildcard must not appear in the
-	// allow list — the allow list itself must stay narrow because that
-	// is what bounds the publish authority (B-7: NATS publish ACL
-	// semantics are "any matching deny wins", so a wildcard deny would
-	// shadow the partition allow rather than acting as a fail-safe).
 	for _, forbidden := range []string{
+		"flow.attributed.partition-A",
+		"flow.attributed.partition-A.>",
 		"flow.attributed.>",
 		"flow.attributed.partition-B",
 		"flow.attributed.partition-B.>",
@@ -237,29 +230,22 @@ func TestGeneratePartitionCoreCreds_ScopedToPartitionSubject(t *testing.T) {
 	if !containsString(claims.Pub.Deny, "$SYS.>") {
 		t.Errorf("publish deny must contain $SYS.>: %v", claims.Pub.Deny)
 	}
-	// B-7: PublishDeny must NOT contain flow.attributed.> — that
-	// wildcard is a strict superset of the partition-scoped allows
-	// above and would shadow them at runtime, preventing core from
-	// publishing to its own partition. Cross-partition isolation is
-	// provided by the narrowness of PublishAllow.
+
 	if containsString(claims.Pub.Deny, "flow.attributed.>") {
-		t.Errorf("publish deny must NOT contain flow.attributed.> "+
-			"(B-7: shadows partition-scoped PublishAllow): %v",
-			claims.Pub.Deny)
+		t.Errorf("publish deny must not contain flow.attributed.>: %v", claims.Pub.Deny)
 	}
 
-	// Subscribe is scoped per-partition for defense-in-depth.
 	subAllow := claims.Sub.Allow
-	for _, required := range []string{
-		"flow.attributed.partition-A",
-		"flow.attributed.partition-A.>",
-		"flow.host-slice.>",
-	} {
+	for _, required := range []string{"flow.raw.>", "logs.>", "events.>", "config.>"} {
 		if !containsString(subAllow, required) {
 			t.Errorf("subscribe allow missing %q: %v", required, subAllow)
 		}
 	}
+
 	for _, forbidden := range []string{
+		"flow.host-slice.>",
+		"flow.attributed.partition-A",
+		"flow.attributed.partition-A.>",
 		"flow.attributed.>",
 		"flow.attributed.partition-B",
 		"flow.attributed.partition-B.>",

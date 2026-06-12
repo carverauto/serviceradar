@@ -321,47 +321,26 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       refute_receive {:unexpected_core_call, _status}
     end
 
-    test "forwards otlp-relay statuses synchronously via GenServer.call" do
+    test "returns an error when direct gateway publishing is disabled" do
       parent = self()
 
       handler_pid =
         spawn(fn ->
           receive do
-            {:"$gen_call", from, {:status_update, status}} ->
-              GenServer.reply(from, :ok)
-              send(parent, {:called, status})
+            {:"$gen_call", _from, {:status_update, status}} ->
+              send(parent, {:unexpected_core_call, status})
           end
         end)
 
       Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-      assert :ok = StatusProcessor.process(relay_status())
+      assert {:error, :otlp_relay_publisher_disabled} = StatusProcessor.process(relay_status())
 
-      assert_receive {:called, forwarded}
-      assert forwarded.source == "otlp-relay"
-      assert forwarded.message == relay_status().message
+      refute_receive {:unexpected_core_call, _status}
     end
 
-    test "propagates core handler errors for otlp-relay statuses" do
-      handler_pid =
-        spawn(fn ->
-          receive do
-            {:"$gen_call", from, {:status_update, _status}} ->
-              GenServer.reply(from, {:error, {:otlp_relay_publish_failed, :nats_down}})
-          end
-        end)
-
-      Process.register(handler_pid, ServiceRadar.StatusHandler)
-
-      assert {:error, {:otlp_relay_publish_failed, :nats_down}} =
-               StatusProcessor.process(relay_status())
-    end
-
-    test "returns an error instead of buffering when core is unavailable" do
-      # No StatusHandler is registered. Unlike results/addon sources, an
-      # otlp-relay status must never fall into the lossy StatusBuffer (the
-      # buffered path would return :ok and falsely ack the relay frame).
-      assert {:error, :not_available} = StatusProcessor.process(relay_status())
+    test "does not buffer otlp-relay statuses when direct publishing is disabled" do
+      assert {:error, :otlp_relay_publisher_disabled} = StatusProcessor.process(relay_status())
     end
   end
 

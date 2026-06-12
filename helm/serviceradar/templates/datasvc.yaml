@@ -79,8 +79,7 @@ spec:
           value: "info"
         # Partition identity for this deployment. MUST match the value
         # rendered into the NATS authorization block (templates/nats.yaml)
-        # so partition-scoped ACLs (e.g. flow.attributed.<id>) align with
-        # what datasvc publishes/consumes at runtime.
+        # so runtime services share one deployment partition context.
         - name: SERVICERADAR_OTX_PARTITION
           value: {{ coalesce .Values.partitionId (default (dict) .Values.agent).partitionId "default" | quote }}
         {{- if .Values.spire.enabled }}
