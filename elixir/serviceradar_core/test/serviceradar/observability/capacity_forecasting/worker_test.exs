@@ -118,7 +118,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   end
 
   test "default sources cover long-horizon metric, interface, and flow aggregates" do
-    queries = Enum.map(Source.defaults(), & &1.query)
+    sources = Source.defaults()
+    queries = Enum.map(sources, & &1.query)
 
     assert Enum.any?(queries, &String.contains?(&1, "in:cpu_metrics"))
     assert Enum.any?(queries, &String.contains?(&1, "in:memory_metrics"))
@@ -127,6 +128,143 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metrics"))
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
     assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
+
+    interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
+    assert interface_source.metric_name == "utilization_percent"
+    assert interface_source.threshold == 100.0
+  end
+
+  test "interface forecasts convert byte rates to utilization percent using live speed" do
+    source = interface_source()
+
+    resolver = fn row, _opts ->
+      send(self(), {:interface_capacity_row, row})
+
+      {:ok,
+       %{
+         speed_bps: 10_000_000,
+         source: "discovered_interfaces",
+         timestamp: @forecasted_at
+       }}
+    end
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_interface, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.InterfaceRunner,
+               interface_capacity_resolver: resolver,
+               upsert_fun: upsert_fun,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:interface_capacity_row, %{"if_index" => 7}}
+    assert_received {:capacity_forecast_interface, attrs}
+
+    assert attrs.metric_name == "utilization_percent"
+    assert attrs.exhaustion_threshold == 100.0
+    assert attrs.status == "projected"
+    assert_in_delta attrs.current_value, 11.76, 0.01
+    assert attrs.projected_value > attrs.current_value
+    assert attrs.metadata["capacity_bps"] == 10_000_000
+    assert attrs.metadata["forecast_value_unit"] == "percent"
+    assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
+  end
+
+  test "interface forecasts are skipped when live speed is missing" do
+    source = interface_source()
+    resolver = fn _row, _opts -> {:ok, nil} end
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_interface_skip, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.InterfaceRunner,
+               interface_capacity_resolver: resolver,
+               upsert_fun: upsert_fun,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_interface_skip, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "missing_interface_capacity"
+    assert attrs.sample_count == 48
+    assert attrs.current_value == nil
+    assert attrs.metadata["capacity_skip_reason"] == "missing_interface_capacity"
+  end
+
+  test "interface forecasts are skipped when matched live speed is not positive" do
+    source = interface_source()
+    resolver = fn _row, _opts -> {:ok, %{speed_bps: nil, source: "discovered_interfaces"}} end
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_interface_skip, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.InterfaceRunner,
+               interface_capacity_resolver: resolver,
+               upsert_fun: upsert_fun,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_interface_skip, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "missing_interface_capacity"
+    assert attrs.sample_count == 48
+    assert attrs.current_value == nil
+    assert attrs.metadata["capacity_skip_reason"] == "missing_interface_capacity"
+  end
+
+  test "interface forecasts skip non-octet metrics instead of converting packets to percent" do
+    source = interface_source()
+
+    resolver = fn _row, _opts ->
+      flunk("capacity resolver should not run for non-octet interface metrics")
+    end
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_interface_skip, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.InterfacePacketRunner,
+               interface_capacity_resolver: resolver,
+               upsert_fun: upsert_fun,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_interface_skip, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason == "unsupported_interface_metric"
+    assert attrs.metric_name == "utilization_percent"
+    assert attrs.resource_key =~ "ifHCInUcastPkts"
+    assert attrs.resource_label =~ "ifHCInUcastPkts"
+    assert attrs.current_value == nil
+    assert attrs.metadata["capacity_skip_reason"] == "unsupported_interface_metric"
   end
 
   test "worker returns an error when forecast persistence fails" do
@@ -174,5 +312,64 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
          }
        ]}
     end
+  end
+
+  defmodule InterfaceRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "target_device_ip" => "10.0.0.10",
+            "if_index" => 7,
+            "metric_name" => "ifHCInOctets",
+            "series_key" => "snmp:device-a:7:ifHCInOctets",
+            "avg_rate_per_second" => 100_000.0 + hour * 1_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule InterfacePacketRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "target_device_ip" => "10.0.0.10",
+            "if_index" => 7,
+            "metric_name" => "ifHCInUcastPkts",
+            "series_key" => "snmp:device-a:7:ifHCInUcastPkts",
+            "avg_rate_per_second" => 100_000.0 + hour * 1_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defp interface_source do
+    %Source{
+      name: "interface_rate",
+      resource_type: "interface",
+      metric_class: "interface",
+      metric_name: "utilization_percent",
+      query: "in:timeseries_metric_interface_hourly time:last_180d",
+      value_field: "avg_rate_per_second",
+      key_fields: ["device_id", "target_device_ip", "if_index", "metric_name", "series_key"],
+      label_fields: ["target_device_ip", "if_index", "metric_name"],
+      threshold: 100.0,
+      model: "linear"
+    }
   end
 end
