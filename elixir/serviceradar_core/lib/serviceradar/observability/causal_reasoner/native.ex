@@ -9,9 +9,18 @@ defmodule ServiceRadar.Observability.CausalReasoner.Native do
 
   @type context :: %{
           required(:baseline) => [number()],
+          required(:seasonal_baseline) => [number()] | nil,
+          required(:trend_baseline) => [number()] | nil,
+          required(:rolling_enabled) => boolean() | nil,
+          required(:seasonal_enabled) => boolean() | nil,
+          required(:trend_enabled) => boolean() | nil,
           required(:min_samples) => pos_integer() | nil,
+          required(:seasonal_min_samples) => pos_integer() | nil,
+          required(:trend_min_samples) => pos_integer() | nil,
           required(:window_size) => pos_integer() | nil,
           required(:n_sigma) => number() | nil,
+          required(:seasonal_n_sigma) => number() | nil,
+          required(:trend_n_sigma) => number() | nil,
           required(:confirm_slots) => non_neg_integer() | nil,
           required(:consecutive_anomalous) => non_neg_integer() | nil
         }

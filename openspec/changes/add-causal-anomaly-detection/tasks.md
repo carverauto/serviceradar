@@ -17,7 +17,7 @@
 
 ## 1. Phase 1 — real-time anomaly detection (core-elx Broadway + DeepCausality NIF)
 - [x] 1.1 New Rustler NIF crate exposing a **pure** `reason(context, sample) -> verdict` (no resident state); deps `deep_causality_core` + `deep_causality_data_structures` (Flow API, edition 2024); update bazel Rust deps + BUILD.
-- [ ] 1.2 Implement the clean-baseline z-score in the NIF: sample variance (n−1) over the window slice, z = (x−mean)/std once filled; **withhold-anomalous-from-baseline**; fire on N-sigma over M consecutive slots (defaults N=3.0, M=5); reset on clean tick. Combine three signals (rolling / seasonal / trend) per config.
+- [x] 1.2 Implement the clean-baseline z-score in the NIF: sample variance (n−1) over the window slice, z = (x−mean)/std once filled; **withhold-anomalous-from-baseline**; fire on N-sigma over M consecutive slots (defaults N=3.0, M=5); reset on clean tick. Combine three signals (rolling / seasonal / trend) per config.
 - [ ] 1.3 Broadway consumer in core-elx over the analysis consumer (separate from DB-sync; `deliver_policy: new` + `inactive_threshold`) for `metrics.sysmon.*`, `metrics.snmp.*`, `otel.metrics.>`, `flows.raw.netflow|sflow`, `flow.attributed.>`; per-subject enable flag.
 - [ ] 1.4 **Context engine (Horde):** one owner per series/shard via `Horde.Registry` + `Horde.DynamicSupervisor`; single-writer-per-series; fold updates in **UUIDv8 total temporal order**; idempotent; ship immutable context to the stateless reasoner.
 - [ ] 1.5 **UUIDv8** stamping at **agent-gateway ingress** (first contact = one clock domain; carry original sample time as a field) + total-order fold; tests for concurrent/out-of-order/replayed updates → deterministic context.
