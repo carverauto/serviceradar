@@ -897,6 +897,11 @@ agentGateway:
   sysmonMetricsSubjectPrefix: "metrics.sysmon"
   snmpMetricsEnabled: true
   snmpMetricsSubjectPrefix: "metrics.snmp"
+  otlpRelayPublishEnabled: true
+  otlpRelayTracesSubject: "otel.traces.raw"
+  otlpRelayLogsSubject: "logs.otel"
+  otlpRelayMetricsSubject: "otel.metrics.raw"
+  otlpRelayDerivedMetricsSubject: "otel.metrics.derived"
   service:
     port: 50052
     artifactPort: 50053

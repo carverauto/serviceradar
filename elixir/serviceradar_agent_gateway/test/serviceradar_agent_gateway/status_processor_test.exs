@@ -12,15 +12,27 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_snmp_publisher =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_module)
 
+    previous_otlp_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
+
     previous_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid)
 
     previous_snmp_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid)
 
+    previous_otlp_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
+
     if is_pid(existing) do
       Process.unregister(ServiceRadar.StatusHandler)
     end
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :otlp_relay_publisher_module,
+      __MODULE__.DisabledOtlpRelayPublisherStub
+    )
 
     on_exit(fn ->
       if Process.whereis(ServiceRadar.StatusHandler) do
@@ -33,8 +45,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
       restore_env(:sysmon_metrics_publisher_module, previous_publisher)
       restore_env(:snmp_metrics_publisher_module, previous_snmp_publisher)
+      restore_env(:otlp_relay_publisher_module, previous_otlp_publisher)
       restore_env(:sysmon_metrics_publisher_test_pid, previous_test_pid)
       restore_env(:snmp_metrics_publisher_test_pid, previous_snmp_test_pid)
+      restore_env(:otlp_relay_publisher_test_pid, previous_otlp_test_pid)
     end)
 
     :ok
@@ -79,7 +93,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       spawn(fn ->
         receive do
           {:"$gen_call", from, {:status_update, status}} ->
-            GenServer.reply(from, {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}})
+            GenServer.reply(
+              from,
+              {:ok, %{directives: %{"endpoint_inventory" => %{"reconcile_floor" => true}}}}
+            )
+
             send(parent, {:forwarded, status})
         end
       end)
@@ -247,6 +265,62 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
   end
 
   describe "otlp-relay source" do
+    test "publishes otlp-relay directly from the gateway when enabled" do
+      parent = self()
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :otlp_relay_publisher_module,
+        __MODULE__.OtlpRelayPublisherStub
+      )
+
+      Application.put_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid, parent)
+
+      handler_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", _from, {:status_update, status}} ->
+              send(parent, {:unexpected_core_call, status})
+          end
+        end)
+
+      Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+      assert :ok = StatusProcessor.process(relay_status())
+
+      assert_receive {:otlp_relay_published, published}
+      assert published.source == "otlp-relay"
+      refute_receive {:unexpected_core_call, _status}
+    end
+
+    test "propagates gateway otlp-relay publisher errors without falling back to core" do
+      parent = self()
+
+      Application.put_env(
+        :serviceradar_agent_gateway,
+        :otlp_relay_publisher_module,
+        __MODULE__.FailingOtlpRelayPublisherStub
+      )
+
+      Application.put_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid, parent)
+
+      handler_pid =
+        spawn(fn ->
+          receive do
+            {:"$gen_call", _from, {:status_update, status}} ->
+              send(parent, {:unexpected_core_call, status})
+          end
+        end)
+
+      Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+      assert {:error, {:otlp_relay_publish_failed, :nats_down}} =
+               StatusProcessor.process(relay_status())
+
+      assert_receive {:otlp_relay_publish_failed, _status}
+      refute_receive {:unexpected_core_call, _status}
+    end
+
     test "forwards otlp-relay statuses synchronously via GenServer.call" do
       parent = self()
 
@@ -366,10 +440,13 @@ end
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.SysmonPublisherStub do
   @moduledoc false
   def publish_sysmon(status) do
-    send(Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid), {
-      :published,
-      status
-    })
+    send(
+      Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid),
+      {
+        :published,
+        status
+      }
+    )
 
     :ok
   end
@@ -402,11 +479,43 @@ end
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSysmonPublisherStub do
   @moduledoc false
   def publish_sysmon(status) do
-    send(Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid), {
-      :publish_failed,
+    send(
+      Application.fetch_env!(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid),
+      {
+        :publish_failed,
+        status
+      }
+    )
+
+    {:error, :nats_down}
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.OtlpRelayPublisherStub do
+  @moduledoc false
+  def publish_relay(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid), {
+      :otlp_relay_published,
       status
     })
 
-    {:error, :nats_down}
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.DisabledOtlpRelayPublisherStub do
+  @moduledoc false
+  def publish_relay(_status), do: :disabled
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingOtlpRelayPublisherStub do
+  @moduledoc false
+  def publish_relay(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid), {
+      :otlp_relay_publish_failed,
+      status
+    })
+
+    {:error, {:otlp_relay_publish_failed, :nats_down}}
   end
 end

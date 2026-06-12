@@ -12,6 +12,14 @@ config :serviceradar_agent_gateway, :metrics,
   ip: {0, 0, 0, 0},
   port: 9090
 
+config :serviceradar_agent_gateway, :otlp_relay_publisher,
+  enabled: false,
+  traces_subject: "otel.traces.raw",
+  logs_subject: "logs.otel",
+  metrics_subject: "otel.metrics.raw",
+  derived_metrics_subject: "otel.metrics.derived",
+  connection: Connection
+
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: false,
   subject_prefix: "metrics.snmp",

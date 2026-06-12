@@ -2,21 +2,23 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   @moduledoc """
   Processes service status updates received from agents.
 
-  This module is the integration point between the agent gateway and the
-  ServiceRadar core. It handles:
+  This module is the integration point between the agent gateway, local
+  JetStream ingress, and the ServiceRadar core. It handles:
 
   1. Validation of incoming status data
   2. Normalization of status formats
-  3. Forwarding to the appropriate core handlers
+  3. Publishing gateway-owned ingress subjects or forwarding to core handlers
   4. Recording of telemetry/metrics
 
   ## Integration with Core
 
-  Status updates are forwarded to the distributed core cluster via:
+  Status updates that are not gateway-owned ingress messages are forwarded to
+  the distributed core cluster via:
   - Direct GenServer calls for local processing
   - Distributed routing for partition-aware processing
   """
 
+  alias ServiceRadarAgentGateway.OtlpRelayPublisher
   alias ServiceRadarAgentGateway.SnmpMetricsPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.SysmonMetricsPublisher
@@ -26,8 +28,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   @doc """
   Process a service status update.
 
-  Takes a status map and forwards it to the appropriate handler
-  in the core cluster.
+  Takes a status map and either publishes it at the gateway ingress boundary or
+  forwards it to the appropriate handler in the core cluster.
 
   ## Parameters
 
@@ -55,23 +57,53 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     with :ok <- validate_status(status) do
       status = normalize_status(status)
 
-      case forward(status) do
+      case maybe_publish_otlp_relay(status) do
+        :disabled ->
+          forward_then_publish(status)
+
+        :not_otlp_relay ->
+          forward_then_publish(status)
+
         :ok ->
-          publish_sysmon_metrics(status)
-          publish_snmp_metrics(status)
           track_agent(status)
           :ok
-
-        {:ok, _result} = ok ->
-          publish_sysmon_metrics(status)
-          publish_snmp_metrics(status)
-          track_agent(status)
-          ok
 
         {:error, _reason} = error ->
           error
       end
     end
+  end
+
+  defp forward_then_publish(status) do
+    case forward(status) do
+      :ok ->
+        publish_sysmon_metrics(status)
+        publish_snmp_metrics(status)
+        track_agent(status)
+        :ok
+
+      {:ok, _result} = ok ->
+        publish_sysmon_metrics(status)
+        publish_snmp_metrics(status)
+        track_agent(status)
+        ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp maybe_publish_otlp_relay(%{source: source} = status) when source in ["otlp-relay", :otlp_relay],
+    do: otlp_relay_publisher().publish_relay(status)
+
+  defp maybe_publish_otlp_relay(_status), do: :not_otlp_relay
+
+  defp otlp_relay_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :otlp_relay_publisher_module,
+      OtlpRelayPublisher
+    )
   end
 
   @spec forward(map(), keyword()) :: :ok | {:ok, term()} | {:error, term()}
@@ -248,10 +280,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   defp ack_result_status?(%{source: source, service_type: service_type})
        when source in ["results", :results] and service_type in ["endpoint_inventory", :endpoint_inventory], do: true
 
-  # OTLP relay statuses need an honest ack: the gateway only confirms the
-  # frame to the agent after core has published it to NATS, so they are
-  # forwarded synchronously (GenServer.call) and must never fall back to the
-  # lossy StatusBuffer (should_buffer?/1 intentionally excludes them).
+  # Legacy OTLP relay fallback still needs an honest ack: if direct gateway
+  # publishing is disabled, the gateway only confirms the frame to the agent
+  # after core has published it to NATS. The fallback is synchronous and must
+  # never use the lossy StatusBuffer (should_buffer?/1 intentionally excludes
+  # relay frames).
   defp ack_result_status?(%{source: source}) when source in ["otlp-relay", :otlp_relay], do: true
 
   defp ack_result_status?(_status), do: false
@@ -319,6 +352,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp sysmon_metrics_source?(%{source: source}), do: source in ["sysmon-metrics", :sysmon_metrics]
+
   defp sysmon_metrics_source?(_status), do: false
 
   defp sysmon_metrics_publisher do

@@ -11,9 +11,9 @@ defmodule ServiceRadar.EventWriter.SignalTelemetry do
   - `:received` — messages handed to a processor batch
   - `:written`  — rows actually inserted
   - `:rejected` — messages dropped because they could not be decoded
-  - `:relayed`  — edge OTLP relay chunks republished to NATS by the
-    StatusHandler (counted per NATS message, i.e. per OTLP protobuf chunk,
-    not per contained record)
+  - `:relayed`  — edge OTLP relay chunks published to NATS by the gateway
+    ingress or legacy StatusHandler fallback (counted per NATS message, i.e.
+    per OTLP protobuf chunk, not per contained record)
 
   Signals: `:logs`, `:traces`, `:metrics` (span-derived samples), and
   `:metric_points` (OTLP data points).
