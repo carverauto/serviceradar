@@ -1,0 +1,60 @@
+defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
+  use ExUnit.Case, async: true
+
+  alias Ash.Resource.Info
+  alias AshPostgres.DataLayer.Info, as: PostgresInfo
+  alias ServiceRadar.Observability
+  alias ServiceRadar.Observability.AnomalyDetectionConfig
+
+  @migration_path "priv/repo/migrations/20260612100000_create_anomaly_capacity_configs.exs"
+
+  test "resource is managed in the platform schema" do
+    assert PostgresInfo.table(AnomalyDetectionConfig) == "anomaly_detection_configs"
+    assert PostgresInfo.schema(AnomalyDetectionConfig) == "platform"
+    assert AnomalyDetectionConfig in Ash.Domain.Info.resources(Observability)
+  end
+
+  test "singleton actions expose operator-managed anomaly tuning fields" do
+    create_action = Info.action(AnomalyDetectionConfig, :create)
+    update_action = Info.action(AnomalyDetectionConfig, :update)
+    read_action = Info.action(AnomalyDetectionConfig, :get_singleton)
+
+    expected_fields = [
+      :n_sigma,
+      :window_size,
+      :window_duration_seconds,
+      :confirm_slots,
+      :min_samples,
+      :metric_class_overrides
+    ]
+
+    assert create_action.accept == expected_fields
+    assert update_action.accept == expected_fields
+    assert read_action.get?
+  end
+
+  test "resource captures required anomaly defaults and class overrides" do
+    attributes = AnomalyDetectionConfig |> Info.attributes() |> Map.new(&{&1.name, &1})
+
+    assert attributes.key.primary_key?
+    assert attributes.n_sigma.default == 3.0
+    assert attributes.window_size.default == 300
+    assert attributes.window_duration_seconds.default == 900
+    assert attributes.confirm_slots.default == 5
+    assert attributes.min_samples.default == 30
+
+    assert attributes.metric_class_overrides.default |> Map.keys() |> Enum.sort() ==
+             ["cpu", "disk", "interface", "memory", "red"]
+  end
+
+  test "migration creates seeded platform anomaly config with guard constraints" do
+    migration = File.read!(@migration_path)
+
+    assert migration =~ "create table(:anomaly_detection_configs"
+    assert migration =~ ~s(prefix: "platform")
+    assert migration =~ "n_sigma >= 0.1 AND n_sigma <= 20.0"
+    assert migration =~ "min_samples <= window_size"
+    assert migration =~ "INSERT INTO platform.anomaly_detection_configs"
+    refute migration =~ "public.anomaly_detection_configs"
+  end
+end
