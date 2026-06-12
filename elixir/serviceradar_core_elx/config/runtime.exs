@@ -895,14 +895,15 @@ if config_env() == :prod do
           name: "METRICS",
           stream_name: "metrics",
           subject: "metrics.>",
-          processor: ServiceRadar.EventWriter.Processors.Telemetry,
+          processor: ServiceRadar.EventWriter.Processors.Metrics,
           batch_size: 500,
           batch_timeout: 500,
           stream_retention: "limits",
           stream_storage: "file",
           stream_discard: "old",
           stream_max_bytes: 1_073_741_824,
-          stream_max_age: 1_800_000_000_000
+          stream_max_age: 1_800_000_000_000,
+          consumer_max_deliver: -1
         },
         %{
           name: "BMP_CAUSAL",

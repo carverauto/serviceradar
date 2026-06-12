@@ -117,4 +117,8 @@ defmodule ServiceRadar.Observability.ProcessMetric do
       description "When the record was created"
     end
   end
+
+  identities do
+    identity :unique_process_metric, [:timestamp, :gateway_id, :pid]
+  end
 end

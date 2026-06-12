@@ -3,6 +3,12 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
 
   use ExUnit.Case, async: true
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.CpuClusterMetric
+  alias ServiceRadar.Observability.CpuMetric
+  alias ServiceRadar.Observability.DiskMetric
+  alias ServiceRadar.Observability.MemoryMetric
+  alias ServiceRadar.Observability.ProcessMetric
   alias ServiceRadar.Observability.SysmonMetricsIngestor
 
   test "builds metric batches from sysmon samples" do
@@ -111,6 +117,25 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
     assert length(Enum.at(chunks, 2)) == 501
   end
 
+  test "bulk create options make duplicate sysmon writes idempotent" do
+    actor = SystemActor.system(:sysmon_metrics_ingestor_test)
+
+    assert SysmonMetricsIngestor.bulk_create_opts(CpuMetric, actor) ==
+             upsert_opts(actor, :unique_cpu_metric)
+
+    assert SysmonMetricsIngestor.bulk_create_opts(CpuClusterMetric, actor) ==
+             upsert_opts(actor, :unique_cpu_cluster_metric)
+
+    assert SysmonMetricsIngestor.bulk_create_opts(DiskMetric, actor) ==
+             upsert_opts(actor, :unique_disk_metric)
+
+    assert SysmonMetricsIngestor.bulk_create_opts(MemoryMetric, actor) ==
+             upsert_opts(actor, :unique_memory_metric)
+
+    assert SysmonMetricsIngestor.bulk_create_opts(ProcessMetric, actor) ==
+             upsert_opts(actor, :unique_process_metric)
+  end
+
   test "normalizes chunk size config values safely" do
     assert SysmonMetricsIngestor.normalize_chunk_size(500) == 500
     assert SysmonMetricsIngestor.normalize_chunk_size("250") == 250
@@ -121,5 +146,18 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
     assert SysmonMetricsIngestor.normalize_chunk_size("-7") == 1_000
     assert SysmonMetricsIngestor.normalize_chunk_size("abc") == 1_000
     assert SysmonMetricsIngestor.normalize_chunk_size(nil) == 1_000
+  end
+
+  defp upsert_opts(actor, identity) do
+    [
+      actor: actor,
+      domain: ServiceRadar.Observability,
+      return_records?: false,
+      return_errors?: true,
+      stop_on_error?: false,
+      upsert?: true,
+      upsert_identity: identity,
+      upsert_fields: []
+    ]
   end
 end

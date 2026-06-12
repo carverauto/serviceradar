@@ -18,6 +18,13 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   require Logger
 
   @default_bulk_create_chunk_size 1_000
+  @upsert_identities %{
+    CpuMetric => :unique_cpu_metric,
+    CpuClusterMetric => :unique_cpu_cluster_metric,
+    DiskMetric => :unique_disk_metric,
+    MemoryMetric => :unique_memory_metric,
+    ProcessMetric => :unique_process_metric
+  }
 
   @spec ingest(map(), map()) :: :ok | {:error, term()}
   def ingest(payload, status) when is_map(payload) and is_map(status) do
@@ -245,11 +252,7 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp insert_chunk(records, resource, actor, allow_reindex?) do
-    case Ash.bulk_create(records, resource, :create,
-           actor: actor,
-           return_errors?: true,
-           stop_on_error?: false
-         ) do
+    case Ash.bulk_create(records, resource, :create, bulk_create_opts(resource, actor)) do
       %Ash.BulkResult{status: :success} ->
         :ok
 
@@ -260,6 +263,20 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
         maybe_reindex_and_retry(records, resource, actor, errors, allow_reindex?)
     end
+  end
+
+  @doc false
+  def bulk_create_opts(resource, actor) do
+    [
+      actor: actor,
+      domain: ServiceRadar.Observability,
+      return_records?: false,
+      return_errors?: true,
+      stop_on_error?: false,
+      upsert?: true,
+      upsert_identity: Map.fetch!(@upsert_identities, resource),
+      upsert_fields: []
+    ]
   end
 
   defp bulk_create_chunk_size do

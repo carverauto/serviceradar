@@ -117,4 +117,8 @@ defmodule ServiceRadar.Observability.DiskMetric do
       description "When the record was created"
     end
   end
+
+  identities do
+    identity :unique_disk_metric, [:timestamp, :gateway_id, :mount_point]
+  end
 end
