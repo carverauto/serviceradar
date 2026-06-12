@@ -17,7 +17,7 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     :ok
   end
 
-  test "parses sysmon shadow envelope into legacy sysmon ingestor input" do
+  test "parses sysmon metrics envelope into sysmon ingestor input" do
     parsed =
       Metrics.parse_message(%{
         data: Jason.encode!(sysmon_envelope("memory")),
@@ -45,6 +45,16 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     refute Map.has_key?(parsed.payload["status"], "cpus")
     refute Map.has_key?(parsed.payload["status"], "disks")
     refute Map.has_key?(parsed.payload["status"], "processes")
+  end
+
+  test "keeps parsing legacy sysmon shadow envelopes during cutover" do
+    parsed =
+      Metrics.parse_message(%{
+        data: Jason.encode!(sysmon_envelope("memory", "serviceradar.sysmon.shadow.v1")),
+        metadata: %{subject: "metrics.sysmon.memory"}
+      })
+
+    assert %{family: "memory", payload: %{"status" => %{"memory" => _memory}}} = parsed
   end
 
   test "filters each sysmon family before delegating to the sysmon ingestor" do
@@ -122,9 +132,9 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     }
   end
 
-  defp sysmon_envelope(family) do
+  defp sysmon_envelope(family, schema \\ "serviceradar.sysmon.metrics.v1") do
     %{
-      "schema" => "serviceradar.sysmon.shadow.v1",
+      "schema" => schema,
       "source" => "sysmon-metrics",
       "metric_family" => family,
       "agent_id" => "agent-1",

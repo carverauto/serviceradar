@@ -57,14 +57,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
 
       case forward(status) do
         :ok ->
-          shadow_publish_sysmon_metrics(status)
-          shadow_publish_snmp_metrics(status)
+          publish_sysmon_metrics(status)
+          publish_snmp_metrics(status)
           track_agent(status)
           :ok
 
         {:ok, _result} = ok ->
-          shadow_publish_sysmon_metrics(status)
-          shadow_publish_snmp_metrics(status)
+          publish_sysmon_metrics(status)
+          publish_snmp_metrics(status)
           track_agent(status)
           ok
 
@@ -296,7 +296,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     ] or package_telemetry_source?(source)
   end
 
-  defp shadow_publish_sysmon_metrics(status) do
+  defp publish_sysmon_metrics(status) do
     if sysmon_metrics_source?(status) do
       case sysmon_metrics_publisher().publish_sysmon(status) do
         :ok ->
@@ -306,7 +306,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           :ok
 
         {:error, reason} ->
-          Logger.warning("Sysmon metrics shadow publish failed",
+          Logger.warning("Sysmon metrics publish failed",
             reason: inspect(reason),
             agent_id: status[:agent_id],
             gateway_id: status[:gateway_id],
@@ -329,7 +329,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     )
   end
 
-  defp shadow_publish_snmp_metrics(status) do
+  defp publish_snmp_metrics(status) do
     if snmp_metrics_source?(status) do
       case snmp_metrics_publisher().publish_snmp(status) do
         :ok ->
@@ -339,7 +339,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           :ok
 
         {:error, reason} ->
-          Logger.warning("SNMP metrics shadow publish failed",
+          Logger.warning("SNMP metrics publish failed",
             reason: inspect(reason),
             agent_id: status[:agent_id],
             gateway_id: status[:gateway_id],

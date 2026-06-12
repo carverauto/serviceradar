@@ -893,9 +893,9 @@ agentGateway:
   clusterCoreNodeBasename: "serviceradar_core"
   kubernetesSelector: "app.kubernetes.io/part-of=serviceradar"
   kubernetesNodeBasename: "serviceradar_agent_gateway"
-  sysmonMetricsShadowEnabled: false
+  sysmonMetricsEnabled: true
   sysmonMetricsSubjectPrefix: "metrics.sysmon"
-  snmpMetricsShadowEnabled: false
+  snmpMetricsEnabled: true
   snmpMetricsSubjectPrefix: "metrics.snmp"
   service:
     port: 50052

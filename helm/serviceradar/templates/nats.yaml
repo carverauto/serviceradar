@@ -221,9 +221,9 @@ spec:
                   }
                 }
               },
-              # Agent gateway publishes shadow agent metrics during the
-              # causal-anomaly Phase 0 cutover. It is not a general NATS
-              # producer and cannot publish flow attribution or events.
+              # Agent gateway publishes agent metrics after the causal-anomaly
+              # Phase 0 cutover. It is not a general NATS producer and cannot
+              # publish flow attribution or events.
               {
                 user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
