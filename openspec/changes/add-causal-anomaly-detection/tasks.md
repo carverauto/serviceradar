@@ -31,7 +31,7 @@
 - [x] 2.3 Oban cron worker: read long-horizon CAGGs (`cpu/memory/disk/process_metrics_hourly`, `timeseries_metrics_hourly`, `flow_traffic_1h/1d`) via SRQL; fit least-squares linear trend (runway) + Holt-Winters/seasonal where seasonality matters; compute exhaustion ETA. Idempotent; string-keyed args.
 - [x] 2.4 Join the capacity denominator from live `discovered_interfaces.speed_bps` (3 d retention, no CAGG) for interface utilization%.
 - [x] 2.5 Emit a `capacity_forecast` verdict for at-risk resources via the causal-engine emission spine.
-- [ ] 2.6 Tests: trend/ETA correctness on synthetic series; seasonal vs linear selection; missing-history guard (minimum length before projecting).
+- [x] 2.6 Tests: trend/ETA correctness on synthetic series; seasonal vs linear selection; missing-history guard (minimum length before projecting).
 
 ## 3. Emission + alert integration (reuse the existing spine)
 - [ ] 3.1 core-elx emits `anomaly` + `capacity_forecast` verdicts on `signals.causal.predictions.*` with deterministic IDs; OCSF `detection_finding` (class_uid 2004) shape for anomalies. `rust/causal-engine` **consumes** these as causal evidence (the detector does not live there).

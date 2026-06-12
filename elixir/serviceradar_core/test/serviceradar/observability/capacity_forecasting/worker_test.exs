@@ -29,6 +29,27 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule RecentRunner do
+    @moduledoc false
+    @start ~U[2026-06-10 13:00:00Z]
+
+    def query(query, _opts) do
+      send(self(), {:capacity_forecast_query, query})
+
+      rows =
+        for hour <- 0..47 do
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "host_id" => "host-a",
+            "avg_usage_percent" => 20.0 + hour
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
   defmodule VerdictEmitter do
     @moduledoc false
 
@@ -391,6 +412,45 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_verdict_attempt, %{status: "projected"}}
     assert log =~ "Capacity forecast verdict emit failed"
     assert log =~ "nats_not_connected"
+  end
+
+  test "worker does not emit a verdict for projections outside the warning horizon" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query: "in:cpu_metrics time:last_180d bucket:1h",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_outside_warning, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: RecentRunner,
+               upsert_fun: upsert_fun,
+               verdict_emitter: VerdictEmitter,
+               test_pid: self(),
+               horizon_seconds: 48 * 3_600,
+               warning_horizon_seconds: 60,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_outside_warning, attrs}
+    assert attrs.status == "projected"
+    assert attrs.projected_exhaustion_at
+    refute_received {:capacity_forecast_verdict, _attrs}
   end
 
   test "worker does not emit a verdict for skipped forecasts" do
