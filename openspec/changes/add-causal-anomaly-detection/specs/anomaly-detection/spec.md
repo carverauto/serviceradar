@@ -75,3 +75,28 @@ Detection tuning parameters (N-sigma threshold, window size/duration, confirmati
 #### Scenario: First-boot defaults
 - **WHEN** the system starts with no stored detection configuration
 - **THEN** it SHALL seed the configuration from deployment (Helm) defaults so detection runs without manual setup
+
+### Requirement: Stateless Reasoning with Externalized Context
+The anomaly reasoning step SHALL be a stateless pure function of (context, sample), so that reasoning can be horizontally scaled across replicas without per-series affinity. Per-series state SHALL be held in a separate context engine that owns each series with a single writer (so its update order is well-defined) and SHALL be horizontally scalable across the cluster with automatic failover.
+
+#### Scenario: Reasoning scales without affinity
+- **WHEN** reasoning load increases and additional replicas are added
+- **THEN** any replica SHALL be able to evaluate any sample given its context
+- **AND** samples SHALL NOT need to be routed to a specific replica for reasoning to be correct
+
+#### Scenario: Context owner fails over
+- **WHEN** the node owning a series' context becomes unavailable
+- **THEN** ownership SHALL be reassigned to another node
+- **AND** the new owner SHALL restore context from its checkpoint and resume folding updates without corrupting state
+
+### Requirement: Autoscaling on Queue Pressure
+Consumer capacity SHALL autoscale based on stream backlog (consumer pending-message lag) where the deployment platform supports it, and SHALL provide a static-capacity fallback where it does not.
+
+#### Scenario: Backlog grows
+- **WHEN** the analysis consumer's pending-message backlog exceeds the configured threshold
+- **THEN** the system SHALL scale out consumer capacity
+- **AND** SHALL scale back in when the backlog drains
+
+#### Scenario: Autoscaler unavailable
+- **WHEN** the deployment has no autoscaler
+- **THEN** the system SHALL run at a configured static replica count and remain functional
