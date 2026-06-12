@@ -51,6 +51,14 @@ const (
 	defaultNVDURL     = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 )
 
+var (
+	errMissingProviderURL = errors.New("advisory producer requires provider and url")
+	errFetchHTTPStatus    = errors.New("advisory feed fetch returned non-success status")
+	errEmptyFeed          = errors.New("advisory feed produced no advisory records")
+	errUnsupportedFeed    = errors.New("unsupported advisory provider")
+	errCloseResponseBody  = errors.New("close advisory feed response body")
+)
+
 type advisoryProducer struct {
 	client *http.Client
 
@@ -196,7 +204,7 @@ func (p *advisoryProducer) commandSettings(request addon.CommandRequest) (produc
 	}
 	settings = applyCredentialMaterial(settings)
 	if settings.Provider == "" || settings.URL == "" {
-		return producerConfig{}, errors.New("advisory producer requires provider and url")
+		return producerConfig{}, errMissingProviderURL
 	}
 
 	return settings, nil
@@ -259,15 +267,22 @@ func (p *advisoryProducer) fetch(ctx context.Context, settings producerConfig) (
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, "", fmt.Errorf("fetch %s: http %d", settings.Provider, resp.StatusCode)
+		if err := resp.Body.Close(); err != nil {
+			return nil, "", fmt.Errorf("%w: provider=%s status=%d: %w", errFetchHTTPStatus, settings.Provider, resp.StatusCode, err)
+		}
+
+		return nil, "", fmt.Errorf("%w: provider=%s status=%d", errFetchHTTPStatus, settings.Provider, resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 256<<20))
+	closeErr := resp.Body.Close()
 	if err != nil {
 		return nil, "", err
+	}
+	if closeErr != nil {
+		return nil, "", fmt.Errorf("%w: %w", errCloseResponseBody, closeErr)
 	}
 
 	return body, settings.URL, nil
@@ -284,7 +299,7 @@ func normalizeFeed(settings producerConfig, sourceURL string, body []byte, now t
 		return addon.AdvisoryFeedBatch{}, err
 	}
 	if len(advisories) == 0 {
-		return addon.AdvisoryFeedBatch{}, fmt.Errorf("%s feed produced no advisory records", settings.Provider)
+		return addon.AdvisoryFeedBatch{}, fmt.Errorf("%w: provider=%s", errEmptyFeed, settings.Provider)
 	}
 
 	sum := sha256.Sum256(body)
@@ -337,7 +352,7 @@ func normalizeRecords(provider string, raw any) ([]addon.AdvisoryRecord, error) 
 	case providerVulnCheck:
 		return normalizeVulnCheck(raw), nil
 	default:
-		return nil, fmt.Errorf("unsupported advisory provider %q", provider)
+		return nil, fmt.Errorf("%w: %s", errUnsupportedFeed, provider)
 	}
 }
 
