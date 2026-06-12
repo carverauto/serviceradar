@@ -37,6 +37,7 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
        |> assign(:app_rules, load_app_rules(scope))
        |> assign(:settings, settings)
        |> assign(:settings_form, settings_to_form(settings))
+       |> assign(:can_manage_anomaly?, RBAC.can?(scope, "observability.alerts.manage"))
        |> assign(:selected, nil)
        |> assign(:ash_form, nil)
        |> assign(:form, nil)
@@ -503,7 +504,10 @@ defmodule ServiceRadarWebNGWeb.Settings.NetflowLive.Index do
                     </div>
                   </div>
 
-                  <div class="rounded-lg border border-base-200 bg-base-200/30 p-3">
+                  <div
+                    :if={@can_manage_anomaly?}
+                    class="rounded-lg border border-base-200 bg-base-200/30 p-3"
+                  >
                     <div class="flex items-center justify-between gap-3">
                       <div class="text-xs font-semibold">Anomaly Detection</div>
                       <.link navigate={~p"/settings/anomaly-detection"} class="btn btn-sm">
