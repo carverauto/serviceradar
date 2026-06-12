@@ -83,6 +83,7 @@ module_lock_has_file_hash() {
 
 addon_ids() {
   cat <<'EOF'
+advisory-producer
 netprobe
 powerdns
 workload-identity
@@ -96,6 +97,7 @@ EOF
 manifest_path() {
   case "$1" in
     sample) echo "addons/sample-addon/addon.yaml" ;;
+    advisory-producer) echo "addons/advisory-producer/addon.yaml" ;;
     rust-sample) echo "addons/rust-sample-addon/addon.yaml" ;;
     netprobe) echo "addons/netprobe/addon.yaml" ;;
     powerdns) echo "addons/powerdns/addon.yaml" ;;
@@ -140,6 +142,11 @@ path_belongs_to_addon() {
     sample)
       case "${path}" in
         addons/sample-addon/*|go/cmd/serviceradar-sample-addon/*) return 0 ;;
+      esac
+      ;;
+    advisory-producer)
+      case "${path}" in
+        addons/advisory-producer/*|go/cmd/serviceradar-advisory-producer/*) return 0 ;;
       esac
       ;;
     rust-sample)

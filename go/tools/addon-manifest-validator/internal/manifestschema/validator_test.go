@@ -124,6 +124,44 @@ signal_schemas:
 	}
 }
 
+func TestProducerSchedulesValidate(t *testing.T) {
+	manifest := `
+id: advisory-producer
+name: Advisory Feed Producer
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [advisory-feed:v1, producer-schedule:v1]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: serviceradar-advisory-producer, install_path: /opt/serviceradar}
+config_schema: config.schema.json
+producer_schedules:
+  - schedule_id: cisa_kev.refresh
+    label: Refresh CISA KEV
+    action_id: cisa_kev.refresh
+    command_type: addon.run_command
+    default_cadence_seconds: 21600
+    min_cadence_seconds: 300
+    max_cadence_seconds: 2592000
+    schedule_type: interval
+    jitter_seconds: 300
+    dispatch_scope: assignment
+    timeout_seconds: 900
+    settings_schema:
+      type: object
+`
+
+	res, err := manifestschema.ValidateYAML([]byte(manifest))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("expected manifest with producer_schedules to pass, got %d errors: %v", len(res.Errors), res.Errors)
+	}
+}
+
 // TestEmbeddedSchemaMatchesCanonical guards against the embedded copy drifting
 // away from the canonical schema published under addons/.
 func TestEmbeddedSchemaMatchesCanonical(t *testing.T) {

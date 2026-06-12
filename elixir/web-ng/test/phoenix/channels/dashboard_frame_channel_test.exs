@@ -26,6 +26,20 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
       {:ok, %{"results" => [%{"id" => "row-optional", "value" => 9}], "pagination" => %{"limit" => 1}}}
     end
 
+    def query("in:test_slow_rows", _opts) do
+      if pid = Application.get_env(:serviceradar_web_ng, :dashboard_frame_test_pid) do
+        send(pid, {:srql_query_started, "in:test_slow_rows", self()})
+      end
+
+      receive do
+        :release_dashboard_frame_query ->
+          {:ok, %{"results" => [%{"id" => "row-slow", "value" => 11}], "pagination" => %{"limit" => 1}}}
+      after
+        5_000 ->
+          {:error, :timeout}
+      end
+    end
+
     def query_arrow("in:test_arrow", _opts) do
       {:ok, %{payload: "arrow bytes", schema: %{"columns" => ["id"]}}}
     end
@@ -193,6 +207,38 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannelTest do
 
     assert_receive {:srql_query, "in:test_rows"}
     refute_receive {:srql_query, "in:test_optional_rows"}, 100
+  end
+
+  test "frame queries run outside the channel process", %{user: user, scope: scope} do
+    Application.put_env(:serviceradar_web_ng, :dashboard_frame_test_pid, self())
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :dashboard_frame_test_pid)
+    end)
+
+    route_slug = "test-dashboard-#{System.unique_integer([:positive])}"
+    data_frames = [%{"id" => "slow", "query" => "in:test_slow_rows", "encoding" => "json_rows", "limit" => 1}]
+
+    create_dashboard_instance!(route_slug, data_frames, scope)
+    token = DashboardFrameChannel.stream_token(route_slug, data_frames)
+
+    assert {:ok, _reply, socket} =
+             UserSocket
+             |> socket("user-id", %{current_user: user, current_scope: scope})
+             |> subscribe_and_join(DashboardFrameChannel, "dashboards:#{route_slug}", %{"token" => token})
+
+    assert_receive {:srql_query_started, "in:test_slow_rows", query_pid}
+
+    ref = push(socket, "frames:refresh", %{})
+    assert_reply ref, :ok, %{}, 100
+
+    send(query_pid, :release_dashboard_frame_query)
+
+    assert_push "frames:replace", %{
+      "frames" => [
+        %{"id" => "slow", "status" => "ok", "results" => [%{"id" => "row-slow", "value" => 11}]}
+      ]
+    }
   end
 
   test "rejects missing or mismatched stream tokens", %{user: user, scope: scope} do

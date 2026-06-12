@@ -258,9 +258,7 @@ impl QueryEngine {
                 Entity::Logs => logs::execute(&mut conn, &plan).await?,
                 Entity::Gateways => gateways::execute(&mut conn, &plan).await?,
                 Entity::OtelMetrics => otel_metrics::execute(&mut conn, &plan).await?,
-                Entity::OtelMetricPoints => {
-                    otel_metric_points::execute(&mut conn, &plan).await?
-                }
+                Entity::OtelMetricPoints => otel_metric_points::execute(&mut conn, &plan).await?,
                 Entity::RperfMetrics | Entity::TimeseriesMetrics | Entity::SnmpMetrics => {
                     timeseries_metrics::execute(&mut conn, &plan).await?
                 }

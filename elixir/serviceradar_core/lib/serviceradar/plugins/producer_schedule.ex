@@ -108,7 +108,13 @@ defmodule ServiceRadar.Plugins.ProducerSchedule do
       require_atomic? false
 
       accept @operator_fields ++
-               [:plugin_assignment_id, :addon_assignment_id, :display_name, :description]
+               [
+                 :plugin_assignment_id,
+                 :addon_assignment_id,
+                 :display_name,
+                 :description,
+                 :contract
+               ]
 
       validate &validate_schedule/2
       change &set_initial_due/2
