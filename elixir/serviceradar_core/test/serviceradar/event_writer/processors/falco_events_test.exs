@@ -11,13 +11,10 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
   end
 
   describe "promotion thresholds" do
-    test "promotes every severity to a finding (severity is a filter, not a gate)" do
-      assert FalcoEvents.promote_to_event?(6)
-      assert FalcoEvents.promote_to_event?(3)
-      # Low/info severities now become findings too so they appear in
-      # in:security_findings rather than living only in the logs table.
-      assert FalcoEvents.promote_to_event?(2)
-      assert FalcoEvents.promote_to_event?(1)
+    test "promotes every severity to structured findings" do
+      for severity_id <- 0..6 do
+        assert FalcoEvents.promote_to_event?(severity_id)
+      end
     end
 
     test "promotes critical and emergency to alerts" do
@@ -260,6 +257,119 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEventsTest do
       assert row.severity == "Unknown"
       assert row.status_id == 99
       assert row.status == "Other"
+    end
+
+    test "maps Falco tags to non-default OCSF finding classes" do
+      base_payload = %{
+        "output" => "Mapped Falco event",
+        "priority" => "Warning",
+        "rule" => "Mapped Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z"
+      }
+
+      compliance =
+        FalcoEvents.parse_message(%{
+          data: Jason.encode!(Map.put(base_payload, "tags", ["cis", "compliance"])),
+          metadata: %{subject: "falco.warning.compliance"}
+        })
+
+      vulnerability =
+        FalcoEvents.parse_message(%{
+          data: Jason.encode!(Map.put(base_payload, "tags", ["vulnerability", "cve"])),
+          metadata: %{subject: "falco.warning.vulnerability"}
+        })
+
+      posture =
+        FalcoEvents.parse_message(%{
+          data: Jason.encode!(Map.put(base_payload, "tags", ["configuration", "hardening"])),
+          metadata: %{subject: "falco.warning.posture"}
+        })
+
+      override =
+        FalcoEvents.parse_message(%{
+          data:
+            base_payload
+            |> Map.put("tags", ["runtime"])
+            |> Map.put("output_fields", %{"falco.ocsf.class_uid" => "2003"})
+            |> Jason.encode!(),
+          metadata: %{subject: "falco.warning.override"}
+        })
+
+      assert compliance.class_uid == 2003
+      assert compliance.type_uid == 200_301
+      assert vulnerability.class_uid == 2002
+      assert vulnerability.type_uid == 200_201
+      assert posture.class_uid == 2007
+      assert posture.type_uid == 200_701
+      assert override.class_uid == 2003
+    end
+
+    test "adds stable finding identity separate from per-occurrence event ids" do
+      base_payload = %{
+        "output" => "Stable grouping event",
+        "priority" => "Warning",
+        "rule" => "Stable Finding Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z",
+        "hostname" => "worker-1",
+        "output_fields" => %{
+          "container.id" => "container-1",
+          "k8s.ns.name" => "default",
+          "k8s.pod.name" => "pod-1"
+        }
+      }
+
+      row1 =
+        FalcoEvents.parse_message(%{
+          data:
+            Jason.encode!(Map.put(base_payload, "uuid", "e1b3e6d8-e152-45d9-971a-17601f1db563")),
+          metadata: %{subject: "falco.warning.stable"}
+        })
+
+      row2 =
+        FalcoEvents.parse_message(%{
+          data:
+            Jason.encode!(Map.put(base_payload, "uuid", "dc4694e7-4b37-4362-a590-e484fa94ce3a")),
+          metadata: %{subject: "falco.warning.stable"}
+        })
+
+      finding1 = row1.metadata["finding_info"]
+      finding2 = row2.metadata["finding_info"]
+
+      assert row1.id != row2.id
+      assert finding1["uid"] == finding2["uid"]
+      assert finding1["group_uid"] == finding1["uid"]
+      assert finding1["title"] == "Stable Finding Rule"
+      assert finding1["dimensions"]["rule"] == "Stable Finding Rule"
+      assert finding1["dimensions"]["hostname"] == "worker-1"
+      assert finding1["dimensions"]["namespace"] == "default"
+      assert finding1["dimensions"]["pod"] == "pod-1"
+      assert finding1["dimensions"]["container_id"] == "container-1"
+      assert row1.metadata["security_signal"]["finding_uid"] == finding1["uid"]
+    end
+
+    test "parses MITRE ATT&CK tactic and technique tags into metadata" do
+      payload = %{
+        "output" => "ATT&CK tagged event",
+        "priority" => "Critical",
+        "rule" => "ATT&CK Rule",
+        "time" => "2026-03-03T05:56:49.684779242Z",
+        "tags" => ["mitre_execution", "T1059.004"]
+      }
+
+      row =
+        FalcoEvents.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{subject: "falco.critical.attack"}
+        })
+
+      assert [
+               %{
+                 "tactic" => %{"uid" => "TA0002", "name" => "Execution"},
+                 "technique" => %{"uid" => "T1059.004"}
+               }
+             ] = row.metadata["attacks"]
+
+      assert row.metadata["security_signal"]["attacks"] == row.metadata["attacks"]
     end
 
     test "uses deterministic fallback id when uuid is missing" do

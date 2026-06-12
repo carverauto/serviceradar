@@ -108,6 +108,11 @@ impl EventRow {
             self.log_name.clone(),
             source_device_uid.clone(),
         ]);
+        let finding_uid = first_non_blank([
+            json_path_string(&self.metadata, &["finding_info", "uid"]),
+            json_path_string(&self.metadata, &["security_signal", "finding_uid"]),
+        ]);
+        let finding_title = json_path_string(&self.metadata, &["finding_info", "title"]);
 
         serde_json::json!({
             "time": self.time,
@@ -142,6 +147,8 @@ impl EventRow {
             "host": host,
             "source_device_uid": source_device_uid,
             "source": source,
+            "finding_uid": finding_uid,
+            "finding_title": finding_title,
             "short_message": message,
             "created_at": self.created_at,
         })

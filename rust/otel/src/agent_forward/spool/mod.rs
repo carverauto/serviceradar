@@ -205,12 +205,10 @@ impl Spool {
 
         // Resume the newest under-sized segment as the active segment so a
         // restart does not strand a tiny file per boot.
-        if inner
+        if let Some(meta) = inner
             .sealed
-            .back()
-            .is_some_and(|seg| seg.bytes < inner.config.segment_max_bytes)
+            .pop_back_if(|seg| seg.bytes < inner.config.segment_max_bytes)
         {
-            let meta = inner.sealed.pop_back().expect("checked back() above");
             let file = OpenOptions::new()
                 .append(true)
                 .open(&meta.path)

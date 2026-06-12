@@ -58,7 +58,10 @@ pub(super) async fn execute(conn: &mut AsyncPgConnection, plan: &QueryPlan) -> R
         .await
         .map_err(|err| ServiceError::Internal(err.into()))?;
 
-    Ok(rows.into_iter().map(OtelMetricPointRow::into_json).collect())
+    Ok(rows
+        .into_iter()
+        .map(OtelMetricPointRow::into_json)
+        .collect())
 }
 
 pub(super) fn to_sql_and_params(plan: &QueryPlan) -> Result<(String, Vec<BindParam>)> {
@@ -150,11 +153,19 @@ fn collect_text_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<(
 
 fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter) -> Result<()> {
     match filter.field.as_str() {
-        "metric_name" | "service_name" | "service" | "metric_type" | "type" | "unit"
-        | "temporality" | "scope_name" | "service_instance_id" | "service_instance"
-        | "ingest_identity" | "ingest_agent_id" | "ingest_partition" => {
-            collect_text_params(params, filter)
-        }
+        "metric_name"
+        | "service_name"
+        | "service"
+        | "metric_type"
+        | "type"
+        | "unit"
+        | "temporality"
+        | "scope_name"
+        | "service_instance_id"
+        | "service_instance"
+        | "ingest_identity"
+        | "ingest_agent_id"
+        | "ingest_partition" => collect_text_params(params, filter),
         "attributes" => {
             params.push(BindParam::Text(attributes_pattern(filter)?));
             Ok(())

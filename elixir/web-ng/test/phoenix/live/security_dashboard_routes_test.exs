@@ -29,40 +29,32 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     :ok
   end
 
-  test "security page is reachable and shows tactical scanner context", %{conn: conn} do
+  test "security page is reachable and links to the packaged security dashboard", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/security")
     html = render(view) <> html
 
-    assert html =~ "Scanner posture and active findings"
-    assert html =~ "Bumblebee, Falco, Trivy, endpoint package discovery, and PowerDNS"
-    assert has_element?(view, "a[href='/dashboards']", "Browse Dashboards")
+    assert html =~ "Security analytics workbench"
+    assert html =~ "without loading duplicate dashboard frames"
+    assert has_element?(view, "a[href='/dashboards/security-findings']", "Security Findings")
+    assert has_element?(view, "a[href='/settings/security/vulnerability-feeds']", "Advisory Feeds")
   end
 
-  test "security page renders normalized Trivy findings as tactical rows", %{conn: conn} do
+  test "security page renders normalized Trivy finding detail deep links", %{conn: conn} do
     event_uuid = Ecto.UUID.generate()
     finding_uuid = Ecto.UUID.generate()
 
     insert_trivy_finding!(event_uuid, finding_uuid)
 
-    {:ok, view, _html} = live(conn, ~p"/security")
-    html = render_async(view, 5_000)
-
-    assert html =~ "Trivy Vulnerabilities"
-    assert html =~ "CVE-2025-68121"
-    assert html =~ "crypto/tls: Unexpected session resumption in crypto/tls"
-    assert html =~ "golang"
-    assert html =~ "v1.24.6"
-    assert html =~ "1.24.13"
-    assert html =~ "sealed-secrets-54d6d7dc89"
-    assert html =~ "Reference"
-    assert has_element?(view, "a[href='/security?finding=#{finding_uuid}']", "Inspect")
-    assert has_element?(view, "a[href='/events/#{event_uuid}']", "Raw")
-
     {:ok, detail_view, _html} = live(conn, ~p"/security?#{%{finding: finding_uuid}}")
     detail_html = render_async(detail_view, 5_000)
 
     assert detail_html =~ "Vulnerability Finding"
+    assert detail_html =~ "CVE-2025-68121"
+    assert detail_html =~ "crypto/tls: Unexpected session resumption in crypto/tls"
     assert detail_html =~ "Fixed In"
+    assert detail_html =~ "golang"
+    assert detail_html =~ "v1.24.6"
+    assert detail_html =~ "1.24.13"
     assert detail_html =~ "pkg:golang/stdlib@v1.24.6"
     assert detail_html =~ "bitnami/sealed-secrets-controller:0.32.2"
     assert detail_html =~ "agent-k8s-cp3-worker1"
@@ -78,7 +70,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert has_element?(
              view,
              "a[href*='in%3Asecurity_findings'][href*='sort%3Atime%3Adesc']",
-             "Active findings"
+             "Scanner findings"
            )
 
     assert has_element?(
@@ -93,11 +85,14 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
              "DNS blocks"
            )
 
-    assert html =~ "No Trivy vulnerability finding rows are available yet"
+    refute html =~ "No Trivy vulnerability finding rows are available yet"
+    refute html =~ "No active OCSF findings found"
   end
 
   test "security page renders Falco runtime evidence without using raw event details first", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/security?#{%{detection: "falco-event-1"}}")
+    event_uuid = insert_falco_detection!()
+
+    {:ok, view, _html} = live(conn, ~p"/security?#{%{detection: event_uuid}}")
     html = render_async(view, 5_000)
 
     assert html =~ "Runtime Detection Evidence"
@@ -105,17 +100,7 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     assert html =~ "bash"
     assert html =~ "/bin/bash"
     assert html =~ "demo/demo-nginx"
-    assert has_element?(view, "a[href='/security?detection=falco-event-1']", "Evidence")
-    assert has_element?(view, "a[href='/events/falco-event-1']", "Raw")
-  end
-
-  test "security source cards explain missing source conditions", %{conn: conn} do
-    {:ok, view, _html} = live(conn, ~p"/security")
-    html = render_async(view, 5_000)
-
-    assert html =~ "No Trivy vulnerability finding rows are available yet"
-    assert html =~ "No PowerDNS DNS activity is available yet"
-    assert html =~ "No endpoint inventory vulnerability findings are available yet"
+    assert has_element?(view, "a[href='/events/#{event_uuid}']", "Raw event")
   end
 
   test "dashboard hub lists bundled security and endpoint inventory dashboards", %{conn: conn} do
@@ -133,9 +118,9 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
     {:ok, view, _html} = live(conn, ~p"/security")
     security_html = render_async(view, 5_000)
 
-    assert security_html =~ "Scanner posture and active findings"
-    assert security_html =~ "Trivy Vulnerabilities"
-    assert has_element?(view, "a[href='/dashboards']", "Browse Dashboards")
+    assert security_html =~ "Security analytics workbench"
+    refute security_html =~ "Trivy Vulnerabilities"
+    assert has_element?(view, "a[href='/dashboards/security-findings']", "Security Findings")
 
     dashboard_js =
       File.read!(Path.expand("../../../assets/js/dashboards/security_findings.js", __DIR__))
@@ -237,6 +222,62 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
       ],
       prefix: "platform"
     )
+  end
+
+  defp insert_falco_detection! do
+    event_uuid = Ecto.UUID.generate()
+    dumped_event_uuid = Ecto.UUID.dump!(event_uuid)
+
+    diagnostics = %{
+      "rule" => %{"name" => "Terminal shell in container", "priority" => "High"},
+      "host" => %{"name" => "agent-k8s-cp2-worker2"},
+      "process" => %{"name" => "bash", "command" => "/bin/bash", "executable" => "/bin/bash"},
+      "user" => %{"name" => "root"},
+      "container" => %{
+        "name" => "demo-nginx",
+        "image" => %{"repository" => "nginx", "tag" => "1.25"}
+      },
+      "kubernetes" => %{"namespace" => "demo", "pod" => "demo-nginx"},
+      "file" => %{"path" => "/bin/bash"}
+    }
+
+    Repo.insert_all(
+      "ocsf_events",
+      [
+        %{
+          id: dumped_event_uuid,
+          time: DateTime.utc_now(),
+          class_uid: 2004,
+          category_uid: 2,
+          type_uid: 2_004_001,
+          activity_id: 1,
+          activity_name: "Detection",
+          severity_id: 4,
+          severity: "High",
+          message: "Falco detected Terminal shell in container",
+          status_id: 1,
+          status: "Success",
+          metadata: %{
+            "security_signal" => %{"diagnostics" => diagnostics},
+            "service_radar" => %{
+              "source_type" => "falco",
+              "device_hostname" => "agent-k8s-cp2-worker2"
+            }
+          },
+          observables: [],
+          actor: %{},
+          device: %{"name" => "agent-k8s-cp2-worker2"},
+          src_endpoint: %{},
+          dst_endpoint: %{},
+          log_provider: "falco",
+          unmapped: %{},
+          raw_data: Jason.encode!(%{"diagnostics" => diagnostics})
+        }
+      ],
+      prefix: "platform"
+    )
+
+    event_uuid
   end
 
   defmodule SRQLStub do

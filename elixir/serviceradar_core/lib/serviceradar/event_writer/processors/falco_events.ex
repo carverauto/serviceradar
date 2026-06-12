@@ -4,7 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   Dual-path behavior:
   - Persist all Falco payloads into `logs` as raw observability records.
-  - Auto-promote higher-priority Falco payloads into `ocsf_events`.
+  - Auto-promote all Falco payloads into `ocsf_events` for analytics.
   - Evaluate promoted events against stateful alert rules for incident handling.
   """
 
@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   alias ServiceRadar.Events.PubSub, as: EventsPubSub
   alias ServiceRadar.EventWriter.DeviceCorrelation
+  alias ServiceRadar.EventWriter.FalcoDecomposition
   alias ServiceRadar.EventWriter.FieldParser
   alias ServiceRadar.EventWriter.OCSF
   alias ServiceRadar.Observability.LogPubSub
@@ -52,10 +53,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   @doc false
   @spec promote_to_event?(non_neg_integer()) :: boolean()
-  # Every Falco event becomes a structured OCSF finding regardless of severity
-  # (severity is a filter in analytics, not a visibility gate). Alerting stays
-  # gated via promote_to_alert?/1. _severity_id is retained for signature
-  # stability and future per-rule overrides.
   def promote_to_event?(_severity_id), do: true
 
   @doc false
@@ -144,7 +141,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
 
   defp build_entry(payload, metadata, raw_data) do
     subject = normalize_subject(metadata[:subject])
-    output_fields = falco_output_fields(payload)
+    output_fields = FalcoDecomposition.output_fields(payload)
 
     event_time = parse_event_time(payload["time"], output_fields)
     event_uuid = resolve_event_id(payload, subject, raw_data)
@@ -265,6 +262,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     device_hostname = falco_device_hostname(payload, output_fields)
     agent_id = falco_agent_id(payload, output_fields, device_hostname)
     device_uid = falco_device_uid(payload, output_fields, device_hostname)
+    class_uid = FalcoDecomposition.class_uid(payload, output_fields)
 
     metadata =
       payload
@@ -286,9 +284,9 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     %{
       id: Ecto.UUID.dump!(event_uuid),
       time: event_time,
-      class_uid: OCSF.class_detection_finding(),
+      class_uid: class_uid,
       category_uid: OCSF.category_findings(),
-      type_uid: OCSF.type_uid(OCSF.class_detection_finding(), OCSF.activity_finding_create()),
+      type_uid: OCSF.type_uid(class_uid, OCSF.activity_finding_create()),
       activity_id: OCSF.activity_finding_create(),
       activity_name: OCSF.finding_activity_name(OCSF.activity_finding_create()),
       severity_id: severity_id,
@@ -299,7 +297,7 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       status_code: nil,
       status_detail: nil,
       metadata: metadata,
-      observables: build_observables(payload, output_fields),
+      observables: FalcoDecomposition.observables(payload, output_fields),
       trace_id: nil,
       span_id: nil,
       actor: build_actor(output_fields),
@@ -423,16 +421,15 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       subject || "falco event"
   end
 
-  defp falco_output_fields(payload) do
-    payload["output_fields"]
-    |> normalize_map()
-    |> Map.merge(normalize_map(payload["custom_fields"]))
-    |> Map.merge(normalize_map(payload["templated_fields"]))
-  end
-
   defp build_event_metadata(payload, subject, output_fields) do
-    context = falco_context(payload, output_fields)
-    diagnostics = falco_diagnostics(payload, output_fields, context)
+    context =
+      FalcoDecomposition.context(payload, output_fields,
+        hostname: falco_device_hostname(payload, output_fields)
+      )
+
+    diagnostics = FalcoDecomposition.diagnostics(payload, output_fields, context)
+    finding_info = FalcoDecomposition.finding_info(payload, output_fields, subject)
+    attacks = FalcoDecomposition.attacks(payload, output_fields)
 
     %{
       "version" => "1.9.0-dev",
@@ -449,246 +446,22 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
       "source_type" => normalize_string(payload["source"]),
       "tags" => normalize_tags(payload["tags"]),
       "output_fields" => output_fields,
+      "finding_info" => finding_info,
+      "attacks" => attacks,
       "security_signal" =>
-        compact_map(%{
+        FalcoDecomposition.compact_map(%{
           "kind" => "runtime",
           "source" => "falco",
           "rule" => context["rule"],
           "priority" => context["priority"],
           "uuid" => normalize_string(payload["uuid"]),
+          "finding_uid" => finding_info["uid"],
+          "attacks" => attacks,
           "diagnostics" => diagnostics
         })
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
-  end
-
-  defp falco_context(payload, output_fields) do
-    hostname = falco_device_hostname(payload, output_fields)
-
-    %{
-      "rule" => normalize_string(payload["rule"]),
-      "priority" => normalize_string(payload["priority"]),
-      "hostname" => hostname,
-      "namespace" => normalize_string(output_fields["k8s.ns.name"]),
-      "pod" => normalize_string(output_fields["k8s.pod.name"]),
-      "container" => normalize_string(output_fields["container.name"]),
-      "container_id" => normalize_string(output_fields["container.id"])
-    }
-  end
-
-  defp falco_diagnostics(payload, output_fields, context) do
-    compact_map(%{
-      "rule" => %{
-        "name" => context["rule"],
-        "priority" => context["priority"],
-        "uuid" => normalize_string(payload["uuid"]),
-        "source" => normalize_string(payload["source"]),
-        "tags" => normalize_tags(payload["tags"]),
-        "references" => falco_references(payload, output_fields)
-      },
-      "host" => %{"name" => context["hostname"]},
-      "process" => falco_process_diagnostics(output_fields),
-      "parent_process" => falco_parent_process_diagnostics(output_fields),
-      "user" => falco_user_diagnostics(output_fields),
-      "file" => falco_file_diagnostics(output_fields),
-      "network" => falco_network_diagnostics(output_fields),
-      "container" =>
-        falco_container_diagnostics(output_fields, %{
-          "name" => context["container"],
-          "id" => context["container_id"]
-        }),
-      "kubernetes" => %{
-        "namespace" => context["namespace"],
-        "pod" => context["pod"],
-        "node" => normalize_string(output_fields["k8s.node.name"])
-      },
-      "event" => falco_event_diagnostics(output_fields, payload),
-      "attribution" =>
-        falco_attribution(
-          context["namespace"],
-          context["pod"],
-          context["container"],
-          context["container_id"]
-        )
-    })
-  end
-
-  defp falco_process_diagnostics(output_fields) do
-    compact_map(%{
-      "name" => falco_field(output_fields, ["proc.name"]),
-      "short_name" => falco_field(output_fields, ["proc.sname"]),
-      "executable" => falco_field(output_fields, ["proc.exe", "proc.exepath"]),
-      "executable_path" => falco_field(output_fields, ["proc.exepath"]),
-      "command" => falco_field(output_fields, ["proc.cmdline", "proc.args"]),
-      "cwd" => falco_field(output_fields, ["proc.cwd"]),
-      "tty" => falco_field(output_fields, ["proc.tty"]),
-      "pid" => falco_field(output_fields, ["proc.pid"]),
-      "executable_flags" =>
-        compact_map(%{
-          "upper_layer" => falco_field(output_fields, ["proc.is_exe_upper_layer"]),
-          "from_memfd" => falco_field(output_fields, ["proc.is_exe_from_memfd"]),
-          "from_disk" => falco_field(output_fields, ["proc.is_exe_from_disk"]),
-          "lower_layer" => falco_field(output_fields, ["proc.is_exe_lower_layer"]),
-          "evt_flags" => falco_field(output_fields, ["evt.arg.flags"])
-        })
-    })
-  end
-
-  defp falco_parent_process_diagnostics(output_fields) do
-    compact_map(%{
-      "name" => falco_field(output_fields, ["proc.pname"]),
-      "ancestor" => falco_field(output_fields, ["proc.aname[2]", "proc.aname[3]"])
-    })
-  end
-
-  defp falco_user_diagnostics(output_fields) do
-    compact_map(%{
-      "name" => falco_field(output_fields, ["user.name"]),
-      "uid" => falco_field(output_fields, ["user.uid"]),
-      "login_uid" => falco_field(output_fields, ["user.loginuid"])
-    })
-  end
-
-  defp falco_file_diagnostics(output_fields) do
-    compact_map(%{
-      "name" => falco_field(output_fields, ["fd.name", "evt.arg.path", "evt.arg.name"]),
-      "directory" => falco_field(output_fields, ["fd.directory"]),
-      "type" => falco_field(output_fields, ["fd.type"]),
-      "num" => falco_field(output_fields, ["fd.num"]),
-      "flags" => falco_field(output_fields, ["evt.arg.flags", "fd.flags"])
-    })
-  end
-
-  defp falco_network_diagnostics(output_fields) do
-    compact_map(%{
-      "source_ip" => falco_field(output_fields, ["fd.sip", "evt.arg.sip"]),
-      "source_port" => falco_field(output_fields, ["fd.sport", "evt.arg.sport"]),
-      "destination_ip" => falco_field(output_fields, ["fd.dip", "evt.arg.dip"]),
-      "destination_port" => falco_field(output_fields, ["fd.dport", "evt.arg.dport"]),
-      "l4_protocol" => falco_field(output_fields, ["fd.l4proto"]),
-      "remote_ip" => falco_field(output_fields, ["fd.rip"]),
-      "remote_port" => falco_field(output_fields, ["fd.rport"])
-    })
-  end
-
-  defp falco_container_diagnostics(output_fields, context) do
-    compact_map(%{
-      "id" => context["id"],
-      "name" => context["name"],
-      "image" => falco_field(output_fields, ["container.image"]),
-      "image_repository" => falco_field(output_fields, ["container.image.repository"]),
-      "image_tag" => falco_field(output_fields, ["container.image.tag"]),
-      "image_digest" => falco_field(output_fields, ["container.image.digest"])
-    })
-  end
-
-  defp falco_event_diagnostics(output_fields, payload) do
-    compact_map(%{
-      "type" => falco_field(output_fields, ["evt.type"]),
-      "time" => falco_field(output_fields, ["evt.time"]) || normalize_string(payload["time"]),
-      "flags" => falco_field(output_fields, ["evt.arg.flags"])
-    })
-  end
-
-  defp falco_attribution(namespace, pod, container, container_id) do
-    status =
-      cond do
-        present?(namespace) and present?(pod) ->
-          "resolved"
-
-        present?(namespace) or present?(pod) or present?(container) or present?(container_id) ->
-          "partial"
-
-        true ->
-          "missing"
-      end
-
-    missing =
-      Enum.reject(
-        [
-          if(present?(namespace), do: nil, else: "kubernetes.namespace"),
-          if(present?(pod), do: nil, else: "kubernetes.pod")
-        ],
-        &is_nil/1
-      )
-
-    compact_map(%{
-      "status" => status,
-      "missing" => missing
-    })
-  end
-
-  defp falco_references(payload, output_fields) do
-    [
-      payload["rule_url"],
-      payload["rule_uri"],
-      payload["url"],
-      output_fields["falco.rule.url"],
-      output_fields["falco.rule_uri"]
-    ]
-    |> Enum.flat_map(&List.wrap/1)
-    |> Enum.map(&normalize_string/1)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.uniq()
-  end
-
-  defp falco_field(output_fields, keys) do
-    Enum.reduce_while(keys, nil, fn key, _acc ->
-      case falco_value(output_fields[key]) do
-        nil -> {:cont, nil}
-        value -> {:halt, value}
-      end
-    end)
-  end
-
-  defp falco_value(value) when is_binary(value) do
-    normalize_string(value)
-  end
-
-  defp falco_value(value) when value in [nil, "", []], do: nil
-  defp falco_value(value), do: value
-
-  defp compact_map(map) when is_map(map) do
-    Enum.reduce(map, %{}, fn {key, value}, acc ->
-      value = compact_value(value)
-
-      if empty_value?(value) do
-        acc
-      else
-        Map.put(acc, key, value)
-      end
-    end)
-  end
-
-  defp compact_value(value) when is_map(value), do: compact_map(value)
-
-  defp compact_value(value) when is_list(value) do
-    value
-    |> Enum.map(&compact_value/1)
-    |> Enum.reject(&empty_value?/1)
-  end
-
-  defp compact_value(value), do: value
-
-  defp empty_value?(nil), do: true
-  defp empty_value?(""), do: true
-  defp empty_value?([]), do: true
-  defp empty_value?(value) when is_map(value), do: map_size(value) == 0
-  defp empty_value?(_value), do: false
-
-  defp present?(value), do: not empty_value?(value)
-
-  defp build_observables(payload, output_fields) do
-    Enum.reject(
-      [
-        maybe_observable(normalize_string(payload["hostname"]), "Hostname", 1),
-        maybe_observable(normalize_string(payload["rule"]), "Rule Name", 99),
-        maybe_observable(normalize_string(output_fields["container.id"]), "Container ID", 99),
-        maybe_observable(normalize_string(output_fields["k8s.pod.name"]), "Kubernetes Pod", 99)
-      ],
-      &is_nil/1
-    )
   end
 
   defp build_actor(output_fields) do
@@ -794,9 +567,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   defp normalize_subject(subject) when is_binary(subject), do: subject
   defp normalize_subject(_), do: "falco.unknown"
 
-  defp normalize_map(value) when is_map(value), do: value
-  defp normalize_map(_), do: %{}
-
   defp normalize_tags(value) when is_list(value) do
     value
     |> Enum.map(&normalize_string/1)
@@ -813,9 +583,6 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
   end
 
   defp normalize_string(_), do: nil
-
-  defp maybe_observable(nil, _type, _type_id), do: nil
-  defp maybe_observable(value, type, type_id), do: OCSF.build_observable(value, type, type_id)
 
   defp deterministic_uuid(key) do
     <<a1::32, a2::16, a3::16, a4::16, a5::48, _rest::binary>> = :crypto.hash(:sha256, key)
