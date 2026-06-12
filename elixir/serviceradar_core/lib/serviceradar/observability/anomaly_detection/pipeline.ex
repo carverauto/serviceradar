@@ -12,8 +12,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   alias Broadway.Message
   alias ServiceRadar.EventWriter.Producer
   alias ServiceRadar.Observability.AnomalyDetection.Config
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
-  alias ServiceRadar.Observability.CausalReasoner
 
   require Logger
 
@@ -83,7 +83,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   defp analyze_message(%Message{} = message, subject) do
     samples = SampleExtractor.extract(message)
 
-    case analyze_samples(samples) do
+    case analyze_samples(samples, subject) do
       :ok ->
         emit(:analyzed, length(samples), subject)
         message
@@ -98,38 +98,30 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     end
   end
 
-  defp analyze_samples([]), do: {:drop, :no_scalar_samples}
+  defp analyze_samples([], _subject), do: {:drop, :no_scalar_samples}
 
-  defp analyze_samples(samples) do
+  defp analyze_samples(samples, subject) do
     Enum.reduce_while(samples, :ok, fn sample, :ok ->
-      case reason(sample) do
-        {:ok, _verdict} -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+      case context_engine().evaluate(sample) do
+        {:ok, _verdict} ->
+          {:cont, :ok}
+
+        {:drop, reason} ->
+          emit(:dropped, 1, subject, reason)
+          {:cont, :ok}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
   end
 
-  defp reason(sample) do
-    reasoner().reason(default_context(sample), %{
-      value: sample.value,
-      observed_at_unix_nano: sample.observed_at_unix_nano
-    })
-  end
-
-  # Phase 1.4 replaces this placeholder with Horde-owned per-series context.
-  defp default_context(_sample) do
-    %{
-      baseline: [],
-      min_samples: 30,
-      window_size: 300,
-      n_sigma: 3.0,
-      confirm_slots: 5,
-      consecutive_anomalous: 0
-    }
-  end
-
-  defp reasoner do
-    Application.get_env(:serviceradar_core, :anomaly_detection_reasoner, CausalReasoner)
+  defp context_engine do
+    Application.get_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      ContextEngine
+    )
   end
 
   defp subject(%Message{metadata: metadata}) when is_map(metadata) do
