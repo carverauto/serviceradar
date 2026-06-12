@@ -124,6 +124,7 @@ const sidebars: SidebarsConfig = {
         {type: 'doc', id: 'tools', label: 'Tools Pod'},
         {type: 'doc', id: 'cli-reference', label: 'ServiceRadar CLI'},
         {type: 'doc', id: 'configuration-system', label: 'Configuration & KV Store'},
+        {type: 'doc', id: 'anomaly-detection', label: 'Anomaly Detection'},
         {type: 'doc', id: 'database-bootstrap', label: 'Database Bootstrap'},
         {type: 'doc', id: 'cnpg-monitoring', label: 'CNPG Monitoring'},
         {type: 'doc', id: 'observability-rollup-recovery', label: 'Observability Rollup Recovery'},
