@@ -99,9 +99,11 @@ defmodule ServiceRadar.Plugins.PluginPackage do
     end
 
     update :update do
+      require_atomic? false
       accept @package_fields
 
       validate Manifest
+      change &sync_producer_schedule_contracts/2
     end
 
     update :approve do

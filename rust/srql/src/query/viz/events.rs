@@ -46,6 +46,12 @@ pub(super) fn security_findings() -> VizMeta {
             col("severity", ColumnType::Text, None),
             col("status", ColumnType::Text, None),
             col("short_message", ColumnType::Text, None),
+            col("finding_uid", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "finding_title",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
             col(
                 "source_device_uid",
                 ColumnType::Text,

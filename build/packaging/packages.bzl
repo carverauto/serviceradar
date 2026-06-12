@@ -538,6 +538,11 @@ PACKAGES = {
                 "mode": "0644",
             },
             {
+                "src": "rules/falco_normalize.json",
+                "dest": "/usr/share/serviceradar-zen/rules/falco_normalize.json",
+                "mode": "0644",
+            },
+            {
                 "src": "rules/passthrough.json",
                 "dest": "/usr/share/serviceradar-zen/rules/passthrough.json",
                 "mode": "0644",

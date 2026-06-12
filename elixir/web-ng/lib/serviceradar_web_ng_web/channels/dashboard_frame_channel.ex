@@ -32,6 +32,7 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
         |> assign(:initial_frame_sent, false)
         |> assign(:refresh_ms, refresh_ms(payload["refresh_interval_ms"]))
         |> assign(:last_frame_hash, nil)
+        |> assign(:refresh_task_ref, nil)
 
       send(self(), :dashboard_frame_tick)
       {:ok, %{"refresh_interval_ms" => socket.assigns.refresh_ms}, socket}
@@ -47,30 +48,80 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
   @impl true
   def handle_info(:dashboard_frame_tick, socket) do
-    socket =
-      socket
-      |> push_frame_snapshot(tick_data_frames(socket))
-      |> assign(:initial_frame_sent, true)
+    socket = start_frame_refresh(socket, tick_data_frames(socket))
 
     Process.send_after(self(), :dashboard_frame_tick, socket.assigns.refresh_ms)
     {:noreply, socket}
   end
+
+  def handle_info({:dashboard_frame_result, ref, {:ok, updates}}, %{assigns: %{refresh_task_ref: ref}} = socket) do
+    socket =
+      socket
+      |> assign(:refresh_task_ref, nil)
+      |> assign(:initial_frame_sent, true)
+      |> push_frame_updates(updates)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:dashboard_frame_result, ref, {:error, reason}}, %{assigns: %{refresh_task_ref: ref}} = socket) do
+    Logger.error("dashboard frame stream failed route_slug=#{socket.assigns[:route_slug]} error=#{inspect(reason)}")
+    push(socket, "frames:error", %{"reason" => "frame_stream_unavailable"})
+
+    socket =
+      socket
+      |> assign(:refresh_task_ref, nil)
+      |> assign(:initial_frame_sent, true)
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:dashboard_frame_result, _ref, _result}, socket), do: {:noreply, socket}
 
   @impl true
   def handle_in("frames:refresh", _payload, socket) do
     socket =
       socket
       |> assign(:last_frame_hash, nil)
-      |> push_frame_snapshot(socket.assigns.initial_data_frames)
+      |> start_frame_refresh(socket.assigns.initial_data_frames)
 
     {:reply, {:ok, %{}}, socket}
   end
 
-  defp push_frame_snapshot(socket, data_frames) do
+  defp start_frame_refresh(%{assigns: %{refresh_task_ref: ref}} = socket, _data_frames) when not is_nil(ref), do: socket
+
+  defp start_frame_refresh(socket, data_frames) do
+    ref = make_ref()
+    parent = self()
+    scope = socket.assigns.current_scope
+
+    case Task.start(fn -> send(parent, {:dashboard_frame_result, ref, run_data_frames(data_frames, scope)}) end) do
+      {:ok, _pid} ->
+        assign(socket, :refresh_task_ref, ref)
+
+      {:error, reason} ->
+        Logger.error(
+          "dashboard frame stream task failed route_slug=#{socket.assigns[:route_slug]} error=#{inspect(reason)}"
+        )
+
+        push(socket, "frames:error", %{"reason" => "frame_stream_unavailable"})
+        socket
+    end
+  end
+
+  defp run_data_frames(data_frames, scope) do
+    {:ok, FrameRunner.run(data_frames, scope)}
+  rescue
+    error -> {:error, error}
+  catch
+    kind, reason -> {:error, {kind, reason}}
+  end
+
+  defp push_frame_updates(socket, updates) do
     frames =
       socket.assigns
       |> Map.get(:last_frames, [])
-      |> merge_frames(FrameRunner.run(data_frames, socket.assigns.current_scope))
+      |> merge_frames(updates)
 
     hash = :erlang.phash2(frames)
 
