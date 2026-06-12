@@ -280,37 +280,6 @@ PACKAGES = {
             "/etc/serviceradar/datasvc.json",
         ],
     },
-    "event-writer": {
-        "package_name": "serviceradar-event-writer",
-        "description": "ServiceRadar DB Event Writer Service",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "jq"],
-        "rpm_requires": ["systemd", "jq"],
-        "binary": {
-            "target": "//go/cmd/consumers/db-event-writer:db-event-writer",
-            "dest": "/usr/local/bin/serviceradar-event-writer",
-        },
-        "files": [
-            {
-                "src": "config/db-event-writer.json",
-                "dest": "/etc/serviceradar/consumers/db-event-writer.json",
-                "mode": "0644",
-                "rpm_filetag": "config(noreplace)",
-            },
-        ],
-        "systemd": {
-            "src": "systemd/serviceradar-event-writer.service",
-            "dest": "/lib/systemd/system/serviceradar-event-writer.service",
-        },
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/consumers/db-event-writer.json",
-        ],
-    },
     "faker": {
         "package_name": "serviceradar-faker",
         "description": "ServiceRadar Faker Service",

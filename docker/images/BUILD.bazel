@@ -186,32 +186,6 @@ declare_service_container_amd64(
 )
 
 declare_service_container_amd64(
-    name = "db_event_writer_image_amd64",
-    runtime = "alpine_netutils",
-    image_title = "serviceradar-db-event-writer",
-    files = {
-        "//go/cmd/consumers/db-event-writer:db-event-writer": "usr/local/bin/serviceradar-db-event-writer",
-        "//docker/compose:entrypoint-db-event-writer.sh": "usr/local/bin/entrypoint.sh",
-        "//build/packaging/event-writer:config/db-event-writer.json": "etc/serviceradar/consumers/db-event-writer.json",
-    },
-    modes = {
-        "usr/local/bin/serviceradar-db-event-writer": "0755",
-        "usr/local/bin/entrypoint.sh": "0755",
-        "etc/serviceradar/consumers/db-event-writer.json": "0644",
-    },
-    empty_dirs = [
-        "etc/serviceradar/templates",
-        "var/lib/serviceradar",
-        "var/log/serviceradar",
-    ],
-    entrypoint = ["/usr/local/bin/entrypoint.sh"],
-    cmd = ["serviceradar-db-event-writer"],
-    workdir = "/var/lib/serviceradar",
-    exposed_ports = ["50041/tcp"],
-    repo_tags = ["registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:local"],
-)
-
-declare_service_container_amd64(
     name = "trivy_sidecar_image_amd64",
     runtime = "alpine_netutils",
     image_title = "serviceradar-trivy-sidecar",

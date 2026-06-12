@@ -50,7 +50,7 @@ cnpg:
       - "192.168.1.0/24"
       - "192.168.2.0/24"
   # Demo runs ~6+ ServiceRadar deployments (web-ng, core-elx, datasvc,
-  # db-event-writer, agent-gateway, etc.). Even with the pgBouncer Pooler
+  # agent-gateway, etc.). Even with the pgBouncer Pooler
   # in front of the primary, the default 100-slot ceiling is too tight:
   # workloads that bypass the pooler (core-elx Oban, migrations, db-event-
   # writer ADBC, etc.) saturated the `serviceradar` role and pushed web-ng
@@ -512,18 +512,6 @@ core:
 zenRulesBootstrap:
   # Safe to keep enabled again: the hook now skips unchanged rules in KV.
   enabled: true
-
-dbEventWriter:
-  replicaCount: 3
-  cnpgMaxConnections: 4
-  enableMigrations: false
-  data:
-    # db-event-writer is now queue-backed and stateless in demo.
-    enabled: false
-  kvBootstrap:
-    # Disabled in demo: the post-upgrade KV seed job is not required for
-    # steady-state upgrades and can leave Helm stuck in pending-upgrade.
-    enabled: false
 
 zen:
   replicaCount: 3

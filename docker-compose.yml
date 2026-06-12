@@ -421,7 +421,6 @@ services:
       - DATASVC_SSL=true
       - DATASVC_CERT_DIR=/etc/serviceradar/certs
       - DATASVC_CERT_NAME=core
-      # EventWriter optional; db-event-writer handles NATS -> CNPG ingestion in compose
       - NATS_ENABLED=true
       - NATS_URL=nats://nats:4222
       - NATS_TLS=true
@@ -821,53 +820,6 @@ services:
       - serviceradar-net
     restart: unless-stopped
 
-  db-event-writer:
-    image: registry.carverauto.dev/serviceradar/serviceradar-db-event-writer:${APP_TAG:-latest}
-    container_name: serviceradar-db-event-writer-mtls
-    ports:
-      - "50041:50041"
-    volumes:
-      - ./docker/compose/db-event-writer.mtls.json:/etc/serviceradar/templates/db-event-writer.json:ro
-      - ./docker/compose/entrypoint-db-event-writer.sh:/usr/local/bin/entrypoint.sh:ro
-      - cert-data:/etc/serviceradar/certs:ro
-      - cnpg-credentials:/etc/serviceradar/cnpg:ro
-      - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
-      - db-event-writer-data:/var/lib/serviceradar
-      - db-event-writer-config:/etc/serviceradar/consumers
-      - ./logs:/var/log/serviceradar
-    environment:
-      - CONFIG_SOURCE=file
-      - CONFIG_PATH=/etc/serviceradar/templates/db-event-writer.json
-      - LOG_LEVEL=${LOG_LEVEL:-info}
-      - CNPG_HOST=${CNPG_DOCKER_HOST:-cnpg}
-      - CNPG_PORT=${CNPG_DOCKER_PORT:-5432}
-      - CNPG_DATABASE=${CNPG_DATABASE:-serviceradar}
-      - CNPG_USERNAME=${CNPG_USERNAME:-serviceradar}
-      - CNPG_PASSWORD_FILE=/etc/serviceradar/cnpg/serviceradar-password
-      - CNPG_SSL_MODE=${CNPG_SSL_MODE:-verify-full}
-      - CNPG_CERT_DIR=/etc/serviceradar/certs
-      - CNPG_CA_FILE=/etc/serviceradar/certs/root.pem
-      - CNPG_CERT_FILE=/etc/serviceradar/certs/db-client.pem
-      - CNPG_KEY_FILE=/etc/serviceradar/certs/db-client-key.pem
-      - DB_EVENT_WRITER_CNPG_MAX_CONNECTIONS=${DB_EVENT_WRITER_CNPG_MAX_CONNECTIONS:-8}
-      - DB_EVENT_WRITER_CNPG_MIN_CONNECTIONS=${DB_EVENT_WRITER_CNPG_MIN_CONNECTIONS:-0}
-    depends_on:
-      nats:
-        condition: service_started
-      cnpg:
-        condition: service_healthy
-      core-elx-migrations:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD-SHELL", "wait-for-port --host 127.0.0.1 --port 50041 --attempts 1 --interval 1s --quiet"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-      - serviceradar-net
-    restart: unless-stopped
-
   web-ng:
     image: registry.carverauto.dev/serviceradar/serviceradar-web-ng:${APP_TAG:-latest}
     container_name: serviceradar-web-ng-mtls
@@ -1040,8 +992,6 @@ volumes:
   flow-data:
   bmp-data:
   zen-data:
-  db-event-writer-data:
-  db-event-writer-config:
 
 networks:
   serviceradar-net:

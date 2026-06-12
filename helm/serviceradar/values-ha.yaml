@@ -35,7 +35,6 @@ cnpg:
     route:
       core: true
       webNg: true
-      dbEventWriter: false
     parameters:
       ignore_startup_parameters: "search_path"
       max_client_conn: "2000"
@@ -65,13 +64,6 @@ core:
 
 agentGateway:
   replicas: 3
-
-dbEventWriter:
-  replicaCount: 3
-  cnpgMaxConnections: 4
-  enableMigrations: false
-  data:
-    enabled: false
 
 datasvc:
   replicaCount: 3

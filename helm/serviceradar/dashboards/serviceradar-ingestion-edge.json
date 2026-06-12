@@ -94,7 +94,7 @@
       "targets": [
         {
           "refId": "A",
-          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"serviceradar-(flow-collector|log-collector|trapd|bmp-collector|db-event-writer|nats).*\"}[15m]))",
+          "expr": "sum by (pod) (increase(kube_pod_container_status_restarts_total{namespace=\"$namespace\", pod=~\"serviceradar-(flow-collector|log-collector|trapd|bmp-collector|nats).*\"}[15m]))",
           "legendFormat": "{{pod}}"
         }
       ],

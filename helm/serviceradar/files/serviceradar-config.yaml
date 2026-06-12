@@ -24,13 +24,12 @@
 {{- $cnpgClusterName := default "cnpg" $pg.clusterName -}}
 {{- $logCollectorSA := .Values.spire.logCollectorServiceAccount | default "serviceradar-log-collector" -}}
 {{- $zenSA := .Values.spire.zenServiceAccount | default "serviceradar-zen" -}}
-{{- $dbEventWriterSA := .Values.spire.dbEventWriterServiceAccount | default "serviceradar-db-event-writer" -}}
 {{- $rperfCheckerSA := .Values.spire.rperfCheckerServiceAccount | default "serviceradar-rperf-checker" -}}
 {{- $trapdSA := .Values.spire.trapdServiceAccount | default "serviceradar-trapd" -}}
 {{- $serverVals := default (dict) .Values.spire.server -}}
 {{- $spireServerService := default "spire-server" $serverVals.serviceName -}}
 {{- /*
-  OTel/trace export for the Go services (agent, datasvc, db-event-writer).
+  OTel/trace export for the Go services (agent, datasvc).
   These binaries read logging.otel from their JSON config (not the OTEL_*
   SDK env vars used by the Elixir services), and the same block also drives
   the process-wide TracerProvider via logger.EnsureTracing. We derive it from
@@ -486,27 +485,6 @@ data:
         }
       }
   
-  db-event-writer-checker.json: |
-      {
-        "name": "db-event-writer",
-        "type": "grpc",
-        "address": "serviceradar-db-event-writer:50041",
-        "security": {
-          "mode": "{{ ternary "spiffe" "mtls" .Values.spire.enabled }}",
-          "cert_dir": "/etc/serviceradar/certs",
-          "role": "gateway",
-          "trust_domain": "{{$trustDomain}}",
-          "server_spiffe_id": "spiffe://{{$trustDomain}}/ns/{{$spireNamespace}}/sa/{{$dbEventWriterSA}}",
-          "workload_socket": "unix:/run/spire/sockets/agent.sock",
-          "tls": {
-            "cert_file": "agent.pem",
-            "key_file": "agent-key.pem",
-            "ca_file": "root.pem",
-            "client_ca_file": "root.pem"
-          }
-        }
-      }
-  
   trapd-checker.json: |
       {
         "name": "trapd",
@@ -831,17 +809,6 @@ data:
           },
           {
             user: "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
-            permissions: {
-              publish: {
-                allow: [">"]
-              }
-              subscribe: {
-                allow: [">"]
-              }
-            }
-          },
-          {
-            user: "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
             permissions: {
               publish: {
                 allow: [">"]
@@ -1179,10 +1146,8 @@ data:
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ .Values.spire.coreServiceAccount | default "serviceradar-core" }}", "role": "writer"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $logCollectorSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $agentSA }}", "role": "writer"},
-            {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $dbEventWriterSA }}", "role": "reader"},
             {"identity": "spiffe://{{ $trustDomain }}/ns/{{ $spireNamespace }}/sa/{{ $zenSA }}", "role": "reader"},
             {"identity": "CN=serviceradar-agent,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},
-            {"identity": "CN=serviceradar-db-event-writer,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-log-collector,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-zen,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "reader"},
             {"identity": "CN=serviceradar-core,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US", "role": "writer"},

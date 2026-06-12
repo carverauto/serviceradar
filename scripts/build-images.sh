@@ -16,7 +16,7 @@ BUILDER_NAME="multiarch"
 declare -A SERVICE_GROUPS=(
     ["infrastructure"]="cert-generator config-updater"
     ["core"]="core web agent-gateway agent"
-    ["data"]="datasvc db-event-writer"
+    ["data"]="datasvc"
     ["observability"]="log-collector flow-collector trapd zen"
     ["checkers"]="rperf-client"
     ["tools"]="tools"
@@ -73,7 +73,7 @@ OPTIONS:
 SERVICE GROUPS:
   infrastructure: cert-generator, config-updater
   core:          core, web, agent-gateway, agent
-  data:          datasvc, db-event-writer
+  data:          datasvc
   observability: log-collector, flow-collector, trapd, zen
   checkers:      rperf-client
   tools:         tools
@@ -82,7 +82,7 @@ SERVICE GROUPS:
 SERVICES:
   You can specify individual services to build:
   cert-generator, config-updater, core, web, agent-gateway, agent,
-  datasvc, db-event-writer, log-collector, flow-collector, trapd, zen,
+  datasvc, log-collector, flow-collector, trapd, zen,
   rperf-client, tools
 
 EXAMPLES:
@@ -311,7 +311,6 @@ declare -A SERVICE_DOCKERFILES=(
     ["agent-gateway"]="docker/compose/Dockerfile.agent-gateway"
     ["agent"]="docker/compose/Dockerfile.agent"
     ["datasvc"]="docker/compose/Dockerfile.datasvc"
-    ["db-event-writer"]="docker/compose/Dockerfile.db-event-writer"
     ["log-collector"]="docker/compose/Dockerfile.log-collector"
     ["flow-collector"]="rust/flow-collector/Dockerfile"
     ["trapd"]="docker/compose/Dockerfile.trapd"
@@ -328,7 +327,6 @@ declare -A SERVICE_BUILD_ARGS=(
     ["agent-gateway"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["agent"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
     ["datasvc"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
-    ["db-event-writer"]="--build-arg VERSION=$VERSION --build-arg BUILD_ID=$BUILD_ID"
 )
 
 # Function to build cert-generator with dynamic Dockerfile
