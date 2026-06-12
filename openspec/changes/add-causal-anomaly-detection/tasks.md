@@ -23,7 +23,7 @@
 - [x] 1.5 **UUIDv8** stamping at **agent-gateway ingress** (first contact = one clock domain; carry original sample time as a field) + total-order fold; tests for concurrent/out-of-order/replayed updates → deterministic context.
 - [x] 1.6 Context checkpoint to JetStream KV; Horde handoff rehydrates on node loss/scale; baseline cold-start from hourly CAGGs via SRQL; suppress findings until re-warmed.
 - [x] 1.7 Per-series config (`n_sigma`, `confirm_slots`, `window_size`, `min_samples`, seasonal sensitivity) with metric-class defaults (interface / RED / cpu / mem / disk).
-- [ ] 1.8 Tests: flood that self-masks under naive baseline but stays anomalous under withhold rule; spike-vs-sustained via M-slot; cold-start seeding; Horde failover restores context without replay storm; reasoning is stateless (any pod evaluates any sample); ack-independence from DB-sync.
+- [x] 1.8 Tests: flood that self-masks under naive baseline but stays anomalous under withhold rule; spike-vs-sustained via M-slot; cold-start seeding; Horde failover restores context without replay storm; reasoning is stateless (any pod evaluates any sample); ack-independence from DB-sync.
 
 ## 2. Capacity forecasting (Elixir core, batch)
 - [ ] 2.1 New `CapacityForecast` Ash resource + raw-SQL migration (hypertable/`migrate? false` per the special-tables convention) storing per-resource slope, projected value at horizon, `projected_exhaustion_at`, confidence/interval.

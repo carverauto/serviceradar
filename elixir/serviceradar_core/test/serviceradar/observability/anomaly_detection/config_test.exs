@@ -49,6 +49,23 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     assert Enum.all?(streams, &(&1.consumer_max_deliver == 3))
   end
 
+  test "analysis cursor is independent from DB-sync metrics cursor" do
+    db_sync_metrics = Enum.find(EventWriterConfig.default_streams(), &(&1.name == "METRICS"))
+
+    analysis_metrics =
+      Enum.find(Config.default_streams(), &(&1.name == "ANALYSIS_METRICS_SYSMON"))
+
+    assert db_sync_metrics.stream_name == analysis_metrics.stream_name
+    assert db_sync_metrics.subject == "metrics.>"
+    assert analysis_metrics.subject == "metrics.sysmon.*"
+    assert db_sync_metrics.stream_retention == "limits"
+    assert db_sync_metrics.consumer_max_deliver == -1
+    assert Map.get(db_sync_metrics, :consumer_deliver_policy, :all) == :all
+    assert analysis_metrics.consumer_deliver_policy == :new
+    assert analysis_metrics.consumer_max_deliver == 3
+    assert is_integer(analysis_metrics.consumer_inactive_threshold)
+  end
+
   test "defaults processing to otel metrics only" do
     config = Config.load()
 
