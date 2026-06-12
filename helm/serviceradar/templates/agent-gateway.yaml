@@ -35,7 +35,11 @@
 {{- else if hasKey $gateway "snmpMetricsShadowEnabled" -}}
 {{- $snmpMetricsEnabled = $gateway.snmpMetricsShadowEnabled -}}
 {{- end -}}
-{{- $metricsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled -}}
+{{- $otlpRelayPublishEnabled := true -}}
+{{- if hasKey $gateway "otlpRelayPublishEnabled" -}}
+{{- $otlpRelayPublishEnabled = $gateway.otlpRelayPublishEnabled -}}
+{{- end -}}
+{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $otlpRelayPublishEnabled -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -121,7 +125,17 @@ spec:
           value: {{ $snmpMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
-        {{- if $metricsPublishingEnabled }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED
+          value: {{ $otlpRelayPublishEnabled | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT
+          value: {{ default "otel.traces.raw" $gateway.otlpRelayTracesSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT
+          value: {{ default "logs.otel" $gateway.otlpRelayLogsSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT
+          value: {{ default "otel.metrics.raw" $gateway.otlpRelayMetricsSubject | quote }}
+        - name: AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT
+          value: {{ default "otel.metrics.derived" $gateway.otlpRelayDerivedMetricsSubject | quote }}
+        {{- if $natsPublishingEnabled }}
         - name: AGENT_GATEWAY_NATS_URL
           value: {{ default "tls://serviceradar-nats:4222" $gateway.natsUrl | quote }}
         - name: AGENT_GATEWAY_NATS_TLS
@@ -222,7 +236,7 @@ spec:
         - name: cert-data
           mountPath: /etc/serviceradar/certs
           readOnly: true
-        {{- if and $metricsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+        {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
         - name: nats-creds
           mountPath: /etc/serviceradar/creds
           readOnly: true
@@ -254,7 +268,7 @@ spec:
       - name: cert-data
         secret:
           secretName: {{ include "serviceradar.runtimeCertsSecretName" . | quote }}
-      {{- if and $metricsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
+      {{- if and $natsPublishingEnabled (or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate) }}
       - name: nats-creds
         secret:
           secretName: serviceradar-nats-creds

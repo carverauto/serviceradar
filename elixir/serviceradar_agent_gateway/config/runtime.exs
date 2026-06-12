@@ -317,10 +317,21 @@ snmp_metrics_publish_enabled =
   (System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED") ||
      System.get_env("AGENT_GATEWAY_SNMP_METRICS_SHADOW_ENABLED", "true")) in ~w(true 1 yes)
 
+otlp_relay_publish_enabled =
+  System.get_env("AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED", "true") in ~w(true 1 yes)
+
 config :serviceradar_agent_gateway, :metrics,
   enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
   ip: {0, 0, 0, 0},
   port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
+
+config :serviceradar_agent_gateway, :otlp_relay_publisher,
+  enabled: otlp_relay_publish_enabled,
+  traces_subject: System.get_env("AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT", "otel.traces.raw"),
+  logs_subject: System.get_env("AGENT_GATEWAY_OTLP_RELAY_LOGS_SUBJECT", "logs.otel"),
+  metrics_subject: System.get_env("AGENT_GATEWAY_OTLP_RELAY_METRICS_SUBJECT", "otel.metrics.raw"),
+  derived_metrics_subject: System.get_env("AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT", "otel.metrics.derived"),
+  connection: Connection
 
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: snmp_metrics_publish_enabled,
@@ -332,7 +343,7 @@ config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
   subject_prefix: System.get_env("AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX", "metrics.sysmon"),
   connection: Connection
 
-if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled do
+if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled or otlp_relay_publish_enabled do
   nats_url =
     System.get_env("AGENT_GATEWAY_NATS_URL") ||
       System.get_env("NATS_URL", "nats://localhost:4222")

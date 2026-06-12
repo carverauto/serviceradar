@@ -6,8 +6,8 @@
 //! [`TelemetryRecord`] with the OTLP relay payload kinds and appends it to
 //! the durable [`spool::Spool`]. The `serviceradar-otel-addon` binary streams
 //! spooled frames to the agent over `AddonService.RelayOtlp`
-//! (`otlp-relay:v1`), which forwards them to the gateway and acks back; core
-//! republishes onto the standard NATS subjects.
+//! (`otlp-relay:v1`), which forwards them to the gateway and acks back after
+//! the gateway publishes them onto the standard local NATS subjects.
 //!
 //! Invariants shared with the JetStream backend:
 //! - exports are chunked ONCE here with the same <= 900 KiB chunker

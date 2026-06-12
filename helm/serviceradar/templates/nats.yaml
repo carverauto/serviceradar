@@ -221,15 +221,16 @@ spec:
                   }
                 }
               },
-              # Agent gateway publishes agent metrics after the causal-anomaly
-              # Phase 0 cutover. It is not a general NATS producer and cannot
-              # publish flow attribution or events.
+              # Agent gateway is the authenticated edge ingress for agent
+              # gRPC telemetry: sysmon/SNMP status metrics and relayed OTLP
+              # chunks. It is not a general NATS producer and cannot publish
+              # flow attribution, trap/syslog logs, or events.
               {
                 user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["metrics.sysmon.>", "metrics.snmp.>"]
-                    deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.>"]
+                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
+                    deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.syslog", "logs.syslog.>", "logs.snmp", "logs.snmp.>"]
                   }
                   subscribe: {
                     allow: []

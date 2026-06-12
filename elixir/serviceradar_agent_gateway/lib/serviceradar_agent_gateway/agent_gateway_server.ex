@@ -28,8 +28,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
 
   ## Usage
 
-  The server is started automatically by the application supervisor.
-  Incoming status updates are forwarded to the core cluster for processing.
+  The server is started automatically by the application supervisor. Incoming
+  status updates are processed by `StatusProcessor`, which publishes
+  gateway-owned ingress streams locally or forwards statuses to the core
+  cluster.
   """
 
   use GRPC.Server, service: Monitoring.AgentGatewayService.Service
@@ -537,10 +539,9 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
     }
   end
 
-  # OTLP relay attribution is stamped downstream (core StatusHandler headers)
-  # from the gateway-authenticated view, so the relay partition must come from
-  # the mTLS-cert-derived metadata — never from the payload-supplied service
-  # field.
+  # OTLP relay attribution is stamped from the gateway-authenticated view, so
+  # the relay partition must come from the mTLS-cert-derived metadata — never
+  # from the payload-supplied service field.
   defp status_partition(_service, metadata, @otlp_relay_source), do: normalize_partition(metadata.partition)
 
   defp status_partition(service, metadata, _source), do: normalize_partition(service.partition || metadata.partition)
@@ -578,6 +579,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
           raise GRPC.RPCError, status: :unavailable, message: "otlp-relay forward failed"
         else
           Logger.warning("Failed to process status for service #{service.service_name}: #{inspect(reason)}")
+
           []
         end
     end

@@ -12,10 +12,10 @@
 //! - **JetStream** ([`crate::nats::NATSOutput`]) — the existing
 //!   central-deployment backend; also the preferred edge transport when a
 //!   site runs a NATS leaf node (pointed at the local leaf).
-//! - **Agent-forward** (planned) — edge add-on backend that hands encoded
-//!   OTLP batches to the local serviceradar-agent, which relays them over
-//!   its existing mTLS gateway channel; the gateway/core republishes onto
-//!   the standard NATS subjects.
+//! - **Agent-forward** — edge add-on backend that hands encoded OTLP batches
+//!   to the local serviceradar-agent, which relays them over its existing
+//!   mTLS gateway channel; the gateway publishes the chunks onto the standard
+//!   local NATS subjects.
 //! - **OTLP-exporter** (planned) — degenerate edge configuration that
 //!   re-exports straight to a central OTLP endpoint for sites that prefer
 //!   it.
