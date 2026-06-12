@@ -64,7 +64,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   def handle_event("anomaly_save", %{"anomaly" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, attrs} <- build_anomaly_attrs(params),
+    with :ok <- authorize(socket),
+         {:ok, attrs} <- build_anomaly_attrs(params),
          {:ok, %AnomalyDetectionConfig{} = updated} <-
            upsert_anomaly_config(socket.assigns.anomaly_settings, attrs, scope) do
       refresh_runtime_cache()
@@ -77,6 +78,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
        |> assign(:anomaly_params, updated_params)
        |> assign(:anomaly_form, to_anomaly_form(updated_params))}
     else
+      {:error, :not_authorized} ->
+        {:noreply, unauthorized(socket)}
+
       {:error, :invalid_json} ->
         {:noreply, put_flash(socket, :error, "Metric class overrides must be a JSON object")}
 
@@ -88,7 +92,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   def handle_event("forecast_save", %{"forecast" => params}, socket) do
     scope = socket.assigns.current_scope
 
-    with {:ok, attrs} <- build_forecast_attrs(params),
+    with :ok <- authorize(socket),
+         {:ok, attrs} <- build_forecast_attrs(params),
          {:ok, %CapacityForecastConfig{} = updated} <-
            upsert_forecast_config(socket.assigns.forecast_settings, attrs, scope) do
       refresh_runtime_cache()
@@ -101,6 +106,9 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
        |> assign(:forecast_params, updated_params)
        |> assign(:forecast_form, to_forecast_form(updated_params))}
     else
+      {:error, :not_authorized} ->
+        {:noreply, unauthorized(socket)}
+
       {:error, :invalid_json} ->
         {:noreply, put_flash(socket, :error, "Metric class overrides must be a JSON object")}
 
@@ -361,6 +369,18 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   defp to_forecast_form(params), do: to_form(params, as: :forecast)
   defp merge_form(form, params) when is_map(form) and is_map(params), do: Map.merge(form, params)
   defp merge_form(_form, params) when is_map(params), do: params
+
+  defp authorize(socket) do
+    if RBAC.can?(socket.assigns.current_scope, @permission),
+      do: :ok,
+      else: {:error, :not_authorized}
+  end
+
+  defp unauthorized(socket) do
+    socket
+    |> put_flash(:error, "Not authorized to manage anomaly detection settings")
+    |> redirect(to: ~p"/settings/profile")
+  end
 
   defp build_anomaly_attrs(params) when is_map(params) do
     with {:ok, overrides} <- decode_json_object(params["metric_class_overrides"]) do
