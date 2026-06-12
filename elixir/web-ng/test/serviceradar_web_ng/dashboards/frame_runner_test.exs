@@ -92,6 +92,24 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
     end
   end
 
+  defmodule FakeConcurrentSRQL do
+    @moduledoc false
+
+    def query("blocking:" <> id, %{scope: parent}) do
+      send(parent, {:frame_started, id, self()})
+
+      receive do
+        {:continue_frame, ^id} ->
+          {:ok, %{"results" => [%{"id" => id}]}}
+      end
+    end
+
+    def query("never_returns", %{scope: parent}) do
+      send(parent, {:frame_started, "timeout", self()})
+      Process.sleep(:infinity)
+    end
+  end
+
   test "falls back to bounded JSON rows when Arrow IPC is not available" do
     frames = [
       %{
@@ -152,6 +170,59 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
              %{"id" => "bad", "status" => "error", "error" => ":bad_query", "results" => []},
              %{"id" => "ok", "status" => "ok", "results" => [%{"id" => 1}]}
            ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL)
+  end
+
+  test "runs frames concurrently while preserving manifest order" do
+    parent = self()
+
+    frames = [
+      %{"id" => "first", "query" => "blocking:first", "encoding" => "json_rows", "limit" => 1},
+      %{"id" => "second", "query" => "blocking:second", "encoding" => "json_rows", "limit" => 1}
+    ]
+
+    task =
+      Task.async(fn ->
+        FrameRunner.run(frames, parent, srql_module: FakeConcurrentSRQL, max_concurrency: 2)
+      end)
+
+    assert_receive {:frame_started, "first", first_pid}
+    assert_receive {:frame_started, "second", second_pid}
+
+    send(second_pid, {:continue_frame, "second"})
+    send(first_pid, {:continue_frame, "first"})
+
+    assert [
+             %{"id" => "first", "status" => "ok", "results" => [%{"id" => "first"}]},
+             %{"id" => "second", "status" => "ok", "results" => [%{"id" => "second"}]}
+           ] = Task.await(task)
+  end
+
+  test "returns a timeout error frame for an individual slow frame" do
+    parent = self()
+
+    frames = [
+      %{"id" => "slow", "query" => "never_returns", "encoding" => "json_rows", "limit" => 1},
+      %{"id" => "ok", "query" => "blocking:ok", "encoding" => "json_rows", "limit" => 1}
+    ]
+
+    task =
+      Task.async(fn ->
+        FrameRunner.run(frames, parent,
+          srql_module: FakeConcurrentSRQL,
+          max_concurrency: 2,
+          frame_timeout_ms: 25
+        )
+      end)
+
+    assert_receive {:frame_started, "timeout", _slow_pid}
+    assert_receive {:frame_started, "ok", ok_pid}
+
+    send(ok_pid, {:continue_frame, "ok"})
+
+    assert [
+             %{"id" => "slow", "status" => "error", "error" => ":frame_timeout", "results" => []},
+             %{"id" => "ok", "status" => "ok", "results" => [%{"id" => "ok"}]}
+           ] = Task.await(task)
   end
 
   test "enriches event frames with resolved inventory device UIDs" do
@@ -236,5 +307,37 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
 
     assert length(results) == 12
     assert Enum.all?(results, &(length(&1["results"]) == 2_000))
+  end
+
+  test "security findings source probes are optional" do
+    manifest_path =
+      Path.expand("../../../priv/dashboard-packages/security-findings/manifest.json", __DIR__)
+
+    manifest = manifest_path |> File.read!() |> Jason.decode!()
+
+    source_probe_ids =
+      manifest["data_frames"]
+      |> Enum.filter(fn frame -> String.ends_with?(frame["id"], "_latest") end)
+      |> Enum.map(& &1["id"])
+
+    assert source_probe_ids == [
+             "trivy_findings_latest",
+             "trivy_scan_latest",
+             "bumblebee_findings_latest",
+             "bumblebee_scan_latest",
+             "falco_findings_latest",
+             "endpoint_inventory_findings_latest",
+             "powerdns_dns_latest"
+           ]
+
+    assert Enum.all?(manifest["data_frames"], fn frame ->
+             id = frame["id"]
+
+             if Enum.member?(source_probe_ids, id) do
+               frame["required"] == false
+             else
+               true
+             end
+           end)
   end
 end

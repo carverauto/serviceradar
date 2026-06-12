@@ -222,16 +222,18 @@ pub fn credential_from_grpc_metadata(metadata: &tonic::metadata::MetadataMap) ->
 #[derive(Debug, Clone)]
 pub struct AuthenticatedIdentity(pub Option<String>);
 
-/// Builds the tonic interceptor enforcing ingestion auth on the OTLP/gRPC
-/// services. Invalid or missing tokens (with enforcement on) are rejected
-/// with `UNAUTHENTICATED`; otherwise the resolved identity is attached to
-/// the request extensions for the export handlers.
-pub fn grpc_auth_interceptor(
+#[derive(Clone)]
+pub struct GrpcAuthInterceptor {
     auth: Arc<IngestAuth>,
-) -> impl tonic::service::Interceptor + Clone + Send + Sync + 'static {
-    move |mut request: tonic::Request<()>| {
+}
+
+impl tonic::service::Interceptor for GrpcAuthInterceptor {
+    fn call(
+        &mut self,
+        mut request: tonic::Request<()>,
+    ) -> Result<tonic::Request<()>, tonic::Status> {
         let credential = credential_from_grpc_metadata(request.metadata());
-        match auth.authenticate(credential.as_deref()) {
+        match self.auth.authenticate(credential.as_deref()) {
             Ok(identity) => {
                 request
                     .extensions_mut()
@@ -241,6 +243,14 @@ pub fn grpc_auth_interceptor(
             Err(e) => Err(tonic::Status::unauthenticated(e.message())),
         }
     }
+}
+
+/// Builds the tonic interceptor enforcing ingestion auth on the OTLP/gRPC
+/// services. Invalid or missing tokens (with enforcement on) are rejected
+/// with `UNAUTHENTICATED`; otherwise the resolved identity is attached to
+/// the request extensions for the export handlers.
+pub fn grpc_auth_interceptor(auth: Arc<IngestAuth>) -> GrpcAuthInterceptor {
+    GrpcAuthInterceptor { auth }
 }
 
 #[cfg(test)]

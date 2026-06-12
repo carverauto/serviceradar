@@ -130,6 +130,12 @@ func main() {
 		Service:           server,
 		EnableHealthCheck: true,
 		Security:          cfg.Security,
+		// Pass the logging config (logging.otel) so RunServer's logger
+		// initialization stands up the process-wide TracerProvider via
+		// EnsureTracing. Without it the otelgrpc server handler below would
+		// run against the global no-op tracer and datasvc would emit zero
+		// spans even though telemetry is enabled.
+		LoggerConfig: cfg.Logging,
 		// Telemetry enabled so web-ng -> core-elx -> datasvc traces compose
 		// end-to-end. Span volume rides the parent sampling decision
 		// (health/reflection chatter is already filtered by the lifecycle

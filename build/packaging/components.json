@@ -293,6 +293,7 @@
     "conffiles": [
       "/etc/serviceradar/consumers/zen-consumer.json",
       "/etc/serviceradar/zen/rules/cef_severity.json",
+      "/etc/serviceradar/zen/rules/falco_normalize.json",
       "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
       "/etc/serviceradar/zen/rules/passthrough.json",
       "/etc/serviceradar/zen/rules/snmp_severity.json",
@@ -306,6 +307,10 @@
       {
         "dest": "/etc/serviceradar/zen/rules/cef_severity.json",
         "source": "build/packaging/zen/rules/cef_severity.json"
+      },
+      {
+        "dest": "/etc/serviceradar/zen/rules/falco_normalize.json",
+        "source": "build/packaging/zen/rules/falco_normalize.json"
       },
       {
         "dest": "/etc/serviceradar/zen/rules/netflow_to_ocsf.json",
