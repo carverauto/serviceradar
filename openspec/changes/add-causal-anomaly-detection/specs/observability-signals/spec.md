@@ -43,6 +43,22 @@ Ingress publishers SHALL publish to a configurable NATS endpoint so they can run
 - **THEN** it SHALL publish to that endpoint
 - **AND** its subjects SHALL federate to the central hub stream without reconfiguring downstream consumers
 
+### Requirement: Required Local OTLP Terminator on Every Agent
+Every agent SHALL include a local OTLP terminator (the `otel-collector` add-on) as a required, auto-installed component, so that OTLP emitted at the edge (by plugins, add-ons, local apps, or the agent itself) always has a local endpoint. The terminator SHALL durably spool accepted telemetry, and SHALL support both a gateway-relay transport (requiring no edge NATS) and a direct-to-NATS-leaf transport (when a leaf is deployed at the site).
+
+#### Scenario: Agent installed without explicit add-on assignment
+- **WHEN** an agent is installed
+- **THEN** the local OTLP terminator add-on SHALL be installed by default without an operator assigning it
+
+#### Scenario: Edge site without a NATS leaf
+- **WHEN** OTLP is emitted at an edge site that has no local NATS access
+- **THEN** the terminator SHALL relay it through the agent to the agent-gateway, which publishes it to NATS
+- **AND** the telemetry SHALL be durably spooled until the gateway acknowledges it
+
+#### Scenario: Edge site with a NATS leaf
+- **WHEN** a NATS leaf is deployed at the edge site
+- **THEN** the terminator MAY publish directly to the local leaf, which federates to the central hub
+
 ### Requirement: Total-Order Context Updates
 Per-series detector context SHALL be updated in total temporal order regardless of how many producers emit updates concurrently. Each context-update event SHALL carry a time-sortable identifier with an embedded high-resolution timestamp (e.g. UUIDv8), stamped once at the ingress gateway so there is a single clock domain, and the context engine SHALL fold updates in that total order. Folding SHALL be idempotent so that replayed or duplicated updates do not corrupt context.
 
