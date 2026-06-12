@@ -835,6 +835,7 @@ objectStoreRetention:
   dryRun: false
   cron: "0 3 * * *"
   agentReleaseKeepLatest: 1
+  nativeAddonOrphanGraceSeconds: 604800
   pluginOrphanGraceSeconds: 604800
   datasvcTimeoutMs: 30000
   webNgMaintenanceQueueLimit: 1
@@ -940,11 +941,12 @@ datasvc:
   jetstreamReplicas: 3
   # Reserved capacity for the KV bucket stream ($KV.serviceradar-datasvc.>).
   bucketMaxBytes: "5368709120"
-  # Reserved capacity for the object metadata stream (OBJ_serviceradar-objects).
+  # Maximum size for one uploaded object payload.
   objectMaxBytes: "536870912"
-  # Object-store budget exposed to datasvc config; keep this aligned with the
-  # object stream reservation unless you intentionally want a tighter logical limit.
-  objectStoreBytes: "2147483648"
+  # Reserved capacity for the object stream (OBJ_serviceradar-objects).
+  # Sized for retained agent releases, native add-on tarballs across supported
+  # platforms, plugin blobs, and import headroom.
+  objectStoreBytes: "17179869184"
   data:
     enabled: false
     accessModes:

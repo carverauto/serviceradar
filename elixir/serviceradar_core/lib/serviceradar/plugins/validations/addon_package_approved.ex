@@ -37,6 +37,11 @@ defmodule ServiceRadar.Plugins.Validations.AddonPackageApproved do
       |> Ash.Query.filter(id == ^package_id)
       |> Ash.read_one(actor: actor)
       |> case do
+        {:ok, %AddonPackage{status: :approved, verification_status: "blob_missing"}} ->
+          {:error,
+           field: :addon_package_id,
+           message: "add-on package artifact is missing from object storage"}
+
         {:ok, %AddonPackage{status: :approved}} ->
           :ok
 

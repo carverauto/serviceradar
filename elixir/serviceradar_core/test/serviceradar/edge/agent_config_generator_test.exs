@@ -1360,6 +1360,39 @@ defmodule ServiceRadar.Edge.AgentConfigGeneratorTest do
       assert addon.capabilities == ["remoteaccess", "diagnostics"]
     end
 
+    test "blob-missing approved packages are omitted from generated add-on config", %{
+      actor: actor,
+      agent_uid: agent_uid,
+      unique_id: unique_id
+    } do
+      {:ok, _agent} = create_connected_agent(actor, agent_uid)
+
+      {:ok, package} =
+        create_approved_addon_package(actor, unique_id,
+          capabilities: ["endpoint_inventory"],
+          approved_capabilities: ["endpoint_inventory"]
+        )
+
+      {:ok, _assignment} = assign_addon(actor, agent_uid, package)
+
+      {:ok, _package} =
+        package
+        |> Ash.Changeset.for_update(
+          :update,
+          %{
+            verification_status: "blob_missing",
+            verification_error:
+              "native add-on artifact object missing: native-addons/missing.tar.gz"
+          },
+          actor: actor
+        )
+        |> Ash.update()
+
+      {:ok, config} = AgentConfigGenerator.generate_config(agent_uid)
+
+      assert config.addons == []
+    end
+
     test "a binary/install-path change re-versions the agent config", %{
       actor: actor,
       agent_uid: agent_uid,

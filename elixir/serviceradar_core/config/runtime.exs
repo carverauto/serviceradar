@@ -1097,6 +1097,10 @@ if config_env() == :prod do
     dry_run?: object_store_retention_dry_run,
     agent_release_keep_latest:
       String.to_integer(System.get_env("OBJECT_STORE_RETENTION_AGENT_RELEASE_KEEP_LATEST") || "1"),
+    native_addon_orphan_grace_seconds:
+      String.to_integer(
+        System.get_env("OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS") || "604800"
+      ),
     datasvc_timeout_ms:
       String.to_integer(System.get_env("OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS") || "30000")
 

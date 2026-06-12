@@ -964,14 +964,15 @@ func (n *NATSStore) objectStoreConfig(bucket string) jetstream.ObjectStoreConfig
 }
 
 func (n *NATSStore) reconcileKVStreamLocked(ctx context.Context, js jetstream.JetStream) error {
-	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket), n.bucketMaxBytes)
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("KV_%s", n.bucket), n.bucketMaxBytes, nil)
 }
 
 func (n *NATSStore) reconcileObjectStoreStreamLocked(ctx context.Context, js jetstream.JetStream, bucket string) error {
-	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket), n.objectStoreBytes)
+	discard := jetstream.DiscardNew
+	return n.reconcileStreamConfigLocked(ctx, js, fmt.Sprintf("OBJ_%s", bucket), n.objectStoreBytes, &discard)
 }
 
-func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstream.JetStream, streamName string, maxBytes int64) error {
+func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstream.JetStream, streamName string, maxBytes int64, discardPolicy *jetstream.DiscardPolicy) error {
 	if n.jetstreamReplicas <= 0 {
 		return nil
 	}
@@ -995,6 +996,11 @@ func (n *NATSStore) reconcileStreamConfigLocked(ctx context.Context, js jetstrea
 
 	if maxBytes > 0 && cfg.MaxBytes != maxBytes {
 		cfg.MaxBytes = maxBytes
+		needsUpdate = true
+	}
+
+	if discardPolicy != nil && cfg.Discard != *discardPolicy {
+		cfg.Discard = *discardPolicy
 		needsUpdate = true
 	}
 

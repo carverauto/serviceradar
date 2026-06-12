@@ -315,6 +315,8 @@ spec:
           value: {{ default 1 $objectStoreRetention.agentReleaseKeepLatest | quote }}
         - name: OBJECT_STORE_RETENTION_DATASVC_TIMEOUT_MS
           value: {{ default 30000 $objectStoreRetention.datasvcTimeoutMs | quote }}
+        - name: OBJECT_STORE_RETENTION_NATIVE_ADDON_ORPHAN_GRACE_SECONDS
+          value: {{ default 604800 $objectStoreRetention.nativeAddonOrphanGraceSeconds | quote }}
         - name: SYNC_INGESTOR_ASYNC
           value: {{ default true $syncIngestor.async | quote }}
         - name: DEVICE_ENRICHMENT_RULES_DIR

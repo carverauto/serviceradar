@@ -5,6 +5,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
 
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
   alias ServiceRadarWebNG.Accounts.Scope
   alias ServiceRadarWebNG.Plugins.AddonAssignments
 
@@ -77,6 +78,93 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
     assert updated.params == %{"enabled" => true}
   end
 
+  test "upsert and profiles reject blob-missing approved packages" do
+    addon_id = unique_addon_id("blob-missing")
+    agent_uid = "agent-addon-blob-missing-#{System.unique_integer([:positive])}"
+    scope = Scope.for_user(%{id: "admin-addon-blob-missing", email: "admin@example.test", role: :admin})
+
+    package =
+      addon_id
+      |> create_addon_package!("1.0.0")
+      |> approve_package!()
+      |> mark_blob_missing!()
+
+    assert {:error, assignment_error} =
+             AddonAssignments.upsert(
+               addon_id,
+               %{
+                 agent_uid: agent_uid,
+                 addon_package_id: package.id,
+                 args: [],
+                 params: %{}
+               },
+               scope: scope
+             )
+
+    assert inspect(assignment_error) =~ "add-on package artifact is missing from object storage"
+
+    assert {:error, profile_error} =
+             AddonProfile
+             |> Ash.Changeset.for_create(
+               :create,
+               %{
+                 name: "Blob Missing Profile",
+                 addon_package_id: package.id,
+                 target_query: "in:agents",
+                 params: %{},
+                 args: [],
+                 enabled: true
+               },
+               actor: system_actor()
+             )
+             |> Ash.create()
+
+    assert inspect(profile_error) =~ "add-on package artifact is missing from object storage"
+  end
+
+  test "existing blob-missing assignments and profiles can be disabled but not re-enabled" do
+    addon_id = unique_addon_id("blob-missing-disable")
+    agent_uid = "agent-addon-blob-missing-disable-#{System.unique_integer([:positive])}"
+
+    package =
+      addon_id
+      |> create_addon_package!("1.0.0")
+      |> approve_package!()
+
+    assignment = create_assignment!(agent_uid, package.id, enabled: true, args: [], params: %{})
+    profile = create_profile!(package.id, enabled: true)
+
+    mark_blob_missing!(package)
+
+    assert {:ok, disabled_assignment} =
+             assignment
+             |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: system_actor())
+             |> Ash.update()
+
+    refute disabled_assignment.enabled
+
+    assert {:error, assignment_error} =
+             disabled_assignment
+             |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: system_actor())
+             |> Ash.update()
+
+    assert inspect(assignment_error) =~ "add-on package artifact is missing from object storage"
+
+    assert {:ok, disabled_profile} =
+             profile
+             |> Ash.Changeset.for_update(:update, %{enabled: false}, actor: system_actor())
+             |> Ash.update()
+
+    refute disabled_profile.enabled
+
+    assert {:error, profile_error} =
+             disabled_profile
+             |> Ash.Changeset.for_update(:update, %{enabled: true}, actor: system_actor())
+             |> Ash.update()
+
+    assert inspect(profile_error) =~ "add-on package artifact is missing from object storage"
+  end
+
   defp unique_addon_id(prefix), do: "addon-assignment-#{prefix}-#{System.unique_integer([:positive])}"
 
   defp create_addon_package!(addon_id, version) do
@@ -118,6 +206,36 @@ defmodule ServiceRadarWebNG.Plugins.AddonAssignmentsTest do
       actor: system_actor()
     )
     |> Ash.update!()
+  end
+
+  defp mark_blob_missing!(%AddonPackage{} = package) do
+    package
+    |> Ash.Changeset.for_update(
+      :update,
+      %{
+        verification_status: "blob_missing",
+        verification_error: "native add-on artifact object missing: native-addons/missing.tar.gz"
+      },
+      actor: system_actor()
+    )
+    |> Ash.update!()
+  end
+
+  defp create_profile!(package_id, opts) do
+    AddonProfile
+    |> Ash.Changeset.for_create(
+      :create,
+      %{
+        name: "Blob Missing Disable Profile",
+        addon_package_id: package_id,
+        target_query: "in:agents",
+        params: %{},
+        args: [],
+        enabled: Keyword.get(opts, :enabled, true)
+      },
+      actor: system_actor()
+    )
+    |> Ash.create!()
   end
 
   defp create_assignment!(agent_uid, package_id, opts) do

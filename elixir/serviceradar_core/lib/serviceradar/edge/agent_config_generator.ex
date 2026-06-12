@@ -419,6 +419,16 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
   end
 
+  defp approved_addon_package?(%AddonAssignment{
+         addon_package: %AddonPackage{status: :approved, verification_status: "blob_missing"}
+       }) do
+    Logger.warning(
+      "Skipping addon assignment because package artifact is missing from object storage"
+    )
+
+    false
+  end
+
   defp approved_addon_package?(%AddonAssignment{addon_package: %AddonPackage{status: :approved}}),
     do: true
 

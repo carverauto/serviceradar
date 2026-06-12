@@ -39,7 +39,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
   end
 
   test "renders the onboarding sections with an operator note when endpoints are unset", %{conn: conn} do
-    {:ok, lv, html} = live(conn, ~p"/settings/telemetry-onboarding")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/telemetry-onboarding")
 
     assert html =~ "Send your telemetry"
     assert html =~ "OTLP endpoints"
@@ -66,7 +66,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
       grpc_requires_private_ca: true
     )
 
-    {:ok, lv, html} = live(conn, ~p"/settings/telemetry-onboarding")
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/telemetry-onboarding")
 
     refute has_element?(lv, "#otlp-endpoints-unset-note")
     assert html =~ "otlp-demo.grpc.serviceradar.cloud:50052"
@@ -87,7 +87,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
   end
 
   test "generating a key shows it once and threads it through the operator snippets", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/telemetry-onboarding")
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/telemetry-onboarding")
 
     # Customize identity + secret name first (sanitized to k8s-safe values).
     lv
@@ -115,7 +115,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
   end
 
   test "checker issues the three SRQL queries and renders per-signal status", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/telemetry-onboarding")
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/telemetry-onboarding")
 
     lv
     |> form("#first-data-checker form", checker: %{service_name: "checkout"})
@@ -143,7 +143,7 @@ defmodule ServiceRadarWebNGWeb.Settings.TelemetryOnboardingLiveTest do
   end
 
   test "checker stops polling once every signal has arrived", %{conn: conn} do
-    {:ok, lv, _html} = live(conn, ~p"/settings/telemetry-onboarding")
+    {:ok, lv, _html} = live(conn, ~p"/settings/agents/telemetry-onboarding")
 
     lv
     |> form("#first-data-checker form", checker: %{service_name: "allfound"})
