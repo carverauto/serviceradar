@@ -7,7 +7,6 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
   alias ServiceRadar.Dashboards.DashboardPackage
   alias ServiceRadar.Integrations.MapboxSettings
   alias ServiceRadarWebNG.Dashboards
-  alias ServiceRadarWebNG.Dashboards.FrameRunner
   alias ServiceRadarWebNGWeb.DashboardFrameChannel
   alias ServiceRadarWebNGWeb.SRQL.Builder, as: SRQLBuilder
   alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
@@ -232,11 +231,28 @@ defmodule ServiceRadarWebNGWeb.DashboardPackageLive.Show do
       package = instance.dashboard_package
       data_frames = apply_frame_query_overrides(package.data_frames || [], overrides)
       initial_data_frames = initial_data_frames(data_frames)
-      frames = FrameRunner.run(initial_data_frames, scope)
+      frames = pending_frames(initial_data_frames)
       mapbox = read_mapbox(scope)
       {:ok, instance, data_frames, frames, mapbox}
     end
   end
+
+  defp pending_frames(data_frames) when is_list(data_frames) do
+    Enum.map(data_frames, fn frame ->
+      %{
+        "id" => frame_id(frame),
+        "query" => frame_value(frame, "query", :query),
+        "requested_encoding" => frame_value(frame, "encoding", :encoding) || "json_rows",
+        "encoding" => "json_rows",
+        "limit" => frame_value(frame, "limit", :limit),
+        "required" => required_frame?(frame),
+        "status" => "loading",
+        "results" => []
+      }
+    end)
+  end
+
+  defp pending_frames(_data_frames), do: []
 
   defp initial_data_frames(data_frames) when is_list(data_frames) do
     required_frames = Enum.filter(data_frames, &required_frame?/1)

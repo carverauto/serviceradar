@@ -1483,7 +1483,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
              "pagination" => %{}
            }}
 
-        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+        String.contains?(query, "in:events") and
+          String.contains?(query, "source_type:anomaly_detection") and
+            String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
           {:ok,
            %{
              "results" => [
@@ -1491,7 +1493,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                  "time" => "2026-06-13T12:00:00Z",
                  "finding_title" => "CPU anomaly detected",
                  "metric_class" => "cpu",
+                 "source_type" => "anomaly_detection",
                  "severity" => "High"
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "time" => "2026-06-13T12:05:00Z",
+                 "message" => "Unexpected connection to K8s API Server from container",
+                 "metric_class" => nil,
+                 "source_type" => "falco",
+                 "severity" => "Low"
                }
              ],
              "pagination" => %{}
@@ -1530,6 +1548,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     html = render_until(view, "Anomaly &amp; Capacity", 10_000)
 
     assert html =~ "CPU anomaly detected"
+    refute html =~ "Unexpected connection to K8s API Server"
     assert html =~ "Filesystem /"
     assert html =~ "agent agent_id=#{agent_id}"
     assert html =~ "agent resource_id=#{agent_id}"
