@@ -6,23 +6,26 @@
 #
 # Useful knobs:
 #
-#   ANOMALY_BENCH_MODE=owner|reasoner|compact|compact_shards|compact_ets_shards|counter_normalizer
+#   ANOMALY_BENCH_MODE=owner|legacy_list|reasoner|reasoner_batch|reasoner_batch_shards|reasoner_state_batch_shards|reasoner_state_values_changes_shards|reasoner_state_value_tuples_changes_shards|native_engine_events|sharded_engine|sharded_engine_events|counter_normalizer
 #   ANOMALY_BENCH_SERIES=50000
 #   ANOMALY_BENCH_BASELINE=12
 #   ANOMALY_BENCH_WINDOW=300
 #   ANOMALY_BENCH_ANOMALY=3
 #   ANOMALY_BENCH_ROLLUP_SAMPLES_PER_EVAL=1
 #   ANOMALY_BENCH_CONCURRENCY=16
+#   ANOMALY_BENCH_BATCH_SIZE=1000
 #
 # `owner` mode exercises the stateful ContextOwner + real CausalReasoner path.
-# `reasoner` mode exercises the NIF/statistical reasoner only and is an upper
-# bound for per-sample compute throughput without GenServer/process overhead.
+# `legacy_list` mode exercises the old list-shaped NIF context. `reasoner`
+# exercises the compact NIF state. `reasoner_batch*` modes amortize Rustler
+# overhead across independent series while preserving per-series sample order.
 
 defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   @moduledoc false
-  alias ServiceRadar.Observability.AnomalyDetection.CompactEvaluator
   alias ServiceRadar.Observability.AnomalyDetection.ContextOwner
   alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
+  alias ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
   alias ServiceRadar.Observability.CausalReasoner
 
   @detector_opts [
@@ -46,6 +49,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     anomaly_count = env_int("ANOMALY_BENCH_ANOMALY", 3)
     rollup_samples_per_eval = env_int("ANOMALY_BENCH_ROLLUP_SAMPLES_PER_EVAL", 1)
     concurrency = env_int("ANOMALY_BENCH_CONCURRENCY", System.schedulers_online())
+    batch_size = env_int("ANOMALY_BENCH_BATCH_SIZE", 1_000)
 
     IO.puts("""
     ServiceRadar anomaly detection synthetic scale benchmark
@@ -56,6 +60,8 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     anomaly_samples_per_series=#{anomaly_count}
     rollup_samples_per_eval=#{rollup_samples_per_eval}
     concurrency=#{concurrency}
+    batch_size=#{batch_size}
+    reason_batch_scheduler=DirtyCpu
     """)
 
     :erlang.garbage_collect()
@@ -70,7 +76,8 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
         window_size,
         anomaly_count,
         rollup_samples_per_eval,
-        concurrency
+        concurrency,
+        batch_size
       )
 
     elapsed_ns = System.monotonic_time() - started_at
@@ -104,7 +111,8 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
          _window_size,
          anomaly_count,
          rollup_samples_per_eval,
-         concurrency
+         concurrency,
+         _batch_size
        ) do
     table =
       :ets.new(:counter_normalizer_bench, [
@@ -141,13 +149,183 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   end
 
   defp run_benchmark(
-         "compact_shards",
+         "sharded_engine",
          series_count,
          baseline_count,
          window_size,
          anomaly_count,
          rollup_samples_per_eval,
-         concurrency
+         concurrency,
+         _batch_size
+       ) do
+    ensure_sharded_engine!(concurrency, window_size)
+
+    slot_count = baseline_count + anomaly_count
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        samples =
+          Enum.map(1..series_count, fn index ->
+            dataset = dataset(index)
+            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+            sample(dataset, "slot-#{slot}", slot, value)
+          end)
+
+        results = ShardedContextEngine.evaluate_batch(samples)
+
+        Enum.reduce(results, metrics, fn
+          {:ok, verdict}, metrics ->
+            %{
+              metrics
+              | evaluations: metrics.evaluations + 1,
+                raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                confirmed: metrics.confirmed + confirmed?(verdict)
+            }
+
+          {:drop, _reason}, metrics ->
+            %{metrics | failed: metrics.failed + 1}
+
+          {:error, reason}, metrics ->
+            IO.puts("sharded engine item failed: #{inspect(reason)}")
+            %{metrics | failed: metrics.failed + 1}
+        end)
+      end
+    )
+  end
+
+  defp run_benchmark(
+         "sharded_engine_events",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         _batch_size
+       ) do
+    ensure_sharded_engine!(concurrency, window_size)
+
+    slot_count = baseline_count + anomaly_count
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        samples =
+          Enum.map(1..series_count, fn index ->
+            dataset = dataset(index)
+            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+            sample(dataset, "slot-#{slot}", slot, value)
+          end)
+
+        results = ShardedContextEngine.evaluate_events_batch(samples)
+
+        results
+        |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + series_count}, fn
+          {_sample, {:ok, verdict}}, metrics ->
+            %{
+              metrics
+              | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                confirmed: metrics.confirmed + confirmed?(verdict)
+            }
+
+          {_sample, {:drop, _reason}}, metrics ->
+            %{metrics | failed: metrics.failed + 1}
+
+          {_sample, {:error, reason}}, metrics ->
+            IO.puts("sharded event engine item failed: #{inspect(reason)}")
+            %{metrics | failed: metrics.failed + 1}
+        end)
+        |> Map.update!(
+          :raw_samples,
+          &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
+        )
+      end
+    )
+  end
+
+  defp run_benchmark(
+         "native_engine_events",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         _batch_size
+       ) do
+    ensure_native_engine!(concurrency, window_size)
+
+    slot_count = baseline_count + anomaly_count
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        samples =
+          Enum.map(1..series_count, fn index ->
+            dataset = dataset(index)
+            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+            sample(dataset, "slot-#{slot}", slot, value)
+          end)
+
+        results = NativeContextEngine.evaluate_events_batch(samples)
+
+        results
+        |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + series_count}, fn
+          {_sample, {:ok, verdict}}, metrics ->
+            %{
+              metrics
+              | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                confirmed: metrics.confirmed + confirmed?(verdict)
+            }
+
+          {_sample, {:drop, _reason}}, metrics ->
+            %{metrics | failed: metrics.failed + 1}
+
+          {_sample, {:error, reason}}, metrics ->
+            IO.puts("native event engine item failed: #{inspect(reason)}")
+            %{metrics | failed: metrics.failed + 1}
+        end)
+        |> Map.update!(
+          :raw_samples,
+          &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
+        )
+      end
+    )
+  end
+
+  defp run_benchmark(
+         "reasoner_batch",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         _concurrency,
+         batch_size
+       ) do
+    run_reasoner_batch_shard(
+      1..series_count,
+      baseline_count,
+      window_size,
+      anomaly_count,
+      rollup_samples_per_eval,
+      batch_size
+    )
+  end
+
+  defp run_benchmark(
+         "reasoner_batch_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         batch_size
        ) do
     shard_count = min(concurrency, series_count)
 
@@ -156,20 +334,13 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       fn shard ->
         shard
         |> Range.new(series_count, shard_count)
-        |> Enum.reduce(%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn index,
-                                                                                      acc ->
-          metrics =
-            run_series(
-              index,
-              "compact",
-              baseline_count,
-              window_size,
-              anomaly_count,
-              rollup_samples_per_eval
-            )
-
-          merge_metrics(acc, metrics)
-        end)
+        |> run_reasoner_batch_shard(
+          baseline_count,
+          window_size,
+          anomaly_count,
+          rollup_samples_per_eval,
+          batch_size
+        )
       end,
       max_concurrency: shard_count,
       timeout: :infinity,
@@ -179,13 +350,14 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   end
 
   defp run_benchmark(
-         "compact_ets_shards",
+         "reasoner_state_batch_shards",
          series_count,
          baseline_count,
          window_size,
          anomaly_count,
          rollup_samples_per_eval,
-         concurrency
+         concurrency,
+         batch_size
        ) do
     shard_count = min(concurrency, series_count)
 
@@ -194,11 +366,76 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       fn shard ->
         shard
         |> Range.new(series_count, shard_count)
-        |> run_compact_ets_shard(
+        |> run_reasoner_state_batch_shard(
           baseline_count,
           window_size,
           anomaly_count,
-          rollup_samples_per_eval
+          rollup_samples_per_eval,
+          batch_size
+        )
+      end,
+      max_concurrency: shard_count,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp run_benchmark(
+         "reasoner_state_values_changes_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         batch_size
+       ) do
+    shard_count = min(concurrency, series_count)
+
+    1..shard_count
+    |> Task.async_stream(
+      fn shard ->
+        shard
+        |> Range.new(series_count, shard_count)
+        |> run_reasoner_state_values_change_shard(
+          baseline_count,
+          window_size,
+          anomaly_count,
+          rollup_samples_per_eval,
+          batch_size
+        )
+      end,
+      max_concurrency: shard_count,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp run_benchmark(
+         "reasoner_state_value_tuples_changes_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         batch_size
+       ) do
+    shard_count = min(concurrency, series_count)
+
+    1..shard_count
+    |> Task.async_stream(
+      fn shard ->
+        shard
+        |> Range.new(series_count, shard_count)
+        |> run_reasoner_state_value_tuple_change_shard(
+          baseline_count,
+          window_size,
+          anomaly_count,
+          rollup_samples_per_eval,
+          batch_size
         )
       end,
       max_concurrency: shard_count,
@@ -215,7 +452,8 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
          window_size,
          anomaly_count,
          rollup_samples_per_eval,
-         concurrency
+         concurrency,
+         _batch_size
        ) do
     1..series_count
     |> Task.async_stream(
@@ -234,6 +472,120 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     |> reduce_task_results()
   end
 
+  defp run_reasoner_batch_shard(
+         series_indexes,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         batch_size
+       ) do
+    indexes = Enum.to_list(series_indexes)
+    slot_count = baseline_count + anomaly_count
+    contexts = Map.new(indexes, &{&1, reasoner_context(window_size)})
+
+    {metrics, _contexts} =
+      Enum.reduce(
+        1..slot_count,
+        {%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, contexts},
+        fn slot, {metrics, contexts} ->
+          indexes
+          |> Enum.chunk_every(batch_size)
+          |> Enum.reduce({metrics, contexts}, fn chunk, {metrics, contexts} ->
+            inputs =
+              Enum.map(chunk, fn index ->
+                dataset = dataset(index)
+                value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+
+                {
+                  Map.fetch!(contexts, index),
+                  %{value: value, observed_at_unix_nano: slot}
+                }
+              end)
+
+            results = CausalReasoner.reason_batch(inputs)
+
+            chunk
+            |> Enum.zip(results)
+            |> Enum.reduce({metrics, contexts}, fn
+              {index, {:ok, verdict}}, {metrics, contexts} ->
+                dataset = dataset(index)
+                value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+                context = Map.fetch!(contexts, index)
+
+                {
+                  %{
+                    metrics
+                    | evaluations: metrics.evaluations + 1,
+                      raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                      confirmed: metrics.confirmed + confirmed?(verdict)
+                  },
+                  Map.put(contexts, index, fold_context(context, value, verdict))
+                }
+
+              {_index, {:error, reason}}, {metrics, contexts} ->
+                IO.puts("reason_batch item failed: #{inspect(reason)}")
+                {%{metrics | failed: metrics.failed + 1}, contexts}
+            end)
+          end)
+        end
+      )
+
+    metrics
+  end
+
+  defp run_reasoner_state_batch_shard(
+         series_indexes,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         batch_size
+       ) do
+    indexes = Enum.to_list(series_indexes)
+    slot_count = baseline_count + anomaly_count
+    context = reasoner_context(window_size)
+    shard_state = CausalReasoner.new_shard_state()
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        indexes
+        |> Enum.chunk_every(batch_size)
+        |> Enum.reduce(metrics, fn chunk, metrics ->
+          inputs =
+            Enum.map(chunk, fn index ->
+              dataset = dataset(index)
+              value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+
+              %{
+                series_key: dataset.series_key,
+                context: context,
+                sample: %{value: value, observed_at_unix_nano: slot}
+              }
+            end)
+
+          results = CausalReasoner.reason_state_batch_events(shard_state, inputs)
+
+          Enum.reduce(results, metrics, fn
+            {:ok, verdict}, metrics ->
+              %{
+                metrics
+                | evaluations: metrics.evaluations + 1,
+                  raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                  confirmed: metrics.confirmed + confirmed?(verdict)
+              }
+
+            {:error, reason}, metrics ->
+              IO.puts("reason_state_batch item failed: #{inspect(reason)}")
+              %{metrics | failed: metrics.failed + 1}
+          end)
+        end)
+      end
+    )
+  end
+
   defp reduce_task_results(stream) do
     Enum.reduce(stream, %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn
       {:ok, metrics}, acc ->
@@ -245,6 +597,116 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     end)
   end
 
+  defp run_reasoner_state_values_change_shard(
+         series_indexes,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         batch_size
+       ) do
+    indexes = Enum.to_list(series_indexes)
+    slot_count = baseline_count + anomaly_count
+    context = reasoner_context(window_size)
+    shard_state = CausalReasoner.new_shard_state()
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        indexes
+        |> Enum.chunk_every(batch_size)
+        |> Enum.reduce(metrics, fn chunk, metrics ->
+          inputs =
+            Enum.map(chunk, fn index ->
+              dataset = dataset(index)
+              value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+
+              %{
+                index: index,
+                series_key: dataset.series_key,
+                context: if(slot == 1, do: context),
+                value: value,
+                observed_at_unix_nano: slot
+              }
+            end)
+
+          results = CausalReasoner.reason_state_values_changes(shard_state, inputs)
+
+          results
+          |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + length(chunk)}, fn
+            {_index, {:ok, verdict}}, metrics ->
+              %{
+                metrics
+                | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                  confirmed: metrics.confirmed + confirmed?(verdict)
+              }
+
+            {_index, {:error, reason}}, metrics ->
+              IO.puts("reason_state_values item failed: #{inspect(reason)}")
+              %{metrics | failed: metrics.failed + 1}
+          end)
+          |> Map.update!(
+            :raw_samples,
+            &(&1 + (length(chunk) - length(results)) * rollup_samples_per_eval)
+          )
+        end)
+      end
+    )
+  end
+
+  defp run_reasoner_state_value_tuple_change_shard(
+         series_indexes,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         batch_size
+       ) do
+    indexes = Enum.to_list(series_indexes)
+    slot_count = baseline_count + anomaly_count
+    context = reasoner_context(window_size)
+    shard_state = CausalReasoner.new_shard_state()
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        indexes
+        |> Enum.chunk_every(batch_size)
+        |> Enum.reduce(metrics, fn chunk, metrics ->
+          inputs =
+            Enum.map(chunk, fn index ->
+              dataset = dataset(index)
+              value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+
+              {index, dataset.series_key, if(slot == 1, do: context), value, slot}
+            end)
+
+          results = CausalReasoner.reason_state_value_tuples_changes(shard_state, inputs)
+
+          results
+          |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + length(chunk)}, fn
+            {_index, {:ok, verdict}}, metrics ->
+              %{
+                metrics
+                | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                  confirmed: metrics.confirmed + confirmed?(verdict)
+              }
+
+            {_index, {:error, reason}}, metrics ->
+              IO.puts("reason_state_value_tuples item failed: #{inspect(reason)}")
+              %{metrics | failed: metrics.failed + 1}
+          end)
+          |> Map.update!(
+            :raw_samples,
+            &(&1 + (length(chunk) - length(results)) * rollup_samples_per_eval)
+          )
+        end)
+      end
+    )
+  end
+
   defp merge_metrics(acc, metrics) do
     %{
       evaluations: acc.evaluations + metrics.evaluations,
@@ -252,50 +714,6 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       confirmed: acc.confirmed + metrics.confirmed,
       failed: acc.failed + Map.get(metrics, :failed, 0)
     }
-  end
-
-  defp run_compact_ets_shard(
-         series_indexes,
-         baseline_count,
-         window_size,
-         anomaly_count,
-         rollup_samples_per_eval
-       ) do
-    table = :ets.new(:anomaly_bench_shard, [:set, :private])
-
-    try do
-      Enum.each(series_indexes, fn index ->
-        :ets.insert(table, {index, compact_state(window_size)})
-      end)
-
-      slot_count = baseline_count + anomaly_count
-
-      Enum.reduce(
-        1..slot_count,
-        %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
-        fn slot, metrics ->
-          Enum.reduce(series_indexes, metrics, fn index, metrics ->
-            dataset = dataset(index)
-            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
-            state = :ets.lookup_element(table, index, 2)
-
-            {state, verdict} =
-              CompactEvaluator.evaluate(state, %{value: value, observed_at_unix_nano: slot})
-
-            :ets.insert(table, {index, state})
-
-            %{
-              metrics
-              | evaluations: metrics.evaluations + 1,
-                raw_samples: metrics.raw_samples + rollup_samples_per_eval,
-                confirmed: metrics.confirmed + confirmed?(verdict)
-            }
-          end)
-        end
-      )
-    after
-      :ets.delete(table)
-    end
   end
 
   defp run_series(
@@ -332,7 +750,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
 
   defp run_series(
          index,
-         "reasoner",
+         "legacy_list",
          baseline_count,
          window_size,
          anomaly_count,
@@ -358,7 +776,8 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
         {:ok, verdict} =
           CausalReasoner.reason(context, %{value: value, observed_at_unix_nano: order})
 
-        {evaluations + 1, confirmed + confirmed?(verdict), fold_context(context, value, verdict)}
+        {evaluations + 1, confirmed + confirmed?(verdict),
+         fold_legacy_context(context, value, verdict)}
       end)
 
     %{evaluations: evaluations, raw_samples: raw_samples, confirmed: confirmed}
@@ -366,7 +785,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
 
   defp run_series(
          index,
-         "compact",
+         "reasoner",
          baseline_count,
          window_size,
          anomaly_count,
@@ -375,24 +794,24 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     dataset = dataset(index)
     raw_samples = (baseline_count + anomaly_count) * rollup_samples_per_eval
 
-    state = compact_state(window_size)
+    context = reasoner_context(window_size)
 
-    {evaluations, confirmed, _state} =
+    {evaluations, confirmed, _context} =
       dataset
       |> samples(baseline_count, anomaly_count, rollup_samples_per_eval)
-      |> Enum.reduce({0, 0, state}, fn {_event_id, order, value},
-                                       {evaluations, confirmed, state} ->
-        {state, verdict} =
-          CompactEvaluator.evaluate(state, %{value: value, observed_at_unix_nano: order})
+      |> Enum.reduce({0, 0, context}, fn {_event_id, order, value},
+                                         {evaluations, confirmed, context} ->
+        {:ok, verdict} =
+          CausalReasoner.reason(context, %{value: value, observed_at_unix_nano: order})
 
-        {evaluations + 1, confirmed + confirmed?(verdict), state}
+        {evaluations + 1, confirmed + confirmed?(verdict), fold_context(context, value, verdict)}
       end)
 
-    %{evaluations: evaluations, raw_samples: raw_samples, confirmed: confirmed, failed: 0}
+    %{evaluations: evaluations, raw_samples: raw_samples, confirmed: confirmed}
   end
 
   defp run_series(_index, mode, _baseline_count, _window_size, _anomaly_count, _rollup_samples) do
-    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, reasoner, compact, compact_shards, compact_ets_shards, or counter_normalizer"
+    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, legacy_list, reasoner, reasoner_batch, reasoner_batch_shards, reasoner_state_batch_shards, reasoner_state_values_changes_shards, reasoner_state_value_tuples_changes_shards, native_engine_events, sharded_engine, sharded_engine_events, or counter_normalizer"
   end
 
   defp run_counter_normalizer_series(index, raw_count, table) do
@@ -484,15 +903,59 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     end
   end
 
-  defp compact_state(window_size) do
-    CompactEvaluator.new(%{
+  defp reasoner_context(window_size) do
+    %{
       baseline: [],
+      window_tail: [],
+      rolling_acc: %{count: 0, mean: 0.0, m2: 0.0},
       min_samples: 10,
       window_size: window_size,
       n_sigma: 3.0,
       confirm_slots: 3,
       consecutive_anomalous: 0
-    })
+    }
+  end
+
+  defp ensure_sharded_engine!(shard_count, window_size) do
+    Application.put_env(:serviceradar_core, :anomaly_detection_shard_count, shard_count)
+
+    case Process.whereis(ShardedContextEngine) do
+      nil ->
+        {:ok, _pid} =
+          ShardedContextEngine.start_link(
+            shard_count: shard_count,
+            min_samples: 10,
+            window_size: window_size,
+            n_sigma: 3.0,
+            confirm_slots: 3
+          )
+
+        :ok
+
+      _pid ->
+        :ok
+    end
+  end
+
+  defp ensure_native_engine!(shard_count, window_size) do
+    Application.put_env(:serviceradar_core, :anomaly_detection_shard_count, shard_count)
+
+    case Process.whereis(NativeContextEngine) do
+      nil ->
+        {:ok, _pid} =
+          NativeContextEngine.start_link(
+            shard_count: shard_count,
+            min_samples: 10,
+            window_size: window_size,
+            n_sigma: 3.0,
+            confirm_slots: 3
+          )
+
+        :ok
+
+      _pid ->
+        :ok
+    end
   end
 
   defp normal_rollup_value(dataset, order, rollup_samples_per_eval) do
@@ -550,7 +1013,20 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     }
   end
 
-  defp fold_context(context, value, verdict) do
+  defp fold_context(context, _value, verdict) do
+    next_window_tail = Map.get(verdict, :next_window_tail, context.window_tail || [])
+    next_rolling_acc = Map.get(verdict, :next_rolling_acc, context.rolling_acc)
+
+    %{
+      context
+      | baseline: [],
+        window_tail: next_window_tail,
+        rolling_acc: next_rolling_acc,
+        consecutive_anomalous: Map.get(verdict, :next_consecutive_anomalous, 0)
+    }
+  end
+
+  defp fold_legacy_context(context, value, verdict) do
     baseline =
       if Map.get(verdict, :include_in_baseline, true) do
         context.baseline

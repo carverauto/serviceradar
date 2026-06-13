@@ -6,7 +6,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Supervisor do
   use Supervisor
 
   alias ServiceRadar.Observability.AnomalyDetection.Config
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
   alias ServiceRadar.Observability.AnomalyDetection.Pipeline
+  alias ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
 
   require Logger
 
@@ -20,11 +23,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Supervisor do
 
     Logger.info("Starting anomaly analysis supervisor",
       enabled: config.enabled,
+      context_engine: inspect(config.context_engine),
       streams: length(config.streams),
       enabled_subjects: Enum.join(config.enabled_subjects, ",")
     )
 
-    Supervisor.init([{Pipeline, config}], strategy: :one_for_one)
+    Supervisor.init(
+      engine_children(config) ++ [{Pipeline, config}],
+      strategy: :one_for_one
+    )
   end
 
   @spec status() :: map()
@@ -51,4 +58,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Supervisor do
         }
     end
   end
+
+  defp engine_children(%Config{context_engine: NativeContextEngine, shard_count: shard_count}) do
+    [{NativeContextEngine, shard_count: shard_count}]
+  end
+
+  defp engine_children(%Config{context_engine: ShardedContextEngine, shard_count: shard_count}) do
+    [{ShardedContextEngine, shard_count: shard_count}]
+  end
+
+  defp engine_children(%Config{context_engine: ContextEngine}), do: []
+  defp engine_children(_config), do: []
 end

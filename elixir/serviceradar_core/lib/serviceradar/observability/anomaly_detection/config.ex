@@ -9,11 +9,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
   """
 
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
 
   @default_consumer_name "serviceradar-anomaly-analysis"
   @default_batch_size 100
   @default_batch_timeout 1_000
   @default_processor_concurrency 4
+  @default_shard_count System.schedulers_online()
   @default_inactive_threshold_ns 300_000_000_000
   @default_enabled_subjects ["otel.metrics.>"]
 
@@ -23,8 +27,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     :batch_size,
     :batch_timeout,
     :consumer_name,
+    :context_engine,
     :producer_name,
     :processor_concurrency,
+    :shard_count,
     :enabled_subjects,
     :streams
   ]
@@ -35,8 +41,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
           batch_size: pos_integer(),
           batch_timeout: pos_integer(),
           consumer_name: String.t(),
+          context_engine: module(),
           producer_name: atom(),
           processor_concurrency: pos_integer(),
+          shard_count: pos_integer(),
           enabled_subjects: [String.t()],
           streams: [EventWriterConfig.stream_config()]
         }
@@ -81,6 +89,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
       consumer_name:
         System.get_env("ANOMALY_ANALYSIS_CONSUMER_NAME") ||
           Keyword.get(app_config, :consumer_name, @default_consumer_name),
+      context_engine: load_context_engine(app_config),
       producer_name:
         Keyword.get(
           app_config,
@@ -93,6 +102,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
           app_config,
           :processor_concurrency,
           @default_processor_concurrency
+        ),
+      shard_count:
+        int_env(
+          "ANOMALY_ANALYSIS_SHARD_COUNT",
+          app_config,
+          :shard_count,
+          @default_shard_count
         ),
       enabled_subjects: load_enabled_subjects(app_config),
       streams: Keyword.get(app_config, :streams, default_streams())
@@ -192,6 +208,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
 
       :error ->
         fallback
+    end
+  end
+
+  defp load_context_engine(app_config) do
+    case System.get_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE") ||
+           Keyword.get(app_config, :context_engine) do
+      nil ->
+        ContextEngine
+
+      value when is_atom(value) ->
+        value
+
+      value when is_binary(value) ->
+        parse_context_engine(value)
+    end
+  end
+
+  defp parse_context_engine(value) do
+    case value |> String.trim() |> String.downcase() do
+      "context" -> ContextEngine
+      "owner" -> ContextEngine
+      "legacy" -> ContextEngine
+      "sharded" -> ShardedContextEngine
+      "sharded_context" -> ShardedContextEngine
+      "native" -> NativeContextEngine
+      "native_direct" -> NativeContextEngine
+      "native_context" -> NativeContextEngine
+      _ -> ContextEngine
     end
   end
 

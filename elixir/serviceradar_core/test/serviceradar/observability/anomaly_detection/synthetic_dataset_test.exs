@@ -100,7 +100,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SyntheticDatasetTest do
         assert verdict.include_in_baseline
       end)
 
-      assert ContextOwner.snapshot(owner).context.baseline == dataset.normal
+      assert ContextOwner.snapshot(owner).context.window_tail == dataset.normal
 
       [first, second, third] =
         dataset.anomalous
@@ -132,8 +132,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SyntheticDatasetTest do
       assert third.score >= 3.0
 
       snapshot = ContextOwner.snapshot(owner)
-      refute Enum.any?(dataset.anomalous, &(&1 in snapshot.context.baseline))
-      assert snapshot.context.baseline == dataset.normal
+      refute Enum.any?(dataset.anomalous, &(&1 in snapshot.context.window_tail))
+      assert snapshot.context.window_tail == dataset.normal
 
       recovery_index = length(dataset.normal) + length(dataset.anomalous) + 1
 
