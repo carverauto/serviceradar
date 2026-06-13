@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
 
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
+  alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
 
@@ -36,6 +37,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:has_virtualization_guests, false)
     |> assign(:sweep_results, nil)
     |> assign(:process_metrics, nil)
+    |> assign(:can_view_anomaly_capacity, false)
+    |> assign(:anomaly_capacity, AnomalyCapacityData.empty())
     |> assign(:limit, Keyword.fetch!(opts, :default_limit))
     |> assign(:flows_limit, Keyword.fetch!(opts, :flows_limit))
     |> assign(:srql, default_srql())

@@ -6,9 +6,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
+  alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.Dashboard.Engine
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Categories, as: CategoriesPlugin
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Table, as: TablePlugin
+  alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraData
   alias ServiceRadarWebNGWeb.DeviceLive.CameraRelayRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceActionRuntime
@@ -408,6 +410,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   defp begin_device_metrics_refresh(socket, uid, srql_module, sysmon_identity, scope) do
     request_ref = make_ref()
+    can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
       sysmon_filters = SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
@@ -415,7 +418,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       assigns = %{
         metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope),
         process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-        sysmon_presence: sysmon_filters != []
+        sysmon_presence: sysmon_filters != [],
+        can_view_anomaly_capacity: can_view_anomaly_capacity?,
+        anomaly_capacity:
+          maybe_load_anomaly_capacity(
+            can_view_anomaly_capacity?,
+            srql_module,
+            sysmon_identity,
+            scope
+          )
       }
 
       socket
@@ -432,10 +443,26 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
         %{
           metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope),
           process_metrics: SysmonMetrics.load_process_metrics(srql_module, sysmon_filters, scope),
-          sysmon_presence: sysmon_filters != []
+          sysmon_presence: sysmon_filters != [],
+          can_view_anomaly_capacity: can_view_anomaly_capacity?,
+          anomaly_capacity:
+            maybe_load_anomaly_capacity(
+              can_view_anomaly_capacity?,
+              srql_module,
+              sysmon_identity,
+              scope
+            )
         }
       end)
     end
+  end
+
+  defp maybe_load_anomaly_capacity(true, srql_module, sysmon_identity, scope) do
+    AnomalyCapacityData.load(srql_module, sysmon_identity, scope)
+  end
+
+  defp maybe_load_anomaly_capacity(false, _srql_module, _sysmon_identity, _scope) do
+    AnomalyCapacityData.empty()
   end
 
   defp load_device_data(socket, uid, limit, requested_tab, params, uri) do
