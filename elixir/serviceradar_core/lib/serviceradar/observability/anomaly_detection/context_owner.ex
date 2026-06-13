@@ -146,7 +146,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           {:ok, state} ->
             state =
               state
-              |> rebuild()
+              |> rebuild_from(update.event_id)
               |> maybe_suppress_verdict(update.event_id)
               |> save_checkpoint()
 
@@ -227,6 +227,43 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       end)
 
     %{state | context: context, verdicts: verdicts}
+  end
+
+  defp rebuild_from(state, event_id) do
+    case Enum.split_while(state.updates, &(&1.event_id != event_id)) do
+      {_prefix, []} ->
+        rebuild(state)
+
+      {prefix, suffix} ->
+        case fold_known_prefix(state, prefix) do
+          {:ok, prefix_context, prefix_verdicts} ->
+            {context, verdicts} =
+              Enum.reduce(suffix, {prefix_context, prefix_verdicts}, fn update,
+                                                                        {context, verdicts} ->
+                {context, verdict} = reason_update(state.reasoner, context, update)
+                {context, Map.put(verdicts, update.event_id, verdict)}
+              end)
+
+            %{state | context: context, verdicts: verdicts}
+
+          :error ->
+            rebuild(state)
+        end
+    end
+  end
+
+  defp fold_known_prefix(state, prefix) do
+    Enum.reduce_while(prefix, {:ok, state.base_context, %{}}, fn update,
+                                                                 {:ok, context, verdicts} ->
+      case Map.fetch(state.verdicts, update.event_id) do
+        {:ok, verdict} ->
+          context = fold_context(context, update.sample, verdict)
+          {:cont, {:ok, context, Map.put(verdicts, update.event_id, verdict)}}
+
+        :error ->
+          {:halt, :error}
+      end
+    end)
   end
 
   defp reason_update(reasoner, context, update) do
