@@ -74,9 +74,10 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   @agent_gateway_component_types [:agent]
   @otlp_relay_source "otlp-relay"
 
-  # Gateway identifier (node name or configured ID)
-  defp gateway_id do
-    Atom.to_string(node())
+  @doc false
+  @spec gateway_id() :: String.t()
+  def gateway_id do
+    Config.gateway_id()
   end
 
   defp required_agent_id(value) do
