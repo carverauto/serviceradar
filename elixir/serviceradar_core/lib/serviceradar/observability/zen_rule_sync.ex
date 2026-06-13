@@ -16,6 +16,7 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.DataService.Client
+  alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
   alias ServiceRadar.Observability.ZenRule
 
   require Ash.Query
@@ -152,6 +153,8 @@ defmodule ServiceRadar.Observability.ZenRuleSync do
 
     case Ash.read(query, state.ash_opts) do
       {:ok, rules} ->
+        ZenNormalizer.invalidate_all()
+
         results = Enum.map(rules, &sync_rule_result(&1, state))
 
         results
