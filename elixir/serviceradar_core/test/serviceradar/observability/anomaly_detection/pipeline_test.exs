@@ -88,6 +88,49 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     refute_receive {:emit_anomaly_verdict, _sample, _verdict}
   end
 
+  test "uses context engine batch boundary when available" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.BatchContextEngineStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+
+    assert_receive {:evaluate_batch, [sample]}
+    assert sample.value == 50.0
+    refute_receive {:evaluate, _sample}
+  end
+
+  test "uses sparse context engine event boundary when available" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.SparseEventContextEngineStub
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.VerdictEmitterStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+
+    assert_receive {:evaluate_events_batch, [sample]}
+    assert sample.value == 50.0
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, verdict}
+    assert verdict.anomalous == true
+    refute_receive {:evaluate_batch, _samples}
+    refute_receive {:evaluate, _sample}
+  end
+
   test "normalizes cumulative monotonic counters before invoking the reasoner" do
     config = config(enabled_subjects: ["otel.metrics.>"])
 
@@ -284,6 +327,60 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
       {:ok, %{state: "insufficient_baseline", anomalous: false}}
     end
+  end
+
+  defmodule BatchContextEngineStub do
+    @moduledoc false
+
+    def evaluate_batch(samples) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate_batch,
+        samples
+      })
+
+      Enum.map(samples, fn _sample ->
+        {:ok, %{state: "insufficient_baseline", anomalous: false}}
+      end)
+    end
+
+    def evaluate(sample) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate,
+        sample
+      })
+
+      {:ok, %{state: "insufficient_baseline", anomalous: false}}
+    end
+  end
+
+  defmodule SparseEventContextEngineStub do
+    @moduledoc false
+
+    def evaluate_events_batch(samples) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate_events_batch,
+        samples
+      })
+
+      Enum.map(samples, fn sample ->
+        {sample,
+         {:ok,
+          %{
+            state: "anomalous",
+            anomalous: true,
+            breached: true,
+            score: 3.5,
+            reason: "rolling z-score breached",
+            baseline_count: 48,
+            sample_value: sample.value,
+            observed_at_unix_nano: sample.observed_at_unix_nano,
+            signals: []
+          }}}
+      end)
+    end
+
+    def evaluate_batch(_samples), do: raise("evaluate_batch should not be called")
+    def evaluate(_sample), do: raise("evaluate should not be called")
   end
 
   defmodule AnomalousContextEngine do

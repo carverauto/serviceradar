@@ -11,9 +11,26 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
 
     snapshot = ContextOwner.snapshot(pid)
 
-    assert snapshot.context.baseline == [10.0, 11.0]
+    assert snapshot.context.baseline == []
+    assert snapshot.context.window_tail == [10.0, 11.0]
     assert snapshot.context.consecutive_anomalous == 0
     assert Map.keys(snapshot.verdicts) == ["e1", "e2"]
+  end
+
+  test "persists compact rolling state returned by the reasoner" do
+    {:ok, pid} = start_owner(reasoner: __MODULE__.CompactStateReasoner, window_size: 2)
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e3", 3, 12.0))
+
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.context.baseline == []
+    assert snapshot.context.window_tail == [11.0, 12.0]
+    assert snapshot.context.rolling_acc.count == 2
+    assert_in_delta snapshot.context.rolling_acc.mean, 11.5, 0.0001
+    assert_in_delta snapshot.context.rolling_acc.m2, 0.5, 0.0001
   end
 
   test "duplicate event IDs are idempotent" do
@@ -24,7 +41,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
 
     snapshot = ContextOwner.snapshot(pid)
 
-    assert snapshot.context.baseline == [10.0]
+    assert snapshot.context.window_tail == [10.0]
     assert snapshot.event_ids == ["same-event"]
   end
 
@@ -37,7 +54,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     snapshot = ContextOwner.snapshot(pid)
 
     assert snapshot.event_ids == ["early", "late"]
-    assert snapshot.context.baseline == [10.0, 20.0]
+    assert snapshot.context.window_tail == [10.0, 20.0]
   end
 
   test "UUIDv8 order keys make out-of-order replays deterministic" do
@@ -53,7 +70,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     snapshot = ContextOwner.snapshot(pid)
 
     assert snapshot.event_ids == [older, newer]
-    assert snapshot.context.baseline == [10.0, 20.0]
+    assert snapshot.context.window_tail == [10.0, 20.0]
   end
 
   test "normalizes mixed binary and tuple order keys by timestamp" do
@@ -70,7 +87,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     snapshot = ContextOwner.snapshot(pid)
 
     assert snapshot.event_ids == ["binary-key", "tuple-key"]
-    assert snapshot.context.baseline == [10.0, 20.0]
+    assert snapshot.context.window_tail == [10.0, 20.0]
   end
 
   test "withholds breached samples from the baseline and carries the consecutive counter" do
@@ -120,7 +137,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     snapshot = ContextOwner.snapshot(pid)
 
     assert snapshot.event_ids == ["e1", "e3", "e4", "e5"]
-    assert snapshot.context.baseline == [10.0, 30.0, 40.0, 50.0]
+    assert snapshot.context.window_tail == [10.0, 30.0, 40.0, 50.0]
   end
 
   test "late samples outside a full window are dropped explicitly" do
@@ -133,7 +150,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
 
     snapshot = ContextOwner.snapshot(pid)
     assert snapshot.event_ids == ["e2", "e3"]
-    assert snapshot.context.baseline == [20.0, 30.0]
+    assert snapshot.context.window_tail == [20.0, 30.0]
   end
 
   test "rehydrates from checkpoint when a replacement owner starts" do
@@ -160,10 +177,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
 
     assert snapshot.checkpoint_restored?
     assert snapshot.event_ids == ["e1", "e2"]
-    assert snapshot.context.baseline == [10.0, 11.0]
+    assert snapshot.context.window_tail == [10.0, 11.0]
 
     assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(replacement, sample("e3", 3, 12.0))
-    assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0, 12.0]
+    assert ContextOwner.snapshot(replacement).context.window_tail == [10.0, 11.0, 12.0]
   end
 
   test "handoff returns checkpointed replay verdicts without resaving duplicate events" do
@@ -190,13 +207,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     snapshot = ContextOwner.snapshot(replacement)
 
     assert snapshot.checkpoint_restored?
-    assert snapshot.context.baseline == [10.0, 11.0]
+    assert snapshot.context.window_tail == [10.0, 11.0]
 
     assert {:ok, %{state: "clean"}} =
              ContextOwner.evaluate(replacement, %{sample("e1", 1, 999.0) | order_key: {9, "e1"}})
 
     assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 2
-    assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0]
+    assert ContextOwner.snapshot(replacement).context.window_tail == [10.0, 11.0]
   end
 
   test "checkpoint replay preserves anomalous verdict evidence after JSON restore" do
@@ -268,7 +285,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
 
     checkpoint = __MODULE__.CountingCheckpoint.checkpoint(checkpoint_agent, series_key)
     assert Enum.map(checkpoint.updates, & &1.event_id) == ["e1", "e2"]
-    assert checkpoint.context.baseline == [10.0, 11.0]
+    assert checkpoint.context.baseline == []
+    assert checkpoint.context.window_tail == [10.0, 11.0]
   end
 
   test "shutdown flushes a pending coalesced checkpoint" do
@@ -384,7 +402,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert String.contains?(query, ~s(series_key:"series-1"))
 
     snapshot = ContextOwner.snapshot(pid)
-    assert snapshot.base_context.baseline == [8.0, 9.0]
+    assert snapshot.base_context.baseline == []
+    assert snapshot.base_context.window_tail == [8.0, 9.0]
     assert snapshot.live_update_count == 1
 
     assert {:ok, %{state: "anomaly", anomalous: true}} =
@@ -433,6 +452,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     end
   end
 
+  defmodule CompactStateReasoner do
+    @moduledoc false
+
+    def reason(context, sample) do
+      tail =
+        context
+        |> Map.get(:window_tail, context.baseline)
+        |> Kernel.++([sample.value])
+        |> Enum.take(-context.window_size)
+
+      {:ok,
+       %{
+         state: "clean",
+         include_in_baseline: true,
+         next_consecutive_anomalous: 0,
+         next_window_tail: tail,
+         next_rolling_acc: rolling_acc(tail)
+       }}
+    end
+
+    defp rolling_acc([]), do: %{count: 0, mean: 0.0, m2: 0.0}
+
+    defp rolling_acc(values) do
+      count = length(values)
+      mean = Enum.sum(values) / count
+      m2 = values |> Enum.map(&((&1 - mean) * (&1 - mean))) |> Enum.sum()
+      %{count: count, mean: mean, m2: m2}
+    end
+  end
+
   defmodule WithholdReasoner do
     @moduledoc false
     def reason(_context, _sample) do
@@ -448,7 +497,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     def reason(context, sample) do
       send(Process.whereis(@sink), {
         :reasoned,
-        context.baseline,
+        Map.get(context, :window_tail, context.baseline),
         sample.value
       })
 

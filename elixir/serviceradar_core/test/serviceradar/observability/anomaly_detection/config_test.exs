@@ -4,6 +4,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Observability.AnomalyDetection
   alias ServiceRadar.Observability.AnomalyDetection.Config
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
 
   setup do
     previous_enabled = Application.get_env(:serviceradar_core, :anomaly_analysis_consumer_enabled)
@@ -18,6 +19,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
       System.delete_env("ANOMALY_ANALYSIS_NATS_CREDS_FILE")
       System.delete_env("ANOMALY_TEST_NATS_PASSWORD")
       System.delete_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY")
+      System.delete_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE")
     end)
 
     :ok
@@ -71,9 +73,26 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   test "defaults processing to otel metrics only" do
     config = Config.load()
 
+    assert config.context_engine == ContextEngine
     assert config.enabled_subjects == ["otel.metrics.>"]
     assert Config.subject_enabled?(config, "otel.metrics.raw")
     refute Config.subject_enabled?(config, "metrics.sysmon.cpu")
+  end
+
+  test "context engine is opt-in from env" do
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "sharded")
+
+    assert Config.load().context_engine ==
+             ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
+
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "native")
+
+    assert Config.load().context_engine ==
+             ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
+
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "bogus")
+
+    assert Config.load().context_engine == ContextEngine
   end
 
   test "supports per-subject enable filters" do

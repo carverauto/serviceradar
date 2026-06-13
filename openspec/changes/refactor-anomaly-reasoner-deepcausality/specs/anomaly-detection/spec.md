@@ -60,6 +60,27 @@ The DeepCausality reasoner SHALL provide a batched NIF entrypoint for evaluating
 - **THEN** the batched entrypoint SHALL run as a DirtyCpu NIF
 - **AND** benchmark output SHALL record the chosen batch size and scheduler mode
 
+### Requirement: Native Shard Runtime State
+The anomaly pipeline SHALL support shard-local native reasoner resources that keep compact rolling state in Rust and return only sparse anomaly state-change events for the streaming hot path.
+
+#### Scenario: Runtime state stays shard local
+- **GIVEN** a shard resource has evaluated a series with a compact context
+- **WHEN** later samples for the same series arrive on the same shard
+- **THEN** the caller MAY omit the context
+- **AND** the native resource SHALL continue from the stored Welford accumulator, bounded clean tail, confirmation counter, and active anomaly state
+
+#### Scenario: Sparse state-change events are emitted
+- **GIVEN** a series is currently inactive
+- **WHEN** a sample produces a confirmed anomalous verdict
+- **THEN** the shard runtime SHALL emit an anomaly-open event
+- **AND** repeated anomalous samples for the same active series SHALL NOT emit duplicate open events
+- **AND** a later clean verdict SHALL emit one clear event and mark the series inactive
+
+#### Scenario: Compact tuple input avoids per-sample maps
+- **WHEN** the hot shard path receives a batch of scalar metric samples
+- **THEN** it SHALL pass compact tuple inputs across the NIF boundary
+- **AND** those inputs SHALL include only the sample index, series identity, optional first-context, scalar value, and timestamp
+
 ### Requirement: Parity and Cleanup Gate
 The compact DeepCausality path SHALL pass parity, drift, and benchmark gates before the temporary compact evaluator is removed.
 

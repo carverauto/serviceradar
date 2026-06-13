@@ -21,6 +21,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextEngine do
   def evaluate(_sample), do: {:error, :missing_series_key}
 
   @doc """
+  Evaluates samples in input order.
+
+  The owner-backed engine preserves per-series single-writer semantics by
+  delegating to `evaluate/1`. Shard-owned engines can override this boundary to
+  use batch-capable native reasoner paths for independent series that are
+  already grouped in one Broadway message.
+  """
+  @spec evaluate_batch([sample()]) :: [{:ok, map()} | {:drop, term()} | {:error, term()}]
+  def evaluate_batch(samples) when is_list(samples), do: Enum.map(samples, &evaluate/1)
+
+  @doc """
   Ensures a context owner exists for `series_key`.
   """
   @spec ensure_owner(String.t()) :: {:ok, pid()} | {:error, term()}
