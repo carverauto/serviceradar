@@ -1,6 +1,6 @@
 ## 1. Contract and Storage
 - [ ] 1.1 Preserve `start_time_unix_nano` or equivalent reset anchor for cumulative metrics at storage.
-- [ ] 1.2 Store raw cumulative counter values without float64 precision loss.
+- [x] 1.2 Store raw cumulative counter values without float64 precision loss.
 - [ ] 1.3 Add schema validation requiring `temporality` for sum/histogram metric kinds.
 
 ## 2. Sysmon Counters
@@ -9,9 +9,9 @@
 - [ ] 2.3 Add disk IO counters as monotonic cumulative sums.
 
 ## 3. SNMP Counters
-- [ ] 3.1 Preserve raw counter values and PDU width from Counter32/Counter64.
+- [x] 3.1 Preserve raw counter values and PDU width from Counter32/Counter64.
 - [ ] 3.2 Poll and attach `sysUpTime` and `ifCounterDiscontinuityTime` where available.
-- [ ] 3.3 Replace edge `calculateDelta` wrap-default behavior with reset-default logic.
+- [x] 3.3 Replace edge `calculateDelta` wrap-default behavior with reset-default logic.
 - [ ] 3.4 Prefer 64-bit IF-MIB counters when available.
 
 ## 4. Consumer Normalization

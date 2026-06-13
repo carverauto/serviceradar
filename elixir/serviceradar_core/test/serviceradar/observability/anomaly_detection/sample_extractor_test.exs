@@ -10,6 +10,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   alias Opentelemetry.Proto.Metrics.V1.ResourceMetrics
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
 
   @ingress_id "00000645-50de-8e80-8000-000000000001"
@@ -68,6 +69,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.series_key =~ "snmp:"
     assert sample.value == 1234.5
     assert sample.metric_class == "snmp"
+  end
+
+  test "extracts SNMP counter semantics for counter normalization" do
+    table = :ets.new(:sample_extractor_counter_normalizer_test, [:set, :private])
+
+    [first] =
+      SampleExtractor.extract(%{
+        data: Jason.encode!(snmp_counter_envelope(1_000, "2026-06-12T00:00:00Z")),
+        metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
+      })
+
+    [second] =
+      SampleExtractor.extract(%{
+        data: Jason.encode!(snmp_counter_envelope(1_600, "2026-06-12T00:01:00Z")),
+        metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
+      })
+
+    assert first.metadata[:metric_type] == "snmp"
+    assert first.metadata[:kind] == "sum"
+    assert first.metadata[:temporality] == "cumulative"
+    assert first.metadata[:is_monotonic] == true
+    assert first.metadata[:counter_width] == 64
+
+    assert {:drop, :counter_warmup} = CounterNormalizer.normalize_sample(first, table)
+    assert {:ok, normalized} = CounterNormalizer.normalize_sample(second, table)
+
+    assert normalized.value == 10.0
+    assert normalized.metadata.counter_normalized == true
+    assert normalized.metadata.counter_delta == 600
+    assert normalized.metadata.counter_rate_unit == "By/s"
   end
 
   test "extracts generic scalar metric samples" do
@@ -214,6 +245,22 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
       "tags" => %{"target" => "10.0.0.20", "interface_uid" => "ifindex:7"},
       "metadata" => %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"}
     }
+  end
+
+  defp snmp_counter_envelope(value, timestamp) do
+    Map.merge(snmp_envelope(), %{
+      "timestamp" => timestamp,
+      "value" => value * 1.0,
+      "unit" => "By",
+      "metadata" => %{
+        "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
+        "kind" => "sum",
+        "temporality" => "cumulative",
+        "is_monotonic" => true,
+        "raw_value" => value,
+        "counter_width" => 64
+      }
+    })
   end
 
   defp plugin_metric_envelope do

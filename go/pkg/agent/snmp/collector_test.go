@@ -20,8 +20,10 @@ package snmp
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.uber.org/mock/gomock"
 )
 
@@ -85,4 +87,92 @@ func TestCollector_WithMocks(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestCollectorProcessResult_PreservesRawCounterSemantics(t *testing.T) {
+	collector := &SNMPCollector{
+		target: &Target{
+			OIDs: []OIDConfig{
+				{
+					OID:      ".1.3.6.1.2.1.31.1.1.1.6.7",
+					Name:     "ifHCInOctets::ifindex:7",
+					DataType: TypeCounter,
+					Scale:    1,
+					Delta:    true,
+				},
+			},
+		},
+		dataChan: make(chan DataPoint, 1),
+		done:     make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: make(map[string]OIDStatus),
+		},
+	}
+
+	err := collector.processResult(
+		context.Background(),
+		".1.3.6.1.2.1.31.1.1.1.6.7",
+		CounterValue{Value: 9_007_199_254_740_993, Width: 64},
+	)
+	require.NoError(t, err)
+
+	point := <-collector.dataChan
+	require.Equal(t, "ifHCInOctets::ifindex:7", point.OIDName)
+	require.Equal(t, uint64(9_007_199_254_740_993), point.Value)
+	require.Equal(t, uint64(9_007_199_254_740_993), point.RawValue)
+	require.Equal(t, TypeCounter, point.DataType)
+	require.False(t, point.Delta)
+	require.Equal(t, counterKindSum, point.Kind)
+	require.Equal(t, counterTemporalityCumulative, point.Temporality)
+	require.True(t, point.IsMonotonic)
+	require.Equal(t, 64, point.CounterWidth)
+}
+
+func TestCalculateDelta_ResetDefault(t *testing.T) {
+	delta, ok := calculateDelta(uint64(1000), uint64(1600), 0)
+	require.True(t, ok)
+	require.Equal(t, 600.0, delta)
+
+	_, ok = calculateDelta(uint64(1600), uint64(100), 64)
+	require.False(t, ok)
+
+	_, ok = calculateDelta(uint64(1600), uint64(100), 0)
+	require.False(t, ok)
+
+	delta, ok = calculateDelta(uint64(maxCounter32-99), uint64(100), 32)
+	require.True(t, ok)
+	require.Equal(t, 200.0, delta)
+}
+
+func TestCollectorProcessResult_NonCounterDeltaStillRates(t *testing.T) {
+	collector := &SNMPCollector{
+		target: &Target{
+			OIDs: []OIDConfig{
+				{
+					OID:      ".1.3.6.1.4.1.1.1.0",
+					Name:     "customGaugeDelta",
+					DataType: TypeGauge,
+					Delta:    true,
+				},
+			},
+		},
+		dataChan: make(chan DataPoint, 1),
+		done:     make(chan struct{}),
+		status: TargetStatus{
+			OIDStatus: map[string]OIDStatus{
+				"customGaugeDelta": {
+					LastValue:  uint64(100),
+					LastUpdate: time.Now().Add(-10 * time.Second),
+				},
+			},
+		},
+	}
+
+	err := collector.processResult(context.Background(), ".1.3.6.1.4.1.1.1.0", uint64(200))
+	require.NoError(t, err)
+
+	point := <-collector.dataChan
+	require.Equal(t, TypeFloat, point.DataType)
+	require.False(t, point.Delta)
+	require.InDelta(t, 10.0, point.Value, 0.1)
 }

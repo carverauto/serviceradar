@@ -101,9 +101,14 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
         "metric_name" => metric_name,
         "metric_type" => "snmp",
         "value" => value,
+        "raw_value" => Map.get(result, "raw_value") || Map.get(result, "rawValue"),
         "unit" => Map.get(result, "unit"),
         "scale" => Map.get(result, "scale"),
         "is_delta" => Map.get(result, "delta") || Map.get(result, "is_delta") || false,
+        "kind" => Map.get(result, "kind"),
+        "temporality" => Map.get(result, "temporality"),
+        "is_monotonic" => Map.get(result, "is_monotonic") || Map.get(result, "isMonotonic"),
+        "counter_width" => Map.get(result, "counter_width") || Map.get(result, "counterWidth"),
         "target_device_ip" => target_device_ip,
         "if_index" => if_index,
         "tags" => tags(result, target_device_ip, metric_name),
@@ -156,6 +161,11 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
       normalize_string(Map.get(result, "oid") || Map.get(result, "oid_name") || Map.get(result, "oidName"))
     )
     |> maybe_put("data_type", normalize_string(Map.get(result, "data_type") || Map.get(result, "dataType")))
+    |> maybe_put("kind", normalize_string(Map.get(result, "kind")))
+    |> maybe_put("temporality", normalize_string(Map.get(result, "temporality")))
+    |> maybe_put("is_monotonic", Map.get(result, "is_monotonic") || Map.get(result, "isMonotonic"))
+    |> maybe_put("counter_width", Map.get(result, "counter_width") || Map.get(result, "counterWidth"))
+    |> maybe_put("raw_value", Map.get(result, "raw_value") || Map.get(result, "rawValue"))
     |> maybe_put("interface_uid", normalize_string(Map.get(result, "interface_uid") || Map.get(result, "interfaceUid")))
     |> maybe_put("status_timestamp_unix_nano", status[:timestamp])
     |> maybe_put("agent_timestamp_unix_nano", status[:agent_timestamp])
