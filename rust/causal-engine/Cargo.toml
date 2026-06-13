@@ -2,6 +2,7 @@
 name = "causal-engine"
 version = "0.1.0"
 edition = "2024"
+rust-version = "1.90"
 description = "ServiceRadar DeepCausality causal engine (OpenSpec: add-causal-engine)"
 
 [dependencies]

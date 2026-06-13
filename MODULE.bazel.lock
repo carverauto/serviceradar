@@ -5962,7 +5962,7 @@
           "FILE:@@//third_party/rust_patches/rperf-0.1.25/Cargo.toml a49a0cc326dec79389f9b60200d117e98356bdf5a48b79d943ebed9795140cd9",
           "FILE:@@//rust/flow-collector/Cargo.toml 730fcdd2eaacc57c5ae2d2eda8210d52f334c0db5e50a1a19816ddc8846cc067",
           "FILE:@@//rust/srql/Cargo.toml 8b449856e44197ca63160b171b4c8bce215b97cf5f7681a80994d24cf3e36373",
-          "FILE:@@//rust/causal-engine/Cargo.toml f93e092f4a8233e8e6d2656b297ff8f8f1bdf24f7c7e476cd3b5231f70f39b65",
+          "FILE:@@//rust/causal-engine/Cargo.toml 3ada09f26c3a6736c28118a66fccc0e741aacfed90b91f1ff99a680ec32e7aea",
           "FILE:@@//rust/fieldsurvey-sidekick/Cargo.toml 33f73305ac02024bc06e8dc26941aed427648d3c0e96a68b8dd13f13922b2c3f",
           "FILE:@@//rust/rdp-adapter/Cargo.toml abacda3a8de3fdb2d02cbe025d980bf2171ce4758fdebf579a25ab393954da65",
           "FILE:@@//rust/otel-addon/Cargo.toml 8e9684245b7e4cdb9e7b257c11564878bd16924f182ecc7b5923f379407285c6"
