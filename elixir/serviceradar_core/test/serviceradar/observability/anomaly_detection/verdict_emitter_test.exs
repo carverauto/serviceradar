@@ -119,4 +119,19 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
     assert row.metadata["finding_info"]["dimensions"]["device_uid"] == "host-a"
     assert row.unmapped["anomaly"]["reason"] == "rolling z-score breached"
   end
+
+  test "fallback finding UID matches the emitter canonical UID" do
+    subject = VerdictEmitter.subject(@sample)
+    payload = VerdictEmitter.payload(@sample, @verdict, subject)
+    fallback_payload = Map.delete(payload, "finding_info")
+
+    row =
+      CausalSignals.parse_message(%{
+        data: Jason.encode!(fallback_payload),
+        metadata: %{subject: subject, received_at: DateTime.utc_now()}
+      })
+
+    assert row.metadata["finding_info"]["uid"] == payload["finding_info"]["uid"]
+    assert row.metadata["finding_info"]["group_uid"] == payload["finding_info"]["group_uid"]
+  end
 end

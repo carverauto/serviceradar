@@ -3,6 +3,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
 
   alias ServiceRadar.EventWriter.Pipeline
   alias ServiceRadar.EventWriter.Processors.CausalSignals
+  alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
 
   describe "table_name/0" do
     test "returns ocsf_events" do
@@ -505,6 +506,107 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       routed = Pipeline.handle_message(:default, message, %{})
       assert routed.batcher == :arancini_causal
     end
+
+    test "causal prediction subjects route to the declared causal_predictions batcher" do
+      event = %{
+        data: Jason.encode!(%{"signal_type" => "causal", "event_type" => "anomaly"}),
+        metadata: %{
+          subject: "signals.causal.predictions.sysmon:memory:host-a",
+          received_at: DateTime.utc_now()
+        },
+        ack_data: %{}
+      }
+
+      message = Pipeline.transform(event, [])
+      routed = Pipeline.handle_message(:default, message, %{})
+      assert routed.batcher == :causal_predictions
+    end
+  end
+
+  describe "alert evaluation rows" do
+    test "selects anomaly causal prediction findings for stateful alert evaluation" do
+      payload = %{
+        "event_id" => "anomaly-alert-1",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "anomaly" => %{
+          "series_key" => "sysmon:memory:sr:anomaly-device",
+          "metric_class" => "sysmon.memory",
+          "state" => "anomalous"
+        }
+      }
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(payload),
+          metadata: %{
+            subject: "signals.causal.predictions.sysmon:memory:sr:anomaly-device",
+            received_at: DateTime.utc_now()
+          }
+        })
+
+      assert row.class_uid == 2004
+      assert row.metadata["signal_type"] == "causal"
+      assert row.metadata["event_type"] == "anomaly"
+
+      assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+      assert alert_row.id == row.metadata["event_identity"]
+      assert alert_row.device == %{"uid" => "sr:anomaly-device"}
+    end
+
+    test "selects capacity causal prediction findings for stateful alert evaluation" do
+      forecast = %{
+        forecasted_at: ~U[2026-06-12 12:00:00Z],
+        resource_key: "cpu_usage:device-a:host-a",
+        resource_type: "cpu",
+        resource_id: "device-a",
+        resource_label: "host-a / device-a",
+        metric_class: "cpu",
+        metric_name: "usage_percent",
+        horizon_seconds: 86_400,
+        horizon_ends_at: ~U[2026-06-13 12:00:00Z],
+        window_started_at: ~U[2026-06-01 00:00:00Z],
+        window_ended_at: ~U[2026-06-02 23:00:00Z],
+        sample_count: 48,
+        model: "linear",
+        status: "projected",
+        current_value: 86.0,
+        projected_value: 103.0,
+        projected_exhaustion_at: ~U[2026-06-12 22:00:00Z],
+        exhaustion_threshold: 100.0,
+        confidence: 0.82
+      }
+
+      subject = VerdictEmitter.subject(forecast)
+
+      row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(VerdictEmitter.payload(forecast, subject)),
+          metadata: %{subject: subject, received_at: forecast.forecasted_at}
+        })
+
+      assert row.class_uid == 2004
+      assert row.metadata["signal_type"] == "causal"
+      assert row.metadata["event_type"] == "capacity_forecast"
+
+      assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+      assert alert_row.id == row.metadata["event_identity"]
+    end
+
+    test "does not select generic causal overlay events for stateful alert evaluation" do
+      row = %{
+        id: Ecto.UUID.generate(),
+        class_uid: 1008,
+        metadata: %{"signal_type" => "bmp", "event_type" => "route_update"},
+        unmapped: %{}
+      }
+
+      assert [] = CausalSignals.alert_evaluation_rows([row])
+    end
   end
 
   defp bmp_burst_messages do
@@ -568,7 +670,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
     Enum.map(events, fn event ->
       message = Pipeline.transform(event, [])
       routed = Pipeline.handle_message(:default, message, %{})
-      assert routed.batcher in [:bmp_causal, :arancini_causal, :siem_causal]
+      assert routed.batcher in [:bmp_causal, :arancini_causal, :siem_causal, :causal_predictions]
       routed
     end)
   end

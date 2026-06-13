@@ -161,6 +161,32 @@ defmodule ServiceRadar.Observability.RuleSeeder do
         }
       },
       %{
+        name: "causal_prediction_health_finding",
+        description:
+          "Raise one active health incident per device from anomaly and capacity causal prediction findings.",
+        priority: 44,
+        enabled: true,
+        signal: :event,
+        match: %{
+          "subject_prefix" => "signals.causal.predictions",
+          "attribute_equals" => %{"signal_type" => "causal"}
+        },
+        group_by: ["device"],
+        threshold: 1,
+        window_seconds: 300,
+        bucket_seconds: 60,
+        cooldown_seconds: 300,
+        renotify_seconds: 21_600,
+        event: %{
+          "log_name" => "alert.health.causal_prediction",
+          "message" => "Causal prediction finding detected"
+        },
+        alert: %{
+          "title" => "Causal Prediction Finding",
+          "severity" => "warning"
+        }
+      },
+      %{
         name: "falco_critical_incident",
         description:
           "Collapse repeated Falco critical detections into one active incident per rule and host.",

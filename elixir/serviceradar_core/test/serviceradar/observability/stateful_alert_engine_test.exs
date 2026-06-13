@@ -393,7 +393,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     message = Pipeline.handle_message(:default, broadway_message, %{})
 
-    assert message.batcher == :bmp_causal
+    assert message.batcher == :causal_predictions
     assert CausalSignals.table_name() == "ocsf_events"
 
     row = CausalSignals.parse_message(%{data: message.data, metadata: message.metadata})
@@ -405,14 +405,17 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert {:ok, 1} = CausalSignals.process_batch([message])
     assert persisted_ocsf_event?(row)
 
-    assert :ok = StatefulAlertEngine.evaluate_events([alert_evaluation_row(row)])
-
     active_alerts =
-      Alert
-      |> Ash.Query.for_read(:active, %{}, actor: actor)
-      |> Ash.read!()
-      |> Page.unwrap!()
-      |> Enum.filter(fn alert -> alert.title == alert_title end)
+      eventually(
+        fn ->
+          Alert
+          |> Ash.Query.for_read(:active, %{}, actor: actor)
+          |> Ash.read!()
+          |> Page.unwrap!()
+          |> Enum.filter(fn alert -> alert.title == alert_title end)
+        end,
+        fn alerts -> match?([_], alerts) end
+      )
 
     assert [active_alert] = active_alerts
     assert active_alert.metadata["incident_rule_id"] == to_string(rule.id)
@@ -627,6 +630,21 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     end
   end
 
+  defp eventually(fun, predicate, attempts \\ 40)
+
+  defp eventually(fun, predicate, attempts) when attempts > 0 do
+    value = fun.()
+
+    if predicate.(value) do
+      value
+    else
+      Process.sleep(25)
+      eventually(fun, predicate, attempts - 1)
+    end
+  end
+
+  defp eventually(fun, _predicate, 0), do: fun.()
+
   defp metadata_value(data, [key]), do: metadata_value(data, key)
 
   defp metadata_value(data, [key | rest]) when is_map(data) do
@@ -659,15 +677,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
       _ -> false
     end
   end
-
-  defp alert_evaluation_row(%{id: id} = row) when is_binary(id) do
-    case Ecto.UUID.load(id) do
-      {:ok, uuid} -> %{row | id: uuid}
-      :error -> row
-    end
-  end
-
-  defp alert_evaluation_row(row), do: row
 
   defp uuid_query_param(<<_::128>> = uuid), do: {:ok, uuid}
   defp uuid_query_param(id) when is_binary(id), do: Ecto.UUID.dump(id)

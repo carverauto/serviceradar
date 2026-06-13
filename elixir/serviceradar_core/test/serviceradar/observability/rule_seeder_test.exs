@@ -35,4 +35,25 @@ defmodule ServiceRadar.Observability.RuleSeederTest do
     assert rule.event["log_name"] == "alert.security.endpoint_inventory.vulnerability"
     assert rule.alert["severity"] == "critical"
   end
+
+  test "seeds the causal prediction health stateful alert rule" do
+    actor = SystemActor.system(:test)
+
+    assert :ok = RuleSeeder.seed_all()
+
+    query =
+      StatefulAlertRule
+      |> Ash.Query.for_read(:read, %{}, actor: actor)
+      |> Ash.Query.filter(name == "causal_prediction_health_finding")
+
+    assert {:ok, [rule]} = Ash.read(query, actor: actor)
+    assert rule.enabled
+    assert rule.signal == :event
+    assert rule.match["subject_prefix"] == "signals.causal.predictions"
+    assert rule.match["attribute_equals"] == %{"signal_type" => "causal"}
+    assert rule.group_by == ["device"]
+    assert rule.threshold == 1
+    assert rule.event["log_name"] == "alert.health.causal_prediction"
+    assert rule.alert["severity"] == "warning"
+  end
 end
