@@ -31,11 +31,16 @@ defmodule ServiceRadarWebNGWeb.SecurityDashboardRoutesTest do
 
   test "security page is reachable and links to the packaged security dashboard", %{conn: conn} do
     {:ok, view, html} = live(conn, ~p"/security")
-    html = render(view) <> html
+    html = render_async(view, 5_000) <> html
 
     assert html =~ "Security analytics workbench"
     assert html =~ "without loading duplicate dashboard frames"
+    assert html =~ "Live Posture"
+    assert html =~ "Recent findings"
+    assert html =~ "Critical / High"
+    assert html =~ "Terminal shell in container"
     assert has_element?(view, "a[href='/dashboards/security-findings']", "Security Findings")
+    assert has_element?(view, "a[href*='in%3Asecurity_findings'][href*='limit%3A25']", "Open findings")
     assert has_element?(view, "a[href='/settings/security/vulnerability-feeds']", "Advisory Feeds")
   end
 
