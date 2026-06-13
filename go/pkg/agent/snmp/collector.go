@@ -31,6 +31,9 @@ const (
 	defaultByteBuffer               = 1024
 	defaultErrorChan                = 10
 	defaultDataChanBufferMultiplier = 2
+	counterKindSum                  = "sum"
+	counterTemporalityCumulative    = "cumulative"
+	maxCounter32                    = uint64(1<<32 - 1)
 )
 
 // NewCollector creates a new SNMP collector for a target.
@@ -177,9 +180,21 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 
 	now := time.Now()
 	finalValue := converted
+	var rawValue interface{}
+	dataType := oidConfig.DataType
+	isDelta := oidConfig.Delta
+	kind := ""
+	temporality := ""
+	isMonotonic := false
+	counterWidth := counterWidth(value)
 
-	// Handle Delta/Rate calculation at the edge
-	if oidConfig.Delta {
+	if dataType == TypeCounter {
+		rawValue = converted
+		kind = counterKindSum
+		temporality = counterTemporalityCumulative
+		isMonotonic = true
+		isDelta = false
+	} else if oidConfig.Delta {
 		c.mu.RLock()
 		prevStatus, exists := c.status.OIDStatus[oidConfig.Name]
 		c.mu.RUnlock()
@@ -187,7 +202,16 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		if exists && prevStatus.LastValue != nil && !prevStatus.LastUpdate.IsZero() {
 			elapsed := now.Sub(prevStatus.LastUpdate).Seconds()
 			if elapsed > 0 {
-				delta := calculateDelta(prevStatus.LastValue, converted)
+				delta, ok := calculateDelta(prevStatus.LastValue, converted, 0)
+				if !ok {
+					c.updateOIDStatus(oidConfig.Name, &DataPoint{
+						Value:     converted,
+						Timestamp: now,
+					})
+
+					return nil
+				}
+
 				// Calculate per-second rate
 				finalValue = delta / elapsed
 			} else {
@@ -204,31 +228,31 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 		}
 	}
 
-	// Apply scaling if configured
-	if oidConfig.Scale != 0 && oidConfig.Scale != 1.0 {
+	// Apply scaling if configured. Counters keep the raw cumulative integer;
+	// downstream consumers use scale only for display/query-time conversion.
+	if dataType != TypeCounter && oidConfig.Scale != 0 && oidConfig.Scale != 1.0 {
 		if val, ok := toFloat64(finalValue); ok {
 			finalValue = val * oidConfig.Scale
 		}
 	}
 
-	// Create data point
-	// If we performed delta calculation, the resulting value is a Rate (Gauge/Float)
-	// and should no longer be treated as a Delta/Counter by the backend.
-	dataType := oidConfig.DataType
-	isDelta := oidConfig.Delta
-
-	if oidConfig.Delta {
+	if oidConfig.Delta && dataType != TypeCounter {
 		dataType = TypeFloat
 		isDelta = false
 	}
 
 	point := DataPoint{
-		OIDName:   oidConfig.Name,
-		Value:     finalValue,
-		Timestamp: now,
-		DataType:  dataType,
-		Scale:     oidConfig.Scale,
-		Delta:     isDelta,
+		OIDName:      oidConfig.Name,
+		Value:        finalValue,
+		RawValue:     rawValue,
+		Timestamp:    now,
+		DataType:     dataType,
+		Scale:        oidConfig.Scale,
+		Delta:        isDelta,
+		Kind:         kind,
+		Temporality:  temporality,
+		IsMonotonic:  isMonotonic,
+		CounterWidth: counterWidth,
 	}
 
 	// Update OID status
@@ -244,35 +268,28 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	}
 }
 
-func calculateDelta(prev, current interface{}) float64 {
-	p, okP := toFloat64(prev)
-	c, okC := toFloat64(current)
+func calculateDelta(prev, current interface{}, width int) (float64, bool) {
+	p, okP := toUint64(prev)
+	c, okC := toUint64(current)
 	if !okP || !okC {
-		return 0
+		return 0, false
 	}
 
-	if c < p {
-		// Handle counter rollover
-		// If both values are within 32-bit range, assume 32-bit rollover.
-		const maxUint32 = 4294967295
-		if p <= maxUint32 {
-			return (maxUint32 - p) + c + 1
-		}
-		// Otherwise assume 64-bit rollover
-		// We can't express maxUint64 precisely in float64 without precision loss at the very edge,
-		// but standard float64 has 53 bits of significand.
-		// For high precision 64-bit counters, this might be slightly off if values are huge,
-		// but it's the best we can do with float64 storage.
-		// NOTE: 1.844e19 is approx 2^64
-		const maxUint64 float64 = 18446744073709551615.0
-		return (maxUint64 - p) + c + 1
+	if c >= p {
+		return float64(c - p), true
 	}
 
-	return c - p
+	if width == 32 && p <= maxCounter32 {
+		return float64((maxCounter32 - p) + c + 1), true
+	}
+
+	return 0, false
 }
 
 func toFloat64(v interface{}) (float64, bool) {
 	switch val := v.(type) {
+	case CounterValue:
+		return float64(val.Value), true
 	case float64:
 		return val, true
 	case uint64:
@@ -288,6 +305,51 @@ func toFloat64(v interface{}) (float64, bool) {
 	default:
 		return 0, false
 	}
+}
+
+func toUint64(v interface{}) (uint64, bool) {
+	switch val := v.(type) {
+	case CounterValue:
+		return val.Value, true
+	case uint64:
+		return val, true
+	case uint32:
+		return uint64(val), true
+	case int64:
+		if val < 0 {
+			return 0, false
+		}
+
+		return uint64(val), true
+	case int32:
+		if val < 0 {
+			return 0, false
+		}
+
+		return uint64(val), true
+	case int:
+		if val < 0 {
+			return 0, false
+		}
+
+		return uint64(val), true
+	case float64:
+		if val < 0 || val != float64(uint64(val)) {
+			return 0, false
+		}
+
+		return uint64(val), true
+	default:
+		return 0, false
+	}
+}
+
+func counterWidth(v interface{}) int {
+	if counter, ok := v.(CounterValue); ok {
+		return counter.Width
+	}
+
+	return 0
 }
 
 // convertValue converts an SNMP value based on the OID configuration.
@@ -360,6 +422,8 @@ func (c *SNMPCollector) GetStatus() TargetStatus {
 // convertCounter converts a counter value to a uint64.
 func (*SNMPCollector) convertCounter(value interface{}) (uint64, error) {
 	switch v := value.(type) {
+	case CounterValue:
+		return v.Value, nil
 	case uint64:
 		return v, nil
 	case uint32:

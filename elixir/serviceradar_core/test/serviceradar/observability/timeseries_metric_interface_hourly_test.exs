@@ -50,6 +50,13 @@ defmodule ServiceRadar.Observability.TimeseriesMetricInterfaceHourlyTest do
     assert migration =~ "target_device_ip"
     assert migration =~ "if_index"
     assert migration =~ "series_key"
+
+    assert migration =~
+             "COALESCE(metadata->>'kind', metadata->>'metric_type') IN ('sum', 'counter')"
+
+    assert migration =~ "metadata->>'temporality' = 'cumulative'"
+    assert migration =~ "LOWER(COALESCE(metadata->>'is_monotonic', 'false')) IN ('true', '1')"
+    assert migration =~ "metadata ? 'raw_value'"
     assert migration =~ "GROUP BY 1, 2, 3, 4, 5, 6, 7"
     assert migration =~ "avg_rate_per_second"
     assert migration =~ "add_continuous_aggregate_policy"
