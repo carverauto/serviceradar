@@ -1,7 +1,7 @@
 ## 1. Validation Baseline
 - [x] 1.1 Add synthetic dataset coverage for CPU, memory, disk, and network anomaly detection.
 - [x] 1.2 Add a scale benchmark that reports raw samples/sec and detector evaluations/sec.
-- [ ] 1.3 Add randomized equivalence tests comparing compact-stat evaluation against current window-list evaluation.
+- [x] 1.3 Add randomized equivalence tests comparing compact-stat evaluation against current window-list evaluation.
 
 ## 2. Evaluation Cadence
 - [ ] 2.1 Add per-metric-class evaluation interval and aggregation-mode configuration.
@@ -21,8 +21,8 @@
 - [ ] 4.3 Preserve deterministic per-series ordering under replay and shard handoff.
 
 ## 5. Scale Proof
-- [ ] 5.1 Add a benchmark profile for 50k agents with hundreds of metric series each.
-- [ ] 5.2 Add a benchmark profile targeting approximately 1M detector evaluations/sec.
+- [x] 5.1 Add a benchmark profile for 50k agents with hundreds of metric series each.
+- [x] 5.2 Add a benchmark profile targeting approximately 1M detector evaluations/sec.
 - [ ] 5.3 Add a pipeline benchmark that includes JetStream/Broadway decode, aggregation, evaluation, verdict emission, and checkpointing.
 - [ ] 5.4 Document the measured capacity envelope and tuning knobs.
 
