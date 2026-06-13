@@ -1527,6 +1527,10 @@ networkPolicy:
         port: 4222
       - protocol: TCP
         port: 4317
+      # Falcosidekick HTTP receiver. Kept in the ordinary allowlist so Falco
+      # DaemonSets in explicitly allowed namespaces can deliver runtime events.
+      - protocol: TCP
+        port: 2801
       - protocol: TCP
         port: 9090
       - protocol: TCP
