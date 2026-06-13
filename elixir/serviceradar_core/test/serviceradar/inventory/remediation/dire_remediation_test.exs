@@ -204,6 +204,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     # The chimera: host A's device; host B's device was merged into it.
     {:ok, chimera} = create_device(actor, %{hostname: host_a, ip: ip_a, agent_id: agent_a})
     {:ok, dev_b} = create_device(actor, %{hostname: host_b, ip: ip_b, agent_id: agent_b})
+    {:ok, stale_b} = create_device(actor, %{hostname: "stale-#{host_b}", agent_id: agent_b})
+    {:ok, stale_c} = create_device(actor, %{hostname: "stale-#{host_c}", agent_id: agent_c})
 
     assert :ok =
              IdentityReconciler.merge_devices(dev_b.uid, chimera.uid,
@@ -239,7 +241,10 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert plans[agent_b].action == :restore
     assert plans[agent_b].target_device_uid == dev_b.uid
     assert plans[agent_c].action == :create
+    assert plans[agent_b].stale_device_agent_links == [stale_b.uid]
+    assert plans[agent_c].stale_device_agent_links == [stale_c.uid]
     assert dry.ip_literal_devices == [literal_device.uid]
+    assert dry.stale_device_agent_links == 2
     assert dry.alias_states_to_stale >= 1
 
     # Dry run mutated nothing.
@@ -266,10 +271,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %Agent{device_uid: agent_b_device}} = Agent.get_by_uid(agent_b, actor: actor)
     assert agent_b_device == dev_b.uid
     assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(dev_b.uid, false, actor: actor)
+    assert {:ok, %Device{agent_id: nil}} = Device.get_by_uid(stale_b.uid, false, actor: actor)
 
     # Agent B's identifier moved off the chimera onto the restored device.
     assert [identifier] = agent_identifiers(actor, agent_b)
     assert identifier.device_id == dev_b.uid
+    assert live_device_agent_links(actor, agent_b) == [dev_b.uid]
 
     # Agent C got a freshly created per-host device.
     assert {:ok, %Agent{device_uid: agent_c_device}} = Agent.get_by_uid(agent_c, actor: actor)
@@ -277,6 +284,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %Device{} = created} = Device.get_by_uid(agent_c_device, false, actor: actor)
     assert created.hostname == host_c
     assert created.agent_id == agent_c
+    assert {:ok, %Device{agent_id: nil}} = Device.get_by_uid(stale_c.uid, false, actor: actor)
+    assert live_device_agent_links(actor, agent_c) == [agent_c_device]
 
     # Poisoned alias is stale; relocation audit (reason "unmerge") exists.
     assert {:ok, %DeviceAliasState{state: :stale}} =
@@ -296,6 +305,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     assert {:ok, %{reports: %{"agent-links" => second}}} = DireRemediation.run(run_opts)
     assert second.keep == 3
     assert second.identifier_moves == 0
+    assert second.stale_device_agent_links == 0
+    assert second.target_agent_link_assignments == 0
     assert second.alias_states_to_stale == 0
   end
 
@@ -452,6 +463,19 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
     |> Ash.Query.filter(identifier_type == :agent_id and identifier_value == ^agent_uid)
     |> Ash.read!(actor: actor)
   end
+
+  defp live_device_agent_links(actor, agent_uid) do
+    Device
+    |> Ash.Query.filter(agent_id == ^agent_uid)
+    |> Ash.read!(actor: actor)
+    |> unwrap_page()
+    |> Enum.map(& &1.uid)
+    |> Enum.sort()
+  end
+
+  defp unwrap_page(%Ash.Page.Keyset{results: results}), do: results
+  defp unwrap_page(%Ash.Page.Offset{results: results}), do: results
+  defp unwrap_page(results) when is_list(results), do: results
 
   defp age_identifier(id, %DateTime{} = last_seen) do
     %{num_rows: 1} =

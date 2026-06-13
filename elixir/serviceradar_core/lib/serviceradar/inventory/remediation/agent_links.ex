@@ -28,9 +28,11 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
      `:reassign_device`) or registered onto the agent's device — this also
      fixes identifiers stranded on unrelated devices (the k8s-agent-on-FAKER
      pathology) even when the device link itself was correct.
-  5. Active `device_alias_states` rows that claim the agent's IP for a
+  5. The denormalized `ocsf_devices.agent_id` ownership is made one-to-one:
+     the target row carries the agent id and every other live row is cleared.
+  6. Active `device_alias_states` rows that claim the agent's IP for a
      DIFFERENT device are marked stale (poisoned alias cleanup).
-  6. Devices whose `ip` equals the corruption literal (default `"agent"`)
+  7. Devices whose `ip` equals the corruption literal (default `"agent"`)
      get `ip = NULL`.
   """
 
@@ -70,6 +72,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       skipped: count_actions(plans, :skip),
       identifier_moves: Enum.sum(Enum.map(plans, &length(&1.identifier_move_ids))),
       identifier_registrations: Enum.count(plans, & &1.register_identifier?),
+      stale_device_agent_links: Enum.sum(Enum.map(plans, &length(&1.stale_device_agent_uids))),
+      target_agent_link_assignments: Enum.count(plans, & &1.assign_target_agent?),
       alias_states_to_stale: Enum.sum(Enum.map(plans, &length(&1.alias_ids))),
       ip_literal_devices: ip_literal_uids
     }
@@ -143,6 +147,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       skip_reason: nil,
       identifier_move_ids: [],
       register_identifier?: false,
+      stale_device_agent_uids: [],
+      assign_target_agent?: false,
       alias_ids: []
     }
 
@@ -318,13 +324,49 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
         []
       end
 
+    {assign_target_agent?, stale_device_agent_uids} =
+      device_agent_link_repairs(plan.agent_uid, target_uid, plan.action)
+
     %{
       plan
       | target_uid: target_uid,
         identifier_move_ids: moves,
         register_identifier?: identifiers == [],
+        stale_device_agent_uids: stale_device_agent_uids,
+        assign_target_agent?: assign_target_agent?,
         alias_ids: alias_ids
     }
+  end
+
+  defp device_agent_link_repairs(_agent_uid, nil, _action), do: {false, []}
+
+  defp device_agent_link_repairs(agent_uid, target_uid, action) do
+    %{rows: rows} =
+      query!(
+        """
+        SELECT uid, agent_id
+        FROM platform.ocsf_devices
+        WHERE deleted_at IS NULL
+          AND (uid = $1 OR agent_id = $2)
+        """,
+        [target_uid, agent_uid]
+      )
+
+    target_agent_id =
+      Enum.find_value(rows, fn
+        [^target_uid, agent_id] -> agent_id
+        _ -> nil
+      end)
+
+    stale_uids =
+      Enum.flat_map(rows, fn
+        [uid, ^agent_uid] when uid != target_uid -> [uid]
+        _ -> []
+      end)
+
+    assign_target? = action != :create and target_agent_id != agent_uid
+
+    {assign_target?, stale_uids}
   end
 
   defp most_recent([]), do: nil
@@ -350,6 +392,8 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       target_device_uid: plan.target_uid,
       identifier_moves: Enum.map(plan.identifier_move_ids, & &1.device_id),
       register_identifier: plan.register_identifier?,
+      stale_device_agent_links: plan.stale_device_agent_uids,
+      assign_target_agent: plan.assign_target_agent?,
       alias_states_to_stale: Enum.map(plan.alias_ids, &"#{&1.alias_type}:#{&1.alias_value}")
     }
   end
@@ -361,6 +405,7 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
   defp apply_plan(plan, manifest, actor, stats) do
     with {:ok, target_uid} <- ensure_target_device(plan, manifest, actor),
          :ok <- repoint_agent(plan, target_uid, manifest, actor),
+         :ok <- repair_device_agent_links(plan, target_uid, manifest),
          :ok <- record_relocation_audit(plan, target_uid, actor),
          :ok <- repair_identifiers(plan, target_uid, manifest, actor),
          :ok <- stale_aliases(plan, manifest, actor) do
@@ -446,6 +491,72 @@ defmodule ServiceRadar.Inventory.Remediation.AgentLinks do
       {:error, _} = error ->
         error
     end
+  end
+
+  defp repair_device_agent_links(plan, target_uid, manifest) do
+    with :ok <- clear_stale_device_agent_links(plan.agent_uid, target_uid, manifest) do
+      ensure_target_device_agent_link(plan.agent_uid, target_uid, manifest)
+    end
+  end
+
+  defp clear_stale_device_agent_links(agent_uid, target_uid, manifest) do
+    %{rows: rows} =
+      query!(
+        """
+        UPDATE platform.ocsf_devices
+        SET agent_id = NULL, modified_time = now()
+        WHERE deleted_at IS NULL
+          AND agent_id = $1
+          AND uid <> $2
+        RETURNING uid
+        """,
+        [agent_uid, target_uid]
+      )
+
+    uids = List.flatten(rows)
+
+    if uids != [] do
+      Manifest.record(
+        manifest,
+        @step,
+        :clear_stale_device_agent_links,
+        "platform.ocsf_devices",
+        uids,
+        %{agent_uid: agent_uid, target: target_uid}
+      )
+    end
+
+    :ok
+  end
+
+  defp ensure_target_device_agent_link(agent_uid, target_uid, manifest) do
+    %{rows: rows} =
+      query!(
+        """
+        UPDATE platform.ocsf_devices
+        SET agent_id = $1, modified_time = now()
+        WHERE deleted_at IS NULL
+          AND uid = $2
+          AND agent_id IS DISTINCT FROM $1
+        RETURNING uid
+        """,
+        [agent_uid, target_uid]
+      )
+
+    uids = List.flatten(rows)
+
+    if uids != [] do
+      Manifest.record(
+        manifest,
+        @step,
+        :assign_target_device_agent_link,
+        "platform.ocsf_devices",
+        uids,
+        %{agent_uid: agent_uid}
+      )
+    end
+
+    :ok
   end
 
   # Reason "unmerge" + a fresh audit row arms the per-pair merge cooldown so
