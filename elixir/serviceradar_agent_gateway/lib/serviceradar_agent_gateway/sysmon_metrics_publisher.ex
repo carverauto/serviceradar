@@ -40,17 +40,31 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
   end
 
   defp sysmon_sample(%{message: message}) when is_binary(message) do
-    with {:ok, decoded} <- Jason.decode(message),
-         %{} = sample <- Map.get(decoded, "status") do
-      {:ok, sample}
-    else
-      nil -> {:error, :missing_sysmon_status}
-      {:error, reason} -> {:error, {:invalid_sysmon_payload, reason}}
-      _other -> {:error, :invalid_sysmon_status}
+    case Jason.decode(message) do
+      {:ok, %{} = decoded} ->
+        decoded
+        |> Map.get("status", decoded)
+        |> sysmon_sample_from_decoded()
+
+      {:ok, _decoded} ->
+        {:error, :invalid_sysmon_status}
+
+      {:error, reason} ->
+        {:error, {:invalid_sysmon_payload, reason}}
     end
   end
 
   defp sysmon_sample(_status), do: {:error, :missing_sysmon_message}
+
+  defp sysmon_sample_from_decoded(%{} = sample) do
+    if metric_families(sample) == [] do
+      {:error, :missing_sysmon_status}
+    else
+      {:ok, sample}
+    end
+  end
+
+  defp sysmon_sample_from_decoded(_sample), do: {:error, :invalid_sysmon_status}
 
   defp metric_families(sample) do
     []

@@ -166,6 +166,38 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert published == forwarded
   end
 
+  test "bridges legacy sysmon service-check statuses to the metrics publisher" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sysmon_metrics_publisher_module,
+      __MODULE__.SysmonPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = legacy_sysmon_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:forwarded, forwarded}
+    assert_receive {:published, published}
+    assert published == forwarded
+    refute Map.has_key?(published, :source)
+    assert published.service_type == "sysmon"
+  end
+
   test "continues the sysmon status path when metrics publishing fails" do
     parent = self()
 
@@ -380,6 +412,29 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
             "network" => [],
             "processes" => []
           }
+        })
+    }
+  end
+
+  defp legacy_sysmon_status do
+    %{
+      service_name: "sysmon",
+      service_type: "sysmon",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message:
+        Jason.encode!(%{
+          "timestamp" => "2026-06-12T00:00:00Z",
+          "host_id" => "host-1",
+          "host_ip" => "10.0.0.10",
+          "agent_id" => "agent-1",
+          "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
+          "clusters" => [],
+          "disks" => [%{"mount_point" => "/", "used_bytes" => 10, "total_bytes" => 100}],
+          "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
+          "network" => [],
+          "processes" => []
         })
     }
   end

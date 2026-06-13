@@ -69,6 +69,26 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
            } = Jason.decode!(cpu_payload)
   end
 
+  test "publishes legacy top-level sysmon service-check payloads" do
+    Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.sysmon",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert :ok = SysmonMetricsPublisher.publish_sysmon(legacy_sysmon_status())
+
+    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload, _cpu_opts}
+    assert_receive {:published, "metrics.sysmon.memory", _memory_payload, _memory_opts}
+    assert_receive {:published, "metrics.sysmon.disk", _disk_payload, _disk_opts}
+
+    assert %{
+             "metric_family" => "cpu",
+             "sample" => %{"host_id" => "host-1", "agent_id" => "agent-1"},
+             "source" => "sysmon-metrics"
+           } = Jason.decode!(cpu_payload)
+  end
+
   test "is disabled by default" do
     Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
       enabled: false,
@@ -168,6 +188,31 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
         }
       })
     )
+  end
+
+  defp legacy_sysmon_status do
+    %{
+      service_name: "sysmon",
+      service_type: "sysmon",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      timestamp: 1_765_500_000_000_000_000,
+      agent_timestamp: 1_765_499_999_000_000_000,
+      message:
+        Jason.encode!(%{
+          "timestamp" => "2026-06-12T00:00:00Z",
+          "host_id" => "host-1",
+          "host_ip" => "10.0.0.10",
+          "agent_id" => "agent-1",
+          "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
+          "clusters" => [],
+          "disks" => [%{"mount_point" => "/", "used_bytes" => 10, "total_bytes" => 100}],
+          "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
+          "network" => [],
+          "processes" => []
+        })
+    }
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)

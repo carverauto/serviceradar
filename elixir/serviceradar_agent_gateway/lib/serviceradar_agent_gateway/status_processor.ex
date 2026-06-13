@@ -344,9 +344,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp sysmon_metrics_source?(%{source: source}), do: source in ["sysmon-metrics", :sysmon_metrics]
+  defp sysmon_metrics_source?(status) do
+    source = status[:source]
 
-  defp sysmon_metrics_source?(_status), do: false
+    source in ["sysmon-metrics", :sysmon_metrics] or legacy_sysmon_service_check?(status)
+  end
+
+  defp legacy_sysmon_service_check?(status) do
+    service_type = status[:service_type]
+    service_name = status[:service_name]
+
+    service_type in ["sysmon", :sysmon] or service_name in ["sysmon", :sysmon]
+  end
 
   defp sysmon_metrics_publisher do
     Application.get_env(
