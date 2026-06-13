@@ -2,6 +2,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   # Writes to shared tables; keep serial to avoid deadlocks in CNPG-backed tests.
   use ServiceRadarWebNGWeb.ConnCase, async: false
 
+  import ExUnit.CaptureLog
   import Phoenix.Component, only: [to_form: 2]
   import Phoenix.LiveViewTest
 
@@ -27,6 +28,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
   alias ServiceRadarWebNG.Repo
   alias ServiceRadarWebNG.TestSupport.CameraRelaySessionManagerStub
   alias ServiceRadarWebNGWeb.DeviceLive.Show
+  alias ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics
   alias ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents
   alias ServiceRadarWebNGWeb.NorthboundActionComponents
 
@@ -1370,6 +1372,137 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "Disk"
     assert html =~ "Processes"
     assert html =~ "nginx"
+  end
+
+  test "renders sysmon sections using host_id fallback when device_id is skewed", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "sr:test-device-sysmon-host-fallback-#{unique}"
+    host_id = "sysmon-host-fallback-#{unique}"
+    skewed_device_id = "sr:collapsed-sysmon-#{unique}"
+    gateway_id = "test-gw-host-fallback-#{unique}"
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    Repo.insert_all("ocsf_devices", [
+      %{
+        uid: uid,
+        type_id: 0,
+        hostname: host_id,
+        is_available: true,
+        first_seen_time: ~U[2100-01-01 00:00:00Z],
+        last_seen_time: ~U[2100-01-01 00:00:00Z]
+      }
+    ])
+
+    Repo.insert_all("cpu_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: gateway_id,
+        core_id: 0,
+        usage_percent: 57.8,
+        device_id: skewed_device_id,
+        host_id: host_id,
+        created_at: now
+      }
+    ])
+
+    Repo.insert_all("memory_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: gateway_id,
+        used_bytes: 2_147_483_648,
+        available_bytes: 4_294_967_296,
+        total_bytes: 6_442_450_944,
+        device_id: skewed_device_id,
+        host_id: host_id,
+        created_at: now
+      }
+    ])
+
+    Repo.insert_all("disk_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: gateway_id,
+        mount_point: "/",
+        device_name: "/dev/vda1",
+        used_bytes: 21_474_836_480,
+        total_bytes: 42_949_672_960,
+        device_id: skewed_device_id,
+        host_id: host_id,
+        created_at: now
+      }
+    ])
+
+    Repo.insert_all("process_metrics", [
+      %{
+        timestamp: now,
+        gateway_id: gateway_id,
+        pid: 5252,
+        name: "beam.smp",
+        cpu_usage: 19.6,
+        memory_usage: 2_097_152,
+        status: "Running",
+        device_id: skewed_device_id,
+        host_id: host_id,
+        created_at: now
+      }
+    ])
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "CPU", 10_000)
+
+    assert html =~ "57.8%"
+    assert html =~ "Memory"
+    assert html =~ "Disk"
+    assert html =~ "Processes"
+    assert html =~ "beam.smp"
+  end
+
+  test "logs sysmon process metric SRQL failures" do
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      assert query =~ "in:process_metrics"
+      {:error, :boom}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :device_live_srql_responder)
+    end)
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert [] =
+                 SysmonMetrics.load_process_metrics(
+                   __MODULE__.RecordingSRQLStub,
+                   [~s|device_id:"missing"|],
+                   :scope
+                 )
+      end)
+
+    assert log =~ "Failed to load sysmon process_metrics"
+    assert log =~ ":boom"
+  end
+
+  test "logs sysmon presence probe SRQL failures" do
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      assert query =~ "time:last_24h"
+      {:error, :boom}
+    end)
+
+    on_exit(fn ->
+      Application.delete_env(:serviceradar_web_ng, :device_live_srql_responder)
+    end)
+
+    log =
+      capture_log([level: :warning], fn ->
+        assert [] =
+                 SysmonMetrics.resolve_sysmon_filter_tokens(
+                   __MODULE__.RecordingSRQLStub,
+                   %{device_uid: "missing"},
+                   :scope
+                 )
+      end)
+
+    assert log =~ "Failed sysmon cpu_metrics presence probe"
+    assert log =~ ":boom"
   end
 
   test "renders endpoint software inventory on device details", %{conn: conn, scope: scope} do
@@ -3477,50 +3610,56 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     def query(query) when is_binary(query), do: query(query, %{})
     def query(_query), do: {:error, :invalid_query}
 
-    def query(query, _opts) when is_binary(query) do
+    def query(query, opts) when is_binary(query) do
       if pid = Application.get_env(:serviceradar_web_ng, :device_live_srql_test_pid) do
         send(pid, {:srql_query, query})
       end
 
-      cond do
-        String.contains?(query, "in:logs") ->
-          if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
-            Process.sleep(delay_ms)
+      case Application.get_env(:serviceradar_web_ng, :device_live_srql_responder) do
+        responder when is_function(responder, 2) ->
+          responder.(query, opts)
+
+        _ ->
+          cond do
+            String.contains?(query, "in:logs") ->
+              if delay_ms = Application.get_env(:serviceradar_web_ng, :device_live_log_query_delay_ms) do
+                Process.sleep(delay_ms)
+              end
+
+              {:ok, %{"results" => [], "pagination" => %{}}}
+
+            String.contains?(query, ~s|stats:"count() as total"|) ->
+              {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
+
+            String.contains?(query, "rollup_stats:inventory_summary") ->
+              {:ok,
+               %{
+                 "results" => [
+                   %{
+                     "total" => 42,
+                     "available" => 40,
+                     "unavailable" => 2,
+                     "by_type" => [],
+                     "by_vendor" => []
+                   }
+                 ],
+                 "pagination" => %{}
+               }}
+
+            true ->
+              {:ok,
+               %{
+                 "results" => [
+                   %{
+                     "uid" => "stub-device",
+                     "hostname" => "stub-device",
+                     "vendor_name" => "Ubiquiti",
+                     "is_available" => true
+                   }
+                 ],
+                 "pagination" => %{}
+               }}
           end
-
-          {:ok, %{"results" => [], "pagination" => %{}}}
-
-        String.contains?(query, ~s|stats:"count() as total"|) ->
-          {:ok, %{"results" => [%{"total" => 42}], "pagination" => %{}}}
-
-        String.contains?(query, "rollup_stats:inventory_summary") ->
-          {:ok,
-           %{
-             "results" => [
-               %{
-                 "total" => 42,
-                 "available" => 40,
-                 "unavailable" => 2,
-                 "by_type" => [],
-                 "by_vendor" => []
-               }
-             ],
-             "pagination" => %{}
-           }}
-
-        true ->
-          {:ok,
-           %{
-             "results" => [
-               %{
-                 "uid" => "stub-device",
-                 "hostname" => "stub-device",
-                 "vendor_name" => "Ubiquiti",
-                 "is_available" => true
-               }
-             ],
-             "pagination" => %{}
-           }}
       end
     end
 

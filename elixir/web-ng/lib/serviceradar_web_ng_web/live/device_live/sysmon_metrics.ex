@@ -7,6 +7,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   alias ServiceRadarWebNGWeb.Dashboard.Plugins.Timeseries, as: TimeseriesPlugin
   alias ServiceRadarWebNGWeb.SRQL.Viz
 
+  require Logger
+
   @metrics_limit 300
   @disk_panel_limit 6
   @disk_metrics_limit @metrics_limit * @disk_panel_limit
@@ -38,10 +40,18 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       {:ok, %{"results" => results}} when is_list(results) ->
         normalize_process_rows(results)
 
-      {:ok, _} ->
+      {:ok, other} ->
+        Logger.warning(
+          "Unexpected sysmon process_metrics SRQL response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
+        )
+
         []
 
-      {:error, _} ->
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load sysmon process_metrics for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
+        )
+
         []
     end
   end
@@ -585,9 +595,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         _ -> ""
       end
 
+    host_id =
+      device_row
+      |> then(
+        &(Map.get(&1, "host_id") || Map.get(&1, :host_id) || Map.get(&1, "hostname") ||
+            Map.get(&1, :hostname))
+      )
+      |> case do
+        value when is_binary(value) -> String.trim(value)
+        _ -> ""
+      end
+
     %{}
     |> maybe_put_identity(:device_uid, device_uid)
     |> maybe_put_identity(:agent_id, agent_id)
+    |> maybe_put_identity(:host_id, host_id)
   end
 
   defp maybe_put_identity(identity, _key, ""), do: identity
@@ -605,6 +627,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   def resolve_sysmon_filter_tokens(srql_module, identity, scope) do
     device_tokens = sysmon_filter_tokens(identity, :device_uid, "device_id")
     agent_tokens = sysmon_filter_tokens(identity, :agent_id, "agent_id")
+    host_tokens = sysmon_filter_tokens(identity, :host_id, "host_id")
 
     cond do
       device_tokens != [] and sysmon_filter_has_data?(srql_module, device_tokens, scope) ->
@@ -612,6 +635,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
       agent_tokens != [] and sysmon_filter_has_data?(srql_module, agent_tokens, scope) ->
         agent_tokens
+
+      host_tokens != [] and sysmon_filter_has_data?(srql_module, host_tokens, scope) ->
+        host_tokens
 
       true ->
         []
@@ -639,8 +665,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
       )
 
     case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => rows}} when is_list(rows) -> rows != []
-      _ -> false
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        rows != []
+
+      {:ok, other} ->
+        Logger.warning(
+          "Unexpected sysmon #{entity} presence probe response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
+        )
+
+        false
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed sysmon #{entity} presence probe for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
+        )
+
+        false
     end
   end
 
