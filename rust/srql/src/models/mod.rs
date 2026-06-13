@@ -17,5 +17,5 @@ pub use endpoint_inventory::{
 pub use events::{AlertRow, BmpRoutingEventRow, EventRow};
 pub use inventory::{AddonStatusRow, AgentRow, DeviceRow, GatewayRow, ServiceStatusRow};
 pub use metrics::{OtelMetricPointRow, OtelMetricRow, TimeseriesMetricRow};
-pub use observability::{LogRow, TraceSpanRow, TraceSummaryRow};
+pub use observability::{CapacityForecastRow, LogRow, TraceSpanRow, TraceSummaryRow};
 pub use system_metrics::{CpuMetricRow, DiskMetricRow, MemoryMetricRow, ProcessMetricRow};

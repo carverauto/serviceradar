@@ -54,6 +54,7 @@ pub enum Entity {
     MemoryMetrics,
     DiskMetrics,
     ProcessMetrics,
+    CapacityForecasts,
     TimeseriesMetrics,
     TimeseriesMetricInterfaceHourly,
     SnmpMetrics,
@@ -496,6 +497,9 @@ fn parse_entity(raw: &str) -> Result<Entity> {
         "memory_metrics" | "memory" => Ok(Entity::MemoryMetrics),
         "disk_metrics" | "disk" => Ok(Entity::DiskMetrics),
         "process_metrics" | "processes" => Ok(Entity::ProcessMetrics),
+        "capacity_forecasts" | "capacity_forecast" | "forecasts" | "forecast" => {
+            Ok(Entity::CapacityForecasts)
+        }
         "timeseries_metrics" | "timeseries" => Ok(Entity::TimeseriesMetrics),
         "timeseries_metric_interface_hourly"
         | "timeseries_metrics_interface_hourly"
@@ -1112,6 +1116,19 @@ mod tests {
         ] {
             let ast = parse(&format!("in:{raw} status:Success limit:10")).unwrap();
             assert_eq!(ast.entity, Entity::DnsActivity, "entity alias {raw}");
+        }
+    }
+
+    #[test]
+    fn parses_capacity_forecast_entity_aliases() {
+        for raw in [
+            "capacity_forecasts",
+            "capacity_forecast",
+            "forecasts",
+            "forecast",
+        ] {
+            let ast = parse(&format!("in:{raw} status:projected limit:10")).unwrap();
+            assert_eq!(ast.entity, Entity::CapacityForecasts, "entity alias {raw}");
         }
     }
 

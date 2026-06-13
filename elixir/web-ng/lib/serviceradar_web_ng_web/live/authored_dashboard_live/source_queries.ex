@@ -53,6 +53,12 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
         label: "CPU trend buckets",
         query: "in:cpu time:last_24h bucket:5m stats:avg(usage_percent) as value by time",
         description: "Bucketed trend source for line or area panels."
+      },
+      %{
+        key: "capacity_forecasts",
+        label: "Capacity forecasts",
+        query: "in:capacity_forecasts status:projected sort:forecasted_at:desc limit:100",
+        description: "Projected capacity runway rows for the forecast chart overlay."
       }
     ]
   end
@@ -614,12 +620,21 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
   end
 
   defp binding_for_visual(visual, fields) when visual in [:line, :area] do
-    %{
-      "time_field" => first_field_of_type(fields, :datetime),
-      "value_field" => first_field_of_type(fields, :number),
-      "label_field" => first_field_of_type(fields, :string),
-      "dataset" => "source"
-    }
+    if capacity_forecast_fields?(fields) do
+      %{
+        "time_field" => field_named(fields, "forecasted_at"),
+        "value_field" => field_named(fields, "projected_value"),
+        "label_field" => field_named(fields, "resource_label") || field_named(fields, "metric_name"),
+        "dataset" => "source"
+      }
+    else
+      %{
+        "time_field" => first_field_of_type(fields, :datetime),
+        "value_field" => first_field_of_type(fields, :number),
+        "label_field" => first_field_of_type(fields, :string),
+        "dataset" => "source"
+      }
+    end
   end
 
   defp binding_for_visual(visual, fields) when visual in [:bar, :category, :status_list] do
@@ -651,6 +666,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
     |> put_present("label", params["display_label"] || params["title"] || source.name)
     |> put_present("unit", params["unit"] || default_unit(visual))
     |> put_present("caption", params["caption"])
+    |> put_capacity_forecast_display(visual, source)
   end
 
   defp visual_config_for_visual(visual, source, params) when visual in [:stat, :count, :gauge, :availability] do
@@ -677,6 +693,36 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardLive.SourceQueries do
 
   defp default_unit(visual) when visual in [:gauge, :availability], do: "%"
   defp default_unit(_visual), do: ""
+
+  defp put_capacity_forecast_display(map, visual, source) when visual in [:line, :area] do
+    if capacity_forecast_source?(source) do
+      Map.put(map, "capacity_forecast", true)
+    else
+      map
+    end
+  end
+
+  defp put_capacity_forecast_display(map, _visual, _source), do: map
+
+  defp capacity_forecast_source?(source) do
+    fields? =
+      source
+      |> Map.get(:fields, [])
+      |> capacity_forecast_fields?()
+
+    query? =
+      source
+      |> Map.get(:srql_query, "")
+      |> String.downcase()
+      |> String.contains?("in:capacity_forecasts")
+
+    fields? or query?
+  end
+
+  defp capacity_forecast_fields?(fields) do
+    field_named(fields, "forecasted_at") != nil and field_named(fields, "projected_value") != nil and
+      field_named(fields, "horizon_ends_at") != nil
+  end
 
   defp default_layout(visual, position) do
     width = if visual in ["table", "pivot", "line", "area"], do: 12, else: 4

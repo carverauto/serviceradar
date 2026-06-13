@@ -126,6 +126,7 @@ mod addon_statuses;
 mod agents;
 mod alerts;
 mod bmp_events;
+mod capacity_forecasts;
 mod cpu_metrics;
 mod dashboard_service_views;
 mod dashboards;
@@ -237,6 +238,7 @@ impl QueryEngine {
                 | Entity::ScanActivity
                 | Entity::DnsActivity => events::execute(&mut conn, &plan).await?,
                 Entity::BmpEvents => bmp_events::execute(&mut conn, &plan).await?,
+                Entity::CapacityForecasts => capacity_forecasts::execute(&mut conn, &plan).await?,
                 Entity::FieldSurveySessions
                 | Entity::FieldSurveyRasters
                 | Entity::FieldSurveyArtifacts
@@ -916,6 +918,7 @@ pub fn translate_request(config: &AppConfig, request: QueryRequest) -> Result<Tr
             | Entity::ScanActivity
             | Entity::DnsActivity => events::to_sql_and_params(&plan)?,
             Entity::BmpEvents => bmp_events::to_sql_and_params(&plan)?,
+            Entity::CapacityForecasts => capacity_forecasts::to_sql_and_params(&plan)?,
             Entity::FieldSurveySessions
             | Entity::FieldSurveyRasters
             | Entity::FieldSurveyArtifacts

@@ -54,6 +54,28 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
     end
   end
 
+  describe "panel_attrs_from_output/4 capacity forecast bindings" do
+    test "auto-enables forecast overlay for capacity forecast sources" do
+      attrs =
+        SourceQueries.panel_attrs_from_output(
+          %{id: "dashboard-1", panels: []},
+          %{
+            id: "source-forecast",
+            name: "Capacity forecasts",
+            srql_query: "in:capacity_forecasts status:projected sort:forecasted_at:desc limit:100",
+            fields: capacity_forecast_fields()
+          },
+          "line",
+          %{}
+        )
+
+      assert attrs.data_binding["time_field"] == "forecasted_at"
+      assert attrs.data_binding["value_field"] == "projected_value"
+      assert attrs.data_binding["label_field"] == "resource_label"
+      assert attrs.display_config["capacity_forecast"] == true
+    end
+  end
+
   describe "outputs_for_preview/1" do
     test "labels table outputs as detail rows" do
       [output] =
@@ -98,7 +120,7 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
   end
 
   describe "templates/0" do
-    test "ships generic starter templates only" do
+    test "ships curated starter templates" do
       template_queries = Map.new(SourceQueries.generic_templates(), &{&1.key, &1.query})
 
       assert template_queries["device_availability"] ==
@@ -106,6 +128,9 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
 
       assert template_queries["device_type_count"] ==
                "in:devices stats:count() as count by type limit:25"
+
+      assert template_queries["capacity_forecasts"] ==
+               "in:capacity_forecasts status:projected sort:forecasted_at:desc limit:100"
 
       refute Map.has_key?(template_queries, "armis_development_availability")
       refute Map.has_key?(template_queries, "router_switch_availability")
@@ -169,5 +194,20 @@ defmodule ServiceRadarWebNGWeb.AuthoredDashboardSourceQueriesTest do
       "availability",
       %{"lookback_days" => lookback_days}
     )
+  end
+
+  defp capacity_forecast_fields do
+    [
+      %{"name" => "forecasted_at", "type" => "datetime"},
+      %{"name" => "resource_key", "type" => "string"},
+      %{"name" => "resource_label", "type" => "string"},
+      %{"name" => "metric_name", "type" => "string"},
+      %{"name" => "horizon_ends_at", "type" => "datetime"},
+      %{"name" => "current_value", "type" => "number"},
+      %{"name" => "projected_value", "type" => "number"},
+      %{"name" => "lower_bound", "type" => "number"},
+      %{"name" => "upper_bound", "type" => "number"},
+      %{"name" => "projected_exhaustion_at", "type" => "datetime"}
+    ]
   end
 end

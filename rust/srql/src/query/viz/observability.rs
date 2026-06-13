@@ -142,6 +142,82 @@ pub(super) fn otel_metrics() -> VizMeta {
     }
 }
 
+pub(super) fn capacity_forecasts() -> VizMeta {
+    VizMeta {
+        columns: vec![
+            col(
+                "forecasted_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("resource_key", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col("resource_type", ColumnType::Text, None),
+            col("resource_id", ColumnType::Text, Some(ColumnSemantic::Id)),
+            col(
+                "resource_label",
+                ColumnType::Text,
+                Some(ColumnSemantic::Label),
+            ),
+            col(
+                "metric_class",
+                ColumnType::Text,
+                Some(ColumnSemantic::Series),
+            ),
+            col(
+                "metric_name",
+                ColumnType::Text,
+                Some(ColumnSemantic::Series),
+            ),
+            col("horizon_seconds", ColumnType::Int, None),
+            col(
+                "horizon_ends_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col("sample_count", ColumnType::Int, Some(ColumnSemantic::Value)),
+            col("model", ColumnType::Text, None),
+            col("status", ColumnType::Text, None),
+            col(
+                "current_value",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "projected_value",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "projected_exhaustion_at",
+                ColumnType::Timestamptz,
+                Some(ColumnSemantic::Time),
+            ),
+            col(
+                "exhaustion_threshold",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+            col("confidence", ColumnType::Float, Some(ColumnSemantic::Value)),
+            col(
+                "lower_bound",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+            col(
+                "upper_bound",
+                ColumnType::Float,
+                Some(ColumnSemantic::Value),
+            ),
+        ],
+        suggestions: vec![VizSuggestion {
+            kind: VizKind::Timeseries,
+            x: Some("forecasted_at".to_string()),
+            y: Some("projected_value".to_string()),
+            series: Some("metric_name".to_string()),
+        }],
+    }
+}
+
 pub(super) fn otel_metric_points() -> VizMeta {
     VizMeta {
         columns: vec![
