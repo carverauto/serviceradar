@@ -30,6 +30,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :reasoner,
     :checkpoint_store,
     :checkpoint_opts,
+    :checkpoint_flush_interval_ms,
+    :checkpoint_flush_ref,
+    :checkpoint_pending_payload,
     :baseline_seeder,
     :baseline_seed_opts,
     :series_config_resolver,
@@ -68,7 +71,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     %{
       id: {__MODULE__, series_key},
       start: {__MODULE__, :start_link, [opts]},
-      restart: :transient,
+      restart: :permanent,
       type: :worker
     }
   end
@@ -95,8 +98,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   @spec snapshot(pid() | GenServer.name()) :: map()
   def snapshot(owner), do: GenServer.call(owner, :snapshot)
 
+  @doc false
+  @spec flush_checkpoint(pid() | GenServer.name()) :: :ok
+  def flush_checkpoint(owner), do: GenServer.call(owner, :flush_checkpoint)
+
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     series_key = Keyword.fetch!(opts, :series_key)
     context = context_from_opts(opts)
 
@@ -106,6 +115,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       reasoner: Keyword.get(opts, :reasoner, reasoner()),
       checkpoint_store: Keyword.get(opts, :checkpoint_store, ContextCheckpoint),
       checkpoint_opts: Keyword.get(opts, :checkpoint_opts, []),
+      checkpoint_flush_interval_ms:
+        Keyword.get(opts, :checkpoint_flush_interval_ms, checkpoint_flush_interval_ms()),
       baseline_seeder: Keyword.get(opts, :baseline_seeder, BaselineSeeder),
       baseline_seed_opts: Keyword.get(opts, :baseline_seed_opts, []),
       series_config_resolver: Keyword.get(opts, :series_config_resolver, SeriesConfig),
@@ -174,6 +185,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
        context: state.context,
        verdicts: state.verdicts
      }, state}
+  end
+
+  def handle_call(:flush_checkpoint, _from, state) do
+    state =
+      state
+      |> cancel_checkpoint_flush()
+      |> flush_pending_checkpoint()
+
+    {:reply, :ok, state}
+  end
+
+  @impl true
+  def handle_info(:flush_checkpoint, state) do
+    state =
+      state
+      |> Map.put(:checkpoint_flush_ref, nil)
+      |> flush_pending_checkpoint()
+
+    {:noreply, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    state
+    |> cancel_checkpoint_flush()
+    |> flush_pending_checkpoint()
+
+    :ok
   end
 
   defp put_update(state, update) do
@@ -428,9 +467,45 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   end
 
   defp save_checkpoint(state) do
+    payload = checkpoint_payload(state)
+
+    if state.checkpoint_flush_interval_ms <= 0 do
+      persist_checkpoint(state, payload)
+    else
+      schedule_checkpoint_flush(state, payload)
+    end
+  end
+
+  defp schedule_checkpoint_flush(state, payload) do
+    state = %{state | checkpoint_pending_payload: payload}
+
+    if is_reference(state.checkpoint_flush_ref) do
+      state
+    else
+      ref = Process.send_after(self(), :flush_checkpoint, state.checkpoint_flush_interval_ms)
+      %{state | checkpoint_flush_ref: ref}
+    end
+  end
+
+  defp cancel_checkpoint_flush(%{checkpoint_flush_ref: ref} = state) when is_reference(ref) do
+    Process.cancel_timer(ref, async: false, info: false)
+    %{state | checkpoint_flush_ref: nil}
+  end
+
+  defp cancel_checkpoint_flush(state), do: state
+
+  defp flush_pending_checkpoint(%{checkpoint_pending_payload: nil} = state), do: state
+
+  defp flush_pending_checkpoint(state) do
+    state
+    |> persist_checkpoint(state.checkpoint_pending_payload)
+    |> Map.put(:checkpoint_pending_payload, nil)
+  end
+
+  defp persist_checkpoint(state, payload) do
     case state.checkpoint_store.save(
            state.series_key,
-           checkpoint_payload(state),
+           payload,
            state.checkpoint_opts
          ) do
       :ok ->
@@ -812,5 +887,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
   defp reasoner do
     Application.get_env(:serviceradar_core, :anomaly_detection_reasoner, CausalReasoner)
+  end
+
+  defp checkpoint_flush_interval_ms do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:checkpoint_flush_interval_ms, 1_000)
   end
 end

@@ -1208,6 +1208,9 @@ if config_env() == :prod do
       _ -> :file
     end
 
+  anomaly_context_checkpoint_flush_interval_ms =
+    String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_FLUSH_INTERVAL_MS") || "1000")
+
   anomaly_baseline_srql_queries =
     case System.get_env("ANOMALY_BASELINE_SRQL_QUERIES_JSON") do
       nil ->
@@ -1263,6 +1266,9 @@ if config_env() == :prod do
     max_value_size: anomaly_context_checkpoint_max_value_size,
     replicas: String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_REPLICAS") || "1"),
     storage: anomaly_context_checkpoint_storage
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.ContextOwner,
+    checkpoint_flush_interval_ms: anomaly_context_checkpoint_flush_interval_ms
 
   config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.SeriesConfig,
     runtime_config: anomaly_series_config

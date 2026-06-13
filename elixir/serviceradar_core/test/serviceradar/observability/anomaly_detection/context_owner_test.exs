@@ -144,6 +144,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       series_key: series_key,
       checkpoint_store: __MODULE__.AgentCheckpoint,
       checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
       min_samples: 2
     ]
 
@@ -173,6 +174,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       series_key: series_key,
       checkpoint_store: __MODULE__.CountingCheckpoint,
       checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
       min_samples: 2
     ]
 
@@ -205,6 +207,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       series_key: series_key,
       checkpoint_store: __MODULE__.JsonCheckpoint,
       checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
       reasoner: __MODULE__.FullAnomalyReasoner,
       suppress_until_warmed?: false
     ]
@@ -240,6 +243,59 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert signal.score == 3.8
     assert Map.has_key?(signal, :mean)
     assert signal.mean == nil
+  end
+
+  test "checkpoint writes are coalesced behind an explicit flush" do
+    series_key = "series-coalesced-checkpoint-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{checkpoints: %{}, saves: %{}} end)
+
+    {:ok, pid} =
+      start_owner(
+        series_key: series_key,
+        checkpoint_store: __MODULE__.CountingCheckpoint,
+        checkpoint_opts: [agent: checkpoint_agent],
+        checkpoint_flush_interval_ms: 60_000,
+        min_samples: 2
+      )
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 0
+
+    assert :ok = ContextOwner.flush_checkpoint(pid)
+
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 1
+
+    checkpoint = __MODULE__.CountingCheckpoint.checkpoint(checkpoint_agent, series_key)
+    assert Enum.map(checkpoint.updates, & &1.event_id) == ["e1", "e2"]
+    assert checkpoint.context.baseline == [10.0, 11.0]
+  end
+
+  test "shutdown flushes a pending coalesced checkpoint" do
+    series_key = "series-shutdown-checkpoint-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{checkpoints: %{}, saves: %{}} end)
+
+    {:ok, pid} =
+      start_owner(
+        series_key: series_key,
+        checkpoint_store: __MODULE__.CountingCheckpoint,
+        checkpoint_opts: [agent: checkpoint_agent],
+        checkpoint_flush_interval_ms: 60_000,
+        min_samples: 2
+      )
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 0
+
+    ref = Process.monitor(pid)
+    Process.unlink(pid)
+    Process.exit(pid, :shutdown)
+    assert_receive {:DOWN, ^ref, :process, ^pid, :shutdown}
+
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 1
+    checkpoint = __MODULE__.CountingCheckpoint.checkpoint(checkpoint_agent, series_key)
+    assert Enum.map(checkpoint.updates, & &1.event_id) == ["e1", "e2"]
   end
 
   test "seeds cold baselines through SRQL and suppresses anomalous findings until rewarmed" do
@@ -478,6 +534,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     def save_count(agent, series_key) do
       Agent.get(agent, &Map.get(&1.saves, series_key, 0))
     end
+
+    def checkpoint(agent, series_key) do
+      Agent.get(agent, &Map.fetch!(&1.checkpoints, series_key))
+    end
   end
 
   defmodule SRQLRunner do
@@ -498,6 +558,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
           series_key: "series-#{System.unique_integer([:positive])}",
           name: nil,
           reasoner: __MODULE__.CleanReasoner,
+          checkpoint_flush_interval_ms: 0,
           series_config_opts: []
         ],
         opts
