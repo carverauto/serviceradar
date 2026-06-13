@@ -209,8 +209,7 @@ function signal(label, kind, query, frame) {
 
 function scannerSignalCard(signal) {
   const row = signal.row
-  const status = row ? "present" : "missing"
-  const tone = row ? "ok" : "neutral"
+  const freshness = signalFreshness(signal)
   const actionAttr = row?.id
     ? `data-event-id="${escapeAttr(row.id)}"`
     : `data-query="${escapeAttr(signal.query)}" data-card-action="query"`
@@ -222,7 +221,7 @@ function scannerSignalCard(signal) {
           <h3 class="truncate text-sm font-semibold text-base-content">${escapeHtml(signal.label)}</h3>
           <p class="text-xs text-base-content/60">${escapeHtml(signal.kind)}</p>
         </div>
-        <span class="badge badge-sm ${row ? "badge-success" : "badge-ghost"}">${status}</span>
+        <span class="badge badge-sm ${freshness.badgeClass}">${escapeHtml(freshness.label)}</span>
       </div>
       ${
         row
@@ -231,12 +230,13 @@ function scannerSignalCard(signal) {
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Entity</span><span class="max-w-40 truncate">${entityLink(row)}</span></div>
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Class</span><span>${escapeHtml(classLabel(row))}</span></div>
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Time</span><span>${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Freshness</span><span>${escapeHtml(freshness.caption)}</span></div>
               <p class="line-clamp-2 text-base-content">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
             </div>`
           : `<p class="mt-3 text-xs text-base-content/60">${escapeHtml(missingSignalMessage(signal))}</p>`
       }
       <button type="button" data-srql="source-signal" data-query="${escapeAttr(signal.query)}" class="btn btn-xs btn-ghost mt-3">Open SRQL</button>
-      <span class="sr-only">${tone}</span>
+      <span class="sr-only">${escapeHtml(freshness.state)}</span>
     </article>
   `
 }
@@ -270,23 +270,26 @@ function postureInsightCard(title, value, caption, tone, query) {
 }
 
 function scannerFreshnessPanel(signals) {
-  const present = signals.filter((signal) => signal.row)
-  const stale = signals.filter((signal) => !signal.row)
+  const statuses = signals.map(signalFreshness)
+  const activeCount = statuses.filter((status) => status.state === "present").length
+  const staleCount = statuses.filter((status) => status.state === "stale").length
+  const missingCount = statuses.filter((status) => status.state === "missing").length
 
   return `
     <article class="rounded-lg border border-base-300 bg-base-200/30 p-4">
       <div class="flex items-center justify-between gap-3">
         <h3 class="text-sm font-semibold text-base-content">Scanner coverage</h3>
-        <span class="badge badge-sm ${stale.length ? "badge-warning" : "badge-success"}">${number(present.length)}/${number(signals.length)}</span>
+        <span class="badge badge-sm ${staleCount || missingCount ? "badge-warning" : "badge-success"}">${number(activeCount)}/${number(signals.length)} fresh</span>
       </div>
       <div class="mt-3 space-y-2">
         ${
           signals
+            .map((signal) => [signal, signalFreshness(signal)])
             .map(
-              (signal) => `
-                <div data-query="${escapeAttr(signal.query)}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100">
+              ([signal, freshness]) => `
+                <div data-query="${escapeAttr(signal.query)}" data-card-action="query" class="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-1 text-xs hover:bg-base-100" title="${escapeAttr(freshness.caption)}">
                   <span class="truncate text-base-content/70">${escapeHtml(signal.label)}</span>
-                  <span class="badge badge-xs ${signal.row ? "badge-success" : "badge-ghost"}">${signal.row ? "present" : "missing"}</span>
+                  <span class="badge badge-xs ${freshness.badgeClass}">${escapeHtml(freshness.label)}</span>
                 </div>
               `,
             )
@@ -295,6 +298,46 @@ function scannerFreshnessPanel(signals) {
       </div>
     </article>
   `
+}
+
+function signalFreshness(signal) {
+  const row = signal.row
+  if (!row) {
+    return {state: "missing", label: "missing", badgeClass: "badge-ghost", caption: missingSignalMessage(signal)}
+  }
+
+  const timestamp = row.time || row.event_timestamp
+  const ageMs = signalAgeMs(timestamp)
+
+  if (ageMs === null) {
+    return {state: "stale", label: "unknown age", badgeClass: "badge-warning", caption: "Signal time is unavailable"}
+  }
+
+  const age = formatAge(ageMs)
+
+  if (ageMs > 24 * 60 * 60 * 1000) {
+    return {state: "stale", label: "stale", badgeClass: "badge-warning", caption: `Last seen ${age} ago`}
+  }
+
+  return {state: "present", label: "present", badgeClass: "badge-success", caption: `Last seen ${age} ago`}
+}
+
+function signalAgeMs(value) {
+  if (!value) return null
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return null
+  return Math.max(0, Date.now() - date.getTime())
+}
+
+function formatAge(ageMs) {
+  const minute = 60 * 1000
+  const hour = 60 * minute
+  const day = 24 * hour
+
+  if (ageMs < minute) return "just now"
+  if (ageMs < hour) return `${Math.floor(ageMs / minute)}m`
+  if (ageMs < day) return `${Math.floor(ageMs / hour)}h`
+  return `${Math.floor(ageMs / day)}d`
 }
 
 function topAffectedPanel(resources) {
