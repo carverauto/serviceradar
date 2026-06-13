@@ -259,6 +259,10 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
   end
 
   defp service_state_for(agent, service_name) do
+    service_state_by_identity(agent, "plugin", service_name)
+  end
+
+  defp service_state_by_identity(agent, service_type, service_name) do
     metadata = agent.metadata || %{}
 
     ServiceState
@@ -268,7 +272,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistryTest do
         agent_id: agent.uid,
         gateway_id: agent.gateway_id,
         partition: metadata["partition"] || "default",
-        service_type: "plugin",
+        service_type: service_type,
         service_name: service_name
       },
       actor: system_actor()

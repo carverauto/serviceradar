@@ -306,26 +306,24 @@ func TestProcessSnapshotToDiscoveredDevice(t *testing.T) {
 	}
 
 	metadata := device.GetMetadata()
+	assertMetadata(t, metadata, "local_processes.schema", "summary_v1")
 	assertMetadata(t, metadata, "local_processes.fingerprint", "snapshot-1")
 	assertMetadata(t, metadata, "local_processes.entry_count", "1")
+	assertMetadata(t, metadata, "local_processes.process_count", "1")
+	assertMetadata(t, metadata, "local_processes.port_count", "1")
+	assertMetadata(t, metadata, "local_processes.container_count", "1")
+	assertMetadata(t, metadata, "local_processes.protocols", "tcp")
+	assertMetadata(t, metadata, "local_processes.tcp_port_count", "1")
 	assertMetadata(t, metadata, "local_processes.observed_at", "2026-05-28T16:05:04.000000123Z")
 	assertMetadata(t, metadata, "_alias_last_seen_ip", testFingerprintIP)
 	assertMetadata(t, metadata, "_alias_last_seen_at", "2026-05-28T16:05:04.000000123Z")
 
-	payload := metadata["local_processes"]
-	for _, want := range []string{
-		`"local_ip":"127.0.0.1"`,
-		`"local_port":5432`,
-		`"comm":"postgres"`,
-		`"redacted_cmdline":["postgres","--config=redacted"]`,
-	} {
-		if !strings.Contains(payload, want) {
-			t.Fatalf("local_processes payload missing %s: %s", want, payload)
-		}
+	if _, ok := metadata["local_processes"]; ok {
+		t.Fatal("metadata must not store the full local_processes payload")
 	}
 }
 
-func TestSplitProcessSnapshotBoundsMetadataPayload(t *testing.T) {
+func TestProcessSnapshotToDiscoveredDeviceSummarizesLargeSnapshots(t *testing.T) {
 	entries := make([]*netprobepb.ProcessSnapshotEntry, 0, 20)
 	for idx := 0; idx < 20; idx++ {
 		entries = append(entries, &netprobepb.ProcessSnapshotEntry{
@@ -342,32 +340,31 @@ func TestSplitProcessSnapshotBoundsMetadataPayload(t *testing.T) {
 		})
 	}
 
-	snapshot := &netprobepb.ProcessSnapshot{
+	device, err := ProcessSnapshotToDiscoveredDevice(&netprobepb.ProcessSnapshot{
 		Fingerprint:        "snapshot-1",
 		ObservedAtUnixNano: time.Date(2026, 5, 28, 16, 5, 4, 123, time.UTC).UnixNano(),
 		Entries:            entries,
+	}, TranslationOptions{
+		CollectorIP: testFingerprintIP,
+	})
+	if err != nil {
+		t.Fatalf("ProcessSnapshotToDiscoveredDevice() error = %v", err)
 	}
-	parts := SplitProcessSnapshot(snapshot, 2048)
 
-	if len(parts) <= 1 {
-		t.Fatalf("expected snapshot to be split, got %d part(s)", len(parts))
-	}
+	metadata := device.GetMetadata()
+	assertMetadata(t, metadata, "local_processes.entry_count", "20")
+	assertMetadata(t, metadata, "local_processes.process_count", "20")
+	assertMetadata(t, metadata, "local_processes.port_count", "20")
+	assertMetadata(t, metadata, "local_processes.container_count", "1")
+	assertMetadata(t, metadata, "local_processes.protocols", "tcp")
+	assertMetadata(t, metadata, "local_processes.tcp_port_count", "20")
 
-	totalEntries := 0
-	for idx, part := range parts {
-		totalEntries += len(part.GetEntries())
-		if got := processSnapshotMetadataSize(part, part.GetEntries()); got > 2048 {
-			t.Fatalf("part %d metadata size = %d, want <= 2048", idx, got)
+	for _, value := range metadata {
+		for _, unexpected := range []string{"redacted", "container-abc123", `"entries"`} {
+			if strings.Contains(value, unexpected) {
+				t.Fatalf("process snapshot metadata leaked detailed payload %q: %#v", unexpected, metadata)
+			}
 		}
-		if part.GetFingerprint() != snapshot.GetFingerprint() {
-			t.Fatalf("part %d fingerprint = %q, want %q", idx, part.GetFingerprint(), snapshot.GetFingerprint())
-		}
-		if part.GetObservedAtUnixNano() != snapshot.GetObservedAtUnixNano() {
-			t.Fatalf("part %d observed_at = %d, want %d", idx, part.GetObservedAtUnixNano(), snapshot.GetObservedAtUnixNano())
-		}
-	}
-	if totalEntries != len(entries) {
-		t.Fatalf("split preserved %d entries, want %d", totalEntries, len(entries))
 	}
 }
 

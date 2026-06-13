@@ -57,8 +57,8 @@ func TestBuildNetprobeResultsPayloadsBoundsStatusChunks(t *testing.T) {
 			"partition":  "default",
 			"source":     "passive-netprobe",
 			"metadata": map[string]string{
-				"local_processes":             strings.Repeat("x", 24*1024),
-				"local_processes.entry_count": "10",
+				"payload":     strings.Repeat("x", 24*1024),
+				"entry_count": "10",
 			},
 			"timestamp": time.Now().UTC().Format(time.RFC3339Nano),
 		})
@@ -109,13 +109,13 @@ func TestBuildNetprobeResultsPayloadsSkipsOversizedSingleUpdate(t *testing.T) {
 		{
 			"ip": "192.0.2.10",
 			"metadata": map[string]string{
-				"local_processes": strings.Repeat("x", 1024),
+				"payload": strings.Repeat("x", 1024),
 			},
 		},
 		{
 			"ip": "192.0.2.11",
 			"metadata": map[string]string{
-				"local_processes": "ok",
+				"payload": "ok",
 			},
 		},
 	}

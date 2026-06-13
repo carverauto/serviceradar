@@ -29,9 +29,8 @@ import (
 )
 
 const (
-	netprobeResultsPayloadMaxBytes          = 8 * 1024 * 1024
-	netprobeResultsStreamPayloadMaxBytes    = 48 * 1024 * 1024
-	netprobeProcessSnapshotMetadataMaxBytes = 512 * 1024
+	netprobeResultsPayloadMaxBytes       = 8 * 1024 * 1024
+	netprobeResultsStreamPayloadMaxBytes = 48 * 1024 * 1024
 )
 
 func (p *PushLoop) pushMapperResults(ctx context.Context) bool {
@@ -118,7 +117,6 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		CollectorIP: collectorIP,
 	}
 	updates := make([]map[string]any, 0, len(fingerprintEvents)+len(dpiEvents)+len(processSnapshots))
-	processSnapshotParts := 0
 
 	for _, event := range fingerprintEvents {
 		device, err := agentnetprobe.FingerprintEventToDiscoveredDevice(event, opts)
@@ -158,27 +156,22 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 	}
 
 	for _, snapshot := range processSnapshots {
-		parts := agentnetprobe.SplitProcessSnapshot(snapshot, netprobeProcessSnapshotMetadataMaxBytes)
-		processSnapshotParts += len(parts)
-
-		for _, part := range parts {
-			device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(part, opts)
-			if err != nil {
-				p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
-				continue
-			}
-
-			update := map[string]any{
-				"ip":         device.GetIp(),
-				"agent_id":   agentID,
-				"gateway_id": opts.GatewayID,
-				"partition":  partition,
-				"source":     string(models.DiscoverySourcePassiveNetprobe),
-				"metadata":   device.GetMetadata(),
-				"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
-			}
-			updates = append(updates, update)
+		device, err := agentnetprobe.ProcessSnapshotToDiscoveredDevice(snapshot, opts)
+		if err != nil {
+			p.logger.Warn().Err(err).Msg("Skipping invalid netprobe process snapshot")
+			continue
 		}
+
+		update := map[string]any{
+			"ip":         device.GetIp(),
+			"agent_id":   agentID,
+			"gateway_id": opts.GatewayID,
+			"partition":  partition,
+			"source":     string(models.DiscoverySourcePassiveNetprobe),
+			"metadata":   device.GetMetadata(),
+			"timestamp":  time.Now().UTC().Format(time.RFC3339Nano),
+		}
+		updates = append(updates, update)
 	}
 
 	if len(updates) == 0 {
@@ -247,7 +240,6 @@ func (p *PushLoop) pushNetprobeResults(ctx context.Context) bool {
 		Int("fingerprint_event_count", len(fingerprintEvents)).
 		Int("dpi_event_count", len(dpiEvents)).
 		Int("process_snapshot_count", len(processSnapshots)).
-		Int("process_snapshot_part_count", processSnapshotParts).
 		Int("update_count", len(updates)).
 		Int("status_chunk_count", len(statusChunks)).
 		Msg("Streamed netprobe results to gateway")

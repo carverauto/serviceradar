@@ -447,12 +447,13 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   defp build_attrs_from_status(status, actor) do
     message = normalize_message(fetch(status, :message))
     agent_id = normalize_string(fetch(status, :agent_id), "unknown")
+    service_type = normalize_string(fetch(status, :service_type), "unknown")
 
     %{
       agent_id: agent_id,
       gateway_id: canonical_gateway_id(status, agent_id, actor),
       partition: resolve_partition(status),
-      service_type: normalize_string(fetch(status, :service_type), "unknown"),
+      service_type: service_type,
       service_name: normalize_string(fetch(status, :service_name), "unknown"),
       available: normalize_available(fetch(status, :available)),
       message: normalize_message_value(message),
@@ -484,6 +485,9 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
       {:ok, decoded} when is_map(decoded) ->
         decoded["summary"] || decoded["message"] || decoded["status"] || slice_message(message)
 
+      {:ok, decoded} when is_list(decoded) ->
+        normalize_message(decoded) || slice_message(message)
+
       _ ->
         slice_message(message)
     end
@@ -506,10 +510,26 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
   end
 
   defp normalize_message(message) when is_list(message) do
-    slice_message(FieldParser.encode_json(message))
+    message
+    |> Enum.find_value(&message_summary/1)
+    |> case do
+      summary when is_binary(summary) -> slice_message(summary)
+      _ -> slice_message(FieldParser.encode_json(message))
+    end
   end
 
   defp normalize_message(_), do: nil
+
+  defp message_summary(message) when is_map(message) do
+    Map.get(message, "summary") ||
+      Map.get(message, :summary) ||
+      Map.get(message, "message") ||
+      Map.get(message, :message) ||
+      Map.get(message, "status") ||
+      Map.get(message, :status)
+  end
+
+  defp message_summary(_message), do: nil
 
   defp slice_message(nil), do: nil
   defp slice_message(message) when is_binary(message), do: String.slice(message, 0, 2048)
@@ -534,7 +554,7 @@ defmodule ServiceRadar.Observability.ServiceStateRegistry do
     FieldParser.encode_json(message)
   end
 
-  defp normalize_details(_), do: nil
+  defp normalize_details(_message), do: nil
 
   defp resolve_observed_at(status) do
     raw =

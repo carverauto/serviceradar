@@ -17,9 +17,9 @@
 package netprobe
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -43,7 +43,6 @@ var (
 	ErrFingerprintEventMissing = errors.New("netprobe fingerprint event is missing required fields")
 	ErrDPIEventMissing         = errors.New("netprobe DPI event is missing required fields")
 	ErrProcessSnapshotMissing  = errors.New("netprobe process snapshot is missing required fields")
-	ErrProcessSnapshotMetadata = errors.New("netprobe process snapshot metadata marshal failed")
 )
 
 // TranslationOptions carries agent-local context that is not present on the IPC event.
@@ -52,77 +51,6 @@ type TranslationOptions struct {
 	GatewayID    string
 	CollectorIP  string
 	ProfileNames map[string]string
-}
-
-type processSnapshotMetadata struct {
-	Fingerprint        string                         `json:"fingerprint,omitempty"`
-	ObservedAtUnixNano int64                          `json:"observed_at_unix_nano,omitempty"`
-	ObservedAt         string                         `json:"observed_at,omitempty"`
-	Entries            []processSnapshotEntryMetadata `json:"entries"`
-}
-
-type processSnapshotEntryMetadata struct {
-	LocalIP           string   `json:"local_ip,omitempty"`
-	LocalPort         uint32   `json:"local_port,omitempty"`
-	TransportProtocol string   `json:"transport_protocol,omitempty"`
-	PID               uint32   `json:"pid,omitempty"`
-	TGID              uint32   `json:"tgid,omitempty"`
-	UID               uint32   `json:"uid,omitempty"`
-	GID               uint32   `json:"gid,omitempty"`
-	Comm              string   `json:"comm,omitempty"`
-	RedactedCmdline   []string `json:"redacted_cmdline,omitempty"`
-	ContainerID       string   `json:"container_id,omitempty"`
-}
-
-// SplitProcessSnapshot returns shallow snapshot copies whose entries fit under
-// maxMetadataBytes when encoded in the local_processes metadata payload.
-func SplitProcessSnapshot(snapshot *netprobepb.ProcessSnapshot, maxMetadataBytes int) []*netprobepb.ProcessSnapshot {
-	if snapshot == nil {
-		return nil
-	}
-	if maxMetadataBytes <= 0 || len(snapshot.GetEntries()) <= 1 {
-		return []*netprobepb.ProcessSnapshot{snapshot}
-	}
-
-	var (
-		out                []*netprobepb.ProcessSnapshot
-		current            []*netprobepb.ProcessSnapshotEntry
-		baseSize           = processSnapshotMetadataSize(snapshot, nil)
-		currentEntriesSize int
-	)
-
-	flush := func() {
-		if len(current) == 0 {
-			return
-		}
-		out = append(out, processSnapshotWithEntries(snapshot, current))
-		current = nil
-		currentEntriesSize = 0
-	}
-
-	for _, entry := range snapshot.GetEntries() {
-		entrySize := processSnapshotEntryMetadataSize(entry)
-		candidateSize := baseSize + currentEntriesSize + entrySize
-		if len(current) > 0 {
-			candidateSize++
-		}
-		if len(current) > 0 && candidateSize > maxMetadataBytes {
-			flush()
-		}
-
-		if len(current) > 0 {
-			currentEntriesSize++
-		}
-		current = append(current, entry)
-		currentEntriesSize += entrySize
-	}
-
-	flush()
-	if len(out) == 0 {
-		return []*netprobepb.ProcessSnapshot{processSnapshotWithEntries(snapshot, nil)}
-	}
-
-	return out
 }
 
 // FingerprintEventToDiscoveredDevice converts a netprobe fingerprint event into a discovery device record.
@@ -362,27 +290,17 @@ func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts Trans
 		observedText = observed.Format(time.RFC3339Nano)
 	}
 
-	payload := processSnapshotMetadata{
-		Fingerprint:        strings.TrimSpace(snapshot.GetFingerprint()),
-		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
-		ObservedAt:         observedText,
-		Entries:            processSnapshotEntries(snapshot.GetEntries()),
-	}
-
-	payloadJSON, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %w", ErrProcessSnapshotMetadata, err)
-	}
-
 	metadata := map[string]string{
 		metadataDiscoverySource:                 source,
 		"source":                                source,
-		"local_processes":                       string(payloadJSON),
-		"local_processes.fingerprint":           payload.Fingerprint,
-		"local_processes.entry_count":           strconv.Itoa(len(payload.Entries)),
+		"local_processes.schema":                "summary_v1",
+		"local_processes.fingerprint":           strings.TrimSpace(snapshot.GetFingerprint()),
 		"local_processes.observed_at":           observedText,
 		"local_processes.observed_at_unix_nano": strconv.FormatInt(snapshot.GetObservedAtUnixNano(), 10),
 		"_alias_last_seen_ip":                   ip,
+	}
+	for key, value := range processSnapshotSummary(snapshot.GetEntries()) {
+		metadata["local_processes."+key] = value
 	}
 
 	if agentID := strings.TrimSpace(opts.AgentID); agentID != "" {
@@ -401,73 +319,80 @@ func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts Trans
 	return metadata, nil
 }
 
-func processSnapshotEntries(entries []*netprobepb.ProcessSnapshotEntry) []processSnapshotEntryMetadata {
-	out := make([]processSnapshotEntryMetadata, 0, len(entries))
+func processSnapshotSummary(entries []*netprobepb.ProcessSnapshotEntry) map[string]string {
+	processes := make(map[string]struct{})
+	ports := make(map[string]struct{})
+	protocols := make(map[string]struct{})
+	containers := make(map[string]struct{})
+	perProtocolPorts := make(map[string]map[string]struct{})
+	entryCount := 0
+
 	for _, entry := range entries {
 		if entry == nil {
 			continue
 		}
-		out = append(out, processSnapshotEntry(entry))
+		entryCount++
+
+		if key := processIdentityKey(entry); key != "" {
+			processes[key] = struct{}{}
+		}
+		if containerID := strings.TrimSpace(entry.GetContainerId()); containerID != "" {
+			containers[containerID] = struct{}{}
+		}
+		protocol := strings.ToLower(strings.TrimSpace(entry.GetTransportProtocol()))
+		if protocol != "" {
+			protocols[protocol] = struct{}{}
+		}
+		if port := entry.GetLocalPort(); port > 0 {
+			portKey := strconv.FormatUint(uint64(port), 10)
+			if protocol != "" {
+				portKey = protocol + ":" + portKey
+				if perProtocolPorts[protocol] == nil {
+					perProtocolPorts[protocol] = make(map[string]struct{})
+				}
+				perProtocolPorts[protocol][strconv.FormatUint(uint64(port), 10)] = struct{}{}
+			}
+			ports[portKey] = struct{}{}
+		}
 	}
 
-	return out
+	summary := map[string]string{
+		"entry_count":     strconv.Itoa(entryCount),
+		"process_count":   strconv.Itoa(len(processes)),
+		"port_count":      strconv.Itoa(len(ports)),
+		"container_count": strconv.Itoa(len(containers)),
+		"protocols":       strings.Join(sortedKeys(protocols), ","),
+	}
+	for protocol, protocolPorts := range perProtocolPorts {
+		summary[protocol+"_port_count"] = strconv.Itoa(len(protocolPorts))
+	}
+
+	return summary
 }
 
-func processSnapshotEntry(entry *netprobepb.ProcessSnapshotEntry) processSnapshotEntryMetadata {
-	return processSnapshotEntryMetadata{
-		LocalIP:           strings.TrimSpace(entry.GetLocalIp()),
-		LocalPort:         entry.GetLocalPort(),
-		TransportProtocol: strings.ToLower(strings.TrimSpace(entry.GetTransportProtocol())),
-		PID:               entry.GetPid(),
-		TGID:              entry.GetTgid(),
-		UID:               entry.GetUid(),
-		GID:               entry.GetGid(),
-		Comm:              strings.TrimSpace(entry.GetComm()),
-		RedactedCmdline:   append([]string(nil), entry.GetRedactedCmdline()...),
-		ContainerID:       strings.TrimSpace(entry.GetContainerId()),
+func processIdentityKey(entry *netprobepb.ProcessSnapshotEntry) string {
+	if entry.GetTgid() > 0 {
+		return "tgid:" + strconv.FormatUint(uint64(entry.GetTgid()), 10)
 	}
+	if entry.GetPid() > 0 {
+		return "pid:" + strconv.FormatUint(uint64(entry.GetPid()), 10)
+	}
+	comm := strings.TrimSpace(entry.GetComm())
+	if comm == "" {
+		return ""
+	}
+
+	return "comm:" + comm
 }
 
-func processSnapshotMetadataSize(snapshot *netprobepb.ProcessSnapshot, entries []*netprobepb.ProcessSnapshotEntry) int {
-	payload := processSnapshotMetadata{
-		Fingerprint:        strings.TrimSpace(snapshot.GetFingerprint()),
-		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
-		Entries:            processSnapshotEntries(entries),
+func sortedKeys(values map[string]struct{}) []string {
+	keys := make([]string, 0, len(values))
+	for value := range values {
+		keys = append(keys, value)
 	}
-	if observed := observedAtUnixNano(snapshot.GetObservedAtUnixNano()); !observed.IsZero() {
-		payload.ObservedAt = observed.Format(time.RFC3339Nano)
-	}
+	sort.Strings(keys)
 
-	encoded, err := json.Marshal(payload)
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-
-	return len(encoded)
-}
-
-func processSnapshotEntryMetadataSize(entry *netprobepb.ProcessSnapshotEntry) int {
-	if entry == nil {
-		return 0
-	}
-
-	encoded, err := json.Marshal(processSnapshotEntry(entry))
-	if err != nil {
-		return int(^uint(0) >> 1)
-	}
-
-	return len(encoded)
-}
-
-func processSnapshotWithEntries(
-	snapshot *netprobepb.ProcessSnapshot,
-	entries []*netprobepb.ProcessSnapshotEntry,
-) *netprobepb.ProcessSnapshot {
-	return &netprobepb.ProcessSnapshot{
-		Fingerprint:        snapshot.GetFingerprint(),
-		ObservedAtUnixNano: snapshot.GetObservedAtUnixNano(),
-		Entries:            append([]*netprobepb.ProcessSnapshotEntry(nil), entries...),
-	}
+	return keys
 }
 
 func addEvidenceMetadata(metadata map[string]string, event *netprobepb.FingerprintEvent, base string) error {
