@@ -77,16 +77,33 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
 
   defp ensure_bucket(conn, config) do
     if Keyword.get(config, :ensure_bucket, true) do
-      stream = "KV_#{bucket(config)}"
+      cache_key = bucket_cache_key(config)
 
-      case stream_api(config).info(conn, stream) do
-        {:ok, _info} -> :ok
-        {:error, %{"code" => 404}} -> create_bucket(conn, config)
-        {:error, %{code: 404}} -> create_bucket(conn, config)
-        {:error, reason} -> {:error, reason}
+      if :persistent_term.get(cache_key, false) do
+        :ok
+      else
+        case ensure_bucket_uncached(conn, config) do
+          :ok ->
+            :persistent_term.put(cache_key, true)
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
+        end
       end
     else
       :ok
+    end
+  end
+
+  defp ensure_bucket_uncached(conn, config) do
+    stream = "KV_#{bucket(config)}"
+
+    case stream_api(config).info(conn, stream) do
+      {:ok, _info} -> :ok
+      {:error, %{"code" => 404}} -> create_bucket(conn, config)
+      {:error, %{code: 404}} -> create_bucket(conn, config)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -151,6 +168,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
   end
 
   defp kv_opts(config), do: Keyword.get(config, :kv_opts, [])
+
+  defp bucket_cache_key(config) do
+    {__MODULE__, :bucket_ready, bucket(config), stream_api(config), kv(config),
+     bucket_opts(config)}
+  end
 
   defp config do
     Application.get_env(:serviceradar_core, __MODULE__, [])
