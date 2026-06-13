@@ -60,7 +60,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     assert db_sync_metrics.subject == "metrics.>"
     assert analysis_metrics.subject == "metrics.sysmon.*"
     assert db_sync_metrics.stream_retention == "limits"
-    assert db_sync_metrics.consumer_max_deliver == -1
+    assert db_sync_metrics.consumer_max_deliver == 5
     assert Map.get(db_sync_metrics, :consumer_deliver_policy, :all) == :all
     assert analysis_metrics.consumer_deliver_policy == :new
     assert analysis_metrics.consumer_max_deliver == 3

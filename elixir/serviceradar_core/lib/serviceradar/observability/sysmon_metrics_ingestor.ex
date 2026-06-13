@@ -272,17 +272,46 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
   end
 
   defp insert_chunk(records, resource, actor, allow_reindex?) do
-    case Ash.bulk_create(records, resource, :create, bulk_create_opts(resource, actor)) do
-      %Ash.BulkResult{status: :success} ->
-        :ok
+    records
+    |> Ash.bulk_create(resource, :create, bulk_create_opts(resource, actor))
+    |> handle_bulk_result(resource, records, actor, allow_reindex?)
+  end
 
-      %Ash.BulkResult{errors: errors} ->
-        Logger.warning(
-          "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(errors)}"
-        )
+  @doc false
+  def handle_bulk_result(
+        %Ash.BulkResult{status: :partial_success, errors: errors},
+        resource,
+        _records,
+        _actor,
+        _allow_reindex?
+      ) do
+    Logger.warning(
+      "SysmonMetricsIngestor: partially inserted #{inspect(resource)} chunk: #{inspect(errors || [])}"
+    )
 
-        maybe_reindex_and_retry(records, resource, actor, errors, allow_reindex?)
-    end
+    :ok
+  end
+
+  def handle_bulk_result(
+        %Ash.BulkResult{status: :success},
+        _resource,
+        _records,
+        _actor,
+        _allow_reindex?
+      ), do: :ok
+
+  def handle_bulk_result(
+        %Ash.BulkResult{errors: errors},
+        resource,
+        records,
+        actor,
+        allow_reindex?
+      ) do
+    Logger.warning(
+      "SysmonMetricsIngestor: failed to insert #{inspect(resource)} chunk: #{inspect(errors)}"
+    )
+
+    maybe_reindex_and_retry(records, resource, actor, errors, allow_reindex?)
   end
 
   @doc false
