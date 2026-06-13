@@ -73,7 +73,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     %{
       id: {__MODULE__, series_key},
       start: {__MODULE__, :start_link, [opts]},
-      restart: :permanent,
+      restart: :transient,
       type: :worker
     }
   end
@@ -218,6 +218,25 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     end
   end
 
+  def handle_info({:EXIT, _pid, {:name_conflict, _name, _registry, winner_pid} = reason}, state) do
+    Logger.info("Anomaly context owner stepping down after registry name conflict",
+      series_key: state.series_key,
+      conflict_series_key: inspect(name_conflict_series_key(reason)),
+      winner_pid: inspect(winner_pid)
+    )
+
+    {:stop, :normal, state}
+  end
+
+  def handle_info({:EXIT, _pid, reason}, state) do
+    Logger.debug("Anomaly context owner linked process exited",
+      series_key: state.series_key,
+      reason: inspect(reason)
+    )
+
+    {:stop, reason, state}
+  end
+
   @impl true
   def terminate(_reason, state) do
     state
@@ -226,6 +245,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
     :ok
   end
+
+  defp name_conflict_series_key({:name_conflict, {{:anomaly_context, series_key}, _metadata}, _registry, _pid}),
+    do: series_key
+
+  defp name_conflict_series_key(_reason), do: nil
 
   defp put_update(state, update) do
     existing? = Enum.any?(state.updates, &(&1.event_id == update.event_id))

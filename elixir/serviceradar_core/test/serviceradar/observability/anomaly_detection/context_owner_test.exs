@@ -298,6 +298,43 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert Enum.map(checkpoint.updates, & &1.event_id) == ["e1", "e2"]
   end
 
+  test "registry name conflict steps down cleanly and flushes pending checkpoint" do
+    series_key = "series-name-conflict-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{checkpoints: %{}, saves: %{}} end)
+
+    {:ok, pid} =
+      start_owner(
+        series_key: series_key,
+        checkpoint_store: __MODULE__.CountingCheckpoint,
+        checkpoint_opts: [agent: checkpoint_agent],
+        checkpoint_flush_interval_ms: 60_000,
+        min_samples: 2
+      )
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e2", 2, 11.0))
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 0
+
+    ref = Process.monitor(pid)
+    Process.unlink(pid)
+    sender = spawn(fn -> Process.sleep(:infinity) end)
+    on_exit(fn -> Process.exit(sender, :kill) end)
+
+    send(
+      pid,
+      {:EXIT, sender,
+       {:name_conflict, {{:anomaly_context, series_key}, nil}, ServiceRadar.ProcessRegistry,
+        self()}}
+    )
+
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
+    assert __MODULE__.CountingCheckpoint.save_count(checkpoint_agent, series_key) == 1
+  end
+
+  test "context owners are transient so clean registry conflict exits are not restarted" do
+    assert %{restart: :transient} = ContextOwner.child_spec(series_key: "series-1")
+  end
+
   test "checkpoint revision conflict stops the owner" do
     previous_trap_exit = Process.flag(:trap_exit, true)
     on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
