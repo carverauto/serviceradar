@@ -14,7 +14,10 @@ use srql::{EmbeddedSrql, QueryDirection, QueryRequest};
 use tokio::sync::RwLock;
 use tracing::warn;
 
-use crate::domain_model::{Context, Device, EdgeKind, Service, TopologyEdge};
+use crate::domain_model::{
+    prune_stale_operator_rules as prune_context_operator_rules, Context, Device, EdgeKind, Service,
+    TopologyEdge,
+};
 use crate::error::{CausalEngineError, Result};
 use crate::snapshot::SnapshotStore;
 
@@ -128,6 +131,20 @@ impl ContextHydrator {
     /// A handle to the shared `Context` for the live state-change subscriber.
     pub fn shared_context(&self) -> Arc<RwLock<Context>> {
         Arc::clone(&self.ctx)
+    }
+
+    /// Prune stale live operator-rule evidence from the shared context.
+    pub async fn prune_stale_operator_rules(&self, now_unix_ms: i64, ttl_ms: i64) -> usize {
+        let mut guard = self.ctx.write().await;
+        let pruned = prune_context_operator_rules(&mut guard, now_unix_ms, ttl_ms);
+
+        if pruned > 0 {
+            if let Err(err) = self.snapshot.save(&guard) {
+                warn!(error = %err, "context snapshot save failed after operator-rule pruning");
+            }
+        }
+
+        pruned
     }
 
     /// Run an SRQL query and return its result rows, surfacing engine-side errors.
@@ -409,6 +426,7 @@ mod tests {
                 entity_uid: "sr:device:a".to_string(),
                 condition_met: true,
                 description: "anomaly evidence".to_string(),
+                last_updated_unix_ms: 1_000,
             }],
         };
 

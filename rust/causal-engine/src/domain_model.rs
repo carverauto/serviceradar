@@ -10,6 +10,10 @@ use serde::{Deserialize, Serialize};
 /// Canonical, `sr:`-prefixed entity identifier.
 pub type EntityId = String;
 
+/// Default maximum age for live operator-rule evidence. This bounds stale
+/// causal findings when a producer never sends the matching clear signal.
+pub const DEFAULT_OPERATOR_RULE_TTL_MS: i64 = 24 * 60 * 60 * 1_000;
+
 /// A topology edge kind projected from the AGE graph.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EdgeKind {
@@ -124,6 +128,26 @@ pub struct OperatorRule {
     pub condition_met: bool,
     /// Human-readable rule description (drives the verdict explanation).
     pub description: String,
+    /// Last time this live evidence was updated, in Unix milliseconds.
+    #[serde(default)]
+    pub last_updated_unix_ms: i64,
+}
+
+/// Drop operator-rule evidence older than the configured TTL. A non-positive
+/// TTL disables pruning.
+pub fn prune_stale_operator_rules(context: &mut Context, now_unix_ms: i64, ttl_ms: i64) -> usize {
+    if ttl_ms <= 0 {
+        return 0;
+    }
+
+    let cutoff = now_unix_ms.saturating_sub(ttl_ms);
+    let before = context.operator_rules.len();
+
+    context
+        .operator_rules
+        .retain(|rule| rule.last_updated_unix_ms >= cutoff);
+
+    before.saturating_sub(context.operator_rules.len())
 }
 
 /// The hydrated world-state the reasoner evaluates each tick.

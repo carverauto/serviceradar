@@ -5,6 +5,7 @@
 //! signals as evidence by projecting each active finding into the operator-rule
 //! evidence set already evaluated by C12.
 
+use chrono::{DateTime, Utc};
 use serde_json::Value;
 
 use crate::domain_model::{Context, OperatorRule};
@@ -20,6 +21,8 @@ pub struct CausalEvidence {
     pub condition_met: bool,
     /// Human-readable explanation.
     pub description: String,
+    /// Last update timestamp in Unix milliseconds.
+    pub last_updated_unix_ms: i64,
 }
 
 /// Parse an anomaly or capacity forecast causal prediction envelope.
@@ -68,6 +71,7 @@ pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
         entity_uid,
         condition_met: active_status(&status),
         description,
+        last_updated_unix_ms: evidence_last_updated_unix_ms(envelope),
     })
 }
 
@@ -85,6 +89,7 @@ pub fn apply_causal_evidence(ctx: &mut Context, evidence: &CausalEvidence) -> bo
         entity_uid: evidence.entity_uid.clone(),
         condition_met: evidence.condition_met,
         description: evidence.description.clone(),
+        last_updated_unix_ms: evidence.last_updated_unix_ms,
     };
 
     if let Some(existing) = ctx
@@ -138,6 +143,38 @@ fn active_status(status: &str) -> bool {
     )
 }
 
+fn evidence_last_updated_unix_ms(envelope: &Value) -> i64 {
+    first_unix_nano_ms(&[
+        envelope.pointer("/anomaly/observed_at_unix_nano"),
+        envelope.get("observed_at_unix_nano"),
+    ])
+    .or_else(|| {
+        first_rfc3339_unix_ms(&[
+            envelope.get("timestamp"),
+            envelope.pointer("/anomaly/observed_at"),
+            envelope.pointer("/capacity_forecast/forecasted_at"),
+        ])
+    })
+    .unwrap_or_else(|| Utc::now().timestamp_millis())
+}
+
+fn first_unix_nano_ms(values: &[Option<&Value>]) -> Option<i64> {
+    values
+        .iter()
+        .filter_map(|value| value.and_then(Value::as_i64))
+        .find(|value| *value >= 0)
+        .map(|value| value / 1_000_000)
+}
+
+fn first_rfc3339_unix_ms(values: &[Option<&Value>]) -> Option<i64> {
+    values
+        .iter()
+        .filter_map(|value| value.and_then(Value::as_str))
+        .filter_map(|value| DateTime::parse_from_rfc3339(value).ok())
+        .map(|value| value.with_timezone(&Utc).timestamp_millis())
+        .next()
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -159,6 +196,7 @@ mod tests {
         assert_eq!(evidence.entity_uid, "sr:device:a");
         assert!(evidence.condition_met);
         assert_eq!(evidence.description, "Anomaly detected");
+        assert!(evidence.last_updated_unix_ms > 0);
     }
 
     #[test]
@@ -174,6 +212,19 @@ mod tests {
 
         assert_eq!(evidence.entity_uid, "disk_usage:host-a:/");
         assert_eq!(evidence.description, "disk will exhaust");
+    }
+
+    #[test]
+    fn parses_evidence_timestamp_from_payload() {
+        let evidence = parse_causal_prediction(&json!({
+            "signal_type": "causal",
+            "event_type": "anomaly",
+            "source_identity": {"entity_uid": "sr:device:a"},
+            "anomaly": {"observed_at_unix_nano": 1_781_260_800_123_000_000i64}
+        }))
+        .expect("evidence");
+
+        assert_eq!(evidence.last_updated_unix_ms, 1_781_260_800_123);
     }
 
     #[test]
@@ -194,12 +245,41 @@ mod tests {
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "anomaly".to_string(),
+            last_updated_unix_ms: 1_000,
         };
 
         assert!(apply_causal_evidence(&mut ctx, &evidence));
         assert_eq!(ctx.operator_rules.len(), 1);
         assert!(!apply_causal_evidence(&mut ctx, &evidence));
         assert_eq!(ctx.operator_rules.len(), 1);
+    }
+
+    #[test]
+    fn prunes_stale_operator_rule_evidence() {
+        let mut ctx = Context::default();
+        let fresh = CausalEvidence {
+            rule_id: "causal:anomaly:fresh".to_string(),
+            entity_uid: "sr:device:a".to_string(),
+            condition_met: true,
+            description: "fresh anomaly".to_string(),
+            last_updated_unix_ms: 10_000,
+        };
+        let stale = CausalEvidence {
+            rule_id: "causal:anomaly:stale".to_string(),
+            entity_uid: "sr:device:b".to_string(),
+            condition_met: true,
+            description: "stale anomaly".to_string(),
+            last_updated_unix_ms: 1_000,
+        };
+
+        assert!(apply_causal_evidence(&mut ctx, &fresh));
+        assert!(apply_causal_evidence(&mut ctx, &stale));
+
+        let pruned = crate::domain_model::prune_stale_operator_rules(&mut ctx, 10_000, 5_000);
+
+        assert_eq!(pruned, 1);
+        assert_eq!(ctx.operator_rules.len(), 1);
+        assert_eq!(ctx.operator_rules[0].rule_id, "causal:anomaly:fresh");
     }
 
     #[test]
@@ -247,6 +327,7 @@ mod tests {
             entity_uid: "sr:device:a".to_string(),
             condition_met: true,
             description: "anomaly open".to_string(),
+            last_updated_unix_ms: 1_000,
         };
 
         let resolved = CausalEvidence {

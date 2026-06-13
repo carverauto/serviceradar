@@ -6,6 +6,7 @@
 
 use std::time::Duration;
 
+use chrono::Utc;
 use tracing::{error, info, warn};
 
 use causal_engine::config::Config;
@@ -36,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let mut refresh = tokio::time::interval(Duration::from_millis(config.refresh_interval_ms));
     loop {
         tokio::select! {
-            _ = reason.tick() => match run_tick(&hydrator, &reasoner, &emitter).await {
+            _ = reason.tick() => match run_tick(&config, &hydrator, &reasoner, &emitter).await {
                 Ok(count) => info!(verdicts = count, "reasoning tick complete"),
                 Err(err) => error!(error = %err, "reasoning tick failed"),
             },
@@ -51,10 +52,22 @@ async fn main() -> anyhow::Result<()> {
 
 /// One fused reasoning tick: hydrate → reason → emit.
 async fn run_tick(
+    config: &Config,
     hydrator: &ContextHydrator,
     reasoner: &Reasoner,
     emitter: &Emitter,
 ) -> causal_engine::Result<usize> {
+    let pruned = hydrator
+        .prune_stale_operator_rules(
+            Utc::now().timestamp_millis(),
+            config.operator_rule_ttl_ms as i64,
+        )
+        .await;
+
+    if pruned > 0 {
+        info!(pruned, "pruned stale causal operator-rule evidence");
+    }
+
     let context = hydrator.current_context().await?;
     let verdicts = reasoner.evaluate(&context)?;
     emitter.emit(&verdicts).await?;
