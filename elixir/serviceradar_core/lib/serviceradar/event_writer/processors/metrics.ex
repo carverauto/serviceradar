@@ -30,9 +30,10 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
       Logger.debug("Metrics processor rejected unsupported messages", count: rejected)
     end
 
-    with :ok <- ingest_sysmon_messages(sysmon_messages),
-         {:ok, snmp_count} <- Telemetry.process_batch(snmp_messages) do
-      {:ok, length(sysmon_messages) + snmp_count}
+    sysmon_count = ingest_sysmon_messages(sysmon_messages)
+
+    with {:ok, snmp_count} <- Telemetry.process_batch(snmp_messages) do
+      {:ok, sysmon_count + snmp_count}
     end
   rescue
     e ->
@@ -119,10 +120,20 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   end
 
   defp ingest_sysmon_messages(sysmon_messages) do
-    Enum.reduce_while(sysmon_messages, :ok, fn %{payload: payload, status: status}, :ok ->
+    Enum.reduce(sysmon_messages, 0, fn %{payload: payload, status: status}, success_count ->
       case sysmon_ingestor().ingest(payload, status) do
-        :ok -> {:cont, :ok}
-        {:error, reason} -> {:halt, {:error, reason}}
+        :ok ->
+          success_count + 1
+
+        {:error, reason} ->
+          Logger.warning("Metrics processor skipped sysmon metric message",
+            reason: inspect(reason),
+            gateway_id: status[:gateway_id],
+            agent_id: status[:agent_id],
+            source: status[:source]
+          )
+
+          success_count
       end
     end)
   end

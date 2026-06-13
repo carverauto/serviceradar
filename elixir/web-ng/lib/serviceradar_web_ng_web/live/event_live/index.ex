@@ -35,6 +35,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
        informational: 0
      })
      |> assign(:finding_summary, Stats.empty_anomaly_findings_summary())
+     |> assign(:time_window, "last_7d")
      |> assign(:limit, @default_limit)
      |> stream(:events, [], dom_id: &event_dom_id/1)
      |> SRQLPage.init("events", default_limit: @default_limit)}
@@ -52,6 +53,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
      socket
      |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
      |> assign(:summary, summary)
+     |> assign(:time_window, time_window)
      |> assign(:finding_summary, finding_summary)}
   end
 
@@ -107,8 +109,8 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <div class="space-y-4">
-          <.event_summary summary={@summary} />
-          <.event_finding_summary summary={@finding_summary} />
+          <.event_summary summary={@summary} time_window={@time_window} />
+          <.event_finding_summary summary={@finding_summary} time_window={@time_window} />
 
           <.ui_panel>
             <:header>
@@ -140,6 +142,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   attr :summary, :map, required: true
+  attr :time_window, :string, required: true
 
   defp event_summary(assigns) do
     total = assigns.summary.total
@@ -170,7 +173,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           <.link patch={~p"/events"} class="btn btn-ghost btn-xs">All Events</.link>
           <.link
             patch={
-              ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:last_24h sort:time:desc"}}"
+              ~p"/events?#{%{q: "in:events severity:(Fatal,Critical,High) time:#{@time_window} sort:time:desc"}}"
             }
             class="btn btn-ghost btn-xs text-error"
           >
@@ -185,6 +188,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           total={@total}
           color="error"
           severity="Fatal"
+          time_window={@time_window}
         />
         <.severity_stat
           label="Critical"
@@ -192,16 +196,39 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
           total={@total}
           color="error"
           severity="Critical"
+          time_window={@time_window}
         />
-        <.severity_stat label="High" count={@high} total={@total} color="warning" severity="High" />
-        <.severity_stat label="Medium" count={@medium} total={@total} color="info" severity="Medium" />
-        <.severity_stat label="Low" count={@low} total={@total} color="success" severity="Low" />
+        <.severity_stat
+          label="High"
+          count={@high}
+          total={@total}
+          color="warning"
+          severity="High"
+          time_window={@time_window}
+        />
+        <.severity_stat
+          label="Medium"
+          count={@medium}
+          total={@total}
+          color="info"
+          severity="Medium"
+          time_window={@time_window}
+        />
+        <.severity_stat
+          label="Low"
+          count={@low}
+          total={@total}
+          color="success"
+          severity="Low"
+          time_window={@time_window}
+        />
         <.severity_stat
           label="Informational"
           count={@informational}
           total={@total}
           color="info"
           severity="Informational"
+          time_window={@time_window}
         />
       </div>
     </div>
@@ -209,6 +236,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   end
 
   attr :summary, :map, required: true
+  attr :time_window, :string, required: true
 
   defp event_finding_summary(assigns) do
     total = assigns.summary.total || 0
@@ -231,21 +259,21 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
         label="Anomaly findings"
         count={@anomalies}
         detail={"#{@critical} critical, #{@high} high"}
-        query="in:events source_type:anomaly_detection time:last_24h sort:time:desc"
+        query={"in:events source_type:anomaly_detection time:#{@time_window} sort:time:desc"}
         color="warning"
       />
       <.finding_stat
         label="At-risk capacity"
         count={@at_risk}
         detail="Projected exhaustion events"
-        query="in:events source:capacity_forecasting time:last_24h sort:time:desc"
+        query={"in:events source:capacity_forecasting time:#{@time_window} sort:time:desc"}
         color="error"
       />
       <.finding_stat
         label="Health findings"
         count={@total}
         detail="Anomaly and capacity signals"
-        query="in:events source_type:(anomaly_detection,capacity_forecasting) time:last_24h sort:time:desc"
+        query={"in:events source_type:(anomaly_detection,capacity_forecasting) time:#{@time_window} sort:time:desc"}
         color="info"
       />
     </div>
@@ -282,10 +310,11 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
   attr :total, :integer, required: true
   attr :color, :string, required: true
   attr :severity, :string, required: true
+  attr :time_window, :string, required: true
 
   defp severity_stat(assigns) do
     pct = if assigns.total > 0, do: round(assigns.count / assigns.total * 100), else: 0
-    query = "in:events severity:#{assigns.severity} time:last_24h sort:time:desc"
+    query = "in:events severity:#{assigns.severity} time:#{assigns.time_window} sort:time:desc"
 
     assigns =
       assigns
@@ -573,6 +602,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Index do
     socket
     |> stream(:events, socket.assigns.events, reset: true, dom_id: &event_dom_id/1)
     |> assign(:summary, summary)
+    |> assign(:time_window, time_window)
     |> assign(:finding_summary, finding_summary)
   end
 
