@@ -65,15 +65,14 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
         end)
         |> Enum.reject(&is_nil/1)
 
-      {ash_ocsf_rows, bulk_ocsf_rows} =
-        Enum.split_with(all_ocsf_rows, &inventory_vulnerability_finding_row?/1)
+      {ash_ocsf_rows, bulk_ocsf_rows} = Enum.split_with(all_ocsf_rows, &ash_recorded_row?/1)
 
       _ = insert_rows(@routing_table, routing_rows)
       bulk_ocsf_count = insert_rows(table_name(), bulk_ocsf_rows)
       recorded_ocsf_events = record_ocsf_events(ash_ocsf_rows)
 
-      enqueue_inventory_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
-      enqueue_inventory_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
+      enqueue_alert_evaluation(bulk_ocsf_rows, bulk_ocsf_count)
+      enqueue_alert_evaluation(recorded_ocsf_events, length(recorded_ocsf_events))
 
       ocsf_count = bulk_ocsf_count + length(recorded_ocsf_events)
       CausalPubSub.broadcast_ingest(%{count: ocsf_count})
@@ -94,6 +93,13 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       nil ->
         nil
     end
+  end
+
+  @doc false
+  def alert_evaluation_rows(ocsf_rows) when is_list(ocsf_rows) do
+    ocsf_rows
+    |> Enum.filter(&alert_evaluation_event_row?/1)
+    |> Enum.map(&alert_evaluation_row/1)
   end
 
   defp parse_components(%{data: data, metadata: metadata}) do
@@ -226,28 +232,34 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
 
   defp ocsf_event_exists?(_id, _time), do: false
 
-  defp enqueue_inventory_alert_evaluation(_ocsf_rows, inserted_count)
-       when not is_integer(inserted_count) or inserted_count <= 0, do: :ok
+  defp enqueue_alert_evaluation(_ocsf_rows, inserted_count)
+       when not is_integer(inserted_count) or inserted_count <= 0,
+       do: :ok
 
-  defp enqueue_inventory_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
+  defp enqueue_alert_evaluation(ocsf_rows, _inserted_count) when is_list(ocsf_rows) do
     ocsf_rows
-    |> Enum.filter(&inventory_event_row?/1)
-    |> Enum.map(&alert_evaluation_row/1)
+    |> alert_evaluation_rows()
     |> alert_evaluation_queue().enqueue_events()
     |> case do
       :ok ->
         :ok
 
       {:error, reason} ->
-        Logger.warning("Endpoint inventory alert evaluation enqueue failed",
+        Logger.warning("Causal signal alert evaluation enqueue failed",
           reason: inspect(reason)
         )
     end
   end
 
+  defp alert_evaluation_event_row?(row),
+    do: inventory_event_row?(row) or causal_prediction_row?(row)
+
   defp inventory_event_row?(%{metadata: %{"signal_type" => "inventory"}}), do: true
   defp inventory_event_row?(%{unmapped: %{"signal_type" => "inventory"}}), do: true
   defp inventory_event_row?(_row), do: false
+
+  defp ash_recorded_row?(row),
+    do: inventory_vulnerability_finding_row?(row) or causal_prediction_row?(row)
 
   defp inventory_vulnerability_finding_row?(
          %{class_uid: @ocsf_vulnerability_finding_class_uid} = row
@@ -256,6 +268,23 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
   end
 
   defp inventory_vulnerability_finding_row?(_row), do: false
+
+  defp causal_prediction_row?(%{class_uid: @ocsf_detection_finding_class_uid} = row) do
+    signal_type = row_value(row, "signal_type")
+    event_type = row_value(row, "event_type")
+
+    signal_type == "causal" and
+      event_type in ["anomaly", "anomaly_detection", "capacity_forecast"]
+  end
+
+  defp causal_prediction_row?(_row), do: false
+
+  defp row_value(row, key) when is_map(row) and is_binary(key) do
+    metadata = Map.get(row, :metadata) || Map.get(row, "metadata") || %{}
+    unmapped = Map.get(row, :unmapped) || Map.get(row, "unmapped") || %{}
+
+    Map.get(metadata, key) || Map.get(unmapped, key)
+  end
 
   defp alert_evaluation_row(%{id: <<_::128>> = id} = row) do
     case Ecto.UUID.load(id) do
@@ -1107,6 +1136,7 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
     [
       "anomaly",
       "finding",
+      "anomaly",
       @ocsf_detection_finding_class_uid,
       "anomaly_detection",
       device_uid,

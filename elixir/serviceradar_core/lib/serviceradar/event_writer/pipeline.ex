@@ -330,6 +330,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
     [
       {:logs, &log_subject?/1},
       {:default, &ignore_events_subject?/1},
+      {:causal_predictions, &causal_predictions_subject?/1},
       {:bmp_causal, &bmp_causal_subject?/1},
       {:arancini_causal, &arancini_causal_subject?/1},
       {:siem_causal, &siem_causal_subject?/1},
@@ -362,6 +363,11 @@ defmodule ServiceRadar.EventWriter.Pipeline do
       String.starts_with?(subject, "snmp.traps")
   end
 
+  defp causal_predictions_subject?(subject),
+    do:
+      subject == "signals.causal.predictions" or
+        String.starts_with?(subject, "signals.causal.predictions.")
+
   defp bmp_causal_subject?(subject),
     do:
       subject == "bmp.events" or String.starts_with?(subject, "bmp.events.") or
@@ -391,6 +397,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp get_processor(:bmp_causal), do: CausalSignals
   defp get_processor(:arancini_causal), do: CausalSignals
   defp get_processor(:siem_causal), do: CausalSignals
+  defp get_processor(:causal_predictions), do: CausalSignals
   defp get_processor(:causal_signals), do: CausalSignals
   defp get_processor(:logs), do: ServiceRadar.EventWriter.Processors.Logs
   defp get_processor(:metrics), do: Metrics

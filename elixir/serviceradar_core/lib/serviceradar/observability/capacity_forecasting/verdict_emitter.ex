@@ -29,6 +29,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       "event_id" => event_id(attrs),
       "signal_type" => "causal",
       "event_type" => @event_type,
+      "status" => "open",
+      "finding_type" => "detection",
+      "class_uid" => 2004,
       "signal_domain" => "health",
       "signal_domains" => ["health"],
       "timestamp" => iso8601(Map.get(attrs, :forecasted_at)),
@@ -37,7 +40,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       "source" => "serviceradar",
       "collector" => "capacity_forecasting_worker",
       "device_id" => string_value(Map.get(attrs, :resource_id)),
+      "device_uid" => string_value(Map.get(attrs, :resource_id)),
       "message" => message(attrs, exhaustion_at),
+      "finding_info" => finding_info(attrs),
       "capacity_forecast" => capacity_payload(attrs),
       "explainability" => %{
         "classification" => @event_type,
@@ -58,6 +63,55 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       },
       "source_subject" => subject
     }
+  end
+
+  defp finding_info(attrs) do
+    uid = finding_uid(attrs)
+    resource_key = string_value(Map.get(attrs, :resource_key))
+    resource_id = string_value(Map.get(attrs, :resource_id))
+    metric_name = string_value(Map.get(attrs, :metric_name))
+
+    %{
+      "uid" => uid,
+      "group_uid" => uid,
+      "title" => "Capacity forecast: #{metric_name || "capacity"} #{resource_key || "resource"}",
+      "type" => "ServiceRadar Capacity Forecast",
+      "type_id" => 99,
+      "source" => @provider,
+      "dimensions" =>
+        %{
+          "class_uid" => 2004,
+          "source" => @provider,
+          "resource_key" => resource_key,
+          "resource_id" => resource_id,
+          "metric_class" => string_value(Map.get(attrs, :metric_class)),
+          "metric_name" => metric_name,
+          "horizon_seconds" => Map.get(attrs, :horizon_seconds)
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new()
+    }
+  end
+
+  defp finding_uid(attrs) do
+    stable_key =
+      Enum.map_join(
+        [
+          @event_type,
+          2004,
+          @provider,
+          Map.get(attrs, :resource_id),
+          Map.get(attrs, :resource_key),
+          Map.get(attrs, :metric_name),
+          Map.get(attrs, :horizon_seconds)
+        ],
+        ":",
+        &string_value/1
+      )
+
+    :crypto.hash(:sha256, "capacity_forecast:finding:#{stable_key}")
+    |> binary_part(0, 16)
+    |> Ecto.UUID.load!()
   end
 
   @spec subject(map()) :: String.t()

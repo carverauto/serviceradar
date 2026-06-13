@@ -45,9 +45,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert decoded["event_id"] == VerdictEmitter.event_id(@forecast)
     assert decoded["signal_type"] == "causal"
     assert decoded["event_type"] == "capacity_forecast"
+    assert decoded["finding_type"] == "detection"
+    assert decoded["class_uid"] == 2004
     assert decoded["signal_domain"] == "health"
     assert decoded["severity_id"] == 5
     assert decoded["device_id"] == "device-a"
+    assert decoded["device_uid"] == "device-a"
+    assert decoded["finding_info"]["source"] == "capacity_forecasting"
     assert decoded["capacity_forecast"]["projected_exhaustion_at"] == "2026-06-12T22:00:00Z"
   end
 
@@ -69,7 +73,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
 
     assert row
     assert row.id == replayed_row.id
-    assert row.type_uid == 100_810
+    assert row.class_uid == 2004
+    assert row.type_uid == 200_401
     assert row.severity_id == 5
     assert row.severity == "Critical"
     assert row.device == %{"uid" => "device-a"}
@@ -77,6 +82,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert row.metadata["signal_type"] == "causal"
     assert row.metadata["event_type"] == "capacity_forecast"
     assert row.metadata["primary_domain"] == "health"
+    assert [alert_row] = CausalSignals.alert_evaluation_rows([row])
+    assert alert_row.id == row.metadata["event_identity"]
     assert row.unmapped["capacity_forecast"]["resource_key"] == @forecast.resource_key
   end
 end

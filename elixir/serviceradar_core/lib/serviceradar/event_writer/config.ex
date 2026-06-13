@@ -242,6 +242,14 @@ defmodule ServiceRadar.EventWriter.Config do
         batch_timeout: 1_000
       },
       %{
+        name: "CAUSAL_PREDICTIONS",
+        stream_name: "events",
+        subject: "signals.causal.predictions.>",
+        processor: CausalSignals,
+        batch_size: 100,
+        batch_timeout: 1_000
+      },
+      %{
         name: "SFLOW_RAW",
         subject: "flows.raw.sflow",
         processor: Flows,
