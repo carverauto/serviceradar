@@ -33,6 +33,22 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
     assert read_action.get?
   end
 
+  test "resource mirrors the warning horizon cross-field constraint in Ash and Postgres" do
+    validations = Info.validations(CapacityForecastConfig)
+    check_constraints = PostgresInfo.check_constraints(CapacityForecastConfig)
+
+    assert Enum.any?(validations, fn validation ->
+             validation.module == Ash.Resource.Validation.Compare and
+               validation.opts[:attribute] == :warning_horizon_seconds and
+               validation.opts[:less_than_or_equal_to] == {:ref, :forecast_horizon_seconds}
+           end)
+
+    assert Enum.any?(check_constraints, fn constraint ->
+             constraint.name == "capacity_forecast_configs_horizon_check" and
+               constraint.attribute == :warning_horizon_seconds
+           end)
+  end
+
   test "resource captures required forecast defaults and class overrides" do
     attributes = CapacityForecastConfig |> Info.attributes() |> Map.new(&{&1.name, &1})
 
@@ -48,7 +64,7 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
              ["cpu", "disk", "interface", "memory"]
   end
 
-  test "migration creates seeded platform forecast config with guard constraints" do
+  test "migration creates unseeded platform forecast config with guard constraints" do
     migration = File.read!(@migration_path)
 
     assert migration =~ "create table(:capacity_forecast_configs"
@@ -56,7 +72,7 @@ defmodule ServiceRadar.Observability.CapacityForecastConfigTest do
     assert migration =~ "warning_horizon_seconds <= forecast_horizon_seconds"
     assert migration =~ "warning_threshold_percent >= 1.0"
     assert migration =~ "model IN ('linear', 'seasonal_linear', 'holt_winters')"
-    assert migration =~ "INSERT INTO platform.capacity_forecast_configs"
+    refute migration =~ "INSERT INTO platform.capacity_forecast_configs"
     refute migration =~ "public.capacity_forecast_configs"
   end
 end

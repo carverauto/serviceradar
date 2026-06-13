@@ -32,6 +32,13 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     table "capacity_forecast_configs"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :warning_horizon_seconds, "capacity_forecast_configs_horizon_check",
+        check:
+          "forecast_horizon_seconds >= 3600 AND warning_horizon_seconds >= 3600 AND warning_horizon_seconds <= forecast_horizon_seconds",
+        message: "must be less than or equal to forecast horizon"
+    end
   end
 
   code_interface do
@@ -67,6 +74,13 @@ defmodule ServiceRadar.Observability.CapacityForecastConfig do
     system_bypass()
     read_with_permission(@manage_check)
     action_with_permission([:create, :update], @manage_check)
+  end
+
+  validations do
+    validate compare(:warning_horizon_seconds,
+               less_than_or_equal_to: {:ref, :forecast_horizon_seconds}
+             ),
+             message: "must be less than or equal to forecast horizon"
   end
 
   attributes do
