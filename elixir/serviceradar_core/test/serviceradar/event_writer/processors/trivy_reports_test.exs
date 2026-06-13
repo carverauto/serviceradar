@@ -88,7 +88,15 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReportsTest do
       assert row.metadata["version"] == "1.9.0-dev"
       assert row.metadata["product"]["name"] == "Trivy"
       assert row.metadata["resource"] == "Pod/demo/nginx-123"
+      assert row.metadata["finding_info"]["uid"] == "8aa6cadf-7244-49ff-ac99-7108e2921423"
+      assert row.metadata["finding_info"]["group_uid"] == row.metadata["finding_info"]["uid"]
+      assert row.metadata["finding_info"]["title"] == row.message
+      assert row.metadata["finding_info"]["source"] == "trivy"
+      assert row.metadata["finding_info"]["dimensions"]["resource_kind"] == "Pod"
+      assert row.metadata["finding_info"]["dimensions"]["resource_name"] == "nginx-123"
+      assert row.metadata["security_signal"]["finding_uid"] == row.metadata["finding_info"]["uid"]
       assert row.metadata["service_radar"]["source_type"] == "trivy"
+      assert row.metadata["service_radar"]["finding_uid"] == row.metadata["finding_info"]["uid"]
       assert row.metadata["service_radar"]["device_hostname"] == "worker-1"
       assert row.metadata["service_radar"]["pod_uid"] == "pod-uid-1"
       assert row.src_endpoint[:ip] == "10.42.0.25"

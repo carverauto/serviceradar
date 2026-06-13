@@ -623,7 +623,9 @@ fn apply_finding_uid_filter<'a>(
 
             format!(
                 "metadata #>> '{{finding_info,uid}}' = {literal} OR \
-                 metadata #>> '{{security_signal,finding_uid}}' = {literal}"
+                 metadata #>> '{{security_signal,finding_uid}}' = {literal} OR \
+                 metadata #>> '{{uid}}' = {literal} OR \
+                 metadata #>> '{{event_id}}' = {literal}"
             )
         })
         .map(|clause| format!("({clause})"))
