@@ -694,6 +694,13 @@ cnpg:
     enabled: false
     policyName: cnpg-allow-local-dev-postgres
     allowedCIDRs: []
+  applicationAccess:
+    # CNPG NetworkPolicy allowing ServiceRadar workloads in the release namespace
+    # to reach the primary on PostgreSQL. Keep this enabled when Helm manages
+    # CNPG; otherwise any other ingress policy selecting the primary can
+    # unintentionally isolate the database from migrations and app pods.
+    enabled: true
+    policyName: ""
   pooler:
     # CNPG-managed PgBouncer pooler for web/core traffic.
     # Set enabled=false to route all workloads directly to CNPG.
