@@ -215,6 +215,9 @@ networkPolicy:
       - envoy-gateway-system
       # Prometheus runs in this namespace and scrapes ServiceRadar and CNPG metrics.
       - monitoring
+      # Falco runs as a DaemonSet in this namespace and posts runtime events to
+      # the falcosidekick receiver deployed with the demo ServiceRadar stack.
+      - falco
     cnpgOperator:
       enabled: true
     monitoring:
