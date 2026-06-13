@@ -3,8 +3,13 @@ defmodule ServiceRadar.Observability.Zen.Normalizer do
   In-process Zen rule normalization for core EventWriter ingestion.
   """
 
-  alias ServiceRadar.Observability.Zen.Native
+  import Ash.Expr
 
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Observability.Zen.Native
+  alias ServiceRadar.Observability.ZenRule
+
+  require Ash.Query
   require Logger
 
   @rule_groups %{
@@ -47,19 +52,136 @@ defmodule ServiceRadar.Observability.Zen.Normalizer do
   @spec rules_for_subject(String.t() | nil) ::
           {:ok, [{String.t(), String.t()}]} | {:error, term()}
   def rules_for_subject(subject) when is_binary(subject) do
-    rule_names = Map.get(@rule_groups, normalized_subject(subject), [])
+    subject = normalized_subject(subject)
+
+    case cached_runtime_rules(subject) do
+      {:ok, rules} ->
+        {:ok, rules}
+
+      {:error, reason} ->
+        Logger.warning("Zen DB rule lookup failed; falling back to bundled rules",
+          subject: subject,
+          reason: inspect(reason)
+        )
+
+        bundled_rules_for_subject(subject)
+    end
+  end
+
+  def rules_for_subject(_subject), do: {:ok, []}
+
+  @doc false
+  @spec invalidate_subject(String.t() | nil) :: :ok
+  def invalidate_subject(subject) when is_binary(subject) do
+    :persistent_term.erase({__MODULE__, :runtime_rules, normalized_subject(subject)})
+    :ok
+  end
+
+  def invalidate_subject(_subject), do: :ok
+
+  @doc false
+  @spec invalidate_rule(%{optional(atom()) => term()}) :: :ok
+  def invalidate_rule(%{subject: subject}), do: invalidate_subject(subject)
+  def invalidate_rule(_rule), do: :ok
+
+  @doc false
+  @spec invalidate_all() :: :ok
+  def invalidate_all do
+    key = {__MODULE__, :runtime_rules_known_subjects}
+
+    key
+    |> :persistent_term.get([])
+    |> Enum.each(fn subject ->
+      :persistent_term.erase({__MODULE__, :runtime_rules, subject})
+    end)
+
+    :persistent_term.erase(key)
+    :ok
+  end
+
+  defp bundled_rules_for_subject(subject) do
+    rule_names = Map.get(@rule_groups, subject, [])
 
     rule_names
     |> Enum.map(&load_rule/1)
     |> collect_rules()
   end
 
-  def rules_for_subject(_subject), do: {:ok, []}
-
   defp normalized_subject(subject) do
     subject
     |> String.trim()
     |> String.replace_suffix(".processed", "")
+  end
+
+  defp cached_runtime_rules(subject) do
+    key = {__MODULE__, :runtime_rules, subject}
+
+    case :persistent_term.get(key, :missing) do
+      :missing ->
+        with {:ok, rules} <- load_runtime_rules(subject) do
+          :persistent_term.put(key, {:ok, rules})
+          remember_subject(subject)
+          {:ok, rules}
+        end
+
+      cached ->
+        cached
+    end
+  end
+
+  defp load_runtime_rules(subject) do
+    case runtime_rule_loader() do
+      nil -> load_runtime_rules_from_db(subject)
+      loader -> loader.load_rules(subject)
+    end
+  end
+
+  defp load_runtime_rules_from_db(subject) do
+    if repo_enabled?() do
+      ZenRule
+      |> Ash.Query.for_read(:active, %{})
+      |> Ash.Query.filter(expr(subject == ^subject and stream_name == "events"))
+      |> Ash.Query.sort(order: :asc, inserted_at: :asc)
+      |> Ash.read(actor: SystemActor.system(:zen_normalizer))
+      |> case do
+        {:ok, rules} -> encode_runtime_rules(rules)
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:error, :repo_unavailable}
+    end
+  end
+
+  defp encode_runtime_rules(rules) do
+    rules
+    |> Enum.map(fn %ZenRule{name: name, compiled_jdm: compiled_jdm} ->
+      with {:ok, encoded} <- Jason.encode(compiled_jdm) do
+        {:ok, {name, encoded}}
+      end
+    end)
+    |> collect_rules()
+  end
+
+  defp repo_enabled? do
+    Application.get_env(:serviceradar_core, :repo_enabled, true) != false &&
+      is_pid(Process.whereis(ServiceRadar.Repo))
+  end
+
+  defp runtime_rule_loader do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(:runtime_rule_loader)
+  end
+
+  defp remember_subject(subject) do
+    key = {__MODULE__, :runtime_rules_known_subjects}
+
+    known =
+      key
+      |> :persistent_term.get([])
+      |> Enum.uniq()
+
+    :persistent_term.put(key, Enum.uniq([subject | known]))
   end
 
   defp load_rule(name) do
