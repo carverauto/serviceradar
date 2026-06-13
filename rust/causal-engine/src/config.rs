@@ -3,6 +3,7 @@
 
 use serde::Deserialize;
 
+use crate::domain_model::DEFAULT_OPERATOR_RULE_TTL_MS;
 use crate::error::{CausalEngineError, Result};
 
 /// Runtime configuration for the fused engine.
@@ -36,6 +37,9 @@ pub struct Config {
     /// On-disk Context snapshot path for fast restart (task 1.7).
     #[serde(default = "default_snapshot_path")]
     pub snapshot_path: String,
+    /// Maximum age for live operator-rule evidence in milliseconds. Set to 0 to disable pruning.
+    #[serde(default = "default_operator_rule_ttl_ms")]
+    pub operator_rule_ttl_ms: u64,
 }
 
 fn default_cnpg_host() -> String {
@@ -60,6 +64,10 @@ fn default_refresh_interval_ms() -> u64 {
 
 fn default_snapshot_path() -> String {
     "/var/lib/serviceradar/causal-engine/snapshot".to_string()
+}
+
+fn default_operator_rule_ttl_ms() -> u64 {
+    DEFAULT_OPERATOR_RULE_TTL_MS as u64
 }
 
 impl Config {

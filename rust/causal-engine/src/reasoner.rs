@@ -939,12 +939,14 @@ mod tests {
                     entity_uid: "sr:device:x".to_string(),
                     condition_met: true,
                     description: "cpu > 95% for 10m".to_string(),
+                    last_updated_unix_ms: 1_000,
                 },
                 OperatorRule {
                     rule_id: "rule-2".to_string(),
                     entity_uid: "sr:device:y".to_string(),
                     condition_met: false,
                     description: "unmet".to_string(),
+                    last_updated_unix_ms: 1_000,
                 },
             ],
             ..Default::default()
