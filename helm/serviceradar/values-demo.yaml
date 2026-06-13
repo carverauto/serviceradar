@@ -477,6 +477,14 @@ core:
   #   baselineTickMs: 60000
   #   consensusCohortRetentionMs: 300000
   logPromotionConsumerEnabled: true
+  anomalyAnalysis:
+    enabled: true
+    natsUrl: "tls://serviceradar-nats:4222"
+    natsCredsFile: "/etc/serviceradar/creds/platform.creds"
+    natsTls: true
+  capacityForecasting:
+    enabled: true
+    emitVerdicts: true
   mtrAutomation:
     enabled: true
     baselineEnabled: true

@@ -34,7 +34,9 @@
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
 {{- $ansibleVals := default (dict) $coreVals.ansible -}}
+{{- $anomalyAnalysis := default (dict) $coreVals.anomalyAnalysis -}}
 {{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
+{{- $capacityForecasting := default (dict) $coreVals.capacityForecasting -}}
 {{- $capacityForecastConfig := default (dict) $coreVals.capacityForecastConfig -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
@@ -298,18 +300,44 @@ spec:
           value: {{ default 30 $anomalyConfig.minSamples | quote }}
         - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
+        - name: ANOMALY_ANALYSIS_CONSUMER_ENABLED
+          value: {{ default false $anomalyAnalysis.enabled | quote }}
+        - name: ANOMALY_ANALYSIS_NATS_CREDS_FILE
+          value: {{ default "/etc/serviceradar/creds/platform.creds" $anomalyAnalysis.natsCredsFile | quote }}
+        - name: ANOMALY_ANALYSIS_NATS_URL
+          value: {{ default "tls://serviceradar-nats:4222" $anomalyAnalysis.natsUrl | quote }}
+        - name: ANOMALY_ANALYSIS_NATS_TLS
+          value: {{ default true $anomalyAnalysis.natsTls | quote }}
+        {{- if $anomalyAnalysis.enabledSubjects }}
+        - name: ANOMALY_ANALYSIS_ENABLED_SUBJECTS
+          value: {{ $anomalyAnalysis.enabledSubjects | quote }}
+        {{- end }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
-          value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | quote }}
+          value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS
-          value: {{ default 2592000 $capacityForecastConfig.warningHorizonSeconds | quote }}
+          value: {{ default 2592000 $capacityForecastConfig.warningHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_THRESHOLD_PERCENT
           value: {{ default 80.0 $capacityForecastConfig.warningThresholdPercent | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MODEL
           value: {{ default "linear" $capacityForecastConfig.model | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_MINIMUM_HISTORY_POINTS
-          value: {{ default 72 $capacityForecastConfig.minimumHistoryPoints | quote }}
+          value: {{ default 72 $capacityForecastConfig.minimumHistoryPoints | int | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $capacityForecastConfig.metricClassOverrides | toJson | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_ENABLED
+          value: {{ default true $capacityForecasting.enabled | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_CRON
+          value: {{ default "41 * * * *" $capacityForecasting.cron | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_EMIT_VERDICTS
+          value: {{ default true $capacityForecasting.emitVerdicts | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS
+          value: {{ coalesce $capacityForecasting.horizonSeconds $capacityForecastConfig.forecastHorizonSeconds 7776000 | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_WARNING_HORIZON_SECONDS
+          value: {{ coalesce $capacityForecasting.warningHorizonSeconds $capacityForecastConfig.warningHorizonSeconds 2592000 | int64 | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS
+          value: {{ coalesce $capacityForecasting.minPoints $capacityForecastConfig.minimumHistoryPoints 72 | int | quote }}
+        - name: SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD
+          value: {{ default 24 $capacityForecasting.seasonalPeriod | int | quote }}
         - name: SYNC_INGESTOR_BATCH_CONCURRENCY
           value: {{ default 2 $syncIngestor.batchConcurrency | quote }}
         - name: SYNC_INGESTOR_COALESCE_MS
