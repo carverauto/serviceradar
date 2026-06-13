@@ -234,7 +234,9 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
     replaced =
       Enum.map(previous, fn frame ->
-        Map.get(update_by_id, frame["id"], frame)
+        update_by_id
+        |> Map.get(frame["id"], frame)
+        |> preserve_previous_results_on_error(frame)
       end)
 
     appended =
@@ -244,6 +246,22 @@ defmodule ServiceRadarWebNGWeb.DashboardFrameChannel do
 
     replaced ++ appended
   end
+
+  defp preserve_previous_results_on_error(%{"status" => "error"} = update, previous) when is_map(previous) do
+    previous_results = Map.get(previous, "results", [])
+
+    if previous["status"] == "ok" and is_list(previous_results) and previous_results != [] do
+      update
+      |> Map.put("results", previous_results)
+      |> Map.put("stale", true)
+      |> Map.put("stale_reason", Map.get(update, "error") || "frame_refresh_failed")
+      |> Map.put("last_success_status", "ok")
+    else
+      update
+    end
+  end
+
+  defp preserve_previous_results_on_error(update, _previous), do: update
 
   defp refresh_ms(value) when is_integer(value), do: value |> max(@min_refresh_ms) |> min(@max_refresh_ms)
 
