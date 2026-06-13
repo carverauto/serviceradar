@@ -256,7 +256,7 @@ func (*SNMPClientImpl) convertVariable(variable gosnmp.SnmpPDU) (interface{}, er
 		gosnmp.Integer:          convertInteger,
 		gosnmp.ObjectIdentifier: convertObjectIdentifier,
 		gosnmp.IPAddress:        convertIPAddress,
-		gosnmp.Counter32:        convertCounter32Gauge32,
+		gosnmp.Counter32:        convertCounter32,
 		gosnmp.Gauge32:          convertCounter32Gauge32,
 		gosnmp.Counter64:        convertCounter64,
 		gosnmp.TimeTicks:        convertTimeTicks,
@@ -363,8 +363,12 @@ func convertCounter32Gauge32(variable gosnmp.SnmpPDU) interface{} {
 	return uint64(variable.Value.(uint))
 }
 
+func convertCounter32(variable gosnmp.SnmpPDU) interface{} {
+	return CounterValue{Value: uint64(variable.Value.(uint)), Width: 32}
+}
+
 func convertCounter64(variable gosnmp.SnmpPDU) interface{} {
-	return variable.Value.(uint64)
+	return CounterValue{Value: variable.Value.(uint64), Width: 64}
 }
 
 func convertTimeTicks(variable gosnmp.SnmpPDU) interface{} {

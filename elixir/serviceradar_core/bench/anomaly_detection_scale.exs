@@ -6,7 +6,7 @@
 #
 # Useful knobs:
 #
-#   ANOMALY_BENCH_MODE=owner|reasoner
+#   ANOMALY_BENCH_MODE=owner|reasoner|compact|compact_shards|compact_ets_shards|counter_normalizer
 #   ANOMALY_BENCH_SERIES=50000
 #   ANOMALY_BENCH_BASELINE=12
 #   ANOMALY_BENCH_WINDOW=300
@@ -20,7 +20,9 @@
 
 defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   @moduledoc false
+  alias ServiceRadar.Observability.AnomalyDetection.CompactEvaluator
   alias ServiceRadar.Observability.AnomalyDetection.ContextOwner
+  alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.CausalReasoner
 
   @detector_opts [
@@ -61,33 +63,15 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     started_at = System.monotonic_time()
 
     result =
-      1..series_count
-      |> Task.async_stream(
-        &run_series(
-          &1,
-          mode,
-          baseline_count,
-          window_size,
-          anomaly_count,
-          rollup_samples_per_eval
-        ),
-        max_concurrency: concurrency,
-        timeout: :infinity,
-        ordered: false
+      run_benchmark(
+        mode,
+        series_count,
+        baseline_count,
+        window_size,
+        anomaly_count,
+        rollup_samples_per_eval,
+        concurrency
       )
-      |> Enum.reduce(%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn
-        {:ok, metrics}, acc ->
-          %{
-            evaluations: acc.evaluations + metrics.evaluations,
-            raw_samples: acc.raw_samples + metrics.raw_samples,
-            confirmed: acc.confirmed + metrics.confirmed,
-            failed: acc.failed
-          }
-
-        {:exit, reason}, acc ->
-          IO.puts("series task failed: #{inspect(reason)}")
-          %{acc | failed: acc.failed + 1}
-      end)
 
     elapsed_ns = System.monotonic_time() - started_at
     :erlang.garbage_collect()
@@ -111,6 +95,207 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     failed_series=#{result.failed}
     memory_delta_mb=#{Float.round(memory_delta_mb, 2)}
     """)
+  end
+
+  defp run_benchmark(
+         "counter_normalizer",
+         series_count,
+         baseline_count,
+         _window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency
+       ) do
+    table =
+      :ets.new(:counter_normalizer_bench, [
+        :set,
+        :public,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
+    sample_count = baseline_count + anomaly_count
+    raw_count = sample_count * rollup_samples_per_eval
+    shard_count = min(concurrency, series_count)
+
+    try do
+      1..shard_count
+      |> Task.async_stream(
+        fn shard ->
+          shard
+          |> Range.new(series_count, shard_count)
+          |> Enum.reduce(%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn index,
+                                                                                        acc ->
+            metrics = run_counter_normalizer_series(index, raw_count, table)
+            merge_metrics(acc, metrics)
+          end)
+        end,
+        max_concurrency: shard_count,
+        timeout: :infinity,
+        ordered: false
+      )
+      |> reduce_task_results()
+    after
+      :ets.delete(table)
+    end
+  end
+
+  defp run_benchmark(
+         "compact_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency
+       ) do
+    shard_count = min(concurrency, series_count)
+
+    1..shard_count
+    |> Task.async_stream(
+      fn shard ->
+        shard
+        |> Range.new(series_count, shard_count)
+        |> Enum.reduce(%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn index,
+                                                                                      acc ->
+          metrics =
+            run_series(
+              index,
+              "compact",
+              baseline_count,
+              window_size,
+              anomaly_count,
+              rollup_samples_per_eval
+            )
+
+          merge_metrics(acc, metrics)
+        end)
+      end,
+      max_concurrency: shard_count,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp run_benchmark(
+         "compact_ets_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency
+       ) do
+    shard_count = min(concurrency, series_count)
+
+    1..shard_count
+    |> Task.async_stream(
+      fn shard ->
+        shard
+        |> Range.new(series_count, shard_count)
+        |> run_compact_ets_shard(
+          baseline_count,
+          window_size,
+          anomaly_count,
+          rollup_samples_per_eval
+        )
+      end,
+      max_concurrency: shard_count,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp run_benchmark(
+         mode,
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency
+       ) do
+    1..series_count
+    |> Task.async_stream(
+      &run_series(
+        &1,
+        mode,
+        baseline_count,
+        window_size,
+        anomaly_count,
+        rollup_samples_per_eval
+      ),
+      max_concurrency: concurrency,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp reduce_task_results(stream) do
+    Enum.reduce(stream, %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn
+      {:ok, metrics}, acc ->
+        merge_metrics(acc, metrics)
+
+      {:exit, reason}, acc ->
+        IO.puts("series task failed: #{inspect(reason)}")
+        %{acc | failed: acc.failed + 1}
+    end)
+  end
+
+  defp merge_metrics(acc, metrics) do
+    %{
+      evaluations: acc.evaluations + metrics.evaluations,
+      raw_samples: acc.raw_samples + metrics.raw_samples,
+      confirmed: acc.confirmed + metrics.confirmed,
+      failed: acc.failed + Map.get(metrics, :failed, 0)
+    }
+  end
+
+  defp run_compact_ets_shard(
+         series_indexes,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval
+       ) do
+    table = :ets.new(:anomaly_bench_shard, [:set, :private])
+
+    try do
+      Enum.each(series_indexes, fn index ->
+        :ets.insert(table, {index, compact_state(window_size)})
+      end)
+
+      slot_count = baseline_count + anomaly_count
+
+      Enum.reduce(
+        1..slot_count,
+        %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+        fn slot, metrics ->
+          Enum.reduce(series_indexes, metrics, fn index, metrics ->
+            dataset = dataset(index)
+            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+            state = :ets.lookup_element(table, index, 2)
+
+            {state, verdict} =
+              CompactEvaluator.evaluate(state, %{value: value, observed_at_unix_nano: slot})
+
+            :ets.insert(table, {index, state})
+
+            %{
+              metrics
+              | evaluations: metrics.evaluations + 1,
+                raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                confirmed: metrics.confirmed + confirmed?(verdict)
+            }
+          end)
+        end
+      )
+    after
+      :ets.delete(table)
+    end
   end
 
   defp run_series(
@@ -179,8 +364,55 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     %{evaluations: evaluations, raw_samples: raw_samples, confirmed: confirmed}
   end
 
+  defp run_series(
+         index,
+         "compact",
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval
+       ) do
+    dataset = dataset(index)
+    raw_samples = (baseline_count + anomaly_count) * rollup_samples_per_eval
+
+    state = compact_state(window_size)
+
+    {evaluations, confirmed, _state} =
+      dataset
+      |> samples(baseline_count, anomaly_count, rollup_samples_per_eval)
+      |> Enum.reduce({0, 0, state}, fn {_event_id, order, value},
+                                       {evaluations, confirmed, state} ->
+        {state, verdict} =
+          CompactEvaluator.evaluate(state, %{value: value, observed_at_unix_nano: order})
+
+        {evaluations + 1, confirmed + confirmed?(verdict), state}
+      end)
+
+    %{evaluations: evaluations, raw_samples: raw_samples, confirmed: confirmed, failed: 0}
+  end
+
   defp run_series(_index, mode, _baseline_count, _window_size, _anomaly_count, _rollup_samples) do
-    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner or reasoner"
+    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, reasoner, compact, compact_shards, compact_ets_shards, or counter_normalizer"
+  end
+
+  defp run_counter_normalizer_series(index, raw_count, table) do
+    series_key = "bench:counter:agent-#{index}:ifHCInOctets"
+
+    emitted =
+      Enum.reduce(1..raw_count, 0, fn order, emitted ->
+        value = 1_000_000_000_000 + order * 1_000
+        timestamp = order * 1_000_000_000
+
+        case CounterNormalizer.normalize_sample(
+               counter_sample(series_key, value, timestamp),
+               table
+             ) do
+          {:ok, _sample} -> emitted + 1
+          {:drop, _reason} -> emitted
+        end
+      end)
+
+    %{evaluations: emitted, raw_samples: raw_count, confirmed: 0, failed: 0}
   end
 
   defp dataset(index) do
@@ -244,6 +476,25 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     normal ++ anomalies
   end
 
+  defp slot_value(dataset, slot, baseline_count, rollup_samples_per_eval) do
+    if slot <= baseline_count do
+      normal_rollup_value(dataset, slot, rollup_samples_per_eval)
+    else
+      anomaly_rollup_value(dataset, slot - baseline_count, rollup_samples_per_eval)
+    end
+  end
+
+  defp compact_state(window_size) do
+    CompactEvaluator.new(%{
+      baseline: [],
+      min_samples: 10,
+      window_size: window_size,
+      n_sigma: 3.0,
+      confirm_slots: 3,
+      consecutive_anomalous: 0
+    })
+  end
+
   defp normal_rollup_value(dataset, order, rollup_samples_per_eval) do
     order
     |> raw_sample_orders(rollup_samples_per_eval)
@@ -277,6 +528,25 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       subject: dataset.subject,
       metric_class: dataset.metric_class,
       metadata: %{}
+    }
+  end
+
+  defp counter_sample(series_key, value, timestamp) do
+    %{
+      series_key: series_key,
+      event_id: "#{series_key}:#{timestamp}",
+      order_key: {timestamp, "#{series_key}:#{timestamp}"},
+      value: value,
+      observed_at_unix_nano: timestamp,
+      subject: "otel.metrics.raw",
+      metric_class: "otel.metric_point",
+      metadata: %{
+        metric_type: "sum",
+        temporality: "cumulative",
+        is_monotonic: true,
+        unit: "By",
+        start_time_unix_nano: 1
+      }
     }
   end
 

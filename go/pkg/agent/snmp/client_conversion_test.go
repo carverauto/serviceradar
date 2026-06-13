@@ -117,9 +117,29 @@ func TestCollectChunkResults_SkipsUnsupportedInstanceButKeepsValidResults(t *tes
 
 	require.NoError(t, err)
 	require.Equal(t, map[string]interface{}{
-		".1.3.6.1.2.1.2.2.1.10.3": uint64(1234),
-		".1.3.6.1.2.1.2.2.1.16.3": uint64(5678),
+		".1.3.6.1.2.1.2.2.1.10.3": CounterValue{Value: 1234, Width: 32},
+		".1.3.6.1.2.1.2.2.1.16.3": CounterValue{Value: 5678, Width: 32},
 	}, results)
+}
+
+func TestConvertVariable_PreservesCounterWidth(t *testing.T) {
+	client := &SNMPClientImpl{}
+
+	counter32, err := client.convertVariable(gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.2.2.1.10.3",
+		Type:  gosnmp.Counter32,
+		Value: uint(1234),
+	})
+	require.NoError(t, err)
+	require.Equal(t, CounterValue{Value: 1234, Width: 32}, counter32)
+
+	counter64, err := client.convertVariable(gosnmp.SnmpPDU{
+		Name:  ".1.3.6.1.2.1.31.1.1.1.6.3",
+		Type:  gosnmp.Counter64,
+		Value: uint64(9_007_199_254_740_993),
+	})
+	require.NoError(t, err)
+	require.Equal(t, CounterValue{Value: 9_007_199_254_740_993, Width: 64}, counter64)
 }
 
 func TestCollectChunkResults_ReturnsFatalConversionErrors(t *testing.T) {
