@@ -8,6 +8,7 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
 
   use Ash.Resource.Change
 
+  alias ServiceRadar.Observability.Zen.Normalizer, as: ZenNormalizer
   alias ServiceRadar.Observability.ZenRuleSync
 
   require Logger
@@ -47,14 +48,18 @@ defmodule ServiceRadar.Observability.Changes.SyncZenRule do
   end
 
   defp sync_rule_action(:destroy, _changeset, rule) do
+    ZenNormalizer.invalidate_rule(rule)
     maybe_log(ZenRuleSync.delete_rule(rule))
     {:ok, rule}
   end
 
   defp sync_rule_action(action_type, changeset, rule) do
     if action_type == :update and key_fields_changed?(changeset.data, rule) do
+      ZenNormalizer.invalidate_rule(changeset.data)
       maybe_log(ZenRuleSync.delete_rule(changeset.data))
     end
+
+    ZenNormalizer.invalidate_rule(rule)
 
     case ZenRuleSync.sync_rule(rule) do
       {:ok, _revision} ->
