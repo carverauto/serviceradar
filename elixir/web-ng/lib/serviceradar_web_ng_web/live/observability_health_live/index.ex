@@ -1,0 +1,441 @@
+defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
+  @moduledoc false
+  use ServiceRadarWebNGWeb, :live_view
+
+  require Logger
+
+  @anomaly_query "in:events source_type:anomaly_detection time:last_24h sort:time:desc limit:25"
+  @health_query "in:events source_type:(anomaly_detection,capacity_forecasting) time:last_24h sort:time:desc limit:25"
+  @capacity_query "in:capacity_forecasts status:projected sort:projected_exhaustion_at:asc limit:25"
+
+  @impl true
+  def mount(_params, _session, socket) do
+    {:ok,
+     socket
+     |> assign(:page_title, "Observability Health")
+     |> assign(:loading?, connected?(socket))
+     |> assign(:overview, empty_overview(:loading))}
+  end
+
+  @impl true
+  def handle_params(_params, _uri, socket) do
+    if connected?(socket) do
+      {:noreply,
+       socket
+       |> assign(:loading?, false)
+       |> assign(:overview, load_overview(socket.assigns.current_scope))}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <Layouts.app flash={@flash} current_scope={@current_scope}>
+      <div class="mx-auto max-w-7xl p-6 space-y-5">
+        <.observability_chrome
+          active_pane="health"
+          title="Observability Health"
+          subtitle="Anomaly findings, capacity runway, and causal-health signals in one fleet view."
+        />
+
+        <div
+          :if={@overview.status == :error}
+          class="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
+        >
+          Observability health queries failed. Check the application logs for the SRQL error.
+        </div>
+
+        <section class="grid gap-3 md:grid-cols-3">
+          <.health_stat
+            label="Anomaly findings"
+            value={@overview.anomaly_count}
+            detail="Recent anomaly-detection events"
+            href={observability_href(@overview.anomaly_query)}
+            tone="warning"
+          />
+          <.health_stat
+            label="At-risk capacity"
+            value={@overview.capacity_count}
+            detail="Projected capacity rows"
+            href={observability_href(@overview.capacity_query)}
+            tone="error"
+          />
+          <.health_stat
+            label="Health findings"
+            value={@overview.health_count}
+            detail="Anomaly and capacity event stream"
+            href={observability_href(@overview.health_query)}
+            tone="info"
+          />
+        </section>
+
+        <section class="grid gap-5 xl:grid-cols-[1.2fr_0.8fr]">
+          <div class="rounded-lg border border-base-200 bg-base-100">
+            <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+              <div>
+                <h2 class="text-base font-semibold">Capacity Runway</h2>
+                <p class="text-xs text-base-content/60">
+                  Forecast rows ordered by projected exhaustion.
+                </p>
+              </div>
+              <.link navigate={observability_href(@overview.capacity_query)} class="btn btn-xs">
+                Open SRQL
+              </.link>
+            </div>
+
+            <div class="overflow-x-auto">
+              <table class="table table-sm">
+                <thead>
+                  <tr>
+                    <th>Resource</th>
+                    <th>Metric</th>
+                    <th>Status</th>
+                    <th>Current</th>
+                    <th>Projected</th>
+                    <th>Exhaustion</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr :if={@overview.capacity_rows == []}>
+                    <td colspan="6" class="py-8 text-center text-base-content/60">
+                      No projected capacity risks found.
+                    </td>
+                  </tr>
+                  <tr :for={row <- @overview.capacity_rows}>
+                    <td class="max-w-64 truncate">{resource_label(row)}</td>
+                    <td>{value(row, "metric_name") || "unknown"}</td>
+                    <td>
+                      <span class={["badge badge-sm", status_badge_class(value(row, "status"))]}>
+                        {value(row, "status") || "unknown"}
+                      </span>
+                    </td>
+                    <td>{format_number(value(row, "current_value"))}</td>
+                    <td>{format_number(value(row, "projected_value"))}</td>
+                    <td class="whitespace-nowrap">
+                      {format_timestamp(value(row, "projected_exhaustion_at"))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <div class="space-y-3">
+            <div class="rounded-lg border border-base-200 bg-base-100 px-5 py-4">
+              <h2 class="text-base font-semibold">Worst Forecasts</h2>
+              <p class="text-xs text-base-content/60">
+                Current to projected movement for the nearest-risk resources.
+              </p>
+            </div>
+
+            <.forecast_card :for={row <- Enum.take(@overview.capacity_rows, 4)} row={row} />
+            <div
+              :if={@overview.capacity_rows == []}
+              class="rounded-lg border border-base-200 bg-base-100 p-5 text-sm text-base-content/60"
+            >
+              No forecast rows to visualize yet.
+            </div>
+          </div>
+        </section>
+
+        <section class="rounded-lg border border-base-200 bg-base-100">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-base-200 px-5 py-4">
+            <div>
+              <h2 class="text-base font-semibold">Recent Anomaly Findings</h2>
+              <p class="text-xs text-base-content/60">
+                Detection findings from the causal anomaly spine.
+              </p>
+            </div>
+            <.link navigate={observability_href(@overview.anomaly_query)} class="btn btn-xs">
+              Open events
+            </.link>
+          </div>
+
+          <div class="divide-y divide-base-200">
+            <div :if={@overview.anomaly_rows == []} class="p-6 text-sm text-base-content/60">
+              No anomaly findings found in the last 24 hours.
+            </div>
+            <article :for={row <- @overview.anomaly_rows} class="px-5 py-4">
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="truncate text-sm font-semibold">
+                    {finding_title(row)}
+                  </div>
+                  <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
+                    <span>
+                      {value(row, "source_type") || value(row, "log_provider") || "anomaly"}
+                    </span>
+                    <span :if={device_label(row)}>{device_label(row)}</span>
+                    <span>{format_timestamp(value(row, "time"))}</span>
+                  </div>
+                </div>
+                <span class={["badge badge-sm", severity_badge_class(value(row, "severity"))]}>
+                  {value(row, "severity") || "Unknown"}
+                </span>
+              </div>
+            </article>
+          </div>
+        </section>
+      </div>
+    </Layouts.app>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :integer, required: true
+  attr :detail, :string, required: true
+  attr :href, :string, required: true
+  attr :tone, :string, default: "base"
+
+  defp health_stat(assigns) do
+    ~H"""
+    <.link
+      navigate={@href}
+      class="block rounded-lg border border-base-200 bg-base-100 p-4 hover:border-primary/40"
+    >
+      <div class="text-xs font-semibold uppercase tracking-normal text-base-content/60">{@label}</div>
+      <div class={["mt-2 text-3xl font-semibold", stat_tone_class(@tone)]}>{@value}</div>
+      <div class="mt-1 text-xs text-base-content/60">{@detail}</div>
+    </.link>
+    """
+  end
+
+  attr :row, :map, required: true
+
+  defp forecast_card(assigns) do
+    current = number_value(assigns.row, "current_value")
+    projected = number_value(assigns.row, "projected_value")
+    threshold = number_value(assigns.row, "exhaustion_threshold")
+    scale = Enum.max([current || 0.0, projected || 0.0, threshold || 0.0, 1.0])
+
+    assigns =
+      assigns
+      |> assign(:current, current)
+      |> assign(:projected, projected)
+      |> assign(:threshold, threshold)
+      |> assign(:current_width, percent_width(current, scale))
+      |> assign(:projected_width, percent_width(projected, scale))
+      |> assign(:threshold_width, percent_width(threshold, scale))
+
+    ~H"""
+    <article class="rounded-lg border border-base-200 bg-base-100 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="truncate text-sm font-semibold">{resource_label(@row)}</div>
+          <div class="mt-1 text-xs text-base-content/60">
+            {value(@row, "metric_name") || "metric"}
+          </div>
+        </div>
+        <span class={["badge badge-sm", status_badge_class(value(@row, "status"))]}>
+          {value(@row, "status") || "unknown"}
+        </span>
+      </div>
+
+      <div class="mt-4 space-y-2">
+        <.forecast_bar label="Current" value={@current} width={@current_width} class="bg-info" />
+        <.forecast_bar
+          label="Projected"
+          value={@projected}
+          width={@projected_width}
+          class="bg-warning"
+        />
+        <.forecast_bar label="Threshold" value={@threshold} width={@threshold_width} class="bg-error" />
+      </div>
+
+      <div class="mt-3 text-xs text-base-content/60">
+        Exhaustion {format_timestamp(value(@row, "projected_exhaustion_at"))}
+      </div>
+    </article>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :float, default: nil
+  attr :width, :string, required: true
+  attr :class, :string, required: true
+
+  defp forecast_bar(assigns) do
+    ~H"""
+    <div>
+      <div class="mb-1 flex items-center justify-between gap-3 text-xs">
+        <span class="text-base-content/60">{@label}</span>
+        <span class="font-mono">{format_number(@value)}</span>
+      </div>
+      <div class="h-2 rounded-full bg-base-200">
+        <div class={["h-2 rounded-full", @class]} style={"width: #{@width};"} />
+      </div>
+    </div>
+    """
+  end
+
+  defp load_overview(scope) do
+    with {:ok, anomaly_response} <- srql_module().query(@anomaly_query, %{scope: scope}),
+         {:ok, health_response} <- srql_module().query(@health_query, %{scope: scope}),
+         {:ok, capacity_response} <- srql_module().query(@capacity_query, %{scope: scope}) do
+      anomaly_rows = rows(anomaly_response)
+      health_rows = rows(health_response)
+      capacity_rows = rows(capacity_response)
+
+      %{
+        status: :ok,
+        anomaly_query: @anomaly_query,
+        health_query: @health_query,
+        capacity_query: @capacity_query,
+        anomaly_rows: anomaly_rows,
+        health_rows: health_rows,
+        capacity_rows: capacity_rows,
+        anomaly_count: length(anomaly_rows),
+        health_count: length(health_rows),
+        capacity_count: length(capacity_rows)
+      }
+    else
+      {:error, reason} ->
+        Logger.warning("Failed to load observability health overview: #{inspect(reason)}")
+        empty_overview(:error)
+    end
+  end
+
+  defp empty_overview(status) do
+    %{
+      status: status,
+      anomaly_query: @anomaly_query,
+      health_query: @health_query,
+      capacity_query: @capacity_query,
+      anomaly_rows: [],
+      health_rows: [],
+      capacity_rows: [],
+      anomaly_count: 0,
+      health_count: 0,
+      capacity_count: 0
+    }
+  end
+
+  defp rows(%{"results" => rows}) when is_list(rows), do: rows
+  defp rows(%{results: rows}) when is_list(rows), do: rows
+  defp rows(_response), do: []
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
+
+  defp observability_href(query) do
+    "/observability?" <> URI.encode_query(%{tab: "events", q: query, limit: 50})
+  end
+
+  defp value(%{} = row, key), do: Map.get(row, key) || Map.get(row, known_atom_key(key))
+  defp value(_row, _key), do: nil
+
+  defp nested_value(value, []), do: value
+
+  defp nested_value(%{} = row, [key | rest]) do
+    row
+    |> value(key)
+    |> nested_value(rest)
+  end
+
+  defp nested_value(_row, _path), do: nil
+
+  defp known_atom_key("device"), do: :device
+  defp known_atom_key("finding_title"), do: :finding_title
+  defp known_atom_key("finding_uid"), do: :finding_uid
+  defp known_atom_key("log_provider"), do: :log_provider
+  defp known_atom_key("message"), do: :message
+  defp known_atom_key("metadata"), do: :metadata
+  defp known_atom_key("metric_name"), do: :metric_name
+  defp known_atom_key("name"), do: :name
+  defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
+  defp known_atom_key("raw_data"), do: :raw_data
+  defp known_atom_key("resource_id"), do: :resource_id
+  defp known_atom_key("resource_key"), do: :resource_key
+  defp known_atom_key("resource_label"), do: :resource_label
+  defp known_atom_key("severity"), do: :severity
+  defp known_atom_key("short_message"), do: :short_message
+  defp known_atom_key("source_type"), do: :source_type
+  defp known_atom_key("status"), do: :status
+  defp known_atom_key("time"), do: :time
+  defp known_atom_key("uid"), do: :uid
+  defp known_atom_key(_), do: nil
+
+  defp resource_label(row) do
+    value(row, "resource_label") || value(row, "resource_key") || value(row, "resource_id") ||
+      "Unknown resource"
+  end
+
+  defp finding_title(row) do
+    value(row, "finding_title") ||
+      nested_value(row, ["metadata", "finding_info", "title"]) ||
+      value(row, "message") ||
+      value(row, "short_message") ||
+      "Anomaly finding"
+  end
+
+  defp device_label(row) do
+    nested_value(row, ["device", "name"]) || nested_value(row, ["device", "uid"])
+  end
+
+  defp number_value(row, key) do
+    case value(row, key) do
+      value when is_number(value) -> value * 1.0
+      value when is_binary(value) -> parse_float(value)
+      _ -> nil
+    end
+  end
+
+  defp parse_float(value) do
+    case Float.parse(value) do
+      {float, _rest} -> float
+      :error -> nil
+    end
+  end
+
+  defp percent_width(nil, _scale), do: "0%"
+  defp percent_width(_value, scale) when scale <= 0, do: "0%"
+
+  defp percent_width(value, scale) do
+    percent = value / scale * 100.0
+    "#{min(max(percent, 0.0), 100.0)}%"
+  end
+
+  defp format_number(nil), do: "-"
+
+  defp format_number(value) when is_integer(value), do: Integer.to_string(value)
+
+  defp format_number(value) when is_float(value) do
+    :erlang.float_to_binary(value, decimals: 2)
+  end
+
+  defp format_number(value) when is_binary(value), do: value
+  defp format_number(_value), do: "-"
+
+  defp format_timestamp(nil), do: "-"
+
+  defp format_timestamp(%DateTime{} = value) do
+    Calendar.strftime(value, "%Y-%m-%d %H:%M UTC")
+  end
+
+  defp format_timestamp(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _offset} -> format_timestamp(dt)
+      _ -> value
+    end
+  end
+
+  defp format_timestamp(value), do: to_string(value)
+
+  defp stat_tone_class("warning"), do: "text-warning"
+  defp stat_tone_class("error"), do: "text-error"
+  defp stat_tone_class("info"), do: "text-info"
+  defp stat_tone_class(_tone), do: "text-base-content"
+
+  defp status_badge_class(status) when status in ["at_risk", "exhaustion_projected"], do: "badge-error"
+  defp status_badge_class("projected"), do: "badge-warning"
+  defp status_badge_class("skipped"), do: "badge-ghost"
+  defp status_badge_class(_status), do: "badge-outline"
+
+  defp severity_badge_class(severity) when severity in ["Critical", "critical", "Fatal", "fatal"], do: "badge-error"
+  defp severity_badge_class(severity) when severity in ["High", "high"], do: "badge-warning"
+  defp severity_badge_class(severity) when severity in ["Medium", "medium"], do: "badge-info"
+  defp severity_badge_class(_severity), do: "badge-ghost"
+end

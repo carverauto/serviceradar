@@ -152,6 +152,7 @@ pub fn meta_for_plan(plan: &QueryPlan) -> Option<VizMeta> {
         Entity::TraceSummaries => observability::trace_summaries(),
         Entity::OtelMetrics => observability::otel_metrics(),
         Entity::OtelMetricPoints => observability::otel_metric_points(),
+        Entity::CapacityForecasts => observability::capacity_forecasts(),
         Entity::TimeseriesMetrics
         | Entity::TimeseriesMetricInterfaceHourly
         | Entity::SnmpMetrics

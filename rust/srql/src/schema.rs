@@ -532,6 +532,40 @@ diesel::table! {
 diesel::table! {
     use diesel::sql_types::*;
 
+    capacity_forecasts (forecasted_at, resource_key, metric_name, horizon_seconds) {
+        forecasted_at -> Timestamptz,
+        resource_key -> Text,
+        resource_type -> Text,
+        resource_id -> Text,
+        resource_label -> Nullable<Text>,
+        metric_class -> Text,
+        metric_name -> Text,
+        horizon_seconds -> Int8,
+        horizon_ends_at -> Timestamptz,
+        window_started_at -> Nullable<Timestamptz>,
+        window_ended_at -> Nullable<Timestamptz>,
+        sample_count -> Int4,
+        model -> Text,
+        status -> Text,
+        skip_reason -> Nullable<Text>,
+        current_value -> Nullable<Float8>,
+        slope_per_second -> Nullable<Float8>,
+        intercept -> Nullable<Float8>,
+        projected_value -> Nullable<Float8>,
+        projected_exhaustion_at -> Nullable<Timestamptz>,
+        exhaustion_threshold -> Nullable<Float8>,
+        confidence -> Nullable<Float8>,
+        lower_bound -> Nullable<Float8>,
+        upper_bound -> Nullable<Float8>,
+        metadata -> Jsonb,
+        inserted_at -> Timestamptz,
+        updated_at -> Timestamptz,
+    }
+}
+
+diesel::table! {
+    use diesel::sql_types::*;
+
     cpu_metrics (timestamp, gateway_id, core_id) {
         timestamp -> Timestamptz,
         gateway_id -> Text,

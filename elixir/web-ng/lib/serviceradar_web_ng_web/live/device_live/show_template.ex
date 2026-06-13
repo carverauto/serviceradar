@@ -3,6 +3,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   use ServiceRadarWebNGWeb, :html
 
   import ServiceRadarWebNGWeb.DeviceLive.AgentComponents
+  import ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents
   import ServiceRadarWebNGWeb.DeviceLive.AvailabilityComponents
   import ServiceRadarWebNGWeb.DeviceLive.BumblebeeComponents
   import ServiceRadarWebNGWeb.DeviceLive.CameraComponents
@@ -242,6 +243,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.process_metrics_section
                 :if={@sysmon_metrics_visible and is_list(@process_metrics)}
                 metrics={@process_metrics}
+              />
+
+              <.anomaly_capacity_section
+                :if={@can_view_anomaly_capacity}
+                overview={@anomaly_capacity}
               />
 
               <%= for panel <- @panels do %>
