@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   @max_frame_timeout_ms 30_000
   @default_frame_concurrency 6
   @event_frame_entities ~w(events security_findings scan_activity dns_activity)
+  @synthetic_frame_fields ~w(resolved_device_uid)
 
   @spec run([map()], term(), keyword()) :: [map()]
   def run(data_frames, scope, opts \\ [])
@@ -50,6 +51,7 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     query = normalize_string(frame["query"] || frame[:query])
     requested_encoding = normalize_string(frame["encoding"] || frame[:encoding]) || "json_rows"
     limit = frame_limit(frame["limit"] || frame[:limit], default_limit)
+    fields = frame_fields(frame)
 
     base = %{
       "id" => id,
@@ -65,10 +67,10 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
         Map.merge(base, %{"status" => "error", "error" => "missing query", "results" => []})
 
       requested_encoding == "arrow_ipc" ->
-        run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit)
+        run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
 
       true ->
-        run_json_frame(base, query, scope, srql_module, device_resolver, limit)
+        run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
     end
   end
 
@@ -86,13 +88,13 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     }
   end
 
-  defp run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit) do
+  defp run_arrow_or_json_frame(base, query, scope, srql_module, device_resolver, limit, fields) do
     case run_arrow_frame(base, query, scope, srql_module, limit) do
       {:ok, frame} ->
         frame
 
       {:fallback, _reason} ->
-        run_json_frame(base, query, scope, srql_module, device_resolver, limit)
+        run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields)
 
       {:error, reason} ->
         error_frame(base, reason)
@@ -139,10 +141,13 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
     })
   end
 
-  defp run_json_frame(base, query, scope, srql_module, device_resolver, limit) do
+  defp run_json_frame(base, query, scope, srql_module, device_resolver, limit, fields) do
     case srql_module.query(query, %{scope: scope, limit: limit}) do
       {:ok, %{"results" => results} = response} when is_list(results) ->
-        results = maybe_enrich_event_results(query, results, device_resolver)
+        results =
+          query
+          |> maybe_enrich_event_results(results, device_resolver)
+          |> project_results(fields)
 
         Map.merge(base, %{
           "status" => "ok",
@@ -188,6 +193,41 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
   end
 
   defp enrich_event_result(row, _device_resolver), do: row
+
+  defp project_results(results, nil), do: results
+
+  defp project_results(results, fields) when is_list(fields) do
+    Enum.map(results, &project_result(&1, fields))
+  end
+
+  defp project_result(row, fields) when is_map(row) do
+    fields
+    |> Enum.concat(@synthetic_frame_fields)
+    |> Enum.reduce(%{}, fn field, acc ->
+      case fetch_projected_value(row, field) do
+        {:ok, value} -> Map.put(acc, field, value)
+        :error -> acc
+      end
+    end)
+  end
+
+  defp project_result(row, _fields), do: row
+
+  defp fetch_projected_value(row, field) when is_binary(field) do
+    if Map.has_key?(row, field) do
+      {:ok, Map.get(row, field)}
+    else
+      atom_field = String.to_existing_atom(field)
+
+      if Map.has_key?(row, atom_field) do
+        {:ok, Map.get(row, atom_field)}
+      else
+        :error
+      end
+    end
+  rescue
+    ArgumentError -> :error
+  end
 
   defp resolve_device_uid(row, device_resolver) do
     candidate = device_candidate(row)
@@ -411,6 +451,31 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunner do
       true -> nil
     end
   end
+
+  defp frame_fields(frame) when is_map(frame) do
+    frame
+    |> frame_value("fields", :fields)
+    |> normalize_fields()
+  end
+
+  defp frame_fields(_frame), do: nil
+
+  defp normalize_fields(fields) when is_list(fields) do
+    fields
+    |> Enum.map(&normalize_field/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> case do
+      [] -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_fields(_fields), do: nil
+
+  defp normalize_field(field) when is_atom(field), do: field |> Atom.to_string() |> normalize_string()
+  defp normalize_field(field) when is_binary(field), do: normalize_string(field)
+  defp normalize_field(_field), do: nil
 
   defp frame_limit(opts) when is_list(opts) do
     opts |> Keyword.get(:limit, @default_frame_limit) |> frame_limit(@default_frame_limit)
