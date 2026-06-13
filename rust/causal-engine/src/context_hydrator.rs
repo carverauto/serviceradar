@@ -92,9 +92,10 @@ impl ContextHydrator {
         Ok(hydrator)
     }
 
-    /// Re-snapshot current state from CNPG, replace the shared `Context`, and
-    /// persist it to disk. Called periodically to reconcile and pick up new
-    /// entities; live `signals.state.>` deltas keep the `Context` current between.
+    /// Re-snapshot current state from CNPG, reconcile the shared `Context`, and
+    /// persist it to disk. Called periodically to pick up new entities; live
+    /// `signals.state.>` and `signals.causal.>` deltas keep non-SRQL state
+    /// current between refreshes.
     pub async fn refresh(&self) -> Result<()> {
         let devices = self.query("in:devices").await?;
         let services = self.query("in:services").await?;
@@ -109,17 +110,15 @@ impl ContextHydrator {
                 Vec::new()
             }
         };
-        let context = Context {
-            devices: devices.iter().filter_map(map_device).collect(),
-            services: services.iter().filter_map(map_service).collect(),
-            edges,
-            // TODO(1.2b): populate links (interface flow/capacity), flows
-            // (attributed_flow), bgp_routes, and operator_rules (stateful_alert_
-            // rules) via on-demand SRQL queries as those feeds come online; the
-            // saturation/BGP/operator-rule causaloids no-op on empty collections.
-            ..Default::default()
+        let devices = devices.iter().filter_map(map_device).collect();
+        let services = services.iter().filter_map(map_service).collect();
+        let context = {
+            let mut guard = self.ctx.write().await;
+
+            reconcile_hydrated_context(&mut guard, devices, services, edges);
+            guard.clone()
         };
-        *self.ctx.write().await = context.clone();
+
         if let Err(err) = self.snapshot.save(&context) {
             warn!(error = %err, "context snapshot save failed");
         }
@@ -156,6 +155,19 @@ impl ContextHydrator {
 
         Ok(response.results)
     }
+}
+
+fn reconcile_hydrated_context(
+    context: &mut Context,
+    devices: Vec<Device>,
+    services: Vec<Service>,
+    edges: Vec<TopologyEdge>,
+) {
+    context.devices = devices;
+    context.services = services;
+    context.edges = edges;
+    // Preserve live-managed collections. They are updated by NATS subscribers
+    // and do not currently have an SRQL source in refresh().
 }
 
 #[async_trait]
@@ -259,8 +271,14 @@ fn parse_topology_edges(results: &[serde_json::Value]) -> Vec<TopologyEdge> {
 
 #[cfg(test)]
 mod tests {
-    use super::{edge_kind_from_label, map_device, map_service, parse_topology_edges};
-    use crate::domain_model::EdgeKind;
+    use super::{
+        edge_kind_from_label, map_device, map_service, parse_topology_edges,
+        reconcile_hydrated_context,
+    };
+    use crate::domain_model::{
+        AttributedFlow, BgpRoute, Context, Device, EdgeKind, InterfaceLink, OperatorRule, Service,
+        TopologyEdge,
+    };
     use serde_json::json;
 
     #[test]
@@ -350,5 +368,75 @@ mod tests {
             cypher_edge("sr:device:a", "sr:device:b", "HAS_INTERFACE"), // unmodeled label
         ];
         assert!(parse_topology_edges(&results).is_empty());
+    }
+
+    #[test]
+    fn reconcile_hydrated_context_preserves_live_managed_collections() {
+        let mut context = Context {
+            devices: vec![Device {
+                uid: "sr:device:old".to_string(),
+                is_available: Some(false),
+                ..Default::default()
+            }],
+            services: vec![Service {
+                id: "agent:old:service".to_string(),
+                available: Some(false),
+            }],
+            edges: vec![TopologyEdge::new(
+                "sr:device:old",
+                "sr:device:other",
+                EdgeKind::ConnectsTo,
+            )],
+            links: vec![InterfaceLink {
+                src: "sr:device:a".to_string(),
+                dst: "sr:device:b".to_string(),
+                flow_bps: Some(10),
+                capacity_bps: Some(100),
+            }],
+            flows: vec![AttributedFlow {
+                src_uid: "sr:device:a".to_string(),
+                dst_uid: "sr:device:b".to_string(),
+                src_risk_score: Some(4),
+            }],
+            bgp_routes: vec![BgpRoute {
+                prefix: "10.0.0.0/24".to_string(),
+                withdrawn: true,
+                origin_uid: "sr:device:router".to_string(),
+                downstream_uids: vec!["sr:device:leaf".to_string()],
+            }],
+            operator_rules: vec![OperatorRule {
+                rule_id: "causal-anomaly:sr:device:a:cpu".to_string(),
+                entity_uid: "sr:device:a".to_string(),
+                condition_met: true,
+                description: "anomaly evidence".to_string(),
+            }],
+        };
+
+        reconcile_hydrated_context(
+            &mut context,
+            vec![Device {
+                uid: "sr:device:new".to_string(),
+                is_available: Some(true),
+                ..Default::default()
+            }],
+            vec![Service {
+                id: "agent:new:service".to_string(),
+                available: Some(true),
+            }],
+            vec![TopologyEdge::new(
+                "sr:device:new",
+                "sr:device:peer",
+                EdgeKind::ManagedBy,
+            )],
+        );
+
+        assert_eq!(context.devices[0].uid, "sr:device:new");
+        assert_eq!(context.services[0].id, "agent:new:service");
+        assert_eq!(context.edges[0].kind, EdgeKind::ManagedBy);
+        assert_eq!(context.links.len(), 1);
+        assert_eq!(context.flows.len(), 1);
+        assert_eq!(context.bgp_routes.len(), 1);
+        assert_eq!(context.operator_rules.len(), 1);
+        assert_eq!(context.operator_rules[0].description, "anomaly evidence");
     }
 }
