@@ -350,10 +350,16 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     metadata =
       payload
       |> build_event_metadata(subject, context)
+      |> Map.put("finding_info", build_finding_info(payload, context, event_uuid, message))
+      |> Map.put("security_signal", %{
+        "source" => "trivy",
+        "finding_uid" => finding_uid(payload, event_uuid)
+      })
       |> Map.put("service_radar", %{
         "source_log_id" => log_uuid,
         "promotion" => "trivy_priority_auto",
         "source_type" => "trivy",
+        "finding_uid" => finding_uid(payload, event_uuid),
         "agent_id" => agent_id,
         "device_uid" => device_uid,
         "device_hostname" => context["node_name"],
@@ -1124,6 +1130,33 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     }
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
+  end
+
+  defp build_finding_info(payload, context, event_uuid, message) do
+    uid = finding_uid(payload, event_uuid)
+
+    %{
+      "uid" => uid,
+      "group_uid" => uid,
+      "title" => message,
+      "source" => "trivy",
+      "dimensions" =>
+        %{}
+        |> maybe_put("report_kind", normalize_string(payload["report_kind"]))
+        |> maybe_put("cluster_id", normalize_string(payload["cluster_id"]))
+        |> maybe_put("namespace", context["resource_namespace"])
+        |> maybe_put("resource_kind", context["resource_kind"])
+        |> maybe_put("resource_name", context["resource_name"])
+        |> maybe_put("pod_name", context["pod_name"])
+        |> maybe_put("pod_uid", context["pod_uid"])
+        |> maybe_put("node_name", context["node_name"])
+    }
+  end
+
+  defp finding_uid(payload, event_uuid) do
+    normalize_string(payload["event_id"]) ||
+      normalize_string(payload["uid"]) ||
+      event_uuid
   end
 
   defp trivy_finding_class_uid(payload, context) do

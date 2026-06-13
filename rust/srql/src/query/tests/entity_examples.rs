@@ -235,8 +235,10 @@ fn security_findings_finding_uid_matches_metadata_contract() {
     assert!(
         lower.contains("metadata #>> '{finding_info,uid}'")
             && lower.contains("metadata #>> '{security_signal,finding_uid}'")
+            && lower.contains("metadata #>> '{uid}'")
+            && lower.contains("metadata #>> '{event_id}'")
             && lower.contains("finding-1"),
-        "expected finding_uid filter to include Falco finding metadata contract, got: {sql}"
+        "expected finding_uid filter to include canonical and legacy finding metadata contracts, got: {sql}"
     );
 }
 

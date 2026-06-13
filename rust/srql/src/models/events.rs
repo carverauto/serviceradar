@@ -111,8 +111,14 @@ impl EventRow {
         let finding_uid = first_non_blank([
             json_path_string(&self.metadata, &["finding_info", "uid"]),
             json_path_string(&self.metadata, &["security_signal", "finding_uid"]),
+            json_path_string(&self.metadata, &["event_id"]),
+            json_path_string(&self.metadata, &["uid"]),
         ]);
-        let finding_title = json_path_string(&self.metadata, &["finding_info", "title"]);
+        let finding_title = first_non_blank([
+            json_path_string(&self.metadata, &["finding_info", "title"]),
+            json_path_string(&self.metadata, &["title"]),
+            message.clone(),
+        ]);
 
         serde_json::json!({
             "time": self.time,
@@ -217,6 +223,67 @@ fn json_path_string(value: &Value, path: &[&str]) -> Option<String> {
         Value::String(value) if !value.trim().is_empty() => Some(value.clone()),
         Value::Number(value) => Some(value.to_string()),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn event_row(metadata: Value, message: Option<String>) -> EventRow {
+        EventRow {
+            time: DateTime::parse_from_rfc3339("2026-06-13T12:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc),
+            id: Uuid::parse_str("11111111-1111-4111-8111-111111111111").unwrap(),
+            class_uid: 2002,
+            category_uid: 2,
+            type_uid: 200201,
+            activity_id: 1,
+            activity_name: Some("Create".to_owned()),
+            severity_id: Some(4),
+            severity: Some("High".to_owned()),
+            message,
+            status_id: Some(2),
+            status: Some("Failure".to_owned()),
+            status_code: None,
+            status_detail: None,
+            metadata: DbJson(metadata),
+            observables: DbJson(serde_json::json!([])),
+            trace_id: None,
+            span_id: None,
+            actor: DbJson(serde_json::json!({})),
+            device: DbJson(serde_json::json!({})),
+            src_endpoint: DbJson(serde_json::json!({})),
+            dst_endpoint: DbJson(serde_json::json!({})),
+            log_name: Some("trivy.report.vulnerability".to_owned()),
+            log_provider: Some("trivy".to_owned()),
+            log_level: Some("HIGH".to_owned()),
+            log_version: Some("1.0".to_owned()),
+            unmapped: DbJson(serde_json::json!({})),
+            raw_data: None,
+            created_at: DateTime::parse_from_rfc3339("2026-06-13T12:00:01Z")
+                .unwrap()
+                .with_timezone(&Utc),
+        }
+    }
+
+    #[test]
+    fn event_row_projects_legacy_finding_identity_metadata() {
+        let json = event_row(
+            serde_json::json!({
+                "event_id": "legacy-trivy-event",
+                "uid": "legacy-trivy-report"
+            }),
+            Some("Trivy HIGH finding on Pod/demo/nginx".to_owned()),
+        )
+        .into_json();
+
+        assert_eq!(json["finding_uid"], "legacy-trivy-event");
+        assert_eq!(
+            json["finding_title"],
+            "Trivy HIGH finding on Pod/demo/nginx"
+        );
     }
 }
 
