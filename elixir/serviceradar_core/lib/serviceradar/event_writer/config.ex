@@ -215,7 +215,7 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_discard: "old",
         stream_max_bytes: 1_073_741_824,
         stream_max_age: 1_800_000_000_000,
-        consumer_max_deliver: -1
+        consumer_max_deliver: 5
       },
       %{
         name: "BMP_CAUSAL",

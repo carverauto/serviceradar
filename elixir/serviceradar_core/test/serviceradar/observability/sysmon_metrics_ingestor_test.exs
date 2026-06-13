@@ -136,6 +136,24 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestorTest do
              upsert_opts(actor, :unique_process_metric)
   end
 
+  test "partial bulk insert success does not poison the sysmon chunk" do
+    actor = SystemActor.system(:sysmon_metrics_ingestor_test)
+
+    result = %Ash.BulkResult{
+      status: :partial_success,
+      errors: [%{error: "bad row"}]
+    }
+
+    assert :ok =
+             SysmonMetricsIngestor.handle_bulk_result(
+               result,
+               CpuMetric,
+               [%{core_id: 0}, %{core_id: 1}],
+               actor,
+               true
+             )
+  end
+
   test "normalizes chunk size config values safely" do
     assert SysmonMetricsIngestor.normalize_chunk_size(500) == 500
     assert SysmonMetricsIngestor.normalize_chunk_size("250") == 250
