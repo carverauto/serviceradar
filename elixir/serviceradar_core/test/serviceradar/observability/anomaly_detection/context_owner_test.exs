@@ -298,6 +298,24 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert Enum.map(checkpoint.updates, & &1.event_id) == ["e1", "e2"]
   end
 
+  test "checkpoint revision conflict stops the owner" do
+    previous_trap_exit = Process.flag(:trap_exit, true)
+    on_exit(fn -> Process.flag(:trap_exit, previous_trap_exit) end)
+
+    {:ok, pid} =
+      start_owner(
+        checkpoint_store: __MODULE__.ConflictCheckpoint,
+        checkpoint_flush_interval_ms: 0
+      )
+
+    ref = Process.monitor(pid)
+
+    assert {:error, :checkpoint_revision_conflict} =
+             ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+
+    assert_receive {:DOWN, ^ref, :process, ^pid, :checkpoint_revision_conflict}
+  end
+
   test "seeds cold baselines through SRQL and suppresses anomalous findings until rewarmed" do
     {:ok, pid} =
       start_owner(
@@ -538,6 +556,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     def checkpoint(agent, series_key) do
       Agent.get(agent, &Map.fetch!(&1.checkpoints, series_key))
     end
+  end
+
+  defmodule ConflictCheckpoint do
+    @moduledoc false
+    def load(_series_key, _opts), do: {:ok, nil}
+    def save(_series_key, _checkpoint, _opts), do: {:error, :checkpoint_revision_conflict}
   end
 
   defmodule SRQLRunner do

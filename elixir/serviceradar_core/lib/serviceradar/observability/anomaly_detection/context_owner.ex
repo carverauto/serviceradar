@@ -33,6 +33,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :checkpoint_flush_interval_ms,
     :checkpoint_flush_ref,
     :checkpoint_pending_payload,
+    :checkpoint_revision,
     :baseline_seeder,
     :baseline_seed_opts,
     :series_config_resolver,
@@ -40,6 +41,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :context_overrides,
     :suppress_until_warmed?,
     checkpoint_restored?: false,
+    checkpoint_conflict?: false,
     series_config_applied?: false,
     live_update_count: 0,
     updates: [],
@@ -99,7 +101,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   def snapshot(owner), do: GenServer.call(owner, :snapshot)
 
   @doc false
-  @spec flush_checkpoint(pid() | GenServer.name()) :: :ok
+  @spec flush_checkpoint(pid() | GenServer.name()) :: :ok | {:error, term()}
   def flush_checkpoint(owner), do: GenServer.call(owner, :flush_checkpoint)
 
   @impl true
@@ -117,6 +119,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       checkpoint_opts: Keyword.get(opts, :checkpoint_opts, []),
       checkpoint_flush_interval_ms:
         Keyword.get(opts, :checkpoint_flush_interval_ms, checkpoint_flush_interval_ms()),
+      checkpoint_revision: 0,
       baseline_seeder: Keyword.get(opts, :baseline_seeder, BaselineSeeder),
       baseline_seed_opts: Keyword.get(opts, :baseline_seed_opts, []),
       series_config_resolver: Keyword.get(opts, :series_config_resolver, SeriesConfig),
@@ -147,7 +150,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           |> maybe_suppress_verdict(update.event_id)
           |> save_checkpoint()
 
-        {:reply, {:ok, state.verdicts[update.event_id]}, state}
+        reply_after_checkpoint(state, {:ok, state.verdicts[update.event_id]})
 
       true ->
         case state
@@ -161,7 +164,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
               |> maybe_suppress_verdict(update.event_id)
               |> save_checkpoint()
 
-            {:reply, {:ok, state.verdicts[update.event_id]}, state}
+            reply_after_checkpoint(state, {:ok, state.verdicts[update.event_id]})
 
           {:drop, reason} ->
             {:reply, {:drop, reason}, state}
@@ -179,6 +182,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
        update_count: length(state.updates),
        event_ids: Enum.map(state.updates, & &1.event_id),
        checkpoint_restored?: state.checkpoint_restored?,
+       checkpoint_revision: state.checkpoint_revision,
        series_config_applied?: state.series_config_applied?,
        live_update_count: state.live_update_count,
        base_context: state.base_context,
@@ -193,7 +197,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> cancel_checkpoint_flush()
       |> flush_pending_checkpoint()
 
-    {:reply, :ok, state}
+    if state.checkpoint_conflict? do
+      {:stop, :checkpoint_revision_conflict, {:error, :checkpoint_revision_conflict}, state}
+    else
+      {:reply, :ok, state}
+    end
   end
 
   @impl true
@@ -203,7 +211,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> Map.put(:checkpoint_flush_ref, nil)
       |> flush_pending_checkpoint()
 
-    {:noreply, state}
+    if state.checkpoint_conflict? do
+      {:stop, :checkpoint_revision_conflict, state}
+    else
+      {:noreply, state}
+    end
   end
 
   @impl true
@@ -230,6 +242,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       {:drop, :outside_window}
     end
   end
+
+  defp reply_after_checkpoint(%{checkpoint_conflict?: true} = state, _reply) do
+    {:stop, :checkpoint_revision_conflict, {:error, :checkpoint_revision_conflict}, state}
+  end
+
+  defp reply_after_checkpoint(state, reply), do: {:reply, reply, state}
 
   defp append_and_fold(state, update) do
     {updates, dropped} = trim_updates(state.updates ++ [update], state.max_events)
@@ -460,6 +478,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           |> normalize_verdicts(),
         base_context: base_context,
         context: context,
+        checkpoint_revision: checkpoint_value(checkpoint, :__checkpoint_revision__, 0),
         checkpoint_restored?: true,
         series_config_applied?: true,
         live_update_count: 0
@@ -503,13 +522,26 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   end
 
   defp persist_checkpoint(state, payload) do
+    opts = Keyword.put(state.checkpoint_opts, :expected_revision, state.checkpoint_revision)
+
     case state.checkpoint_store.save(
            state.series_key,
            payload,
-           state.checkpoint_opts
+           opts
          ) do
       :ok ->
         state
+
+      {:ok, revision} when is_integer(revision) and revision >= 0 ->
+        %{state | checkpoint_revision: revision}
+
+      {:error, :checkpoint_revision_conflict} ->
+        Logger.warning("anomaly context checkpoint revision conflict; owner stepping down",
+          series_key: state.series_key,
+          expected_revision: state.checkpoint_revision
+        )
+
+        %{state | checkpoint_conflict?: true}
 
       {:error, reason} ->
         Logger.warning("anomaly context checkpoint save failed",
