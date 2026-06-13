@@ -33,6 +33,22 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
     assert read_action.get?
   end
 
+  test "resource mirrors the minimum samples cross-field constraint in Ash and Postgres" do
+    validations = Info.validations(AnomalyDetectionConfig)
+    check_constraints = PostgresInfo.check_constraints(AnomalyDetectionConfig)
+
+    assert Enum.any?(validations, fn validation ->
+             validation.module == Ash.Resource.Validation.Compare and
+               validation.opts[:attribute] == :min_samples and
+               validation.opts[:less_than_or_equal_to] == {:ref, :window_size}
+           end)
+
+    assert Enum.any?(check_constraints, fn constraint ->
+             constraint.name == "anomaly_detection_configs_window_check" and
+               constraint.attribute == :min_samples
+           end)
+  end
+
   test "resource captures required anomaly defaults and class overrides" do
     attributes = AnomalyDetectionConfig |> Info.attributes() |> Map.new(&{&1.name, &1})
 
@@ -47,14 +63,14 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfigTest do
              ["cpu", "disk", "interface", "memory", "red"]
   end
 
-  test "migration creates seeded platform anomaly config with guard constraints" do
+  test "migration creates unseeded platform anomaly config with guard constraints" do
     migration = File.read!(@migration_path)
 
     assert migration =~ "create table(:anomaly_detection_configs"
     assert migration =~ ~s(prefix: "platform")
     assert migration =~ "n_sigma >= 0.1 AND n_sigma <= 20.0"
     assert migration =~ "min_samples <= window_size"
-    assert migration =~ "INSERT INTO platform.anomaly_detection_configs"
+    refute migration =~ "INSERT INTO platform.anomaly_detection_configs"
     refute migration =~ "public.anomaly_detection_configs"
   end
 end

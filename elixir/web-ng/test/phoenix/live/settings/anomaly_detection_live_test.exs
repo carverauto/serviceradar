@@ -36,6 +36,48 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
     assert render(lv) =~ "Saved anomaly detection settings"
   end
 
+  test "rejects invalid anomaly numeric input instead of silently defaulting it", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/anomaly-detection")
+
+    html =
+      lv
+      |> form("#anomaly-settings-form", %{
+        "anomaly" => %{
+          "n_sigma" => "not-a-number",
+          "window_size" => "600",
+          "window_duration_seconds" => "1200",
+          "confirm_slots" => "7",
+          "min_samples" => "45",
+          "metric_class_overrides" => ~s({"interface":{"n_sigma":5.0}})
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Fix anomaly settings errors before saving"
+    assert html =~ "must be a number"
+  end
+
+  test "surfaces anomaly cross-field validation errors", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/anomaly-detection")
+
+    html =
+      lv
+      |> form("#anomaly-settings-form", %{
+        "anomaly" => %{
+          "n_sigma" => "4.5",
+          "window_size" => "10",
+          "window_duration_seconds" => "1200",
+          "confirm_slots" => "7",
+          "min_samples" => "45",
+          "metric_class_overrides" => ~s({"interface":{"n_sigma":5.0}})
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Fix anomaly settings errors before saving"
+    assert html =~ "less than or equal to window size"
+  end
+
   test "updates capacity forecast settings", %{conn: conn} do
     {:ok, lv, _html} = live(conn, ~p"/settings/anomaly-detection")
 
@@ -53,6 +95,50 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLiveTest do
     |> render_submit()
 
     assert render(lv) =~ "Saved capacity forecast settings"
+  end
+
+  test "rejects invalid capacity forecast numeric input instead of silently defaulting it", %{
+    conn: conn
+  } do
+    {:ok, lv, _html} = live(conn, ~p"/settings/anomaly-detection")
+
+    html =
+      lv
+      |> form("#capacity-forecast-settings-form", %{
+        "forecast" => %{
+          "forecast_horizon_seconds" => "15552000",
+          "warning_horizon_seconds" => "not-an-int",
+          "warning_threshold_percent" => "75.5",
+          "model" => "seasonal_linear",
+          "minimum_history_points" => "96",
+          "metric_class_overrides" => ~s({"disk":{"minimum_history_points":120}})
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Fix capacity forecast settings errors before saving"
+    assert html =~ "must be an integer"
+  end
+
+  test "surfaces capacity forecast cross-field validation errors", %{conn: conn} do
+    {:ok, lv, _html} = live(conn, ~p"/settings/anomaly-detection")
+
+    html =
+      lv
+      |> form("#capacity-forecast-settings-form", %{
+        "forecast" => %{
+          "forecast_horizon_seconds" => "3600",
+          "warning_horizon_seconds" => "7200",
+          "warning_threshold_percent" => "75.5",
+          "model" => "seasonal_linear",
+          "minimum_history_points" => "96",
+          "metric_class_overrides" => ~s({"disk":{"minimum_history_points":120}})
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Fix capacity forecast settings errors before saving"
+    assert html =~ "less than or equal to forecast horizon"
   end
 
   test "viewer is blocked from anomaly detection settings", %{conn: conn} do

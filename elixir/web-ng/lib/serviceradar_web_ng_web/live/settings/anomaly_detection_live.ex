@@ -7,6 +7,7 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
 
   import ServiceRadarWebNGWeb.SettingsComponents
 
+  alias Ash.Error.Invalid
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.AnomalyDetectionConfig
   alias ServiceRadar.Observability.CapacityForecastConfig
@@ -84,6 +85,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
       {:error, :invalid_json} ->
         {:noreply, put_flash(socket, :error, "Metric class overrides must be a JSON object")}
 
+      {:error, {:anomaly_form, submitted_params, errors}} ->
+        {:noreply,
+         socket
+         |> assign(:anomaly_params, submitted_params)
+         |> assign(:anomaly_form, to_anomaly_form(submitted_params, errors))
+         |> put_flash(:error, "Fix anomaly settings errors before saving")}
+
+      {:error, %Invalid{} = err} ->
+        submitted_params = merge_form(socket.assigns.anomaly_params, params)
+
+        {:noreply,
+         socket
+         |> assign(:anomaly_params, submitted_params)
+         |> assign(:anomaly_form, to_anomaly_form(submitted_params, ash_form_errors(err)))
+         |> put_flash(:error, "Fix anomaly settings errors before saving")}
+
       {:error, err} ->
         {:noreply, put_flash(socket, :error, "Failed to save anomaly settings: #{inspect(err)}")}
     end
@@ -111,6 +128,22 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
 
       {:error, :invalid_json} ->
         {:noreply, put_flash(socket, :error, "Metric class overrides must be a JSON object")}
+
+      {:error, {:forecast_form, submitted_params, errors}} ->
+        {:noreply,
+         socket
+         |> assign(:forecast_params, submitted_params)
+         |> assign(:forecast_form, to_forecast_form(submitted_params, errors))
+         |> put_flash(:error, "Fix capacity forecast settings errors before saving")}
+
+      {:error, %Invalid{} = err} ->
+        submitted_params = merge_form(socket.assigns.forecast_params, params)
+
+        {:noreply,
+         socket
+         |> assign(:forecast_params, submitted_params)
+         |> assign(:forecast_form, to_forecast_form(submitted_params, ash_form_errors(err)))
+         |> put_flash(:error, "Fix capacity forecast settings errors before saving")}
 
       {:error, err} ->
         {:noreply, put_flash(socket, :error, "Failed to save forecast settings: #{inspect(err)}")}
@@ -365,8 +398,8 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
     }
   end
 
-  defp to_anomaly_form(params), do: to_form(params, as: :anomaly)
-  defp to_forecast_form(params), do: to_form(params, as: :forecast)
+  defp to_anomaly_form(params, errors \\ []), do: to_form(params, as: :anomaly, errors: errors)
+  defp to_forecast_form(params, errors \\ []), do: to_form(params, as: :forecast, errors: errors)
   defp merge_form(form, params) when is_map(form) and is_map(params), do: Map.merge(form, params)
   defp merge_form(_form, params) when is_map(params), do: params
 
@@ -383,31 +416,57 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   end
 
   defp build_anomaly_attrs(params) when is_map(params) do
-    with {:ok, overrides} <- decode_json_object(params["metric_class_overrides"]) do
+    with {:ok, overrides} <- decode_json_object(params["metric_class_overrides"]),
+         {:ok, n_sigma} <- float_param(params["n_sigma"], :n_sigma),
+         {:ok, window_size} <- int_param(params["window_size"], :window_size),
+         {:ok, window_duration_seconds} <-
+           int_param(params["window_duration_seconds"], :window_duration_seconds),
+         {:ok, confirm_slots} <- int_param(params["confirm_slots"], :confirm_slots),
+         {:ok, min_samples} <- int_param(params["min_samples"], :min_samples) do
       {:ok,
        %{
-         n_sigma: float_param(params["n_sigma"], 3.0),
-         window_size: int_param(params["window_size"], 300),
-         window_duration_seconds: int_param(params["window_duration_seconds"], 900),
-         confirm_slots: int_param(params["confirm_slots"], 5),
-         min_samples: int_param(params["min_samples"], 30),
+         n_sigma: n_sigma,
+         window_size: window_size,
+         window_duration_seconds: window_duration_seconds,
+         confirm_slots: confirm_slots,
+         min_samples: min_samples,
          metric_class_overrides: overrides
        }}
+    else
+      {:error, {field, message}} ->
+        {:error, {:anomaly_form, params, [{field, {message, []}}]}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
   defp build_forecast_attrs(params) when is_map(params) do
     with {:ok, overrides} <- decode_json_object(params["metric_class_overrides"]),
-         {:ok, model} <- model_param(params["model"]) do
+         {:ok, model} <- model_param(params["model"]),
+         {:ok, forecast_horizon_seconds} <-
+           int_param(params["forecast_horizon_seconds"], :forecast_horizon_seconds),
+         {:ok, warning_horizon_seconds} <-
+           int_param(params["warning_horizon_seconds"], :warning_horizon_seconds),
+         {:ok, warning_threshold_percent} <-
+           float_param(params["warning_threshold_percent"], :warning_threshold_percent),
+         {:ok, minimum_history_points} <-
+           int_param(params["minimum_history_points"], :minimum_history_points) do
       {:ok,
        %{
-         forecast_horizon_seconds: int_param(params["forecast_horizon_seconds"], 7_776_000),
-         warning_horizon_seconds: int_param(params["warning_horizon_seconds"], 2_592_000),
-         warning_threshold_percent: float_param(params["warning_threshold_percent"], 80.0),
+         forecast_horizon_seconds: forecast_horizon_seconds,
+         warning_horizon_seconds: warning_horizon_seconds,
+         warning_threshold_percent: warning_threshold_percent,
          model: model,
-         minimum_history_points: int_param(params["minimum_history_points"], 72),
+         minimum_history_points: minimum_history_points,
          metric_class_overrides: overrides
        }}
+    else
+      {:error, {field, message}} ->
+        {:error, {:forecast_form, params, [{field, {message, []}}]}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -424,27 +483,45 @@ defmodule ServiceRadarWebNGWeb.Settings.AnomalyDetectionLive do
   defp model_param("linear"), do: {:ok, :linear}
   defp model_param("seasonal_linear"), do: {:ok, :seasonal_linear}
   defp model_param("holt_winters"), do: {:ok, :holt_winters}
-  defp model_param(_), do: {:ok, :linear}
+  defp model_param(_), do: {:error, {:model, "is not supported"}}
 
-  defp int_param(value, default) when is_binary(value) do
+  defp int_param(value, field) when is_binary(value) do
     case Integer.parse(String.trim(value)) do
-      {int, ""} -> int
-      _ -> default
+      {int, ""} -> {:ok, int}
+      _ -> {:error, {field, "must be an integer"}}
     end
   end
 
-  defp int_param(value, _default) when is_integer(value), do: value
-  defp int_param(_value, default), do: default
+  defp int_param(value, _field) when is_integer(value), do: {:ok, value}
+  defp int_param(_value, field), do: {:error, {field, "must be an integer"}}
 
-  defp float_param(value, default) when is_binary(value) do
+  defp float_param(value, field) when is_binary(value) do
     case Float.parse(String.trim(value)) do
-      {float, ""} -> float
-      _ -> default
+      {float, ""} -> {:ok, float}
+      _ -> {:error, {field, "must be a number"}}
     end
   end
 
-  defp float_param(value, _default) when is_number(value), do: value * 1.0
-  defp float_param(_value, default), do: default
+  defp float_param(value, _field) when is_number(value), do: {:ok, value * 1.0}
+  defp float_param(_value, field), do: {:error, {field, "must be a number"}}
+
+  defp ash_form_errors(%Invalid{errors: errors}) do
+    Enum.flat_map(errors, fn error ->
+      field = Map.get(error, :field) || Map.get(error, :attribute) || first_path_field(error)
+      message = Map.get(error, :message)
+
+      if is_atom(field) and is_binary(message) do
+        [{field, {message, []}}]
+      else
+        []
+      end
+    end)
+  end
+
+  defp ash_form_errors(_err), do: []
+
+  defp first_path_field(%{path: [field | _]}) when is_atom(field), do: field
+  defp first_path_field(_error), do: nil
 
   defp pretty_json(value) do
     Jason.encode!(value || %{}, pretty: true)

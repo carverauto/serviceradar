@@ -33,6 +33,13 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
     table "anomaly_detection_configs"
     repo ServiceRadar.Repo
     schema "platform"
+
+    check_constraints do
+      check_constraint :min_samples, "anomaly_detection_configs_window_check",
+        check:
+          "window_size >= 2 AND window_duration_seconds >= 1 AND min_samples >= 1 AND min_samples <= window_size",
+        message: "must be less than or equal to window size"
+    end
   end
 
   code_interface do
@@ -68,6 +75,11 @@ defmodule ServiceRadar.Observability.AnomalyDetectionConfig do
     system_bypass()
     read_with_permission(@manage_check)
     action_with_permission([:create, :update], @manage_check)
+  end
+
+  validations do
+    validate compare(:min_samples, less_than_or_equal_to: {:ref, :window_size}),
+      message: "must be less than or equal to window size"
   end
 
   attributes do
