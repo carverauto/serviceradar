@@ -97,6 +97,32 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     refute_receive {:reasoned, [], 10.0}
   end
 
+  test "late inserts re-reason only the affected suffix" do
+    Process.register(self(), __MODULE__.RecordingSink)
+    {:ok, pid} = start_owner(reasoner: __MODULE__.RecordingReasoner)
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e1", 1, 10.0))
+    assert_receive {:reasoned, [], 10.0}
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e3", 3, 30.0))
+    assert_receive {:reasoned, [10.0], 30.0}
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e5", 5, 50.0))
+    assert_receive {:reasoned, [10.0, 30.0], 50.0}
+
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e4", 4, 40.0))
+
+    assert_receive {:reasoned, [10.0, 30.0], 40.0}
+    assert_receive {:reasoned, [10.0, 30.0, 40.0], 50.0}
+    refute_receive {:reasoned, [], 10.0}
+    refute_receive {:reasoned, [10.0], 30.0}
+
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.event_ids == ["e1", "e3", "e4", "e5"]
+    assert snapshot.context.baseline == [10.0, 30.0, 40.0, 50.0]
+  end
+
   test "late samples outside a full window are dropped explicitly" do
     {:ok, pid} = start_owner(max_events: 2)
 
