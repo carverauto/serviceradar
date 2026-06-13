@@ -89,6 +89,27 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     refute Map.has_key?(process_sample, "disks")
   end
 
+  test "continues sysmon batch after one ingestor failure" do
+    Application.put_env(
+      :serviceradar_core,
+      :metrics_sysmon_ingestor,
+      __MODULE__.FailingSysmonIngestorStub
+    )
+
+    assert {:ok, 3} =
+             Metrics.process_batch([
+               sysmon_message("cpu"),
+               sysmon_message("memory"),
+               sysmon_message("disk"),
+               sysmon_message("process")
+             ])
+
+    assert_receive {:sysmon_ingest, %{"status" => %{"cpus" => [_]}}, %{gateway_id: "gateway-1"}}
+    assert_receive {:sysmon_ingest, %{"status" => %{"memory" => _}}, _status}
+    assert_receive {:sysmon_ingest, %{"status" => %{"disks" => [_]}}, _status}
+    assert_receive {:sysmon_ingest, %{"status" => %{"processes" => [_]}}, _status}
+  end
+
   test "parses SNMP interface metric as a timeseries telemetry row" do
     row =
       Metrics.parse_message(%{
@@ -122,6 +143,22 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
       })
 
       :ok
+    end
+  end
+
+  defmodule FailingSysmonIngestorStub do
+    @moduledoc false
+    def ingest(payload, status) do
+      send(Application.fetch_env!(:serviceradar_core, :metrics_processor_test_pid), {
+        :sysmon_ingest,
+        payload,
+        status
+      })
+
+      case payload do
+        %{"status" => %{"cpus" => _cpus}} -> {:error, :cpu_insert_failed}
+        _payload -> :ok
+      end
     end
   end
 

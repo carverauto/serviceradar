@@ -219,17 +219,37 @@ defmodule ServiceRadar.Observability.SysmonMetricsIngestor do
 
   defp persist_metrics(metrics, actor) do
     # DB connection's search_path determines the schema
-    results = [
-      insert_bulk(metrics.cpu, CpuMetric, actor),
-      insert_bulk(metrics.cpu_clusters, CpuClusterMetric, actor),
-      insert_bulk(metrics.memory, MemoryMetric, actor),
-      insert_bulk(metrics.disks, DiskMetric, actor),
-      insert_bulk(metrics.processes, ProcessMetric, actor)
-    ]
+    results =
+      Enum.reject(
+        [
+          {:cpu, metrics.cpu, insert_bulk(metrics.cpu, CpuMetric, actor)},
+          {:cpu_clusters, metrics.cpu_clusters,
+           insert_bulk(metrics.cpu_clusters, CpuClusterMetric, actor)},
+          {:memory, metrics.memory, insert_bulk(metrics.memory, MemoryMetric, actor)},
+          {:disks, metrics.disks, insert_bulk(metrics.disks, DiskMetric, actor)},
+          {:processes, metrics.processes, insert_bulk(metrics.processes, ProcessMetric, actor)}
+        ],
+        fn {_family, records, _result} -> records == [] end
+      )
 
-    case Enum.find(results, &match?({:error, _}, &1)) do
-      nil -> :ok
-      {:error, reason} -> {:error, reason}
+    failures =
+      for {family, _records, {:error, reason}} <- results do
+        {family, reason}
+      end
+
+    cond do
+      failures == [] ->
+        :ok
+
+      length(failures) == length(results) ->
+        {:error, failures}
+
+      true ->
+        Logger.warning("SysmonMetricsIngestor: partial metric family insert failure",
+          failures: inspect(failures)
+        )
+
+        :ok
     end
   end
 

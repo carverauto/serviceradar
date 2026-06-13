@@ -103,12 +103,22 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       |> Jason.encode!()
 
     case Util.request(connection_ref, topic, payload) do
+      {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
+        if stream_exists_error?(description) do
+          reconcile_stream(connection_ref, stream_name, subject, opts)
+        else
+          {:error, err}
+        end
+
+      {:ok, %{"error" => error}} ->
+        {:error, error}
+
       {:ok, _} ->
         :ok
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
         if stream_exists_error?(description) do
-          :ok
+          reconcile_stream(connection_ref, stream_name, subject, opts)
         else
           {:error, err}
         end
@@ -116,6 +126,69 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  defp reconcile_stream(connection_ref, stream_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+
+    with {:ok, config} <- stream_config(connection_ref, stream_name, domain),
+         {:ok, payload} <- reconciled_stream_payload(config, stream_name, subject, opts) do
+      update_stream(connection_ref, stream_name, payload, domain)
+    end
+  end
+
+  defp stream_config(connection_ref, stream_name, domain) do
+    topic = "#{js_api(domain)}.STREAM.INFO.#{stream_name}"
+
+    case Util.request(connection_ref, topic, "") do
+      {:ok, %{"config" => config}} when is_map(config) ->
+        {:ok, config}
+
+      {:ok, %{"error" => error}} ->
+        {:error, error}
+
+      {:ok, other} ->
+        {:error, {:unexpected_stream_info_response, other}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_stream(connection_ref, stream_name, payload, domain) do
+    topic = "#{js_api(domain)}.STREAM.UPDATE.#{stream_name}"
+
+    case Util.request(connection_ref, topic, Jason.encode!(payload)) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  def reconciled_stream_payload(config, stream_name, subject, opts)
+      when is_map(config) and is_binary(stream_name) and is_binary(subject) do
+    subjects =
+      config
+      |> Map.get("subjects", [])
+      |> normalized_subjects(subject)
+
+    payload =
+      config
+      |> Map.put("name", Map.get(config, "name", stream_name))
+      |> Map.put("subjects", subjects)
+      |> put_configured(opts, :stream_retention, "retention")
+      |> put_configured(opts, :stream_storage, "storage")
+      |> put_configured(opts, :stream_discard, "discard")
+      |> put_configured(opts, :stream_replicas, "num_replicas")
+      |> put_configured(opts, :stream_max_bytes, "max_bytes")
+      |> put_configured(opts, :stream_max_age, "max_age")
+
+    {:ok, payload}
+  end
+
+  def reconciled_stream_payload(_config, _stream_name, _subject, _opts) do
+    {:error, :invalid_stream_config}
   end
 
   defp create_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
@@ -142,6 +215,16 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       })
 
     case Util.request(connection_ref, topic, payload) do
+      {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
+        if consumer_exists_error?(description) do
+          :ok
+        else
+          {:error, err}
+        end
+
+      {:ok, %{"error" => error}} ->
+        {:error, error}
+
       {:ok, _} ->
         :ok
 
@@ -173,6 +256,52 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     |> Enum.reject(fn {_k, v} -> is_nil(v) end)
     |> Map.new()
   end
+
+  defp put_configured(payload, opts, opt_key, config_key) do
+    case Keyword.fetch(opts, opt_key) do
+      {:ok, nil} -> payload
+      {:ok, value} -> Map.put(payload, config_key, value)
+      :error -> payload
+    end
+  end
+
+  @doc false
+  def normalized_subjects(existing, subject) when is_list(existing) and is_binary(subject) do
+    existing
+    |> Enum.filter(&is_binary/1)
+    |> Kernel.++([subject])
+    |> Enum.uniq()
+    |> remove_covered_subjects()
+  end
+
+  def normalized_subjects(_existing, subject) when is_binary(subject), do: [subject]
+
+  defp remove_covered_subjects(subjects) do
+    Enum.reject(subjects, fn subject ->
+      Enum.any?(subjects, fn candidate ->
+        candidate != subject and subject_covers?(candidate, subject)
+      end)
+    end)
+  end
+
+  defp subject_covers?(candidate, subject) do
+    covers_tokens?(String.split(candidate, "."), String.split(subject, "."))
+  end
+
+  defp covers_tokens?([">"], _subject_tokens), do: true
+  defp covers_tokens?([], []), do: true
+  defp covers_tokens?([], _subject_tokens), do: false
+  defp covers_tokens?(_candidate_tokens, []), do: false
+
+  defp covers_tokens?(["*" | candidate_rest], [_subject | subject_rest]) do
+    covers_tokens?(candidate_rest, subject_rest)
+  end
+
+  defp covers_tokens?([candidate | candidate_rest], [candidate | subject_rest]) do
+    covers_tokens?(candidate_rest, subject_rest)
+  end
+
+  defp covers_tokens?(_candidate_tokens, _subject_tokens), do: false
 
   defp normalize_stream_name(name) when is_binary(name) do
     if String.upcase(name) == name do
