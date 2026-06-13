@@ -1,12 +1,10 @@
 use deep_causality_core::CausalFlow;
-use deep_causality_data_structures::window_type;
 use rustler::NifMap;
 
 const DEFAULT_MIN_SAMPLES: usize = 30;
 const DEFAULT_WINDOW_SIZE: usize = 300;
 const DEFAULT_N_SIGMA: f64 = 3.0;
 const DEFAULT_CONFIRM_SLOTS: usize = 5;
-const DEFAULT_WINDOW_MULTIPLE: usize = 2;
 
 #[derive(Clone, Debug, NifMap)]
 struct ReasonContext {
@@ -246,9 +244,7 @@ fn clean_finite_baseline(values: &[f64]) -> Vec<f64> {
 
 fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
     let values = clean_finite_baseline(values);
-    let multiple = DEFAULT_WINDOW_MULTIPLE.max(1);
-    let mut window = window_type::new_with_vector_storage(window_size, multiple);
-    let recent: Vec<f64> = values
+    values
         .iter()
         .copied()
         .rev()
@@ -256,15 +252,7 @@ fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
         .collect::<Vec<_>>()
         .into_iter()
         .rev()
-        .collect();
-
-    for value in recent.iter().copied() {
-        window.push(value);
-    }
-
-    let _ = window.size();
-
-    recent
+        .collect()
 }
 
 fn evaluate_signal(
