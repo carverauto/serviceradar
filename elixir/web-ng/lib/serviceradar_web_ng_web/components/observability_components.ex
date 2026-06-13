@@ -91,6 +91,13 @@ defmodule ServiceRadarWebNGWeb.ObservabilityComponents do
           path={~p"/observability?#{%{tab: "alerts"}}"}
           link_kind={@tab_link_kind}
         />
+        <.navigate_tab_button
+          id="health"
+          label="Health"
+          icon="hero-heart"
+          active_pane={@active_pane}
+          path={~p"/observability/health"}
+        />
         <.query_tab_button
           id="netflows"
           label="Flows"
