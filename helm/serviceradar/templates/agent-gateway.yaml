@@ -35,11 +35,15 @@
 {{- else if hasKey $gateway "snmpMetricsShadowEnabled" -}}
 {{- $snmpMetricsEnabled = $gateway.snmpMetricsShadowEnabled -}}
 {{- end -}}
+{{- $pluginMetricsEnabled := true -}}
+{{- if hasKey $gateway "pluginMetricsEnabled" -}}
+{{- $pluginMetricsEnabled = $gateway.pluginMetricsEnabled -}}
+{{- end -}}
 {{- $otlpRelayPublishEnabled := true -}}
 {{- if hasKey $gateway "otlpRelayPublishEnabled" -}}
 {{- $otlpRelayPublishEnabled = $gateway.otlpRelayPublishEnabled -}}
 {{- end -}}
-{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $otlpRelayPublishEnabled -}}
+{{- $natsPublishingEnabled := or $sysmonMetricsEnabled $snmpMetricsEnabled $pluginMetricsEnabled $otlpRelayPublishEnabled -}}
 ---
 apiVersion: v1
 kind: ServiceAccount
@@ -125,6 +129,10 @@ spec:
           value: {{ $snmpMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
+        - name: AGENT_GATEWAY_PLUGIN_METRICS_ENABLED
+          value: {{ $pluginMetricsEnabled | quote }}
+        - name: AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX
+          value: {{ default "metrics.timeseries" $gateway.pluginMetricsSubjectPrefix | quote }}
         - name: AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED
           value: {{ $otlpRelayPublishEnabled | quote }}
         - name: AGENT_GATEWAY_OTLP_RELAY_TRACES_SUBJECT

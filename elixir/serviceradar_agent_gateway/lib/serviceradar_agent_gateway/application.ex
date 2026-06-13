@@ -184,6 +184,7 @@ defmodule ServiceRadarAgentGateway.Application do
       artifact_server_opts = get_artifact_server_opts(ssl_server_opts)
 
       Logger.info("Agent Gateway gRPC server listening on port #{grpc_port}")
+
       Logger.info("Agent Gateway artifact server listening on port #{artifact_server_opts[:port]}")
 
       [
@@ -212,6 +213,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
       _ ->
         Logger.warning("Invalid GATEWAY_ARTIFACT_PORT=#{inspect(port_value)}; defaulting to 50053")
+
         50_053
     end
   end
@@ -291,6 +293,7 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         :sysmon_metrics_publisher,
         :snmp_metrics_publisher,
+        :plugin_metrics_publisher,
         :otlp_relay_publisher
       ],
       fn key ->

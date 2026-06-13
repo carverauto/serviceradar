@@ -69,12 +69,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
         sysmon_samples(family, status, subject, ingress_metadata)
 
       %{value: value} = row ->
-        "snmp:#{row[:series_key] || series_identity(row)}"
+        metric_class = row[:metric_type] || "timeseries"
+
+        "#{metric_class}:#{row[:series_key] || series_identity(row)}"
         |> build_sample(
           value,
           timestamp_nano(row[:timestamp]),
           subject,
-          "snmp",
+          metric_class,
           merge_ingress_metadata(row, ingress_metadata)
         )
         |> List.wrap()

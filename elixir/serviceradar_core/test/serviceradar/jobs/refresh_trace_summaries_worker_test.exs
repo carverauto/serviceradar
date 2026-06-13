@@ -3,6 +3,10 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
 
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 
+  test "uses bounded ingest chunks for high-volume trace streams" do
+    assert RefreshTraceSummariesWorker.ingest_chunk_seconds() == 300
+  end
+
   describe "upsert_sql/0" do
     test "populates root namespace and environment from the root span" do
       sql = RefreshTraceSummariesWorker.upsert_sql()

@@ -110,6 +110,17 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
   end
 
   test "plugin ingest preserves label-distinguished series at the same timestamp" do
+    previous = Application.get_env(:serviceradar_core, :plugin_result_direct_metrics_enabled)
+    Application.put_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, true)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:serviceradar_core, :plugin_result_direct_metrics_enabled)
+      else
+        Application.put_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, previous)
+      end
+    end)
+
     actor = SystemActor.system(:test)
     agent_id = "plugin-series-agent-#{System.unique_integer([:positive])}"
     gateway_id = "plugin-series-gateway-#{System.unique_integer([:positive])}"

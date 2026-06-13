@@ -317,6 +317,9 @@ snmp_metrics_publish_enabled =
   (System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED") ||
      System.get_env("AGENT_GATEWAY_SNMP_METRICS_SHADOW_ENABLED", "true")) in ~w(true 1 yes)
 
+plugin_metrics_publish_enabled =
+  System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_ENABLED", "true") in ~w(true 1 yes)
+
 otlp_relay_publish_enabled =
   System.get_env("AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED", "true") in ~w(true 1 yes)
 
@@ -333,6 +336,11 @@ config :serviceradar_agent_gateway, :otlp_relay_publisher,
   derived_metrics_subject: System.get_env("AGENT_GATEWAY_OTLP_RELAY_DERIVED_METRICS_SUBJECT", "otel.metrics.derived"),
   connection: Connection
 
+config :serviceradar_agent_gateway, :plugin_metrics_publisher,
+  enabled: plugin_metrics_publish_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX", "metrics.timeseries"),
+  connection: Connection
+
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: snmp_metrics_publish_enabled,
   subject_prefix: System.get_env("AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX", "metrics.snmp"),
@@ -343,7 +351,9 @@ config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
   subject_prefix: System.get_env("AGENT_GATEWAY_SYSMON_METRICS_SUBJECT_PREFIX", "metrics.sysmon"),
   connection: Connection
 
-if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled or otlp_relay_publish_enabled do
+if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled or
+     plugin_metrics_publish_enabled or
+     otlp_relay_publish_enabled do
   nats_url =
     System.get_env("AGENT_GATEWAY_NATS_URL") ||
       System.get_env("NATS_URL", "nats://localhost:4222")
