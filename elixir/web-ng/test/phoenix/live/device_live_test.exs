@@ -1457,6 +1457,125 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
     assert html =~ "beam.smp"
   end
 
+  test "renders device anomaly and capacity section using identity fallback", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "sr:test-device-anomaly-fallback-#{unique}"
+    hostname = "anomaly-fallback-host-#{unique}"
+    agent_id = "agent-anomaly-fallback-#{unique}"
+    previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      cond do
+        String.contains?(query, "in:devices") ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "uid" => uid,
+                 "hostname" => hostname,
+                 "agent_id" => agent_id,
+                 "is_available" => true
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        String.contains?(query, "in:events") and String.contains?(query, ~s|agent_id:"#{agent_id}"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "time" => "2026-06-13T12:00:00Z",
+                 "finding_title" => "CPU anomaly detected",
+                 "metric_class" => "cpu",
+                 "severity" => "High"
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        String.contains?(query, "in:capacity_forecasts") and
+            String.contains?(query, ~s|resource_id:"#{agent_id}"|) ->
+          {:ok,
+           %{
+             "results" => [
+               %{
+                 "resource_label" => "Filesystem /",
+                 "resource_id" => agent_id,
+                 "metric_name" => "disk.used_percent",
+                 "status" => "projected",
+                 "current_value" => 72.5,
+                 "projected_value" => 91.2,
+                 "projected_exhaustion_at" => "2026-06-20T00:00:00Z",
+                 "confidence" => 0.82
+               }
+             ],
+             "pagination" => %{}
+           }}
+
+        true ->
+          {:ok, %{"results" => [], "pagination" => %{}}}
+      end
+    end)
+
+    on_exit(fn ->
+      restore_env(:srql_module, previous_srql_module)
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Anomaly &amp; Capacity", 10_000)
+
+    assert html =~ "CPU anomaly detected"
+    assert html =~ "Filesystem /"
+    assert html =~ "agent agent_id=#{agent_id}"
+    assert html =~ "agent resource_id=#{agent_id}"
+    assert html =~ "active"
+  end
+
+  test "keeps device anomaly and capacity section visible when no rows exist", %{conn: conn} do
+    unique = System.unique_integer([:positive])
+    uid = "sr:test-device-anomaly-empty-#{unique}"
+    hostname = "anomaly-empty-host-#{unique}"
+    previous_srql_module = Application.get_env(:serviceradar_web_ng, :srql_module)
+    previous_responder = Application.get_env(:serviceradar_web_ng, :device_live_srql_responder)
+
+    Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.RecordingSRQLStub)
+
+    Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
+      if String.contains?(query, "in:devices") do
+        {:ok,
+         %{
+           "results" => [
+             %{
+               "uid" => uid,
+               "hostname" => hostname,
+               "is_available" => true
+             }
+           ],
+           "pagination" => %{}
+         }}
+      else
+        {:ok, %{"results" => [], "pagination" => %{}}}
+      end
+    end)
+
+    on_exit(fn ->
+      restore_env(:srql_module, previous_srql_module)
+      restore_env(:device_live_srql_responder, previous_responder)
+    end)
+
+    {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
+    html = render_until(view, "Anomaly &amp; Capacity", 10_000)
+
+    assert html =~ "No anomaly findings found for this device in the last 7 days."
+    assert html =~ "No capacity forecasts found for this device yet."
+    assert html =~ "normal"
+  end
+
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
       assert query =~ "in:process_metrics"
