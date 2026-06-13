@@ -74,21 +74,62 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     name = metric_name(metric)
     value = metric_value(metric)
 
-    if is_binary(name) and name != "" and is_number(value) do
-      metric_type = metric_type(metric, name)
-      ingress_context = ingress_context(status)
-      envelope = metric_envelope(status, payload, metric, name, metric_type, value, ingress_context)
+    cond do
+      not (is_binary(name) and name != "") ->
+        drop_metric(status, :missing_metric_name, raw_metric_name(metric))
+        {:ok, nil}
 
-      case Jason.encode(envelope) do
-        {:ok, encoded} -> {:ok, {subject(metric_type, name), encoded, ingress_context}}
-        {:error, reason} -> {:error, {:encode_failed, name, reason}}
-      end
-    else
-      {:ok, nil}
+      not is_number(value) ->
+        drop_metric(status, :non_numeric_value, name)
+        {:ok, nil}
+
+      true ->
+        metric_type = metric_type(metric, name)
+        ingress_context = ingress_context(status)
+        envelope = metric_envelope(status, payload, metric, name, metric_type, value, ingress_context)
+
+        case Jason.encode(envelope) do
+          {:ok, encoded} -> {:ok, {subject(metric_type, name), encoded, ingress_context}}
+          {:error, reason} -> {:error, {:encode_failed, name, reason}}
+        end
     end
   end
 
-  defp encode_metric(_status, _payload, _metric), do: {:ok, nil}
+  defp encode_metric(status, _payload, _metric) do
+    drop_metric(status, :non_map_metric, nil)
+    {:ok, nil}
+  end
+
+  # A metric the producer intended to emit but that we cannot publish (blank name,
+  # non-numeric value, or a non-map entry) is dropped here. Surface it via telemetry
+  # and a debug log instead of vanishing silently (the invisible-data-loss gap in
+  # fj #3788). The flow still returns {:ok, nil} so a bad metric never fails the batch.
+  defp drop_metric(status, reason, metric_name) do
+    :telemetry.execute(
+      [:serviceradar, :agent_gateway, :plugin_metrics, :dropped],
+      %{count: 1},
+      %{
+        reason: reason,
+        agent_id: status[:agent_id],
+        gateway_id: status[:gateway_id],
+        partition: status[:partition],
+        service_name: status[:service_name]
+      }
+    )
+
+    Logger.debug("Dropped plugin metric",
+      reason: reason,
+      metric_name: metric_name,
+      agent_id: status[:agent_id],
+      gateway_id: status[:gateway_id],
+      partition: status[:partition],
+      service_name: status[:service_name]
+    )
+
+    :ok
+  end
+
+  defp raw_metric_name(metric), do: metric_string(metric, ["name", "metric", "metric_name", "metricName"])
 
   defp metric_envelope(status, payload, metric, name, metric_type, value, ingress_context) do
     kind = metric_string(metric, ["kind"])
