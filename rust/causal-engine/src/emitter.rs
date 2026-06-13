@@ -10,7 +10,7 @@
 
 use async_nats::jetstream::Context as JetStreamContext;
 use chrono::Utc;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use crate::error::{CausalEngineError, Result};
 use crate::reasoner::{Classification, Verdict};

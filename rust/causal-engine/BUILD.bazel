@@ -21,7 +21,7 @@ rust_library(
     ),
     crate_name = "causal_engine",
     crate_root = "src/lib.rs",
-    edition = "2021",
+    edition = "2024",
     deps = all_crate_deps(normal = True) + ["//rust/srql:srql_lib"],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
@@ -31,7 +31,7 @@ rust_binary(
     name = "causal_engine_bin",
     srcs = ["src/main.rs"],
     crate_name = "causal_engine",
-    edition = "2021",
+    edition = "2024",
     deps = [
         ":causal_engine_lib",
         "//rust/srql:srql_lib",

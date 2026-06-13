@@ -119,13 +119,15 @@ mod tests {
     #[test]
     fn rejects_malformed_envelopes() {
         assert!(parse_state_change(&json!({})).is_none());
-        assert!(parse_state_change(&state_change_envelope(
-            "ocsf_devices",
-            "",
-            "is_available",
-            json!(true)
-        ))
-        .is_none());
+        assert!(
+            parse_state_change(&state_change_envelope(
+                "ocsf_devices",
+                "",
+                "is_available",
+                json!(true)
+            ))
+            .is_none()
+        );
     }
 
     #[test]

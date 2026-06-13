@@ -32,7 +32,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 ### 1.1 Scaffold rust/causal-engine in the workspace (capability: causal-engine) — DONE
 - [x] 1.1.1 Created top-level crate `rust/causal-engine` (single binary, single FUSED pod), added to workspace members + Cargo.lock; BUILD.bazel mirrors rust/srql (`all_crate_deps`). Verified `cargo check` / `cargo clippy --all-targets -D warnings` / `cargo fmt --check` + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin} --config=ci` (RBE) all green.
 - [x] 1.1.2 Modules `context_hydrator` (`ContextStore` trait + stub), `domain_model` (Context/Device/Service, canonical sr: ids), `reasoner` (Verdict/Classification + stub), `emitter` (stub), `snapshot` (stub); plus `config` (`CAUSAL_ENGINE_*` via envy) + `error` (thiserror).
-- [x] 1.1.3 Heavy integration deps added per-increment: srql + async-nats (1.2); `ultragraph = "0.9"` (1.3/1.4.2 graph causaloids — crate_universe repinned, Cargo.lock + MODULE.bazel.lock committed). deep_causality{,_sparse,_tensor,_topology} NOT pulled in V1 — the causaloids are plain Rust over `Context` + `ultragraph` graph algos (see 1.3 note); the DeepCausality `CausaloidGraph` wrapper is a future refinement.
+- [x] 1.1.3 Heavy integration deps added per-increment: srql + async-nats (1.2); `ultragraph = "0.9"` (1.3/1.4.2 graph causaloids); `deep_causality = "0.13.10"` for the topology `CausaloidGraph` wrapper. `deep_causality_{sparse,tensor,topology}` remain out of V1 until a concrete model needs them.
 - [ ] 1.1.4 (partial) Config (envy) + tracing logging + snapshot-restore-on-start wired and a fused tick loop runs; graceful shutdown lands with the real hydrator/NATS in 1.2.
 
 ### 1.2 Hydrator — three ingestion feeds (capability: causal-engine) — Feeds 1 + 3 done
@@ -42,15 +42,15 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [x] 1.2.4 Single-point identity validation: `map_device` skips any device whose `uid` is not a canonical `sr:`-prefixed id (the engine never forks the ID space). Extend to every entity mapper as coverage grows.
 - [ ] 1.2.5 Handle endpoint-cluster summary nodes so a verdict on a clustered device does not silently fail to render. (1.2b)
 
-### 1.3 Reasoner — causaloids over a frozen ultragraph CSR (capability: causal-reasoning) — DONE (V1)
-> V1 SHAPE: the causaloid LOGIC is plain Rust over the hydrated `Context` (state/metrics/risk) plus, for the structural causaloids, a frozen `ultragraph` 0.9 `CsmGraph` built per tick in `graph.rs` (`TopologyGraph::from_connects_to`). This is lighter than wrapping every causaloid in a DeepCausality `Causaloid`/`CausaloidGraph` and is fully unit-testable against hand-built `Context`s (54 tests). The DeepCausality `CausaloidGraph` wrapper + topology-change-gated `unfreeze()` (1.3.1/1.3.2) remain a future optimization; correctness and the verdict contract are unaffected.
-- [~] 1.3.1 Graph causaloids build & `freeze()` an `ultragraph` `CsmGraph` from `Context` CONNECTS_TO edges each tick (`graph.rs`). The explicit DeepCausality `CausaloidGraph` wrapper is deferred (V1 uses plain-Rust causaloids + the frozen graph for algos).
-- [~] 1.3.2 V1 rebuilds+freezes the graph per evaluate (cheap at V1 scale); incremental `unfreeze()`-on-topology-change is a Phase-2 scale optimization.
+### 1.3 Reasoner — topology causaloids over a frozen DeepCausality graph (capability: causal-reasoning) — DONE (V1)
+> V1 SHAPE: the non-topology causaloid logic is plain Rust over the hydrated `Context` (state/metrics/risk). The topology causaloids (C5/C5b/C9/C10) build a DeepCausality `CausaloidGraph` from `Context` `CONNECTS_TO` edges, freeze it, and use the frozen ultragraph-backed graph for structural algorithms. This is independent of the metrics anomaly detector; anomaly/capacity verdicts may feed causal evidence later, but the anomaly engine does not require the topology graph.
+- [x] 1.3.1 Graph causaloids build & `freeze()` a DeepCausality `CausaloidGraph` from `Context` CONNECTS_TO edges each tick (`graph.rs`) and retain the existing frozen graph algorithms for C5/C5b/C9/C10.
+- [~] 1.3.2 V1 rebuilds+freezes the topology graph per evaluate (cheap at V1 scale); incremental `unfreeze()`-on-topology-change is a Phase-2 scale optimization.
 - [x] 1.3.3 Reasoning tick loop: hydrate `Context` → `Reasoner::evaluate` (build/freeze graph, run C1–C13, compose risk) → collect `Verdict`s → emitter (`main.rs` reason tick).
 
 ### 1.4 Implement causaloids C1–C13 (capability: causal-reasoning) — DONE
 - [x] 1.4.1 Non-graph causaloids over `Context` state/metrics/risk (`reasoner.rs`): C1 (virt host→guest cascade), C2 (datastore→guest-disk cascade), C3 (gateway/agent root-cause, incl. Gap E out-of-band suppression via `GatewayClass`), C6 (interface saturation on capacity-eligible `links` only), C7 (service-stack collapse over `DEPENDS_ON`), C11 (flap-rate precursor), C12 (operator-rule promotion from `operator_rules`), C13 (discovery-gap disambiguation). C8 (BGP withdrawal) reads explicit `bgp_routes` downstream lists.
-- [x] 1.4.2 Graph causaloids over the frozen `ultragraph` 0.9 `CsmGraph` (`graph.rs` + `reasoner.rs`): C4 (`MANAGED_BY` unobservable), C5 (`articulation_points`), C5b (`bridges`), C9 (`betweenness_centrality`), C10 (`is_reachable` blast radius). Each call site notes the algorithm it uses.
+- [x] 1.4.2 Graph causaloids over the frozen topology graph (`graph.rs` + `reasoner.rs`): C4 (`MANAGED_BY` unobservable), C5 (`articulation_points`), C5b (`bridges`), C9 (`betweenness_centrality`), C10 (`is_reachable` blast radius). C5/C5b/C9/C10 run through the topology `CausaloidGraph` wrapper; each call site notes the algorithm it uses.
 - [x] 1.4.3 Verified against pinned `ultragraph 0.9`: `cargo clippy --all-targets -D warnings` + 54 unit tests + `bazel build //rust/causal-engine:{causal_engine_lib,causal_engine_bin,causal_engine_test} --config=ci` (RBE) green. Full C1–C13 set ships together; no upstream gate remains.
 
 ### 1.5 Risk composition into C5/C7/C10 (capability: causal-reasoning, inventory-risk-feed) — DONE
@@ -63,7 +63,7 @@ Automation-first ordering: the engine exists to turn events into alerts and stat
 - [ ] 1.6.3 Verify (Elixir-side, once verdicts flow end-to-end) the in-process `:causal_signal_ingested` broadcast (Phoenix `CausalPubSub`) still fires so the God-View 4-bucket render path is driven.
 
 ### 1.7 Snapshot persistence (capability: causal-engine) — DONE (Context)
-- [x] 1.7.1 `snapshot.rs` SnapshotStore: atomic JSON persistence of the `Context` (write-temp + rename); the hydrator saves after each `refresh()`. (CausaloidGraph frozen-state persistence lands with the reasoner — Marvin.)
+- [x] 1.7.1 `snapshot.rs` SnapshotStore: atomic JSON persistence of the `Context` (write-temp + rename); the hydrator saves after each `refresh()`. The topology `CausaloidGraph` is rebuilt/frozen from the persisted `Context` each tick in V1.
 - [x] 1.7.2 Restore-on-start: `ContextHydrator::connect(snapshot_path)` loads the snapshot to seed the shared Context instantly, then a best-effort initial refresh overwrites with fresh CNPG state; if CNPG is momentarily down at boot the engine serves the restored snapshot and the refresh tick retries. Live `signals.state.>` deltas keep it current. Unit-tested round-trip.
 
 ### 1.8 Inventory-risk-feed seam (capability: inventory-risk-feed) — DELIVERED by the merged endpoint-SBOM feature

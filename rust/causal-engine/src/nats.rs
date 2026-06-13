@@ -4,7 +4,7 @@
 
 use std::path::PathBuf;
 
-use async_nats::{jetstream, Client, ConnectOptions};
+use async_nats::{Client, ConnectOptions, jetstream};
 
 use crate::config::Config;
 use crate::error::{CausalEngineError, Result};

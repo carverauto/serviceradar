@@ -229,12 +229,14 @@ mod tests {
 
     #[test]
     fn rejects_non_evidence_predictions() {
-        assert!(parse_causal_prediction(&json!({
-            "signal_type": "causal",
-            "event_type": "root_cause",
-            "source_identity": {"entity_uid": "sr:device:a"}
-        }))
-        .is_none());
+        assert!(
+            parse_causal_prediction(&json!({
+                "signal_type": "causal",
+                "event_type": "root_cause",
+                "source_identity": {"entity_uid": "sr:device:a"}
+            }))
+            .is_none()
+        );
     }
 
     #[test]

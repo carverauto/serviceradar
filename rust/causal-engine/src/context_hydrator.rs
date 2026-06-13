@@ -15,8 +15,8 @@ use tokio::sync::RwLock;
 use tracing::warn;
 
 use crate::domain_model::{
-    prune_stale_operator_rules as prune_context_operator_rules, Context, Device, EdgeKind, Service,
-    TopologyEdge,
+    Context, Device, EdgeKind, Service, TopologyEdge,
+    prune_stale_operator_rules as prune_context_operator_rules,
 };
 use crate::error::{CausalEngineError, Result};
 use crate::snapshot::SnapshotStore;
@@ -138,10 +138,10 @@ impl ContextHydrator {
         let mut guard = self.ctx.write().await;
         let pruned = prune_context_operator_rules(&mut guard, now_unix_ms, ttl_ms);
 
-        if pruned > 0 {
-            if let Err(err) = self.snapshot.save(&guard) {
-                warn!(error = %err, "context snapshot save failed after operator-rule pruning");
-            }
+        if pruned > 0
+            && let Err(err) = self.snapshot.save(&guard)
+        {
+            warn!(error = %err, "context snapshot save failed after operator-rule pruning");
         }
 
         pruned
