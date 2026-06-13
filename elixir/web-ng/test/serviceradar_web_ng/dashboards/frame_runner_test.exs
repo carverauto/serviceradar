@@ -19,6 +19,10 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
            %{
              "id" => "finding-1",
              "metadata" => %{"service_radar" => %{"source_type" => "falco"}},
+             "observables" => [%{"name" => "unused"}],
+             "actor" => %{"name" => "unused"},
+             "src_endpoint" => %{"ip" => "10.0.2.11"},
+             "dst_endpoint" => %{"ip" => "192.0.2.20"},
              "raw_data" =>
                Jason.encode!(%{
                  "output_fields" => %{"k8s.node.name" => "k8s-cp3-worker1"},
@@ -242,6 +246,38 @@ defmodule ServiceRadarWebNG.Dashboards.FrameRunnerTest do
                ]
              }
            ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL, device_resolver: FakeDeviceResolver)
+  end
+
+  test "projects dashboard frame fields after event enrichment" do
+    frames = [
+      %{
+        "id" => "findings",
+        "query" => "in:security_findings",
+        "encoding" => "json_rows",
+        "limit" => 1,
+        "fields" => ["id", "metadata"]
+      }
+    ]
+
+    assert [
+             %{
+               "id" => "findings",
+               "status" => "ok",
+               "results" => [
+                 %{
+                   "id" => "finding-1",
+                   "metadata" => %{"service_radar" => %{"source_type" => "falco"}},
+                   "resolved_device_uid" => "sr:9a6211a0-46d9-4986-988d-01e14d886e40"
+                 } = row
+               ]
+             }
+           ] = FrameRunner.run(frames, :scope, srql_module: FakeSRQL, device_resolver: FakeDeviceResolver)
+
+    refute Map.has_key?(row, "raw_data")
+    refute Map.has_key?(row, "observables")
+    refute Map.has_key?(row, "actor")
+    refute Map.has_key?(row, "src_endpoint")
+    refute Map.has_key?(row, "dst_endpoint")
   end
 
   test "uses Falcosidekick custom and templated fields for device resolution" do
