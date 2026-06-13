@@ -142,11 +142,12 @@ fn device_risk(ctx: &Context) -> HashMap<&str, u8> {
 /// The DeepCausality reasoner.
 #[derive(Default)]
 pub struct Reasoner {
-    // TODO(1.3): CausaloidGraph + the frozen ultragraph CsmGraph.
+    // V1 builds the topology CausaloidGraph per tick. A later optimization can
+    // cache/unfreeze it only on topology changes if that shows up in profiles.
 }
 
 impl Reasoner {
-    /// Construct a reasoner. TODO(1.3): build the CausaloidGraph.
+    /// Construct a reasoner.
     pub fn new() -> Self {
         Self::default()
     }
@@ -249,13 +250,13 @@ fn c3_gateway_shared_fate(ctx: &Context) -> Vec<Verdict> {
 
     let mut unavailable_by_gateway: HashMap<&str, Vec<&Device>> = HashMap::new();
     for device in &ctx.devices {
-        if device.is_available == Some(false) {
-            if let Some(gateway) = device.gateway_id.as_deref() {
-                unavailable_by_gateway
-                    .entry(gateway)
-                    .or_default()
-                    .push(device);
-            }
+        if device.is_available == Some(false)
+            && let Some(gateway) = device.gateway_id.as_deref()
+        {
+            unavailable_by_gateway
+                .entry(gateway)
+                .or_default()
+                .push(device);
         }
     }
 
@@ -393,20 +394,20 @@ fn c7_service_stack_collapse(ctx: &Context, risk: &HashMap<&str, u8>) -> Vec<Ver
 fn c11_flap_precursor(ctx: &Context) -> Vec<Verdict> {
     let mut verdicts = Vec::new();
     for device in &ctx.devices {
-        if let Some(flaps) = device.flap_count {
-            if flaps >= FLAP_PRECURSOR_THRESHOLD {
-                let severity = (50 + flaps.saturating_mul(5)).clamp(0, 100) as u8;
-                verdicts.push(
-                    Verdict::new(
-                        device.uid.clone(),
-                        Classification::Affected,
-                        format!(
-                            "elevated flap rate ({flaps} recent transitions); instability precursor"
-                        ),
-                    )
-                    .raise_severity_to(severity),
-                );
-            }
+        if let Some(flaps) = device.flap_count
+            && flaps >= FLAP_PRECURSOR_THRESHOLD
+        {
+            let severity = (50 + flaps.saturating_mul(5)).clamp(0, 100) as u8;
+            verdicts.push(
+                Verdict::new(
+                    device.uid.clone(),
+                    Classification::Affected,
+                    format!(
+                        "elevated flap rate ({flaps} recent transitions); instability precursor"
+                    ),
+                )
+                .raise_severity_to(severity),
+            );
         }
     }
     verdicts
@@ -668,9 +669,11 @@ mod tests {
             ..Default::default()
         };
         let verdicts = reasoner.evaluate(&ctx).expect("evaluate");
-        assert!(verdicts
-            .iter()
-            .any(|v| v.entity_id == "sr:gw:1" && v.classification == Classification::RootCause));
+        assert!(
+            verdicts
+                .iter()
+                .any(|v| v.entity_id == "sr:gw:1" && v.classification == Classification::RootCause)
+        );
     }
 
     fn managed_by(child: &str, manager: &str) -> TopologyEdge {

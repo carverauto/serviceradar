@@ -28,7 +28,7 @@ pub mod subscriber;
 
 pub use config::Config;
 pub use context_hydrator::{ContextHydrator, ContextStore};
-pub use delta::{apply_delta, parse_state_change, StateChangeDelta};
+pub use delta::{StateChangeDelta, apply_delta, parse_state_change};
 pub use domain_model::{Context, Device, EntityId, Service};
 pub use error::{CausalEngineError, Result};
 pub use reasoner::{Classification, Reasoner, Verdict};

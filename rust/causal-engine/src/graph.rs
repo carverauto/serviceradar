@@ -1,34 +1,43 @@
 //! Frozen-graph layer for the structural causaloids (C5/C5b/C9/C10).
 //!
 //! Projects the physical-topology view of [`Context`] (the `CONNECTS_TO` edges)
-//! into an `ultragraph` 0.9 graph, freezes it into the CSR `CsmGraph`, and
-//! exposes the structural / centrality / reachability queries the graph
-//! causaloids need — mapping node indices back to canonical `sr:` entity ids:
+//! into a DeepCausality `CausaloidGraph`, freezes it into its optimized
+//! ultragraph-backed representation, and exposes the structural / centrality /
+//! reachability queries the graph causaloids need — mapping node indices back
+//! to canonical `sr:` entity ids:
 //!
 //! - [`TopologyGraph::articulation_points`] — `StructuralGraphAlgorithms` (C5)
 //! - [`TopologyGraph::bridges`] — `StructuralGraphAlgorithms` (C5b)
 //! - [`TopologyGraph::betweenness`] — `CentralityGraphAlgorithms` (C9)
 //! - [`TopologyGraph::reachable_from`] — `PathfindingGraphAlgorithms` (C10)
 //!
-//! Gap G (the algorithms) is already upstream in `ultragraph` 0.9, so no
-//! DeepCausality PR is required. `CONNECTS_TO` is undirected, which matches the
+//! Gap G (the algorithms) is already upstream through DeepCausality's
+//! ultragraph-backed graph. `CONNECTS_TO` is undirected, which matches the
 //! articulation-point / bridge semantics; management/containment edges are not
 //! part of this reachability fabric.
 
 use std::collections::{HashMap, HashSet};
 
+use deep_causality::{
+    CausableGraph, Causaloid, CausaloidGraph, MonadicCausableGraphReasoning, PropagatingEffect,
+};
 use ultragraph::{
-    CentralityGraphAlgorithms, GraphMut, PathfindingGraphAlgorithms, StructuralGraphAlgorithms,
-    UltraGraph,
+    CentralityGraphAlgorithms, PathfindingGraphAlgorithms, StructuralGraphAlgorithms,
 };
 
 use crate::domain_model::{Context, EdgeKind, EntityId};
+
+type TopologyCausaloid = Causaloid<bool, bool, (), ()>;
+
+fn topology_signal(signal: bool) -> PropagatingEffect<bool> {
+    PropagatingEffect::pure(signal)
+}
 
 /// A frozen physical-topology graph keyed back to canonical entity ids. Node
 /// payload and edge weight are both `()` — structure is all the graph causaloids
 /// need; the canonical ids live in the side maps.
 pub struct TopologyGraph {
-    graph: UltraGraph<()>,
+    graph: CausaloidGraph<TopologyCausaloid>,
     index_of: HashMap<EntityId, usize>,
     ids: Vec<EntityId>,
 }
@@ -66,17 +75,24 @@ impl TopologyGraph {
             return None;
         }
 
-        let mut graph: UltraGraph<()> = UltraGraph::with_capacity(ids.len(), None);
+        let mut graph: CausaloidGraph<TopologyCausaloid> =
+            CausaloidGraph::new_with_capacity(0, ids.len().max(1));
         // Nodes are added in 0..ids.len() order, so `add_node` assigns index i
         // to ids[i] — the same indices `intern` handed out for the edge list.
-        for _ in 0..ids.len() {
-            graph.add_node(()).ok()?;
+        for (index, id) in ids.iter().enumerate() {
+            let causaloid = Causaloid::new(index as u64, topology_signal, id.as_str());
+
+            if index == 0 {
+                graph.add_root_causaloid(causaloid).ok()?;
+            } else {
+                graph.add_causaloid(causaloid).ok()?;
+            }
         }
         for (a, b) in links {
             // Undirected: add both directions so reachability/centrality treat
             // the physical link symmetrically.
-            graph.add_edge(a, b, ()).ok()?;
-            graph.add_edge(b, a, ()).ok()?;
+            graph.add_edg_with_weight(a, b, 1).ok()?;
+            graph.add_edg_with_weight(b, a, 1).ok()?;
         }
         graph.freeze();
 
@@ -94,6 +110,7 @@ impl TopologyGraph {
     /// Articulation points: nodes whose removal partitions reachability (C5).
     pub fn articulation_points(&self) -> Vec<EntityId> {
         self.graph
+            .get_graph()
             .articulation_points()
             .map(|indices| indices.into_iter().filter_map(|i| self.id_at(i)).collect())
             .unwrap_or_default()
@@ -103,7 +120,7 @@ impl TopologyGraph {
     /// undirected graph is stored bidirectionally, so each bridge is normalized
     /// and de-duplicated to a single unordered endpoint pair.
     pub fn bridges(&self) -> Vec<(EntityId, EntityId)> {
-        let raw = match self.graph.bridges() {
+        let raw = match self.graph.get_graph().bridges() {
             Ok(b) => b,
             Err(_) => return Vec::new(),
         };
@@ -125,6 +142,7 @@ impl TopologyGraph {
     /// shared hop more paths traverse.
     pub fn betweenness(&self) -> Vec<(EntityId, f64)> {
         self.graph
+            .get_graph()
             .betweenness_centrality(false, true)
             .map(|scores| {
                 scores
@@ -146,13 +164,33 @@ impl TopologyGraph {
             if index == start {
                 continue;
             }
-            if self.graph.is_reachable(start, index).unwrap_or(false) {
-                if let Some(id) = self.id_at(index) {
-                    out.push(id);
-                }
+            if self
+                .graph
+                .get_graph()
+                .is_reachable(start, index)
+                .unwrap_or(false)
+                && let Some(id) = self.id_at(index)
+            {
+                out.push(id);
             }
         }
         out
+    }
+
+    /// Run a real DeepCausality graph traversal over the frozen topology.
+    /// Structural C5/C5b/C9/C10 still use graph algorithms, but this gives the
+    /// causal engine a direct monadic graph path for model-level checks.
+    pub fn evaluate_signal_from(&self, source: &str, signal: bool) -> Option<bool> {
+        let start = *self.index_of.get(source)?;
+        let effect = self
+            .graph
+            .evaluate_subgraph_from_cause(start, &PropagatingEffect::pure(signal));
+
+        if effect.is_err() {
+            None
+        } else {
+            effect.value.into_value()
+        }
     }
 }
 
@@ -225,5 +263,14 @@ mod tests {
         let mut reach = g.reachable_from("a");
         reach.sort();
         assert_eq!(reach, vec!["b".to_string(), "c".to_string()]);
+    }
+
+    #[test]
+    fn evaluates_frozen_deep_causality_graph_from_source() {
+        let g = TopologyGraph::from_connects_to(&line_graph()).expect("graph");
+
+        assert_eq!(g.evaluate_signal_from("a", true), Some(true));
+        assert_eq!(g.evaluate_signal_from("a", false), Some(false));
+        assert_eq!(g.evaluate_signal_from("missing", true), None);
     }
 }
