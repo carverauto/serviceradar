@@ -6,7 +6,7 @@
 #
 # Useful knobs:
 #
-#   ANOMALY_BENCH_MODE=owner|reasoner|compact|compact_shards|compact_ets_shards
+#   ANOMALY_BENCH_MODE=owner|reasoner|compact|compact_shards|compact_ets_shards|counter_normalizer
 #   ANOMALY_BENCH_SERIES=50000
 #   ANOMALY_BENCH_BASELINE=12
 #   ANOMALY_BENCH_WINDOW=300
@@ -22,6 +22,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   @moduledoc false
   alias ServiceRadar.Observability.AnomalyDetection.CompactEvaluator
   alias ServiceRadar.Observability.AnomalyDetection.ContextOwner
+  alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.CausalReasoner
 
   @detector_opts [
@@ -94,6 +95,49 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     failed_series=#{result.failed}
     memory_delta_mb=#{Float.round(memory_delta_mb, 2)}
     """)
+  end
+
+  defp run_benchmark(
+         "counter_normalizer",
+         series_count,
+         baseline_count,
+         _window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency
+       ) do
+    table =
+      :ets.new(:counter_normalizer_bench, [
+        :set,
+        :public,
+        read_concurrency: true,
+        write_concurrency: true
+      ])
+
+    sample_count = baseline_count + anomaly_count
+    raw_count = sample_count * rollup_samples_per_eval
+    shard_count = min(concurrency, series_count)
+
+    try do
+      1..shard_count
+      |> Task.async_stream(
+        fn shard ->
+          shard
+          |> Range.new(series_count, shard_count)
+          |> Enum.reduce(%{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0}, fn index,
+                                                                                        acc ->
+            metrics = run_counter_normalizer_series(index, raw_count, table)
+            merge_metrics(acc, metrics)
+          end)
+        end,
+        max_concurrency: shard_count,
+        timeout: :infinity,
+        ordered: false
+      )
+      |> reduce_task_results()
+    after
+      :ets.delete(table)
+    end
   end
 
   defp run_benchmark(
@@ -348,7 +392,27 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   end
 
   defp run_series(_index, mode, _baseline_count, _window_size, _anomaly_count, _rollup_samples) do
-    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, reasoner, compact, or compact_shards"
+    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, reasoner, compact, compact_shards, compact_ets_shards, or counter_normalizer"
+  end
+
+  defp run_counter_normalizer_series(index, raw_count, table) do
+    series_key = "bench:counter:agent-#{index}:ifHCInOctets"
+
+    emitted =
+      Enum.reduce(1..raw_count, 0, fn order, emitted ->
+        value = 1_000_000_000_000 + order * 1_000
+        timestamp = order * 1_000_000_000
+
+        case CounterNormalizer.normalize_sample(
+               counter_sample(series_key, value, timestamp),
+               table
+             ) do
+          {:ok, _sample} -> emitted + 1
+          {:drop, _reason} -> emitted
+        end
+      end)
+
+    %{evaluations: emitted, raw_samples: raw_count, confirmed: 0, failed: 0}
   end
 
   defp dataset(index) do
@@ -464,6 +528,25 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       subject: dataset.subject,
       metric_class: dataset.metric_class,
       metadata: %{}
+    }
+  end
+
+  defp counter_sample(series_key, value, timestamp) do
+    %{
+      series_key: series_key,
+      event_id: "#{series_key}:#{timestamp}",
+      order_key: {timestamp, "#{series_key}:#{timestamp}"},
+      value: value,
+      observed_at_unix_nano: timestamp,
+      subject: "otel.metrics.raw",
+      metric_class: "otel.metric_point",
+      metadata: %{
+        metric_type: "sum",
+        temporality: "cumulative",
+        is_monotonic: true,
+        unit: "By",
+        start_time_unix_nano: 1
+      }
     }
   end
 

@@ -15,11 +15,11 @@
 - [ ] 3.4 Prefer 64-bit IF-MIB counters when available.
 
 ## 4. Consumer Normalization
-- [ ] 4.1 Implement a counter normalizer that computes rates/deltas from raw values and anchors.
-- [ ] 4.2 Drop or mark invalid reset/max-gap intervals instead of treating them as spikes.
-- [ ] 4.3 Feed anomaly detection rates for cumulative sums and raw values for gauges.
+- [x] 4.1 Implement a counter normalizer that computes rates/deltas from raw values and anchors.
+- [x] 4.2 Drop or mark invalid reset/max-gap intervals instead of treating them as spikes.
+- [x] 4.3 Feed anomaly detection rates for cumulative sums and raw values for gauges.
 
 ## 5. Tests and Benchmarks
-- [ ] 5.1 Add unit tests for reset, reboot, wrap, 64-bit decrease, max-gap, and precision cases.
+- [x] 5.1 Add unit tests for reset, reboot, wrap, 64-bit decrease, max-gap, and precision cases.
 - [ ] 5.2 Add synthetic anomaly tests proving cumulative counters do not create ramp false positives.
-- [ ] 5.3 Add benchmark coverage for counter normalization in the anomaly hot path.
+- [x] 5.3 Add benchmark coverage for counter normalization in the anomaly hot path.
