@@ -596,23 +596,78 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   defp normalize_verdicts(_verdicts), do: %{}
 
   defp normalize_verdict(verdict) when is_map(verdict) do
-    %{}
-    |> maybe_put(:state, checkpoint_value(verdict, :state))
-    |> maybe_put(:anomalous, checkpoint_value(verdict, :anomalous))
-    |> maybe_put(:reason, checkpoint_value(verdict, :reason))
-    |> maybe_put(:include_in_baseline, checkpoint_value(verdict, :include_in_baseline))
-    |> maybe_put(
+    [
+      :state,
+      :anomalous,
+      :breached,
+      :include_in_baseline,
       :next_consecutive_anomalous,
-      checkpoint_value(verdict, :next_consecutive_anomalous)
-    )
-    |> maybe_put(:suppressed, checkpoint_value(verdict, :suppressed))
-    |> maybe_put(:suppressed_state, checkpoint_value(verdict, :suppressed_state))
+      :score,
+      :reason,
+      :baseline_count,
+      :sample_value,
+      :observed_at_unix_nano,
+      :suppressed,
+      :suppressed_state
+    ]
+    |> Enum.reduce(%{}, fn key, normalized ->
+      put_checkpoint_value(normalized, key, verdict)
+    end)
+    |> put_normalized_signals(verdict)
   end
 
   defp normalize_verdict(_verdict), do: %{}
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+  defp put_normalized_signals(normalized, verdict) do
+    if checkpoint_has_key?(verdict, :signals) do
+      Map.put(normalized, :signals, normalize_signals(checkpoint_value(verdict, :signals)))
+    else
+      normalized
+    end
+  end
+
+  defp normalize_signals(signals) when is_list(signals) do
+    signals
+    |> Enum.map(&normalize_signal/1)
+    |> Enum.reject(&(&1 == %{}))
+  end
+
+  defp normalize_signals(_signals), do: []
+
+  defp normalize_signal(signal) when is_map(signal) do
+    Enum.reduce(
+      [
+        :name,
+        :enabled,
+        :ready,
+        :breached,
+        :score,
+        :threshold,
+        :sample_count,
+        :mean,
+        :stddev,
+        :reason
+      ],
+      %{},
+      fn key, normalized ->
+        put_checkpoint_value(normalized, key, signal)
+      end
+    )
+  end
+
+  defp normalize_signal(_signal), do: %{}
+
+  defp put_checkpoint_value(normalized, key, values) do
+    if checkpoint_has_key?(values, key) do
+      Map.put(normalized, key, checkpoint_value(values, key))
+    else
+      normalized
+    end
+  end
+
+  defp checkpoint_has_key?(map, key) when is_map(map) do
+    Map.has_key?(map, key) or Map.has_key?(map, to_string(key))
+  end
 
   defp checkpoint_value(map, key, default \\ nil) when is_map(map) do
     Map.get(map, key, Map.get(map, to_string(key), default))

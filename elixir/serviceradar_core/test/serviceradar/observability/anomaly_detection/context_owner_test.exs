@@ -171,6 +171,51 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert ContextOwner.snapshot(replacement).context.baseline == [10.0, 11.0]
   end
 
+  test "checkpoint replay preserves anomalous verdict evidence after JSON restore" do
+    series_key = "series-verdict-replay-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.JsonCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      reasoner: __MODULE__.FullAnomalyReasoner,
+      suppress_until_warmed?: false
+    ]
+
+    {:ok, pid} = start_owner(opts)
+
+    assert {:ok, %{state: "anomalous", anomalous: true, score: 3.8}} =
+             ContextOwner.evaluate(
+               pid,
+               uuid_sample("00000645-50df-8e80-8000-000000000010", 1, 97.5)
+             )
+
+    GenServer.stop(pid)
+
+    {:ok, replacement} = start_owner(opts)
+
+    assert {:ok, verdict} =
+             ContextOwner.evaluate(
+               replacement,
+               uuid_sample("00000645-50df-8e80-8000-000000000010", 1, 12.0)
+             )
+
+    assert verdict.state == "anomalous"
+    assert verdict.anomalous == true
+    assert verdict.breached == true
+    assert verdict.score == 3.8
+    assert verdict.baseline_count == 48
+    assert verdict.sample_value == 97.5
+    assert verdict.observed_at_unix_nano == 1
+    assert [%{name: "rolling"} = signal] = verdict.signals
+    assert signal.ready == true
+    assert signal.breached == true
+    assert signal.score == 3.8
+    assert Map.has_key?(signal, :mean)
+    assert signal.mean == nil
+  end
+
   test "seeds cold baselines through SRQL and suppresses anomalous findings until rewarmed" do
     {:ok, pid} =
       start_owner(
@@ -281,6 +326,40 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     end
   end
 
+  defmodule FullAnomalyReasoner do
+    @moduledoc false
+
+    def reason(_context, sample) do
+      {:ok,
+       %{
+         state: "anomalous",
+         anomalous: true,
+         breached: true,
+         include_in_baseline: false,
+         next_consecutive_anomalous: 5,
+         score: 3.8,
+         reason: "rolling z-score breached",
+         baseline_count: 48,
+         sample_value: sample.value,
+         observed_at_unix_nano: sample.observed_at_unix_nano,
+         signals: [
+           %{
+             name: "rolling",
+             enabled: true,
+             ready: true,
+             breached: true,
+             score: 3.8,
+             threshold: 3.0,
+             sample_count: 48,
+             mean: nil,
+             stddev: 15.0,
+             reason: "breached"
+           }
+         ]
+       }}
+    end
+  end
+
   defmodule ConfiguredReasoner do
     @moduledoc false
 
@@ -314,6 +393,30 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
       opts
       |> Keyword.fetch!(:agent)
       |> Agent.update(&Map.put(&1, series_key, checkpoint))
+
+      :ok
+    end
+  end
+
+  defmodule JsonCheckpoint do
+    @moduledoc false
+
+    def load(series_key, opts) do
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.get(&Map.get(&1, series_key))
+      |> case do
+        nil -> {:ok, nil}
+        checkpoint -> {:ok, Jason.decode!(checkpoint)}
+      end
+    end
+
+    def save(series_key, checkpoint, opts) do
+      encoded = Jason.encode!(checkpoint)
+
+      opts
+      |> Keyword.fetch!(:agent)
+      |> Agent.update(&Map.put(&1, series_key, encoded))
 
       :ok
     end
