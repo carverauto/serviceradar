@@ -144,7 +144,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
 
   # Process the watermark backlog in bounded windows so each query stays
   # well within the statement timeout even after worker downtime.
-  @ingest_chunk_seconds 3600
+  @ingest_chunk_seconds 300
   # Re-scan a small overlap before the watermark to absorb writer commit
   # skew (rows whose created_at predates their commit visibility).
   @watermark_overlap_seconds 120
@@ -157,6 +157,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
   def watermark_key, do: @watermark_key
+  def ingest_chunk_seconds, do: @ingest_chunk_seconds
 
   @impl Oban.Worker
   def perform(_job) do

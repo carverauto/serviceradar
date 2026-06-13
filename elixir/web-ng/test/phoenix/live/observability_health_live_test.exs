@@ -22,7 +22,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
 
   test "renders fleet observability health from anomaly and capacity sources", %{conn: conn} do
     {:ok, view, _html} = live(conn, ~p"/observability/health")
-    html = render(view)
+    html = render_async(view, 5_000)
 
     assert html =~ "Observability Health"
     assert html =~ "Anomaly findings"
@@ -54,17 +54,16 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLiveTest do
        }}
     end
 
-    def query("in:events source_type:(anomaly_detection,capacity_forecasting)" <> _rest, _opts) do
+    def query("in:events rollup_stats:anomaly_findings" <> _rest, _opts) do
       {:ok,
        %{
          "results" => [
-           %{"severity" => "High", "source_type" => "anomaly_detection"},
-           %{"severity" => "Critical", "source_type" => "capacity_forecasting"}
+           %{"total" => 2, "anomalies" => 1, "at_risk" => 1, "critical" => 0, "high" => 1}
          ]
        }}
     end
 
-    def query("in:capacity_forecasts" <> _rest, _opts) do
+    def query("in:capacity_forecasts status:(projected,at_risk,exhaustion_projected)" <> _rest, _opts) do
       {:ok,
        %{
          "results" => [

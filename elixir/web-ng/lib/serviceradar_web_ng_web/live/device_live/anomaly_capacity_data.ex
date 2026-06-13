@@ -138,6 +138,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData do
       [
         "in:events",
         "class_uid:2004",
+        "source_type:anomaly_detection",
         ~s|#{field}:"#{QueryData.escape_value(value)}"|,
         "time:last_7d",
         "sort:time:desc",

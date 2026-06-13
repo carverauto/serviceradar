@@ -4,7 +4,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   Sysmon messages are family envelopes emitted by the agent gateway and are
   persisted through the shared hypertable ingestor.
-  SNMP interface metric messages are flat scalar telemetry records and continue
+  SNMP and plugin metric messages are flat scalar telemetry records and continue
   through the generic timeseries processor.
   """
 
@@ -18,13 +18,14 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @sysmon_schema "serviceradar.sysmon.metrics.v1"
   @legacy_sysmon_schema "serviceradar.sysmon.shadow.v1"
   @snmp_schema "serviceradar.snmp.interface_metric.v1"
+  @generic_metric_schema "serviceradar.metric.v1"
 
   @impl true
   def table_name, do: "metrics"
 
   @impl true
   def process_batch(messages) do
-    {sysmon_messages, snmp_messages, rejected} = partition_messages(messages)
+    {sysmon_messages, timeseries_messages, rejected} = partition_messages(messages)
 
     if rejected > 0 do
       Logger.debug("Metrics processor rejected unsupported messages", count: rejected)
@@ -32,8 +33,8 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
     sysmon_count = ingest_sysmon_messages(sysmon_messages)
 
-    with {:ok, snmp_count} <- Telemetry.process_batch(snmp_messages) do
-      {:ok, sysmon_count + snmp_count}
+    with {:ok, timeseries_count} <- Telemetry.process_batch(timeseries_messages) do
+      {:ok, sysmon_count + timeseries_count}
     end
   rescue
     e ->
@@ -47,7 +48,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
          {:ok, kind} <- metric_kind(json, metadata) do
       case kind do
         :sysmon -> parse_sysmon(json, metadata)
-        :snmp -> Telemetry.parse_message(%{data: data, metadata: metadata})
+        :timeseries -> Telemetry.parse_message(%{data: data, metadata: metadata})
       end
     else
       _ -> nil
@@ -152,7 +153,10 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
         {:ok, :sysmon}
 
       schema == @snmp_schema or String.starts_with?(subject, "metrics.snmp.") ->
-        {:ok, :snmp}
+        {:ok, :timeseries}
+
+      schema == @generic_metric_schema or String.starts_with?(subject, "metrics.timeseries.") ->
+        {:ok, :timeseries}
 
       true ->
         :error

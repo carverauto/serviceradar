@@ -946,6 +946,8 @@ agentGateway:
   sysmonMetricsSubjectPrefix: "metrics.sysmon"
   snmpMetricsEnabled: true
   snmpMetricsSubjectPrefix: "metrics.snmp"
+  pluginMetricsEnabled: true
+  pluginMetricsSubjectPrefix: "metrics.timeseries"
   otlpRelayPublishEnabled: true
   otlpRelayTracesSubject: "otel.traces.raw"
   otlpRelayLogsSubject: "logs.otel"

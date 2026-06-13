@@ -3775,19 +3775,19 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
               <td class="whitespace-nowrap text-xs font-mono">{format_timestamp(trace)}</td>
               <td
                 class="whitespace-nowrap text-xs truncate max-w-[14rem]"
-                title={Map.get(trace, "root_service_name")}
+                title={trace_service_name(trace)}
               >
-                {Map.get(trace, "root_service_name") || "—"}
+                {trace_service_name(trace) || "—"}
               </td>
-              <td class="text-xs truncate max-w-[28rem]" title={Map.get(trace, "root_span_name")}>
-                {Map.get(trace, "root_span_name") || "—"}
-              </td>
-              <td class="whitespace-nowrap text-xs font-mono text-right">
-                {format_duration_ms(Map.get(trace, "duration_ms"))}
+              <td class="text-xs truncate max-w-[28rem]" title={trace_operation_name(trace)}>
+                {trace_operation_name(trace) || "—"}
               </td>
               <td class="whitespace-nowrap text-xs font-mono text-right">
-                <span class={error_count_class(Map.get(trace, "error_count", 0) |> to_int())}>
-                  {Map.get(trace, "error_count", 0) |> to_int()}
+                {format_duration_ms(trace_duration_ms(trace))}
+              </td>
+              <td class="whitespace-nowrap text-xs font-mono text-right">
+                <span class={error_count_class(trace_error_count(trace))}>
+                  {trace_error_count(trace)}
                 </span>
               </td>
             </tr>
@@ -6552,6 +6552,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
     end
   end
 
+  defp format_duration_ms(_ms), do: "—"
+
   defp format_number(n) when n >= 1_000_000, do: "#{Float.round(n / 1_000_000 * 1.0, 1)}M"
   defp format_number(n) when n >= 1_000, do: "#{Float.round(n / 1_000 * 1.0, 1)}k"
   defp format_number(n), do: "#{n}"
@@ -7263,6 +7265,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       default_limit: default_limit,
       max_limit: max_limit
     )
+    |> maybe_fallback_to_raw_traces(tab, params, uri, default_limit, max_limit)
     |> apply_tab_assigns(tab, srql_module())
     |> stream_active_tab(tab)
     |> assign(:_initial_load_done, true)
@@ -7344,9 +7347,32 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
       default_limit: default_limit,
       max_limit: max_limit
     )
+    |> maybe_fallback_to_raw_traces(tab, params, uri, default_limit, max_limit)
     |> apply_tab_assigns(tab, srql_module())
     |> stream_active_tab(tab)
   end
+
+  defp maybe_fallback_to_raw_traces(socket, "traces", params, uri, default_limit, max_limit) do
+    if blank_param?(Map.get(params, "q")) and Map.get(socket.assigns, :traces, []) == [] and
+         is_nil(get_in(socket.assigns, [:srql, :error])) do
+      fallback_params = Map.put(params, "q", raw_traces_fallback_query(Map.get(socket.assigns, :limit, default_limit)))
+
+      SRQLPage.load_list(socket, fallback_params, uri, :traces,
+        default_limit: default_limit,
+        max_limit: max_limit
+      )
+    else
+      socket
+    end
+  end
+
+  defp maybe_fallback_to_raw_traces(socket, _tab, _params, _uri, _default_limit, _max_limit), do: socket
+
+  defp raw_traces_fallback_query(limit) when is_integer(limit) and limit > 0 do
+    "in:traces time:last_24h sort:timestamp:desc limit:#{limit}"
+  end
+
+  defp raw_traces_fallback_query(_limit), do: raw_traces_fallback_query(@default_limit)
 
   defp stream_active_tab(socket, "logs") do
     stream(socket, :logs, socket.assigns.logs, reset: true, dom_id: &log_dom_id/1)
@@ -7445,6 +7471,10 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
   defp extract_result_rows({:ok, %{"results" => results}}) when is_list(results), do: Enum.filter(results, &is_map/1)
 
   defp extract_result_rows(_), do: []
+
+  defp blank_param?(value) when is_binary(value), do: String.trim(value) == ""
+  defp blank_param?(nil), do: true
+  defp blank_param?(_value), do: false
 
   defp presence(""), do: nil
   defp presence(value), do: value
@@ -8889,6 +8919,43 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp error_count_class(count) when is_integer(count) and count > 0, do: "text-error font-bold"
   defp error_count_class(_), do: "text-base-content/60"
+
+  defp trace_service_name(trace) do
+    normalize_string(Map.get(trace, "root_service_name")) ||
+      normalize_string(Map.get(trace, "service_name"))
+  end
+
+  defp trace_operation_name(trace) do
+    normalize_string(Map.get(trace, "root_span_name")) ||
+      normalize_string(Map.get(trace, "span_name")) ||
+      normalize_string(Map.get(trace, "name"))
+  end
+
+  defp trace_duration_ms(trace) do
+    cond do
+      is_number(Map.get(trace, "duration_ms")) ->
+        Map.get(trace, "duration_ms")
+
+      is_number(Map.get(trace, "end_time_unix_nano")) and is_number(Map.get(trace, "start_time_unix_nano")) ->
+        (Map.get(trace, "end_time_unix_nano") - Map.get(trace, "start_time_unix_nano")) / 1_000_000
+
+      true ->
+        nil
+    end
+  end
+
+  defp trace_error_count(trace) do
+    cond do
+      Map.has_key?(trace, "error_count") ->
+        trace |> Map.get("error_count", 0) |> to_int()
+
+      to_int(Map.get(trace, "status_code")) == 2 ->
+        1
+
+      true ->
+        0
+    end
+  end
 
   defp metric_operation(metric) do
     grpc = grpc_operation(metric)

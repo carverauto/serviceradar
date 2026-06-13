@@ -31,7 +31,8 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       |> assign(:rows, [])
       |> assign(:rows_by_id, %{})
       |> assign(:selected_flow, nil)
-      |> assign(:loading?, true)
+      |> assign(:loading?, connected?(socket))
+      |> assign(:load_request, nil)
       |> stream(:attributed_flows, [], dom_id: &flow_dom_id/1)
       |> SRQLPage.init("attributed_flows", default_limit: @default_page_size)
 
@@ -50,7 +51,7 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
       |> assign(:selected_flow, nil)
       |> assign(:live?, Map.get(socket.assigns, :live?, false) and page == 1)
       |> sync_srql(params, uri)
-      |> load_flows()
+      |> begin_load_flows()
 
     {:noreply, socket}
   end
@@ -132,36 +133,83 @@ defmodule ServiceRadarWebNGWeb.Flows.AttributedLive do
   @impl true
   def handle_info(:refresh, %{assigns: %{live?: true}} = socket) do
     schedule_refresh()
-    {:noreply, load_flows(socket)}
+    {:noreply, begin_load_flows(socket)}
   end
 
   def handle_info(:refresh, socket), do: {:noreply, socket}
 
-  defp load_flows(socket) do
-    scope = socket.assigns.current_scope
-    srql_module = srql_module()
+  @impl true
+  def handle_async({:attributed_flows_load, request_id}, {:ok, data}, socket) do
+    if request_id == socket.assigns.load_request do
+      rows_by_id = Map.new(data.rows, &{&1.id, &1})
+      selected_flow = refresh_selected_flow(socket.assigns.selected_flow, rows_by_id)
+
+      {:noreply,
+       socket
+       |> assign(:summary, data.summary)
+       |> assign(:page, data.page)
+       |> assign(:page_count, data.page_count)
+       |> assign(:rows, data.rows)
+       |> assign(:rows_by_id, rows_by_id)
+       |> assign(:selected_flow, selected_flow)
+       |> assign(:loading?, false)
+       |> stream(:attributed_flows, data.rows, reset: true, dom_id: &flow_dom_id/1)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_async({:attributed_flows_load, request_id}, {:exit, reason}, socket) do
+    Logger.warning("Attributed flow async load failed: #{inspect(reason)}")
+
+    socket =
+      if request_id == socket.assigns.load_request do
+        assign(socket, :loading?, false)
+      else
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  defp begin_load_flows(socket) do
+    if connected?(socket) do
+      request_id = System.unique_integer([:positive])
+      scope = socket.assigns.current_scope
+      srql_module = srql_module()
+      query = socket.assigns.srql.query
+      page = socket.assigns.page
+      page_size = socket.assigns.page_size
+      filter = socket.assigns.filter
+
+      socket
+      |> assign(:loading?, true)
+      |> assign(:load_request, request_id)
+      |> start_async({:attributed_flows_load, request_id}, fn ->
+        load_flows_data(srql_module, scope, query, page, page_size, filter)
+      end)
+    else
+      socket
+    end
+  end
+
+  defp load_flows_data(srql_module, scope, query, page, page_size, filter) do
     summary = fetch_summary(srql_module, scope)
-    total_for_filter = summary_count(summary, socket.assigns.filter)
-    page_count = page_count(total_for_filter, socket.assigns.page_size)
-    page = min(socket.assigns.page, page_count)
+    total_for_filter = summary_count(summary, filter)
+    page_count = page_count(total_for_filter, page_size)
+    page = min(page, page_count)
 
     rows =
       srql_module
-      |> fetch_flows(scope, socket.assigns.srql.query, page, socket.assigns.page_size)
+      |> fetch_flows(scope, query, page, page_size)
       |> enrich_rows_with_rdns(scope)
 
-    rows_by_id = Map.new(rows, &{&1.id, &1})
-    selected_flow = refresh_selected_flow(socket.assigns.selected_flow, rows_by_id)
-
-    socket
-    |> assign(:summary, summary)
-    |> assign(:page, page)
-    |> assign(:page_count, page_count)
-    |> assign(:rows, rows)
-    |> assign(:rows_by_id, rows_by_id)
-    |> assign(:selected_flow, selected_flow)
-    |> assign(:loading?, false)
-    |> stream(:attributed_flows, rows, reset: true, dom_id: &flow_dom_id/1)
+    %{
+      summary: summary,
+      page: page,
+      page_count: page_count,
+      rows: rows
+    }
   end
 
   defp sync_srql(socket, params, uri) do

@@ -12,6 +12,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_snmp_publisher =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_module)
 
+    previous_plugin_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_module)
+
     previous_otlp_publisher =
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
 
@@ -20,6 +23,9 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     previous_snmp_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid)
+
+    previous_plugin_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid)
 
     previous_otlp_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
@@ -45,9 +51,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
       restore_env(:sysmon_metrics_publisher_module, previous_publisher)
       restore_env(:snmp_metrics_publisher_module, previous_snmp_publisher)
+      restore_env(:plugin_metrics_publisher_module, previous_plugin_publisher)
       restore_env(:otlp_relay_publisher_module, previous_otlp_publisher)
       restore_env(:sysmon_metrics_publisher_test_pid, previous_test_pid)
       restore_env(:snmp_metrics_publisher_test_pid, previous_snmp_test_pid)
+      restore_env(:plugin_metrics_publisher_test_pid, previous_plugin_test_pid)
       restore_env(:otlp_relay_publisher_test_pid, previous_otlp_test_pid)
     end)
 
@@ -250,6 +258,63 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert_receive {:snmp_publish_failed, _status}
   end
 
+  test "publishes plugin metrics after successful status forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :plugin_metrics_publisher_module,
+      __MODULE__.PluginPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = plugin_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:forwarded, forwarded}
+    assert_receive {:plugin_published, published}
+    assert published == forwarded
+  end
+
+  test "continues the plugin result path when metrics publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :plugin_metrics_publisher_module,
+      __MODULE__.FailingPluginPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert :ok = StatusProcessor.process(plugin_status())
+
+    assert_receive {:forwarded, _forwarded}
+    assert_receive {:plugin_publish_failed, _status}
+  end
+
   test "returns forwarding error for unbuffered status when core status handler is unavailable" do
     status = %{
       service_name: "agent",
@@ -412,6 +477,23 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     }
   end
 
+  defp plugin_status do
+    %{
+      service_name: "proxmox-inventory",
+      service_type: "wasm-plugin",
+      source: "plugin-result",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message:
+        Jason.encode!(%{
+          "status" => "WARNING",
+          "summary" => "resource pressure",
+          "metrics" => [%{"name" => "proxmox_guest_cpu_ratio_max", "value" => 0.91}]
+        })
+    }
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
 end
@@ -440,6 +522,36 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.SnmpPublisherStub do
     })
 
     :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.PluginPublisherStub do
+  @moduledoc false
+  def publish_plugin_metrics(status) do
+    send(
+      Application.fetch_env!(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid),
+      {
+        :plugin_published,
+        status
+      }
+    )
+
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingPluginPublisherStub do
+  @moduledoc false
+  def publish_plugin_metrics(status) do
+    send(
+      Application.fetch_env!(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid),
+      {
+        :plugin_publish_failed,
+        status
+      }
+    )
+
+    {:error, :nats_down}
   end
 end
 

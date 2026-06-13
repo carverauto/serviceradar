@@ -19,6 +19,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   """
 
   alias ServiceRadarAgentGateway.OtlpRelayPublisher
+  alias ServiceRadarAgentGateway.PluginMetricsPublisher
   alias ServiceRadarAgentGateway.SnmpMetricsPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
   alias ServiceRadarAgentGateway.SysmonMetricsPublisher
@@ -79,12 +80,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :ok ->
         publish_sysmon_metrics(status)
         publish_snmp_metrics(status)
+        publish_plugin_metrics(status)
         track_agent(status)
         :ok
 
       {:ok, _result} = ok ->
         publish_sysmon_metrics(status)
         publish_snmp_metrics(status)
+        publish_plugin_metrics(status)
         track_agent(status)
         ok
 
@@ -386,6 +389,40 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :serviceradar_agent_gateway,
       :snmp_metrics_publisher_module,
       SnmpMetricsPublisher
+    )
+  end
+
+  defp publish_plugin_metrics(status) do
+    if plugin_result_source?(status) do
+      case plugin_metrics_publisher().publish_plugin_metrics(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Plugin metrics publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition],
+            service_name: status[:service_name]
+          )
+
+          :ok
+      end
+    end
+  end
+
+  defp plugin_result_source?(%{source: source}), do: source in ["plugin-result", :plugin_result]
+  defp plugin_result_source?(_status), do: false
+
+  defp plugin_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :plugin_metrics_publisher_module,
+      PluginMetricsPublisher
     )
   end
 

@@ -198,8 +198,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
 
     assert_received {:capacity_forecast_query_page, _query, nil}
     assert_received {:capacity_forecast_query_page, _query, "page-2"}
-    assert_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage:device-a:device-a-host"}}
-    assert_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage:device-b:device-b-host"}}
+
+    assert_received {:capacity_forecast_upsert,
+                     %{resource_key: "cpu_usage:device-a:device-a-host"}}
+
+    assert_received {:capacity_forecast_upsert,
+                     %{resource_key: "cpu_usage:device-b:device-b-host"}}
   end
 
   test "worker records skipped forecasts for insufficient history" do
@@ -380,7 +384,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.model == "holt_winters_additive"
   end
 
-  test "default sources cover long-horizon metric, interface, and flow aggregates" do
+  test "default sources cover long-horizon resource, interface, and flow aggregates" do
     sources = Source.defaults()
     queries = Enum.map(sources, & &1.query)
 
@@ -388,9 +392,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert Enum.any?(queries, &String.contains?(&1, "in:memory_metrics"))
     assert Enum.any?(queries, &String.contains?(&1, "in:disk_metrics"))
     assert Enum.any?(queries, &String.contains?(&1, "in:process_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metrics"))
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
     assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
+    refute Enum.any?(sources, &(&1.name == "timeseries_value"))
 
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"

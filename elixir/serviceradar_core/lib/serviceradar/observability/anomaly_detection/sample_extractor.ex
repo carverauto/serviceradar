@@ -26,6 +26,22 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     :ingressId
   ]
 
+  @metric_semantic_keys [
+    :kind,
+    :temporality,
+    :is_monotonic,
+    :raw_value,
+    :counter_width,
+    :counter_bits,
+    :pdu_width,
+    :start_time_unix_nano,
+    :reset_anchor,
+    :counter_reset_anchor,
+    :boot_id,
+    :boot_time_unix_nano,
+    :max_counter_rate_per_second
+  ]
+
   @type sample :: %{
           required(:series_key) => String.t(),
           required(:event_id) => String.t(),
@@ -69,13 +85,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
         sysmon_samples(family, status, subject, ingress_metadata)
 
       %{value: value} = row ->
-        "snmp:#{row[:series_key] || series_identity(row)}"
+        metric_class = row[:metric_type] || "timeseries"
+        metadata = row |> merge_ingress_metadata(ingress_metadata) |> lift_metric_semantics()
+
+        "#{metric_class}:#{row[:series_key] || series_identity(row)}"
         |> build_sample(
           value,
           timestamp_nano(row[:timestamp]),
           subject,
-          "snmp",
-          merge_ingress_metadata(row, ingress_metadata)
+          metric_class,
+          metadata
         )
         |> List.wrap()
 
@@ -325,6 +344,23 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
        do: Map.merge(metadata, ingress_metadata)
 
   defp merge_ingress_metadata(metadata, _ingress_metadata), do: metadata
+
+  defp lift_metric_semantics(metadata) when is_map(metadata) do
+    nested_metadata = metadata_map(Map.get(metadata, :metadata) || Map.get(metadata, "metadata"))
+
+    Enum.reduce(@metric_semantic_keys, metadata, fn key, acc ->
+      case Map.get(acc, key) || Map.get(acc, Atom.to_string(key)) ||
+             Map.get(nested_metadata, key) || Map.get(nested_metadata, Atom.to_string(key)) do
+        nil -> acc
+        value -> Map.put_new(acc, key, value)
+      end
+    end)
+  end
+
+  defp lift_metric_semantics(metadata), do: metadata
+
+  defp metadata_map(value) when is_map(value), do: value
+  defp metadata_map(_value), do: %{}
 
   defp event_id(series_key, timestamp, subject, value, metadata) do
     sample_hash = stable_hash([series_key, timestamp, subject, value])

@@ -133,6 +133,27 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     assert row.metadata["schema"] == nil
   end
 
+  test "parses generic scalar metric as a timeseries telemetry row" do
+    row =
+      Metrics.parse_message(%{
+        data: Jason.encode!(plugin_metric_envelope()),
+        metadata: %{subject: "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max"}
+      })
+
+    assert %{
+             gateway_id: "gateway-1",
+             agent_id: "agent-1",
+             metric_name: "proxmox_guest_cpu_ratio_max",
+             metric_type: "cpu",
+             value: 0.91,
+             series_key: series_key
+           } = row
+
+    assert is_binary(series_key)
+    assert row.tags["producer_id"] == "proxmox-inventory"
+    assert row.metadata["status"] == "WARNING"
+  end
+
   defmodule SysmonIngestorStub do
     @moduledoc false
     def ingest(payload, status) do
@@ -210,6 +231,23 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
       "if_index" => 7,
       "tags" => %{"target" => "10.0.0.20", "interface_uid" => "ifindex:7"},
       "metadata" => %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"}
+    }
+  end
+
+  defp plugin_metric_envelope do
+    %{
+      "schema" => "serviceradar.metric.v1",
+      "source" => "plugin-result",
+      "timestamp" => "2026-06-13T18:20:00Z",
+      "gateway_id" => "gateway-1",
+      "agent_id" => "agent-1",
+      "partition" => "default",
+      "metric_name" => "proxmox_guest_cpu_ratio_max",
+      "metric_type" => "cpu",
+      "value" => 0.91,
+      "unit" => "ratio",
+      "tags" => %{"producer_id" => "proxmox-inventory", "producer_kind" => "plugin_result"},
+      "metadata" => %{"status" => "WARNING"}
     }
   end
 

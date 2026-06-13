@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
   import Phoenix.LiveViewTest
 
   alias ServiceRadarWebNG.AccountsFixtures
+  alias ServiceRadarWebNGWeb.LogLive.IndexTest
 
   setup %{conn: conn} do
     user = AccountsFixtures.user_fixture(%{role: :operator})
@@ -251,6 +252,26 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     refute has_element?(lv, "#traces-row-1[phx-click]")
   end
 
+  test "default traces tab falls back to raw spans when summaries are stale", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :empty_trace_summaries?}, true)
+
+    on_exit(fn ->
+      :persistent_term.erase({__MODULE__, :empty_trace_summaries?})
+    end)
+
+    {:ok, _lv, html} =
+      live(conn, ~p"/observability?#{%{tab: "traces"}}")
+
+    assert html =~ "serviceradar-web-ng"
+    assert html =~ "GET /observability"
+    refute html =~ "No traces found."
+
+    queries = Enum.map(drain_srql_calls(), & &1.query)
+
+    assert Enum.any?(queries, &String.starts_with?(&1, "in:otel_trace_summaries"))
+    assert Enum.any?(queries, &String.starts_with?(&1, "in:traces time:last_24h"))
+  end
+
   defp drain_srql_calls(acc \\ []) do
     receive do
       {:srql_query, payload} ->
@@ -270,7 +291,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
 
     @impl true
     def query(query, opts) when is_binary(query) do
-      case :persistent_term.get({ServiceRadarWebNGWeb.LogLive.IndexTest, :test_pid}, nil) do
+      case :persistent_term.get({IndexTest, :test_pid}, nil) do
         pid when is_pid(pid) ->
           send(pid, {:srql_query, %{query: query, cursor: Map.get(opts, :cursor), limit: Map.get(opts, :limit)}})
 
@@ -284,7 +305,8 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
         cond do
           String.contains?(query, "rollup_stats:red") -> [red_rollup_payload()]
           String.contains?(query, "rollup_stats:summary") -> [traces_rollup_payload()]
-          String.starts_with?(query, "in:otel_trace_summaries") -> sample_traces()
+          String.starts_with?(query, "in:otel_trace_summaries") -> maybe_sample_trace_summaries()
+          String.starts_with?(query, "in:traces") -> sample_raw_traces()
           String.starts_with?(query, "in:otel_metric_points") -> otlp_points_results(query)
           String.starts_with?(query, "in:otel_metrics") -> sample_metrics()
           true -> sample_logs(cursor)
@@ -432,6 +454,28 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
           "duration_ms" => 1.0,
           "span_count" => 1,
           "error_count" => 0
+        }
+      ]
+    end
+
+    defp maybe_sample_trace_summaries do
+      if :persistent_term.get({IndexTest, :empty_trace_summaries?}, false) do
+        []
+      else
+        sample_traces()
+      end
+    end
+
+    defp sample_raw_traces do
+      [
+        %{
+          "trace_id" => "bbccddeeff00112233445566778899aa",
+          "span_id" => "00f067aa0ba902b7",
+          "timestamp" => "2026-04-18T15:03:00Z",
+          "service_name" => "serviceradar-web-ng",
+          "name" => "GET /observability",
+          "duration_ms" => 9.25,
+          "status_code" => 1
         }
       ]
     end

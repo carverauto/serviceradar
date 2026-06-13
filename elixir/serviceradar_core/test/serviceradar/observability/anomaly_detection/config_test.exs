@@ -39,6 +39,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     assert Enum.map(streams, & &1.subject) == [
              "metrics.sysmon.*",
              "metrics.snmp.>",
+             "metrics.timeseries.>",
              "otel.metrics.>",
              "flows.raw.netflow",
              "flows.raw.sflow",
@@ -76,12 +77,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   end
 
   test "supports per-subject enable filters" do
-    System.put_env("ANOMALY_ANALYSIS_ENABLED_SUBJECTS", "metrics.sysmon.*,metrics.snmp.>")
+    System.put_env(
+      "ANOMALY_ANALYSIS_ENABLED_SUBJECTS",
+      "metrics.sysmon.*,metrics.snmp.>,metrics.timeseries.>"
+    )
 
     config = Config.load()
 
     assert Config.subject_enabled?(config, "metrics.sysmon.cpu")
     assert Config.subject_enabled?(config, "metrics.snmp.interface.ifHCInOctets")
+    assert Config.subject_enabled?(config, "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max")
     refute Config.subject_enabled?(config, "otel.metrics.raw")
   end
 

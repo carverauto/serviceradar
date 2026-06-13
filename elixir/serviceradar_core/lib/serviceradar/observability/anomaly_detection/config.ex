@@ -107,6 +107,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     [
       analysis_stream("ANALYSIS_METRICS_SYSMON", "metrics", "metrics.sysmon.*", 500, 500),
       analysis_stream("ANALYSIS_METRICS_SNMP", "metrics", "metrics.snmp.>", 500, 500),
+      analysis_stream("ANALYSIS_METRICS_TIMESERIES", "metrics", "metrics.timeseries.>", 500, 500),
       analysis_stream("ANALYSIS_OTEL_METRICS", "events", "otel.metrics.>", 100, 1_000),
       analysis_stream("ANALYSIS_NETFLOW_RAW", "events", "flows.raw.netflow", 50, 500),
       analysis_stream("ANALYSIS_SFLOW_RAW", "events", "flows.raw.sflow", 50, 500),

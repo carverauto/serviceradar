@@ -5,8 +5,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   require Logger
 
   @anomaly_query "in:events source_type:anomaly_detection time:last_24h sort:time:desc limit:25"
-  @health_query "in:events source_type:(anomaly_detection,capacity_forecasting) time:last_24h sort:time:desc limit:25"
-  @capacity_query "in:capacity_forecasts status:projected sort:projected_exhaustion_at:asc limit:25"
+  @health_query "in:events rollup_stats:anomaly_findings time:last_24h limit:1"
+  @capacity_query "in:capacity_forecasts status:(projected,at_risk,exhaustion_projected) sort:projected_exhaustion_at:asc limit:25"
 
   @impl true
   def mount(_params, _session, socket) do
@@ -20,13 +20,31 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   @impl true
   def handle_params(_params, _uri, socket) do
     if connected?(socket) do
+      scope = socket.assigns.current_scope
+
       {:noreply,
        socket
-       |> assign(:loading?, false)
-       |> assign(:overview, load_overview(socket.assigns.current_scope))}
+       |> assign(:loading?, true)
+       |> start_async(:observability_health_overview, fn ->
+         load_overview(scope)
+       end)}
     else
       {:noreply, socket}
     end
+  end
+
+  @impl true
+  def handle_async(:observability_health_overview, {:ok, overview}, socket) do
+    {:noreply, socket |> assign(:loading?, false) |> assign(:overview, overview)}
+  end
+
+  def handle_async(:observability_health_overview, {:exit, reason}, socket) do
+    Logger.warning("Failed to load observability health overview: #{inspect(reason)}")
+
+    {:noreply,
+     socket
+     |> assign(:loading?, false)
+     |> assign(:overview, empty_overview(:error))}
   end
 
   @impl true
@@ -41,10 +59,17 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
         />
 
         <div
-          :if={@overview.status == :error}
+          :if={@overview.status in [:error, :partial]}
           class="rounded-lg border border-warning/30 bg-warning/10 p-4 text-sm text-warning"
         >
-          Observability health queries failed. Check the application logs for the SRQL error.
+          Some observability health queries did not complete. Showing the data that is currently available.
+        </div>
+
+        <div :if={@loading?} class="rounded-lg border border-base-200 bg-base-100 p-4">
+          <div class="flex items-center gap-3 text-sm text-base-content/70">
+            <span class="loading loading-spinner loading-sm" />
+            <span>Loading observability health...</span>
+          </div>
         </div>
 
         <section class="grid gap-3 md:grid-cols-3">
@@ -271,29 +296,86 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   end
 
   defp load_overview(scope) do
-    with {:ok, anomaly_response} <- srql_module().query(@anomaly_query, %{scope: scope}),
-         {:ok, health_response} <- srql_module().query(@health_query, %{scope: scope}),
-         {:ok, capacity_response} <- srql_module().query(@capacity_query, %{scope: scope}) do
-      anomaly_rows = rows(anomaly_response)
-      health_rows = rows(health_response)
-      capacity_rows = rows(capacity_response)
+    summary_result = query_rows(@health_query, scope)
+    summary = summary_counts(summary_result)
 
-      %{
-        status: :ok,
-        anomaly_query: @anomaly_query,
-        health_query: @health_query,
-        capacity_query: @capacity_query,
-        anomaly_rows: anomaly_rows,
-        health_rows: health_rows,
-        capacity_rows: capacity_rows,
-        anomaly_count: length(anomaly_rows),
-        health_count: length(health_rows),
-        capacity_count: length(capacity_rows)
-      }
-    else
-      {:error, reason} ->
-        Logger.warning("Failed to load observability health overview: #{inspect(reason)}")
-        empty_overview(:error)
+    capacity_result = query_rows(@capacity_query, scope)
+    capacity_rows = result_rows(capacity_result)
+
+    anomaly_result =
+      if summary.anomaly_count > 0 do
+        query_rows(@anomaly_query, scope)
+      else
+        {:ok, []}
+      end
+
+    anomaly_rows = result_rows(anomaly_result)
+    status = overview_status([summary_result, capacity_result, anomaly_result])
+
+    %{
+      status: status,
+      anomaly_query: @anomaly_query,
+      health_query: @health_query,
+      capacity_query: @capacity_query,
+      anomaly_rows: anomaly_rows,
+      health_rows: [],
+      capacity_rows: capacity_rows,
+      anomaly_count: summary.anomaly_count || length(anomaly_rows),
+      health_count: summary.health_count || length(anomaly_rows),
+      capacity_count: max(summary.capacity_count || 0, length(capacity_rows))
+    }
+  end
+
+  defp query_rows(query, scope) do
+    case srql_module().query(query, %{scope: scope}) do
+      {:ok, response} ->
+        {:ok, rows(response)}
+
+      {:error, reason} = error ->
+        Logger.warning("Observability health SRQL query failed query=#{inspect(query)} reason=#{inspect(reason)}")
+        error
+    end
+  end
+
+  defp result_rows({:ok, rows}) when is_list(rows), do: rows
+  defp result_rows(_result), do: []
+
+  defp summary_counts({:ok, [row | _rest]}) do
+    %{
+      anomaly_count: integer_value(row, "anomalies"),
+      capacity_count: integer_value(row, "at_risk"),
+      health_count: integer_value(row, "total")
+    }
+  end
+
+  defp summary_counts(_result) do
+    %{anomaly_count: 0, capacity_count: 0, health_count: 0}
+  end
+
+  defp integer_value(row, key) do
+    case value(row, key) do
+      value when is_integer(value) ->
+        value
+
+      value when is_float(value) ->
+        trunc(value)
+
+      value when is_binary(value) ->
+        case Integer.parse(value) do
+          {integer, _rest} -> integer
+          :error -> 0
+        end
+
+      _ ->
+        0
+    end
+  end
+
+  defp overview_status(results) do
+    cond do
+      Enum.all?(results, &match?({:ok, _rows}, &1)) -> :ok
+      Enum.any?(results, &match?({:ok, _rows}, &1)) -> :partial
+      true -> :error
     end
   end
 
@@ -345,6 +427,8 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("metadata"), do: :metadata
   defp known_atom_key("metric_name"), do: :metric_name
   defp known_atom_key("name"), do: :name
+  defp known_atom_key("anomalies"), do: :anomalies
+  defp known_atom_key("at_risk"), do: :at_risk
   defp known_atom_key("projected_exhaustion_at"), do: :projected_exhaustion_at
   defp known_atom_key("raw_data"), do: :raw_data
   defp known_atom_key("resource_id"), do: :resource_id
@@ -355,6 +439,7 @@ defmodule ServiceRadarWebNGWeb.ObservabilityHealthLive.Index do
   defp known_atom_key("source_type"), do: :source_type
   defp known_atom_key("status"), do: :status
   defp known_atom_key("time"), do: :time
+  defp known_atom_key("total"), do: :total
   defp known_atom_key("uid"), do: :uid
   defp known_atom_key(_), do: nil
 

@@ -20,6 +20,11 @@ config :serviceradar_agent_gateway, :otlp_relay_publisher,
   derived_metrics_subject: "otel.metrics.derived",
   connection: Connection
 
+config :serviceradar_agent_gateway, :plugin_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.timeseries",
+  connection: Connection
+
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: false,
   subject_prefix: "metrics.snmp",

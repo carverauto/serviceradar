@@ -1,7 +1,12 @@
 defmodule ServiceRadar.Observability.PluginResultIngestor do
   @moduledoc """
   Ingests plugin results (`serviceradar.plugin_result.v1`) into service_status
-  and timeseries_metrics.
+  and registered platform handlers.
+
+  Numeric plugin metrics are published by the agent gateway to the shared
+  JetStream metrics stream and persisted by event_writer. The direct metric
+  insert path remains available only behind an explicit legacy compatibility
+  flag.
   """
 
   alias ServiceRadar.Actors.SystemActor
@@ -44,7 +49,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
 
     with :ok <- insert_status(status_row, actor),
          :ok <- upsert_current_state(status_row),
-         :ok <- insert_metrics(payload, status, observed_at, created_at, actor) do
+         :ok <- maybe_insert_metrics(payload, status, observed_at, created_at, actor) do
       ingest_registered_handlers(payload, status, observed_at, actor)
     end
   rescue
@@ -189,6 +194,14 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
         %Ash.BulkResult{errors: errors} = result ->
           {:error, errors || result}
       end
+    end
+  end
+
+  defp maybe_insert_metrics(payload, status, observed_at, created_at, actor) do
+    if Application.get_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, false) do
+      insert_metrics(payload, status, observed_at, created_at, actor)
+    else
+      :ok
     end
   end
 

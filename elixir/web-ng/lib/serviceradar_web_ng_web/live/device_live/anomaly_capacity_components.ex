@@ -56,16 +56,21 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityComponents do
               <div :if={@overview.anomaly_rows == []} class="p-4 text-sm text-base-content/60">
                 No anomaly findings found for this device in the last 7 days.
               </div>
-              <article :for={row <- Enum.take(@overview.anomaly_rows, 5)} class="px-4 py-3">
+              <article :for={row <- Enum.take(@overview.anomaly_rows, 5)} class="min-w-0 px-4 py-3">
                 <div class="flex items-start justify-between gap-3">
                   <div class="min-w-0">
-                    <div class="truncate text-sm font-medium">{finding_title(row)}</div>
+                    <div class="max-w-full break-words text-sm font-medium [overflow-wrap:anywhere]">
+                      {finding_title(row)}
+                    </div>
                     <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-base-content/60">
                       <span>{metric_class_label(row)}</span>
                       <span>{format_timestamp(value(row, "time"))}</span>
                     </div>
                   </div>
-                  <span class={["badge badge-sm", severity_badge_class(value(row, "severity"))]}>
+                  <span class={[
+                    "badge badge-sm shrink-0",
+                    severity_badge_class(value(row, "severity"))
+                  ]}>
                     {value(row, "severity") || "Unknown"}
                   </span>
                 </div>

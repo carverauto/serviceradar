@@ -13,6 +13,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   alias ServiceRadar.EventWriter.Producer
   alias ServiceRadar.Observability.AnomalyDetection.Config
   alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
   alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
 
@@ -71,6 +72,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
       :undefined -> :ok
       table -> :ets.delete_all_objects(table)
     end
+
+    CounterNormalizer.reset_table()
   end
 
   @impl true
@@ -98,7 +101,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   end
 
   defp analyze_message(%Message{} = message, subject) do
-    samples = SampleExtractor.extract(message)
+    samples =
+      message
+      |> SampleExtractor.extract()
+      |> CounterNormalizer.normalize_samples()
 
     case analyze_samples(samples, subject) do
       :ok ->
@@ -180,7 +186,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     sample
     |> active_series_key()
     |> case do
-      nil -> false
+      nil ->
+        false
+
       key ->
         case :ets.lookup(active_series_table(), key) do
           [{^key, :inactive}] -> false
