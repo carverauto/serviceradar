@@ -43,12 +43,12 @@ function dashboardHtml(host) {
   const scannerSignals = scannerSignalRows(frames)
   const scannerSignalEvents = scannerSignals.map((signal) => signal.row).filter(Boolean)
   const signalSourceTotal = findings.length + scans.length + dns.length + scannerSignalEvents.length
-  const deviceLinked = findings.filter((row) => canonicalDeviceUid(row)).length
+  const deviceCorrelated = findings.filter((row) => canonicalDeviceUid(row)).length
   const sourceCounts = countBy(findings.concat(scans, dns, scannerSignalEvents), sourceType)
   const severityCounts = countBy(findings, (row) => normalizedSeverity(row.severity))
   const classCounts = countBy(findings, classLabel)
   const highRisk = findings.filter((row) => ["Critical", "High"].includes(normalizedSeverity(row.severity))).length
-  const unlinkedFindings = findings.length - deviceLinked
+  const resourceOnlyFindings = findings.length - deviceCorrelated
   const failedScans = scans.filter((row) => failedStatus(row.status || row.status_detail || row.status_id)).length
   const dnsBlocks = dns.filter(dnsBlock).length
   const topAffected = topAffectedResources(findings, vulnerabilities)
@@ -57,7 +57,7 @@ function dashboardHtml(host) {
     <section class="min-w-0 space-y-5 overflow-x-hidden">
       <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         ${metricCard("Active findings", number(findings.length), `${number(highRisk)} critical or high`, highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
-        ${metricCard("Linked devices", `${percent(deviceLinked, findings.length)}`, `${number(deviceLinked)} of ${number(findings.length)} findings`, deviceLinked === findings.length ? "ok" : "warning", "in:security_findings sort:time:desc limit:100")}
+        ${metricCard("Device correlation", `${percent(deviceCorrelated, findings.length)}`, `${number(deviceCorrelated)} of ${number(findings.length)} findings have a device link`, deviceCorrelated === findings.length ? "ok" : "warning", "in:security_findings sort:time:desc limit:100")}
         ${metricCard("Scan activity", number(scans.length), "Falco, Trivy, Bumblebee, inventory runs", scans.length > 0 ? "ok" : "neutral", "in:scan_activity sort:time:desc limit:80")}
         ${metricCard("DNS security", number(dns.length), "PowerDNS DNS activity events", dns.length > 0 ? "warning" : "neutral", "in:dns_activity sort:time:desc limit:80")}
       </div>
@@ -85,7 +85,7 @@ function dashboardHtml(host) {
           </div>
           <div class="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
             ${postureInsightCard("Critical/high", number(highRisk), "Priority findings", highRisk > 0 ? "critical" : "ok", "in:security_findings sort:time:desc limit:100")}
-            ${postureInsightCard("Unlinked findings", number(unlinkedFindings), "Missing device correlation", unlinkedFindings > 0 ? "warning" : "ok", "in:security_findings sort:time:desc limit:100")}
+            ${postureInsightCard("Resource-only findings", number(resourceOnlyFindings), "No correlated device link", resourceOnlyFindings > 0 ? "warning" : "ok", "in:security_findings sort:time:desc limit:100")}
             ${postureInsightCard("Failed scans", number(failedScans), "Scanner runs needing attention", failedScans > 0 ? "critical" : "ok", "in:scan_activity status:Failure sort:time:desc limit:80")}
             ${postureInsightCard("DNS blocks", number(dnsBlocks), "Policy enforcement signals", dnsBlocks > 0 ? "warning" : "neutral", "in:dns_activity source:powerdns sort:time:desc limit:80")}
           </div>
@@ -113,7 +113,7 @@ function dashboardHtml(host) {
           </div>
           <div class="max-w-full overflow-x-auto">
             <table class="table table-sm">
-              <thead><tr><th>Run</th><th>Source</th><th>Device</th><th>Status</th><th>Time</th></tr></thead>
+              <thead><tr><th>Run</th><th>Source</th><th>Entity</th><th>Status</th><th>Time</th></tr></thead>
               <tbody>${scans.length ? scans.slice(0, 12).map(scanRow).join("") : emptyRow("No scan activity returned", 5)}</tbody>
             </table>
           </div>
@@ -129,7 +129,7 @@ function dashboardHtml(host) {
           </div>
           <div class="max-w-full overflow-x-auto">
             <table class="table table-sm">
-              <thead><tr><th>Event</th><th>Device</th><th>Status</th><th>Time</th></tr></thead>
+              <thead><tr><th>Event</th><th>Entity</th><th>Status</th><th>Time</th></tr></thead>
               <tbody>${dns.length ? dns.slice(0, 12).map(dnsRow).join("") : emptyRow("No DNS security activity returned", 4)}</tbody>
             </table>
           </div>
@@ -228,7 +228,7 @@ function scannerSignalCard(signal) {
         row
           ? `<div class="mt-3 space-y-2 text-xs">
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Source</span>${sourceBadge(sourceType(row))}</div>
-              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Device</span><span class="max-w-40 truncate">${deviceLink(row)}</span></div>
+              <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Entity</span><span class="max-w-40 truncate">${entityLink(row)}</span></div>
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Class</span><span>${escapeHtml(classLabel(row))}</span></div>
               <div class="flex items-center justify-between gap-3"><span class="text-base-content/50">Time</span><span>${escapeHtml(formatTime(row.time || row.event_timestamp))}</span></div>
               <p class="line-clamp-2 text-base-content">${escapeHtml(row.message || row.short_message || row.id || "Security signal")}</p>
@@ -249,7 +249,7 @@ function scanRow(row) {
         <div class="max-w-md truncate text-xs text-base-content/60">${escapeHtml(row.message || row.short_message || row.id || "")}</div>
       </td>
       <td>${sourceBadge(sourceType(row))}</td>
-      <td>${deviceLink(row)}</td>
+      <td>${entityLink(row)}</td>
       <td>${statusBadge(row.status || row.status_detail)}</td>
       <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.time || row.event_timestamp))}</td>
     </tr>
@@ -331,7 +331,7 @@ function dnsRow(row) {
         <div class="max-w-xl truncate font-medium text-base-content">${escapeHtml(row.message || row.short_message || row.id || "DNS event")}</div>
         <div class="text-xs text-base-content/60">${escapeHtml(sourceType(row))}</div>
       </td>
-      <td>${deviceLink(row)}</td>
+      <td>${entityLink(row)}</td>
       <td>${statusBadge(row.status || row.severity)}</td>
       <td class="whitespace-nowrap text-xs text-base-content/70">${escapeHtml(formatTime(row.time || row.event_timestamp))}</td>
     </tr>
@@ -350,7 +350,7 @@ function compactFinding(row) {
         <span class="text-xs text-base-content/50">${escapeHtml(sourceType(row))}</span>
       </div>
       <div class="mt-2 line-clamp-2 text-sm font-medium text-base-content">${escapeHtml(row.message || row.short_message || "Vulnerability finding")}</div>
-      <div class="mt-2 text-xs text-base-content/60">${deviceLink(row)}</div>
+      <div class="mt-2 text-xs text-base-content/60">${entityLink(row)}</div>
     </article>
   `
 }
@@ -494,14 +494,13 @@ function deviceName(row) {
     stringAt(row, ["unmapped", "device_name"]) ||
     stringAt(row, ["unmapped", "server_identity"]) ||
     row.host ||
-    row.source ||
-    "Unlinked"
+    row.source
   )
 }
 
-function deviceLink(row) {
+function entityLink(row) {
   const uid = canonicalDeviceUid(row)
-  const name = deviceName(row)
+  const name = deviceName(row) || affectedEntityLabel(row)
   if (!uid) return `<span class="text-xs text-base-content/60">${escapeHtml(name)}</span>`
   return `<a class="link link-primary text-xs" href="/devices/${encodeURIComponent(uid)}">${escapeHtml(name)}</a>`
 }
@@ -540,26 +539,51 @@ function dnsBlock(row) {
 }
 
 function topAffectedResources(findings, vulnerabilities) {
-  const counts = countBy(findings.concat(vulnerabilities), affectedResourceLabel)
+  const counts = countBy(findings.concat(vulnerabilities), affectedEntityLabel)
   counts.delete("unknown")
-  counts.delete("Unlinked")
+  counts.delete("Unknown entity")
 
   return Array.from(counts.entries())
     .sort((left, right) => right[1] - left[1] || String(left[0]).localeCompare(String(right[0])))
     .slice(0, 6)
 }
 
-function affectedResourceLabel(row) {
+function affectedEntityLabel(row) {
+  const resource = resourceLabel(row)
+  if (resource) return resource
+
   return (
-    stringAt(row, ["metadata", "service_radar", "resource_name"]) ||
     stringAt(row, ["metadata", "service_radar", "device_hostname"]) ||
     stringAt(row, ["metadata", "service_radar", "source_instance"]) ||
     stringAt(row, ["device", "name"]) ||
     stringAt(row, ["device", "hostname"]) ||
-    row.resource_name ||
-    row.target ||
     row.source ||
-    "unknown"
+    "Unknown entity"
+  )
+}
+
+function resourceLabel(row) {
+  const kind =
+    stringAt(row, ["metadata", "service_radar", "resource_kind"]) ||
+    stringAt(row, ["metadata", "finding_info", "dimensions", "resource_kind"]) ||
+    row.resource_kind
+  const namespace =
+    stringAt(row, ["metadata", "service_radar", "namespace"]) ||
+    stringAt(row, ["metadata", "finding_info", "dimensions", "namespace"]) ||
+    row.resource_namespace ||
+    row.namespace
+  const name =
+    stringAt(row, ["metadata", "service_radar", "resource_name"]) ||
+    stringAt(row, ["metadata", "finding_info", "dimensions", "resource_name"]) ||
+    row.resource_name
+
+  if (kind && name) return namespace ? `${kind}/${namespace}/${name}` : `${kind}/${name}`
+
+  return (
+    stringAt(row, ["metadata", "resource"]) ||
+    stringAt(row, ["metadata", "service_radar", "resource_name"]) ||
+    row.resource_name ||
+    row.target
   )
 }
 
