@@ -171,6 +171,7 @@ func parseProxmoxNetwork(array gjson.Result) []proxmoxNetworkInterface {
 			Type:        item.Get("type").String(),
 			Method:      item.Get("method").String(),
 			Method6:     item.Get("method6").String(),
+			MACAddress:  item.Get("hwaddr").String(),
 			Address:     item.Get("address").String(),
 			Netmask:     item.Get("netmask").String(),
 			Gateway:     item.Get("gateway").String(),

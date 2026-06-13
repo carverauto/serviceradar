@@ -11,6 +11,42 @@ func decodeProxmoxJSON[T any](body []byte, out *T) error {
 	return json.Unmarshal(body, out)
 }
 
+func (iface *proxmoxNetworkInterface) UnmarshalJSON(body []byte) error {
+	var raw struct {
+		Iface       string   `json:"iface"`
+		Type        string   `json:"type"`
+		Method      string   `json:"method"`
+		Method6     string   `json:"method6"`
+		HWAddr      string   `json:"hwaddr"`
+		MACAddress  string   `json:"mac_address"`
+		Address     string   `json:"address"`
+		Netmask     string   `json:"netmask"`
+		Gateway     string   `json:"gateway"`
+		CIDR        string   `json:"cidr"`
+		BridgePorts string   `json:"bridge-ports"`
+		Families    []string `json:"families"`
+	}
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return err
+	}
+
+	*iface = proxmoxNetworkInterface{
+		Iface:       raw.Iface,
+		Type:        raw.Type,
+		Method:      raw.Method,
+		Method6:     raw.Method6,
+		MACAddress:  firstNonEmpty(raw.HWAddr, raw.MACAddress),
+		Address:     raw.Address,
+		Netmask:     raw.Netmask,
+		Gateway:     raw.Gateway,
+		CIDR:        raw.CIDR,
+		BridgePorts: raw.BridgePorts,
+		Families:    raw.Families,
+	}
+
+	return nil
+}
+
 func (status *proxmoxCephStatus) UnmarshalJSON(body []byte) error {
 	var raw struct {
 		Health        json.RawMessage `json:"health"`

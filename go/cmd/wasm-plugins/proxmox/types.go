@@ -295,6 +295,7 @@ type proxmoxNetworkInterface struct {
 	Type        string   `json:"type,omitempty"`
 	Method      string   `json:"method,omitempty"`
 	Method6     string   `json:"method6,omitempty"`
+	MACAddress  string   `json:"hwaddr,omitempty"`
 	Address     string   `json:"address,omitempty"`
 	Netmask     string   `json:"netmask,omitempty"`
 	Gateway     string   `json:"gateway,omitempty"`

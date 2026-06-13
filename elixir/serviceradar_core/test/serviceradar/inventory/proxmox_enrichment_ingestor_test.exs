@@ -80,6 +80,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
     nic = find_record!(records.network_interfaces, "proxmox:nic:pve-a:vmbr0")
     assert nic.active == false
     assert nic.exists == true
+    assert nic.mac_address == "00AABBCCDDEE"
+    assert nic.ip_addresses == ["10.10.0.11/24", "10.10.0.11"]
 
     guest_nic =
       Enum.find(
@@ -275,6 +277,9 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestorTest do
                   "type" => "bridge",
                   "active" => false,
                   "exists" => 1,
+                  "mac_address" => "00:aa:bb:cc:dd:ee",
+                  "address" => "10.10.0.11",
+                  "cidr" => "10.10.0.11/24",
                   "bridge-ports" => "eno1"
                 }
               ],

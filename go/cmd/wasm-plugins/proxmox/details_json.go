@@ -188,6 +188,7 @@ func appendNetworkJSON(b *strings.Builder, values []proxmoxNetworkInterface) {
 		appendStringField(b, &first, "type", value.Type)
 		appendStringField(b, &first, "method", value.Method)
 		appendStringField(b, &first, "method6", value.Method6)
+		appendStringField(b, &first, "mac_address", value.MACAddress)
 		appendStringField(b, &first, "address", value.Address)
 		appendStringField(b, &first, "netmask", value.Netmask)
 		appendStringField(b, &first, "gateway", value.Gateway)

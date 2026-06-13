@@ -397,6 +397,13 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
     |> Enum.reduce(records, fn iface, acc ->
       name = string_value(iface, "iface")
 
+      mac_address =
+        normalize_mac_identifier(
+          string_value(iface, "mac_address") || string_value(iface, "hwaddr")
+        )
+
+      ip_addresses = normalized_host_ip_addresses(iface)
+
       if blank?(name) do
         acc
       else
@@ -416,6 +423,8 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
           gateway: string_value(iface, "gateway"),
           bridge_ports: string_value(iface, "bridge-ports"),
           vlan_id: integer_value(iface, "vlan-id"),
+          mac_address: mac_address,
+          ip_addresses: ip_addresses,
           metadata: sanitize_metadata(iface),
           observed_at: observed_at
         }
@@ -600,6 +609,14 @@ defmodule ServiceRadar.Inventory.ProxmoxEnrichmentIngestor do
   defp normalized_ip_addresses(iface) do
     iface
     |> list_string_value("ip_addresses")
+    |> Enum.map(&normalize_ip_cidr/1)
+    |> Enum.filter(&present?/1)
+    |> Enum.uniq()
+  end
+
+  defp normalized_host_ip_addresses(iface) do
+    (list_string_value(iface, "ip_addresses") ++
+       [string_value(iface, "cidr"), string_value(iface, "address")])
     |> Enum.map(&normalize_ip_cidr/1)
     |> Enum.filter(&present?/1)
     |> Enum.uniq()
