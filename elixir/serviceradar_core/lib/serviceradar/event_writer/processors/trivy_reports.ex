@@ -1245,6 +1245,10 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     DeviceCorrelation.resolve(%{
       device_uid: explicit,
       agent_id: trivy_agent_id(context),
+      pod_uid: context["pod_uid"],
+      pod_namespace: context["pod_namespace"],
+      pod_name: context["pod_name"],
+      container_id: context["container_id"],
       hostname: context["node_name"],
       name: context["resource_name"] || context["pod_name"],
       ip: context["host_ip"] || context["pod_ip"],
@@ -1407,6 +1411,7 @@ defmodule ServiceRadar.EventWriter.Processors.TrivyReports do
     %{
       "agent_id" => first_present([correlation["agent_id"], payload["agent_id"]]),
       "device_uid" => first_present([correlation["device_uid"], payload["device_uid"]]),
+      "partition" => first_present([correlation["partition"], payload["partition"]]),
       "resource_kind" => resource_kind,
       "resource_name" => resource_name,
       "resource_namespace" => resource_namespace,

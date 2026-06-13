@@ -505,6 +505,13 @@ defmodule ServiceRadar.EventWriter.Processors.FalcoEvents do
     DeviceCorrelation.resolve(%{
       device_uid: explicit,
       agent_id: falco_agent_id(payload, output_fields, hostname),
+      pod_namespace: normalize_string(output_fields["k8s.ns.name"]),
+      pod_name: normalize_string(output_fields["k8s.pod.name"]),
+      container_id: normalize_string(output_fields["container.id"]),
+      partition:
+        normalize_string(output_fields["service_radar.partition"]) ||
+          normalize_string(output_fields["serviceradar.partition"]) ||
+          normalize_string(output_fields["partition"]),
       hostname: hostname,
       name: normalize_string(output_fields["k8s.node.name"]),
       ip:
