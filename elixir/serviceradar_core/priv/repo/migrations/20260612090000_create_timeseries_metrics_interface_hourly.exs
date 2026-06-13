@@ -38,6 +38,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesMetricsInterfaceHourly do
       COUNT(*)::bigint AS sample_count
     FROM platform.timeseries_metrics
     WHERE if_index IS NOT NULL
+      AND COALESCE(metadata->>'kind', metadata->>'metric_type') IN ('sum', 'counter')
+      AND metadata->>'temporality' = 'cumulative'
+      AND LOWER(COALESCE(metadata->>'is_monotonic', 'false')) IN ('true', '1')
+      AND metadata ? 'raw_value'
     GROUP BY 1, 2, 3, 4, 5, 6, 7
     WITH NO DATA
     """)
