@@ -108,12 +108,23 @@ func (d *Duration) UnmarshalJSON(b []byte) error {
 
 // DataPoint represents a single collected data point.
 type DataPoint struct {
-	OIDName   string      `json:"oid_name"`
-	Value     interface{} `json:"value"`
-	Timestamp time.Time   `json:"timestamp"`
-	DataType  DataType    `json:"data_type"`
-	Scale     float64     `json:"scale"`
-	Delta     bool        `json:"delta"`
+	OIDName      string      `json:"oid_name"`
+	Value        interface{} `json:"value"`
+	RawValue     interface{} `json:"raw_value,omitempty"`
+	Timestamp    time.Time   `json:"timestamp"`
+	DataType     DataType    `json:"data_type"`
+	Scale        float64     `json:"scale"`
+	Delta        bool        `json:"delta"`
+	Kind         string      `json:"kind,omitempty"`
+	Temporality  string      `json:"temporality,omitempty"`
+	IsMonotonic  bool        `json:"is_monotonic,omitempty"`
+	CounterWidth int         `json:"counter_width,omitempty"`
+}
+
+// CounterValue preserves SNMP counter wire width alongside the numeric value.
+type CounterValue struct {
+	Value uint64
+	Width int
 }
 
 // SecurityLevel represents SNMPv3 security levels.

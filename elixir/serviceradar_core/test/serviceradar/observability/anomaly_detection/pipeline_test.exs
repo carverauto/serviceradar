@@ -2,6 +2,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   use ExUnit.Case, async: false
 
   alias Broadway.Message
+  alias Opentelemetry.Proto.Collector.Metrics.V1.ExportMetricsServiceRequest
+  alias Opentelemetry.Proto.Common.V1.AnyValue
+  alias Opentelemetry.Proto.Common.V1.KeyValue
+  alias Opentelemetry.Proto.Metrics.V1.Metric
+  alias Opentelemetry.Proto.Metrics.V1.NumberDataPoint
+  alias Opentelemetry.Proto.Metrics.V1.ResourceMetrics
+  alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
+  alias Opentelemetry.Proto.Metrics.V1.Sum
+  alias Opentelemetry.Proto.Resource.V1.Resource
   alias ServiceRadar.Observability.AnomalyDetection.Config
   alias ServiceRadar.Observability.AnomalyDetection.Pipeline
 
@@ -77,6 +86,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     assert is_binary(sample.event_id)
     assert is_tuple(sample.order_key)
     refute_receive {:emit_anomaly_verdict, _sample, _verdict}
+  end
+
+  test "normalizes cumulative monotonic counters before invoking the reasoner" do
+    config = config(enabled_subjects: ["otel.metrics.>"])
+
+    first =
+      raw_message(
+        "otel.metrics.raw",
+        otel_sum_request(value: 1_000, timestamp: 10_000_000_000, start_time: 1)
+      )
+
+    second =
+      raw_message(
+        "otel.metrics.raw",
+        otel_sum_request(value: 1_600, timestamp: 70_000_000_000, start_time: 1)
+      )
+
+    assert ^first = Pipeline.handle_message(:default, first, config)
+    refute_receive {:evaluate, _sample}
+
+    assert ^second = Pipeline.handle_message(:default, second, config)
+    assert_receive {:evaluate, sample}
+
+    assert sample.series_key ==
+             "otel:api:http.server.request.body.size:5ad5cc4d26869082efd29c436b57384a"
+
+    assert sample.value == 10.0
+    assert sample.metadata.counter_normalized == true
+    assert sample.metadata.counter_delta == 600
+    assert sample.metadata.counter_rate_unit == "By/s"
   end
 
   test "emits confirmed anomaly verdicts through the causal prediction emitter" do
@@ -348,6 +387,54 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
       metadata: %{subject: subject, reply_to: "$JS.ACK.test"},
       acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
     }
+  end
+
+  defp raw_message(subject, payload) do
+    %Message{
+      data: payload,
+      metadata: %{subject: subject, reply_to: "$JS.ACK.test"},
+      acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
+    }
+  end
+
+  defp otel_sum_request(opts) do
+    ExportMetricsServiceRequest.encode(%ExportMetricsServiceRequest{
+      resource_metrics: [
+        %ResourceMetrics{
+          resource: %Resource{
+            attributes: [
+              %KeyValue{
+                key: "service.name",
+                value: %AnyValue{value: {:string_value, "api"}}
+              }
+            ]
+          },
+          scope_metrics: [
+            %ScopeMetrics{
+              metrics: [
+                %Metric{
+                  name: "http.server.request.body.size",
+                  unit: "By",
+                  data:
+                    {:sum,
+                     %Sum{
+                       aggregation_temporality: :AGGREGATION_TEMPORALITY_CUMULATIVE,
+                       is_monotonic: true,
+                       data_points: [
+                         %NumberDataPoint{
+                           time_unix_nano: Keyword.fetch!(opts, :timestamp),
+                           start_time_unix_nano: Keyword.fetch!(opts, :start_time),
+                           value: {:as_int, Keyword.fetch!(opts, :value)}
+                         }
+                       ]
+                     }}
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    })
   end
 
   defp sysmon_envelope(family) do
