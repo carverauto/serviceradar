@@ -165,16 +165,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizer do
   defp cumulative_monotonic?(sample) do
     metadata = Map.get(sample, :metadata, %{})
 
-    metric_kind = metadata_value(metadata, :metric_type) || metadata_value(metadata, :kind)
+    metric_kind = metric_kind(metadata)
 
     metric_kind in ["sum", "counter"] and
       metadata_value(metadata, :temporality) == "cumulative" and
       truthy?(metadata_value(metadata, :is_monotonic))
   end
 
-  defp counter_value(%{value: value}) when is_integer(value), do: {:ok, value}
+  defp metric_kind(metadata) do
+    metadata_value(metadata, :kind) ||
+      metadata_value(metadata, :metric_kind) ||
+      semantic_metric_type(metadata_value(metadata, :metric_type))
+  end
 
-  defp counter_value(%{value: value}) when is_float(value) and value >= 0 do
+  defp semantic_metric_type(value) when value in ["sum", "counter", "gauge", "histogram"],
+    do: value
+
+  defp semantic_metric_type(_value), do: nil
+
+  defp counter_value(%{metadata: metadata} = sample) when is_map(metadata) do
+    case metadata_value(metadata, :raw_value) || metadata_value(metadata, :counter_raw_value) do
+      value when not is_nil(value) -> counter_number(value)
+      nil -> counter_number(Map.get(sample, :value))
+    end
+  end
+
+  defp counter_value(%{value: value}), do: counter_number(value)
+
+  defp counter_number(value) when is_integer(value), do: {:ok, value}
+
+  defp counter_number(value) when is_float(value) and value >= 0 do
     rounded = round(value)
 
     if rounded == value do
@@ -184,7 +204,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizer do
     end
   end
 
-  defp counter_value(_sample), do: :error
+  defp counter_number(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {parsed, ""} when parsed >= 0 -> {:ok, parsed}
+      _ -> :error
+    end
+  end
+
+  defp counter_number(_value), do: :error
 
   defp counter_timestamp(%{observed_at_unix_nano: timestamp})
        when is_integer(timestamp) and timestamp >= 0,
@@ -270,11 +297,27 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizer do
   defp ensure_table(_table), do: :ok
 
   defp metadata_value(metadata, key) when is_map(metadata) and is_atom(key) do
-    Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key))
+    case Map.get(metadata, key) || Map.get(metadata, Atom.to_string(key)) do
+      nil ->
+        nested = nested_metadata(metadata)
+        Map.get(nested, key) || Map.get(nested, Atom.to_string(key))
+
+      value ->
+        value
+    end
   end
 
   defp metadata_value(metadata, key) when is_map(metadata), do: Map.get(metadata, key)
   defp metadata_value(_metadata, _key), do: nil
+
+  defp nested_metadata(metadata) when is_map(metadata) do
+    case Map.get(metadata, :metadata) || Map.get(metadata, "metadata") do
+      nested when is_map(nested) -> nested
+      _ -> %{}
+    end
+  end
+
+  defp nested_metadata(_metadata), do: %{}
 
   defp truthy?(true), do: true
   defp truthy?("true"), do: true

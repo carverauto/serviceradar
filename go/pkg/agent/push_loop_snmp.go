@@ -33,10 +33,15 @@ type snmpMetricResult struct {
 	Metric       string      `json:"metric"`
 	OID          string      `json:"oid"`
 	Value        interface{} `json:"value"`
+	RawValue     interface{} `json:"raw_value,omitempty"`
 	Timestamp    time.Time   `json:"timestamp"`
 	DataType     string      `json:"data_type,omitempty"`
 	Scale        float64     `json:"scale,omitempty"`
 	Delta        bool        `json:"delta,omitempty"`
+	Kind         string      `json:"kind,omitempty"`
+	Temporality  string      `json:"temporality,omitempty"`
+	IsMonotonic  bool        `json:"is_monotonic,omitempty"`
+	CounterWidth int         `json:"counter_width,omitempty"`
 	IfIndex      *int        `json:"if_index,omitempty"`
 	InterfaceUID string      `json:"interface_uid,omitempty"`
 }
@@ -179,16 +184,36 @@ func (p *PushLoop) buildSNMPDrainedResults(
 		ifIndex := parseIfIndexFromOID(oidValue)
 
 		for _, point := range points {
+			pointDataType := dataType
+			if point.DataType != "" {
+				pointDataType = string(point.DataType)
+			}
+
+			pointScale := scale
+			if point.Scale != 0 {
+				pointScale = point.Scale
+			}
+
+			pointDelta := delta
+			if !point.Delta {
+				pointDelta = false
+			}
+
 			result := snmpMetricResult{
 				Target:       targetName,
 				Host:         status.HostIP,
 				Metric:       metricName,
 				OID:          oidValue,
 				Value:        point.Value,
+				RawValue:     point.RawValue,
 				Timestamp:    point.Timestamp,
-				DataType:     dataType,
-				Scale:        scale,
-				Delta:        delta,
+				DataType:     pointDataType,
+				Scale:        pointScale,
+				Delta:        pointDelta,
+				Kind:         point.Kind,
+				Temporality:  point.Temporality,
+				IsMonotonic:  point.IsMonotonic,
+				CounterWidth: point.CounterWidth,
 				InterfaceUID: interfaceUID,
 			}
 

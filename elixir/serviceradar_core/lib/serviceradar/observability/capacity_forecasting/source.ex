@@ -99,17 +99,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         threshold: 100.0
       },
       %__MODULE__{
-        name: "timeseries_value",
-        resource_type: "timeseries",
-        metric_class: "timeseries",
-        metric_name: "value",
-        query:
-          "in:timeseries_metrics time:#{time_range} bucket:1h stats:avg(value) as avg_value by bucket,device_id,metric_type,metric_name sort:bucket:desc limit:#{limit}",
-        value_field: "avg_value",
-        key_fields: ["device_id", "metric_type", "metric_name"],
-        label_fields: ["device_id", "metric_type", "metric_name"]
-      },
-      %__MODULE__{
         name: "interface_rate",
         resource_type: "interface",
         metric_class: "interface",

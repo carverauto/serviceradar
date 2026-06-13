@@ -116,6 +116,30 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizerTest do
     assert normalized.value == 10.0
   end
 
+  test "prefers raw_value metadata over rounded float storage value", %{table: table} do
+    first =
+      counter_sample(
+        value: 0.0,
+        raw_value: "9007199254740993",
+        timestamp: 10 * @second,
+        width: 64
+      )
+
+    second =
+      counter_sample(
+        value: 0.0,
+        raw_value: "9007199254741093",
+        timestamp: 20 * @second,
+        width: 64
+      )
+
+    assert {:drop, :counter_warmup} = CounterNormalizer.normalize_sample(first, table)
+    assert {:ok, normalized} = CounterNormalizer.normalize_sample(second, table)
+
+    assert normalized.metadata.counter_delta == 100
+    assert normalized.value == 10.0
+  end
+
   defp counter_sample(opts) do
     metadata =
       %{
@@ -127,6 +151,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizerTest do
       |> maybe_put(:start_time_unix_nano, Keyword.get(opts, :reset_anchor))
       |> maybe_put(:counter_width, Keyword.get(opts, :width))
       |> maybe_put(:max_counter_rate_per_second, Keyword.get(opts, :max_rate))
+      |> maybe_put(:raw_value, Keyword.get(opts, :raw_value))
 
     sample(
       value: Keyword.fetch!(opts, :value),
