@@ -25,20 +25,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
     end)
   end
 
-  @spec save(String.t(), map(), keyword()) :: :ok | {:error, term()}
+  @spec save(String.t(), map(), keyword()) :: :ok | {:ok, non_neg_integer()} | {:error, term()}
   def save(series_key, snapshot, opts \\ []) when is_binary(series_key) and is_map(snapshot) do
     with_config(opts, fn config ->
       if Keyword.get(config, :enabled, false) do
         with_connection(config, fn conn ->
           with :ok <- ensure_bucket(conn, config),
                {:ok, encoded} <- Jason.encode(snapshot) do
-            kv(config).put_value(
-              conn,
-              bucket(config),
-              checkpoint_key(series_key),
-              encoded,
-              kv_opts(config)
-            )
+            write_checkpoint(conn, config, checkpoint_key(series_key), encoded)
           end
         end)
       else
@@ -53,16 +47,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
   end
 
   defp read_checkpoint(conn, config, key) do
-    case kv(config).get_value(conn, bucket(config), key) do
-      value when is_binary(value) ->
+    case stream_api(config).get_message(conn, "KV_#{bucket(config)}", %{
+           last_by_subj: key_subject(bucket(config), key)
+         }) do
+      {:ok, %{data: value, seq: revision}} when is_binary(value) ->
         case Jason.decode(value) do
-          {:ok, %{} = decoded} -> {:ok, decoded}
+          {:ok, %{} = decoded} -> {:ok, Map.put(decoded, :__checkpoint_revision__, revision)}
           {:ok, _other} -> {:error, :invalid_checkpoint_payload}
           {:error, reason} -> {:error, reason}
         end
-
-      nil ->
-        {:ok, nil}
 
       {:error, %{"code" => 404}} ->
         {:ok, nil}
@@ -74,6 +67,80 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
         {:error, reason}
     end
   end
+
+  defp write_checkpoint(conn, config, key, encoded) do
+    opts =
+      config
+      |> kv_opts()
+      |> Keyword.take([:timeout, :receive_timeout])
+      |> Keyword.put_new(:receive_timeout, Keyword.get(kv_opts(config), :timeout, 5_000))
+      |> put_expected_revision_header(Keyword.get(config, :expected_revision))
+
+    case request_api(config).request(conn, key_subject(bucket(config), key), encoded, opts) do
+      {:ok, %{status: status} = response} when status in ["400", "409"] ->
+        {:error, classify_write_error(response)}
+
+      {:ok, %{body: body}} ->
+        parse_pub_ack(body)
+
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp put_expected_revision_header(opts, revision) when is_integer(revision) and revision >= 0 do
+    Keyword.update(
+      opts,
+      :headers,
+      [{"Nats-Expected-Last-Subject-Sequence", Integer.to_string(revision)}],
+      &[{"Nats-Expected-Last-Subject-Sequence", Integer.to_string(revision)} | &1]
+    )
+  end
+
+  defp put_expected_revision_header(opts, _revision), do: opts
+
+  defp parse_pub_ack(body) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"seq" => revision}} when is_integer(revision) -> {:ok, revision}
+      {:ok, %{"error" => error}} -> {:error, classify_write_error(error)}
+      {:ok, _ack} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp parse_pub_ack(_body), do: :ok
+
+  defp classify_write_error(%{"description" => description}) when is_binary(description) do
+    classify_write_error(description)
+  end
+
+  defp classify_write_error(%{description: description}) when is_binary(description) do
+    classify_write_error(description)
+  end
+
+  defp classify_write_error(%{body: body}) when is_binary(body) do
+    case Jason.decode(body) do
+      {:ok, %{"error" => error}} -> classify_write_error(error)
+      _ -> body
+    end
+  end
+
+  defp classify_write_error(description) when is_binary(description) do
+    normalized = String.downcase(description)
+
+    if String.contains?(normalized, "wrong last") or
+         String.contains?(normalized, "expected") or
+         String.contains?(normalized, "sequence") do
+      :checkpoint_revision_conflict
+    else
+      description
+    end
+  end
+
+  defp classify_write_error(reason), do: reason
 
   defp ensure_bucket(conn, config) do
     if Keyword.get(config, :ensure_bucket, true) do
@@ -169,6 +236,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
 
   defp kv_opts(config), do: Keyword.get(config, :kv_opts, [])
 
+  defp key_subject(bucket, key), do: "$KV.#{bucket}.#{key}"
+
   defp bucket_cache_key(config) do
     {__MODULE__, :bucket_ready, bucket(config), stream_api(config), kv(config),
      bucket_opts(config)}
@@ -183,4 +252,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
   defp kv(config), do: Keyword.get(config, :kv, Jetstream.API.KV)
 
   defp stream_api(config), do: Keyword.get(config, :stream_api, Stream)
+
+  defp request_api(config), do: Keyword.get(config, :request_api, Gnat)
 end
