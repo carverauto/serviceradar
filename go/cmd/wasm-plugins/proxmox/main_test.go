@@ -56,7 +56,7 @@ func (f *fakeHTTPClient) Do(req sdk.HTTPRequest) (*sdk.HTTPResponse, error) {
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/network"):
 		return &sdk.HTTPResponse{
 			Status: http.StatusOK,
-			Body:   []byte(`{"data":[{"iface":"vmbr0","type":"bridge","active":1,"exists":1,"method":"static","families":["inet"],"bridge-ports":"eno1"}]}`),
+			Body:   []byte(`{"data":[{"iface":"vmbr0","type":"bridge","active":1,"exists":1,"method":"static","families":["inet"],"hwaddr":"00:aa:bb:cc:dd:ee","address":"10.10.0.11","cidr":"10.10.0.11/24","bridge-ports":"eno1"}]}`),
 		}, nil
 	case strings.HasSuffix(req.URL, "/api2/json/nodes/pve-a/disks/list"):
 		return &sdk.HTTPResponse{
@@ -176,6 +176,9 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	}
 	if len(details.Targets[0].Nodes[0].Network) != 1 || details.Targets[0].Nodes[0].Network[0].Iface != "vmbr0" {
 		t.Fatalf("expected node network details, got %#v", details.Targets[0].Nodes[0].Network)
+	}
+	if details.Targets[0].Nodes[0].Network[0].MACAddress != "00:aa:bb:cc:dd:ee" {
+		t.Fatalf("expected node network MAC identity, got %#v", details.Targets[0].Nodes[0].Network[0])
 	}
 	if len(details.Targets[0].Nodes[0].Disks) != 1 || details.Targets[0].Nodes[0].Disks[0].DevPath != "/dev/sda" {
 		t.Fatalf("expected node disk details, got %#v", details.Targets[0].Nodes[0].Disks)
