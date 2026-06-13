@@ -12073,6 +12073,13 @@ CREATE UNIQUE INDEX service_state_unique_service_identity_index ON platform.serv
 
 
 --
+-- Name: service_state_active_plugin_index; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX service_state_active_plugin_index ON platform.service_state USING btree (service_type, state, last_observed_at) WHERE ((service_type = 'plugin'::text) AND (state = 'active'::text));
+
+
+--
 -- Name: service_status_timestamp_idx; Type: INDEX; Schema: platform; Owner: -
 --
 
