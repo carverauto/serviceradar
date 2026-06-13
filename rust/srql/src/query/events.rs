@@ -237,8 +237,8 @@ fn build_anomaly_findings_rollup_stats(plan: &QueryPlan) -> Result<Option<Events
     'total', COALESCE(COUNT(*), 0)::bigint,
     'anomalies', COALESCE(COUNT(*) FILTER (WHERE {anomaly_clause}), 0)::bigint,
     'at_risk', COALESCE(COUNT(*) FILTER (WHERE {capacity_clause}), 0)::bigint,
-    'critical', COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) >= 5), 0)::bigint,
-    'high', COALESCE(COUNT(*) FILTER (WHERE COALESCE(severity_id, 0) = 4), 0)::bigint
+    'critical', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_clause}) AND COALESCE(severity_id, 0) >= 5), 0)::bigint,
+    'high', COALESCE(COUNT(*) FILTER (WHERE ({anomaly_clause}) AND COALESCE(severity_id, 0) = 4), 0)::bigint
 ) AS payload
 FROM ocsf_events
 WHERE {}"#,

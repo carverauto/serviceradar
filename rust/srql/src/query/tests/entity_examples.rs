@@ -261,6 +261,26 @@ fn events_rollup_stats_anomaly_findings_builds_summary_payload() {
 }
 
 #[test]
+fn events_rollup_stats_anomaly_findings_scopes_severity_counts_to_anomalies() {
+    let query = "in:events time:last_24h rollup_stats:anomaly_findings";
+    let plan = plan_for(query);
+
+    let (sql, _) = events::to_sql_and_params(&plan).expect("should build events rollup SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("'critical', coalesce(count(*) filter (where (\"class_uid\" = 2004")
+            && lower.contains("and coalesce(severity_id, 0) >= 5"),
+        "expected critical severity count to be scoped to anomaly findings, got: {sql}"
+    );
+    assert!(
+        lower.contains("'high', coalesce(count(*) filter (where (\"class_uid\" = 2004")
+            && lower.contains("and coalesce(severity_id, 0) = 4"),
+        "expected high severity count to be scoped to anomaly findings, got: {sql}"
+    );
+}
+
+#[test]
 fn logs_source_device_uid_matches_service_radar_attributes() {
     let query = r#"in:logs source_device_uid:"sr:device-1" time:last_24h sort:timestamp:desc"#;
     let plan = plan_for(query);
