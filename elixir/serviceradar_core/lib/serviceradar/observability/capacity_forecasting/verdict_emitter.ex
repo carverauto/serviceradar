@@ -29,7 +29,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       "event_id" => event_id(attrs),
       "signal_type" => "causal",
       "event_type" => @event_type,
-      "status" => "open",
+      "status" => status(attrs),
       "finding_type" => "detection",
       "class_uid" => 2004,
       "signal_domain" => "health",
@@ -174,7 +174,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
     threshold = Map.get(attrs, :exhaustion_threshold)
     threshold_text = if is_number(threshold), do: " #{threshold}", else: ""
 
-    "Capacity forecast: #{label} #{metric} projected to cross#{threshold_text} at #{iso8601(exhaustion_at)}"
+    if active?(attrs) do
+      "Capacity forecast: #{label} #{metric} projected to cross#{threshold_text} at #{iso8601(exhaustion_at)}"
+    else
+      "Capacity forecast cleared: #{label} #{metric} is not projected to cross#{threshold_text}"
+    end
   end
 
   defp reason(attrs, exhaustion_at) do
@@ -192,6 +196,17 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       " "
     )
   end
+
+  defp status(attrs), do: attrs |> Map.get(:status) |> string_value() |> default_status()
+
+  defp default_status(nil), do: "projected"
+  defp default_status(""), do: "projected"
+  defp default_status(status), do: status
+
+  defp active?(attrs), do: status(attrs) == "projected"
+
+  defp severity_id(%{status: status})
+       when status in ["inactive", "resolved", "closed", "skipped"], do: 2
 
   defp severity_id(%{
          forecasted_at: %DateTime{} = forecasted_at,
@@ -213,6 +228,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
       5 -> 90
       4 -> 75
       3 -> 55
+      2 -> 20
     end
   end
 

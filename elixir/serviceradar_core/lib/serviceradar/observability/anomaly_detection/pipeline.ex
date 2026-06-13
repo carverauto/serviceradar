@@ -18,6 +18,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
 
   require Logger
 
+  @active_series_table __MODULE__.ActiveSeries
+
   @doc """
   Starts the analysis Broadway topology.
   """
@@ -61,6 +63,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     Enum.each(successful, &ack_message(&1, :ack))
     Enum.each(failed, &ack_message(&1, :nack))
     :ok
+  end
+
+  @doc false
+  def reset_active_series_for_test do
+    case :ets.whereis(@active_series_table) do
+      :undefined -> :ok
+      table -> :ets.delete_all_objects(table)
+    end
   end
 
   @impl true
@@ -127,14 +137,112 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   end
 
   defp maybe_emit_verdict(sample, verdict) do
-    if anomalous?(verdict) and not suppressed?(verdict) do
-      case verdict_emitter().emit(sample, verdict) do
-        :ok -> :ok
-        {:error, reason} -> {:error, {:anomaly_verdict_emit_failed, reason}}
-        other -> {:error, {:unexpected_anomaly_verdict_emit_result, other}}
-      end
-    else
-      :ok
+    cond do
+      anomalous?(verdict) and not suppressed?(verdict) ->
+        case emit_verdict(sample, verdict) do
+          :ok ->
+            mark_active(sample)
+            :ok
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      clearing_verdict?(verdict) and should_emit_clear?(sample) ->
+        case emit_verdict(sample, verdict) do
+          :ok ->
+            mark_inactive(sample)
+            :ok
+
+          {:error, _reason} = error ->
+            error
+        end
+
+      true ->
+        :ok
+    end
+  end
+
+  defp emit_verdict(sample, verdict) do
+    case verdict_emitter().emit(sample, verdict) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:anomaly_verdict_emit_failed, reason}}
+      other -> {:error, {:unexpected_anomaly_verdict_emit_result, other}}
+    end
+  end
+
+  defp clearing_verdict?(verdict) when is_map(verdict),
+    do: suppressed?(verdict) or normal_state?(verdict)
+
+  defp clearing_verdict?(_verdict), do: false
+
+  defp should_emit_clear?(sample) do
+    sample
+    |> active_series_key()
+    |> case do
+      nil -> false
+      key ->
+        case :ets.lookup(active_series_table(), key) do
+          [{^key, :inactive}] -> false
+          _ -> true
+        end
+    end
+  end
+
+  defp mark_active(sample) do
+    case active_series_key(sample) do
+      nil -> :ok
+      key -> :ets.insert(active_series_table(), {key, :active})
+    end
+  end
+
+  defp mark_inactive(sample) do
+    case active_series_key(sample) do
+      nil -> :ok
+      key -> :ets.insert(active_series_table(), {key, :inactive})
+    end
+  end
+
+  defp active_series_key(sample) when is_map(sample) do
+    sample
+    |> Map.get(:series_key, Map.get(sample, "series_key"))
+    |> case do
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> case do
+          "" -> nil
+          trimmed -> trimmed
+        end
+
+      value when not is_nil(value) ->
+        to_string(value)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp active_series_key(_sample), do: nil
+
+  defp active_series_table do
+    case :ets.whereis(@active_series_table) do
+      :undefined ->
+        try do
+          :ets.new(@active_series_table, [
+            :named_table,
+            :public,
+            :set,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+        rescue
+          ArgumentError ->
+            @active_series_table
+        end
+
+      table ->
+        table
     end
   end
 
@@ -149,6 +257,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
   end
 
   defp suppressed?(_verdict), do: false
+
+  defp normal_state?(verdict) when is_map(verdict) do
+    state =
+      verdict
+      |> Map.get(:state, Map.get(verdict, "state"))
+      |> to_string()
+      |> String.downcase()
+
+    state in ["normal", "ok", "healthy", "resolved", "inactive", "closed", "cleared"]
+  end
+
+  defp normal_state?(_verdict), do: false
 
   defp context_engine do
     Application.get_env(

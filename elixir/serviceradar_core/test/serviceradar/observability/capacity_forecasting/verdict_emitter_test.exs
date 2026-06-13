@@ -45,6 +45,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert decoded["event_id"] == VerdictEmitter.event_id(@forecast)
     assert decoded["signal_type"] == "causal"
     assert decoded["event_type"] == "capacity_forecast"
+    assert decoded["status"] == "projected"
     assert decoded["finding_type"] == "detection"
     assert decoded["class_uid"] == 2004
     assert decoded["signal_domain"] == "health"
@@ -53,6 +54,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitterTest do
     assert decoded["device_uid"] == "device-a"
     assert decoded["finding_info"]["source"] == "capacity_forecasting"
     assert decoded["capacity_forecast"]["projected_exhaustion_at"] == "2026-06-12T22:00:00Z"
+  end
+
+  test "inactive capacity payload clears causal evidence" do
+    subject = VerdictEmitter.subject(@forecast)
+    payload = @forecast |> Map.put(:status, "inactive") |> VerdictEmitter.payload(subject)
+
+    assert payload["status"] == "inactive"
+    assert payload["severity_id"] == 2
+    assert payload["message"] =~ "Capacity forecast cleared"
+    assert payload["capacity_forecast"]["status"] == "inactive"
   end
 
   test "payload routes through the existing causal signal processor" do

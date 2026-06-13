@@ -73,6 +73,13 @@ pub fn parse_causal_prediction(envelope: &Value) -> Option<CausalEvidence> {
 
 /// Upsert causal evidence into the C12 operator-rule evidence vector.
 pub fn apply_causal_evidence(ctx: &mut Context, evidence: &CausalEvidence) -> bool {
+    if !evidence.condition_met {
+        let before = ctx.operator_rules.len();
+        ctx.operator_rules
+            .retain(|existing| existing.rule_id != evidence.rule_id);
+        return ctx.operator_rules.len() != before;
+    }
+
     let rule = OperatorRule {
         rule_id: evidence.rule_id.clone(),
         entity_uid: evidence.entity_uid.clone(),
@@ -250,8 +257,7 @@ mod tests {
 
         assert!(apply_causal_evidence(&mut ctx, &open));
         assert!(apply_causal_evidence(&mut ctx, &resolved));
-        assert_eq!(ctx.operator_rules.len(), 1);
-        assert!(!ctx.operator_rules[0].condition_met);
-        assert_eq!(ctx.operator_rules[0].description, "anomaly resolved");
+        assert!(ctx.operator_rules.is_empty());
+        assert!(!apply_causal_evidence(&mut ctx, &resolved));
     }
 }
