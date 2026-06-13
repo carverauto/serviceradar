@@ -23,11 +23,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
   alias ServiceRadar.Inventory.Remediation.BlobPurge
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
+  alias ServiceRadar.Inventory.Remediation.StaleAgentDevices
   alias ServiceRadar.Inventory.Remediation.TestDebris
 
   require Logger
 
-  @step_order ["blob-purge", "test-debris", "agent-links", "proxmox-dups"]
+  @step_order ["blob-purge", "test-debris", "stale-agent-devices", "agent-links", "proxmox-dups"]
 
   @doc "Ordered list of known step names."
   @spec steps() :: [String.t()]
@@ -46,7 +47,8 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     * `:actor` — Ash actor (default `SystemActor.system(:dire_remediation)`)
     * step-specific options: `:debris_date`, `:debris_null_patterns`,
       `:debris_sim_patterns`, `:debris_device_agent_prefix`,
-      `:debris_hostnames`, `:agent_uids`, `:agent_statuses`, `:ip_literal`,
+      `:debris_hostnames`, `:stale_agent_uids`, `:stale_agent_prefixes`,
+      `:stale_agent_before`, `:agent_uids`, `:agent_statuses`, `:ip_literal`,
       `:proxmox_source`, `:hostname_denylist`
 
   Returns `{:ok, %{mode: mode, manifest_path: path | nil, reports: %{step => report}}}`.
@@ -107,6 +109,9 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("test-debris", mode, opts, manifest, actor),
     do: TestDebris.run(mode, opts, manifest, actor)
+
+  defp run_step("stale-agent-devices", mode, opts, manifest, actor),
+    do: StaleAgentDevices.run(mode, opts, manifest, actor)
 
   defp run_step("agent-links", mode, opts, manifest, actor),
     do: AgentLinks.run(mode, opts, manifest, actor)

@@ -187,6 +187,101 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
   # agent-links (4.3)
   # ---------------------------------------------------------------------------
 
+  test "stale-agent-devices: reaps unavailable churn agents without deleting canonical devices",
+       %{actor: actor} do
+    seed = test_seed()
+    stale_exact = "agent-dusk-test-exact-#{seed}"
+    stale_prefix = "agent-dusk01-test-#{seed}"
+    active_agent = "agent-dusk01-current-#{seed}"
+    protected_agent = "agent-protected-current-#{seed}"
+
+    {:ok, canonical} =
+      create_device(actor, %{
+        hostname: "dusk01-current-#{seed}",
+        agent_id: active_agent,
+        discovery_sources: ["agent", "sweep"]
+      })
+
+    {:ok, stale_owned} =
+      create_device(actor, %{
+        hostname: "dusk-stale-#{seed}",
+        agent_id: stale_prefix,
+        discovery_sources: ["sysmon", "agent", "sweep"]
+      })
+
+    {:ok, protected_device} =
+      create_device(actor, %{
+        hostname: "dusk-protected-#{seed}",
+        agent_id: stale_exact,
+        discovery_sources: ["agent"]
+      })
+
+    {:ok, _} = create_agent(actor, active_agent, %{device_uid: canonical.uid})
+    {:ok, _} = create_agent(actor, protected_agent, %{device_uid: protected_device.uid})
+    {:ok, _} = create_agent(actor, stale_exact, %{device_uid: canonical.uid})
+    {:ok, _} = create_agent(actor, stale_prefix, %{device_uid: stale_owned.uid})
+    make_stale_agent!(stale_exact)
+    make_stale_agent!(stale_prefix)
+
+    {:ok, _} = seed_agent_identifier(actor, stale_exact, canonical.uid)
+    {:ok, _} = seed_agent_identifier(actor, stale_prefix, stale_owned.uid)
+    {:ok, alias_state} = seed_alias(actor, stale_owned.uid, "10.95.#{:rand.uniform(250)}.1")
+
+    opts = [
+      steps: ["stale-agent-devices"],
+      actor: actor,
+      stale_agent_uids: [stale_exact],
+      stale_agent_prefixes: ["agent-dusk01-test-"],
+      stale_agent_before: ~U[2026-05-01 00:00:00Z]
+    ]
+
+    assert {:ok, %{reports: %{"stale-agent-devices" => dry}}} = DireRemediation.run(opts)
+
+    assert dry.stale_agents == 2
+    assert Enum.sort(dry.stale_agent_uids) == Enum.sort([stale_exact, stale_prefix])
+    assert dry.stale_device_uids == [stale_owned.uid]
+    assert dry.would_delete_identifiers == 2
+    assert dry.would_delete_alias_states == 1
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(stale_owned.uid, false, actor: actor)
+
+    manifest_path = manifest_path("stale_agents")
+
+    assert {:ok, %{reports: %{"stale-agent-devices" => report}}} =
+             DireRemediation.run([{:mode, :execute}, {:manifest_path, manifest_path} | opts])
+
+    assert report.deleted_agents == 2
+    assert report.deleted_identifiers == 2
+    assert report.deleted_alias_states == 1
+    assert report.soft_deleted_devices == 1
+
+    assert {:error, _} = Agent.get_by_uid(stale_exact, actor: actor)
+    assert {:error, _} = Agent.get_by_uid(stale_prefix, actor: actor)
+    assert {:ok, _} = Agent.get_by_uid(active_agent, actor: actor)
+    assert {:ok, _} = Agent.get_by_uid(protected_agent, actor: actor)
+
+    assert {:ok, %Device{deleted_at: %DateTime{}, deleted_reason: "dire_remediation_stale_agent"}} =
+             Device.get_by_uid(stale_owned.uid, true, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} = Device.get_by_uid(canonical.uid, false, actor: actor)
+
+    assert {:ok, %Device{deleted_at: nil}} =
+             Device.get_by_uid(protected_device.uid, false, actor: actor)
+
+    assert agent_identifiers(actor, stale_exact) == []
+    assert agent_identifiers(actor, stale_prefix) == []
+
+    assert {:error, _} = Ash.get(DeviceAliasState, alias_state.id, actor: actor)
+
+    assert_manifest_records(manifest_path, "stale-agent-devices", "soft_delete_devices")
+
+    assert {:ok, %{reports: %{"stale-agent-devices" => second}}} = DireRemediation.run(opts)
+    assert second.stale_agents == 0
+    assert second.stale_devices == 0
+    assert second.would_delete_identifiers == 0
+  end
+
   test "agent-links: rebuilds per-host devices from ocsf_agents ground truth",
        %{actor: actor} do
     seed = test_seed()
@@ -493,6 +588,24 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediationTest do
       SQL.query!(
         Repo,
         "UPDATE platform.ocsf_agents SET created_time = $1, status = 'unavailable' WHERE uid = $2",
+        [~U[2026-04-25 02:19:22Z], agent_uid]
+      )
+
+    :ok
+  end
+
+  defp make_stale_agent!(agent_uid) do
+    %{num_rows: 1} =
+      SQL.query!(
+        Repo,
+        """
+        UPDATE platform.ocsf_agents
+        SET created_time = $1,
+            last_seen_time = $1,
+            status = 'unavailable',
+            is_healthy = false
+        WHERE uid = $2
+        """,
         [~U[2026-04-25 02:19:22Z], agent_uid]
       )
 

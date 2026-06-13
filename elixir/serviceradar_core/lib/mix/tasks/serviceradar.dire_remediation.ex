@@ -37,6 +37,12 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
       (default agent-reip-)
     * `--debris-hostname <hostname>` — debris device hostname (repeatable;
       defaults: k8s-pod-a, k8s-pod-b)
+    * `--stale-agent <uid>` — exact unavailable historical agent uid to reap
+      (repeatable; defaults: agent-dusk, agent-agent-dusk)
+    * `--stale-agent-prefix <prefix>` — unavailable historical agent uid prefix
+      to reap (repeatable; defaults: agent-dusk-, agent-agent-dusk-, agent-dusk01-)
+    * `--stale-agent-before <iso8601>` — stale agent last_seen cutoff
+      (default 2026-05-01T00:00:00Z)
     * `--agent <uid>` — restrict agent-links to specific agents (repeatable)
     * `--agent-status <status>` — agent-links scope (repeatable; default connected)
     * `--ip-literal <value>` — corrupted device ip literal to NULL (default "agent")
@@ -71,6 +77,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     debris_sim_pattern: :keep,
     debris_device_agent_prefix: :string,
     debris_hostname: :keep,
+    stale_agent: :keep,
+    stale_agent_prefix: :keep,
+    stale_agent_before: :string,
     agent: :keep,
     agent_status: :keep,
     ip_literal: :string,
@@ -121,6 +130,9 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     |> put_if_nonempty(:debris_sim_patterns, Keyword.get_values(opts, :debris_sim_pattern))
     |> put_if(:debris_device_agent_prefix, opts[:debris_device_agent_prefix])
     |> put_if_nonempty(:debris_hostnames, Keyword.get_values(opts, :debris_hostname))
+    |> put_if_nonempty(:stale_agent_uids, Keyword.get_values(opts, :stale_agent))
+    |> put_if_nonempty(:stale_agent_prefixes, Keyword.get_values(opts, :stale_agent_prefix))
+    |> put_if(:stale_agent_before, parse_datetime(opts[:stale_agent_before]))
     |> put_if_nonempty(:agent_uids, Keyword.get_values(opts, :agent))
     |> put_if_nonempty(
       :agent_statuses,
@@ -150,6 +162,15 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     case Date.from_iso8601(value) do
       {:ok, date} -> date
       {:error, _} -> Mix.raise("--debris-date must be an ISO8601 date, got: #{value}")
+    end
+  end
+
+  defp parse_datetime(nil), do: nil
+
+  defp parse_datetime(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      {:error, _} -> Mix.raise("--stale-agent-before must be ISO8601, got: #{value}")
     end
   end
 
