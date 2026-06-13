@@ -492,6 +492,68 @@ defmodule ServiceRadar.Edge.AgentCommandBusTest do
       assert command.result_payload == %{"ok" => true}
     end
 
+    test "status handler normalizes JSON string payloads before persisting", %{
+      agent_id: agent_id,
+      actor: actor
+    } do
+      {_pid, _metadata} =
+        start_control_session(agent_id, self(), %{
+          partition_id: "default",
+          capabilities: ["mapper"]
+        })
+
+      assert {:ok, command_id} =
+               AgentCommandBus.dispatch(agent_id, "test.run", %{payload: "ok"})
+
+      _command = wait_for_status(command_id, :sent, actor)
+
+      progress_payload = Jason.encode!(%{"completed_targets" => 2, "total_targets" => 4})
+      result_payload = Jason.encode!(%{"completed_targets" => 4, "failed_targets" => 0})
+
+      assert {:noreply, %{actor: ^actor}} =
+               StatusHandler.handle_info(
+                 {:command_progress,
+                  %{
+                    command_id: command_id,
+                    message: "running",
+                    progress_percent: 50,
+                    payload: progress_payload
+                  }},
+                 %{actor: actor}
+               )
+
+      _command = wait_for_status(command_id, :running, actor)
+
+      assert {:noreply, %{actor: ^actor}} =
+               StatusHandler.handle_info(
+                 {:command_result,
+                  %{
+                    command_id: command_id,
+                    success: true,
+                    message: "done",
+                    payload: result_payload
+                  }},
+                 %{actor: actor}
+               )
+
+      command = wait_for_status(command_id, :completed, actor)
+      assert command.progress_payload == %{"completed_targets" => 2, "total_targets" => 4}
+      assert command.result_payload == %{"completed_targets" => 4, "failed_targets" => 0}
+
+      assert {:ok, %{rows: [["object", "object", "4"]]}} =
+               ServiceRadar.Repo.query(
+                 """
+                 SELECT
+                   jsonb_typeof(progress_payload),
+                   jsonb_typeof(result_payload),
+                   result_payload->>'completed_targets'
+                 FROM platform.agent_commands
+                 WHERE command_id::text = $1
+                 """,
+                 [uuid_text(command.id)]
+               )
+    end
+
     test "dispatch tolerates ack before sent status is persisted", %{
       agent_id: agent_id,
       actor: actor

@@ -495,7 +495,18 @@ defmodule ServiceRadar.AgentCommands.StatusHandler do
   end
 
   defp json_param(nil), do: nil
-  defp json_param(value), do: value
+
+  defp json_param(value) when is_map(value), do: value
+
+  defp json_param(value) when is_binary(value) do
+    case Jason.decode(value) do
+      {:ok, decoded} when is_map(decoded) -> decoded
+      {:ok, decoded} -> %{"value" => decoded}
+      {:error, _reason} -> %{"value" => value}
+    end
+  end
+
+  defp json_param(value), do: %{"value" => value}
 
   defp map_get_any(map, keys, default) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, default, fn key ->
