@@ -39,12 +39,41 @@ defmodule ServiceRadar.EventWriter.Processors.Events do
     # DB connection's search_path determines the schema
     case Jason.decode(data) do
       {:ok, json} ->
-        parse_event(json, metadata, data)
+        if metric_payload?(json) do
+          reject_metric_on_events_stream(json)
+        else
+          parse_event(json, metadata, data)
+        end
 
       {:error, _} ->
         Logger.debug("Failed to parse events message as JSON")
         nil
     end
+  end
+
+  # REC9b (fj #3788): metric time-series must never land on the OCSF events stream.
+  # A metric point carries `temporality`/`points[]` or a `serviceradar.metric.*`
+  # schema, none of which a security/activity event has. Reject it loudly rather
+  # than coercing it into an OCSF event row.
+  defp metric_payload?(json) when is_map(json) do
+    String.starts_with?(to_string(Map.get(json, "schema", "")), "serviceradar.metric") or
+      Map.has_key?(json, "temporality") or Map.has_key?(json, "points")
+  end
+
+  defp metric_payload?(_json), do: false
+
+  defp reject_metric_on_events_stream(json) do
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :events, :misbucketed],
+      %{count: 1},
+      %{reason: :metric_on_events_stream}
+    )
+
+    Logger.warning("Rejected mis-bucketed metric payload on the OCSF events stream",
+      schema: Map.get(json, "schema")
+    )
+
+    nil
   end
 
   # Private functions
