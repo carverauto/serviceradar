@@ -87,4 +87,25 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert JetstreamConsumer.normalized_subjects(["metrics.sysmon.*"], "metrics.snmp.>") ==
              ["metrics.sysmon.*", "metrics.snmp.>"]
   end
+
+  test "consumer payload carries declared durable config for create and update" do
+    payload =
+      JetstreamConsumer.consumer_payload(
+        "events",
+        "serviceradar-event-writer-CAUSAL_PREDICTIONS",
+        "signals.causal.predictions.>",
+        description: "causal predictions",
+        deliver_policy: :all,
+        max_deliver: 5,
+        deliver_subject: "_INBOX.causal_predictions"
+      )
+
+    assert payload.stream_name == "events"
+    assert payload.config.durable_name == "serviceradar-event-writer-CAUSAL_PREDICTIONS"
+    assert payload.config.filter_subject == "signals.causal.predictions.>"
+    assert payload.config.description == "causal predictions"
+    assert payload.config.deliver_policy == :all
+    assert payload.config.max_deliver == 5
+    assert payload.config.deliver_subject == "_INBOX.causal_predictions"
+  end
 end
