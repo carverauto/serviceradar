@@ -250,10 +250,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp maybe_emit_verdict(attrs, opts) do
-    if emit_verdicts?(opts) and at_risk?(attrs, opts) do
+    if emit_verdicts?(opts) do
       emitter = Keyword.get(opts, :verdict_emitter, VerdictEmitter)
+      verdict_attrs = verdict_attrs(attrs, opts)
 
-      case emitter.emit(attrs, opts) do
+      case emitter.emit(verdict_attrs, opts) do
         :ok ->
           :ok
 
@@ -271,6 +272,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp emit_verdicts?(opts), do: Keyword.get(opts, :emit_verdicts?, true)
+
+  defp verdict_attrs(%{status: "projected"} = attrs, opts) do
+    if at_risk?(attrs, opts), do: attrs, else: Map.put(attrs, :status, "inactive")
+  end
+
+  defp verdict_attrs(attrs, _opts), do: attrs
 
   defp at_risk?(
          %{

@@ -120,6 +120,29 @@ defmodule ServiceRadar.Observability.AnomalyDetection.VerdictEmitterTest do
     assert row.unmapped["anomaly"]["reason"] == "rolling z-score breached"
   end
 
+  test "normal anomaly verdict payload clears causal evidence with stable finding UID" do
+    subject = VerdictEmitter.subject(@sample)
+    active_payload = VerdictEmitter.payload(@sample, @verdict, subject)
+
+    clear_payload =
+      VerdictEmitter.payload(
+        @sample,
+        %{
+          @verdict
+          | anomalous: false,
+            breached: false,
+            state: "normal",
+            reason: "back inside baseline",
+            score: 0.1
+        },
+        subject
+      )
+
+    assert clear_payload["status"] == "inactive"
+    assert clear_payload["finding_info"]["uid"] == active_payload["finding_info"]["uid"]
+    assert clear_payload["anomaly"]["state"] == "normal"
+  end
+
   test "fallback finding UID matches the emitter canonical UID" do
     subject = VerdictEmitter.subject(@sample)
     payload = VerdictEmitter.payload(@sample, @verdict, subject)

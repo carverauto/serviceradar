@@ -526,7 +526,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert log =~ "nats_not_connected"
   end
 
-  test "worker does not emit a verdict for projections outside the warning horizon" do
+  test "worker emits an inactive verdict for projections outside the warning horizon" do
     source = %Source{
       name: "cpu_usage",
       resource_type: "cpu",
@@ -562,10 +562,12 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert_received {:capacity_forecast_outside_warning, attrs}
     assert attrs.status == "projected"
     assert attrs.projected_exhaustion_at
-    refute_received {:capacity_forecast_verdict, _attrs}
+    assert_received {:capacity_forecast_verdict, verdict_attrs}
+    assert verdict_attrs.status == "inactive"
+    assert verdict_attrs.resource_key == attrs.resource_key
   end
 
-  test "worker does not emit a verdict for skipped forecasts" do
+  test "worker emits a skipped verdict to clear stale capacity evidence" do
     source = %Source{
       name: "disk_usage",
       resource_type: "disk",
@@ -591,7 +593,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
                min_points: 3
              )
 
-    refute_received {:capacity_forecast_verdict, _attrs}
+    assert_received {:capacity_forecast_verdict, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.skip_reason
   end
 
   defmodule ShortRunner do

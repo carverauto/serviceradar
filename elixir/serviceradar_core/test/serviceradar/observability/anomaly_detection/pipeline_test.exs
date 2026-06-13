@@ -21,8 +21,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     Application.put_env(:serviceradar_core, :anomaly_detection_pipeline_test_pid, self())
+    Pipeline.reset_active_series_for_test()
 
     on_exit(fn ->
+      Pipeline.reset_active_series_for_test()
       restore_env(:anomaly_detection_context_engine, previous_context_engine)
       restore_env(:anomaly_detection_verdict_emitter, previous_verdict_emitter)
       restore_env(:anomaly_detection_pipeline_test_pid, previous_pid)
@@ -99,6 +101,78 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     assert sample.series_key == "sysmon:memory:host-1"
     assert verdict.anomalous == true
     assert verdict.state == "anomalous"
+  end
+
+  test "emits a clearing verdict when an active anomaly returns to normal" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.AnomalousContextEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.VerdictEmitterStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, active_verdict}
+    assert active_verdict.anomalous == true
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.NormalContextEngine
+    )
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, clear_verdict}
+    assert clear_verdict.anomalous == false
+    assert clear_verdict.state == "normal"
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    refute_receive {:emit_anomaly_verdict, _sample, _verdict}
+  end
+
+  test "emits one clearing verdict after restart when normal evidence arrives" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.AnomalousContextEngine
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.VerdictEmitterStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, active_verdict}
+    assert active_verdict.anomalous == true
+
+    Pipeline.reset_active_series_for_test()
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.NormalContextEngine
+    )
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, clear_verdict}
+    assert clear_verdict.anomalous == false
+    assert clear_verdict.state == "normal"
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+    refute_receive {:emit_anomaly_verdict, _sample, _verdict}
   end
 
   test "marks messages failed when anomaly verdict emission fails" do
@@ -192,6 +266,31 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
          score: 3.5,
          reason: "rolling z-score breached",
          baseline_count: 48,
+         sample_value: sample.value,
+         observed_at_unix_nano: sample.observed_at_unix_nano,
+         signals: []
+       }}
+    end
+  end
+
+  defmodule NormalContextEngine do
+    @moduledoc false
+
+    def evaluate(sample) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate,
+        sample
+      })
+
+      {:ok,
+       %{
+         state: "normal",
+         anomalous: false,
+         breached: false,
+         include_in_baseline: true,
+         score: 0.2,
+         reason: "back inside baseline",
+         baseline_count: 49,
          sample_value: sample.value,
          observed_at_unix_nano: sample.observed_at_unix_nano,
          signals: []
