@@ -7,6 +7,8 @@ defmodule ServiceRadar.Observability.CapacityForecastTest do
   alias ServiceRadar.Observability.CapacityForecast
 
   @migration_path "priv/repo/migrations/20260612080000_create_capacity_forecasts.exs"
+  @retention_migration_path "priv/repo/migrations/20260613070000_add_capacity_forecast_retention_policy.exs"
+  @retention_worker_path "lib/serviceradar/observability/data_retention_worker.ex"
 
   test "resource is raw-managed in the platform schema" do
     assert PostgresInfo.table(CapacityForecast) == "capacity_forecasts"
@@ -75,5 +77,30 @@ defmodule ServiceRadar.Observability.CapacityForecastTest do
     assert migration =~ "lower_bound"
     assert migration =~ "upper_bound"
     refute migration =~ "public.capacity_forecasts"
+  end
+
+  test "capacity forecast retention migration configures Timescale policies" do
+    migration = File.read!(@retention_migration_path)
+
+    assert migration =~ ~s(@table "capacity_forecasts")
+    assert migration =~ ~s(@retention_interval "395 days")
+    assert migration =~ ~s(@compression_after "7 days")
+    assert migration =~ "resource_key, metric_name, horizon_seconds"
+    assert migration =~ "timescaledb.compress"
+    assert migration =~ "add_compression_policy"
+    assert migration =~ "add_retention_policy"
+    assert migration =~ "remove_compression_policy"
+    assert migration =~ "remove_retention_policy"
+    refute migration =~ "public.capacity_forecasts"
+  end
+
+  test "retention worker reconciles capacity forecast retention and chunks" do
+    worker = File.read!(@retention_worker_path)
+
+    assert worker =~ "@default_capacity_forecasts_retention_days 395"
+    assert worker =~ "@default_capacity_forecasts_chunk_interval_hours 24"
+    assert worker =~ ~s("capacity_forecasts")
+    assert worker =~ ":capacity_forecasts_retention_days"
+    assert worker =~ ":capacity_forecasts_chunk_interval_hours"
   end
 end

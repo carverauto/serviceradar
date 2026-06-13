@@ -59,6 +59,35 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     end
   end
 
+  defmodule PagedRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query_page(query, opts) do
+      cursor = Keyword.get(opts, :cursor)
+      send(self(), {:capacity_forecast_query_page, query, cursor})
+
+      case cursor do
+        nil ->
+          {:ok, %{rows: rows("device-a", 0..23), next_cursor: "page-2"}}
+
+        "page-2" ->
+          {:ok, %{rows: rows("device-b", 0..23), next_cursor: nil}}
+      end
+    end
+
+    defp rows(device_id, hours) do
+      for hour <- hours do
+        %{
+          "bucket" => DateTime.add(@start, hour * 3_600, :second),
+          "device_id" => device_id,
+          "host_id" => "#{device_id}-host",
+          "avg_usage_percent" => 20.0 + hour
+        }
+      end
+    end
+  end
+
   defmodule VerdictEmitter do
     @moduledoc false
 
@@ -131,6 +160,48 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["query"] == source.query
   end
 
+  test "worker pages capacity history instead of truncating at the first SRQL limit page" do
+    source = %Source{
+      name: "cpu_usage",
+      resource_type: "cpu",
+      metric_class: "cpu",
+      metric_name: "usage_percent",
+      query:
+        "in:cpu_metrics time:last_180d bucket:1h stats:avg(usage_percent) as avg_usage_percent by bucket,device_id,host_id sort:bucket:desc limit:2",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "host_id"],
+      label_fields: ["host_id", "device_id"],
+      threshold: 100.0,
+      model: "linear"
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_upsert, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{
+      args: %{"trigger" => "cron"},
+      inserted_at: @forecasted_at,
+      scheduled_at: @forecasted_at
+    }
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: PagedRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_query_page, _query, nil}
+    assert_received {:capacity_forecast_query_page, _query, "page-2"}
+    assert_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage:device-a:device-a-host"}}
+    assert_received {:capacity_forecast_upsert, %{resource_key: "cpu_usage:device-b:device-b-host"}}
+  end
+
   test "worker records skipped forecasts for insufficient history" do
     source = %Source{
       name: "disk_usage",
@@ -166,7 +237,44 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.status == "skipped"
     assert attrs.skip_reason == "insufficient_history"
     assert attrs.sample_count == 2
+    assert attrs.window_started_at == ~U[2026-06-01 00:00:00Z]
+    assert attrs.window_ended_at == ~U[2026-06-01 01:00:00Z]
     assert attrs.slope_per_second == nil
+  end
+
+  test "skipped forecast windows are stable when SRQL returns newest buckets first" do
+    source = %Source{
+      name: "disk_usage",
+      resource_type: "disk",
+      metric_class: "disk",
+      metric_name: "usage_percent",
+      query: "in:disk_metrics time:last_180d bucket:1h sort:bucket:desc",
+      value_field: "avg_usage_percent",
+      key_fields: ["device_id", "mount_point"],
+      label_fields: ["mount_point"],
+      threshold: 100.0
+    }
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_skip, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.DescShortRunner,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               min_points: 3
+             )
+
+    assert_received {:capacity_forecast_skip, attrs}
+    assert attrs.status == "skipped"
+    assert attrs.window_started_at == ~U[2026-06-01 00:00:00Z]
+    assert attrs.window_ended_at == ~U[2026-06-01 01:00:00Z]
   end
 
   test "worker merges hot-reloaded forecast settings into each run" do
@@ -616,6 +724,29 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
            "device_id" => "device-a",
            "mount_point" => "/",
            "avg_usage_percent" => 43.0
+         }
+       ]}
+    end
+  end
+
+  defmodule DescShortRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    def query(_query, _opts) do
+      {:ok,
+       [
+         %{
+           "bucket" => DateTime.add(@start, 3_600, :second),
+           "device_id" => "device-a",
+           "mount_point" => "/",
+           "avg_usage_percent" => 43.0
+         },
+         %{
+           "bucket" => @start,
+           "device_id" => "device-a",
+           "mount_point" => "/",
+           "avg_usage_percent" => 42.0
          }
        ]}
     end
