@@ -7,11 +7,15 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   require Ash.Query
 
+  @security_overview_query "in:security_findings sort:time:desc limit:25"
+  @critical_severities MapSet.new(["critical", "fatal", "high"])
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
       socket
       |> assign(:page_title, "Security")
+      |> assign(:security_overview, empty_security_overview(:loading))
       |> assign(:selected_trivy_finding_uuid, nil)
       |> assign(:selected_detection_event_id, nil)
       |> assign(:selected_trivy_finding, nil)
@@ -26,6 +30,7 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
      socket
      |> assign(:selected_trivy_finding_uuid, clean_param(Map.get(params, "finding")))
      |> assign(:selected_detection_event_id, clean_param(Map.get(params, "detection")))
+     |> assign_security_overview()
      |> assign_selected_security_details()}
   end
 
@@ -105,6 +110,8 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
           <.selected_detection_panel detection={@selected_detection} />
         </div>
 
+        <.security_overview_panel overview={@security_overview} />
+
         <section class="rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <div>
@@ -139,6 +146,121 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
         </section>
       </div>
     </Layouts.app>
+    """
+  end
+
+  attr :overview, :map, required: true
+
+  defp security_overview_panel(assigns) do
+    ~H"""
+    <section class="rounded-lg border border-white/10 bg-slate-950/70 p-5 text-slate-100">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="text-base font-semibold">Live Posture</h2>
+          <p class="text-xs text-slate-400">
+            Recent security findings from the latest indexed rows
+          </p>
+        </div>
+        <.link
+          navigate={observability_href(@overview.query)}
+          class="btn btn-xs btn-ghost text-slate-300"
+        >
+          Open findings
+        </.link>
+      </div>
+
+      <div class="mt-4 grid gap-3 md:grid-cols-3">
+        <.security_metric label="Recent findings" value={@overview.total} />
+        <.security_metric label="Critical / High" value={@overview.critical_high} tone="error" />
+        <.security_metric
+          label="Active sources"
+          value={Enum.count(@overview.source_counts)}
+          tone="info"
+        />
+      </div>
+
+      <div
+        :if={@overview.status == :error}
+        class="mt-4 rounded-md border border-warning/30 bg-warning/10 p-3 text-sm text-warning"
+      >
+        Security findings query failed; see logs for the SRQL error.
+      </div>
+
+      <div
+        :if={@overview.status != :error}
+        class="mt-4 grid gap-4 xl:grid-cols-[1fr_1.35fr]"
+      >
+        <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+          <.security_count_list title="Severity" rows={@overview.severity_counts} />
+          <.security_count_list title="Source" rows={@overview.source_counts} />
+        </div>
+
+        <div class="min-w-0 rounded-lg border border-white/10 bg-white/5">
+          <div class="border-b border-white/10 px-4 py-3">
+            <h3 class="text-sm font-semibold">Top Critical Findings</h3>
+          </div>
+          <div :if={@overview.recent == []} class="px-4 py-6 text-sm text-slate-400">
+            No recent security findings found.
+          </div>
+          <div :if={@overview.recent != []} class="divide-y divide-white/10">
+            <.recent_security_finding :for={finding <- @overview.recent} finding={finding} />
+          </div>
+        </div>
+      </div>
+    </section>
+    """
+  end
+
+  attr :label, :string, required: true
+  attr :value, :any, required: true
+  attr :tone, :string, default: "base"
+
+  defp security_metric(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-white/10 bg-white/5 p-4">
+      <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">{@label}</div>
+      <div class={["mt-2 text-2xl font-semibold", metric_tone_class(@tone)]}>{@value}</div>
+    </div>
+    """
+  end
+
+  attr :title, :string, required: true
+  attr :rows, :list, default: []
+
+  defp security_count_list(assigns) do
+    ~H"""
+    <div class="rounded-lg border border-white/10 bg-white/5 p-4">
+      <h3 class="text-sm font-semibold">{@title}</h3>
+      <div :if={@rows == []} class="mt-3 text-sm text-slate-400">No findings</div>
+      <div :if={@rows != []} class="mt-3 space-y-2">
+        <div :for={row <- @rows} class="flex items-center justify-between gap-3 text-sm">
+          <span class="truncate text-slate-300">{row.label}</span>
+          <span class="font-semibold text-slate-100">{row.count}</span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  attr :finding, :map, required: true
+
+  defp recent_security_finding(assigns) do
+    ~H"""
+    <div class="min-w-0 px-4 py-3">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="min-w-0">
+          <div class="truncate text-sm font-semibold text-slate-100">{@finding.title}</div>
+          <div class="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-slate-400">
+            <span>{@finding.source}</span>
+            <span :if={@finding.resource}>{@finding.resource}</span>
+            <span :if={@finding.time}>{@finding.time}</span>
+          </div>
+        </div>
+        <span class={["badge badge-xs", severity_badge_class(@finding.severity)]}>
+          {@finding.severity || "Unknown"}
+        </span>
+      </div>
+    </div>
     """
   end
 
@@ -330,6 +452,14 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     """
   end
 
+  defp assign_security_overview(socket) do
+    if connected?(socket) do
+      assign(socket, :security_overview, load_security_overview(socket.assigns.current_scope))
+    else
+      assign(socket, :security_overview, empty_security_overview(:loading))
+    end
+  end
+
   defp assign_selected_security_details(socket) do
     if connected?(socket) do
       socket
@@ -366,6 +496,90 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
     end
   end
 
+  defp load_security_overview(scope) do
+    case srql_module().query(@security_overview_query, %{scope: scope}) do
+      {:ok, %{"results" => rows}} when is_list(rows) ->
+        build_security_overview(rows)
+
+      {:ok, %{results: rows}} when is_list(rows) ->
+        build_security_overview(rows)
+
+      _ ->
+        empty_security_overview(:error)
+    end
+  end
+
+  defp build_security_overview(rows) when is_list(rows) do
+    recent =
+      rows
+      |> Enum.map(&security_finding_row/1)
+      |> Enum.sort_by(&severity_rank(&1.severity))
+      |> Enum.take(5)
+
+    %{
+      status: :ready,
+      query: @security_overview_query,
+      total: length(rows),
+      critical_high: Enum.count(rows, &(normalized_severity(&1) in @critical_severities)),
+      severity_counts: count_rows(rows, &severity_label_for_row/1),
+      source_counts: count_rows(rows, &source_label/1),
+      recent: recent
+    }
+  end
+
+  defp empty_security_overview(status) do
+    %{
+      status: status,
+      query: @security_overview_query,
+      total: 0,
+      critical_high: 0,
+      severity_counts: [],
+      source_counts: [],
+      recent: []
+    }
+  end
+
+  defp count_rows(rows, label_fun) do
+    rows
+    |> Enum.map(label_fun)
+    |> Enum.reject(&blank?/1)
+    |> Enum.frequencies()
+    |> Enum.map(fn {label, count} -> %{label: label, count: count} end)
+    |> Enum.sort_by(&{-&1.count, &1.label})
+    |> Enum.take(5)
+  end
+
+  defp security_finding_row(row) do
+    %{
+      title:
+        value(row, "finding_title") || value(row, "message") || value(row, "short_message") ||
+          value(row, "finding_uid") || value(row, "id") || "Security finding",
+      severity: severity_label_for_row(row),
+      source: source_label(row),
+      resource: resource_label(row),
+      time: value(row, "time") || value(row, "event_timestamp")
+    }
+  end
+
+  defp severity_label_for_row(row), do: row |> value("severity") |> severity_label()
+
+  defp normalized_severity(row), do: row |> value("severity") |> normalize_string()
+
+  defp source_label(row) do
+    value(row, "source") ||
+      value(row, "log_provider") ||
+      nested_value(row, ["metadata", "service_radar", "source_type"]) ||
+      "unknown"
+  end
+
+  defp resource_label(row) do
+    nested_value(row, ["metadata", "service_radar", "resource_name"]) ||
+      nested_value(row, ["metadata", "service_radar", "owner_ref"]) ||
+      nested_value(row, ["metadata", "service_radar", "namespace"]) ||
+      nested_value(row, ["device", "name"]) ||
+      nested_value(row, ["device", "uid"])
+  end
+
   defp clean_param(value) when is_binary(value) do
     value = String.trim(value)
     if value == "", do: nil, else: value
@@ -400,12 +614,36 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   defp value(%{} = row, key), do: Map.get(row, key) || Map.get(row, known_atom_key(key))
   defp value(_, _key), do: nil
 
+  defp nested_value(value, []), do: value
+
+  defp nested_value(%{} = row, [key | rest]) do
+    row
+    |> value(key)
+    |> nested_value(rest)
+  end
+
+  defp nested_value(_row, _path), do: nil
+
+  defp known_atom_key("device"), do: :device
+  defp known_atom_key("event_timestamp"), do: :event_timestamp
+  defp known_atom_key("finding_title"), do: :finding_title
+  defp known_atom_key("finding_uid"), do: :finding_uid
   defp known_atom_key("id"), do: :id
+  defp known_atom_key("log_provider"), do: :log_provider
   defp known_atom_key("message"), do: :message
   defp known_atom_key("metadata"), do: :metadata
+  defp known_atom_key("name"), do: :name
+  defp known_atom_key("namespace"), do: :namespace
+  defp known_atom_key("owner_ref"), do: :owner_ref
   defp known_atom_key("raw_data"), do: :raw_data
+  defp known_atom_key("resource_name"), do: :resource_name
+  defp known_atom_key("service_radar"), do: :service_radar
   defp known_atom_key("severity"), do: :severity
   defp known_atom_key("short_message"), do: :short_message
+  defp known_atom_key("source"), do: :source
+  defp known_atom_key("source_type"), do: :source_type
+  defp known_atom_key("time"), do: :time
+  defp known_atom_key("uid"), do: :uid
   defp known_atom_key("unmapped"), do: :unmapped
   defp known_atom_key(_), do: nil
 
@@ -565,6 +803,17 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
   defp severity_tone("Low"), do: "badge-success"
   defp severity_tone(_), do: "badge-ghost"
 
+  defp severity_rank("Critical"), do: 0
+  defp severity_rank("Fatal"), do: 0
+  defp severity_rank("High"), do: 1
+  defp severity_rank("Medium"), do: 2
+  defp severity_rank("Low"), do: 3
+  defp severity_rank(_severity), do: 4
+
+  defp metric_tone_class("error"), do: "text-error"
+  defp metric_tone_class("info"), do: "text-info"
+  defp metric_tone_class(_tone), do: "text-slate-100"
+
   defp normalize_string(value) when is_binary(value), do: value |> String.trim() |> String.downcase()
   defp normalize_string(_), do: ""
 
@@ -577,6 +826,10 @@ defmodule ServiceRadarWebNGWeb.SecurityLive.Index do
 
   defp short_uuid(value) when is_binary(value), do: String.slice(value, 0, 8)
   defp short_uuid(value), do: value |> to_string() |> short_uuid()
+
+  defp srql_module do
+    Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)
+  end
 
   defp observability_href(query), do: ~p"/observability?#{%{tab: "events", q: query}}"
 end
