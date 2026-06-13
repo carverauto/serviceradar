@@ -14,6 +14,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
+  alias ServiceRadar.Repo
 
   require Ash.Query
   require Logger
@@ -26,7 +27,11 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
           optional(:ip) => String.t() | nil,
           optional(:hostname) => String.t() | nil,
           optional(:name) => String.t() | nil,
-          optional(:partition) => String.t() | nil
+          optional(:partition) => String.t() | nil,
+          optional(:pod_uid) => String.t() | nil,
+          optional(:pod_namespace) => String.t() | nil,
+          optional(:pod_name) => String.t() | nil,
+          optional(:container_id) => String.t() | nil
         }
 
   @spec resolve(candidate()) :: String.t() | nil
@@ -35,6 +40,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
 
     with nil <- explicit_device_uid(candidate, actor),
          nil <- device_uid_for_agent(candidate[:agent_id], actor),
+         nil <- device_uid_for_workload(candidate, actor),
          nil <- device_uid_for_ip(candidate[:ip], candidate[:partition], actor),
          nil <- device_uid_for_hostname(candidate[:hostname], actor) do
       device_uid_for_hostname(candidate[:name], actor)
@@ -109,6 +115,81 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
     end
   end
 
+  defp device_uid_for_workload(candidate, _actor) do
+    partition = candidate_value(candidate, :partition) || "default"
+
+    workload_device_uid(candidate, partition)
+  end
+
+  defp workload_device_uid(candidate, partition) do
+    cond do
+      pod_uid = candidate_value(candidate, :pod_uid) ->
+        query_workload_device_uid(
+          """
+          SELECT agent.device_uid
+          FROM platform.workload_identity_current AS workload
+          JOIN platform.ocsf_agents AS agent
+            ON agent.uid = workload.agent_id
+          WHERE workload.partition = $1
+            AND workload.pod_uid = $2
+            AND NULLIF(btrim(agent.device_uid), '') IS NOT NULL
+          ORDER BY workload.observed_at DESC, workload.updated_at DESC
+          LIMIT 1
+          """,
+          [partition, pod_uid]
+        )
+
+      pod_namespace = candidate_value(candidate, :pod_namespace) ->
+        case candidate_value(candidate, :pod_name) do
+          nil ->
+            nil
+
+          pod_name ->
+            query_workload_device_uid(
+              """
+              SELECT agent.device_uid
+              FROM platform.workload_identity_current AS workload
+              JOIN platform.ocsf_agents AS agent
+                ON agent.uid = workload.agent_id
+              WHERE workload.partition = $1
+                AND workload.pod_namespace = $2
+                AND workload.pod_name = $3
+                AND NULLIF(btrim(agent.device_uid), '') IS NOT NULL
+              ORDER BY workload.observed_at DESC, workload.updated_at DESC
+              LIMIT 1
+              """,
+              [partition, pod_namespace, pod_name]
+            )
+        end
+
+      container_id = candidate_value(candidate, :container_id) ->
+        query_workload_device_uid(
+          """
+          SELECT agent.device_uid
+          FROM platform.workload_identity_current AS workload
+          JOIN platform.ocsf_agents AS agent
+            ON agent.uid = workload.agent_id
+          WHERE workload.partition = $1
+            AND workload.container_id = $2
+            AND NULLIF(btrim(agent.device_uid), '') IS NOT NULL
+          ORDER BY workload.observed_at DESC, workload.updated_at DESC
+          LIMIT 1
+          """,
+          [partition, container_id]
+        )
+
+      true ->
+        nil
+    end
+  end
+
+  defp query_workload_device_uid(sql, params) do
+    case bounded_lookup(fn -> Repo.query(sql, params) end) do
+      {:ok, %{rows: [[device_uid] | _]}} -> normalize(device_uid)
+      _ -> nil
+    end
+  end
+
   defp device_uid_for_hostname(nil, _actor), do: nil
 
   defp device_uid_for_hostname(hostname, actor) do
@@ -162,4 +243,8 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   end
 
   defp normalize(_), do: nil
+
+  defp candidate_value(candidate, key) when is_map(candidate) do
+    normalize(candidate[key] || candidate[to_string(key)])
+  end
 end
