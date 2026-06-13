@@ -21,6 +21,25 @@ defmodule ServiceRadar.Observability.ServiceState do
       filter expr(state == "active")
     end
 
+    read :active_plugin_cards do
+      filter expr(state == "active" and service_type == "plugin")
+
+      prepare build(
+                select: [
+                  :id,
+                  :agent_id,
+                  :gateway_id,
+                  :partition,
+                  :service_type,
+                  :service_name,
+                  :available,
+                  :message,
+                  :last_observed_at,
+                  :state
+                ]
+              )
+    end
+
     read :by_identity do
       argument :agent_id, :string, allow_nil?: false
       argument :gateway_id, :string, allow_nil?: false

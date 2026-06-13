@@ -13,7 +13,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   @default_limit 50
   @max_limit 200
-  @refresh_debounce_ms 750
+  @refresh_debounce_ms 5_000
   @default_query "in:services time:last_1h sort:timestamp:desc limit:500"
 
   @impl true
@@ -106,9 +106,15 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
     {:noreply, schedule_refresh(socket)}
   end
 
-  def handle_info({:service_state_updated, _state}, socket) do
+  def handle_info({:service_state_updated, %ServiceState{service_type: "plugin"}}, socket) do
     {:noreply, schedule_refresh(socket)}
   end
+
+  def handle_info({:service_state_updated, %{service_type: "plugin"}}, socket) do
+    {:noreply, schedule_refresh(socket)}
+  end
+
+  def handle_info({:service_state_updated, _state}, socket), do: {:noreply, socket}
 
   def handle_info(:refresh_services, socket) do
     {:noreply, refresh_services(socket)}
@@ -447,16 +453,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp format_last_updated(_), do: "—"
 
-  defp filter_service_states(states) when is_list(states) do
-    Enum.reject(states, fn
-      %ServiceState{service_type: service_type} ->
-        service_type != "plugin"
-
-      _ ->
-        true
-    end)
-  end
-
   defp dedupe_states(states) when is_list(states) do
     states
     |> Enum.filter(&match?(%ServiceState{}, &1))
@@ -496,9 +492,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp load_plugin_service_states(scope) do
     case load_active_states(scope) do
       {:ok, states} when is_list(states) ->
-        states
-        |> filter_service_states()
-        |> dedupe_states()
+        dedupe_states(states)
 
       _ ->
         []
@@ -507,7 +501,7 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp load_active_states(scope) do
     ServiceState
-    |> Ash.Query.for_read(:active, %{})
+    |> Ash.Query.for_read(:active_plugin_cards, %{})
     |> Ash.read(scope: scope)
   end
 
@@ -732,41 +726,54 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
   defp build_service_cards(_plugin_states, _services, _scope), do: []
 
   defp build_service_cards_from_services(services, scope) when is_list(services) do
-    services
-    |> filter_plugin_services()
-    |> dedupe_services()
-    |> Enum.sort_by(&service_sort_key/1)
-    |> Enum.map(&build_service_card(&1, scope))
+    services =
+      services
+      |> filter_plugin_services()
+      |> dedupe_services()
+      |> Enum.sort_by(&service_sort_key/1)
+
+    services_with_details = Enum.map(services, &{&1, parse_service_details(&1)})
+    contracts = display_contracts_by_plugin_id(Enum.map(services_with_details, &elem(&1, 1)), scope)
+
+    Enum.map(services_with_details, fn {service, details} ->
+      build_service_card(service, details, contracts)
+    end)
   end
 
   defp build_service_cards_from_services(_services, _scope), do: []
 
   defp service_state_to_service(%ServiceState{} = state) do
     %{
-      "service_id" => state.id,
-      "service_name" => state.service_name,
-      "service_type" => state.service_type,
-      "available" => state.available,
-      "message" => state.message,
-      "details" => state.details,
-      "timestamp" => timestamp_to_iso8601(state.last_observed_at),
-      "gateway_id" => state.gateway_id,
-      "agent_id" => state.agent_id,
-      "partition" => state.partition
+      "service_id" => loaded_field(state, :id),
+      "service_name" => loaded_field(state, :service_name),
+      "service_type" => loaded_field(state, :service_type),
+      "available" => loaded_field(state, :available),
+      "message" => loaded_field(state, :message),
+      "timestamp" => timestamp_to_iso8601(loaded_field(state, :last_observed_at)),
+      "gateway_id" => loaded_field(state, :gateway_id),
+      "agent_id" => loaded_field(state, :agent_id),
+      "partition" => loaded_field(state, :partition)
     }
+  end
+
+  defp loaded_field(%ServiceState{} = state, field) do
+    case Map.get(state, field) do
+      %Ash.NotLoaded{} -> nil
+      value -> value
+    end
   end
 
   defp timestamp_to_iso8601(%DateTime{} = value), do: DateTime.to_iso8601(value)
   defp timestamp_to_iso8601(%NaiveDateTime{} = value), do: NaiveDateTime.to_iso8601(value)
   defp timestamp_to_iso8601(_value), do: nil
 
-  defp build_service_card(%{} = svc, scope) do
-    details = parse_service_details(svc)
+  defp build_service_card(%{} = svc, details, contracts) do
+    details = if is_map(details), do: details, else: %{}
 
     display =
       details
       |> extract_display_instructions()
-      |> filter_display_by_contract(details, scope)
+      |> filter_display_by_contract(details, contracts)
       |> compact_display()
 
     %{
@@ -781,8 +788,6 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
       agent_id: Map.get(svc, "agent_id")
     }
   end
-
-  defp build_service_card(_svc, _scope), do: %{}
 
   defp service_sort_key(svc) do
     availability = normalize_available(Map.get(svc, "available"))
@@ -829,26 +834,60 @@ defmodule ServiceRadarWebNGWeb.ServiceLive.Index do
 
   defp extract_display_instructions(_), do: []
 
-  defp filter_display_by_contract(display, details, scope) when is_list(display) and is_map(details) do
-    plugin_id = get_in(details, ["labels", "plugin_id"]) || get_in(details, [:labels, :plugin_id])
+  defp display_contracts_by_plugin_id(details_list, scope) when is_list(details_list) do
+    plugin_ids =
+      details_list
+      |> Enum.map(&plugin_id_from_details/1)
+      |> Enum.filter(&is_binary/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.uniq()
+
+    if plugin_ids == [] do
+      %{}
+    else
+      %{"status" => "approved", "limit" => 500}
+      |> Packages.list(scope: scope)
+      |> Enum.filter(&(&1.plugin_id in plugin_ids))
+      |> Enum.sort_by(&package_inserted_at_sort_key/1, :desc)
+      |> Enum.reduce(%{}, fn package, acc ->
+        case package.display_contract do
+          contract when is_map(contract) -> Map.put_new(acc, package.plugin_id, contract)
+          _ -> acc
+        end
+      end)
+    end
+  end
+
+  defp display_contracts_by_plugin_id(_details_list, _scope), do: %{}
+
+  defp plugin_id_from_details(details) when is_map(details) do
+    get_in(details, ["labels", "plugin_id"]) ||
+      get_in(details, [:labels, :plugin_id]) ||
+      Map.get(details, "plugin_id") ||
+      Map.get(details, :plugin_id)
+  end
+
+  defp plugin_id_from_details(_details), do: nil
+
+  defp package_inserted_at_sort_key(%{inserted_at: %DateTime{} = inserted_at}),
+    do: DateTime.to_unix(inserted_at, :microsecond)
+
+  defp package_inserted_at_sort_key(%{inserted_at: %NaiveDateTime{} = inserted_at}),
+    do: NaiveDateTime.to_gregorian_seconds(inserted_at)
+
+  defp package_inserted_at_sort_key(_package), do: 0
+
+  defp filter_display_by_contract(display, details, contracts) when is_list(display) and is_map(details) do
+    plugin_id = plugin_id_from_details(details)
 
     if is_binary(plugin_id) and plugin_id != "" do
-      contract =
-        %{"plugin_id" => plugin_id, "status" => "approved", "limit" => 1}
-        |> Packages.list(scope: scope)
-        |> List.first()
-        |> case do
-          %{display_contract: contract} when is_map(contract) -> contract
-          _ -> %{}
-        end
-
-      apply_display_contract(display, contract)
+      apply_display_contract(display, Map.get(contracts, plugin_id, %{}))
     else
       display
     end
   end
 
-  defp filter_display_by_contract(display, _details, _scope), do: display
+  defp filter_display_by_contract(display, _details, _contracts), do: display
 
   defp apply_display_contract(display, contract) when is_list(display) and is_map(contract) do
     allowed = Map.get(contract, "widgets") || Map.get(contract, :widgets) || []
