@@ -155,8 +155,10 @@ same stream as the persistence consumer.
 During rollout:
 
 1. Start with the always-live OpenTelemetry metric subjects.
-2. Enable SNMP and sysmon shadow subjects only after the metrics stream and
-   database sync path are healthy.
+2. Enable the SNMP and sysmon metric publishers
+   (`AGENT_GATEWAY_SNMP_METRICS_ENABLED` / `AGENT_GATEWAY_SYSMON_METRICS_ENABLED`,
+   or the `gateway.snmpMetricsEnabled` / `gateway.sysmonMetricsEnabled` Helm
+   values) only after the metrics stream and database sync path are healthy.
 3. Check Events for anomaly and capacity findings before wiring new rules to
    paging destinations.
 4. Keep remediation workflows manual until a separate guarded-remediation

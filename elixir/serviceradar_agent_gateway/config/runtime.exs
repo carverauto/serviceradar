@@ -310,12 +310,10 @@ spiffe_mode =
   end
 
 sysmon_metrics_publish_enabled =
-  (System.get_env("AGENT_GATEWAY_SYSMON_METRICS_ENABLED") ||
-     System.get_env("AGENT_GATEWAY_SYSMON_METRICS_SHADOW_ENABLED", "true")) in ~w(true 1 yes)
+  System.get_env("AGENT_GATEWAY_SYSMON_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
 snmp_metrics_publish_enabled =
-  (System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED") ||
-     System.get_env("AGENT_GATEWAY_SNMP_METRICS_SHADOW_ENABLED", "true")) in ~w(true 1 yes)
+  System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
 plugin_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_ENABLED", "true") in ~w(true 1 yes)

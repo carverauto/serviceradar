@@ -26,14 +26,10 @@
 {{- $sysmonMetricsEnabled := true -}}
 {{- if hasKey $gateway "sysmonMetricsEnabled" -}}
 {{- $sysmonMetricsEnabled = $gateway.sysmonMetricsEnabled -}}
-{{- else if hasKey $gateway "sysmonMetricsShadowEnabled" -}}
-{{- $sysmonMetricsEnabled = $gateway.sysmonMetricsShadowEnabled -}}
 {{- end -}}
 {{- $snmpMetricsEnabled := true -}}
 {{- if hasKey $gateway "snmpMetricsEnabled" -}}
 {{- $snmpMetricsEnabled = $gateway.snmpMetricsEnabled -}}
-{{- else if hasKey $gateway "snmpMetricsShadowEnabled" -}}
-{{- $snmpMetricsEnabled = $gateway.snmpMetricsShadowEnabled -}}
 {{- end -}}
 {{- $pluginMetricsEnabled := true -}}
 {{- if hasKey $gateway "pluginMetricsEnabled" -}}
