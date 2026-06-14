@@ -98,6 +98,7 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_replicas) => pos_integer() | nil,
           optional(:stream_max_bytes) => pos_integer() | nil,
           optional(:stream_max_age) => pos_integer() | nil,
+          optional(:stream_duplicate_window) => pos_integer() | nil,
           optional(:consumer_max_deliver) => integer() | nil,
           optional(:consumer_deliver_policy) => atom() | nil,
           optional(:consumer_inactive_threshold) => non_neg_integer() | nil
@@ -215,6 +216,9 @@ defmodule ServiceRadar.EventWriter.Config do
         stream_discard: "old",
         stream_max_bytes: 1_073_741_824,
         stream_max_age: 1_800_000_000_000,
+        # fj #3788 REC4: dedup exact redeliveries (consumer_max_deliver: 5) within a
+        # 2-minute window, keyed on the Nats-Msg-Id (= ingress_id) the gateway stamps.
+        stream_duplicate_window: 120_000_000_000,
         consumer_max_deliver: 5
       },
       %{

@@ -30,6 +30,7 @@ defmodule ServiceRadarAgentGateway.IngressIdTest do
     assert headers == [
              {"Sr-Ingress-Id", "00000645-50de-8e80-8000-000000000001"},
              {"Sr-Ingress-Time-Unix-Nano", "1765500000000000000"},
+             {"Nats-Msg-Id", "00000645-50de-8e80-8000-000000000001"},
              {"Sr-Agent-Id", "agent-1"},
              {"Sr-Gateway-Id", "gateway-1"},
              {"Sr-Partition", "prod-east"},

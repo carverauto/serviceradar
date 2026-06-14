@@ -97,7 +97,8 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         discard: Keyword.get(opts, :stream_discard, "old"),
         num_replicas: Keyword.get(opts, :stream_replicas, 1),
         max_bytes: Keyword.get(opts, :stream_max_bytes),
-        max_age: Keyword.get(opts, :stream_max_age)
+        max_age: Keyword.get(opts, :stream_max_age),
+        duplicate_window: Keyword.get(opts, :stream_duplicate_window)
       }
       |> compact_map()
       |> Jason.encode!()
@@ -183,6 +184,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
       |> put_configured(opts, :stream_replicas, "num_replicas")
       |> put_configured(opts, :stream_max_bytes, "max_bytes")
       |> put_configured(opts, :stream_max_age, "max_age")
+      |> put_configured(opts, :stream_duplicate_window, "duplicate_window")
 
     {:ok, payload}
   end
