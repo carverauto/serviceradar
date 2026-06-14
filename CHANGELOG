@@ -1,3 +1,25 @@
+# ServiceRadar v1.3.2
+
+Protobuf metric envelope cutover and in-BEAM anomaly engine hardening.
+
+## Whats New
+
+**1.3.2**
+- Replaced the JSON metric-point ingestion path with a typed protobuf metric
+  envelope (`serviceradar.metric.v1`, schema_version 2). The agent gateway now
+  publishes attested, binary-encoded metric batches end to end across SNMP,
+  sysmon, sweep, rperf, MTR, ICMP, plugin, native add-on, and OTLP-relay
+  publishers; the EventWriter and anomaly SampleExtractor decode typed protobuf
+  only and reject stale JSON, cutting decode/extraction cost and payload size.
+- Hardened the in-BEAM DeepCausality anomaly engine: O(1) Welford z-score in
+  the NIF, sharded context engine with ordered reason batches, checkpoint
+  export/import with lazy restore, SeenEvents TTL retention with anomaly-aware
+  eviction, bounded off-hot-path pruning, intra-batch dedup, shard fault
+  isolation, and readable attested anomaly series keys so findings are
+  debuggable in the UI.
+- Wired metric-envelope device_id enrichment in the EventWriter so anomaly
+  samples resolve to canonical devices.
+
 # ServiceRadar v1.3.1
 
 Release-build fix and flow-attribution stability. Supersedes the v1.3.0 tag,
