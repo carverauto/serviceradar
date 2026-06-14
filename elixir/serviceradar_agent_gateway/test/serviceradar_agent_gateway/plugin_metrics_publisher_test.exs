@@ -104,6 +104,62 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     assert {"metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max", :nats_down} in failures
   end
 
+  test "carries producer-declared OTLP-grade semantics into the v2 envelope" do
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.timeseries",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    status = %{
+      plugin_status()
+      | message:
+          Jason.encode!(%{
+            "status" => "OK",
+            "metrics" => [
+              %{
+                "name" => "net_bytes_total",
+                "value" => 4_000_000_000,
+                "unit" => "By",
+                "kind" => "sum",
+                "temporality" => "cumulative",
+                "is_monotonic" => true
+              }
+            ]
+          })
+    }
+
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(status)
+    assert_receive {:published, _subject, payload, _opts}
+
+    assert %{
+             "schema" => "serviceradar.metric.v1",
+             "schema_version" => 2,
+             "kind" => "sum",
+             "temporality" => "cumulative",
+             "is_monotonic" => true
+           } = Jason.decode!(payload)
+  end
+
+  test "stamps schema_version 1 for legacy flat plugin metrics" do
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.timeseries",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(plugin_status())
+    assert_receive {:published, _subject, payload, _opts}
+    decoded = Jason.decode!(payload)
+    assert decoded["schema_version"] == 1
+
+    # Legacy v1 envelopes must be genuinely absent the OTLP-grade keys, not carry
+    # them as JSON null (fj #3788 REC1 review).
+    for key <- ["kind", "temporality", "is_monotonic", "start_time_unix_nano"] do
+      refute Map.has_key?(decoded, key)
+    end
+  end
+
   defmodule ConnectionStub do
     @moduledoc false
     def publish(subject, payload, opts) do

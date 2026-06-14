@@ -91,23 +91,58 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
   defp encode_metric(_status, _payload, _metric), do: {:ok, nil}
 
   defp metric_envelope(status, payload, metric, name, metric_type, value, ingress_context) do
-    IngressId.put_payload_metadata(
+    kind = metric_string(metric, ["kind"])
+    temporality = metric_string(metric, ["temporality"])
+    is_monotonic = boolean_field(metric, ["is_monotonic", "isMonotonic"])
+
+    start_time =
+      metric |> first_present(["start_time_unix_nano", "startTimeUnixNano"]) |> parse_number()
+
+    base = %{
+      "schema" => @metric_schema,
+      "schema_version" => schema_version(kind, temporality, is_monotonic, start_time),
+      "source" => "plugin-result",
+      "timestamp" => timestamp(payload, status),
+      "gateway_id" => status[:gateway_id],
+      "agent_id" => status[:agent_id],
+      "partition" => status[:partition],
+      "metric_name" => name,
+      "metric_type" => metric_type,
+      "value" => value,
+      "unit" => metric_string(metric, ["unit", "u"]),
+      "tags" => tags(status, payload),
+      "metadata" => metadata(status, payload, metric)
+    }
+
+    # OTLP-grade semantics (fj #3788, REC1) are carried through only when the
+    # producer declares them, so a legacy v1 plugin's flat envelope is genuinely
+    # absent these keys (not `null`) and the consumer reads it as a single gauge
+    # point.
+    otlp_semantics =
       %{
-        "schema" => @metric_schema,
-        "source" => "plugin-result",
-        "timestamp" => timestamp(payload, status),
-        "gateway_id" => status[:gateway_id],
-        "agent_id" => status[:agent_id],
-        "partition" => status[:partition],
-        "metric_name" => name,
-        "metric_type" => metric_type,
-        "value" => value,
-        "unit" => metric_string(metric, ["unit", "u"]),
-        "tags" => tags(status, payload),
-        "metadata" => metadata(status, payload, metric)
-      },
-      ingress_context
-    )
+        "kind" => kind,
+        "temporality" => temporality,
+        "is_monotonic" => is_monotonic,
+        "start_time_unix_nano" => start_time
+      }
+      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+      |> Map.new()
+
+    IngressId.put_payload_metadata(Map.merge(base, otlp_semantics), ingress_context)
+  end
+
+  # serviceradar.metric.v1 schema_version (fj #3788, REC1): bump to 2 once the
+  # producer declares any OTLP-grade semantic; legacy flat envelopes stay v1.
+  defp schema_version(kind, temporality, is_monotonic, start_time) do
+    if kind || temporality || not is_nil(is_monotonic) || start_time, do: 2, else: 1
+  end
+
+  defp boolean_field(metric, keys) do
+    case first_present(metric, keys) do
+      value when value in [true, "true"] -> true
+      value when value in [false, "false"] -> false
+      _ -> nil
+    end
   end
 
   defp metric_name(metric) do
@@ -175,6 +210,11 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
 
   defp metadata(status, payload, metric) do
     %{}
+    # v2 semantics also land in metadata (fj #3788, REC1) so the event_writer
+    # consumer lift surfaces them to the anomaly normalizer, mirroring the SNMP path.
+    |> maybe_put("kind", metric_string(metric, ["kind"]))
+    |> maybe_put("temporality", metric_string(metric, ["temporality"]))
+    |> maybe_put("is_monotonic", boolean_field(metric, ["is_monotonic", "isMonotonic"]))
     |> maybe_put("summary", metric_string(payload, ["summary"]))
     |> maybe_put("status", metric_string(payload, ["status"]))
     |> maybe_put("assignment_id", metric_string(payload, ["assignment_id", "assignmentId"]))
