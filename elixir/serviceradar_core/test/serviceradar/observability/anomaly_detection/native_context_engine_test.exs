@@ -48,6 +48,29 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngineTest do
            end)
   end
 
+  test "profiled batch evaluation reports phase timings" do
+    start_supervised!(
+      {NativeContextEngine, shard_count: 1, min_samples: 3, window_size: 3, confirm_slots: 1}
+    )
+
+    {results, profile} =
+      NativeContextEngine.evaluate_events_batch_profiled([
+        sample("series-profile", 0, 10.0),
+        sample("series-profile", 1, 11.0),
+        sample("series-profile", 2, 12.0),
+        sample("series-profile", 3, 30.0)
+      ])
+
+    assert [{%{series_key: "series-profile"}, {:ok, %{anomalous: true}}}] = results
+    assert profile.input_samples == 4
+    assert profile.candidates == 4
+    assert profile.duplicate_drops == 0
+    assert profile.emitted_results == 1
+    assert is_integer(profile.total_ns) and profile.total_ns > 0
+    assert is_integer(profile.native_eval_ns) and profile.native_eval_ns >= 0
+    assert is_integer(profile.shard_input_build_ns) and profile.shard_input_build_ns >= 0
+  end
+
   test "serializes concurrent callers instead of returning shard lock errors" do
     start_supervised!(
       {NativeContextEngine, shard_count: 1, min_samples: 3, window_size: 3, confirm_slots: 1}

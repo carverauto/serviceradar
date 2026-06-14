@@ -90,6 +90,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {:reply, reply, state}
   end
 
+  def handle_call({:evaluate_events_batch_profiled, samples}, _from, state) do
+    {reply, state, profile} = do_evaluate_events_batch_profiled(samples, state)
+    {:reply, {reply, profile}, state}
+  end
+
   @doc """
   Evaluates samples and returns only anomaly/clear state-change events.
   """
@@ -98,6 +103,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
         ]
   def evaluate_events_batch(samples) when is_list(samples) do
     GenServer.call(__MODULE__, {:evaluate_events_batch, samples}, :infinity)
+  end
+
+  @doc false
+  @spec evaluate_events_batch_profiled([sample()]) ::
+          {[
+             {sample(), {:ok, map()} | {:drop, term()} | {:error, term()}}
+           ], map()}
+  def evaluate_events_batch_profiled(samples) when is_list(samples) do
+    GenServer.call(__MODULE__, {:evaluate_events_batch_profiled, samples}, :infinity)
   end
 
   defp do_evaluate_events_batch(samples, state) do
@@ -134,6 +148,65 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {reply, state}
   end
 
+  defp do_evaluate_events_batch_profiled(samples, state) do
+    total_started = System.monotonic_time(:nanosecond)
+
+    {{candidates, duplicate_results}, dedupe_ns} =
+      timed(fn ->
+        samples
+        |> Enum.with_index()
+        |> Enum.reduce({[], []}, fn {sample, index}, {candidates, duplicates} ->
+          case event_key(sample) do
+            nil ->
+              {[{sample, index, nil} | candidates], duplicates}
+
+            key ->
+              if seen_event?(key) do
+                {candidates, [{index, sample, {:drop, :duplicate_event}} | duplicates]}
+              else
+                {[{sample, index, key} | candidates], duplicates}
+              end
+          end
+        end)
+      end)
+
+    {{results, error_indexes, evaluate_profile}, _evaluate_ns} =
+      timed(fn -> evaluate_candidate_events_profiled(Enum.reverse(candidates), state) end)
+
+    {_seen_result, mark_seen_ns} =
+      timed(fn ->
+        candidates
+        |> Enum.reject(fn {_sample, index, _event_key} ->
+          MapSet.member?(error_indexes, index)
+        end)
+        |> mark_seen_events()
+      end)
+
+    {_prune_result, prune_seen_ns} = timed(fn -> prune_seen_events(state) end)
+
+    {reply, reassociate_ns} =
+      timed(fn ->
+        (duplicate_results ++ results)
+        |> Enum.sort_by(fn {index, _sample, _result} -> index end)
+        |> Enum.map(fn {_index, sample, result} -> {sample, result} end)
+      end)
+
+    profile =
+      Map.merge(evaluate_profile, %{
+        total_ns: System.monotonic_time(:nanosecond) - total_started,
+        dedupe_ns: dedupe_ns,
+        mark_seen_ns: mark_seen_ns,
+        prune_seen_ns: prune_seen_ns,
+        result_reassociation_ns: reassociate_ns,
+        input_samples: length(samples),
+        candidates: length(candidates),
+        duplicate_drops: length(duplicate_results),
+        emitted_results: length(results)
+      })
+
+    {reply, state, profile}
+  end
+
   defp evaluate_candidate_events([], _state), do: {[], MapSet.new()}
 
   defp evaluate_candidate_events(candidates, state) do
@@ -148,6 +221,135 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
       end)
 
     do_evaluate_candidate_events(valid, state, missing_results)
+  end
+
+  defp evaluate_candidate_events_profiled([], _state) do
+    {[], MapSet.new(),
+     %{
+       missing_split_ns: 0,
+       shard_input_build_ns: 0,
+       native_eval_ns: 0,
+       eviction_ns: 0,
+       result_indexing_ns: 0,
+       missing_samples: 0,
+       native_results: 0
+     }}
+  end
+
+  defp evaluate_candidate_events_profiled(candidates, state) do
+    {{missing, valid}, missing_split_ns} =
+      timed(fn ->
+        Enum.split_with(candidates, fn {sample, _index, _event_key} ->
+          is_nil(series_key(sample))
+        end)
+      end)
+
+    missing_results =
+      Enum.map(missing, fn {sample, index, _event_key} ->
+        {index, sample, {:error, :missing_series_key}}
+      end)
+
+    {results, error_indexes, profile} =
+      do_evaluate_candidate_events_profiled(valid, state, missing_results)
+
+    {results, error_indexes,
+     Map.merge(profile, %{
+       missing_split_ns: missing_split_ns,
+       missing_samples: length(missing)
+     })}
+  end
+
+  defp do_evaluate_candidate_events_profiled([], _state, results) do
+    error_indexes = MapSet.new(Enum.map(results, fn {index, _sample, _result} -> index end))
+
+    {results, error_indexes,
+     %{
+       shard_input_build_ns: 0,
+       native_eval_ns: 0,
+       eviction_ns: 0,
+       result_indexing_ns: 0,
+       native_results: 0
+     }}
+  end
+
+  defp do_evaluate_candidate_events_profiled(candidates, state, initial_results) do
+    shard_count = current_shard_count()
+    resources = current_resources()
+    opts = current_opts()
+
+    {{samples_by_index, groups}, shard_input_build_ns} =
+      timed(fn ->
+        {
+          Map.new(candidates, fn {sample, index, _event_key} -> {index, sample} end),
+          build_shard_inputs(candidates, shard_count, opts)
+        }
+      end)
+
+    {results, native_eval_ns} =
+      timed(fn ->
+        0..(shard_count - 1)
+        |> Enum.flat_map(fn shard_index ->
+          case elem(groups, shard_index) do
+            [] ->
+              []
+
+            inputs ->
+              [{shard_index, Enum.reverse(inputs)}]
+          end
+        end)
+        |> Task.async_stream(
+          fn {shard_index, inputs} ->
+            resource = elem(resources, shard_index)
+            CausalReasoner.reason_state_value_tuples_changes(resource, inputs)
+          end,
+          max_concurrency: shard_count,
+          timeout: :infinity,
+          ordered: false
+        )
+        |> Enum.flat_map(fn
+          {:ok, results} -> results
+          {:exit, reason} -> [{-1, {:error, {:shard_exit, reason}}}]
+        end)
+      end)
+
+    {_eviction_result, eviction_ns} =
+      timed(fn -> enforce_series_limit(resources, state.max_series) end)
+
+    {{formatted, error_indexes}, result_indexing_ns} =
+      timed(fn ->
+        error_indexes =
+          Enum.reduce(results, MapSet.new(), fn
+            {index, {:error, _reason}}, acc when index >= 0 -> MapSet.put(acc, index)
+            {-1, {:error, _reason}}, _acc -> MapSet.new(Map.keys(samples_by_index))
+            _result, acc -> acc
+          end)
+
+        formatted =
+          Enum.map(results, fn
+            {index, result} when index >= 0 ->
+              {index, Map.fetch!(samples_by_index, index), result}
+
+            {_index, result} ->
+              {-1, %{}, result}
+          end)
+
+        {
+          initial_results ++ formatted,
+          MapSet.union(
+            error_indexes,
+            MapSet.new(Enum.map(initial_results, fn {index, _sample, _result} -> index end))
+          )
+        }
+      end)
+
+    {formatted, error_indexes,
+     %{
+       shard_input_build_ns: shard_input_build_ns,
+       native_eval_ns: native_eval_ns,
+       eviction_ns: eviction_ns,
+       result_indexing_ns: result_indexing_ns,
+       native_results: length(results)
+     }}
   end
 
   defp do_evaluate_candidate_events([], _state, results) do
@@ -340,6 +542,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp seen_event?(nil), do: false
   defp seen_event?(key), do: :ets.member(@seen_events_table, key)
+
+  defp timed(fun) when is_function(fun, 0) do
+    started_at = System.monotonic_time(:nanosecond)
+    result = fun.()
+    {result, System.monotonic_time(:nanosecond) - started_at}
+  end
 
   defp mark_seen_events(candidates) do
     now = System.monotonic_time(:millisecond)

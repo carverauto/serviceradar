@@ -14,6 +14,7 @@
 #   ANOMALY_BENCH_ROLLUP_SAMPLES_PER_EVAL=1
 #   ANOMALY_BENCH_CONCURRENCY=16
 #   ANOMALY_BENCH_BATCH_SIZE=1000
+#   ANOMALY_BENCH_PROFILE=true
 #
 # `owner` mode exercises the stateful ContextOwner + real CausalReasoner path.
 # `legacy_list` mode exercises the old list-shaped NIF context. `reasoner`
@@ -50,6 +51,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     rollup_samples_per_eval = env_int("ANOMALY_BENCH_ROLLUP_SAMPLES_PER_EVAL", 1)
     concurrency = env_int("ANOMALY_BENCH_CONCURRENCY", System.schedulers_online())
     batch_size = env_int("ANOMALY_BENCH_BATCH_SIZE", 1_000)
+    profile? = env_bool("ANOMALY_BENCH_PROFILE", false)
 
     IO.puts("""
     ServiceRadar anomaly detection synthetic scale benchmark
@@ -61,6 +63,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     rollup_samples_per_eval=#{rollup_samples_per_eval}
     concurrency=#{concurrency}
     batch_size=#{batch_size}
+    profile=#{profile?}
     reason_batch_scheduler=DirtyCpu
     """)
 
@@ -100,8 +103,12 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     series_per_second=#{round(series_per_s)}
     confirmed_anomalies=#{result.confirmed}
     failed_series=#{result.failed}
+    emitted_events=#{Map.get(result, :emitted, 0)}
+    duplicate_drops=#{Map.get(result, :duplicate_drops, 0)}
     memory_delta_mb=#{Float.round(memory_delta_mb, 2)}
     """)
+
+    print_profile(result, result.evaluations)
   end
 
   defp run_benchmark(
@@ -225,11 +232,17 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
         results
         |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + series_count}, fn
           {_sample, {:ok, verdict}}, metrics ->
-            %{
-              metrics
-              | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
-                confirmed: metrics.confirmed + confirmed?(verdict)
-            }
+            increment(
+              %{
+                metrics
+                | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
+                  confirmed: metrics.confirmed + confirmed?(verdict)
+              },
+              :emitted
+            )
+
+          {_sample, {:drop, :duplicate_event}}, metrics ->
+            increment(metrics, :duplicate_drops)
 
           {_sample, {:drop, _reason}}, metrics ->
             %{metrics | failed: metrics.failed + 1}
@@ -262,7 +275,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
 
     Enum.reduce(
       1..slot_count,
-      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0, profile: %{}},
       fn slot, metrics ->
         samples =
           Enum.map(1..series_count, fn index ->
@@ -271,24 +284,40 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
             sample(dataset, "slot-#{slot}", slot, value)
           end)
 
-        results = NativeContextEngine.evaluate_events_batch(samples)
+        {results, profile} =
+          if env_bool("ANOMALY_BENCH_PROFILE", false) do
+            NativeContextEngine.evaluate_events_batch_profiled(samples)
+          else
+            {NativeContextEngine.evaluate_events_batch(samples), %{}}
+          end
 
         results
-        |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + series_count}, fn
-          {_sample, {:ok, verdict}}, metrics ->
-            %{
-              metrics
-              | raw_samples: metrics.raw_samples + rollup_samples_per_eval,
-                confirmed: metrics.confirmed + confirmed?(verdict)
-            }
+        |> Enum.reduce(
+          %{
+            metrics
+            | evaluations: metrics.evaluations + series_count,
+              profile: merge_profile(metrics.profile, profile)
+          },
+          fn {_sample, result}, metrics ->
+            case result do
+              {:ok, verdict} ->
+                metrics
+                |> Map.update!(:raw_samples, &(&1 + rollup_samples_per_eval))
+                |> Map.update!(:confirmed, &(&1 + confirmed?(verdict)))
+                |> increment(:emitted)
 
-          {_sample, {:drop, _reason}}, metrics ->
-            %{metrics | failed: metrics.failed + 1}
+              {:drop, :duplicate_event} ->
+                increment(metrics, :duplicate_drops)
 
-          {_sample, {:error, reason}}, metrics ->
-            IO.puts("native event engine item failed: #{inspect(reason)}")
-            %{metrics | failed: metrics.failed + 1}
-        end)
+              {:drop, _reason} ->
+                %{metrics | failed: metrics.failed + 1}
+
+              {:error, reason} ->
+                IO.puts("native event engine item failed: #{inspect(reason)}")
+                %{metrics | failed: metrics.failed + 1}
+            end
+          end
+        )
         |> Map.update!(
           :raw_samples,
           &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
@@ -712,9 +741,71 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       evaluations: acc.evaluations + metrics.evaluations,
       raw_samples: acc.raw_samples + metrics.raw_samples,
       confirmed: acc.confirmed + metrics.confirmed,
-      failed: acc.failed + Map.get(metrics, :failed, 0)
+      failed: acc.failed + Map.get(metrics, :failed, 0),
+      emitted: Map.get(acc, :emitted, 0) + Map.get(metrics, :emitted, 0),
+      duplicate_drops: Map.get(acc, :duplicate_drops, 0) + Map.get(metrics, :duplicate_drops, 0),
+      profile: merge_profile(Map.get(acc, :profile, %{}), Map.get(metrics, :profile, %{}))
     }
   end
+
+  defp merge_profile(left, right) when map_size(right) == 0, do: left
+  defp merge_profile(left, right) when map_size(left) == 0, do: right
+
+  defp merge_profile(left, right) do
+    Map.merge(left, right, fn _key, left_value, right_value ->
+      if is_number(left_value) and is_number(right_value) do
+        left_value + right_value
+      else
+        right_value
+      end
+    end)
+  end
+
+  defp increment(metrics, key) do
+    Map.update(metrics, key, 1, &(&1 + 1))
+  end
+
+  defp print_profile(%{profile: profile}, evaluations) when map_size(profile) > 0 do
+    total_ns = Map.get(profile, :total_ns, 0)
+
+    IO.puts("Profile")
+
+    Enum.each(
+      [
+        :dedupe_ns,
+        :missing_split_ns,
+        :shard_input_build_ns,
+        :native_eval_ns,
+        :eviction_ns,
+        :result_indexing_ns,
+        :mark_seen_ns,
+        :prune_seen_ns,
+        :result_reassociation_ns,
+        :total_ns
+      ],
+      fn key ->
+        value = Map.get(profile, key, 0)
+        pct = if total_ns > 0, do: value / total_ns * 100, else: 0.0
+        ns_per_eval = value / max(evaluations, 1)
+
+        IO.puts(
+          "#{key}=#{value} ms=#{Float.round(value / 1_000_000, 3)} pct=#{Float.round(pct, 2)} ns_per_eval=#{Float.round(ns_per_eval, 1)}"
+        )
+      end
+    )
+
+    IO.puts("""
+    Profile counters
+    input_samples=#{Map.get(profile, :input_samples, 0)}
+    candidates=#{Map.get(profile, :candidates, 0)}
+    missing_samples=#{Map.get(profile, :missing_samples, 0)}
+    duplicate_drops=#{Map.get(profile, :duplicate_drops, 0)}
+    emitted_results=#{Map.get(profile, :emitted_results, 0)}
+    native_results=#{Map.get(profile, :native_results, 0)}
+    """)
+  end
+
+  defp print_profile(_result, _evaluations), do: :ok
 
   defp run_series(
          index,
@@ -1062,6 +1153,13 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
           {parsed, ""} when parsed > 0 -> parsed
           _ -> default
         end
+    end
+  end
+
+  defp env_bool(name, default) do
+    case System.get_env(name) do
+      nil -> default
+      value -> String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
     end
   end
 

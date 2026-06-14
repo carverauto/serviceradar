@@ -1,7 +1,7 @@
 ## 1. Proposal and Baseline
 - [ ] 1.1 Validate this OpenSpec change with `openspec validate optimize-anomaly-production-path-2m --strict`.
 - [ ] 1.2 Record the current direct tuple/resource and production `native_engine_events` benchmark numbers in the PR.
-- [ ] 1.3 Add benchmark instrumentation for sample prep, shard grouping, NIF time, result re-association, and emitted event count.
+- [x] 1.3 Add benchmark instrumentation for sample prep, shard grouping, NIF time, result re-association, and emitted event count.
 - [ ] 1.4 Confirm the `refactor-anomaly-reasoner-deepcausality` operational hardening is present before promoting any native/sharded path: rollback gate, redelivery idempotency, per-shard single writer, bounded series state, and Welford drift recompute.
 
 ## 2. Compact Production Batch Contract
