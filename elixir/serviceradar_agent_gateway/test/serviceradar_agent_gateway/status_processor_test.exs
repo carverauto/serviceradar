@@ -144,7 +144,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
   end
 
-  test "publishes sysmon metrics after successful status forward" do
+  test "publishes sysmon metrics directly without the redundant core forward" do
     parent = self()
 
     Application.put_env(
@@ -169,9 +169,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     assert :ok = StatusProcessor.process(status)
 
-    assert_receive {:forwarded, forwarded}
     assert_receive {:published, published}
-    assert published == forwarded
+    assert is_integer(published.timestamp)
+    assert Map.delete(published, :timestamp) == status
+    refute_receive {:forwarded, _forwarded}
   end
 
   test "continues the sysmon status path when metrics publishing fails" do
@@ -197,8 +198,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     assert :ok = StatusProcessor.process(sysmon_status())
 
-    assert_receive {:forwarded, _forwarded}
     assert_receive {:publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
   end
 
   test "publishes SNMP metrics after successful status forward" do
@@ -226,9 +227,10 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     assert :ok = StatusProcessor.process(status)
 
-    assert_receive {:forwarded, forwarded}
     assert_receive {:snmp_published, published}
-    assert published == forwarded
+    assert is_integer(published.timestamp)
+    assert Map.delete(published, :timestamp) == status
+    refute_receive {:forwarded, _forwarded}
   end
 
   test "continues the SNMP status path when metrics publishing fails" do
@@ -254,8 +256,8 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     assert :ok = StatusProcessor.process(snmp_status())
 
-    assert_receive {:forwarded, _forwarded}
     assert_receive {:snmp_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
   end
 
   test "publishes plugin metrics after successful status forward" do

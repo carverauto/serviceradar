@@ -76,25 +76,37 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   end
 
   defp forward_then_publish(status) do
-    case forward(status) do
-      :ok ->
-        publish_sysmon_metrics(status)
-        publish_snmp_metrics(status)
-        publish_plugin_metrics(status)
-        track_agent(status)
-        :ok
+    if metric_only_source?(status) do
+      # fj #3788: sysmon/snmp metric statuses are delivered to core via the
+      # JetStream publishers below. Forwarding them over gRPC only reached a
+      # no-op cutover ack in core (results_router acknowledge_metrics_cutover),
+      # so skip the redundant forward and publish directly.
+      publish_sysmon_metrics(status)
+      publish_snmp_metrics(status)
+      track_agent(status)
+      :ok
+    else
+      case forward(status) do
+        :ok ->
+          publish_plugin_metrics(status)
+          track_agent(status)
+          :ok
 
-      {:ok, _result} = ok ->
-        publish_sysmon_metrics(status)
-        publish_snmp_metrics(status)
-        publish_plugin_metrics(status)
-        track_agent(status)
-        ok
+        {:ok, _result} = ok ->
+          publish_plugin_metrics(status)
+          track_agent(status)
+          ok
 
-      {:error, _reason} = error ->
-        error
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
+
+  defp metric_only_source?(%{source: source}),
+    do: source in ["sysmon-metrics", :sysmon_metrics, "snmp-metrics", :snmp_metrics]
+
+  defp metric_only_source?(_status), do: false
 
   defp maybe_publish_otlp_relay(%{source: source} = status) when source in ["otlp-relay", :otlp_relay],
     do: otlp_relay_publisher().publish_relay(status)
