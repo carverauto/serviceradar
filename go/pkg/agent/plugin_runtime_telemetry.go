@@ -234,7 +234,8 @@ func telemetryPayloadKind(value any) (addonpb.TelemetryPayloadKind, error) {
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT, nil
 		case "otel_log", "telemetry_payload_kind_otel_log":
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG, nil
-		case "serviceradar_metrics", "telemetry_payload_kind_serviceradar_metrics":
+		case "serviceradar_metrics", "serviceradar_metric", "serviceradar.metric.v1",
+			"telemetry_payload_kind_serviceradar_metrics":
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
 		}
 	case json.Number:
