@@ -111,6 +111,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngineTest do
            end)
   end
 
+  test "prepared shard batches match sparse state changes without regrouping samples" do
+    start_supervised!(
+      {NativeContextEngine, shard_count: 2, min_samples: 3, window_size: 3, confirm_slots: 1}
+    )
+
+    key = "series-prepared"
+    shard_index = :erlang.phash2(key, 2)
+    context = %{baseline: [], min_samples: 3, window_size: 3, confirm_slots: 1}
+
+    assert [
+             {3, {:ok, open}},
+             {5, {:ok, clear}}
+           ] =
+             NativeContextEngine.evaluate_prepared_shard_batches([
+               {shard_index,
+                [
+                  {0, key, context, 10.0, 0},
+                  {1, key, nil, 11.0, 1},
+                  {2, key, nil, 12.0, 2},
+                  {3, key, nil, 30.0, 3},
+                  {4, key, nil, 31.0, 4},
+                  {5, key, nil, 11.5, 5}
+                ]}
+             ])
+
+    assert open.anomalous == true
+    assert clear.anomalous == false
+    assert clear.breached == false
+  end
+
   test "profiled batch evaluation reports phase timings" do
     start_supervised!(
       {NativeContextEngine, shard_count: 1, min_samples: 3, window_size: 3, confirm_slots: 1}

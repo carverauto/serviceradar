@@ -6,7 +6,7 @@
 #
 # Useful knobs:
 #
-#   ANOMALY_BENCH_MODE=owner|legacy_list|reasoner|reasoner_batch|reasoner_batch_shards|reasoner_state_batch_shards|reasoner_state_values_changes_shards|reasoner_state_value_tuples_changes_shards|native_engine_events|native_engine_compact_events|sharded_engine|sharded_engine_events|counter_normalizer
+#   ANOMALY_BENCH_MODE=owner|legacy_list|reasoner|reasoner_batch|reasoner_batch_shards|reasoner_state_batch_shards|reasoner_state_values_changes_shards|reasoner_state_value_tuples_changes_shards|native_engine_events|native_engine_compact_events|native_engine_prepared_shards|sharded_engine|sharded_engine_events|counter_normalizer
 #   ANOMALY_BENCH_SERIES=50000
 #   ANOMALY_BENCH_BASELINE=12
 #   ANOMALY_BENCH_WINDOW=300
@@ -385,6 +385,57 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
             end
           end
         )
+        |> Map.update!(
+          :raw_samples,
+          &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
+        )
+      end
+    )
+  end
+
+  defp run_benchmark(
+         "native_engine_prepared_shards",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         _batch_size
+       ) do
+    shard_count = min(concurrency, series_count)
+    ensure_native_engine!(shard_count, window_size)
+
+    slot_count = baseline_count + anomaly_count
+    context = reasoner_context(window_size)
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0},
+      fn slot, metrics ->
+        results =
+          series_count
+          |> prepared_shard_batches(
+            shard_count,
+            slot,
+            baseline_count,
+            rollup_samples_per_eval,
+            context
+          )
+          |> NativeContextEngine.evaluate_prepared_shard_batches()
+
+        results
+        |> Enum.reduce(%{metrics | evaluations: metrics.evaluations + series_count}, fn
+          {_index, {:ok, verdict}}, metrics ->
+            metrics
+            |> Map.update!(:raw_samples, &(&1 + rollup_samples_per_eval))
+            |> Map.update!(:confirmed, &(&1 + confirmed?(verdict)))
+            |> increment(:emitted)
+
+          {_index, {:error, reason}}, metrics ->
+            IO.puts("native prepared shard item failed: #{inspect(reason)}")
+            %{metrics | failed: metrics.failed + 1}
+        end)
         |> Map.update!(
           :raw_samples,
           &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
@@ -971,7 +1022,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   end
 
   defp run_series(_index, mode, _baseline_count, _window_size, _anomaly_count, _rollup_samples) do
-    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, legacy_list, reasoner, reasoner_batch, reasoner_batch_shards, reasoner_state_batch_shards, reasoner_state_values_changes_shards, reasoner_state_value_tuples_changes_shards, native_engine_events, native_engine_compact_events, sharded_engine, sharded_engine_events, or counter_normalizer"
+    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, legacy_list, reasoner, reasoner_batch, reasoner_batch_shards, reasoner_state_batch_shards, reasoner_state_values_changes_shards, reasoner_state_value_tuples_changes_shards, native_engine_events, native_engine_compact_events, native_engine_prepared_shards, sharded_engine, sharded_engine_events, or counter_normalizer"
   end
 
   defp run_counter_normalizer_series(index, raw_count, table) do
@@ -1157,6 +1208,31 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   defp compact_event_sample(dataset, index, event_id, order, value) do
     {index, dataset.series_key, "#{dataset.series_key}:#{event_id}", value, order,
      %{subject: dataset.subject, metric_class: dataset.metric_class}}
+  end
+
+  defp prepared_shard_batches(
+         series_count,
+         shard_count,
+         slot,
+         baseline_count,
+         rollup_samples_per_eval,
+         context
+       ) do
+    groups =
+      Enum.reduce(1..series_count, :erlang.make_tuple(shard_count, []), fn index, groups ->
+        dataset = dataset(index)
+        value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+        shard_index = :erlang.phash2(dataset.series_key, shard_count)
+
+        input =
+          {index - 1, dataset.series_key, if(slot == 1, do: context), value, slot}
+
+        put_elem(groups, shard_index, [input | elem(groups, shard_index)])
+      end)
+
+    0..(shard_count - 1)
+    |> Enum.map(fn shard_index -> {shard_index, Enum.reverse(elem(groups, shard_index))} end)
+    |> Enum.reject(fn {_shard_index, inputs} -> inputs == [] end)
   end
 
   defp counter_sample(series_key, value, timestamp) do
