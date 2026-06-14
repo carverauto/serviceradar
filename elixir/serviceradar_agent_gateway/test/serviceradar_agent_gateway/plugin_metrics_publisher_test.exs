@@ -160,6 +160,43 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     end
   end
 
+  test "surfaces dropped metrics via telemetry instead of dropping them silently" do
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.timeseries",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    test_pid = self()
+    handler_id = "plugin-metrics-drop-#{System.unique_integer([:positive])}"
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :agent_gateway, :plugin_metrics, :dropped],
+      fn _event, measurements, metadata, _config ->
+        send(test_pid, {:dropped, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+
+    status = %{
+      plugin_status()
+      | message:
+          Jason.encode!(%{
+            "status" => "OK",
+            "metrics" => [%{"name" => "bad_metric", "value" => "not-a-number"}]
+          })
+    }
+
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(status)
+
+    assert_receive {:dropped, %{count: 1}, %{reason: :non_numeric_value, service_name: "proxmox-inventory"}}
+
+    refute_receive {:published, _subject, _payload, _opts}
+  end
+
   defmodule ConnectionStub do
     @moduledoc false
     def publish(subject, payload, opts) do
