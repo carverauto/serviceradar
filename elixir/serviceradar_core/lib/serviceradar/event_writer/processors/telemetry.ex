@@ -118,8 +118,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
       metric_name:
         FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
-      metric_type:
-        FieldParser.get_field(json, "metric_type", "metricType") || json["type"] || "gauge",
+      metric_type: resolve_metric_type(json),
       device_id: FieldParser.get_field(json, "device_id", "deviceId"),
       value: FieldParser.parse_value(json["value"]),
       unit: json["unit"],
@@ -134,5 +133,24 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     }
 
     Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
+  end
+
+  # fj #3788 REC10: a metric arriving with no declared type is silently stored as a
+  # gauge. Surface that coercion via telemetry so missing-type producers are visible
+  # instead of vanishing into a default bucket.
+  defp resolve_metric_type(json) do
+    case FieldParser.get_field(json, "metric_type", "metricType") || json["type"] do
+      nil ->
+        :telemetry.execute(
+          [:serviceradar, :event_writer, :telemetry, :metric_type_defaulted],
+          %{count: 1},
+          %{schema: json["schema"]}
+        )
+
+        "gauge"
+
+      type ->
+        type
+    end
   end
 end
