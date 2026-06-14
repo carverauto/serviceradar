@@ -131,14 +131,23 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
        do: {:error, {:capacity_forecast_history_pages_exhausted, max_pages}}
 
   defp fetch_rows_page(runner, query, runner_opts, cursor, pages, page_count, max_pages) do
-    page_opts = if is_binary(cursor), do: Keyword.put(runner_opts, :cursor, cursor), else: runner_opts
+    page_opts =
+      if is_binary(cursor), do: Keyword.put(runner_opts, :cursor, cursor), else: runner_opts
 
     case runner.query_page(query, page_opts) do
       {:ok, %{rows: rows, next_cursor: next_cursor}} when is_list(rows) ->
         pages = [rows | pages]
 
         if is_binary(next_cursor) and next_cursor != "" do
-          fetch_rows_page(runner, query, runner_opts, next_cursor, pages, page_count + 1, max_pages)
+          fetch_rows_page(
+            runner,
+            query,
+            runner_opts,
+            next_cursor,
+            pages,
+            page_count + 1,
+            max_pages
+          )
         else
           {:ok, pages |> Enum.reverse() |> List.flatten()}
         end
