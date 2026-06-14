@@ -293,7 +293,8 @@ defmodule ServiceRadar.EventWriter.Producer do
                  stream_discard: Map.get(stream, :stream_discard),
                  stream_replicas: Map.get(stream, :stream_replicas),
                  stream_max_bytes: Map.get(stream, :stream_max_bytes),
-                 stream_max_age: Map.get(stream, :stream_max_age)
+                 stream_max_age: Map.get(stream, :stream_max_age),
+                 stream_duplicate_window: Map.get(stream, :stream_duplicate_window)
                ),
              {:ok, sid} <- Gnat.sub(conn, self(), deliver_subject) do
           Logger.info("EventWriter JetStream consumer ready",

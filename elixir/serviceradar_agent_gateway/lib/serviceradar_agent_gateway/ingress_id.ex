@@ -36,7 +36,11 @@ defmodule ServiceRadarAgentGateway.IngressId do
 
     [
       {"Sr-Ingress-Id", ingress_id},
-      {"Sr-Ingress-Time-Unix-Nano", Integer.to_string(ingress_time)}
+      {"Sr-Ingress-Time-Unix-Nano", Integer.to_string(ingress_time)},
+      # JetStream message-dedup key (fj #3788, REC4). The ingress_id is unique per
+      # ingress, so this only collapses an EXACT redelivery of the same message
+      # within a stream's duplicate_window — never two distinct measurements.
+      {"Nats-Msg-Id", ingress_id}
     ]
     |> maybe_header("Sr-Agent-Id", context[:agent_id])
     |> maybe_header("Sr-Gateway-Id", context[:gateway_id])
