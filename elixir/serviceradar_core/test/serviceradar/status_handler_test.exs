@@ -258,6 +258,49 @@ defmodule ServiceRadar.StatusHandlerTest do
       refute_receive {:published, "pdns.ocsf", _payload}
     end
 
+    test "drops a metric body mislabeled as an OCSF event instead of publishing it to the events plane" do
+      # A plugin/addon that tags a metric payload as payload_kind=OCSF_EVENT would
+      # otherwise be published verbatim onto the events stream (fj #3788 REC10).
+      metric_body =
+        Jason.encode!(%{
+          "schema" => "serviceradar.metric.v1",
+          "metric_name" => "cpu.usage",
+          "value" => 0.91,
+          "temporality" => "cumulative",
+          "points" => [%{"time_unix_nano" => 1, "value" => 0.91}]
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "powerdns", source_instance: "ns03"},
+          records: [
+            %TelemetryRecord{
+              event_id: "mislabeled-metric-1",
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: metric_body,
+              metadata: %{
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:powerdns",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "ns03",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      # Dropped at the source: nothing reaches the OCSF events plane.
+      refute_receive {:published, "pdns.ocsf", _payload}
+    end
+
     test "strips malformed signal schema references from otherwise valid OCSF records" do
       ocsf_event =
         Jason.encode!(%{

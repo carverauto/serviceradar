@@ -296,14 +296,69 @@ defmodule ServiceRadar.StatusHandler do
 
   defp publish_ocsf_telemetry_record(%TelemetryRecord{payload: payload} = record, batch, metadata) do
     with {:ok, event} <- decode_json_payload(payload),
+         :ok <- ensure_ocsf_shape(event, metadata),
          {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
          {:ok, json} <- Jason.encode(enriched),
          :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata), json) do
       :ok
     else
+      # A mis-bucketed metric is dropped at the source, not republished. It is not
+      # a transport failure, so ack it (:ok) rather than logging a publish error.
+      {:drop, :misbucketed_metric} ->
+        :ok
+
       {:error, reason} ->
         log_package_telemetry_publish_failure("OCSF", reason, metadata)
     end
+  end
+
+  # REC10 (fj #3788): the events-vs-metrics plane is selected from the producer's
+  # `payload_kind`, which is untrusted. Without this guard, a metric body a plugin
+  # mislabels as an OCSF event would be published verbatim onto the events stream
+  # (and only the consumer-side guardrail in Processors.Events would catch it).
+  # Reject it at the source: a real OCSF event always carries `class_uid` and never
+  # carries metric-only fields (`temporality`/`points`/`serviceradar.metric.*`).
+  defp ensure_ocsf_shape(event, metadata) when is_map(event) do
+    cond do
+      metric_shaped_payload?(event) ->
+        drop_misbucketed_metric(metadata, :metric_fields_present)
+
+      not Map.has_key?(event, "class_uid") ->
+        drop_misbucketed_metric(metadata, :missing_class_uid)
+
+      true ->
+        :ok
+    end
+  end
+
+  defp ensure_ocsf_shape(_event, _metadata), do: :ok
+
+  defp metric_shaped_payload?(event) do
+    String.starts_with?(to_string(Map.get(event, "schema", "")), "serviceradar.metric") or
+      Map.has_key?(event, "temporality") or Map.has_key?(event, "points")
+  end
+
+  defp drop_misbucketed_metric(metadata, reason) do
+    :telemetry.execute(
+      [:serviceradar, :status_handler, :ocsf, :misbucketed],
+      %{count: 1},
+      %{
+        reason: reason,
+        producer_id: metadata.producer_id,
+        partition_id: metadata.partition_id
+      }
+    )
+
+    Logger.warning(
+      "StatusHandler: dropped a non-OCSF payload tagged as an OCSF event (mis-bucketed metric)",
+      reason: reason,
+      producer_type: metadata.producer_type,
+      producer_id: metadata.producer_id,
+      partition_id: metadata.partition_id,
+      agent_id: metadata.agent_id
+    )
+
+    {:drop, :misbucketed_metric}
   end
 
   defp publish_otel_log_telemetry_record(
