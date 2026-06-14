@@ -126,15 +126,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
       samples
       |> Enum.with_index()
       |> Enum.reduce({[], []}, fn {sample, index}, {candidates, duplicates} ->
-        case event_key(sample) do
-          nil ->
-            {[{sample, index, nil} | candidates], duplicates}
+        key = series_key(sample)
 
-          key ->
-            if seen_event?(key) do
+        case event_key(sample, key) do
+          nil ->
+            {[{sample, index, key, nil} | candidates], duplicates}
+
+          event_key ->
+            if seen_event?(event_key) do
               {candidates, [{index, sample, {:drop, :duplicate_event}} | duplicates]}
             else
-              {[{sample, index, key} | candidates], duplicates}
+              {[{sample, index, key, event_key} | candidates], duplicates}
             end
         end
       end)
@@ -142,7 +144,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {results, error_indexes} = evaluate_candidate_events(Enum.reverse(candidates), state)
 
     candidates
-    |> Enum.reject(fn {_sample, index, _event_key} -> MapSet.member?(error_indexes, index) end)
+    |> Enum.reject(fn {_sample, index, _key, _event_key} ->
+      MapSet.member?(error_indexes, index)
+    end)
     |> mark_seen_events()
 
     state = prune_seen_events(state)
@@ -163,15 +167,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
         samples
         |> Enum.with_index()
         |> Enum.reduce({[], []}, fn {sample, index}, {candidates, duplicates} ->
-          case event_key(sample) do
-            nil ->
-              {[{sample, index, nil} | candidates], duplicates}
+          key = series_key(sample)
 
-            key ->
-              if seen_event?(key) do
+          case event_key(sample, key) do
+            nil ->
+              {[{sample, index, key, nil} | candidates], duplicates}
+
+            event_key ->
+              if seen_event?(event_key) do
                 {candidates, [{index, sample, {:drop, :duplicate_event}} | duplicates]}
               else
-                {[{sample, index, key} | candidates], duplicates}
+                {[{sample, index, key, event_key} | candidates], duplicates}
               end
           end
         end)
@@ -183,7 +189,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {_seen_result, mark_seen_ns} =
       timed(fn ->
         candidates
-        |> Enum.reject(fn {_sample, index, _event_key} ->
+        |> Enum.reject(fn {_sample, index, _key, _event_key} ->
           MapSet.member?(error_indexes, index)
         end)
         |> mark_seen_events()
@@ -218,12 +224,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp evaluate_candidate_events(candidates, state) do
     {missing, valid} =
-      Enum.split_with(candidates, fn {sample, _index, _event_key} ->
-        is_nil(series_key(sample))
+      Enum.split_with(candidates, fn {_sample, _index, key, _event_key} ->
+        is_nil(key)
       end)
 
     missing_results =
-      Enum.map(missing, fn {sample, index, _event_key} ->
+      Enum.map(missing, fn {sample, index, _key, _event_key} ->
         {index, sample, {:error, :missing_series_key}}
       end)
 
@@ -246,13 +252,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   defp evaluate_candidate_events_profiled(candidates, state) do
     {{missing, valid}, missing_split_ns} =
       timed(fn ->
-        Enum.split_with(candidates, fn {sample, _index, _event_key} ->
-          is_nil(series_key(sample))
+        Enum.split_with(candidates, fn {_sample, _index, key, _event_key} ->
+          is_nil(key)
         end)
       end)
 
     missing_results =
-      Enum.map(missing, fn {sample, index, _event_key} ->
+      Enum.map(missing, fn {sample, index, _key, _event_key} ->
         {index, sample, {:error, :missing_series_key}}
       end)
 
@@ -287,7 +293,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {{samples_by_index, groups}, shard_input_build_ns} =
       timed(fn ->
         {
-          Map.new(candidates, fn {sample, index, _event_key} -> {index, sample} end),
+          Map.new(candidates, fn {sample, index, _key, _event_key} -> {index, sample} end),
           build_shard_inputs(candidates, shard_count, opts)
         }
       end)
@@ -367,7 +373,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     shard_count = current_shard_count()
     resources = current_resources()
     opts = current_opts()
-    samples_by_index = Map.new(candidates, fn {sample, index, _event_key} -> {index, sample} end)
+
+    samples_by_index =
+      Map.new(candidates, fn {sample, index, _key, _event_key} -> {index, sample} end)
+
     groups = build_shard_inputs(candidates, shard_count, opts)
 
     results =
@@ -422,10 +431,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp build_shard_inputs(candidates, shard_count, opts) do
     {_next_index, groups} =
-      Enum.reduce(candidates, {0, :erlang.make_tuple(shard_count, [])}, fn {sample, index,
+      Enum.reduce(candidates, {0, :erlang.make_tuple(shard_count, [])}, fn {sample, index, key,
                                                                             _event_key},
                                                                            {next_index, groups} ->
-        key = series_key(sample)
         shard_index = shard_index(key, shard_count)
         input = input(sample, index, key, shard_index, opts)
         group = elem(groups, shard_index)
@@ -523,9 +531,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   defp value(%{} = map, key), do: Map.get(map, key, Map.get(map, to_string(key)))
   defp value(_sample, _key), do: nil
 
-  defp event_key(sample) do
+  defp event_key(sample, series_key) do
     with key when not is_nil(key) <- event_identity(sample),
-         series_key when is_binary(series_key) <- series_key(sample) do
+         series_key when is_binary(series_key) <- series_key do
       {series_key, key}
     else
       _ -> nil
@@ -559,10 +567,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   defp mark_seen_events(candidates) do
     now = System.monotonic_time(:millisecond)
 
-    Enum.each(candidates, fn
-      {_sample, _index, nil} -> :ok
-      {_sample, _index, key} -> :ets.insert(@seen_events_table, {key, now})
-    end)
+    entries =
+      Enum.reduce(candidates, [], fn
+        {_sample, _index, _series_key, nil}, acc -> acc
+        {_sample, _index, _series_key, event_key}, acc -> [{event_key, now} | acc]
+      end)
+
+    case entries do
+      [] -> :ok
+      entries -> :ets.insert(@seen_events_table, entries)
+    end
   end
 
   defp prune_seen_events(
