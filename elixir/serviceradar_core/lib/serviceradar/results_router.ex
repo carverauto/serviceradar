@@ -127,16 +127,6 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp process(%{source: source} = status, _opts)
-       when source in ["sysmon-metrics", :sysmon_metrics] do
-    handle_sysmon_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
-       when source in ["snmp-metrics", :snmp_metrics] do
-    handle_snmp_metrics(status)
-  end
-
-  defp process(%{source: source} = status, _opts)
        when source in ["plugin-result", :plugin_result] do
     handle_plugin_results(status)
   end
@@ -234,14 +224,6 @@ defmodule ServiceRadar.ResultsRouter do
         {:error, reason} -> {:error, reason}
       end
     end
-  end
-
-  defp handle_sysmon_metrics(status) do
-    acknowledge_metrics_cutover(status)
-  end
-
-  defp handle_snmp_metrics(status) do
-    acknowledge_metrics_cutover(status)
   end
 
   defp handle_plugin_results(status) do
@@ -607,8 +589,6 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp parse_integer(_value), do: nil
-
-  defp acknowledge_metrics_cutover(_status), do: :ok
 
   defp sweep_ingestor do
     Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)

@@ -103,16 +103,7 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp process(%{source: source} = status, opts)
-       when source in [
-              "results",
-              :results,
-              "sysmon-metrics",
-              :sysmon_metrics,
-              "snmp-metrics",
-              :snmp_metrics,
-              "plugin-result",
-              :plugin_result
-            ] do
+       when source in ["results", :results, "plugin-result", :plugin_result] do
     case Process.whereis(ResultsRouter) do
       pid when is_pid(pid) ->
         if Keyword.get(opts, :sync_results?, false) do

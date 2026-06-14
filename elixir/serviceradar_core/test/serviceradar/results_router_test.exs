@@ -412,7 +412,10 @@ defmodule ServiceRadar.ResultsRouterTest do
     refute_receive {:sweep_ingest, _results, ^execution_id, _opts}
   end
 
-  test "acknowledges sysmon metrics without direct CNPG ingestion" do
+  # sysmon-metrics flow exclusively through JetStream (metrics.timeseries.>);
+  # the router has no dedicated clause, so they hit the generic :ok fallthrough
+  # and must never be ingested directly into CNPG.
+  test "ignores sysmon metrics without direct CNPG ingestion" do
     payload = %{
       "available" => true,
       "response_time" => 123,
@@ -440,7 +443,9 @@ defmodule ServiceRadar.ResultsRouterTest do
     refute_receive {:sysmon_ingest, _decoded, ^status}
   end
 
-  test "acknowledges SNMP metrics without direct CNPG ingestion" do
+  # snmp-metrics likewise flow through JetStream and hit the generic :ok
+  # fallthrough; the router must never ingest them directly into CNPG.
+  test "ignores SNMP metrics without direct CNPG ingestion" do
     status = %{
       source: "snmp-metrics",
       service_type: "snmp",
