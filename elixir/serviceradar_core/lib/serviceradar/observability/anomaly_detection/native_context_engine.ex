@@ -33,6 +33,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   @type compact_sample ::
           {non_neg_integer(), String.t() | nil, term(), number(), non_neg_integer() | nil,
            map() | nil}
+  @type prepared_sample ::
+          {non_neg_integer(), String.t(), CausalReasoner.context() | nil, number(),
+           non_neg_integer() | nil}
+  @type prepared_shard_batch :: {non_neg_integer(), [prepared_sample()]}
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -165,6 +169,27 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
            ], map()}
   def evaluate_compact_events_batch_profiled(samples) when is_list(samples) do
     GenServer.call(__MODULE__, {:evaluate_compact_events_batch_profiled, samples}, :infinity)
+  end
+
+  @doc """
+  Evaluates shard-ready compact native inputs.
+
+  This API is intentionally lower-level than `evaluate_compact_events_batch/1`:
+  callers provide `{shard_index, inputs}` batches where each input is already in
+  the native tuple shape `{index, series_key, context_or_nil, value, observed_at}`.
+  The engine does not regroup rich sample maps or recover sample metadata for
+  clean non-events.
+  """
+  @spec evaluate_prepared_shard_batches([prepared_shard_batch()]) :: [
+          CausalReasoner.indexed_event_result()
+        ]
+  def evaluate_prepared_shard_batches(shard_batches) when is_list(shard_batches) do
+    shard_count = current_shard_count()
+    workers = current_workers()
+
+    shard_batches
+    |> prepared_groups(shard_count)
+    |> evaluate_shard_groups(workers, shard_count)
   end
 
   defp do_evaluate_events_batch(samples, state) do
@@ -387,6 +412,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
        error_indexes,
        MapSet.new(Enum.map(initial_results, fn {index, _sample, _result} -> index end))
      )}
+  end
+
+  defp prepared_groups(shard_batches, shard_count) do
+    Enum.reduce(shard_batches, :erlang.make_tuple(shard_count, []), fn
+      {shard_index, inputs}, groups
+      when is_integer(shard_index) and shard_index >= 0 and shard_index < shard_count and
+             is_list(inputs) ->
+        put_elem(groups, shard_index, Enum.reverse(inputs))
+
+      _invalid, groups ->
+        groups
+    end)
   end
 
   defp prepare_event_groups(samples, shard_count, opts) do
