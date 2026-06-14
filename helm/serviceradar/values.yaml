@@ -946,6 +946,10 @@ agentGateway:
   sysmonMetricsSubjectPrefix: "metrics.sysmon"
   snmpMetricsEnabled: true
   snmpMetricsSubjectPrefix: "metrics.snmp"
+  # SNMP interface-metric allowlist (fj #3788 REC7e). Unset keeps the built-in
+  # default (ifHCInOctets, ifHCOutOctets). Set "all" to publish every collected
+  # interface OID, or a comma-separated list of metric names to restrict it.
+  # snmpInterfaceMetrics: "all"
   pluginMetricsEnabled: true
   pluginMetricsSubjectPrefix: "metrics.timeseries"
   otlpRelayPublishEnabled: true

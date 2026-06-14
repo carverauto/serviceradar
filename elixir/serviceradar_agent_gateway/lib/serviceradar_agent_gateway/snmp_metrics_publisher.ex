@@ -10,7 +10,10 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   @app :serviceradar_agent_gateway
   @config_key :snmp_metrics_publisher
   @default_subject_prefix "metrics.snmp"
-  @interface_octet_metrics ~w(ifHCInOctets ifHCOutOctets)
+  # Default interface metrics forwarded to the metrics stream. fj #3788 REC7e: this
+  # is now configurable (`interface_metrics: [...]` or `:all`) so operators can stop
+  # the gateway from dropping every non-octet OID the agent already polls.
+  @default_interface_metrics ~w(ifHCInOctets ifHCOutOctets)
 
   @type publish_result :: :ok | :disabled | {:error, term()}
 
@@ -27,7 +30,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
 
   defp do_publish(status, config) do
     with {:ok, results} <- snmp_results(status),
-         {:ok, encoded_messages} <- encode_messages(status, results) do
+         {:ok, encoded_messages} <- encode_messages(status, results, allowed_metrics(config)) do
       case encoded_messages do
         [] -> :ok
         messages -> publish_messages(messages, config)
@@ -54,10 +57,10 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
 
   defp snmp_results(_status), do: {:error, :missing_snmp_message}
 
-  defp encode_messages(status, results) do
+  defp encode_messages(status, results, allowed) do
     results
     |> Enum.reduce_while({:ok, []}, fn result, {:ok, acc} ->
-      case encode_message(status, result) do
+      case encode_message(status, result, allowed) do
         {:ok, nil} -> {:cont, {:ok, acc}}
         {:ok, message} -> {:cont, {:ok, [message | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -69,8 +72,10 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
     end
   end
 
-  defp encode_message(status, result) when is_map(result) do
-    with metric_name when metric_name in @interface_octet_metrics <- metric_name(result),
+  defp encode_message(status, result, allowed) when is_map(result) do
+    metric_name = metric_name(result)
+
+    with true <- metric_name_allowed?(metric_name, allowed),
          if_index when is_integer(if_index) and if_index > 0 <- if_index(result),
          value when not is_nil(value) <- Map.get(result, "value"),
          target_device_ip when is_binary(target_device_ip) and target_device_ip != "" <-
@@ -87,7 +92,19 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
     end
   end
 
-  defp encode_message(_status, _result), do: {:ok, nil}
+  defp encode_message(_status, _result, _allowed), do: {:ok, nil}
+
+  defp allowed_metrics(config) do
+    case Keyword.get(config, :interface_metrics, @default_interface_metrics) do
+      :all -> :all
+      list when is_list(list) -> list
+      _ -> @default_interface_metrics
+    end
+  end
+
+  defp metric_name_allowed?(name, _allowed) when not (is_binary(name) and name != ""), do: false
+  defp metric_name_allowed?(_name, :all), do: true
+  defp metric_name_allowed?(name, allowed) when is_list(allowed), do: name in allowed
 
   defp metric_envelope(status, result, metric_name, if_index, target_device_ip, value, ingress_context) do
     IngressId.put_payload_metadata(
