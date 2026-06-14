@@ -47,16 +47,6 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     refute Map.has_key?(parsed.payload["status"], "processes")
   end
 
-  test "keeps parsing legacy sysmon shadow envelopes during cutover" do
-    parsed =
-      Metrics.parse_message(%{
-        data: Jason.encode!(sysmon_envelope("memory", "serviceradar.sysmon.shadow.v1")),
-        metadata: %{subject: "metrics.sysmon.memory"}
-      })
-
-    assert %{family: "memory", payload: %{"status" => %{"memory" => _memory}}} = parsed
-  end
-
   test "filters each sysmon family before delegating to the sysmon ingestor" do
     Application.put_env(
       :serviceradar_core,

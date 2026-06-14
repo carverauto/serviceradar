@@ -16,7 +16,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   require Logger
 
   @sysmon_schema "serviceradar.sysmon.metrics.v1"
-  @legacy_sysmon_schema "serviceradar.sysmon.shadow.v1"
   @snmp_schema "serviceradar.snmp.interface_metric.v1"
   @generic_metric_schema "serviceradar.metric.v1"
 
@@ -148,8 +147,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     schema = Map.get(json, "schema")
 
     cond do
-      schema in [@sysmon_schema, @legacy_sysmon_schema] or
-          String.starts_with?(subject, "metrics.sysmon.") ->
+      schema == @sysmon_schema or String.starts_with?(subject, "metrics.sysmon.") ->
         {:ok, :sysmon}
 
       schema == @snmp_schema or String.starts_with?(subject, "metrics.snmp.") ->
