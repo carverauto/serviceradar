@@ -48,6 +48,69 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngineTest do
            end)
   end
 
+  test "compact event path matches map sparse state changes" do
+    samples = [
+      sample("series-compact", 0, 10.0),
+      sample("series-compact", 1, 11.0),
+      sample("series-compact", 2, 12.0),
+      sample("series-compact", 3, 30.0),
+      sample("series-compact", 4, 31.0),
+      sample("series-compact", 5, 11.5)
+    ]
+
+    start_supervised!(
+      {NativeContextEngine, shard_count: 2, min_samples: 3, window_size: 3, confirm_slots: 1}
+    )
+
+    map_results = NativeContextEngine.evaluate_events_batch(samples)
+    stop_supervised!(NativeContextEngine)
+
+    start_supervised!(
+      {NativeContextEngine, shard_count: 2, min_samples: 3, window_size: 3, confirm_slots: 1}
+    )
+
+    compact_results =
+      samples
+      |> Enum.with_index()
+      |> Enum.map(fn {sample, index} -> compact_sample(sample, index) end)
+      |> NativeContextEngine.evaluate_compact_events_batch()
+
+    assert Enum.map(map_results, fn {sample, result} ->
+             {sample.observed_at_unix_nano, result}
+           end) ==
+             Enum.map(compact_results, fn
+               {{_index, _series_key, _event_key, _value, observed_at, _config}, result} ->
+                 {observed_at, result}
+             end)
+  end
+
+  test "compact event path skips already committed event IDs on redelivery" do
+    start_supervised!(
+      {NativeContextEngine, shard_count: 1, min_samples: 3, window_size: 3, confirm_slots: 1}
+    )
+
+    samples =
+      [
+        sample("series-compact-redelivery", 0, 10.0),
+        sample("series-compact-redelivery", 1, 11.0),
+        sample("series-compact-redelivery", 2, 12.0),
+        sample("series-compact-redelivery", 3, 30.0)
+      ]
+      |> Enum.with_index()
+      |> Enum.map(fn {sample, index} -> compact_sample(sample, index) end)
+
+    assert [
+             {{_index, "series-compact-redelivery", _event_key, _value, _observed_at, _config},
+              {:ok, %{anomalous: true}}}
+           ] =
+             NativeContextEngine.evaluate_compact_events_batch(samples)
+
+    assert Enum.all?(NativeContextEngine.evaluate_compact_events_batch(samples), fn
+             {_sample, {:drop, :duplicate_event}} -> true
+             _other -> false
+           end)
+  end
+
   test "profiled batch evaluation reports phase timings" do
     start_supervised!(
       {NativeContextEngine, shard_count: 1, min_samples: 3, window_size: 3, confirm_slots: 1}
@@ -108,5 +171,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngineTest do
       subject: "metrics.sysmon.cpu",
       metric_class: "sysmon.cpu"
     }
+  end
+
+  defp compact_sample(sample, index) do
+    {index, sample.series_key, sample.event_id, sample.value, sample.observed_at_unix_nano,
+     %{subject: sample.subject, metric_class: sample.metric_class}}
   end
 end

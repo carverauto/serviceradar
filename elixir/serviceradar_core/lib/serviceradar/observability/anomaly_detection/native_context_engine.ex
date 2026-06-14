@@ -30,6 +30,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   @seen_events_table __MODULE__.SeenEvents
 
   @type sample :: ServiceRadar.Observability.AnomalyDetection.SampleExtractor.sample()
+  @type compact_sample ::
+          {non_neg_integer(), String.t() | nil, term(), number(), non_neg_integer() | nil,
+           map() | nil}
 
   @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
@@ -112,6 +115,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     {:reply, {reply, profile}, state}
   end
 
+  def handle_call({:evaluate_compact_events_batch, samples}, _from, state) do
+    {reply, state} = do_evaluate_compact_events_batch(samples, state)
+    {:reply, reply, state}
+  end
+
+  def handle_call({:evaluate_compact_events_batch_profiled, samples}, _from, state) do
+    {reply, state, profile} = do_evaluate_compact_events_batch_profiled(samples, state)
+    {:reply, {reply, profile}, state}
+  end
+
   @doc """
   Evaluates samples and returns only anomaly/clear state-change events.
   """
@@ -129,6 +142,29 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
            ], map()}
   def evaluate_events_batch_profiled(samples) when is_list(samples) do
     GenServer.call(__MODULE__, {:evaluate_events_batch_profiled, samples}, :infinity)
+  end
+
+  @doc """
+  Evaluates compact event samples and returns only anomaly/clear state-change events.
+
+  Compact samples are `{index, series_key, event_key, value, observed_at_unix_nano, series_config}`
+  tuples. The `index` must be the zero-based position in the batch; it is used to
+  recover metadata only for sparse emitted events.
+  """
+  @spec evaluate_compact_events_batch([compact_sample()]) :: [
+          {compact_sample(), {:ok, map()} | {:drop, term()} | {:error, term()}}
+        ]
+  def evaluate_compact_events_batch(samples) when is_list(samples) do
+    GenServer.call(__MODULE__, {:evaluate_compact_events_batch, samples}, :infinity)
+  end
+
+  @doc false
+  @spec evaluate_compact_events_batch_profiled([compact_sample()]) ::
+          {[
+             {compact_sample(), {:ok, map()} | {:drop, term()} | {:error, term()}}
+           ], map()}
+  def evaluate_compact_events_batch_profiled(samples) when is_list(samples) do
+    GenServer.call(__MODULE__, {:evaluate_compact_events_batch_profiled, samples}, :infinity)
   end
 
   defp do_evaluate_events_batch(samples, state) do
@@ -162,6 +198,75 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
     {{groups, duplicate_results, missing_results, event_entries}, batch_prepare_ns} =
       timed(fn -> prepare_event_groups(samples, shard_count, opts) end)
+
+    {sample_lookup, sample_lookup_ns} = timed(fn -> List.to_tuple(samples) end)
+
+    {{results, error_indexes, evaluate_profile}, _evaluate_ns} =
+      timed(fn ->
+        evaluate_event_groups_profiled(groups, state, missing_results, sample_lookup)
+      end)
+
+    {_seen_result, mark_seen_ns} =
+      timed(fn -> mark_seen_event_entries(event_entries, error_indexes) end)
+
+    {state, prune_seen_ns} = timed(fn -> prune_seen_events(state) end)
+
+    {reply, reassociate_ns} =
+      timed(fn ->
+        (duplicate_results ++ results)
+        |> Enum.sort_by(fn {index, _sample, _result} -> index end)
+        |> Enum.map(fn {_index, sample, result} -> {sample, result} end)
+      end)
+
+    profile =
+      Map.merge(evaluate_profile, %{
+        total_ns: System.monotonic_time(:nanosecond) - total_started,
+        batch_prepare_ns: batch_prepare_ns,
+        dedupe_ns: batch_prepare_ns,
+        mark_seen_ns: mark_seen_ns,
+        prune_seen_ns: prune_seen_ns,
+        result_reassociation_ns: reassociate_ns,
+        sample_lookup_ns: sample_lookup_ns,
+        input_samples: length(samples),
+        candidates: event_group_count(groups) + length(missing_results),
+        duplicate_drops: length(duplicate_results),
+        emitted_results: length(results)
+      })
+
+    {reply, state, profile}
+  end
+
+  defp do_evaluate_compact_events_batch(samples, state) do
+    shard_count = current_shard_count()
+    opts = current_opts()
+
+    sample_lookup = List.to_tuple(samples)
+
+    {groups, duplicate_results, missing_results, event_entries} =
+      prepare_compact_event_groups(samples, shard_count, opts)
+
+    {results, error_indexes} =
+      evaluate_event_groups(groups, state, missing_results, sample_lookup)
+
+    mark_seen_event_entries(event_entries, error_indexes)
+
+    state = prune_seen_events(state)
+
+    reply =
+      (duplicate_results ++ results)
+      |> Enum.sort_by(fn {index, _sample, _result} -> index end)
+      |> Enum.map(fn {_index, sample, result} -> {sample, result} end)
+
+    {reply, state}
+  end
+
+  defp do_evaluate_compact_events_batch_profiled(samples, state) do
+    total_started = System.monotonic_time(:nanosecond)
+    shard_count = current_shard_count()
+    opts = current_opts()
+
+    {{groups, duplicate_results, missing_results, event_entries}, batch_prepare_ns} =
+      timed(fn -> prepare_compact_event_groups(samples, shard_count, opts) end)
 
     {sample_lookup, sample_lookup_ns} = timed(fn -> List.to_tuple(samples) end)
 
@@ -314,6 +419,44 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     )
   end
 
+  defp prepare_compact_event_groups(samples, shard_count, opts) do
+    Enum.reduce(samples, {:erlang.make_tuple(shard_count, []), [], [], []}, fn
+      {index, key, sample_event_key, value, observed_at_unix_nano, series_config} = sample,
+      {groups, duplicates, missing, event_entries} ->
+        cond do
+          not valid_series_key?(key) ->
+            {groups, duplicates, [{index, sample, {:error, :missing_series_key}} | missing],
+             event_entries}
+
+          not is_nil(sample_event_key) and seen_event?({key, sample_event_key}) ->
+            {groups, [{index, sample, {:drop, :duplicate_event}} | duplicates], missing,
+             event_entries}
+
+          true ->
+            shard_index = shard_index(key, shard_count)
+
+            input =
+              compact_input(
+                index,
+                key,
+                value,
+                observed_at_unix_nano,
+                series_config,
+                shard_index,
+                opts
+              )
+
+            group = elem(groups, shard_index)
+            groups = put_elem(groups, shard_index, [input | group])
+
+            event_entries =
+              maybe_event_entry(event_entries, index, compact_event_key(key, sample_event_key))
+
+            {groups, duplicates, missing, event_entries}
+        end
+    end)
+  end
+
   defp evaluate_shard_groups(groups, workers, shard_count) do
     0..(shard_count - 1)
     |> Enum.reduce([], fn shard_index, requests ->
@@ -373,6 +516,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     )
   end
 
+  defp compact_input(index, key, value, observed_at_unix_nano, series_config, shard_index, opts) do
+    tap(
+      {index, key, maybe_context(key, series_config || %{}, opts, shard_index), value,
+       observed_at_unix_nano},
+      fn _input -> touch_series(key, shard_index) end
+    )
+  end
+
   defp maybe_context(nil, _sample, _opts, _shard_index), do: nil
 
   defp maybe_context(key, sample, opts, shard_index) do
@@ -401,6 +552,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp maybe_event_entry(event_entries, index, event_key),
     do: [{index, event_key} | event_entries]
+
+  defp compact_event_key(_key, nil), do: nil
+  defp compact_event_key(key, event_key), do: {key, event_key}
 
   defp event_group_count(groups) do
     Enum.reduce(0..(tuple_size(groups) - 1), 0, fn shard_index, count ->
@@ -473,6 +627,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp shard_index(nil, shard_count), do: :erlang.phash2(:missing_series_key, shard_count)
   defp shard_index(series_key, shard_count), do: :erlang.phash2(series_key, shard_count)
+
+  defp valid_series_key?(value), do: is_binary(value) and value != ""
 
   defp series_key(%{series_key: value}) when is_binary(value) and value != "", do: value
   defp series_key(%{"series_key" => value}) when is_binary(value) and value != "", do: value

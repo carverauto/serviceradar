@@ -6,7 +6,7 @@
 #
 # Useful knobs:
 #
-#   ANOMALY_BENCH_MODE=owner|legacy_list|reasoner|reasoner_batch|reasoner_batch_shards|reasoner_state_batch_shards|reasoner_state_values_changes_shards|reasoner_state_value_tuples_changes_shards|native_engine_events|sharded_engine|sharded_engine_events|counter_normalizer
+#   ANOMALY_BENCH_MODE=owner|legacy_list|reasoner|reasoner_batch|reasoner_batch_shards|reasoner_state_batch_shards|reasoner_state_values_changes_shards|reasoner_state_value_tuples_changes_shards|native_engine_events|native_engine_compact_events|sharded_engine|sharded_engine_events|counter_normalizer
 #   ANOMALY_BENCH_SERIES=50000
 #   ANOMALY_BENCH_BASELINE=12
 #   ANOMALY_BENCH_WINDOW=300
@@ -314,6 +314,73 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
 
               {:error, reason} ->
                 IO.puts("native event engine item failed: #{inspect(reason)}")
+                %{metrics | failed: metrics.failed + 1}
+            end
+          end
+        )
+        |> Map.update!(
+          :raw_samples,
+          &(&1 + (series_count - length(results)) * rollup_samples_per_eval)
+        )
+      end
+    )
+  end
+
+  defp run_benchmark(
+         "native_engine_compact_events",
+         series_count,
+         baseline_count,
+         window_size,
+         anomaly_count,
+         rollup_samples_per_eval,
+         concurrency,
+         _batch_size
+       ) do
+    ensure_native_engine!(concurrency, window_size)
+
+    slot_count = baseline_count + anomaly_count
+
+    Enum.reduce(
+      1..slot_count,
+      %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 0, profile: %{}},
+      fn slot, metrics ->
+        samples =
+          Enum.map(1..series_count, fn index ->
+            dataset = dataset(index)
+            value = slot_value(dataset, slot, baseline_count, rollup_samples_per_eval)
+            compact_event_sample(dataset, index - 1, "slot-#{slot}", slot, value)
+          end)
+
+        {results, profile} =
+          if env_bool("ANOMALY_BENCH_PROFILE", false) do
+            NativeContextEngine.evaluate_compact_events_batch_profiled(samples)
+          else
+            {NativeContextEngine.evaluate_compact_events_batch(samples), %{}}
+          end
+
+        results
+        |> Enum.reduce(
+          %{
+            metrics
+            | evaluations: metrics.evaluations + series_count,
+              profile: merge_profile(metrics.profile, profile)
+          },
+          fn {_sample, result}, metrics ->
+            case result do
+              {:ok, verdict} ->
+                metrics
+                |> Map.update!(:raw_samples, &(&1 + rollup_samples_per_eval))
+                |> Map.update!(:confirmed, &(&1 + confirmed?(verdict)))
+                |> increment(:emitted)
+
+              {:drop, :duplicate_event} ->
+                increment(metrics, :duplicate_drops)
+
+              {:drop, _reason} ->
+                %{metrics | failed: metrics.failed + 1}
+
+              {:error, reason} ->
+                IO.puts("native compact event engine item failed: #{inspect(reason)}")
                 %{metrics | failed: metrics.failed + 1}
             end
           end
@@ -904,7 +971,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   end
 
   defp run_series(_index, mode, _baseline_count, _window_size, _anomaly_count, _rollup_samples) do
-    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, legacy_list, reasoner, reasoner_batch, reasoner_batch_shards, reasoner_state_batch_shards, reasoner_state_values_changes_shards, reasoner_state_value_tuples_changes_shards, native_engine_events, sharded_engine, sharded_engine_events, or counter_normalizer"
+    raise "unsupported ANOMALY_BENCH_MODE=#{inspect(mode)}; expected owner, legacy_list, reasoner, reasoner_batch, reasoner_batch_shards, reasoner_state_batch_shards, reasoner_state_values_changes_shards, reasoner_state_value_tuples_changes_shards, native_engine_events, native_engine_compact_events, sharded_engine, sharded_engine_events, or counter_normalizer"
   end
 
   defp run_counter_normalizer_series(index, raw_count, table) do
@@ -1085,6 +1152,11 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       metric_class: dataset.metric_class,
       metadata: %{}
     }
+  end
+
+  defp compact_event_sample(dataset, index, event_id, order, value) do
+    {index, dataset.series_key, "#{dataset.series_key}:#{event_id}", value, order,
+     %{subject: dataset.subject, metric_class: dataset.metric_class}}
   end
 
   defp counter_sample(series_key, value, timestamp) do
