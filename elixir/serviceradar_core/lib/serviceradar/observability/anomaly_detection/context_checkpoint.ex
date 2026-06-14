@@ -5,12 +5,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
 
   alias Jetstream.API.Stream
 
+  require Logger
+
   @default_bucket "serviceradar_anomaly_context"
   @default_history 1
   @default_storage :file
   @default_replicas 1
-
-  require Logger
 
   @spec load(String.t(), keyword()) :: {:ok, map() | nil} | {:error, term()}
   def load(series_key, opts \\ []) when is_binary(series_key) do
@@ -106,8 +106,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint do
 
   defp parse_pub_ack(body) when is_binary(body) do
     case Jason.decode(body) do
-      {:ok, %{"seq" => revision}} when is_integer(revision) -> {:ok, revision}
-      {:ok, %{"error" => error}} -> {:error, classify_write_error(error)}
+      {:ok, %{"seq" => revision}} when is_integer(revision) ->
+        {:ok, revision}
+
+      {:ok, %{"error" => error}} ->
+        {:error, classify_write_error(error)}
+
       {:ok, ack} ->
         Logger.warning("anomaly context checkpoint PubAck missing sequence",
           ack: inspect(ack)

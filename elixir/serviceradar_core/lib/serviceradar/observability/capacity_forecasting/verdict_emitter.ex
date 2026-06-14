@@ -109,7 +109,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.VerdictEmitter do
         &string_value/1
       )
 
-    :crypto.hash(:sha256, "capacity_forecast:finding:#{stable_key}")
+    :sha256
+    |> :crypto.hash("capacity_forecast:finding:#{stable_key}")
     |> binary_part(0, 16)
     |> Ecto.UUID.load!()
   end
