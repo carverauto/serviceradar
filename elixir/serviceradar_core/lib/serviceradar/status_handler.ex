@@ -27,6 +27,20 @@ defmodule ServiceRadar.StatusHandler do
   @workload_identity_source "workload-identity"
   @addon_source_prefix "addon:"
   @plugin_source_prefix "plugin:"
+  @metric_only_sources [
+    "sysmon-metrics",
+    :sysmon_metrics,
+    "snmp-metrics",
+    :snmp_metrics,
+    "icmp-metrics",
+    :icmp_metrics,
+    "rperf-metrics",
+    :rperf_metrics,
+    "mtr-metrics",
+    :mtr_metrics,
+    "sweep-metrics",
+    :sweep_metrics
+  ]
   @addon_ocsf_subject "pdns.ocsf"
   @addon_otel_log_subject "logs.otel.addon"
   @plugin_ocsf_subject "events.ocsf.processed"
@@ -100,6 +114,10 @@ defmodule ServiceRadar.StatusHandler do
     )
 
     process(status, opts)
+  end
+
+  defp process(%{source: source}, _opts) when source in @metric_only_sources do
+    {:error, {:gateway_metric_status_not_core_routable, source}}
   end
 
   defp process(%{source: source} = status, opts)
@@ -560,6 +578,10 @@ defmodule ServiceRadar.StatusHandler do
 
   defp byte_size_or_nil(value) when is_binary(value), do: byte_size(value)
   defp byte_size_or_nil(_), do: nil
+
+  defp process_legacy_results(%{source: source}) when source in @metric_only_sources do
+    {:error, {:gateway_metric_status_not_core_routable, source}}
+  end
 
   defp process_legacy_results(%{service_type: "sync"} = status) do
     # In schema-agnostic mode, DB schema is set by CNPG search_path

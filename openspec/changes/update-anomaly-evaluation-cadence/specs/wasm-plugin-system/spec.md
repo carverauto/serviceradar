@@ -13,7 +13,8 @@ The Wasm plugin system SHALL support a first-class metric telemetry payload kind
 - **GIVEN** a Wasm plugin emits both status and metrics
 - **WHEN** the plugin completes scheduled execution
 - **THEN** the plugin result SHALL carry status, summary, widgets, and event hints
-- **AND** metric time-series SHOULD be emitted through the first-class metric telemetry path
+- **AND** metric time-series SHALL be emitted through the first-class metric telemetry path
+- **AND** the scheduled plugin result SHALL NOT carry metric time-series for ingestion
 
 ### Requirement: Rust SDK Metric Batch Builder
 The Rust Wasm SDK SHALL provide metric point and metric batch builders that support gauge, counter, histogram, unit, resource, attributes, thresholds, and exemplars.

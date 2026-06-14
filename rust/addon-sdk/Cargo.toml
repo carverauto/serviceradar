@@ -18,6 +18,7 @@ path = "src/bin/rust_sample_addon.rs"
 tonic = { workspace = true }
 tonic-health = { workspace = true }
 prost = { workspace = true }
+serviceradar-metric-proto = { path = "../metric-proto" }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "signal", "sync", "io-util"] }
 tokio-stream = { workspace = true, features = ["net", "sync"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["aws-lc-rs"] }

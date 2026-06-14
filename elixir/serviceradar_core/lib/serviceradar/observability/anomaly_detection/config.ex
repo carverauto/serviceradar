@@ -9,13 +9,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
   """
 
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
 
   @default_consumer_name "serviceradar-anomaly-analysis"
   @default_batch_size 100
   @default_batch_timeout 1_000
   @default_processor_concurrency 4
+  @default_shard_count System.schedulers_online()
   @default_inactive_threshold_ns 300_000_000_000
   @default_enabled_subjects ["otel.metrics.>"]
+
+  # Scale-engine bounds (#3818). These were read inside NativeContextEngine /
+  # ShardedContextEngine from opts[:max_series] etc. but were never wired from
+  # Config/Supervisor, so they were frozen at the engines' compile-time defaults.
+  # The defaults below mirror the engine-side @default_* values so behavior is
+  # unchanged until an operator overrides them via env.
+  #
+  # These default to nil, meaning "use the selected scale engine's own default".
+  # The two scale engines size these bounds for DIFFERENT sharding models, so a
+  # single Config default cannot be correct for both: NativeContextEngine keys
+  # max_series as a TOTAL over one shared ETS table (defaults ~6M for ~5M-series
+  # fleets), while ShardedContextEngine keys it PER SHARD (defaults 200k/shard).
+  # Supervisor.scale_engine_opts drops nil entries so the engine default applies
+  # unless an operator sets the corresponding ANOMALY_ANALYSIS_* env (which is
+  # interpreted in the selected engine's own units).
+  @default_max_series nil
+  @default_max_seen_events nil
+  @default_event_ttl_ms nil
+  @default_event_prune_interval_ms nil
 
   defstruct [
     :enabled,
@@ -23,8 +46,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     :batch_size,
     :batch_timeout,
     :consumer_name,
+    :context_engine,
     :producer_name,
     :processor_concurrency,
+    :shard_count,
+    :max_series,
+    :max_seen_events,
+    :event_ttl_ms,
+    :event_prune_interval_ms,
     :enabled_subjects,
     :streams
   ]
@@ -35,8 +64,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
           batch_size: pos_integer(),
           batch_timeout: pos_integer(),
           consumer_name: String.t(),
+          context_engine: module(),
           producer_name: atom(),
           processor_concurrency: pos_integer(),
+          shard_count: pos_integer(),
+          max_series: pos_integer() | nil,
+          max_seen_events: pos_integer() | nil,
+          event_ttl_ms: pos_integer() | nil,
+          event_prune_interval_ms: pos_integer() | nil,
           enabled_subjects: [String.t()],
           streams: [EventWriterConfig.stream_config()]
         }
@@ -81,6 +116,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
       consumer_name:
         System.get_env("ANOMALY_ANALYSIS_CONSUMER_NAME") ||
           Keyword.get(app_config, :consumer_name, @default_consumer_name),
+      context_engine: load_context_engine(app_config),
       producer_name:
         Keyword.get(
           app_config,
@@ -93,6 +129,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
           app_config,
           :processor_concurrency,
           @default_processor_concurrency
+        ),
+      shard_count:
+        int_env(
+          "ANOMALY_ANALYSIS_SHARD_COUNT",
+          app_config,
+          :shard_count,
+          @default_shard_count
+        ),
+      # Scale-engine bounds (#3818) threaded to NativeContextEngine /
+      # ShardedContextEngine via Supervisor.engine_children/1. max_series is
+      # per-shard; see the @default_max_series note above.
+      max_series:
+        int_env("ANOMALY_ANALYSIS_MAX_SERIES", app_config, :max_series, @default_max_series),
+      max_seen_events:
+        int_env(
+          "ANOMALY_ANALYSIS_MAX_SEEN_EVENTS",
+          app_config,
+          :max_seen_events,
+          @default_max_seen_events
+        ),
+      event_ttl_ms:
+        int_env("ANOMALY_ANALYSIS_EVENT_TTL_MS", app_config, :event_ttl_ms, @default_event_ttl_ms),
+      event_prune_interval_ms:
+        int_env(
+          "ANOMALY_ANALYSIS_EVENT_PRUNE_INTERVAL_MS",
+          app_config,
+          :event_prune_interval_ms,
+          @default_event_prune_interval_ms
         ),
       enabled_subjects: load_enabled_subjects(app_config),
       streams: Keyword.get(app_config, :streams, default_streams())
@@ -107,6 +171,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     [
       analysis_stream("ANALYSIS_METRICS_SYSMON", "metrics", "metrics.sysmon.*", 500, 500),
       analysis_stream("ANALYSIS_METRICS_SNMP", "metrics", "metrics.snmp.>", 500, 500),
+      analysis_stream("ANALYSIS_METRICS_ICMP", "metrics", "metrics.icmp.>", 500, 500),
       analysis_stream("ANALYSIS_METRICS_TIMESERIES", "metrics", "metrics.timeseries.>", 500, 500),
       analysis_stream("ANALYSIS_OTEL_METRICS", "events", "otel.metrics.>", 100, 1_000),
       analysis_stream("ANALYSIS_NETFLOW_RAW", "events", "flows.raw.netflow", 50, 500),
@@ -192,6 +257,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
 
       :error ->
         fallback
+    end
+  end
+
+  defp load_context_engine(app_config) do
+    case System.get_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE") ||
+           Keyword.get(app_config, :context_engine) do
+      nil ->
+        ContextEngine
+
+      value when is_atom(value) ->
+        value
+
+      value when is_binary(value) ->
+        parse_context_engine(value)
+    end
+  end
+
+  defp parse_context_engine(value) do
+    case value |> String.trim() |> String.downcase() do
+      "context" -> ContextEngine
+      "owner" -> ContextEngine
+      "legacy" -> ContextEngine
+      "sharded" -> ShardedContextEngine
+      "sharded_context" -> ShardedContextEngine
+      "native" -> NativeContextEngine
+      "native_direct" -> NativeContextEngine
+      "native_context" -> NativeContextEngine
+      _ -> ContextEngine
     end
   end
 

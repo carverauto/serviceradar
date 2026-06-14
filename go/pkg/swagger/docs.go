@@ -363,7 +363,8 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.SNMPMetric"
+                                "type": "object",
+                                "additionalProperties": true
                             }
                         }
                     },
@@ -710,7 +711,8 @@ const docTemplate = `{
                         "schema": {
                             "type": "array",
                             "items": {
-                                "$ref": "#/definitions/models.RperfMetric"
+                                "type": "object",
+                                "additionalProperties": true
                             }
                         }
                     },
@@ -1229,111 +1231,6 @@ const docTemplate = `{
                     "description": "The time when this metric was collected",
                     "type": "string",
                     "example": "2025-04-24T14:15:22Z"
-                }
-            }
-        },
-        "models.RperfMetric": {
-            "description": "Single network performance test result for a specific target.",
-            "type": "object",
-            "properties": {
-                "bits_per_second": {
-                    "description": "Network throughput in bits per second",
-                    "type": "number",
-                    "example": 943215000
-                },
-                "bytes_received": {
-                    "description": "Total bytes received during the test",
-                    "type": "integer",
-                    "example": 12582912
-                },
-                "bytes_sent": {
-                    "description": "Total bytes sent during the test",
-                    "type": "integer",
-                    "example": 12582912
-                },
-                "duration": {
-                    "description": "Test duration in seconds",
-                    "type": "number",
-                    "example": 10.05
-                },
-                "error": {
-                    "description": "Error message if test failed (null if successful)",
-                    "type": "string",
-                    "example": "connection refused"
-                },
-                "jitter_ms": {
-                    "description": "Network jitter in milliseconds",
-                    "type": "number",
-                    "example": 0.85
-                },
-                "loss_percent": {
-                    "description": "Percentage of packets lost during the test",
-                    "type": "number",
-                    "example": 0.02
-                },
-                "name": {
-                    "description": "Test name or identifier",
-                    "type": "string",
-                    "example": "rperf_tcp_test"
-                },
-                "packets_lost": {
-                    "description": "Number of packets lost during the test",
-                    "type": "integer",
-                    "example": 2
-                },
-                "packets_received": {
-                    "description": "Number of packets received during the test",
-                    "type": "integer",
-                    "example": 9998
-                },
-                "packets_sent": {
-                    "description": "Number of packets sent during the test",
-                    "type": "integer",
-                    "example": 10000
-                },
-                "success": {
-                    "description": "Whether the test was successful",
-                    "type": "boolean",
-                    "example": true
-                },
-                "target": {
-                    "description": "Target hostname or IP address",
-                    "type": "string",
-                    "example": "192.168.1.1"
-                },
-                "timestamp": {
-                    "description": "When the test was performed",
-                    "type": "string",
-                    "example": "2025-04-24T14:15:22Z"
-                }
-            }
-        },
-        "models.SNMPMetric": {
-            "description": "A metric collected via SNMP, including its value, type, and timestamp.",
-            "type": "object",
-            "properties": {
-                "is_delta": {
-                    "description": "Whether the metric represents a delta value\n@example false",
-                    "type": "boolean"
-                },
-                "oid_name": {
-                    "description": "The name of the OID (Object Identifier)\n@example \"sysUpTime\"",
-                    "type": "string"
-                },
-                "scale": {
-                    "description": "The scale factor applied to the value\n@example 1.0",
-                    "type": "number"
-                },
-                "timestamp": {
-                    "description": "The time when the metric was collected\n@example \"2025-04-24T14:15:22Z\"",
-                    "type": "string"
-                },
-                "value": {
-                    "description": "The value of the metric\n@example 12345"
-                },
-                "value_type": {
-                    "description": "The type of the value (e.g., integer, string)\n@example \"integer\"",
-                    "type": "string"
                 }
             }
         },

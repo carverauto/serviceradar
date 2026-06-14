@@ -48,6 +48,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     verdicts: %{},
     base_context: %{
       baseline: [],
+      window_tail: [],
+      rolling_acc: nil,
       min_samples: @default_min_samples,
       window_size: @default_window_size,
       n_sigma: @default_n_sigma,
@@ -56,6 +58,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     },
     context: %{
       baseline: [],
+      window_tail: [],
+      rolling_acc: nil,
       min_samples: @default_min_samples,
       window_size: @default_window_size,
       n_sigma: @default_n_sigma,
@@ -246,8 +250,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
     :ok
   end
 
-  defp name_conflict_series_key({:name_conflict, {{:anomaly_context, series_key}, _metadata}, _registry, _pid}),
-    do: series_key
+  defp name_conflict_series_key(
+         {:name_conflict, {{:anomaly_context, series_key}, _metadata}, _registry, _pid}
+       ),
+       do: series_key
 
   defp name_conflict_series_key(_reason), do: nil
 
@@ -380,9 +386,11 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   end
 
   defp remove_baseline_value(context, value) do
-    case Enum.split_while(context.baseline, &(&1 != value)) do
+    tail = context[:window_tail] || context.baseline
+
+    case Enum.split_while(tail, &(&1 != value)) do
       {_prefix, []} -> context
-      {prefix, [_value | suffix]} -> %{context | baseline: prefix ++ suffix}
+      {prefix, [_value | suffix]} -> compact_context(%{context | baseline: prefix ++ suffix}, nil)
     end
   end
 
@@ -433,7 +441,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           |> Enum.filter(&is_number/1)
           |> Enum.take(-state.base_context.window_size)
 
-        seeded = %{state.base_context | baseline: baseline}
+        seeded =
+          compact_context(%{state.base_context | baseline: baseline, window_tail: baseline}, nil)
+
         %{state | base_context: seeded, context: seeded}
 
       {:error, reason} ->
@@ -630,18 +640,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   defp decode_term(_value), do: :error
 
   defp fold_context(context, sample, verdict) do
-    baseline =
-      if include_in_baseline?(verdict) do
-        context.baseline
-        |> Kernel.++([sample.value])
-        |> Enum.take(-context.window_size)
-      else
-        context.baseline
-      end
+    window_tail = next_window_tail(context, sample, verdict)
 
     %{
       context
-      | baseline: baseline,
+      | baseline: [],
+        window_tail: window_tail,
+        rolling_acc: next_rolling_acc(verdict),
         consecutive_anomalous:
           Map.get(
             verdict,
@@ -650,6 +655,37 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           )
     }
   end
+
+  defp next_window_tail(context, sample, verdict) do
+    current_tail = context[:window_tail] || context.baseline
+
+    case verdict_value(verdict, :next_window_tail) do
+      tail when is_list(tail) ->
+        tail
+        |> numeric_list(current_tail)
+        |> Enum.take(-context.window_size)
+
+      _ ->
+        if include_in_baseline?(verdict) do
+          current_tail
+          |> Kernel.++([sample.value])
+          |> Enum.take(-context.window_size)
+        else
+          current_tail
+        end
+    end
+  end
+
+  defp next_rolling_acc(verdict) do
+    verdict
+    |> verdict_value(:next_rolling_acc)
+    |> normalize_rolling_acc(nil)
+  end
+
+  defp verdict_value(nil, _key), do: nil
+
+  defp verdict_value(verdict, key) when is_map(verdict),
+    do: Map.get(verdict, key, Map.get(verdict, to_string(key)))
 
   defp include_in_baseline?(nil), do: false
 
@@ -660,6 +696,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   defp context_from_opts(opts) do
     %{
       baseline: [],
+      window_tail: [],
+      rolling_acc: nil,
       min_samples: Keyword.get(opts, :min_samples, @default_min_samples),
       window_size: Keyword.get(opts, :window_size, @default_window_size),
       n_sigma: Keyword.get(opts, :n_sigma, @default_n_sigma),
@@ -688,11 +726,31 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
   end
 
   defp normalize_context(context, fallback) when is_map(context) do
+    baseline =
+      context
+      |> checkpoint_value(:baseline, fallback.baseline)
+      |> numeric_list(fallback.baseline)
+
+    window_tail =
+      context
+      |> checkpoint_value(:window_tail, fallback[:window_tail] || baseline)
+      |> numeric_list(fallback[:window_tail] || baseline)
+
+    window_size = positive_int(checkpoint_value(context, :window_size), fallback.window_size)
+    truncated_window_tail = Enum.take(window_tail, -window_size)
+
     %{
-      baseline:
-        context
-        |> checkpoint_value(:baseline, fallback.baseline)
-        |> numeric_list(fallback.baseline),
+      baseline: [],
+      window_tail: truncated_window_tail,
+      # Fix(review): restore window_tail and rolling_acc ATOMICALLY from the same
+      # checkpoint. The acc is only kept when it is present in THIS checkpoint and
+      # its count matches the truncated window_tail it pairs with. We never fall
+      # back to a different state's acc (e.g. base_context's): the NIF's
+      # valid_for_count is count-only, so a fallback/stale acc whose count happens
+      # to equal the window length would install a corrupt mean/m2 baseline.
+      # Setting rolling_acc to nil forces the NIF to recompute it from window_tail
+      # via WelfordAcc::from_values.
+      rolling_acc: consistent_rolling_acc(context, truncated_window_tail),
       min_samples: positive_int(checkpoint_value(context, :min_samples), fallback.min_samples),
       window_size: positive_int(checkpoint_value(context, :window_size), fallback.window_size),
       n_sigma: number(checkpoint_value(context, :n_sigma), fallback.n_sigma),
@@ -735,7 +793,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
           fallback.consecutive_anomalous
         )
     }
-    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Enum.reject(fn {key, value} -> is_nil(value) and key != :rolling_acc end)
     |> Map.new()
   end
 
@@ -775,6 +833,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       :baseline_count,
       :sample_value,
       :observed_at_unix_nano,
+      :next_rolling_acc,
+      :next_window_tail,
       :suppressed,
       :suppressed_state
     ]
@@ -858,6 +918,45 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
 
   defp optional_boolean(value, _fallback) when is_boolean(value), do: value
   defp optional_boolean(_value, fallback), do: fallback
+
+  defp compact_context(context, rolling_acc) do
+    window_tail =
+      (context[:window_tail] || context.baseline)
+      |> numeric_list([])
+      |> Enum.take(-context.window_size)
+
+    %{context | baseline: [], window_tail: window_tail, rolling_acc: rolling_acc}
+  end
+
+  # Fix(review): only accept a checkpoint's rolling_acc when it pairs consistently
+  # with the window_tail restored from the SAME checkpoint. The acc must (a) be
+  # present in this checkpoint (no cross-state fallback), (b) be structurally valid,
+  # and (c) have count == length(window_tail). Otherwise return nil so the NIF
+  # recomputes the acc from window_tail (WelfordAcc::from_values). This prevents a
+  # restored window_tail of length N from being paired with a stale/fallback acc of
+  # count N, which the NIF's count-only valid_for_count would wrongly trust.
+  defp consistent_rolling_acc(context, window_tail) do
+    expected_count = length(window_tail)
+
+    case normalize_rolling_acc(checkpoint_value(context, :rolling_acc), nil) do
+      %{count: ^expected_count} = acc -> acc
+      _ -> nil
+    end
+  end
+
+  defp normalize_rolling_acc(%{} = acc, fallback) do
+    count = checkpoint_value(acc, :count)
+    mean = checkpoint_value(acc, :mean)
+    m2 = checkpoint_value(acc, :m2)
+
+    if is_integer(count) and count >= 0 and is_number(mean) and is_number(m2) and m2 >= 0.0 do
+      %{count: count, mean: mean * 1.0, m2: m2 * 1.0}
+    else
+      fallback
+    end
+  end
+
+  defp normalize_rolling_acc(_acc, fallback), do: fallback
 
   defp normalize_update(sample) do
     sample = Map.new(sample)

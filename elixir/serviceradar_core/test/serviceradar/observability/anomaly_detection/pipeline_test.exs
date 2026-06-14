@@ -11,6 +11,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Metrics.V1.Sum
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric, as: SrMetric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Observability.AnomalyDetection.Config
   alias ServiceRadar.Observability.AnomalyDetection.Pipeline
 
@@ -86,6 +92,49 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     assert is_binary(sample.event_id)
     assert is_tuple(sample.order_key)
     refute_receive {:emit_anomaly_verdict, _sample, _verdict}
+  end
+
+  test "uses context engine batch boundary when available" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.BatchContextEngineStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+
+    assert_receive {:evaluate_batch, [sample]}
+    assert sample.value == 50.0
+    refute_receive {:evaluate, _sample}
+  end
+
+  test "uses sparse context engine event boundary when available" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_context_engine,
+      __MODULE__.SparseEventContextEngineStub
+    )
+
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_verdict_emitter,
+      __MODULE__.VerdictEmitterStub
+    )
+
+    message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
+    config = config(enabled_subjects: ["metrics.sysmon.*"])
+
+    assert ^message = Pipeline.handle_message(:default, message, config)
+
+    assert_receive {:evaluate_events_batch, [sample]}
+    assert sample.value == 50.0
+    assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, verdict}
+    assert verdict.anomalous == true
+    refute_receive {:evaluate_batch, _samples}
+    refute_receive {:evaluate, _sample}
   end
 
   test "normalizes cumulative monotonic counters before invoking the reasoner" do
@@ -286,6 +335,60 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     end
   end
 
+  defmodule BatchContextEngineStub do
+    @moduledoc false
+
+    def evaluate_batch(samples) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate_batch,
+        samples
+      })
+
+      Enum.map(samples, fn _sample ->
+        {:ok, %{state: "insufficient_baseline", anomalous: false}}
+      end)
+    end
+
+    def evaluate(sample) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate,
+        sample
+      })
+
+      {:ok, %{state: "insufficient_baseline", anomalous: false}}
+    end
+  end
+
+  defmodule SparseEventContextEngineStub do
+    @moduledoc false
+
+    def evaluate_events_batch(samples) do
+      send(Application.fetch_env!(:serviceradar_core, :anomaly_detection_pipeline_test_pid), {
+        :evaluate_events_batch,
+        samples
+      })
+
+      Enum.map(samples, fn sample ->
+        {sample,
+         {:ok,
+          %{
+            state: "anomalous",
+            anomalous: true,
+            breached: true,
+            score: 3.5,
+            reason: "rolling z-score breached",
+            baseline_count: 48,
+            sample_value: sample.value,
+            observed_at_unix_nano: sample.observed_at_unix_nano,
+            signals: []
+          }}}
+      end)
+    end
+
+    def evaluate_batch(_samples), do: raise("evaluate_batch should not be called")
+    def evaluate(_sample), do: raise("evaluate should not be called")
+  end
+
   defmodule AnomalousContextEngine do
     @moduledoc false
 
@@ -383,7 +486,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
   defp message(subject, payload) do
     %Message{
-      data: Jason.encode!(payload),
+      data: payload,
       metadata: %{subject: subject, reply_to: "$JS.ACK.test"},
       acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
     }
@@ -438,20 +541,47 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   end
 
   defp sysmon_envelope(family) do
-    %{
-      "schema" => "serviceradar.sysmon.metrics.v1",
-      "source" => "sysmon-metrics",
-      "metric_family" => family,
-      "agent_id" => "agent-1",
-      "gateway_id" => "gateway-1",
-      "partition" => "default",
-      "sample" => %{
-        "timestamp" => "2026-06-12T00:00:00Z",
-        "host_id" => "host-1",
-        "agent_id" => "agent-1",
-        "memory" => %{"used_bytes" => 50, "total_bytes" => 100}
-      }
-    }
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+        partition: "default",
+        service_name: "sysmon",
+        service_type: "sysmon",
+        host_id: "host-1"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "sysmon-metrics",
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "agent-1",
+        producer_kind: "agent"
+      },
+      emitted_at_unix_nano: 1_781_222_400_000_000_000,
+      metrics: [
+        %SrMetric{
+          name: "#{family}.used_percent",
+          metric_type: "sysmon",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "%",
+          tags: entries(%{"host_id" => "host-1"}),
+          metadata: entries(%{"used_bytes" => "50", "total_bytes" => "100"}),
+          points: [
+            %MetricPoint{
+              value: 50.0,
+              raw_value: "50.0",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: 1_781_222_400_000_000_000,
+              series_identity_hint: "#{family}:host-1"
+            }
+          ]
+        }
+      ]
+    })
+  end
+
+  defp entries(map) do
+    Enum.map(map, fn {key, value} -> %StringMapEntry{key: key, value: to_string(value)} end)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)

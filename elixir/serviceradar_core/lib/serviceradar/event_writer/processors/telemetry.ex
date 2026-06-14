@@ -7,22 +7,10 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   ## Message Format
 
-  JSON telemetry messages with metric data:
+  Canonical protobuf metric batches:
 
-  ```json
-  {
-    "timestamp": "2024-01-01T00:00:00Z",
-    "gateway_id": "gateway-1",
-    "agent_id": "agent-1",
-    "metric_name": "cpu_usage",
-    "metric_type": "gauge",
-    "series_key": "deterministic-series-key",
-    "device_id": "device-1",
-    "value": 45.5,
-    "unit": "percent",
-    "tags": {"host": "server1"}
-  }
-  ```
+  Non-OTLP metric producers publish `serviceradar.metric.v1` payloads on
+  `metrics.*`. OTLP metrics stay on the OTLP processor.
 
   ## Table Schema
 
@@ -52,8 +40,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
   @behaviour ServiceRadar.EventWriter.Processor
 
   alias ServiceRadar.EventWriter.BulkInsert
-  alias ServiceRadar.EventWriter.FieldParser
-  alias ServiceRadar.Observability.TimeseriesSeriesKey
+  alias ServiceRadar.Observability.MetricEnvelope
 
   require Logger
 
@@ -65,11 +52,7 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     # DB connection's search_path determines the schema
     rows = build_rows(messages)
 
-    if Enum.empty?(rows) do
-      {:ok, 0}
-    else
-      insert_telemetry_rows(rows)
-    end
+    insert_rows(rows)
   rescue
     e ->
       Logger.error("Telemetry batch insert failed: #{inspect(e)}")
@@ -78,22 +61,42 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
 
   @impl true
   def parse_message(%{data: data, metadata: _metadata}) do
-    case Jason.decode(data) do
-      {:ok, json} ->
-        parse_telemetry(json)
+    case MetricEnvelope.decode_rows(data) do
+      {:ok, rows} ->
+        rows
 
-      {:error, _} ->
-        Logger.debug("Failed to parse telemetry message as JSON")
+      {:error, reason} ->
+        Logger.debug("Failed to parse telemetry protobuf envelope", reason: inspect(reason))
         nil
     end
   end
 
   # Private functions
 
+  @spec insert_rows([map()]) :: {:ok, non_neg_integer()}
+  def insert_rows(rows) when is_list(rows) do
+    if Enum.empty?(rows) do
+      {:ok, 0}
+    else
+      insert_telemetry_rows(rows)
+    end
+  end
+
   defp build_rows(messages) do
     messages
-    |> Enum.map(&parse_message/1)
-    |> Enum.reject(&is_nil/1)
+    |> Enum.reduce([], fn message, rows ->
+      case parse_message(message) do
+        row when is_map(row) ->
+          [row | rows]
+
+        decoded_rows when is_list(decoded_rows) ->
+          Enum.reverse(decoded_rows, rows)
+
+        _ ->
+          rows
+      end
+    end)
+    |> Enum.reverse()
   end
 
   defp insert_telemetry_rows(rows) do
@@ -107,50 +110,5 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
       )
 
     {:ok, count}
-  end
-
-  defp parse_telemetry(json) do
-    timestamp = FieldParser.parse_timestamp(json["timestamp"])
-
-    row = %{
-      timestamp: timestamp,
-      gateway_id: FieldParser.get_field(json, "gateway_id", "gatewayId", "unknown"),
-      agent_id: FieldParser.get_field(json, "agent_id", "agentId"),
-      metric_name:
-        FieldParser.get_field(json, "metric_name", "metricName") || json["name"] || "unknown",
-      metric_type: resolve_metric_type(json),
-      device_id: FieldParser.get_field(json, "device_id", "deviceId"),
-      value: FieldParser.parse_value(json["value"]),
-      unit: json["unit"],
-      tags: FieldParser.encode_jsonb(json["tags"]),
-      partition: json["partition"],
-      scale: json["scale"],
-      is_delta: FieldParser.get_field(json, "is_delta", "isDelta", false),
-      target_device_ip: FieldParser.get_field(json, "target_device_ip", "targetDeviceIp"),
-      if_index: FieldParser.get_field(json, "if_index", "ifIndex"),
-      metadata: FieldParser.encode_jsonb(json["metadata"]),
-      created_at: DateTime.utc_now()
-    }
-
-    Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
-  end
-
-  # fj #3788 REC10: a metric arriving with no declared type is silently stored as a
-  # gauge. Surface that coercion via telemetry so missing-type producers are visible
-  # instead of vanishing into a default bucket.
-  defp resolve_metric_type(json) do
-    case FieldParser.get_field(json, "metric_type", "metricType") || json["type"] do
-      nil ->
-        :telemetry.execute(
-          [:serviceradar, :event_writer, :telemetry, :metric_type_defaulted],
-          %{count: 1},
-          %{schema: json["schema"]}
-        )
-
-        "gauge"
-
-      type ->
-        type
-    end
   end
 end

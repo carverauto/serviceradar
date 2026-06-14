@@ -331,16 +331,39 @@ snmp_interface_metrics =
       end
   end
 
+icmp_metrics_publish_enabled =
+  (System.get_env("AGENT_GATEWAY_ICMP_METRICS_ENABLED") ||
+     System.get_env("AGENT_GATEWAY_ICMP_METRICS_SHADOW_ENABLED", "true")) in ~w(true 1 yes)
+
 plugin_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
+rperf_metrics_publish_enabled =
+  System.get_env("AGENT_GATEWAY_RPERF_METRICS_ENABLED", "true") in ~w(true 1 yes)
+
+mtr_metrics_publish_enabled =
+  System.get_env("AGENT_GATEWAY_MTR_METRICS_ENABLED", "true") in ~w(true 1 yes)
+
+sweep_metrics_publish_enabled =
+  System.get_env("AGENT_GATEWAY_SWEEP_METRICS_ENABLED", "true") in ~w(true 1 yes)
+
 otlp_relay_publish_enabled =
   System.get_env("AGENT_GATEWAY_OTLP_RELAY_PUBLISH_ENABLED", "true") in ~w(true 1 yes)
+
+config :serviceradar_agent_gateway, :icmp_metrics_publisher,
+  enabled: icmp_metrics_publish_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_ICMP_METRICS_SUBJECT_PREFIX", "metrics.icmp"),
+  connection: Connection
 
 config :serviceradar_agent_gateway, :metrics,
   enabled: System.get_env("GATEWAY_METRICS_ENABLED", "true") in ~w(true 1 yes),
   ip: {0, 0, 0, 0},
   port: parse_int_env.("GATEWAY_METRICS_PORT", 9090)
+
+config :serviceradar_agent_gateway, :mtr_metrics_publisher,
+  enabled: mtr_metrics_publish_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_MTR_METRICS_SUBJECT_PREFIX", "metrics.mtr"),
+  connection: Connection
 
 config :serviceradar_agent_gateway, :otlp_relay_publisher,
   enabled: otlp_relay_publish_enabled,
@@ -355,10 +378,20 @@ config :serviceradar_agent_gateway, :plugin_metrics_publisher,
   subject_prefix: System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX", "metrics.timeseries"),
   connection: Connection
 
+config :serviceradar_agent_gateway, :rperf_metrics_publisher,
+  enabled: rperf_metrics_publish_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_RPERF_METRICS_SUBJECT_PREFIX", "metrics.rperf"),
+  connection: Connection
+
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: snmp_metrics_publish_enabled,
   subject_prefix: System.get_env("AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX", "metrics.snmp"),
   interface_metrics: snmp_interface_metrics,
+  connection: Connection
+
+config :serviceradar_agent_gateway, :sweep_metrics_publisher,
+  enabled: sweep_metrics_publish_enabled,
+  subject_prefix: System.get_env("AGENT_GATEWAY_SWEEP_METRICS_SUBJECT_PREFIX", "metrics.sweep"),
   connection: Connection
 
 config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
@@ -367,7 +400,11 @@ config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
   connection: Connection
 
 if sysmon_metrics_publish_enabled or snmp_metrics_publish_enabled or
+     icmp_metrics_publish_enabled or
      plugin_metrics_publish_enabled or
+     rperf_metrics_publish_enabled or
+     mtr_metrics_publish_enabled or
+     sweep_metrics_publish_enabled or
      otlp_relay_publish_enabled do
   nats_url =
     System.get_env("AGENT_GATEWAY_NATS_URL") ||
@@ -452,7 +489,20 @@ config :swoosh, local: false
 if config_env() == :prod do
   config :logger, :console,
     format: "$time $metadata[$level] $message\n",
-    metadata: [:request_id, :gateway_id, :partition_id, :node]
+    metadata: [
+      :request_id,
+      :gateway_id,
+      :partition_id,
+      :node,
+      :agent_id,
+      :partition,
+      :subject,
+      :reason,
+      :service_name,
+      :message_size,
+      :payload_kind,
+      :event_id
+    ]
 
   config :logger,
     level: :info

@@ -9,6 +9,13 @@ defmodule ServiceRadar do
 
   use Boundary,
     check: [apps: [:serviceradar_srql]],
-    deps: [Flowpb, Monitoring, Netprobepb, Serviceradar.Agent.Addon.V1, ServiceRadarSRQL],
+    deps: [
+      Flowpb,
+      Monitoring,
+      Netprobepb,
+      Serviceradar.Agent.Addon.V1,
+      Serviceradar.Metric.V1,
+      ServiceRadarSRQL
+    ],
     exports: :all
 end

@@ -217,12 +217,12 @@ func run_check() {
 			WithDetails(string(detailsJSON)).
 			WithLabel("camera_host", cfg.Host).
 			WithLabel("camera_scheme", scheme)
-		addHealthMetrics(result, healthMetrics)
 
 		if model := firstNonEmpty(details.DeviceInfo, "ProdNbr", "ProductFullName", "Brand"); model != "" {
 			result.WithLabel("camera_model", model)
 		}
 		emitAxisTelemetry(resultEvents, cfg.Host)
+		emitAxisMetricTelemetry(cfg.Host, healthMetrics)
 
 		return result, nil
 	})
@@ -670,19 +670,6 @@ func buildHealthMetrics(details ResultDetails, eventCount int) map[string]metric
 	}
 
 	return metrics
-}
-
-func addHealthMetrics(result *sdk.Result, metrics map[string]metricPoint) {
-	keys := make([]string, 0, len(metrics))
-	for key := range metrics {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-
-	for _, key := range keys {
-		point := metrics[key]
-		result.WithMetric("axis_"+key, point.Value, point.Unit, nil)
-	}
 }
 
 func healthMetricSnapshot(metrics map[string]metricPoint) map[string]float64 {

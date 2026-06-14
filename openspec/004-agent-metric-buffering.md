@@ -3,6 +3,12 @@
 ## Status
 Implemented
 
+Transport updated by `openspec/changes/add-protobuf-metric-envelope`: buffered
+agent metrics are encoded as `serviceradar.metric.v1.MetricBatch` protobuf
+payloads, carried through the agent-to-gateway stream, published by
+agent-gateway to JetStream `metrics.*`, and persisted by EventWriter. This note
+does not define a JSON metric envelope or direct-to-database backend path.
+
 ## Context
 Currently, the agent `PushLoop` polls services for their "current status" at the push interval (default 30s). Services like SNMP may poll targets much faster (e.g., 1s or 5s). Intermediate data points collected between pushes are effectively discarded or overwritten in the `TargetStatus` map.
 
@@ -72,10 +78,11 @@ Currently, `pkg/agent/snmp/aggregator.go` stores `TimeSeriesData` in slices. Thi
     *   New method `SNMPService.DrainMetrics()` will iterate over all Aggregators/RingBuffers and extract pending data.
 
 ### 4. PushLoop Update
-Update `pushSNMPMetrics` in `pkg/agent/push_loop.go`:
+Update the SNMP/sysmon push loop metric drain paths:
 1.  Instead of calling `GetTargetStatuses` (which returns a snapshot), call `DrainMetrics`.
-2.  Batch these points into the `GatewayStatusChunk`.
-3.  The backend (Event Writer) will receive a batch of timestamps and values, writing them all to the TimeSeriesDB.
+2.  Batch drained points into bounded `serviceradar.metric.v1.MetricBatch` protobuf payloads.
+3.  Send those payloads to the authenticated gateway stream; agent-gateway republishes them to JetStream
+    `metrics.*`, where EventWriter persists them to the existing time-series tables.
 
 ## Netdata Comparison
 | Feature | ServiceRadar Current | ServiceRadar Proposed | Netdata |
@@ -83,7 +90,7 @@ Update `pushSNMPMetrics` in `pkg/agent/push_loop.go`:
 | **Storage** | Single Value (LastValue) | Ring Buffer (All Values) | Ring Buffer (dbengine) |
 | **Transport** | Snapshot (Lossy) | Batched Stream (Lossless) | Streamed |
 | **Resolution** | Push Interval (e.g. 30s) | Poll Interval (e.g. 1s) | 1s (standard) |
-| **Counters** | Raw Counter | Calculated Rate (Edge) | Interpolated Rate (Edge) |
+| **Counters** | Raw Counter | Raw cumulative with typed counter metadata and reset anchors | Interpolated Rate (Edge) |
 
 ## Future Work: Time Alignment (Phase 2)
 Once buffering is in place, we can implement "Interpolation" to align messy poll timestamps to a perfect grid (e.g. exactly on the second), handling jitter and missed polls gracefully. This is a key feature of Netdata that allows clean overlaying of metrics from different sources.
@@ -101,7 +108,8 @@ Once buffering is in place, we can implement "Interpolation" to align messy poll
     *   Updated `SNMPCollector` to perform **Edge Rate Calculation**. Delta metrics (counters) are now converted to per-second rates immediately upon collection, handling 32/64-bit rollovers.
 3.  **Transport**:
     *   Updated `PushLoop` to use `DrainMetrics` for SNMP and Sysmon.
-    *   Ensured `pushSNMPMetrics` streams all buffered data points to the gateway using `StreamStatus`.
+    *   Ensured buffered data points are serialized as canonical protobuf metric batches on the gateway
+        stream, then published to JetStream `metrics.*` before persistence.
 
 ### Phase 2: Time Alignment (Completed)
 1.  **Interpolator**: Implemented `Interpolate()` in `pkg/agent/core/interpolator.go`.

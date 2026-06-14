@@ -160,6 +160,12 @@ agent/gateway path already provides the authenticated agent identity, gateway,
 partition, and source IP envelope; core-elx overwrites any add-on-supplied
 `metadata.service_radar` values with that trusted envelope before publishing to NATS.
 
+Native add-ons that produce scalar metrics use the same telemetry stream with the
+ServiceRadar metric payload kind. The in-repo Go and Rust native add-on SDKs expose
+helpers that wrap an encoded `serviceradar.metric.v1.MetricBatch`; the gateway
+publishes that payload onto `metrics.*` without converting it through JSON. Raw OTLP
+telemetry remains on the OTLP payload kinds.
+
 ### PowerDNS Recursor config
 
 For Recursor releases with Lua protobuf logging, configure a localhost receiver with

@@ -1,0 +1,34 @@
+load("@rules_rust//cargo:defs.bzl", "cargo_build_script")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rust_crates//:defs.bzl", "crate_deps")
+
+cargo_build_script(
+    name = "build_script",
+    srcs = ["build.rs"],
+    crate_root = "build.rs",
+    edition = "2021",
+    build_script_env = {
+        "PROTOC": "$(execpath @bazel_tools//tools/proto:protoc)",
+    },
+    data = [
+        "//proto/metric/v1:metric_proto_src",
+    ],
+    tools = ["@bazel_tools//tools/proto:protoc"],
+    deps = crate_deps(["tonic-build"]),
+)
+
+rust_library(
+    name = "serviceradar_metric_proto",
+    srcs = glob(["src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    crate_name = "serviceradar_metric_proto",
+    edition = "2021",
+    deps = crate_deps(["prost"]) + [":build_script"],
+    visibility = ["//visibility:public"],
+)
+
+rust_test(
+    name = "serviceradar_metric_proto_test",
+    crate = ":serviceradar_metric_proto",
+    deps = crate_deps(["prost"]) + [":build_script"],
+)

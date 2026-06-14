@@ -131,7 +131,7 @@ func TestCollectorProcessResult_PreservesRawCounterSemantics(t *testing.T) {
 func TestCalculateDelta_ResetDefault(t *testing.T) {
 	delta, ok := calculateDelta(uint64(1000), uint64(1600), 0)
 	require.True(t, ok)
-	require.Equal(t, 600.0, delta)
+	require.InDelta(t, 600.0, delta, 1e-9)
 
 	_, ok = calculateDelta(uint64(1600), uint64(100), 64)
 	require.False(t, ok)
@@ -139,9 +139,9 @@ func TestCalculateDelta_ResetDefault(t *testing.T) {
 	_, ok = calculateDelta(uint64(1600), uint64(100), 0)
 	require.False(t, ok)
 
-	delta, ok = calculateDelta(uint64(maxCounter32-99), uint64(100), 32)
+	delta, ok = calculateDelta(maxCounter32-99, uint64(100), 32)
 	require.True(t, ok)
-	require.Equal(t, 200.0, delta)
+	require.InDelta(t, 200.0, delta, 1e-9)
 }
 
 func TestCollectorProcessResult_NonCounterDeltaStillRates(t *testing.T) {

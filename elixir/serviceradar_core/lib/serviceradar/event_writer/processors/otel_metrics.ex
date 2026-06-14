@@ -2,9 +2,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   @moduledoc """
   Processor for OpenTelemetry metrics messages.
 
-  Two distinct payload shapes arrive on the metrics subjects:
+  Two distinct protobuf payload shapes arrive on the metrics subjects:
 
-  - JSON span-derived performance samples (from the derived-metrics path) —
+  - ServiceRadar `serviceradar.metric.v1.MetricBatch` span-derived
+    performance samples (from the derived-metrics path) —
     inserted into the `otel_metrics` hypertable, unchanged behavior.
   - OTLP protobuf `ExportMetricsServiceRequest` (subject `otel.metrics.raw`) —
     sum/gauge/histogram data points are decoded into the `otel_metric_points`
@@ -68,6 +69,7 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   alias ServiceRadar.EventWriter.OtelId
   alias ServiceRadar.EventWriter.OtlpAttributes
   alias ServiceRadar.EventWriter.SignalTelemetry
+  alias Serviceradar.Metric.V1.MetricBatch, as: ServiceRadarMetricBatch
 
   require Logger
 
@@ -82,15 +84,9 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   def process_batch(messages) do
     SignalTelemetry.emit(:metrics, :received, length(messages))
 
-    parsed = Enum.map(messages, &parse_message/1)
-    SignalTelemetry.emit(:metrics, :rejected, Enum.count(parsed, &is_nil/1))
-
     # DB connection's search_path determines the schema
-    {span_sample_rows, point_rows} =
-      parsed
-      |> Enum.reject(&is_nil/1)
-      |> Enum.flat_map(&List.wrap/1)
-      |> Enum.split_with(&span_sample_row?/1)
+    {span_sample_rows, point_rows, rejected} = build_rows(messages)
+    SignalTelemetry.emit(:metrics, :rejected, rejected)
 
     sample_count = insert_rows(table_name(), span_sample_rows)
     point_count = insert_rows(@metric_points_table, point_rows)
@@ -110,13 +106,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     attribution = IngestAttribution.from_metadata(metadata)
 
     case_result =
-      case Jason.decode(data) do
-        {:ok, json} ->
-          parse_json_metric(json, metadata)
-
-        {:error, _} ->
-          # Try protobuf parsing
-          parse_protobuf_metric(data, metadata)
+      if derived_metrics_subject?(metadata) do
+        parse_derived_metric_batch(data, metadata)
+      else
+        parse_protobuf_metric(data, metadata)
       end
 
     IngestAttribution.attach(case_result, attribution)
@@ -125,6 +118,34 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
   # Private functions
 
   defp span_sample_row?(row), do: not Map.has_key?(row, :metric_name)
+
+  defp build_rows(messages) do
+    messages
+    |> Enum.reduce({[], [], 0}, fn message, acc ->
+      case parse_message(message) do
+        row when is_map(row) ->
+          append_row(row, acc)
+
+        rows when is_list(rows) ->
+          Enum.reduce(rows, acc, &append_row/2)
+
+        _ ->
+          {span_sample_rows, point_rows, rejected} = acc
+          {span_sample_rows, point_rows, rejected + 1}
+      end
+    end)
+    |> then(fn {span_sample_rows, point_rows, rejected} ->
+      {Enum.reverse(span_sample_rows), Enum.reverse(point_rows), rejected}
+    end)
+  end
+
+  defp append_row(row, {span_sample_rows, point_rows, rejected}) do
+    if span_sample_row?(row) do
+      {[row | span_sample_rows], point_rows, rejected}
+    else
+      {span_sample_rows, [row | point_rows], rejected}
+    end
+  end
 
   defp insert_rows(_table, []), do: 0
 
@@ -141,36 +162,111 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     count
   end
 
-  defp parse_json_metric(json, _metadata) do
-    if is_map(json) do
-      timestamp = FieldParser.parse_timestamp(json["timestamp"])
+  defp derived_metrics_subject?(metadata) when is_map(metadata) do
+    metadata
+    |> subject()
+    |> String.starts_with?("otel.metrics.derived")
+  end
 
-      %{
-        timestamp: timestamp,
-        trace_id: OtelId.normalize_trace_id(FieldParser.get_field(json, "trace_id", "traceId")),
-        span_id: OtelId.normalize_span_id(FieldParser.get_field(json, "span_id", "spanId")),
-        service_name: FieldParser.get_field(json, "service_name", "serviceName", "unknown"),
-        span_name:
-          FieldParser.get_field(json, "span_name", "spanName") || json["name"] || "unknown",
-        span_kind: FieldParser.get_field(json, "span_kind", "spanKind"),
-        duration_ms: FieldParser.parse_duration_ms(json),
-        duration_seconds: FieldParser.parse_duration_seconds(json),
-        metric_type: FieldParser.get_field(json, "metric_type", "metricType"),
-        http_method: FieldParser.get_field(json, "http_method", "httpMethod"),
-        http_route: FieldParser.get_field(json, "http_route", "httpRoute"),
-        http_status_code:
-          to_string(FieldParser.get_field(json, "http_status_code", "httpStatusCode", "")),
-        grpc_service: FieldParser.get_field(json, "grpc_service", "grpcService"),
-        grpc_method: FieldParser.get_field(json, "grpc_method", "grpcMethod"),
-        grpc_status_code:
-          to_string(FieldParser.get_field(json, "grpc_status_code", "grpcStatusCode", "")),
-        is_slow: FieldParser.get_field(json, "is_slow", "isSlow", false),
-        component: json["component"],
-        level: json["level"],
-        created_at: DateTime.utc_now()
-      }
+  defp derived_metrics_subject?(_metadata), do: false
+
+  defp subject(metadata), do: to_string(metadata[:base_subject] || metadata[:subject] || "")
+
+  defp parse_derived_metric_batch(data, metadata) do
+    case decode_service_radar_metric_batch(data) do
+      {:ok, %ServiceRadarMetricBatch{} = batch} ->
+        parse_derived_metric_batch_rows(batch)
+
+      {:error, reason} ->
+        Logger.debug("Failed to decode derived metrics protobuf: #{inspect(reason)}",
+          subject: subject(metadata)
+        )
+
+        nil
     end
   end
+
+  defp decode_service_radar_metric_batch(data) do
+    {:ok, ServiceRadarMetricBatch.decode(data)}
+  rescue
+    error -> {:error, error}
+  end
+
+  defp parse_derived_metric_batch_rows(%ServiceRadarMetricBatch{
+         schema_version: "serviceradar.metric.v1",
+         metrics: metrics
+       })
+       when is_list(metrics) do
+    metrics
+    |> Enum.reduce([], fn metric, rows ->
+      metric.points
+      |> list_or_empty()
+      |> Enum.reduce(rows, fn point, rows ->
+        [derived_span_row(point) | rows]
+      end)
+    end)
+    |> Enum.reverse()
+  end
+
+  defp parse_derived_metric_batch_rows(_batch), do: nil
+
+  defp derived_span_row(point) do
+    attributes = entries_to_map(point.attributes)
+    metadata = entries_to_map(point.metadata)
+    created_at = DateTime.utc_now()
+
+    %{
+      timestamp: derived_timestamp(point, metadata),
+      trace_id: OtelId.normalize_trace_id(metadata["trace_id"]),
+      span_id: OtelId.normalize_span_id(metadata["span_id"]),
+      service_name: attributes["service_name"] || "unknown",
+      span_name: attributes["span_name"] || "unknown",
+      span_kind: attributes["span_kind"],
+      duration_ms: point.value,
+      duration_seconds: parse_float(metadata["duration_seconds"]),
+      metric_type: metadata["metric_type"],
+      http_method: attributes["http_method"],
+      http_route: attributes["http_route"],
+      http_status_code: attributes["http_status_code"] || "",
+      grpc_service: attributes["grpc_service"],
+      grpc_method: attributes["grpc_method"],
+      grpc_status_code: attributes["grpc_status_code"] || "",
+      is_slow: parse_bool(metadata["is_slow"]),
+      component: metadata["component"],
+      level: metadata["level"],
+      created_at: created_at
+    }
+  end
+
+  defp derived_timestamp(%{observed_at_unix_nano: observed_at}, _metadata)
+       when is_integer(observed_at) and observed_at > 0, do: point_timestamp(observed_at)
+
+  defp derived_timestamp(_point, metadata), do: FieldParser.parse_timestamp(metadata["timestamp"])
+
+  defp entries_to_map(entries) when is_list(entries) do
+    Map.new(entries, fn entry -> {entry.key, entry.value} end)
+  end
+
+  defp entries_to_map(_entries), do: %{}
+
+  defp list_or_empty(value) when is_list(value), do: value
+  defp list_or_empty(_value), do: []
+
+  defp parse_float(value) when is_float(value), do: value
+  defp parse_float(value) when is_integer(value), do: value * 1.0
+
+  defp parse_float(value) when is_binary(value) do
+    case Float.parse(value) do
+      {number, _rest} -> number
+      :error -> nil
+    end
+  end
+
+  defp parse_float(_value), do: nil
+
+  defp parse_bool(value) when value in [true, false], do: value
+  defp parse_bool(value) when is_binary(value), do: String.downcase(value) == "true"
+  defp parse_bool(_value), do: false
 
   defp parse_protobuf_metric(data, metadata) do
     case decode_export_metrics(data) do

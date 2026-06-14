@@ -192,14 +192,18 @@ func TestRunProxmoxCheckBuildsInventory(t *testing.T) {
 	if details.Targets[0].Guests[0].Disk != 6144 || details.Targets[0].Guests[0].MaxDisk != 8192 {
 		t.Fatalf("expected guest agent filesystem usage, got disk=%v maxdisk=%v", details.Targets[0].Guests[0].Disk, details.Targets[0].Guests[0].MaxDisk)
 	}
-	if len(result.Metrics) < 14 {
-		t.Fatalf("expected aggregate resource metrics, got %#v", result.Metrics)
-	}
 	if len(result.DeviceDiscovery) != 1 {
 		t.Fatalf("expected one device discovery envelope, got %#v", result.DeviceDiscovery)
 	}
 	if got := len(result.DeviceDiscovery[0].Devices); got != 2 {
 		t.Fatalf("expected node and guest discoveries, got %d: %#v", got, result.DeviceDiscovery[0].Devices)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal(result.JSON(), &payload); err != nil {
+		t.Fatalf("decode result JSON: %v", err)
+	}
+	if _, ok := payload["metrics"]; ok {
+		t.Fatalf("expected plugin result to omit legacy metrics, got %#v", payload["metrics"])
 	}
 }
 

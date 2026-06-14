@@ -10,6 +10,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateSpansRed1hCagg do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - spans RED CAGG: the source span stream is empty on
+  # first boot so the create/refresh are no-ops; the one-time refresh is bounded to the backfill
+  # window and the continuous-aggregate/retention policies only register background jobs.
+
   @disable_ddl_transaction true
   @disable_migration_lock true
 

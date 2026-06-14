@@ -81,7 +81,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     subject = subject(message)
 
     if Config.subject_enabled?(config, subject) do
-      analyze_message(message, subject)
+      analyze_message(message, subject, config)
     else
       emit(:disabled, 1, subject)
       message
@@ -100,13 +100,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     messages
   end
 
-  defp analyze_message(%Message{} = message, subject) do
+  defp analyze_message(%Message{} = message, subject, %Config{} = config) do
     samples =
       message
       |> SampleExtractor.extract()
       |> CounterNormalizer.normalize_samples()
 
-    case analyze_samples(samples, subject) do
+    case analyze_samples(samples, subject, config) do
       :ok ->
         emit(:analyzed, length(samples), subject)
         message
@@ -121,11 +121,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     end
   end
 
-  defp analyze_samples([], _subject), do: {:drop, :no_scalar_samples}
+  defp analyze_samples([], _subject, _config), do: {:drop, :no_scalar_samples}
 
-  defp analyze_samples(samples, subject) do
-    Enum.reduce_while(samples, :ok, fn sample, :ok ->
-      case context_engine().evaluate(sample) do
+  defp analyze_samples(samples, subject, %Config{} = config) do
+    samples
+    |> evaluate_samples(config)
+    |> Enum.reduce_while(:ok, fn {sample, result}, :ok ->
+      case result do
         {:ok, verdict} ->
           case maybe_emit_verdict(sample, verdict) do
             :ok -> {:cont, :ok}
@@ -140,6 +142,33 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
           {:halt, {:error, reason}}
       end
     end)
+  end
+
+  defp evaluate_samples(samples, %Config{} = config) do
+    engine = context_engine(config)
+
+    cond do
+      function_exported?(engine, :evaluate_events_batch, 1) ->
+        engine.evaluate_events_batch(samples)
+
+      function_exported?(engine, :evaluate_batch, 1) ->
+        samples
+        |> engine.evaluate_batch()
+        |> normalize_batch_results(samples)
+
+      true ->
+        Enum.map(samples, &{&1, engine.evaluate(&1)})
+    end
+  end
+
+  defp normalize_batch_results(results, samples) when is_list(results) do
+    samples
+    |> Enum.zip(results)
+    |> Enum.map(fn {sample, result} -> {sample, result} end)
+  end
+
+  defp normalize_batch_results(result, samples) do
+    Enum.map(samples, &{&1, {:error, {:unexpected_anomaly_batch_result, result}}})
   end
 
   defp maybe_emit_verdict(sample, verdict) do
@@ -273,16 +302,16 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
       |> to_string()
       |> String.downcase()
 
-    state in ["normal", "ok", "healthy", "resolved", "inactive", "closed", "cleared"]
+    state in ["normal", "ok", "healthy", "resolved", "inactive", "closed", "cleared", "clean"]
   end
 
   defp normal_state?(_verdict), do: false
 
-  defp context_engine do
+  defp context_engine(%Config{context_engine: configured_engine}) do
     Application.get_env(
       :serviceradar_core,
       :anomaly_detection_context_engine,
-      ContextEngine
+      configured_engine || ContextEngine
     )
   end
 

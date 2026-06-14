@@ -18,6 +18,9 @@ defmodule ServiceRadar.Repo.Migrations.DropDeviceUpdatesTable do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - device_updates never had a writer (verified empty),
+  # so dropping it and reconciling its retention policy is metadata-only and idempotent.
+
   def up do
     remove_retention_policy()
 

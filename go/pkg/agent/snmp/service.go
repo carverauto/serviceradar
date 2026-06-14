@@ -31,6 +31,16 @@ import (
 // ErrNilResultsChannel indicates the collector returned a nil results channel.
 var ErrNilResultsChannel = errors.New("collector returned nil results channel")
 
+type targetStatusSummary struct {
+	Available  bool      `json:"available"`
+	LastPoll   time.Time `json:"last_poll,omitempty"`
+	ErrorCount int       `json:"error_count,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	HostIP     string    `json:"host_ip,omitempty"`
+	HostName   string    `json:"host_name,omitempty"`
+	OIDCount   int       `json:"oid_count,omitempty"`
+}
+
 // Check implements the checker interface by returning the overall status of all SNMP targets.
 func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 	// NOTE: Avoid recursive RWMutex read locking. GetStatus performs its own locking and
@@ -41,8 +51,9 @@ func (s *SNMPService) Check(ctx context.Context) (available bool, msg string) {
 		return false, string(jsonError(fmt.Sprintf("Error getting detailed SNMP status: %v", err)))
 	}
 
-	// Marshal the status map to JSON for the message content
-	statusJSON, err := json.Marshal(statusMap)
+	// Status JSON is deliberately lightweight. Full OID values are shipped only
+	// through the protobuf metric envelope drained by the agent push loop.
+	statusJSON, err := json.Marshal(summarizeTargetStatuses(statusMap))
 	if err != nil {
 		return false, string(jsonError(fmt.Sprintf("Error marshaling SNMP status to JSON: %v", err)))
 	}
@@ -299,8 +310,9 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 		}, nil
 	}
 
-	// Convert status to JSON for response
-	statusJSON, err := json.Marshal(status)
+	// Convert summary status to JSON for response. Full OID values are shipped
+	// only through the protobuf metric envelope drained by the agent push loop.
+	statusJSON, err := json.Marshal(summarizeTargetStatuses(status))
 	if err != nil {
 		return &proto.StatusResponse{
 			Available: false,
@@ -330,6 +342,32 @@ func (s *SNMPService) GetServiceStatus(ctx context.Context, req *proto.StatusReq
 func jsonError(msg string) []byte {
 	data, _ := json.Marshal(map[string]string{"error": msg})
 	return data
+}
+
+func summarizeTargetStatuses(statusMap map[string]TargetStatus) map[string]targetStatusSummary {
+	if len(statusMap) == 0 {
+		return nil
+	}
+
+	summaries := make(map[string]targetStatusSummary, len(statusMap))
+	for targetName, targetStatus := range statusMap {
+		summary := targetStatusSummary{
+			Available: targetStatus.Available,
+			LastPoll:  targetStatus.LastPoll,
+			Error:     targetStatus.Error,
+			HostIP:    targetStatus.HostIP,
+			HostName:  targetStatus.HostName,
+			OIDCount:  len(targetStatus.OIDStatus),
+		}
+
+		for _, oidStatus := range targetStatus.OIDStatus {
+			summary.ErrorCount += oidStatus.ErrorCount
+		}
+
+		summaries[targetName] = summary
+	}
+
+	return summaries
 }
 
 // initializeTarget sets up collector and aggregator for a target.

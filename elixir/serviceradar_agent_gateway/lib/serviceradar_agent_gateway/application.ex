@@ -70,6 +70,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   use Application
 
+  alias ServiceRadar.NATS.Connection
   alias ServiceRadar.Telemetry.OtelSetup
 
   require Logger
@@ -280,7 +281,7 @@ defmodule ServiceRadarAgentGateway.Application do
 
   defp nats_connection_child do
     if gateway_publisher_enabled?() do
-      if Process.whereis(ServiceRadar.NATS.Connection.connection_name()) do
+      if Process.whereis(Connection.connection_name()) do
         nil
       else
         ServiceRadar.NATS.Supervisor
@@ -293,7 +294,11 @@ defmodule ServiceRadarAgentGateway.Application do
       [
         :sysmon_metrics_publisher,
         :snmp_metrics_publisher,
+        :icmp_metrics_publisher,
         :plugin_metrics_publisher,
+        :rperf_metrics_publisher,
+        :mtr_metrics_publisher,
+        :sweep_metrics_publisher,
         :otlp_relay_publisher
       ],
       fn key ->

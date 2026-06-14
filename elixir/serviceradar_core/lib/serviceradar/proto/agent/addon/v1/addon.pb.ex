@@ -14,6 +14,7 @@ defmodule Serviceradar.Agent.Addon.V1.TelemetryPayloadKind do
   field :TELEMETRY_PAYLOAD_KIND_OTLP_LOGS, 4
   field :TELEMETRY_PAYLOAD_KIND_OTLP_METRICS, 5
   field :TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, 6
+  field :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, 7
 end
 
 defmodule Serviceradar.Agent.Addon.V1.TelemetrySource.MetadataEntry do

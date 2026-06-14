@@ -535,6 +535,9 @@ generate-proto: ## Generate Go and Rust code from protobuf definitions
 		--go_out=proto --go_opt=paths=source_relative \
 		--go-grpc_out=proto --go-grpc_opt=paths=source_relative \
 		proto/agent/addon/v1/addon.proto
+	@protoc -I=proto -I=. \
+		--go_out=proto --go_opt=paths=source_relative \
+		proto/metric/v1/metric.proto
 	@echo "$(COLOR_BOLD)Generated Go protobuf code$(COLOR_RESET)"
 
 # Elixir protobuf regeneration
@@ -575,7 +578,8 @@ generate-proto-elixir: install-protoc-gen-elixir ## Generate Elixir code from pr
 		proto/camera_media.proto \
 		proto/desktop_media.proto \
 		proto/identitymap/v1/identity_map.proto \
-		proto/agent/netprobe/v1/netprobe.proto
+		proto/agent/netprobe/v1/netprobe.proto \
+		proto/metric/v1/metric.proto
 	@echo "$(COLOR_BOLD)Generated Elixir protobuf code under $(ELIXIR_PROTO_OUT)$(COLOR_RESET)"
 
 .PHONY: verify-proto-elixir

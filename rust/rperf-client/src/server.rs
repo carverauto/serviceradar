@@ -17,6 +17,11 @@
 use anyhow::{Context, Result};
 use chrono;
 use log::{debug, error, info, warn};
+use prost::Message;
+use serviceradar_metric_proto::{
+    IngestIdentity, Metric, MetricBatch, MetricKind, MetricPoint, MetricResource,
+    MetricTemporality, MetricValueType, StringMapEntry,
+};
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -29,7 +34,7 @@ use tonic_reflection::server::Builder as ReflectionBuilder;
 
 use crate::config::{Config, SecurityMode};
 use crate::poller::TargetPoller;
-use crate::rperf::RPerfRunner;
+use crate::rperf::{RPerfResult, RPerfRunner};
 use crate::server::monitoring::agent_service_server::{AgentService, AgentServiceServer};
 use crate::spiffe;
 
@@ -37,6 +42,7 @@ const FILE_DESCRIPTOR_SET_RPERF: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/rperf_descriptor.bin"));
 const FILE_DESCRIPTOR_SET_MONITORING: &[u8] =
     include_bytes!(concat!(env!("OUT_DIR"), "/monitoring_descriptor.bin"));
+const METRIC_SCHEMA_VERSION: &str = "serviceradar.metric.v1";
 
 pub mod rperf_service {
     tonic::include_proto!("rperf");
@@ -241,6 +247,186 @@ struct RPerfServiceImpl {
     target_pollers: Arc<RwLock<Vec<TargetPoller>>>,
 }
 
+struct RPerfMetricSample<'a> {
+    target: &'a str,
+    result: &'a RPerfResult,
+}
+
+fn poller_matches_request(poller: &TargetPoller, req: &monitoring::StatusRequest) -> bool {
+    (!req.details.is_empty() && poller.target_name() == req.details)
+        || (!req.service_name.is_empty() && poller.target_name() == req.service_name)
+        || (req.details.is_empty() && req.service_name.is_empty())
+}
+
+fn rperf_metric_batch(
+    samples: &[RPerfMetricSample<'_>],
+    req: &monitoring::StatusRequest,
+) -> Option<MetricBatch> {
+    if samples.is_empty() {
+        return None;
+    }
+
+    let observed_at = chrono::Utc::now().timestamp_nanos_opt()? as u64;
+    let mut metrics = vec![
+        rperf_gauge_metric("rperf.available", "1"),
+        rperf_gauge_metric("rperf.duration_seconds", "s"),
+        rperf_gauge_metric("rperf.bytes_sent", "By"),
+        rperf_gauge_metric("rperf.bytes_received", "By"),
+        rperf_gauge_metric("rperf.bits_per_second", "bit/s"),
+        rperf_gauge_metric("rperf.packets_sent", "{packet}"),
+        rperf_gauge_metric("rperf.packets_received", "{packet}"),
+        rperf_gauge_metric("rperf.packets_lost", "{packet}"),
+        rperf_gauge_metric("rperf.loss_percent", "%"),
+        rperf_gauge_metric("rperf.jitter_ms", "ms"),
+    ];
+
+    for sample in samples {
+        let attrs = rperf_attrs(sample.target, sample.result);
+        push_point(
+            &mut metrics[0],
+            bool_value(sample.result.success),
+            observed_at,
+            &attrs,
+        );
+
+        if sample.result.success {
+            let summary = &sample.result.summary;
+            push_point(&mut metrics[1], summary.duration, observed_at, &attrs);
+            push_point(
+                &mut metrics[2],
+                summary.bytes_sent as f64,
+                observed_at,
+                &attrs,
+            );
+            push_point(
+                &mut metrics[3],
+                summary.bytes_received as f64,
+                observed_at,
+                &attrs,
+            );
+            push_point(
+                &mut metrics[4],
+                summary.bits_per_second,
+                observed_at,
+                &attrs,
+            );
+            push_point(
+                &mut metrics[5],
+                summary.packets_sent as f64,
+                observed_at,
+                &attrs,
+            );
+            push_point(
+                &mut metrics[6],
+                summary.packets_received as f64,
+                observed_at,
+                &attrs,
+            );
+            push_point(
+                &mut metrics[7],
+                summary.packets_lost as f64,
+                observed_at,
+                &attrs,
+            );
+            push_point(&mut metrics[8], summary.loss_percent, observed_at, &attrs);
+            push_point(&mut metrics[9], summary.jitter_ms, observed_at, &attrs);
+        }
+    }
+
+    metrics.retain(|metric| !metric.points.is_empty());
+
+    Some(MetricBatch {
+        schema_version: METRIC_SCHEMA_VERSION.to_owned(),
+        resource: Some(MetricResource {
+            agent_id: req.agent_id.clone(),
+            gateway_id: req.gateway_id.clone(),
+            service_name: if req.service_name.is_empty() {
+                "rperf".to_owned()
+            } else {
+                req.service_name.clone()
+            },
+            service_type: if req.service_type.is_empty() {
+                "rperf".to_owned()
+            } else {
+                req.service_type.clone()
+            },
+            ..Default::default()
+        }),
+        ingest_identity: Some(IngestIdentity {
+            source: "rperf-metrics".to_owned(),
+            payload_kind: METRIC_SCHEMA_VERSION.to_owned(),
+            producer_id: req.agent_id.clone(),
+            producer_kind: "rperf-checker".to_owned(),
+            attested_by: req.gateway_id.clone(),
+            ..Default::default()
+        }),
+        emitted_at_unix_nano: observed_at,
+        metrics,
+        ..Default::default()
+    })
+}
+
+fn rperf_gauge_metric(name: &str, unit: &str) -> Metric {
+    Metric {
+        name: name.to_owned(),
+        metric_type: "rperf".to_owned(),
+        kind: MetricKind::Gauge as i32,
+        temporality: MetricTemporality::Unspecified as i32,
+        unit: unit.to_owned(),
+        tags: entries(&[("metric_family", "rperf")]),
+        ..Default::default()
+    }
+}
+
+fn push_point(metric: &mut Metric, value: f64, observed_at: u64, attrs: &[StringMapEntry]) {
+    metric.points.push(MetricPoint {
+        value,
+        raw_value: value.to_string(),
+        raw_value_type: MetricValueType::Double as i32,
+        observed_at_unix_nano: observed_at,
+        attributes: attrs.to_vec(),
+        ..Default::default()
+    });
+}
+
+fn bool_value(value: bool) -> f64 {
+    if value {
+        1.0
+    } else {
+        0.0
+    }
+}
+
+fn rperf_attrs(target: &str, result: &RPerfResult) -> Vec<StringMapEntry> {
+    let mut attrs = entries(&[("target", target)]);
+    if let Some(error) = result.error.as_deref().filter(|value| !value.is_empty()) {
+        attrs.push(StringMapEntry {
+            key: "error".to_owned(),
+            value: error.to_owned(),
+        });
+    }
+
+    attrs
+}
+
+fn entries(values: &[(&str, &str)]) -> Vec<StringMapEntry> {
+    values
+        .iter()
+        .filter_map(|(key, value)| {
+            let key = key.trim();
+            let value = value.trim();
+            if key.is_empty() || value.is_empty() {
+                None
+            } else {
+                Some(StringMapEntry {
+                    key: key.to_owned(),
+                    value: value.to_owned(),
+                })
+            }
+        })
+        .collect()
+}
+
 #[tonic::async_trait]
 impl RPerfService for RPerfServiceImpl {
     async fn run_test(
@@ -408,12 +594,35 @@ impl AgentService for RPerfServiceImpl {
             }
         };
 
+        let mut metric_samples = Vec::new();
+        for poller in pollers.iter() {
+            if poller_matches_request(poller, &req) {
+                if let Some(last_result) = &poller.last_result {
+                    metric_samples.push(RPerfMetricSample {
+                        target: poller.target_name(),
+                        result: last_result,
+                    });
+                }
+            }
+        }
+
+        if let Some(batch) = rperf_metric_batch(&metric_samples, &req) {
+            let response_time = start_time.elapsed().as_nanos() as i64;
+
+            return Ok(Response::new(monitoring::StatusResponse {
+                available: !metric_samples.is_empty(),
+                message: batch.encode_to_vec(),
+                service_name: req.service_name,
+                service_type: req.service_type,
+                response_time,
+                agent_id: req.agent_id,
+                gateway_id: req.gateway_id,
+            }));
+        }
+
         let mut results = Vec::new();
         for poller in pollers.iter() {
-            if (!req.details.is_empty() && poller.target_name() == req.details)
-                || (!req.service_name.is_empty() && poller.target_name() == req.service_name)
-                || (req.details.is_empty() && req.service_name.is_empty())
-            {
+            if poller_matches_request(poller, &req) {
                 if let Some(last_result) = &poller.last_result {
                     let result_json = serde_json::json!({
                         "target": poller.target_name(),
@@ -466,6 +675,64 @@ impl AgentService for RPerfServiceImpl {
             agent_id: req.agent_id,
             gateway_id: req.gateway_id,
         }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::rperf::RPerfSummary;
+
+    #[test]
+    fn rperf_metric_batch_encodes_canonical_metrics() {
+        let result = RPerfResult {
+            success: true,
+            error: None,
+            results_json: String::new(),
+            summary: RPerfSummary {
+                duration: 10.0,
+                bytes_sent: 1_000,
+                bytes_received: 2_000,
+                bits_per_second: 1_600.0,
+                packets_sent: 10,
+                packets_received: 9,
+                packets_lost: 1,
+                loss_percent: 10.0,
+                jitter_ms: 0.5,
+            },
+        };
+        let req = monitoring::StatusRequest {
+            agent_id: "agent-1".to_owned(),
+            gateway_id: "gateway-1".to_owned(),
+            service_name: "rperf".to_owned(),
+            service_type: "rperf".to_owned(),
+            details: String::new(),
+            port: 0,
+        };
+
+        let batch = rperf_metric_batch(
+            &[RPerfMetricSample {
+                target: "wan-test",
+                result: &result,
+            }],
+            &req,
+        )
+        .expect("metric batch");
+
+        assert_eq!(batch.schema_version, METRIC_SCHEMA_VERSION);
+        assert_eq!(batch.resource.as_ref().unwrap().service_type, "rperf");
+        assert_eq!(
+            batch.ingest_identity.as_ref().unwrap().source,
+            "rperf-metrics"
+        );
+        assert!(batch
+            .metrics
+            .iter()
+            .any(|metric| metric.name == "rperf.bits_per_second"
+                && metric.points[0].value == 1_600.0));
+
+        let decoded = MetricBatch::decode(batch.encode_to_vec().as_slice()).expect("decode batch");
+        assert_eq!(decoded.metrics.len(), batch.metrics.len());
     }
 }
 

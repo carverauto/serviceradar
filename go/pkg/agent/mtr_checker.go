@@ -113,6 +113,14 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 		return false
 	}
 
+	metricStatus, err := p.mtrMetricStatus(results)
+	if err != nil {
+		p.logger.Error().Err(err).Msg("Failed to marshal MTR metric envelope")
+		return false
+	}
+
+	statusChunks[0].Services = append(statusChunks[0].Services, metricStatus)
+
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second) //nolint:mnd
 	defer cancel()
 
@@ -124,6 +132,38 @@ func (p *PushLoop) pushMtrResults(ctx context.Context) bool {
 	p.logger.Info().Int("result_count", len(results)).Msg("Streamed MTR results to gateway")
 
 	return true
+}
+
+func (p *PushLoop) mtrMetricStatus(results []mtrCheckResult) (*proto.GatewayServiceStatus, error) {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
+
+	message, err := marshalMTRMetricEnvelope(results, metricEnvelopeContext{
+		AgentID:   agentID,
+		GatewayID: gatewayID,
+		Partition: partition,
+		KvStoreID: kvStoreID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  mtrServiceName,
+		ServiceType:  mtrServiceType,
+		Available:    true,
+		Message:      message,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    gatewayID,
+		Partition:    partition,
+		Source:       "mtr-metrics",
+		KvStoreId:    kvStoreID,
+	}, nil
 }
 
 func (p *PushLoop) collectDueMtrResults(ctx context.Context) []mtrCheckResult {

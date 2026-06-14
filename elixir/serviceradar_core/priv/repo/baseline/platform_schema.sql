@@ -1148,23 +1148,6 @@ CREATE TABLE platform.cpu_metrics (
 
 
 --
--- Name: cpu_cluster_metrics; Type: TABLE; Schema: platform; Owner: -
---
-
-CREATE TABLE platform.cpu_cluster_metrics (
-    "timestamp" timestamp with time zone NOT NULL,
-    gateway_id text NOT NULL,
-    agent_id text,
-    host_id text,
-    cluster text NOT NULL,
-    frequency_hz double precision,
-    device_id text,
-    partition text,
-    created_at timestamp with time zone DEFAULT now() NOT NULL
-);
-
-
---
 -- Name: _direct_view_23; Type: VIEW; Schema: _timescaledb_internal; Owner: -
 --
 
@@ -7485,14 +7468,6 @@ ALTER TABLE ONLY platform.cpu_metrics
 
 
 --
--- Name: cpu_cluster_metrics cpu_cluster_metrics_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
---
-
-ALTER TABLE ONLY platform.cpu_cluster_metrics
-    ADD CONSTRAINT cpu_cluster_metrics_pkey PRIMARY KEY ("timestamp", gateway_id, cluster);
-
-
---
 -- Name: dashboard_instances dashboard_instances_pkey; Type: CONSTRAINT; Schema: platform; Owner: -
 --
 
@@ -9739,20 +9714,6 @@ CREATE UNIQUE INDEX collector_packages_unique_user_name_index ON platform.collec
 --
 
 CREATE INDEX cpu_metrics_timestamp_idx ON platform.cpu_metrics USING btree ("timestamp" DESC);
-
-
---
--- Name: idx_cpu_cluster_metrics_device; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_cpu_cluster_metrics_device ON platform.cpu_cluster_metrics USING btree (device_id, cluster, "timestamp" DESC) WHERE (device_id IS NOT NULL);
-
-
---
--- Name: idx_cpu_cluster_metrics_timestamp; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX idx_cpu_cluster_metrics_timestamp ON platform.cpu_cluster_metrics USING btree ("timestamp" DESC);
 
 
 --
@@ -12070,13 +12031,6 @@ CREATE INDEX security_events_occurred_at_brin_index ON platform.security_events 
 --
 
 CREATE UNIQUE INDEX service_state_unique_service_identity_index ON platform.service_state USING btree (agent_id, gateway_id, partition, service_type, service_name);
-
-
---
--- Name: service_state_active_plugin_index; Type: INDEX; Schema: platform; Owner: -
---
-
-CREATE INDEX service_state_active_plugin_index ON platform.service_state USING btree (service_type, state, last_observed_at) WHERE ((service_type = 'plugin'::text) AND (state = 'active'::text));
 
 
 --

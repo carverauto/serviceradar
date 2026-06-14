@@ -194,6 +194,11 @@ enum TelemetryPayloadKind {
   // span-derived RED metrics), kept distinct from pass-through OTLP_METRICS
   // so core can route them to the derived-metrics subject.
   TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC = 6;
+  // ServiceRadar-native metric batches produced by non-OTLP collectors.
+  // TelemetryRecord.payload is exactly one encoded
+  // serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
+  // unchanged to metrics.* so core/event_writer owns persistence.
+  TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS = 7;
 }
 
 message TelemetrySource {

@@ -7,6 +7,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateCpuClusterMetrics do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - add_retention_policy only registers a background
+  # retention job on the freshly-created (empty) cpu_cluster_metrics hypertable; no synchronous
+  # data maintenance runs on the first-boot path.
+
   def up do
     execute("""
     CREATE TABLE IF NOT EXISTS #{schema()}.cpu_cluster_metrics (

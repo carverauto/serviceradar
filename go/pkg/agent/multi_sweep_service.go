@@ -414,6 +414,13 @@ func (s *MultiSweepService) GetConfigHash() string {
 
 // GetStatus returns a status response for the most recent sweep group.
 func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	status, _, err := s.GetStatusWithMetricPayload(ctx)
+	return status, err
+}
+
+// GetStatusWithMetricPayload returns the best group status plus typed data for
+// sweep metric envelope construction without reparsing the JSON status payload.
+func (s *MultiSweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.StatusResponse, map[string]any, error) {
 	s.mu.RLock()
 	groupOrder := append([]string(nil), s.groupOrder...)
 	groups := make(map[string]*SweepService, len(s.groups))
@@ -435,10 +442,11 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 			ServiceName:  networkSweepServiceName,
 			ServiceType:  "sweep",
 			ResponseTime: 0,
-		}, nil
+		}, nil, nil
 	}
 
 	var bestStatus *proto.StatusResponse
+	var bestMetricPayload map[string]any
 	var bestLastSweep int64
 
 	for _, groupID := range groupOrder {
@@ -447,14 +455,15 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 			continue
 		}
 
-		status, err := svc.GetStatus(ctx)
+		status, metricPayload, err := svc.GetStatusWithMetricPayload(ctx)
 		if err != nil || status == nil {
 			continue
 		}
 
-		lastSweep := parseLastSweepFromStatus(status.Message)
+		lastSweep := sweepMetricPayloadLastSweep(metricPayload)
 		if bestStatus == nil || lastSweep > bestLastSweep {
 			bestStatus = status
+			bestMetricPayload = metricPayload
 			bestLastSweep = lastSweep
 		}
 	}
@@ -472,10 +481,20 @@ func (s *MultiSweepService) GetStatus(ctx context.Context) (*proto.StatusRespons
 			ServiceName:  networkSweepServiceName,
 			ServiceType:  "sweep",
 			ResponseTime: 0,
-		}, nil
+		}, nil, nil
 	}
 
-	return bestStatus, nil
+	return bestStatus, bestMetricPayload, nil
+}
+
+func sweepMetricPayloadLastSweep(payload map[string]any) int64 {
+	if payload == nil {
+		return 0
+	}
+	if value, ok := intLikeFromAny(payload["last_sweep"]); ok {
+		return value
+	}
+	return 0
 }
 
 func (s *MultiSweepService) GetBannerGrabStats() *models.BannerGrabStats {
@@ -562,25 +581,6 @@ func isSweepGroupScheduleSupported(group SweepGroupConfig, log logger.Logger) bo
 		log.Warn().Str("sweep_group_id", group.SweepGroupID).Str("schedule_type", scheduleType).Msg("Unknown sweep schedule type")
 		return false
 	}
-}
-
-func parseLastSweepFromStatus(message []byte) int64 {
-	if len(message) == 0 {
-		return 0
-	}
-
-	var payload map[string]interface{}
-	if err := json.Unmarshal(message, &payload); err != nil {
-		return 0
-	}
-
-	if value, ok := payload["last_sweep"]; ok {
-		if ts, ok := value.(float64); ok {
-			return int64(ts)
-		}
-	}
-
-	return 0
 }
 
 func (s *MultiSweepService) aggregateSequence() string {

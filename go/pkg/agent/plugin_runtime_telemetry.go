@@ -19,6 +19,7 @@ package agent
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,7 +27,9 @@ import (
 	"time"
 
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 	"github.com/tetratelabs/wazero/api"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 const (
@@ -134,11 +137,11 @@ func decodePluginTelemetry(payload []byte, assignment *pluginAssignment) (Plugin
 	}
 
 	for _, record := range batch.Records {
-		payloadBytes, err := telemetryRecordPayload(record.Payload)
+		payloadKind, err := telemetryPayloadKind(record.PayloadKind)
 		if err != nil {
 			return PluginSignalTelemetry{}, err
 		}
-		payloadKind, err := telemetryPayloadKind(record.PayloadKind)
+		payloadBytes, err := telemetryRecordPayload(record.Payload, payloadKind)
 		if err != nil {
 			return PluginSignalTelemetry{}, err
 		}
@@ -171,10 +174,14 @@ func decodePluginTelemetry(payload []byte, assignment *pluginAssignment) (Plugin
 	}, nil
 }
 
-func telemetryRecordPayload(raw json.RawMessage) ([]byte, error) {
+func telemetryRecordPayload(raw json.RawMessage, kind addonpb.TelemetryPayloadKind) ([]byte, error) {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 {
 		return nil, errPluginTelemetryInvalidPayload
+	}
+
+	if kind == addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS {
+		return telemetryMetricPayload(raw)
 	}
 
 	if raw[0] != '"' {
@@ -193,6 +200,32 @@ func telemetryRecordPayload(raw json.RawMessage) ([]byte, error) {
 	return []byte(text), nil
 }
 
+func telemetryMetricPayload(raw json.RawMessage) ([]byte, error) {
+	if raw[0] != '"' {
+		return nil, fmt.Errorf("%w: serviceradar metric payload must be base64 protobuf bytes", errPluginTelemetryInvalidPayload)
+	}
+
+	var encoded string
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		return nil, fmt.Errorf("%w: %w", errPluginTelemetryInvalidPayload, err)
+	}
+
+	payload, err := base64.StdEncoding.DecodeString(strings.TrimSpace(encoded))
+	if err != nil {
+		return nil, fmt.Errorf("%w: invalid serviceradar metric base64 payload: %w", errPluginTelemetryInvalidPayload, err)
+	}
+
+	var batch metricpb.MetricBatch
+	if err := gproto.Unmarshal(payload, &batch); err != nil {
+		return nil, fmt.Errorf("%w: invalid serviceradar metric protobuf payload: %w", errPluginTelemetryInvalidPayload, err)
+	}
+	if batch.GetSchemaVersion() != metricEnvelopeSchemaVersion || len(batch.GetMetrics()) == 0 {
+		return nil, fmt.Errorf("%w: invalid serviceradar metric batch", errPluginTelemetryInvalidPayload)
+	}
+
+	return payload, nil
+}
+
 func telemetryPayloadKind(value any) (addonpb.TelemetryPayloadKind, error) {
 	switch v := value.(type) {
 	case string:
@@ -201,6 +234,8 @@ func telemetryPayloadKind(value any) (addonpb.TelemetryPayloadKind, error) {
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT, nil
 		case "otel_log", "telemetry_payload_kind_otel_log":
 			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTEL_LOG, nil
+		case "serviceradar_metrics", "telemetry_payload_kind_serviceradar_metrics":
+			return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
 		}
 	case json.Number:
 		i, err := v.Int64()
@@ -229,6 +264,8 @@ func telemetryPayloadKindFromInt(value int64) (addonpb.TelemetryPayloadKind, err
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_METRICS, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC, nil
+	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS:
+		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS, nil
 	case addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED:
 		return addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_UNSPECIFIED,
 			fmt.Errorf("%w: unsupported payload_kind", errPluginTelemetryInvalidPayload)

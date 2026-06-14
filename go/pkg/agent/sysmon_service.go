@@ -63,6 +63,12 @@ const (
 // ErrCollectorNotInitialized is returned when attempting to reconfigure before starting.
 var ErrCollectorNotInitialized = fmt.Errorf("collector not initialized")
 
+type sysmonStatusSummary struct {
+	Available    bool   `json:"available"`
+	ResponseTime int64  `json:"response_time"`
+	Status       string `json:"status"`
+}
+
 // SysmonService wraps the sysmon collector as an agent Service.
 type SysmonService struct {
 	mu        sync.RWMutex
@@ -280,10 +286,10 @@ func (s *SysmonService) GetStatus(ctx context.Context) (*proto.StatusResponse, e
 	// Get latest metrics
 	sample := s.collector.Latest()
 	if sample == nil {
-		// Try a fresh collection
-		var err error
-		sample, err = s.collector.Collect(ctx)
-		if err != nil {
+		// Try a fresh collection. The sample itself is not used here; status JSON
+		// is lightweight and full samples ship via the protobuf metrics envelope.
+		// We only care whether the collection succeeds.
+		if _, err := s.collector.Collect(ctx); err != nil {
 			return &proto.StatusResponse{
 				Available:    false,
 				Message:      []byte(fmt.Sprintf(`{"error": %q}`, err.Error())),
@@ -294,15 +300,12 @@ func (s *SysmonService) GetStatus(ctx context.Context) (*proto.StatusResponse, e
 		}
 	}
 
-	// Build the response payload matching the existing sysmon format
-	payload := struct {
-		Available    bool                 `json:"available"`
-		ResponseTime int64                `json:"response_time"`
-		Status       *sysmon.MetricSample `json:"status"`
-	}{
+	// Status JSON is deliberately lightweight. Full sysmon samples are shipped
+	// only through the protobuf metrics envelope drained by the push loop.
+	payload := sysmonStatusSummary{
 		Available:    true,
 		ResponseTime: time.Since(start).Nanoseconds(),
-		Status:       sample,
+		Status:       "collecting",
 	}
 
 	messageBytes, err := json.Marshal(payload)

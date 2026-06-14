@@ -222,7 +222,7 @@ type SysmonMetricData struct {
 
 // TimeseriesMetric represents a generic timeseries datapoint.
 type TimeseriesMetric struct {
-	GatewayID       string    `json:"gateway_id"` // Unique identifier for the gateway that collected this metric
+	GatewayID      string    `json:"gateway_id"` // Unique identifier for the gateway that collected this metric
 	Name           string    `json:"name"`
 	TargetDeviceIP string    `json:"target_device_ip"` // IP address of the device this metric is for
 	DeviceID       string    `json:"device_id"`        // Device identifier in format "partition:ip"
@@ -232,34 +232,6 @@ type TimeseriesMetric struct {
 	Type           string    `json:"type"`  // Metric type identifier
 	Timestamp      time.Time `json:"timestamp"`
 	Metadata       string    `json:"metadata"`
-}
-
-// SNMPMetric represents an SNMP metric.
-// @Description A metric collected via SNMP, including its value, type, and timestamp.
-type SNMPMetric struct {
-	// The name of the OID (Object Identifier)
-	// @example "sysUpTime"
-	OIDName string `json:"oid_name"`
-
-	// The value of the metric
-	// @example 12345
-	Value interface{} `json:"value"`
-
-	// The type of the value (e.g., integer, string)
-	// @example "integer"
-	ValueType string `json:"value_type"`
-
-	// The time when the metric was collected
-	// @example "2025-04-24T14:15:22Z"
-	Timestamp time.Time `json:"timestamp"`
-
-	// The scale factor applied to the value
-	// @example 1.0
-	Scale float64 `json:"scale"`
-
-	// Whether the metric represents a delta value
-	// @example false
-	IsDelta bool `json:"is_delta"`
 }
 
 // SweepResult represents a single sweep result to be stored.

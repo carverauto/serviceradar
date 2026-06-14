@@ -282,23 +282,13 @@ func TestSweepService_GetStatus_LightweightResponse(t *testing.T) {
 	err = json.Unmarshal(response.Message, &statusData)
 	require.NoError(t, err)
 
-	// Verify lightweight response (no hosts array)
-	assert.InDelta(t, float64(10), statusData["total_hosts"], 0.1)
-	assert.InDelta(t, float64(8), statusData["available_hosts"], 0.1)
+	// Verify lightweight response (no metric-bearing payloads)
+	assert.Equal(t, "collecting", statusData["status"])
 	assert.InDelta(t, float64(5), statusData["sequence"], 0.1)
 	assert.Equal(t, "192.168.1.0/24", statusData["network"])
 
-	// Most importantly: verify hosts array is NOT included in GetStatus
-	_, hasHosts := statusData["hosts"]
-	assert.False(t, hasHosts, "GetStatus should not include hosts array for lightweight response")
-
-	// But ports should still be included for summary statistics
-	ports, hasPorts := statusData["ports"]
-	assert.True(t, hasPorts)
-	assert.NotEmpty(t, ports)
-
-	bannerGrab, hasBannerGrab := statusData["banner_grab"].(map[string]interface{})
-	assert.True(t, hasBannerGrab)
-	assert.InDelta(t, float64(3), bannerGrab["sweep_banner_grab_candidates_total"], 0.1)
-	assert.InDelta(t, float64(1), bannerGrab["sweep_banner_grab_match_batches_total"], 0.1)
+	for _, key := range []string{"hosts", "total_hosts", "available_hosts", "ports", "unique_ips", "banner_grab"} {
+		_, present := statusData[key]
+		assert.False(t, present, "GetStatus should not include %s in the regular status payload", key)
+	}
 }

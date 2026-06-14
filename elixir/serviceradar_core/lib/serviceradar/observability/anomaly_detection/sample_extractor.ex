@@ -4,43 +4,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   """
 
   alias ServiceRadar.EventWriter.Processors.Flows
-  alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.EventWriter.Processors.OtelMetrics
+  alias Serviceradar.Metric.V1.MetricBatch
 
-  @event_id_keys [
-    "event_id",
-    :event_id,
-    "eventId",
-    :eventId,
-    "uuid",
-    :uuid,
-    "uuidv8",
-    :uuidv8,
-    "message_id",
-    :message_id,
-    "messageId",
-    :messageId,
-    "ingress_id",
-    :ingress_id,
-    "ingressId",
-    :ingressId
-  ]
+  require Logger
 
-  @metric_semantic_keys [
-    :kind,
-    :temporality,
-    :is_monotonic,
-    :raw_value,
-    :counter_width,
-    :counter_bits,
-    :pdu_width,
-    :start_time_unix_nano,
-    :reset_anchor,
-    :counter_reset_anchor,
-    :boot_id,
-    :boot_time_unix_nano,
-    :max_counter_rate_per_second
-  ]
+  @schema_version "serviceradar.metric.v1"
+  @max_unix_nano 18_446_744_073_709_551_615
 
   @type sample :: %{
           required(:series_key) => String.t(),
@@ -79,36 +49,356 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
 
   def extract(_message), do: []
 
-  defp extract_metrics(message, subject, ingress_metadata) do
-    case Metrics.parse_message(message) do
-      %{family: family, payload: %{"status" => status}} ->
-        sysmon_samples(family, status, subject, ingress_metadata)
-
-      %{value: value} = row ->
-        metric_class = row[:metric_type] || "timeseries"
-        metadata = row |> merge_ingress_metadata(ingress_metadata) |> lift_metric_semantics()
-
-        "#{metric_class}:#{row[:series_key] || series_identity(row)}"
-        |> build_sample(
-          value,
-          timestamp_nano(row[:timestamp]),
-          subject,
-          metric_class,
-          metadata
-        )
-        |> List.wrap()
+  defp extract_metrics(%{data: data}, subject, ingress_metadata) when is_binary(data) do
+    case decode_metric_batch(data) do
+      {:ok, %MetricBatch{schema_version: @schema_version} = batch} ->
+        metric_batch_samples(batch, subject, ingress_metadata)
 
       _ ->
         []
     end
   end
 
+  defp extract_metrics(_message, _subject, _ingress_metadata), do: []
+
+  defp decode_metric_batch(data) do
+    {:ok, MetricBatch.decode(data)}
+  rescue
+    error -> {:error, error}
+  end
+
+  defp metric_batch_samples(%MetricBatch{} = batch, subject, ingress_metadata) do
+    resource = batch.resource || %{}
+    ingest_identity = batch.ingest_identity || %{}
+    batch_ingress_metadata = batch_ingress_metadata(batch, ingress_metadata)
+
+    batch.metrics
+    |> list_or_empty()
+    |> Enum.reduce([], fn metric, samples ->
+      context = metric_context(batch, resource, ingest_identity, metric, batch_ingress_metadata)
+
+      metric.points
+      |> list_or_empty()
+      |> Enum.reduce(samples, fn point, samples ->
+        case metric_point_sample(context, point, subject) do
+          nil -> samples
+          sample -> [sample | samples]
+        end
+      end)
+    end)
+    |> Enum.reverse()
+  end
+
+  defp metric_context(batch, resource, ingest_identity, metric, ingress_metadata) do
+    metric_tags =
+      metric.tags
+      |> entries_to_map()
+      |> maybe_put_metadata("source", non_empty(ingest_identity.source))
+      |> maybe_put_metadata("payload_kind", non_empty(ingest_identity.payload_kind))
+      |> maybe_put_metadata("producer_id", non_empty(ingest_identity.producer_id))
+      |> maybe_put_metadata("producer_kind", non_empty(ingest_identity.producer_kind))
+
+    metric_class = non_empty(metric.metric_type) || fallback_metric_type(metric)
+
+    common_base =
+      %{
+        gateway_id: non_empty(resource.gateway_id) || "unknown",
+        agent_id: non_empty(resource.agent_id),
+        metric_name: non_empty(metric.name) || "unknown",
+        metric_type: metric_class,
+        device_id: non_empty(resource.device_id),
+        host_id: non_empty(resource.host_id),
+        host_ip: non_empty(resource.host_ip),
+        unit: non_empty(metric.unit),
+        partition: non_empty(resource.partition),
+        scale: scale(metric.scale),
+        is_delta: metric.temporality == :METRIC_TEMPORALITY_DELTA
+      }
+      |> maybe_put_metadata(:schema, batch.schema_version)
+      |> maybe_put_metadata(:kind, metric_kind(metric.kind))
+      |> maybe_put_metadata(:temporality, metric_temporality(metric.temporality))
+      |> maybe_put_metadata(:is_monotonic, metric.is_monotonic)
+      |> maybe_put_metadata(:counter_width, positive_int(metric.counter_width))
+
+    %{
+      common_base: common_base,
+      ingress_metadata: ingress_metadata,
+      metric_class: metric_class,
+      metric_metadata: entries_to_map(metric.metadata),
+      metric_tags: metric_tags,
+      resource: resource
+    }
+  end
+
+  defp metric_point_sample(
+         %{
+           common_base: common_base,
+           ingress_metadata: ingress_metadata,
+           metric_class: metric_class,
+           metric_metadata: metric_metadata,
+           metric_tags: metric_tags,
+           resource: resource
+         },
+         point,
+         subject
+       ) do
+    tags =
+      metric_tags
+      |> merge_entries(point.attributes)
+      |> maybe_put_metadata("interface_uid", non_empty(point.interface_uid))
+
+    nested_metadata = merge_entries(metric_metadata, point.metadata)
+
+    if unidentified_sysmon_sample?(metric_class, resource, point) do
+      nil
+    else
+      timestamp = timestamp_nano(point.observed_at_unix_nano)
+
+      base =
+        common_base
+        |> point_base(point, timestamp, tags, nested_metadata, resource)
+        |> maybe_put_metadata(:raw_value, non_empty(point.raw_value))
+        |> maybe_put_metadata(:raw_value_type, metric_value_type(point.raw_value_type))
+        |> maybe_put_metadata(:start_time_unix_nano, positive_int(point.start_time_unix_nano))
+        |> maybe_put_metadata(:reset_anchor, non_empty(point.reset_anchor))
+
+      # Derive the anomaly series key from gateway-attested typed fields ONLY,
+      # rendered HUMAN-READABLE so verdict titles and the event_live "Series"
+      # field show meaning, not an md5. (The CNPG timeseries_metrics row path in
+      # MetricEnvelope keeps the md5 TimeseriesSeriesKey.build/1 — dashboards
+      # depend on that and it is intentionally left unchanged.)
+      #
+      # point.series_identity_hint is producer-set (proto field 9) and never
+      # attested, so it must never become the canonical key. Keep the hint as
+      # debug-only metadata and log a mismatch so producer drift is observable
+      # without trusting the hint on the anomaly hot path.
+      {identity, unstable?} = resource_series_identity(resource)
+      readable_identity = readable_series_identity(metric_class, base, identity, tags, point)
+      series_key = prefix_series_key(metric_class, readable_identity)
+
+      nested_metadata =
+        nested_metadata
+        |> maybe_record_series_hint(point.series_identity_hint, series_key)
+        |> maybe_tag_instability(unstable?)
+
+      metadata = sample_metadata(nested_metadata, base, ingress_metadata)
+      event_identity = typed_metric_event_identity(ingress_metadata, nested_metadata)
+      order_timestamp = typed_metric_order_timestamp(timestamp, ingress_metadata)
+
+      build_sample(
+        series_key,
+        point.value,
+        timestamp,
+        subject,
+        metric_class,
+        metadata,
+        event_identity,
+        order_timestamp
+      )
+    end
+  end
+
+  # Resource identity for the readable anomaly series key. Mirrors the
+  # network-agnostic preference enforced by unidentified_sysmon_sample?/3:
+  # prefer a STABLE attested id (host_id -> agent_id -> device_id) and only fall
+  # back to host_ip when no stable id exists. A host_ip fallback is flagged
+  # unstable so a DHCP lease change that re-keys the series is observable.
+  defp resource_series_identity(resource) do
+    cond do
+      id = non_empty(resource.host_id) -> {id, false}
+      id = non_empty(resource.agent_id) -> {id, false}
+      id = non_empty(resource.device_id) -> {id, false}
+      id = non_empty(resource.host_ip) -> {id, true}
+      true -> {nil, false}
+    end
+  end
+
+  # Build the human-readable, attested-derived series identity. The shape is
+  #   "<class>:<family>:<resource-identity>[:<dimension>...]"
+  # e.g. "sysmon:cpu:host-a:0", "sysmon:memory:agent-7", "snmp:10.0.0.20:7".
+  # The distinguishing dimensions come ONLY from attested point fields
+  # (core_id/mount_point attributes, if_index typed field, other attested tags),
+  # never from point.series_identity_hint.
+  defp readable_series_identity(metric_class, base, identity, tags, point) do
+    {class_component, family} = class_and_family(metric_class, base.metric_name)
+
+    [class_component, family, identity_component(identity, base)]
+    |> Enum.reject(&is_nil/1)
+    |> Kernel.++(series_dimensions(tags, point))
+    |> Enum.join(":")
+  end
+
+  # The leading class component plus an optional metric family. For sysmon the
+  # producer encodes the family in the metric_type ("sysmon.cpu") or, when only
+  # the bare "sysmon" class is present, in the metric_name prefix
+  # ("memory.used_percent"). For non-sysmon classes the class itself is the
+  # readable prefix and there is no family segment.
+  defp class_and_family(metric_class, metric_name) do
+    case String.split(metric_class, ".", parts: 2) do
+      ["sysmon", family] when family != "" ->
+        {"sysmon", family}
+
+      ["sysmon"] ->
+        {"sysmon", metric_name_family(metric_name)}
+
+      _ ->
+        {metric_class, nil}
+    end
+  end
+
+  defp metric_name_family(metric_name) when is_binary(metric_name) do
+    case String.split(metric_name, ".", parts: 2) do
+      [family, _rest] when family != "" -> family
+      _ -> nil
+    end
+  end
+
+  defp metric_name_family(_metric_name), do: nil
+
+  # Resource identity falls back to the attested target IP (SNMP/ICMP polls
+  # carry no host_id but do carry the polled device IP via target_device_ip) and
+  # finally to "unknown" so a key is always well-formed. Sysmon samples that
+  # reach this point already passed unidentified_sysmon_sample?/3, so they have a
+  # real identity.
+  defp identity_component(nil, base), do: non_empty(Map.get(base, :target_device_ip)) || "unknown"
+
+  defp identity_component(identity, _base), do: identity
+
+  # Distinguishing dimensions from attested point fields, in a stable order so
+  # the readable key is deterministic. core_id/mount_point are the sysmon
+  # per-core / per-mount dimensions; if_index is the SNMP interface dimension;
+  # any remaining attested tag (e.g. an environment sensor) keeps otherwise
+  # identical series distinct. Identity/source/volatile keys are excluded so
+  # they never re-fork or pollute the dimension.
+  # Keys that identify the resource, name the producer, or carry volatile noise
+  # must never appear as a distinguishing dimension: identity keys would re-key
+  # the series per network change, and source/producer keys are constant per
+  # producer. Mirrors the volatile-tag exclusions in TimeseriesSeriesKey.
+  @series_dimension_excluded_keys MapSet.new([
+                                    "host_id",
+                                    "agent_id",
+                                    "device_id",
+                                    "host_ip",
+                                    "host",
+                                    "target",
+                                    "interface_uid",
+                                    "source",
+                                    "payload_kind",
+                                    "producer_id",
+                                    "producer_kind",
+                                    "available",
+                                    "metric",
+                                    "packet_loss"
+                                  ])
+
+  defp series_dimensions(tags, point) do
+    leading =
+      ["core_id", "mount_point"]
+      |> Enum.map(&non_empty(Map.get(tags, &1)))
+      |> Enum.reject(&is_nil/1)
+
+    if_index =
+      case positive_int(point.if_index) do
+        nil -> []
+        value -> [Integer.to_string(value)]
+      end
+
+    used = MapSet.new(["core_id", "mount_point"])
+
+    extra =
+      tags
+      |> Enum.reject(fn {key, value} ->
+        key = to_string(key)
+
+        MapSet.member?(used, key) or MapSet.member?(@series_dimension_excluded_keys, key) or
+          non_empty(value) == nil
+      end)
+      |> Enum.sort_by(&to_string(elem(&1, 0)))
+      |> Enum.map(fn {_key, value} -> normalize_dimension(value) end)
+
+    leading ++ if_index ++ extra
+  end
+
+  defp normalize_dimension(value) when is_binary(value), do: String.trim(value)
+  defp normalize_dimension(value), do: to_string(value)
+
+  # Prefix the readable identity with the metric class so verdicts read
+  # "sysmon.cpu:sysmon:cpu:host-a:0", but skip the prefix when the identity
+  # already starts with it (the bare "sysmon" class case where the readable
+  # identity already begins "sysmon:...") to avoid a doubled "sysmon:sysmon:".
+  defp prefix_series_key(metric_class, readable_identity) do
+    if String.starts_with?(readable_identity, "#{metric_class}:") do
+      readable_identity
+    else
+      "#{metric_class}:#{readable_identity}"
+    end
+  end
+
+  # Record a host_ip-derived (unstable) identity so downstream consumers can
+  # warn that a DHCP lease change may re-key the series. Stored as a string to
+  # match the producer-emitted "host_identity_unstable" metadata.
+  defp maybe_tag_instability(metadata, true),
+    do: Map.put(metadata, "host_identity_unstable", "true")
+
+  defp maybe_tag_instability(metadata, false), do: metadata
+
+  # Optional schema-descriptor keys are stored on common_base only when present
+  # (added there via maybe_put_metadata), so Map.take extracts exactly that
+  # subset. Merging it once reproduces the old per-key maybe_put_metadata chain
+  # without re-fetching/re-putting each value individually.
+  @common_base_descriptor_keys [:schema, :kind, :temporality, :is_monotonic, :counter_width]
+
+  defp point_base(common_base, point, timestamp, tags, nested_metadata, resource) do
+    base = %{
+      gateway_id: common_base.gateway_id,
+      agent_id: common_base.agent_id,
+      metric_name: common_base.metric_name,
+      metric_type: common_base.metric_type,
+      device_id: common_base.device_id,
+      host_id: common_base.host_id,
+      host_ip: common_base.host_ip,
+      unit: common_base.unit,
+      partition: common_base.partition,
+      scale: common_base.scale,
+      is_delta: common_base.is_delta,
+      timestamp: timestamp,
+      value: point.value,
+      tags: tags,
+      target_device_ip: target_device_ip(resource, tags, nested_metadata),
+      if_index: positive_int(point.if_index),
+      metadata: nested_metadata
+    }
+
+    Map.merge(base, Map.take(common_base, @common_base_descriptor_keys))
+  end
+
   defp extract_otel_metrics(message, subject, ingress_metadata) do
     message
     |> OtelMetrics.parse_message()
-    |> List.wrap()
-    |> Enum.flat_map(&otel_sample(&1, subject, ingress_metadata))
+    |> otel_samples(subject, ingress_metadata)
   end
+
+  defp otel_samples(nil, _subject, _ingress_metadata), do: []
+
+  defp otel_samples(rows, subject, ingress_metadata) when is_list(rows) do
+    rows
+    |> Enum.reduce([], fn row, samples ->
+      case otel_sample(row, subject, ingress_metadata) do
+        nil -> samples
+        sample -> [sample | samples]
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp otel_samples(row, subject, ingress_metadata) when is_map(row) do
+    case otel_sample(row, subject, ingress_metadata) do
+      nil -> []
+      sample -> [sample]
+    end
+  end
+
+  defp otel_samples(_row, _subject, _ingress_metadata), do: []
 
   defp extract_flow(message, subject, ingress_metadata) do
     case Flows.parse_message(message) do
@@ -128,117 +418,103 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     end
   end
 
-  defp sysmon_samples("cpu", status, subject, ingress_metadata) do
-    host = host_identity(status)
-
-    status
-    |> Map.get("cpus", [])
-    |> Enum.flat_map(fn cpu ->
-      value = first_number(cpu, ["usage_percent", "usage"])
-      core_id = Map.get(cpu, "core_id", Map.get(cpu, "id", "all"))
-
-      "sysmon:cpu:#{host}:#{core_id}"
-      |> build_sample(
-        value,
-        sysmon_timestamp(status),
-        subject,
-        "sysmon.cpu",
-        merge_ingress_metadata(cpu, ingress_metadata)
-      )
-      |> List.wrap()
-    end)
-  end
-
-  defp sysmon_samples("memory", status, subject, ingress_metadata) do
-    memory = Map.get(status, "memory", %{})
-
-    value =
-      percent_or_number(memory, "used_bytes", "total_bytes", ["usage_percent", "used_percent"])
-
-    "sysmon:memory:#{host_identity(status)}"
-    |> build_sample(
-      value,
-      sysmon_timestamp(status),
-      subject,
-      "sysmon.memory",
-      merge_ingress_metadata(memory, ingress_metadata)
-    )
-    |> List.wrap()
-  end
-
-  defp sysmon_samples("disk", status, subject, ingress_metadata) do
-    host = host_identity(status)
-
-    status
-    |> Map.get("disks", [])
-    |> Enum.flat_map(fn disk ->
-      value =
-        percent_or_number(disk, "used_bytes", "total_bytes", ["usage_percent", "used_percent"])
-
-      mount = Map.get(disk, "mount_point", Map.get(disk, "name", "unknown"))
-
-      "sysmon:disk:#{host}:#{mount}"
-      |> build_sample(
-        value,
-        sysmon_timestamp(status),
-        subject,
-        "sysmon.disk",
-        merge_ingress_metadata(disk, ingress_metadata)
-      )
-      |> List.wrap()
-    end)
-  end
-
-  defp sysmon_samples("process", status, subject, ingress_metadata) do
-    processes = Map.get(status, "processes", [])
-
-    "sysmon:process_count:#{host_identity(status)}"
-    |> build_sample(
-      length(processes),
-      sysmon_timestamp(status),
-      subject,
-      "sysmon.process",
-      merge_ingress_metadata(%{"process_count" => length(processes)}, ingress_metadata)
-    )
-    |> List.wrap()
-  end
-
-  defp sysmon_samples(_family, _status, _subject, _ingress_metadata), do: []
-
   defp otel_sample(%{value: value} = row, subject, ingress_metadata) do
-    "otel:#{row[:service_name]}:#{row[:metric_name]}:#{row[:attributes_hash]}"
-    |> build_sample(
+    build_sample(
+      "otel:#{row[:service_name]}:#{row[:metric_name]}:#{row[:attributes_hash]}",
       value,
       timestamp_nano(row[:timestamp]),
       subject,
       "otel.metric_point",
       merge_ingress_metadata(row, ingress_metadata)
     )
-    |> List.wrap()
   end
 
   defp otel_sample(%{duration_ms: value} = row, subject, ingress_metadata) do
-    "otel:span_duration:#{row[:service_name]}:#{row[:span_name]}:#{row[:span_id]}"
-    |> build_sample(
+    build_sample(
+      "otel:span_duration:#{row[:service_name]}:#{row[:span_name]}:#{row[:span_id]}",
       value,
       timestamp_nano(row[:timestamp]),
       subject,
       "otel.span_duration",
       merge_ingress_metadata(row, ingress_metadata)
     )
-    |> List.wrap()
   end
 
-  defp otel_sample(_row, _subject, _ingress_metadata), do: []
+  defp otel_sample(_row, _subject, _ingress_metadata), do: nil
 
   defp build_sample(_series_key, value, _timestamp, _subject, _metric_class, _metadata)
        when not is_number(value), do: nil
 
   defp build_sample(series_key, value, timestamp, subject, metric_class, metadata) do
+    sample_hash = sample_hash(series_key, timestamp, subject, value)
+    event_identity = explicit_event_identity(metadata)
+    order_timestamp = order_timestamp(timestamp, metadata)
+
+    build_sample(
+      series_key,
+      value,
+      timestamp,
+      subject,
+      metric_class,
+      metadata,
+      event_identity,
+      order_timestamp,
+      sample_hash
+    )
+  end
+
+  defp build_sample(
+         _series_key,
+         value,
+         _timestamp,
+         _subject,
+         _metric_class,
+         _metadata,
+         _event_identity,
+         _order_timestamp
+       )
+       when not is_number(value), do: nil
+
+  defp build_sample(
+         series_key,
+         value,
+         timestamp,
+         subject,
+         metric_class,
+         metadata,
+         event_identity,
+         order_timestamp
+       ) do
+    sample_hash = sample_hash(series_key, timestamp, subject, value)
+
+    build_sample(
+      series_key,
+      value,
+      timestamp,
+      subject,
+      metric_class,
+      metadata,
+      event_identity,
+      order_timestamp,
+      sample_hash
+    )
+  end
+
+  defp build_sample(
+         series_key,
+         value,
+         timestamp,
+         subject,
+         metric_class,
+         metadata,
+         event_identity,
+         order_timestamp,
+         sample_hash
+       ) do
     %{
       series_key: series_key,
-      event_id: event_id(series_key, timestamp, subject, value, metadata),
-      order_key: order_key(series_key, timestamp, subject, value, metadata),
+      event_id: event_id(event_identity, sample_hash),
+      order_key: order_key(event_identity, order_timestamp, timestamp, sample_hash),
       value: value * 1.0,
       observed_at_unix_nano: timestamp,
       subject: subject,
@@ -247,85 +523,35 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     }
   end
 
-  defp first_number(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key ->
-      case Map.get(map, key) do
-        value when is_number(value) -> value
-        _ -> nil
-      end
-    end)
+  defp timestamp_nano(%DateTime{} = datetime) do
+    datetime
+    |> DateTime.to_unix(:nanosecond)
+    |> valid_unix_nano()
   end
 
-  defp first_number(_map, _keys), do: nil
-
-  defp percent_or_number(map, used_key, total_key, fallback_keys) do
-    case {Map.get(map, used_key), Map.get(map, total_key)} do
-      {used, total} when is_number(used) and is_number(total) and total > 0 ->
-        used * 100.0 / total
-
-      _ ->
-        first_number(map, fallback_keys)
-    end
-  end
-
-  defp series_identity(row) do
-    Enum.map_join(
-      [
-        row[:agent_id],
-        row[:gateway_id],
-        row[:target_device_ip],
-        row[:if_index],
-        row[:metric_name]
-      ],
-      ":",
-      &to_string/1
-    )
-  end
-
-  defp host_identity(status) do
-    Map.get(status, "host_id") || Map.get(status, "host_ip") || Map.get(status, "agent_id") ||
-      "unknown"
-  end
-
-  defp sysmon_timestamp(status), do: timestamp_nano(Map.get(status, "timestamp"))
-
-  defp timestamp_nano(%DateTime{} = datetime), do: DateTime.to_unix(datetime, :nanosecond)
-
-  defp timestamp_nano(value) when is_integer(value) and value >= 0, do: value
+  defp timestamp_nano(value) when is_integer(value), do: valid_unix_nano(value)
 
   defp timestamp_nano(value) when is_binary(value) do
     case DateTime.from_iso8601(value) do
-      {:ok, datetime, _offset} -> DateTime.to_unix(datetime, :nanosecond)
+      {:ok, datetime, _offset} -> timestamp_nano(datetime)
       _ -> nil
     end
   end
 
   defp timestamp_nano(_value), do: nil
 
-  defp ingress_metadata(%{data: data, metadata: metadata}) do
-    data
-    |> ingress_metadata_from_payload()
-    |> Map.merge(ingress_metadata_from_headers(metadata_headers(metadata)))
+  defp valid_unix_nano(value) when is_integer(value) and value >= 0 and value <= @max_unix_nano,
+    do: value
+
+  defp valid_unix_nano(_value), do: nil
+
+  defp ingress_metadata(%{metadata: metadata}) do
+    metadata
+    |> metadata_headers()
+    |> ingress_metadata_from_headers()
   end
 
   defp ingress_metadata(_message), do: %{}
-
-  defp ingress_metadata_from_payload(data) when is_binary(data) do
-    case Jason.decode(data) do
-      {:ok, %{} = payload} ->
-        %{}
-        |> maybe_put_metadata("ingress_id", non_empty_string(Map.get(payload, "ingress_id")))
-        |> maybe_put_metadata(
-          "ingress_timestamp_unix_nano",
-          parse_non_negative_integer(Map.get(payload, "ingress_timestamp_unix_nano"))
-        )
-
-      _ ->
-        %{}
-    end
-  end
-
-  defp ingress_metadata_from_payload(_data), do: %{}
 
   defp ingress_metadata_from_headers(headers) do
     %{}
@@ -339,49 +565,144 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   defp metadata_headers(metadata) when is_map(metadata), do: Map.get(metadata, :headers)
   defp metadata_headers(_metadata), do: nil
 
+  defp batch_ingress_metadata(batch, ingress_metadata) do
+    %{}
+    |> maybe_put_metadata("ingress_id", non_empty(batch.ingress_id))
+    |> maybe_put_metadata(
+      "ingress_timestamp_unix_nano",
+      positive_int(batch.ingress_timestamp_unix_nano)
+    )
+    |> Map.merge(ingress_metadata)
+  end
+
+  defp typed_metric_event_identity(%{"ingress_id" => ingress_id}, _metadata)
+       when is_binary(ingress_id) and ingress_id != "", do: {:ingress_id, ingress_id}
+
+  defp typed_metric_event_identity(_ingress_metadata, metadata),
+    do: explicit_event_identity(metadata)
+
+  defp typed_metric_order_timestamp(_timestamp, %{
+         "ingress_timestamp_unix_nano" => ingress_timestamp
+       })
+       when is_integer(ingress_timestamp), do: ingress_timestamp
+
+  defp typed_metric_order_timestamp(timestamp, _ingress_metadata), do: timestamp || 0
+
+  defp sample_metadata(nested_metadata, base, ingress_metadata) do
+    metadata =
+      if map_size(nested_metadata) == 0 do
+        base
+      else
+        Map.merge(nested_metadata, base)
+      end
+
+    if map_size(ingress_metadata) == 0 do
+      metadata
+    else
+      Map.merge(metadata, ingress_metadata)
+    end
+  end
+
+  defp list_or_empty(value) when is_list(value), do: value
+  defp list_or_empty(_value), do: []
+
+  defp entries_to_map([]), do: %{}
+
+  defp entries_to_map(entries) when is_list(entries) do
+    Map.new(entries, fn entry -> {entry.key, entry.value} end)
+  end
+
+  defp entries_to_map(_entries), do: %{}
+
+  defp merge_entries(map, entries) when is_map(map) and is_list(entries) do
+    case entries do
+      [] -> map
+      _ -> Map.merge(map, entries_to_map(entries))
+    end
+  end
+
+  defp merge_entries(map, _entries) when is_map(map), do: map
+
+  defp target_device_ip(resource, tags, metadata) do
+    # Prefer IP-bearing keys before the logical target name. The producer sets
+    # tags["host"] to the polled IP and tags["target"] to the logical name, so
+    # tags["target"] must be the LAST fallback or it shadows the real IP.
+    non_empty(resource.target_device_ip) ||
+      non_empty(Map.get(tags, "host")) ||
+      non_empty(Map.get(metadata, "target_device_ip")) ||
+      non_empty(Map.get(tags, "target"))
+  end
+
+  # Admit/drop is based ONLY on gateway-attested resource identity. The
+  # producer-set point.series_identity_hint (never attested) must not appear
+  # here, or a spoofed hint could rescue an identity-less sample past the
+  # anti-spoof guard. `point` is retained in the signature to keep callers
+  # unchanged.
+  defp unidentified_sysmon_sample?(metric_class, resource, _point) do
+    String.starts_with?(metric_class, "sysmon.") and
+      is_nil(non_empty(resource.agent_id)) and is_nil(non_empty(resource.device_id)) and
+      is_nil(non_empty(resource.host_id)) and is_nil(non_empty(resource.host_ip))
+  end
+
+  # Keep the producer-set hint only as debug metadata; never trust it as the
+  # canonical key. Log when it disagrees with the attested-field-derived key so
+  # producer drift is observable.
+  defp maybe_record_series_hint(metadata, hint, series_key) do
+    case non_empty(hint) do
+      nil ->
+        metadata
+
+      hint when hint != series_key ->
+        Logger.debug("sample extractor series_identity_hint disagrees with derived key",
+          hint: hint,
+          series_key: series_key
+        )
+
+        Map.put_new(metadata, "series_identity_hint", hint)
+
+      hint ->
+        Map.put_new(metadata, "series_identity_hint", hint)
+    end
+  end
+
+  defp fallback_metric_type(%{kind: :METRIC_KIND_SUM}), do: "sum"
+  defp fallback_metric_type(%{kind: :METRIC_KIND_HISTOGRAM}), do: "histogram"
+  defp fallback_metric_type(_metric), do: "gauge"
+
+  defp metric_kind(:METRIC_KIND_GAUGE), do: "gauge"
+  defp metric_kind(:METRIC_KIND_SUM), do: "sum"
+  defp metric_kind(:METRIC_KIND_HISTOGRAM), do: "histogram"
+  defp metric_kind(_kind), do: nil
+
+  defp metric_temporality(:METRIC_TEMPORALITY_DELTA), do: "delta"
+  defp metric_temporality(:METRIC_TEMPORALITY_CUMULATIVE), do: "cumulative"
+  defp metric_temporality(_temporality), do: nil
+
+  defp metric_value_type(:METRIC_VALUE_TYPE_DOUBLE), do: "double"
+  defp metric_value_type(:METRIC_VALUE_TYPE_INT64), do: "int64"
+  defp metric_value_type(:METRIC_VALUE_TYPE_UINT64), do: "uint64"
+  defp metric_value_type(:METRIC_VALUE_TYPE_BOOL), do: "bool"
+  defp metric_value_type(:METRIC_VALUE_TYPE_STRING), do: "string"
+  defp metric_value_type(_type), do: nil
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value), do: nil
+
+  defp scale(value) when is_number(value) and value != 0, do: value
+  defp scale(_value), do: nil
+
+  defp non_empty(value) when is_binary(value) and value != "", do: value
+  defp non_empty(_value), do: nil
+
   defp merge_ingress_metadata(metadata, ingress_metadata)
        when is_map(metadata) and map_size(ingress_metadata) > 0,
        do: Map.merge(metadata, ingress_metadata)
 
   defp merge_ingress_metadata(metadata, _ingress_metadata), do: metadata
 
-  defp lift_metric_semantics(metadata) when is_map(metadata) do
-    nested_metadata = metadata_map(Map.get(metadata, :metadata) || Map.get(metadata, "metadata"))
-
-    Enum.reduce(@metric_semantic_keys, metadata, fn key, acc ->
-      case Map.get(acc, key) || Map.get(acc, Atom.to_string(key)) ||
-             Map.get(nested_metadata, key) || Map.get(nested_metadata, Atom.to_string(key)) do
-        nil -> acc
-        value -> Map.put_new(acc, key, value)
-      end
-    end)
-  end
-
-  defp lift_metric_semantics(metadata), do: metadata
-
-  defp metadata_map(value) when is_map(value), do: value
-  defp metadata_map(_value), do: %{}
-
-  defp event_id(series_key, timestamp, subject, value, metadata) do
-    sample_hash = stable_hash([series_key, timestamp, subject, value])
-
-    case explicit_event_identity(metadata) do
-      {:ingress_id, ingress_id} -> "#{ingress_id}:#{sample_hash}"
-      {:event_id, event_id} -> event_id
-      nil -> sample_hash
-    end
-  end
-
-  defp order_key(series_key, timestamp, subject, value, metadata) do
-    sample_hash = stable_hash([series_key, timestamp, subject, value])
-
-    order_key(
-      explicit_event_identity(metadata),
-      order_timestamp(timestamp, metadata),
-      timestamp,
-      sample_hash
-    )
-  end
+  defp event_id({:ingress_id, ingress_id}, sample_hash), do: "#{ingress_id}:#{sample_hash}"
+  defp event_id({:event_id, event_id}, _sample_hash), do: event_id
+  defp event_id(nil, sample_hash), do: sample_hash
 
   defp order_key({:ingress_id, ingress_id}, order_timestamp, timestamp, sample_hash) do
     {order_timestamp, ingress_id, timestamp || 0, sample_hash}
@@ -396,32 +717,59 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   end
 
   defp explicit_event_identity(metadata) when is_map(metadata) do
-    Enum.find_value(@event_id_keys, fn key ->
+    cond do
+      value =
+          non_empty_binary_value(metadata, [:ingress_id, "ingress_id", :ingressId, "ingressId"]) ->
+        {:ingress_id, value}
+
+      value = non_empty_binary_value(metadata, [:event_id, "event_id", :eventId, "eventId"]) ->
+        {:event_id, value}
+
+      value = non_empty_binary_value(metadata, [:uuid, "uuid", :uuidv8, "uuidv8"]) ->
+        {:event_id, value}
+
+      value =
+          non_empty_binary_value(metadata, [:message_id, "message_id", :messageId, "messageId"]) ->
+        {:event_id, value}
+
+      true ->
+        nil
+    end
+  end
+
+  defp explicit_event_identity(_metadata), do: nil
+
+  defp non_empty_binary_value(metadata, aliases) do
+    Enum.find_value(aliases, fn key ->
       case Map.get(metadata, key) do
-        value when is_binary(value) and value != "" -> {event_id_key_type(key), value}
+        value when is_binary(value) and value != "" -> value
         _ -> nil
       end
     end)
   end
-
-  defp event_id_key_type(key) when key in ["ingress_id", :ingress_id, "ingressId", :ingressId],
-    do: :ingress_id
-
-  defp event_id_key_type(_key), do: :event_id
 
   defp order_timestamp(timestamp, metadata) do
     ingress_timestamp(metadata) || timestamp || 0
   end
 
   defp ingress_timestamp(metadata) when is_map(metadata) do
-    Map.get(metadata, "ingress_timestamp_unix_nano") ||
-      Map.get(metadata, :ingress_timestamp_unix_nano)
+    Map.get(metadata, :ingress_timestamp_unix_nano) ||
+      Map.get(metadata, "ingress_timestamp_unix_nano") ||
+      Map.get(metadata, :ingressTimestampUnixNano) ||
+      Map.get(metadata, "ingressTimestampUnixNano")
   end
 
-  defp stable_hash(parts) do
-    parts
-    |> Enum.map_join("|", &to_string/1)
-    |> then(&:crypto.hash(:sha256, &1))
+  defp sample_hash(series_key, timestamp, subject, value) do
+    :sha256
+    |> :crypto.hash([
+      to_string(series_key),
+      ?|,
+      to_string(timestamp),
+      ?|,
+      to_string(subject),
+      ?|,
+      to_string(value)
+    ])
     |> Base.encode16(case: :lower)
   end
 

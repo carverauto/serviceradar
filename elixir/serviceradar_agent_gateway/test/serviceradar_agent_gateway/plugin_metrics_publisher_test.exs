@@ -1,6 +1,13 @@
 defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
   use ExUnit.Case, async: false
 
+  alias Serviceradar.Agent.Addon.V1.TelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
   alias ServiceRadarAgentGateway.PluginMetricsPublisher
 
   setup do
@@ -19,64 +26,91 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     :ok
   end
 
-  test "publishes structured plugin result metrics as generic scalar metrics" do
+  test "publishes native add-on metric batches with gateway-attested identity" do
     Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.timeseries",
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(plugin_status())
+    payload = metric_batch_payload()
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(addon_status(payload))
 
-    assert_receive {:published, "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max", payload, opts}
+    assert_receive {:published, "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max", published_payload, opts}
 
-    assert %{
-             "schema" => "serviceradar.metric.v1",
-             "source" => "plugin-result",
-             "timestamp" => "2026-06-13T18:20:00Z",
-             "gateway_id" => "gateway-1",
-             "agent_id" => "agent-1",
-             "partition" => "default",
-             "metric_name" => "proxmox_guest_cpu_ratio_max",
-             "metric_type" => "cpu",
-             "value" => 0.91,
-             "unit" => "ratio",
-             "tags" => %{
-               "producer_id" => "proxmox-inventory",
-               "producer_kind" => "plugin_result",
-               "service_type" => "wasm-plugin"
-             },
-             "metadata" => %{
-               "crit" => 0.9,
-               "original_metric_name" => "proxmox_guest_cpu_ratio_max",
-               "producer_id" => "proxmox-inventory",
-               "producer_kind" => "plugin_result",
-               "service_name" => "proxmox-inventory",
-               "status" => "WARNING",
-               "summary" => "resource pressure",
-               "warn" => 0.8
-             },
-             "ingress_id" => ingress_id,
-             "ingress_timestamp_unix_nano" => ingress_timestamp
-           } = Jason.decode!(payload)
+    refute published_payload == payload
 
-    assert ingress_id =~ uuidv8_pattern()
-    assert is_integer(ingress_timestamp)
+    decoded = MetricBatch.decode(published_payload)
+    assert decoded.schema_version == "serviceradar.metric.v1"
+    assert decoded.resource.agent_id == "agent-1"
+    assert decoded.resource.gateway_id == "gateway-1"
+    assert decoded.resource.partition == "default"
+    assert decoded.resource.service_name == "proxmox-inventory"
+    assert decoded.resource.service_type == "native-addon"
+    assert decoded.ingest_identity.source == "native-addon"
+    assert decoded.ingest_identity.payload_kind == "serviceradar.metric.v1"
+    assert decoded.ingest_identity.producer_id == "proxmox-inventory"
+    assert decoded.ingest_identity.producer_kind == "native-addon"
+    assert decoded.ingest_identity.attested_by == "gateway-1"
+    assert decoded.ingress_id =~ uuidv8_pattern()
+    assert decoded.ingress_timestamp_unix_nano > 0
+    assert decoded.metrics |> hd() |> Map.get(:kind) == :METRIC_KIND_GAUGE
+    assert decoded.metrics |> hd() |> Map.get(:points) |> hd() |> Map.get(:value) == 0.91
     assert ingress_headers(opts)
   end
 
-  test "skips plugin results without structured metrics" do
+  test "publishes wasm plugin metric batches with plugin attestation" do
     Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.timeseries",
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :ok =
-             PluginMetricsPublisher.publish_plugin_metrics(%{
-               plugin_status()
-               | message: Jason.encode!(%{"status" => "OK", "summary" => "inventory only"})
-             })
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(plugin_status(metric_batch_payload()))
+
+    assert_receive {:published, "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max", published_payload, _opts}
+
+    decoded = MetricBatch.decode(published_payload)
+    assert decoded.resource.service_name == "proxmox-inventory"
+    assert decoded.resource.service_type == "wasm-plugin"
+    assert decoded.ingest_identity.source == "wasm-plugin"
+    assert decoded.ingest_identity.producer_kind == "wasm-plugin"
+  end
+
+  test "skips non-metric native add-on telemetry records" do
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.timeseries",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    message =
+      TelemetryBatch.encode(%TelemetryBatch{
+        records: [
+          %TelemetryRecord{
+            event_id: "event-1",
+            payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+            payload: "{}"
+          }
+        ]
+      })
+
+    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(addon_status(message))
+
+    refute_receive {:published, _subject, _payload, _opts}
+  end
+
+  test "rejects legacy JSON plugin metric payloads" do
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.timeseries",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert {:error, :invalid_plugin_metric_telemetry} =
+             PluginMetricsPublisher.publish_plugin_metrics(
+               addon_status(Jason.encode!(%{"metrics" => [%{"name" => "cpu", "value" => 1}]}))
+             )
 
     refute_receive {:published, _subject, _payload, _opts}
   end
@@ -87,7 +121,7 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :disabled = PluginMetricsPublisher.publish_plugin_metrics(plugin_status())
+    assert :disabled = PluginMetricsPublisher.publish_plugin_metrics(addon_status(metric_batch_payload()))
     refute_receive {:published, _subject, _payload, _opts}
   end
 
@@ -99,102 +133,9 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     )
 
     assert {:error, {:publish_failed, failures}} =
-             PluginMetricsPublisher.publish_plugin_metrics(plugin_status())
+             PluginMetricsPublisher.publish_plugin_metrics(plugin_status(metric_batch_payload()))
 
     assert {"metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max", :nats_down} in failures
-  end
-
-  test "carries producer-declared OTLP-grade semantics into the v2 envelope" do
-    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
-      enabled: true,
-      subject_prefix: "metrics.timeseries",
-      connection: __MODULE__.ConnectionStub
-    )
-
-    status = %{
-      plugin_status()
-      | message:
-          Jason.encode!(%{
-            "status" => "OK",
-            "metrics" => [
-              %{
-                "name" => "net_bytes_total",
-                "value" => 4_000_000_000,
-                "unit" => "By",
-                "kind" => "sum",
-                "temporality" => "cumulative",
-                "is_monotonic" => true
-              }
-            ]
-          })
-    }
-
-    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(status)
-    assert_receive {:published, _subject, payload, _opts}
-
-    assert %{
-             "schema" => "serviceradar.metric.v1",
-             "schema_version" => 2,
-             "kind" => "sum",
-             "temporality" => "cumulative",
-             "is_monotonic" => true
-           } = Jason.decode!(payload)
-  end
-
-  test "stamps schema_version 1 for legacy flat plugin metrics" do
-    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
-      enabled: true,
-      subject_prefix: "metrics.timeseries",
-      connection: __MODULE__.ConnectionStub
-    )
-
-    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(plugin_status())
-    assert_receive {:published, _subject, payload, _opts}
-    decoded = Jason.decode!(payload)
-    assert decoded["schema_version"] == 1
-
-    # Legacy v1 envelopes must be genuinely absent the OTLP-grade keys, not carry
-    # them as JSON null (fj #3788 REC1 review).
-    for key <- ["kind", "temporality", "is_monotonic", "start_time_unix_nano"] do
-      refute Map.has_key?(decoded, key)
-    end
-  end
-
-  test "surfaces dropped metrics via telemetry instead of dropping them silently" do
-    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher,
-      enabled: true,
-      subject_prefix: "metrics.timeseries",
-      connection: __MODULE__.ConnectionStub
-    )
-
-    test_pid = self()
-    handler_id = "plugin-metrics-drop-#{System.unique_integer([:positive])}"
-
-    :telemetry.attach(
-      handler_id,
-      [:serviceradar, :agent_gateway, :plugin_metrics, :dropped],
-      fn _event, measurements, metadata, _config ->
-        send(test_pid, {:dropped, measurements, metadata})
-      end,
-      nil
-    )
-
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-
-    status = %{
-      plugin_status()
-      | message:
-          Jason.encode!(%{
-            "status" => "OK",
-            "metrics" => [%{"name" => "bad_metric", "value" => "not-a-number"}]
-          })
-    }
-
-    assert :ok = PluginMetricsPublisher.publish_plugin_metrics(status)
-
-    assert_receive {:dropped, %{count: 1}, %{reason: :non_numeric_value, service_name: "proxmox-inventory"}}
-
-    refute_receive {:published, _subject, _payload, _opts}
   end
 
   defmodule ConnectionStub do
@@ -219,32 +160,79 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     def publish(_subject, _payload, _opts), do: {:error, :nats_down}
   end
 
-  defp plugin_status do
+  defp addon_status(message) do
     %{
       service_name: "proxmox-inventory",
-      service_type: "wasm-plugin",
-      source: "plugin-result",
+      service_type: "native-addon",
+      source: "addon:proxmox-inventory",
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       partition: "default",
       timestamp: 1_765_500_000_000_000_000,
       agent_timestamp: 1_765_499_999_000_000_000,
-      message:
-        Jason.encode!(%{
-          "status" => "WARNING",
-          "summary" => "resource pressure",
-          "observed_at" => "2026-06-13T18:20:00Z",
-          "metrics" => [
-            %{
-              "name" => "proxmox_guest_cpu_ratio_max",
-              "value" => 0.91,
-              "unit" => "ratio",
-              "warn" => 0.8,
-              "crit" => 0.9
-            }
-          ]
-        })
+      message: message
     }
+  end
+
+  defp plugin_status(message) do
+    %{
+      service_name: "proxmox-inventory",
+      service_type: "wasm-plugin",
+      source: "plugin:proxmox-inventory",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      timestamp: 1_765_500_000_000_000_000,
+      agent_timestamp: 1_765_499_999_000_000_000,
+      message: message
+    }
+  end
+
+  defp metric_batch_payload do
+    metric_payload =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        resource: %MetricResource{
+          agent_id: "spoofed-agent",
+          gateway_id: "spoofed-gateway",
+          partition: "spoofed-partition",
+          service_name: "spoofed-service",
+          service_type: "spoofed-type"
+        },
+        ingest_identity: %IngestIdentity{
+          source: "spoofed-source",
+          payload_kind: "spoofed-payload",
+          producer_id: "spoofed-producer",
+          producer_kind: "spoofed-kind",
+          attested_by: "spoofed-attestor"
+        },
+        metrics: [
+          %Metric{
+            name: "proxmox_guest_cpu_ratio_max",
+            metric_type: "cpu",
+            kind: :METRIC_KIND_GAUGE,
+            unit: "ratio",
+            points: [
+              %MetricPoint{
+                value: 0.91,
+                observed_at_unix_nano: 1_765_500_000_000_000_000
+              }
+            ]
+          }
+        ]
+      })
+
+    TelemetryBatch.encode(%TelemetryBatch{
+      records: [
+        %TelemetryRecord{
+          event_id: "event-1",
+          event_time_unix_nano: 1_765_500_000_000_000_000,
+          observed_time_unix_nano: 1_765_500_000_000_000_000,
+          payload_kind: :TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS,
+          payload: metric_payload
+        }
+      ]
+    })
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
@@ -262,6 +250,7 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisherTest do
     assert headers["Sr-Gateway-Id"] == "gateway-1"
     assert headers["Sr-Partition"] == "default"
     assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+    assert headers["Nats-Msg-Id"] == "event-1"
   end
 
   defp uuidv8_pattern do

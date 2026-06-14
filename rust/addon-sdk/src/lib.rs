@@ -53,9 +53,15 @@ pub mod pb {
     tonic::include_proto!("serviceradar.agent.addon.v1");
 }
 
+/// Generated prost stubs for the canonical ServiceRadar metric envelope.
+pub mod metric_pb {
+    pub use serviceradar_metric_proto::pb::*;
+}
+
 use std::pin::Pin;
 
 use async_trait::async_trait;
+use prost::Message;
 use tokio_stream::Stream;
 
 pub use server::serve;
@@ -85,6 +91,7 @@ pub const SIGNAL_SCHEMA_METADATA_DISPLAY_CONTRACT: &str =
     "serviceradar.signal_schema.display_contract";
 pub const SIGNAL_SCHEMA_METADATA_SIGNAL_TYPE: &str = "serviceradar.signal_schema.signal_type";
 pub const SIGNAL_SCHEMA_METADATA_PAYLOAD_KIND: &str = "serviceradar.signal_schema.payload_kind";
+pub const METRIC_ENVELOPE_SCHEMA_VERSION: &str = "serviceradar.metric.v1";
 
 /// Stream item type used by [`Addon::stream_telemetry`].
 pub type TelemetryStream =
@@ -232,6 +239,43 @@ pub fn ocsf_event_record(
         event_time_unix_nano,
         payload_kind: pb::TelemetryPayloadKind::OcsfEvent as i32,
         payload: payload.into(),
+        metadata: Default::default(),
+    }
+}
+
+/// Builds one ServiceRadar-native metric telemetry record.
+///
+/// The returned record carries an encoded `serviceradar.metric.v1.MetricBatch`
+/// payload. Add-ons should use this for non-OTLP metrics; raw OTLP metrics stay
+/// on the OTLP relay payload kinds.
+pub fn serviceradar_metric_record(
+    event_id: impl Into<String>,
+    event_time_unix_nano: i64,
+    observed_time_unix_nano: i64,
+    mut batch: metric_pb::MetricBatch,
+) -> pb::TelemetryRecord {
+    if batch.schema_version.is_empty() {
+        batch.schema_version = METRIC_ENVELOPE_SCHEMA_VERSION.to_owned();
+    }
+    match &mut batch.ingest_identity {
+        Some(identity) if identity.payload_kind.is_empty() => {
+            identity.payload_kind = METRIC_ENVELOPE_SCHEMA_VERSION.to_owned();
+        }
+        None => {
+            batch.ingest_identity = Some(metric_pb::IngestIdentity {
+                payload_kind: METRIC_ENVELOPE_SCHEMA_VERSION.to_owned(),
+                ..Default::default()
+            });
+        }
+        _ => {}
+    }
+
+    pb::TelemetryRecord {
+        event_id: event_id.into(),
+        observed_time_unix_nano,
+        event_time_unix_nano,
+        payload_kind: pb::TelemetryPayloadKind::ServiceradarMetrics as i32,
+        payload: batch.encode_to_vec(),
         metadata: Default::default(),
     }
 }
@@ -466,5 +510,102 @@ mod tests {
         };
         let ack = pb::OtlpRelayAck { acked_relay_id: 42 };
         assert_eq!(ack.acked_relay_id, frame.relay_id);
+    }
+
+    #[test]
+    fn serviceradar_metric_record_wraps_metric_batch() {
+        let record = serviceradar_metric_record(
+            "evt-1",
+            123,
+            456,
+            metric_pb::MetricBatch {
+                resource: Some(metric_pb::MetricResource {
+                    agent_id: "agent-1".to_owned(),
+                    service_name: "sample-native-addon".to_owned(),
+                    service_type: "native-addon".to_owned(),
+                    attributes: vec![metric_pb::StringMapEntry {
+                        key: "rack".to_owned(),
+                        value: "rack-7".to_owned(),
+                    }],
+                    ..Default::default()
+                }),
+                ingest_identity: Some(metric_pb::IngestIdentity {
+                    source: "native-addon".to_owned(),
+                    producer_id: "sample-native-addon".to_owned(),
+                    producer_kind: "native-addon".to_owned(),
+                    ..Default::default()
+                }),
+                metrics: vec![
+                    metric_pb::Metric {
+                        name: "cpu.temperature_celsius".to_owned(),
+                        metric_type: "cpu".to_owned(),
+                        kind: metric_pb::MetricKind::Gauge as i32,
+                        unit: "Cel".to_owned(),
+                        points: vec![metric_pb::MetricPoint {
+                            value: 62.5,
+                            observed_at_unix_nano: 456,
+                            attributes: vec![metric_pb::StringMapEntry {
+                                key: "sensor".to_owned(),
+                                value: "cpu0".to_owned(),
+                            }],
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                    metric_pb::Metric {
+                        name: "network.bytes_total".to_owned(),
+                        metric_type: "interface".to_owned(),
+                        kind: metric_pb::MetricKind::Sum as i32,
+                        temporality: metric_pb::MetricTemporality::Cumulative as i32,
+                        is_monotonic: true,
+                        points: vec![metric_pb::MetricPoint {
+                            value: 987.0,
+                            raw_value: "987".to_owned(),
+                            raw_value_type: metric_pb::MetricValueType::Uint64 as i32,
+                            observed_at_unix_nano: 456,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            },
+        );
+
+        assert_eq!(
+            record.payload_kind,
+            pb::TelemetryPayloadKind::ServiceradarMetrics as i32
+        );
+        assert_eq!(record.event_id, "evt-1");
+        assert_eq!(record.event_time_unix_nano, 123);
+        assert_eq!(record.observed_time_unix_nano, 456);
+
+        let decoded = metric_pb::MetricBatch::decode(record.payload.as_slice())
+            .expect("metric batch decodes");
+        assert_eq!(decoded.schema_version, METRIC_ENVELOPE_SCHEMA_VERSION);
+        assert_eq!(
+            decoded
+                .ingest_identity
+                .as_ref()
+                .expect("ingest identity")
+                .payload_kind,
+            METRIC_ENVELOPE_SCHEMA_VERSION
+        );
+        assert_eq!(
+            decoded.resource.as_ref().expect("resource").attributes[0].key,
+            "rack"
+        );
+        assert_eq!(decoded.metrics[0].points[0].attributes[0].value, "cpu0");
+        assert_eq!(decoded.metrics[0].kind, metric_pb::MetricKind::Gauge as i32);
+        assert_eq!(decoded.metrics[1].kind, metric_pb::MetricKind::Sum as i32);
+        assert_eq!(
+            decoded.metrics[1].temporality,
+            metric_pb::MetricTemporality::Cumulative as i32
+        );
+        assert!(decoded.metrics[1].is_monotonic);
+        assert_eq!(
+            decoded.metrics[1].points[0].raw_value_type,
+            metric_pb::MetricValueType::Uint64 as i32
+        );
     }
 }

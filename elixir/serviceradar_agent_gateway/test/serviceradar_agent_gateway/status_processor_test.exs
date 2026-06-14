@@ -12,8 +12,20 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_snmp_publisher =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_module)
 
+    previous_icmp_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :icmp_metrics_publisher_module)
+
     previous_plugin_publisher =
       Application.get_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_module)
+
+    previous_rperf_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :rperf_metrics_publisher_module)
+
+    previous_mtr_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :mtr_metrics_publisher_module)
+
+    previous_sweep_publisher =
+      Application.get_env(:serviceradar_agent_gateway, :sweep_metrics_publisher_module)
 
     previous_otlp_publisher =
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_module)
@@ -24,8 +36,20 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     previous_snmp_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid)
 
+    previous_icmp_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :icmp_metrics_publisher_test_pid)
+
     previous_plugin_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid)
+
+    previous_rperf_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :rperf_metrics_publisher_test_pid)
+
+    previous_mtr_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :mtr_metrics_publisher_test_pid)
+
+    previous_sweep_test_pid =
+      Application.get_env(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid)
 
     previous_otlp_test_pid =
       Application.get_env(:serviceradar_agent_gateway, :otlp_relay_publisher_test_pid)
@@ -51,11 +75,19 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
       restore_env(:sysmon_metrics_publisher_module, previous_publisher)
       restore_env(:snmp_metrics_publisher_module, previous_snmp_publisher)
+      restore_env(:icmp_metrics_publisher_module, previous_icmp_publisher)
       restore_env(:plugin_metrics_publisher_module, previous_plugin_publisher)
+      restore_env(:rperf_metrics_publisher_module, previous_rperf_publisher)
+      restore_env(:mtr_metrics_publisher_module, previous_mtr_publisher)
+      restore_env(:sweep_metrics_publisher_module, previous_sweep_publisher)
       restore_env(:otlp_relay_publisher_module, previous_otlp_publisher)
       restore_env(:sysmon_metrics_publisher_test_pid, previous_test_pid)
       restore_env(:snmp_metrics_publisher_test_pid, previous_snmp_test_pid)
+      restore_env(:icmp_metrics_publisher_test_pid, previous_icmp_test_pid)
       restore_env(:plugin_metrics_publisher_test_pid, previous_plugin_test_pid)
+      restore_env(:rperf_metrics_publisher_test_pid, previous_rperf_test_pid)
+      restore_env(:mtr_metrics_publisher_test_pid, previous_mtr_test_pid)
+      restore_env(:sweep_metrics_publisher_test_pid, previous_sweep_test_pid)
       restore_env(:otlp_relay_publisher_test_pid, previous_otlp_test_pid)
     end)
 
@@ -130,7 +162,17 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert forwarded.service_type == "endpoint_inventory"
   end
 
-  test "buffers add-on telemetry when core status handler is unavailable" do
+  test "publishes package telemetry metrics before buffering when core status handler is unavailable" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :plugin_metrics_publisher_module,
+      __MODULE__.PluginPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid, parent)
+
     status = %{
       service_name: "addon-telemetry",
       service_type: "native-addon",
@@ -142,9 +184,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     }
 
     assert :ok = StatusProcessor.process(status)
+    assert_receive {:plugin_published, published}
+    assert_normalized_status(published, status)
   end
 
-  test "publishes sysmon metrics directly without the redundant core forward" do
+  test "publishes sysmon metrics without core status forward" do
     parent = self()
 
     Application.put_env(
@@ -170,12 +214,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
 
     assert_receive {:published, published}
-    assert is_integer(published.timestamp)
-    assert Map.delete(published, :timestamp) == status
+    assert_normalized_status(published, status)
     refute_receive {:forwarded, _forwarded}
   end
 
-  test "continues the sysmon status path when metrics publishing fails" do
+  test "returns an error when sysmon metric publishing fails" do
     parent = self()
 
     Application.put_env(
@@ -196,13 +239,73 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert :ok = StatusProcessor.process(sysmon_status())
+    assert {:error, {:metric_publish_failed, :sysmon, :nats_down}} =
+             StatusProcessor.process(sysmon_status())
 
     assert_receive {:publish_failed, _status}
     refute_receive {:forwarded, _forwarded}
   end
 
-  test "publishes SNMP metrics after successful status forward" do
+  test "returns an error when a metric-only publisher is disabled" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sysmon_metrics_publisher_module,
+      __MODULE__.DisabledSysmonPublisherStub
+    )
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert {:error, {:metric_publish_disabled, :sysmon}} =
+             StatusProcessor.process(sysmon_status())
+
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "real metric publishers reject JSON metric payloads without core fallback" do
+    parent = self()
+
+    use_real_metric_publishers()
+    enable_metric_publishers()
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    for {status, source} <- [
+          {sysmon_status(), :sysmon},
+          {snmp_status(), :snmp},
+          {icmp_status(), :icmp},
+          {rperf_status(), :rperf},
+          {mtr_status(), :mtr},
+          {sweep_status(), :sweep}
+        ] do
+      status = %{status | message: Jason.encode!(%{"schema_version" => "serviceradar.metric.v1", "metrics" => []})}
+
+      assert {:error, {:metric_publish_failed, ^source, :invalid_metric_batch_payload}} =
+               StatusProcessor.process(status)
+
+      refute_receive {:forwarded, ^status}, 20
+      refute_receive {:unexpected_publish, _subject, _payload, _opts}, 20
+    end
+  end
+
+  test "publishes SNMP metrics without core status forward" do
     parent = self()
 
     Application.put_env(
@@ -228,12 +331,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert :ok = StatusProcessor.process(status)
 
     assert_receive {:snmp_published, published}
-    assert is_integer(published.timestamp)
-    assert Map.delete(published, :timestamp) == status
+    assert_normalized_status(published, status)
     refute_receive {:forwarded, _forwarded}
   end
 
-  test "continues the SNMP status path when metrics publishing fails" do
+  test "returns an error when SNMP metric publishing fails" do
     parent = self()
 
     Application.put_env(
@@ -254,13 +356,72 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert :ok = StatusProcessor.process(snmp_status())
+    assert {:error, {:metric_publish_failed, :snmp, :nats_down}} =
+             StatusProcessor.process(snmp_status())
 
     assert_receive {:snmp_publish_failed, _status}
     refute_receive {:forwarded, _forwarded}
   end
 
-  test "publishes plugin metrics after successful status forward" do
+  test "publishes ICMP metrics without core status forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :icmp_metrics_publisher_module,
+      __MODULE__.IcmpPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :icmp_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = icmp_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:icmp_published, published}
+    assert_normalized_status(published, status)
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "returns an error when ICMP metric publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :icmp_metrics_publisher_module,
+      __MODULE__.FailingIcmpPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :icmp_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert {:error, {:metric_publish_failed, :icmp, :nats_down}} =
+             StatusProcessor.process(icmp_status())
+
+    assert_receive {:icmp_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "publishes plugin metrics and still forwards package telemetry" do
     parent = self()
 
     Application.put_env(
@@ -281,7 +442,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    status = plugin_status()
+    status = package_telemetry_status()
 
     assert :ok = StatusProcessor.process(status)
 
@@ -290,7 +451,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     assert published == forwarded
   end
 
-  test "continues the plugin result path when metrics publishing fails" do
+  test "returns an error when package telemetry metric publishing fails" do
     parent = self()
 
     Application.put_env(
@@ -311,10 +472,212 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
 
     Process.register(handler_pid, ServiceRadar.StatusHandler)
 
-    assert :ok = StatusProcessor.process(plugin_status())
+    assert {:error, {:metric_publish_failed, :package_telemetry, :nats_down}} =
+             StatusProcessor.process(package_telemetry_status())
+
+    assert_receive {:plugin_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "does not publish legacy plugin-result JSON as metrics" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :plugin_metrics_publisher_module,
+      __MODULE__.PluginPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :plugin_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert :ok = StatusProcessor.process(plugin_result_status())
 
     assert_receive {:forwarded, _forwarded}
-    assert_receive {:plugin_publish_failed, _status}
+    refute_receive {:plugin_published, _status}
+  end
+
+  test "publishes rperf metrics without core status forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :rperf_metrics_publisher_module,
+      __MODULE__.RperfPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :rperf_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = rperf_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:rperf_published, published}
+    assert_normalized_status(published, status)
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "returns an error when rperf metric publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :rperf_metrics_publisher_module,
+      __MODULE__.FailingRperfPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :rperf_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert {:error, {:metric_publish_failed, :rperf, :nats_down}} =
+             StatusProcessor.process(rperf_status())
+
+    assert_receive {:rperf_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "publishes MTR metrics without core status forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :mtr_metrics_publisher_module,
+      __MODULE__.MtrPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :mtr_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = mtr_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:mtr_published, published}
+    assert_normalized_status(published, status)
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "returns an error when MTR metric publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :mtr_metrics_publisher_module,
+      __MODULE__.FailingMtrPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :mtr_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert {:error, {:metric_publish_failed, :mtr, :nats_down}} =
+             StatusProcessor.process(mtr_status())
+
+    assert_receive {:mtr_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "publishes sweep metrics without core status forward" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sweep_metrics_publisher_module,
+      __MODULE__.SweepPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    status = sweep_status()
+
+    assert :ok = StatusProcessor.process(status)
+
+    assert_receive {:sweep_published, published}
+    assert_normalized_status(published, status)
+    refute_receive {:forwarded, _forwarded}
+  end
+
+  test "returns an error when sweep metric publishing fails" do
+    parent = self()
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sweep_metrics_publisher_module,
+      __MODULE__.FailingSweepPublisherStub
+    )
+
+    Application.put_env(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid, parent)
+
+    handler_pid =
+      spawn(fn ->
+        receive do
+          {:"$gen_cast", {:status_update, status}} ->
+            send(parent, {:forwarded, status})
+        end
+      end)
+
+    Process.register(handler_pid, ServiceRadar.StatusHandler)
+
+    assert {:error, {:metric_publish_failed, :sweep, :nats_down}} =
+             StatusProcessor.process(sweep_status())
+
+    assert_receive {:sweep_publish_failed, _status}
+    refute_receive {:forwarded, _forwarded}
   end
 
   test "returns forwarding error for unbuffered status when core status handler is unavailable" do
@@ -431,23 +794,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       partition: "default",
-      message:
-        Jason.encode!(%{
-          "available" => true,
-          "response_time" => 0,
-          "status" => %{
-            "timestamp" => "2026-06-12T00:00:00Z",
-            "host_id" => "host-1",
-            "host_ip" => "10.0.0.10",
-            "agent_id" => "agent-1",
-            "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
-            "clusters" => [],
-            "disks" => [%{"mount_point" => "/", "used_bytes" => 10, "total_bytes" => 100}],
-            "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
-            "network" => [],
-            "processes" => []
-          }
-        })
+      message: <<10, 22, "serviceradar.metric.v1">>
     }
   end
 
@@ -459,27 +806,71 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
       agent_id: "agent-1",
       gateway_id: "gateway-1",
       partition: "default",
-      message:
-        Jason.encode!(%{
-          "results" => [
-            %{
-              "target" => "core-switch",
-              "host" => "10.0.0.20",
-              "metric" => "ifHCInOctets",
-              "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
-              "value" => 1234.5,
-              "timestamp" => "2026-06-12T00:00:00Z",
-              "data_type" => "counter",
-              "delta" => true,
-              "if_index" => 7,
-              "interface_uid" => "ifindex:7"
-            }
-          ]
-        })
+      message: <<10, 22, "serviceradar.metric.v1">>
     }
   end
 
-  defp plugin_status do
+  defp icmp_status do
+    %{
+      service_name: "icmp_checks",
+      service_type: "icmp",
+      source: "icmp-metrics",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 22, "serviceradar.metric.v1">>
+    }
+  end
+
+  defp package_telemetry_status do
+    %{
+      service_name: "proxmox-inventory",
+      service_type: "wasm-plugin",
+      source: "plugin:proxmox-inventory",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 22, "serviceradar.metric.v1">>
+    }
+  end
+
+  defp rperf_status do
+    %{
+      service_name: "rperf",
+      service_type: "rperf",
+      source: "rperf-metrics",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 22, "serviceradar.metric.v1">>
+    }
+  end
+
+  defp mtr_status do
+    %{
+      service_name: "mtr_traces",
+      service_type: "mtr",
+      source: "mtr-metrics",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 22, "serviceradar.metric.v1">>
+    }
+  end
+
+  defp sweep_status do
+    %{
+      service_name: "network_sweep",
+      service_type: "sweep",
+      source: "sweep-metrics",
+      agent_id: "agent-1",
+      gateway_id: "gateway-1",
+      partition: "default",
+      message: <<10, 22, "serviceradar.metric.v1">>
+    }
+  end
+
+  defp plugin_result_status do
     %{
       service_name: "proxmox-inventory",
       service_type: "wasm-plugin",
@@ -496,8 +887,78 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest do
     }
   end
 
+  defp assert_normalized_status(published, original) do
+    assert Map.delete(published, :timestamp) == original
+    assert is_integer(published.timestamp)
+  end
+
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_agent_gateway, key, value)
+
+  defp use_real_metric_publishers do
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sysmon_metrics_publisher_module,
+      ServiceRadarAgentGateway.SysmonMetricsPublisher
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :snmp_metrics_publisher_module,
+      ServiceRadarAgentGateway.SnmpMetricsPublisher
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :icmp_metrics_publisher_module,
+      ServiceRadarAgentGateway.IcmpMetricsPublisher
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :rperf_metrics_publisher_module,
+      ServiceRadarAgentGateway.RperfMetricsPublisher
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :mtr_metrics_publisher_module,
+      ServiceRadarAgentGateway.MtrMetricsPublisher
+    )
+
+    Application.put_env(
+      :serviceradar_agent_gateway,
+      :sweep_metrics_publisher_module,
+      ServiceRadarAgentGateway.SweepMetricsPublisher
+    )
+  end
+
+  defp enable_metric_publishers do
+    Enum.each(
+      [
+        :sysmon_metrics_publisher,
+        :snmp_metrics_publisher,
+        :icmp_metrics_publisher,
+        :rperf_metrics_publisher,
+        :mtr_metrics_publisher,
+        :sweep_metrics_publisher
+      ],
+      fn key ->
+        Application.put_env(:serviceradar_agent_gateway, key,
+          enabled: true,
+          connection: __MODULE__.UnexpectedConnectionStub
+        )
+      end
+    )
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.UnexpectedConnectionStub do
+  @moduledoc false
+  def publish(subject, payload, opts) do
+    send(self(), {:unexpected_publish, subject, payload, opts})
+    :ok
+  end
 end
 
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.SysmonPublisherStub do
@@ -527,6 +988,18 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.SnmpPublisherStub do
   end
 end
 
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.IcmpPublisherStub do
+  @moduledoc false
+  def publish_icmp(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :icmp_metrics_publisher_test_pid), {
+      :icmp_published,
+      status
+    })
+
+    :ok
+  end
+end
+
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.PluginPublisherStub do
   @moduledoc false
   def publish_plugin_metrics(status) do
@@ -537,6 +1010,42 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.PluginPublisherStub do
         status
       }
     )
+
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.RperfPublisherStub do
+  @moduledoc false
+  def publish_rperf(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :rperf_metrics_publisher_test_pid), {
+      :rperf_published,
+      status
+    })
+
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.MtrPublisherStub do
+  @moduledoc false
+  def publish_mtr(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :mtr_metrics_publisher_test_pid), {
+      :mtr_published,
+      status
+    })
+
+    :ok
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.SweepPublisherStub do
+  @moduledoc false
+  def publish_sweep(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid), {
+      :sweep_published,
+      status
+    })
 
     :ok
   end
@@ -557,11 +1066,59 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingPluginPublisherStu
   end
 end
 
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingRperfPublisherStub do
+  @moduledoc false
+  def publish_rperf(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :rperf_metrics_publisher_test_pid), {
+      :rperf_publish_failed,
+      status
+    })
+
+    {:error, :nats_down}
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingMtrPublisherStub do
+  @moduledoc false
+  def publish_mtr(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :mtr_metrics_publisher_test_pid), {
+      :mtr_publish_failed,
+      status
+    })
+
+    {:error, :nats_down}
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSweepPublisherStub do
+  @moduledoc false
+  def publish_sweep(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :sweep_metrics_publisher_test_pid), {
+      :sweep_publish_failed,
+      status
+    })
+
+    {:error, :nats_down}
+  end
+end
+
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSnmpPublisherStub do
   @moduledoc false
   def publish_snmp(status) do
     send(Application.fetch_env!(:serviceradar_agent_gateway, :snmp_metrics_publisher_test_pid), {
       :snmp_publish_failed,
+      status
+    })
+
+    {:error, :nats_down}
+  end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingIcmpPublisherStub do
+  @moduledoc false
+  def publish_icmp(status) do
+    send(Application.fetch_env!(:serviceradar_agent_gateway, :icmp_metrics_publisher_test_pid), {
+      :icmp_publish_failed,
       status
     })
 
@@ -582,6 +1139,11 @@ defmodule ServiceRadarAgentGateway.StatusProcessorTest.FailingSysmonPublisherStu
 
     {:error, :nats_down}
   end
+end
+
+defmodule ServiceRadarAgentGateway.StatusProcessorTest.DisabledSysmonPublisherStub do
+  @moduledoc false
+  def publish_sysmon(_status), do: :disabled
 end
 
 defmodule ServiceRadarAgentGateway.StatusProcessorTest.OtlpRelayPublisherStub do

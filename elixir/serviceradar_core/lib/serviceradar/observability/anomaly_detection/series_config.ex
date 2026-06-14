@@ -189,6 +189,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesConfig do
   defp metric_group("sysmon.memory", _subject), do: "mem"
   defp metric_group("sysmon.disk", _subject), do: "disk"
   defp metric_group("snmp", _subject), do: "interface"
+  defp metric_group("icmp", _subject), do: "red"
   defp metric_group("cpu", _subject), do: "cpu"
   defp metric_group("memory", _subject), do: "mem"
   defp metric_group("disk", _subject), do: "disk"
@@ -204,6 +205,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesConfig do
 
       is_binary(subject) and String.starts_with?(subject, "metrics.snmp.") ->
         "interface"
+
+      is_binary(subject) and String.starts_with?(subject, "metrics.icmp.") ->
+        "red"
 
       is_binary(subject) and String.starts_with?(subject, "otel.metrics.") ->
         "red"

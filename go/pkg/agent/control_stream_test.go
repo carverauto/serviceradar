@@ -450,7 +450,7 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 		server: &Server{
 			config: &ServerConfig{
 				AgentID:     "agent-dusk",
-				Partition:   "default",
+				Partition:   defaultSweepGroupID,
 				GatewayAddr: "gateway.demo:50051",
 			},
 		},
@@ -472,8 +472,8 @@ func TestSendControlHello_IncludesRuntimeMetadata(t *testing.T) {
 	if hello.GetAgentId() != "agent-dusk" {
 		t.Fatalf("hello.AgentId = %q, want %q", hello.GetAgentId(), "agent-dusk")
 	}
-	if hello.GetPartition() != "default" {
-		t.Fatalf("hello.Partition = %q, want %q", hello.GetPartition(), "default")
+	if hello.GetPartition() != defaultSweepGroupID {
+		t.Fatalf("hello.Partition = %q, want %q", hello.GetPartition(), defaultSweepGroupID)
 	}
 	if hello.GetConfigVersion() != "cfg-123" {
 		t.Fatalf("hello.ConfigVersion = %q, want %q", hello.GetConfigVersion(), "cfg-123")

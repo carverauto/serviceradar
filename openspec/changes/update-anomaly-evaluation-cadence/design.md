@@ -31,7 +31,7 @@ Raw samples continue to flow through JetStream and are persisted by `event_write
 ### Decision 0: Canonical metric contract is prerequisite to correct scale
 The platform SHALL treat metrics as a first-class signal, not as values smuggled inside status/check-result/plugin-result envelopes. The canonical contract is `serviceradar.metric.v1` evolved additively with `schema_version`, `resource`, `name`, `kind`, `temporality`, `is_monotonic`, `unit`, `points[]`, `thresholds`, `ingress_id`, `ingress_timestamp_unix_nano`, and gateway-attested `ingest_identity`.
 
-Legacy version-1 flat envelopes remain valid as a single gauge point during migration. Producers that currently emit sysmon, SNMP, ICMP, MTR, sweep, rperf, or plugin-result metrics migrate onto the canonical metric path. Raw OTLP metrics may stay as a high-fidelity express lane only if the anomaly extractor receives equivalent normalized point identity and kind/temporality semantics.
+The `add-protobuf-metric-envelope` change supersedes the earlier legacy flat-envelope migration path: there is no long-lived dual-accept mode for version-1 JSON gauge envelopes. Producers that currently emit sysmon, SNMP, ICMP, MTR, sweep, rperf, wasm plugin, native add-on, or plugin-result metrics migrate onto the canonical metric path. Raw OTLP metrics may stay as a high-fidelity express lane only if the anomaly extractor receives equivalent normalized point identity and kind/temporality semantics.
 
 OCSF remains the event/finding layer. Raw metric time-series SHALL NOT be forced into OCSF classes; anomaly and capacity Findings derived from metrics continue to use OCSF.
 
@@ -94,7 +94,7 @@ The target is not just "1M raw samples/sec after downsampling." The engine needs
 
 ## Migration Plan
 1. Keep current per-sample behavior as the default by setting `evaluation_interval` equal to the incoming metric cadence.
-2. Add canonical metric contract validation and first-class metric emit APIs while keeping legacy version-1 envelopes valid.
+2. Add canonical metric contract validation and first-class metric emit APIs through the `add-protobuf-metric-envelope` hard cutover; do not retain legacy version-1 JSON envelope compatibility.
 3. Introduce slot aggregation and compact stats behind configuration.
 4. Shadow-run bucketed evaluation against the current path in demo and compare verdicts.
 5. Switch high-volume metric classes to bucketed evaluation once benchmarks and shadow comparisons pass.

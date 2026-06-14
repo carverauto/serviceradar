@@ -12,6 +12,7 @@ use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceReq
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
 use crate::output::{
     INGEST_IDENTITY_HEADER, IngestContext, PerformanceMetric, PublishOutcome, TelemetryOutput,
+    encode_derived_metric_batch,
 };
 
 use super::NATSOutput;
@@ -262,9 +263,11 @@ impl TelemetryOutput for NATSOutput {
 
         debug!("Publishing {} performance metrics to NATS", metrics.len());
 
-        // Convert metrics to JSON
-        let json_payload = serde_json::to_vec(metrics)?;
-        debug!("Encoded metrics data: {} bytes", json_payload.len());
+        let payload = encode_derived_metric_batch(metrics);
+        debug!(
+            "Encoded derived metrics protobuf data: {} bytes",
+            payload.len()
+        );
 
         // Publish derived metrics beneath the wildcarded OTEL metrics stream prefix.
         let otel_metrics_subject = format!("{}.metrics.derived", self.config.subject);
@@ -280,7 +283,7 @@ impl TelemetryOutput for NATSOutput {
 
         self.publish_chunk(
             &otel_metrics_subject,
-            json_payload,
+            payload,
             "derived metrics",
             ctx.identity.as_deref(),
         )

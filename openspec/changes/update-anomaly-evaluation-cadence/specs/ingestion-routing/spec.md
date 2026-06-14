@@ -8,12 +8,6 @@ The system SHALL provide a canonical `serviceradar.metric.v1` metric contract th
 - **THEN** the envelope SHALL include `resource`, `name`, `kind`, `unit`, and non-empty `points`
 - **AND** sum or histogram metrics SHALL include valid `temporality`
 
-#### Scenario: Version-1 flat metric remains compatible
-- **GIVEN** a legacy version-1 flat `serviceradar.metric.v1` envelope
-- **WHEN** the metric consumer receives it during migration
-- **THEN** the consumer SHALL map it to a single gauge point
-- **AND** it SHALL preserve the original metric name, value, unit, tags, and observed time where present
-
 ### Requirement: First-Class Metric Path
 Metric producers SHALL emit metrics directly onto the metric ingestion path rather than embedding metric time-series inside status, check-result, or plugin-result envelopes.
 
@@ -22,6 +16,13 @@ Metric producers SHALL emit metrics directly onto the metric ingestion path rath
 - **WHEN** the samples are sent through the agent/gateway path
 - **THEN** the gateway SHALL publish canonical metric envelopes to JetStream
 - **AND** it SHALL NOT require source-specific JSON re-extraction from `GatewayServiceStatus.Message`
+
+#### Scenario: Plugin and native add-on metric smuggling is replaced
+- **GIVEN** a wasm plugin or native add-on emits ServiceRadar metric samples
+- **WHEN** the samples are sent through plugin/add-on telemetry
+- **THEN** the metric payload SHALL be an encoded `serviceradar.metric.v1.MetricBatch`
+- **AND** the gateway SHALL publish that batch to JetStream `metrics.*`
+- **AND** it SHALL NOT translate metrics through JSON `plugin_result.metrics` or source-specific add-on JSON arrays
 
 #### Scenario: Metrics stay out of OCSF
 - **WHEN** a raw metric time-series payload is ingested

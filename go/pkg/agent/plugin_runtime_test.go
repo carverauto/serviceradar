@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
@@ -15,6 +16,7 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
 	gproto "google.golang.org/protobuf/proto"
 )
 
@@ -132,6 +134,93 @@ func TestDecodePluginTelemetryBuildsTelemetryBatch(t *testing.T) {
 	}
 	if record.GetObservedTimeUnixNano() == 0 || record.GetEventTimeUnixNano() == 0 {
 		t.Fatalf("timestamps should be defaulted: %#v", record)
+	}
+}
+
+func TestDecodePluginTelemetryAcceptsServiceRadarMetricBatch(t *testing.T) {
+	assignment := &pluginAssignment{
+		AssignmentID: "assign-1",
+		PluginID:     "metric-plugin",
+		Name:         "Metric Plugin",
+	}
+
+	batch := &metricpb.MetricBatch{
+		SchemaVersion: metricEnvelopeSchemaVersion,
+		Resource:      &metricpb.MetricResource{AgentId: "agent-1"},
+		Metrics: []*metricpb.Metric{
+			{
+				Name:       "temperature_c",
+				MetricType: "plugin",
+				Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
+				Points: []*metricpb.MetricPoint{
+					{
+						Value:              42.5,
+						RawValue:           "42.5",
+						RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
+						ObservedAtUnixNano: 123,
+					},
+				},
+			},
+		},
+	}
+
+	payload, err := gproto.Marshal(batch)
+	if err != nil {
+		t.Fatalf("marshal metric batch: %v", err)
+	}
+
+	wrapper, err := json.Marshal(map[string]any{
+		"source": map[string]any{"source_type": "metric-plugin"},
+		"records": []map[string]any{
+			{
+				"event_id":     "metric-event-1",
+				"payload_kind": "serviceradar_metrics",
+				"payload":      base64.StdEncoding.EncodeToString(payload),
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("marshal telemetry wrapper: %v", err)
+	}
+
+	signal, err := decodePluginTelemetry(wrapper, assignment)
+	if err != nil {
+		t.Fatalf("decodePluginTelemetry() error = %v", err)
+	}
+
+	record := signal.Batch.GetRecords()[0]
+	if record.GetPayloadKind() != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS {
+		t.Fatalf("payload_kind = %v, want SERVICERADAR_METRICS", record.GetPayloadKind())
+	}
+	if string(record.GetPayload()) == base64.StdEncoding.EncodeToString(payload) {
+		t.Fatal("expected host ABI wrapper to be decoded back to raw protobuf bytes")
+	}
+
+	var decoded metricpb.MetricBatch
+	if err := gproto.Unmarshal(record.GetPayload(), &decoded); err != nil {
+		t.Fatalf("unmarshal metric payload: %v", err)
+	}
+	if decoded.GetMetrics()[0].GetName() != "temperature_c" {
+		t.Fatalf("metric name = %q, want temperature_c", decoded.GetMetrics()[0].GetName())
+	}
+}
+
+func TestDecodePluginTelemetryRejectsJSONMetricPayload(t *testing.T) {
+	assignment := &pluginAssignment{
+		AssignmentID: "assign-1",
+		PluginID:     "metric-plugin",
+		Name:         "Metric Plugin",
+	}
+
+	_, err := decodePluginTelemetry([]byte(`{
+		"records": [{
+			"event_id": "metric-event-1",
+			"payload_kind": "serviceradar_metrics",
+			"payload": {"metrics":[{"name":"temperature_c","value":42.5}]}
+		}]
+	}`), assignment)
+	if err == nil {
+		t.Fatal("expected JSON metric payload to be rejected")
 	}
 }
 
@@ -1122,6 +1211,18 @@ func TestNormalizePluginPayloadRejectsInvalidStatus(t *testing.T) {
 	_, _, err := pl.normalizePluginPayload(result, "agent-1", "default")
 	if err == nil {
 		t.Fatalf("expected error for invalid status")
+	}
+}
+
+func TestNormalizePluginPayloadRejectsLegacyMetricArrays(t *testing.T) {
+	pl := &PushLoop{}
+	result := PluginResult{
+		Payload: []byte(`{"status":"ok","summary":"all good","metrics":[{"name":"latency_ms","value":3}]}`),
+	}
+
+	_, _, err := pl.normalizePluginPayload(result, "agent-1", "default")
+	if !errors.Is(err, errPluginResultMetricsUnsupported) {
+		t.Fatalf("expected metrics unsupported error, got %v", err)
 	}
 }
 

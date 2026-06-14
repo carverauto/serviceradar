@@ -28,9 +28,15 @@
 
 ## 6. Unified Metric Pipeline (`fj #3788`)
 - [ ] 6.1 Evolve `serviceradar.metric.v1` to schema version 2 with `resource`, `kind`, `temporality`, `is_monotonic`, `unit`, `points[]`, `ingress_id`, and gateway-attested ingest identity.
-- [ ] 6.2 Add first-class metric emit APIs to the Go and Rust Wasm SDKs while keeping legacy `Result.Metrics` helpers as compatibility shims.
+- [x] 6.2 Add first-class metric emit APIs to the Go and Rust Wasm SDKs; remove/disable legacy `Result.Metrics` metric ingestion shims instead of preserving a JSON compatibility path.
+  - [x] External SDKs `/Users/mfreeman/src/serviceradar-sdk-go` and `/Users/mfreeman/src/serviceradar-sdk-rust` expose `emit_telemetry` helpers for base64-wrapped encoded `serviceradar.metric.v1.MetricBatch` payloads and no longer expose plugin-result metric fields/builders.
 - [ ] 6.3 Add canonical metric emit builders for first-party agent collectors/checkers.
 - [ ] 6.4 Add gateway/core schema validation and OCSF/metric mis-bucket guardrails.
 - [ ] 6.5 Add `Nats-Msg-Id`/duplicate-window idempotency for the high-rate `metrics` stream before multi-point fan-out.
-- [ ] 6.6 Migrate sysmon, SNMP, ICMP, MTR, sweep, and rperf producers off status/check-result metric smuggling.
+- [x] 6.6 Migrate sysmon, SNMP, ICMP, MTR, sweep, rperf, wasm plugin, and native add-on producers off status/check-result/plugin-result JSON metric smuggling.
+  - [x] 6.6a Sysmon, SNMP, and ICMP emit `serviceradar.metric.v1.MetricBatch` payloads and publish through `metrics.*`.
+  - [x] 6.6b Wasm plugin and native add-on metric producers emit encoded `MetricBatch` payloads through the telemetry SDK/bridge and publish through `metrics.*`.
+  - [x] 6.6c MTR emits canonical `MetricBatch` payloads for scalar availability/hop/loss/latency/jitter series through `mtr-metrics`; trace/hop domain result chunks remain separate for `MtrMetricsIngestor`.
+  - [x] 6.6d Sweep emits canonical `MetricBatch` payloads for aggregate host counts, host/port availability, latency/loss, scanner stats, and banner-grab counters via `sweep-metrics`; JSON result chunks remain only for sweep execution/domain persistence.
+  - [x] 6.6e RPerf emits throughput/loss/jitter summary metrics as canonical `MetricBatch` payloads; Go agent source tagging and gateway publishing route them to `metrics.*`.
 - [ ] 6.7 Converge anomaly series identity on `(resource, metric name, point attributes, unit, kind/temporality)` instead of source-specific recipes.

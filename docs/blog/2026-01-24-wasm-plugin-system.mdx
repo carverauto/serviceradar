@@ -56,14 +56,22 @@ We’ve integrated the entire plugin lifecycle into the ServiceRadar UI:
 3. **Signed Distribution:** Once approved, `web-ng` signs the package hash. 
 4. **Agent Execution:** The Agent receives the assignment via the gRPC config stream, downloads the blob, verifies the signature, and begins execution based on the defined schedule.
 
-## Standardized Results
+## Standardized Results and Metrics
 
-To ensure custom plugins feel like first-class citizens, we adopted a **Nagios-style result schema** with structured metrics. 
+To ensure custom plugins feel like first-class citizens, we adopted a
+**Nagios-style result schema** for status and a separate first-class telemetry path
+for metrics.
 
-A plugin doesn't just return "Up" or "Down." It returns a `serviceradar.plugin_result.v1` JSON object:
+A plugin doesn't just return "Up" or "Down." It returns a
+`serviceradar.plugin_result.v1` JSON object for check-scoped status:
 * **Status:** OK, WARNING, CRITICAL, or UNKNOWN.
-* **Perfdata:** Standardized metrics that feed directly into our TimescaleDB-backed dashboards.
+* **Summary and labels:** Human-readable context and dimensions for the check result.
 * **Resource Usage:** The agent tracks how much memory and CPU time each plugin uses, reporting it back to the control plane for capacity planning.
+
+Metric time-series are no longer embedded in `serviceradar.plugin_result.v1`.
+Plugins emit them through `emit_telemetry` as an encoded
+`serviceradar.metric.v1.MetricBatch`, which the agent and gateway publish to the
+JetStream `metrics.*` subjects for EventWriter, anomaly detection, and dashboards.
 
 ## What’s Next?
 

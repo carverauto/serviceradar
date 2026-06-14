@@ -405,7 +405,7 @@ All tables live in CNPG (TimescaleDB hypertables). Retention is enforced by the 
 |---|---|---|
 | `otel_traces` | One row per span (`trace_id`, `span_id`, `parent_span_id`, timing, status, attributes) | 3 days |
 | `otel_trace_summaries` | One row per trace: root span, `span_count`, `error_count`, `duration_ms`, `service_set`. Refreshed every 2 minutes by an incremental worker | 3 days |
-| `otel_metrics` | Span-derived performance samples (spans slower than 100 ms are flagged `is_slow`) plus the legacy JSON sample path | 30 days |
+| `otel_metrics` | Span-derived performance samples from `otel.metrics.derived` protobuf MetricBatch payloads (spans slower than 100 ms are flagged `is_slow`) | 30 days |
 | `otel_metric_points` | OTLP metric data points: Sums, Gauges, Histograms, keyed by `(timestamp, metric_name, service_name, attributes_hash)`. Exponential histograms and summaries are counted in pipeline accounting but not yet decoded (spec'd follow-up) | 30 days |
 | `logs` | OTLP logs and syslog/GELF, with `trace_id`/`span_id` when the SDK provides them | 30 days |
 
@@ -459,8 +459,9 @@ WHERE t.service_name = 'checkout'
   and points at `otel.toml`; a unified health server listens on `:50044`.
 - Telemetry is published to NATS JetStream stream `events`: raw spans on
   `otel.traces.raw`, raw metric points on `otel.metrics.raw`, span-derived performance
-  samples on `otel.metrics.derived`, and OTLP logs on `logs.otel`. The event writer
-  consumes these subjects and writes the tables above.
+  samples as `serviceradar.metric.v1.MetricBatch` protobuf payloads on
+  `otel.metrics.derived`, and OTLP logs on `logs.otel`. The event writer consumes these
+  subjects and writes the tables above.
 - The collector exposes its own operational metrics over a small HTTP server, separate
   from the OTLP listeners: `GET /metrics` (Prometheus exposition) and `GET /health`
   (liveness). The dev `otel.toml` binds it on `0.0.0.0:9464` via `[server.metrics]`; if

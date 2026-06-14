@@ -19,9 +19,13 @@ package agent
 import (
 	"testing"
 
+	addonsdk "github.com/carverauto/serviceradar/go/pkg/addon/sdk"
 	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
-	"google.golang.org/protobuf/proto"
+	metricpb "github.com/carverauto/serviceradar/proto/metric/v1"
+	gproto "google.golang.org/protobuf/proto"
 )
+
+const addonPowerDNSSource = "addon:powerdns"
 
 func TestBuildAddonTelemetryGatewayStatus_WrapsBatchWithAddonSource(t *testing.T) {
 	batch := &addonpb.TelemetryBatch{
@@ -55,7 +59,7 @@ func TestBuildAddonTelemetryGatewayStatus_WrapsBatchWithAddonSource(t *testing.T
 	if status.GetServiceType() != addonTelemetryServiceType {
 		t.Fatalf("ServiceType = %q, want %q", status.GetServiceType(), addonTelemetryServiceType)
 	}
-	if status.GetSource() != "addon:powerdns" {
+	if status.GetSource() != addonPowerDNSSource {
 		t.Fatalf("Source = %q, want addon:powerdns", status.GetSource())
 	}
 	if messageBytes <= 0 || len(status.GetMessage()) != messageBytes {
@@ -63,7 +67,7 @@ func TestBuildAddonTelemetryGatewayStatus_WrapsBatchWithAddonSource(t *testing.T
 	}
 
 	var decoded addonpb.TelemetryBatch
-	if err := proto.Unmarshal(status.GetMessage(), &decoded); err != nil {
+	if err := gproto.Unmarshal(status.GetMessage(), &decoded); err != nil {
 		t.Fatalf("Unmarshal(TelemetryBatch): %v", err)
 	}
 
@@ -72,6 +76,81 @@ func TestBuildAddonTelemetryGatewayStatus_WrapsBatchWithAddonSource(t *testing.T
 	}
 	if got := decoded.GetRecords()[0].GetPayloadKind(); got != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OCSF_EVENT {
 		t.Fatalf("decoded payload kind = %v, want OCSF_EVENT", got)
+	}
+}
+
+func TestBuildAddonTelemetryGatewayStatus_PreservesServiceRadarMetricPayload(t *testing.T) {
+	metricBatch := &metricpb.MetricBatch{
+		SchemaVersion: "serviceradar.metric.v1",
+		Resource: &metricpb.MetricResource{
+			AgentId:     "agent-a",
+			ServiceName: "powerdns",
+			ServiceType: "native-addon",
+		},
+		IngestIdentity: &metricpb.IngestIdentity{
+			Source:       "native-addon",
+			ProducerId:   "powerdns",
+			ProducerKind: "native-addon",
+			PayloadKind:  "serviceradar.metric.v1",
+		},
+		Metrics: []*metricpb.Metric{
+			{
+				Name:       "dns.rpz_hits_total",
+				MetricType: "dns",
+				Kind:       metricpb.MetricKind_METRIC_KIND_SUM,
+				Points: []*metricpb.MetricPoint{
+					{
+						Value:              42,
+						ObservedAtUnixNano: 123,
+					},
+				},
+			},
+		},
+	}
+	record, err := addonsdk.ServiceRadarMetricRecord("metric-event-1", 123, 123, metricBatch)
+	if err != nil {
+		t.Fatalf("ServiceRadarMetricRecord: %v", err)
+	}
+
+	batch := &addonpb.TelemetryBatch{
+		Records: []*addonpb.TelemetryRecord{record},
+	}
+
+	status, _, err := buildAddonTelemetryGatewayStatus(
+		addonTelemetryEnvelope{addonID: "powerdns", batch: batch},
+		"agent-a",
+		"gateway-a",
+		"prod-east",
+		"kv-a",
+	)
+	if err != nil {
+		t.Fatalf("buildAddonTelemetryGatewayStatus: %v", err)
+	}
+	if status.GetServiceType() != addonTelemetryServiceType {
+		t.Fatalf("ServiceType = %q, want %q", status.GetServiceType(), addonTelemetryServiceType)
+	}
+	if status.GetSource() != addonPowerDNSSource {
+		t.Fatalf("Source = %q, want addon:powerdns", status.GetSource())
+	}
+
+	var decodedBatch addonpb.TelemetryBatch
+	if err := gproto.Unmarshal(status.GetMessage(), &decodedBatch); err != nil {
+		t.Fatalf("unmarshal telemetry batch: %v", err)
+	}
+	decodedRecord := decodedBatch.GetRecords()[0]
+	if got := decodedRecord.GetPayloadKind(); got != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS {
+		t.Fatalf("decoded payload kind = %v, want SERVICERADAR_METRICS", got)
+	}
+
+	var decodedMetric metricpb.MetricBatch
+	if err := gproto.Unmarshal(decodedRecord.GetPayload(), &decodedMetric); err != nil {
+		t.Fatalf("unmarshal metric batch: %v", err)
+	}
+	if decodedMetric.GetSchemaVersion() != "serviceradar.metric.v1" {
+		t.Fatalf("schema version = %q", decodedMetric.GetSchemaVersion())
+	}
+	if got := decodedMetric.GetMetrics()[0].GetName(); got != "dns.rpz_hits_total" {
+		t.Fatalf("metric name = %q, want dns.rpz_hits_total", got)
 	}
 }
 
@@ -151,12 +230,12 @@ func TestAddonTelemetryQueueDrainsIntoGatewayStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildAddonTelemetryGatewayStatus: %v", err)
 	}
-	if status.GetSource() != "addon:powerdns" {
+	if status.GetSource() != addonPowerDNSSource {
 		t.Fatalf("source = %q, want addon:powerdns", status.GetSource())
 	}
 
 	var decoded addonpb.TelemetryBatch
-	if err := proto.Unmarshal(status.GetMessage(), &decoded); err != nil {
+	if err := gproto.Unmarshal(status.GetMessage(), &decoded); err != nil {
 		t.Fatalf("unmarshal telemetry batch: %v", err)
 	}
 	if decoded.GetCounters().GetDropped() != 1 {

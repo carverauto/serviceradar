@@ -132,22 +132,11 @@ type pluginResult struct {
 	Status          sdk.Status            `json:"status"`
 	Summary         string                `json:"summary"`
 	Details         string                `json:"details,omitempty"`
-	Metrics         []pluginMetric        `json:"metrics,omitempty"`
 	Labels          map[string]string     `json:"labels,omitempty"`
 	TelemetryEvents []sdk.OCSFEvent       `json:"-"`
 	DeviceDiscovery []sdk.DeviceDiscovery `json:"device_discovery,omitempty"`
 	ObservedAt      string                `json:"observed_at,omitempty"`
 	SchemaVersion   int                   `json:"schema_version,omitempty"`
-}
-
-type pluginMetric struct {
-	Name  string   `json:"name"`
-	Value float64  `json:"value"`
-	Unit  string   `json:"unit,omitempty"`
-	Warn  *float64 `json:"warn,omitempty"`
-	Crit  *float64 `json:"crit,omitempty"`
-	Min   *float64 `json:"min,omitempty"`
-	Max   *float64 `json:"max,omitempty"`
 }
 
 type proxmoxInventory struct {

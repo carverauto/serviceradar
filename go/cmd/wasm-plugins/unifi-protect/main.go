@@ -257,12 +257,10 @@ func run_check() {
 			WithStatus(status).
 			WithSummary(summary).
 			WithDetails(string(detailsJSON)).
-			WithMetric("unifi_protect_camera_total", float64(len(details.Cameras)), "count", nil).
-			WithMetric("unifi_protect_stream_total", float64(len(details.Streams)), "count", nil).
-			WithMetric("unifi_protect_event_total", float64(len(resultEvents)), "count", nil).
 			WithLabel("controller_host", cfg.Host).
 			WithLabel("camera_scheme", client.BaseURL[:strings.Index(client.BaseURL, "://")])
 		emitProtectTelemetry(resultEvents, cfg.Host)
+		emitProtectMetricTelemetry(cfg.Host, len(details.Cameras), len(details.Streams), len(resultEvents))
 
 		return result, nil
 	})

@@ -29,21 +29,6 @@ func newPluginResult(status sdk.Status, summary string) *pluginResult {
 	}
 }
 
-func (r *pluginResult) AddMetric(name string, value float64, unit string, thresholds *sdk.ThresholdSpec) {
-	if r == nil || strings.TrimSpace(name) == "" {
-		return
-	}
-
-	metric := pluginMetric{Name: name, Value: value, Unit: unit}
-	if thresholds != nil {
-		metric.Warn = thresholds.Warn
-		metric.Crit = thresholds.Crit
-		metric.Min = thresholds.Min
-		metric.Max = thresholds.Max
-	}
-	r.Metrics = append(r.Metrics, metric)
-}
-
 func (r *pluginResult) AddLabel(key, value string) {
 	if r == nil || strings.TrimSpace(key) == "" {
 		return
@@ -103,16 +88,6 @@ func (r *pluginResult) JSON() []byte {
 	if r.Details != "" {
 		b.WriteString(`,"details":`)
 		b.WriteString(strconv.Quote(r.Details))
-	}
-	if len(r.Metrics) > 0 {
-		b.WriteString(`,"metrics":[`)
-		for i, metric := range r.Metrics {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			appendMetricJSON(&b, metric)
-		}
-		b.WriteByte(']')
 	}
 	if len(r.Labels) > 0 {
 		b.WriteString(`,"labels":{`)
@@ -279,30 +254,4 @@ func appendDeviceLocationJSON(b *strings.Builder, location sdk.DeviceLocation) {
 	appendFloatField(b, &first, "latitude", location.Latitude)
 	appendFloatField(b, &first, "longitude", location.Longitude)
 	b.WriteByte('}')
-}
-
-func appendMetricJSON(b *strings.Builder, metric pluginMetric) {
-	b.WriteString(`{"name":`)
-	b.WriteString(strconv.Quote(metric.Name))
-	b.WriteString(`,"value":`)
-	b.WriteString(strconv.FormatFloat(metric.Value, 'f', -1, 64))
-	if metric.Unit != "" {
-		b.WriteString(`,"unit":`)
-		b.WriteString(strconv.Quote(metric.Unit))
-	}
-	appendOptionalFloat(b, "warn", metric.Warn)
-	appendOptionalFloat(b, "crit", metric.Crit)
-	appendOptionalFloat(b, "min", metric.Min)
-	appendOptionalFloat(b, "max", metric.Max)
-	b.WriteByte('}')
-}
-
-func appendOptionalFloat(b *strings.Builder, key string, value *float64) {
-	if value == nil {
-		return
-	}
-	b.WriteByte(',')
-	b.WriteString(strconv.Quote(key))
-	b.WriteByte(':')
-	b.WriteString(strconv.FormatFloat(*value, 'f', -1, 64))
 }

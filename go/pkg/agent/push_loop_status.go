@@ -19,7 +19,6 @@ package agent
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"math"
 	"os"
 	"runtime"
@@ -30,6 +29,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
 )
+
+const sysmonMetricTargetBatchMessageBytes = 6 * 1024 * 1024
 
 // pushRegularStatuses sends non-sysmon statuses via PushStatus.
 func (p *PushLoop) pushRegularStatuses(ctx context.Context, statuses []*proto.GatewayServiceStatus, reason statusPushReason) bool {
@@ -125,40 +126,41 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	gatewayID := p.gateway.GetGatewayID()
 	runtimeMetadata := currentRuntimeMetadata()
 
-	var chunks []*proto.GatewayStatusChunk
+	var statuses []*proto.GatewayServiceStatus
+	sampleCount := 0
 
 	// If service is available, drain buffered metrics for transmission
 	if sysmonSvc != nil {
 		if samples := sysmonSvc.DrainMetrics(); len(samples) > 0 {
-			// Convert each sample into a separate status message to ensure
-			// full-fidelity time-series ingestion at the gateway.
+			statuses = p.convertToSysmonGatewayStatusesFromSamples(samples)
 			for _, sample := range samples {
-				s := p.convertToSysmonGatewayStatusFromSample(sample)
-				if s == nil {
-					continue
+				if sample != nil {
+					sampleCount++
 				}
-				// Append a new chunk for each sample.
-				chunks = append(chunks, &proto.GatewayStatusChunk{
-					Services:  []*proto.GatewayServiceStatus{s},
-					GatewayId: gatewayID,
-					AgentId:   agentID,
-					Timestamp: time.Now().UnixNano(),
-					Partition: partition,
-					SourceIp:  p.getSourceIP(),
-					Version:   runtimeMetadata.Version,
-					Hostname:  runtimeMetadata.Hostname,
-					Os:        runtimeMetadata.Os,
-					Arch:      runtimeMetadata.Arch,
-				})
 			}
 		}
 	}
 
-	if len(chunks) == 0 {
+	if len(statuses) == 0 {
 		return false
 	}
 
-	// Update chunk metadata
+	chunks := make([]*proto.GatewayStatusChunk, 0, len(statuses))
+	for _, status := range statuses {
+		chunks = append(chunks, &proto.GatewayStatusChunk{
+			Services:  []*proto.GatewayServiceStatus{status},
+			GatewayId: gatewayID,
+			AgentId:   agentID,
+			Timestamp: time.Now().UnixNano(),
+			Partition: partition,
+			SourceIp:  p.getSourceIP(),
+			Version:   runtimeMetadata.Version,
+			Hostname:  runtimeMetadata.Hostname,
+			Os:        runtimeMetadata.Os,
+			Arch:      runtimeMetadata.Arch,
+		})
+	}
+
 	totalChunks := int32(len(chunks))
 	for i, chunk := range chunks {
 		chunk.ChunkIndex = int32(i)
@@ -176,7 +178,10 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	}
 
 	if resp.Received {
-		p.logger.Info().Int("sample_count", len(chunks)).Msg("Successfully streamed sysmon metrics to gateway")
+		p.logger.Info().
+			Int("sample_count", sampleCount).
+			Int("batch_count", len(statuses)).
+			Msg("Successfully streamed sysmon metrics to gateway")
 		return true
 	} else {
 		p.logger.Warn().Msg("Gateway did not acknowledge sysmon metrics stream")
@@ -184,8 +189,8 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 	}
 }
 
-func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricSample) *proto.GatewayServiceStatus {
-	if sample == nil {
+func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.MetricSample) []*proto.GatewayServiceStatus {
+	if len(samples) == 0 {
 		return nil
 	}
 
@@ -196,29 +201,61 @@ func (p *PushLoop) convertToSysmonGatewayStatusFromSample(sample *sysmon.MetricS
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
 
-	// Build the response payload
-	payload := struct {
-		Available    bool                 `json:"available"`
-		ResponseTime int64                `json:"response_time"`
-		Status       *sysmon.MetricSample `json:"status"`
-	}{
-		Available:    true,
-		ResponseTime: 0, // Drained metrics don't have response time tracking easily available
-		Status:       sample,
+	ctx := metricEnvelopeContext{
+		AgentID:   agentID,
+		GatewayID: gatewayID,
+		Partition: partition,
+		KvStoreID: kvStoreID,
 	}
 
-	messageBytes, err := marshalJSONLimited(payload, maxSysmonStatusPayloadBytes)
-	if err != nil {
-		logEvent := p.logger.Error()
-		if errors.Is(err, errJSONPayloadTooLarge) {
-			logEvent = p.logger.Warn().Int("payload_limit_bytes", maxSysmonStatusPayloadBytes)
+	current := make([]*sysmon.MetricSample, 0, len(samples))
+	var currentPayload []byte
+	statuses := make([]*proto.GatewayServiceStatus, 0, 1)
+
+	for _, sample := range samples {
+		if sample == nil {
+			continue
 		}
 
-		logEvent.Err(err).Msg("Failed to marshal sysmon sample payload")
+		candidate := append(append([]*sysmon.MetricSample(nil), current...), sample)
+		payload, err := marshalSysmonMetricEnvelopeBatch(candidate, ctx)
+		if err != nil {
+			p.logger.Error().Err(err).Msg("Failed to marshal sysmon metric envelope")
 
-		return nil
+			continue
+		}
+
+		if len(current) > 0 && len(payload) > sysmonMetricTargetBatchMessageBytes {
+			statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+			current = []*sysmon.MetricSample{sample}
+			currentPayload, err = marshalSysmonMetricEnvelopeBatch(current, ctx)
+			if err != nil {
+				p.logger.Error().Err(err).Msg("Failed to marshal single sysmon metric envelope")
+				current = current[:0]
+				currentPayload = nil
+			}
+
+			continue
+		}
+
+		current = candidate
+		currentPayload = payload
 	}
 
+	if len(currentPayload) > 0 {
+		statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+	}
+
+	return statuses
+}
+
+func (p *PushLoop) sysmonGatewayStatusFromPayload(
+	messageBytes []byte,
+	agentID string,
+	gatewayID string,
+	partition string,
+	kvStoreID string,
+) *proto.GatewayServiceStatus {
 	return &proto.GatewayServiceStatus{
 		ServiceName:  SysmonServiceName,
 		Available:    true,
@@ -398,7 +435,16 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 
 	for _, svc := range services {
 		if provider, ok := svc.(SweepStatusProvider); ok {
-			status, err := provider.GetStatus(ctx)
+			var metricPayload map[string]any
+			var status *proto.StatusResponse
+			var err error
+
+			if metricProvider, ok := svc.(SweepStatusMetricPayloadProvider); ok {
+				status, metricPayload, err = metricProvider.GetStatusWithMetricPayload(ctx)
+			} else {
+				status, err = provider.GetStatus(ctx)
+			}
+
 			if err != nil {
 				p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to get status from service")
 				continue
@@ -429,6 +475,22 @@ func (p *PushLoop) collectAllStatusesSeparated(ctx context.Context) ([]*proto.Ga
 				}
 			}
 			statuses = append(statuses, converted)
+
+			if serviceType == sweepType {
+				if metricPayload == nil {
+					p.logger.Warn().
+						Str("service", svc.Name()).
+						Msg("Sweep status provider did not expose typed metric payload; skipping sweep status metrics")
+					continue
+				}
+
+				metricStatus, err := p.sweepMetricStatusFromMap(metricPayload)
+				if err != nil {
+					p.logger.Warn().Err(err).Str("service", svc.Name()).Msg("Failed to marshal sweep status metric envelope")
+					continue
+				}
+				statuses = append(statuses, metricStatus)
+			}
 		}
 	}
 
@@ -467,7 +529,25 @@ func (p *PushLoop) findSweepResultsProvider() SweepResultsProvider {
 
 // convertToGatewayStatus converts a StatusResponse to a GatewayServiceStatus.
 func (p *PushLoop) convertToGatewayStatus(resp *proto.StatusResponse, serviceName, serviceType string) *proto.GatewayServiceStatus {
-	return p.convertToGatewayStatusWithSource(resp, serviceName, serviceType, "status")
+	return p.convertToGatewayStatusWithSource(resp, serviceName, serviceType, defaultStatusSource(resp, serviceName, serviceType))
+}
+
+func defaultStatusSource(resp *proto.StatusResponse, serviceName string, serviceType string) string {
+	if rperfStatus(serviceName, serviceType) && metricEnvelopePayload(resp.GetMessage()) {
+		return "rperf-metrics"
+	}
+
+	return "status"
+}
+
+func rperfStatus(serviceName string, serviceType string) bool {
+	serviceName = strings.ToLower(strings.TrimSpace(serviceName))
+	serviceType = strings.ToLower(strings.TrimSpace(serviceType))
+
+	return serviceType == "rperf" ||
+		serviceType == "network_performance" ||
+		serviceName == "rperf" ||
+		serviceName == "rperf-checker"
 }
 
 func (p *PushLoop) convertToGatewayStatusWithSource(

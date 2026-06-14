@@ -1,19 +1,18 @@
 defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   @moduledoc """
-  Publishes SNMP interface metric samples to the high-rate metrics stream.
+  Publishes protobuf SNMP metric batches to the high-rate metrics stream.
   """
 
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadarAgentGateway.IngressId
+  alias ServiceRadarAgentGateway.MetricEnvelopeAttestation
 
   require Logger
 
   @app :serviceradar_agent_gateway
   @config_key :snmp_metrics_publisher
   @default_subject_prefix "metrics.snmp"
-  # Default interface metrics forwarded to the metrics stream. fj #3788 REC7e: this
-  # is now configurable (`interface_metrics: [...]` or `:all`) so operators can stop
-  # the gateway from dropping every non-octet OID the agent already polls.
-  @default_interface_metrics ~w(ifHCInOctets ifHCOutOctets)
+  @metric_schema "serviceradar.metric.v1"
 
   @type publish_result :: :ok | :disabled | {:error, term()}
 
@@ -29,12 +28,18 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   end
 
   defp do_publish(status, config) do
-    with {:ok, results} <- snmp_results(status),
-         {:ok, encoded_messages} <- encode_messages(status, results, allowed_metrics(config)) do
-      case encoded_messages do
-        [] -> :ok
-        messages -> publish_messages(messages, config)
-      end
+    with {:ok, %MetricBatch{} = batch} <- decode_metric_batch(status[:message]),
+         :ok <- validate_metric_batch(batch) do
+      ingress_context = ingress_context(status)
+
+      batch =
+        MetricEnvelopeAttestation.attest(batch, status, ingress_context,
+          source: "snmp-metrics",
+          producer_id: status[:agent_id],
+          producer_kind: "agent"
+        )
+
+      publish_message(subject(batch), MetricBatch.encode(batch), ingress_context, config)
     else
       {:error, reason} = error -> log_publish_error(reason, status, error)
     end
@@ -44,178 +49,39 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
     Application.get_env(@app, @config_key, [])
   end
 
-  defp snmp_results(%{message: message}) when is_binary(message) do
-    with {:ok, decoded} <- Jason.decode(message),
-         results when is_list(results) <- Map.get(decoded, "results") do
-      {:ok, results}
-    else
-      nil -> {:error, :missing_snmp_results}
-      {:error, reason} -> {:error, {:invalid_snmp_payload, reason}}
-      _other -> {:error, :invalid_snmp_results}
-    end
+  defp decode_metric_batch(message) when is_binary(message) do
+    {:ok, MetricBatch.decode(message)}
+  rescue
+    _ -> {:error, :invalid_metric_batch_payload}
   end
 
-  defp snmp_results(_status), do: {:error, :missing_snmp_message}
+  defp decode_metric_batch(_message), do: {:error, :missing_snmp_message}
 
-  defp encode_messages(status, results, allowed) do
-    results
-    |> Enum.reduce_while({:ok, []}, fn result, {:ok, acc} ->
-      case encode_message(status, result, allowed) do
-        {:ok, nil} -> {:cont, {:ok, acc}}
-        {:ok, message} -> {:cont, {:ok, [message | acc]}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> case do
-      {:ok, messages} -> {:ok, Enum.reverse(messages)}
-      error -> error
-    end
+  defp validate_metric_batch(%MetricBatch{schema_version: @metric_schema, metrics: [_ | _]}), do: :ok
+  defp validate_metric_batch(_batch), do: {:error, :invalid_metric_batch_schema}
+
+  defp subject(%MetricBatch{metrics: [metric | _]}) do
+    metric_type = normalize_string(metric.metric_type) || "custom"
+    metric_name = normalize_string(metric.name) || "unknown"
+    type = safe_subject_token(metric_type) || "custom"
+    name = safe_subject_token(metric_name) || "unknown"
+
+    "#{@default_subject_prefix}.#{type}.#{name}"
   end
 
-  defp encode_message(status, result, allowed) when is_map(result) do
-    metric_name = metric_name(result)
+  defp subject(_batch), do: "#{@default_subject_prefix}.custom.unknown"
 
-    with true <- metric_name_allowed?(metric_name, allowed),
-         if_index when is_integer(if_index) and if_index > 0 <- if_index(result),
-         value when not is_nil(value) <- Map.get(result, "value"),
-         target_device_ip when is_binary(target_device_ip) and target_device_ip != "" <-
-           target_device_ip(result) do
-      ingress_context = ingress_context(status)
-      envelope = metric_envelope(status, result, metric_name, if_index, target_device_ip, value, ingress_context)
-
-      case Jason.encode(envelope) do
-        {:ok, encoded} -> {:ok, {subject(metric_name), encoded, ingress_context}}
-        {:error, reason} -> {:error, {:encode_failed, metric_name, reason}}
-      end
-    else
-      _skip -> {:ok, nil}
-    end
-  end
-
-  defp encode_message(_status, _result, _allowed), do: {:ok, nil}
-
-  defp allowed_metrics(config) do
-    case Keyword.get(config, :interface_metrics, @default_interface_metrics) do
-      :all -> :all
-      list when is_list(list) -> list
-      _ -> @default_interface_metrics
-    end
-  end
-
-  defp metric_name_allowed?(name, _allowed) when not (is_binary(name) and name != ""), do: false
-  defp metric_name_allowed?(_name, :all), do: true
-  defp metric_name_allowed?(name, allowed) when is_list(allowed), do: name in allowed
-
-  defp metric_envelope(status, result, metric_name, if_index, target_device_ip, value, ingress_context) do
-    IngressId.put_payload_metadata(
-      %{
-        "schema" => "serviceradar.snmp.interface_metric.v1",
-        "source" => "snmp-metrics",
-        "timestamp" => Map.get(result, "timestamp") || status[:agent_timestamp] || status[:timestamp],
-        "gateway_id" => status[:gateway_id],
-        "agent_id" => status[:agent_id],
-        "partition" => status[:partition],
-        "metric_name" => metric_name,
-        "metric_type" => "snmp",
-        "value" => value,
-        "raw_value" => Map.get(result, "raw_value") || Map.get(result, "rawValue"),
-        "unit" => Map.get(result, "unit"),
-        "scale" => Map.get(result, "scale"),
-        "is_delta" => Map.get(result, "delta") || Map.get(result, "is_delta") || false,
-        "kind" => Map.get(result, "kind"),
-        "temporality" => Map.get(result, "temporality"),
-        "is_monotonic" => Map.get(result, "is_monotonic") || Map.get(result, "isMonotonic"),
-        "counter_width" => Map.get(result, "counter_width") || Map.get(result, "counterWidth"),
-        "target_device_ip" => target_device_ip,
-        "if_index" => if_index,
-        "tags" => tags(result, target_device_ip, metric_name),
-        "metadata" => metadata(status, result)
-      },
-      ingress_context
-    )
-  end
-
-  defp metric_name(result) do
-    result
-    |> first_present(["metric", "metric_name", "metricName", "name"])
-    |> normalize_string()
-    |> normalize_metric_name()
-  end
-
-  defp normalize_metric_name(nil), do: nil
-
-  defp normalize_metric_name(metric_name) do
-    metric_name
-    |> String.split("::", parts: 2)
-    |> List.first()
-  end
-
-  defp if_index(result) do
-    result
-    |> first_present(["if_index", "ifIndex", "interface_index", "interfaceIndex"])
-    |> parse_int()
-  end
-
-  defp target_device_ip(result) do
-    result
-    |> first_present(["host_ip", "hostIp", "host", "target_device_ip", "targetDeviceIp", "ip"])
-    |> normalize_string()
-  end
-
-  defp tags(result, target_device_ip, metric_name) do
-    %{
-      "target" => target_device_ip,
-      "metric" => metric_name
-    }
-    |> maybe_put("target_name", normalize_string(Map.get(result, "target")))
-    |> maybe_put("interface_uid", normalize_string(Map.get(result, "interface_uid") || Map.get(result, "interfaceUid")))
-  end
-
-  defp metadata(status, result) do
-    %{}
-    |> maybe_put(
-      "oid",
-      normalize_string(Map.get(result, "oid") || Map.get(result, "oid_name") || Map.get(result, "oidName"))
-    )
-    |> maybe_put("data_type", normalize_string(Map.get(result, "data_type") || Map.get(result, "dataType")))
-    |> maybe_put("kind", normalize_string(Map.get(result, "kind")))
-    |> maybe_put("temporality", normalize_string(Map.get(result, "temporality")))
-    |> maybe_put("is_monotonic", Map.get(result, "is_monotonic") || Map.get(result, "isMonotonic"))
-    |> maybe_put("counter_width", Map.get(result, "counter_width") || Map.get(result, "counterWidth"))
-    |> maybe_put("raw_value", Map.get(result, "raw_value") || Map.get(result, "rawValue"))
-    |> maybe_put("interface_uid", normalize_string(Map.get(result, "interface_uid") || Map.get(result, "interfaceUid")))
-    |> maybe_put("status_timestamp_unix_nano", status[:timestamp])
-    |> maybe_put("agent_timestamp_unix_nano", status[:agent_timestamp])
-    |> maybe_put("service_name", status[:service_name])
-    |> maybe_put("service_type", status[:service_type])
-  end
-
-  defp subject(metric_name), do: "#{@default_subject_prefix}.interface.#{metric_name}"
-
-  defp publish_messages(messages, config) do
+  defp publish_message(subject, payload, ingress_context, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
     subject_prefix = Keyword.get(config, :subject_prefix, @default_subject_prefix)
     configured_headers = Keyword.get(config, :headers, [])
+    subject = String.replace_prefix(subject, @default_subject_prefix, subject_prefix)
+    headers = configured_headers ++ IngressId.headers(ingress_context)
 
-    errors =
-      Enum.reduce(messages, [], fn {subject, payload, ingress_context}, acc ->
-        subject = String.replace_prefix(subject, @default_subject_prefix, subject_prefix)
-        headers = configured_headers ++ IngressId.headers(ingress_context)
-
-        case connection.publish(subject, payload, headers: headers) do
-          :ok -> acc
-          {:error, reason} -> [{subject, reason} | acc]
-        end
-      end)
-
-    case Enum.reverse(errors) do
-      [] -> :ok
-      errors -> {:error, {:publish_failed, errors}}
+    case connection.publish(subject, payload, headers: headers) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:publish_failed, [{subject, reason}]}}
     end
-  end
-
-  defp first_present(map, keys) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
   end
 
   defp normalize_string(nil), do: nil
@@ -224,20 +90,18 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisher do
   defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_string(_value), do: nil
 
-  defp parse_int(value) when is_integer(value), do: value
+  defp safe_subject_token(nil), do: nil
 
-  defp parse_int(value) when is_binary(value) do
-    case Integer.parse(String.trim(value)) do
-      {parsed, _} -> parsed
-      :error -> nil
+  defp safe_subject_token(value) do
+    value
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> nil
+      token -> token
     end
   end
-
-  defp parse_int(_value), do: nil
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
 
   defp log_publish_error(reason, status, error) do
     Logger.warning("Failed to publish SNMP metrics",

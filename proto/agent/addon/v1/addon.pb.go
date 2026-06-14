@@ -54,6 +54,11 @@ const (
 	// span-derived RED metrics), kept distinct from pass-through OTLP_METRICS
 	// so core can route them to the derived-metrics subject.
 	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC TelemetryPayloadKind = 6
+	// ServiceRadar-native metric batches produced by non-OTLP collectors.
+	// TelemetryRecord.payload is exactly one encoded
+	// serviceradar.metric.v1.MetricBatch. Gateway republishes this payload
+	// unchanged to metrics.* so core/event_writer owns persistence.
+	TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS TelemetryPayloadKind = 7
 )
 
 // Enum value maps for TelemetryPayloadKind.
@@ -66,15 +71,17 @@ var (
 		4: "TELEMETRY_PAYLOAD_KIND_OTLP_LOGS",
 		5: "TELEMETRY_PAYLOAD_KIND_OTLP_METRICS",
 		6: "TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC",
+		7: "TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS",
 	}
 	TelemetryPayloadKind_value = map[string]int32{
-		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED":         0,
-		"TELEMETRY_PAYLOAD_KIND_OCSF_EVENT":          1,
-		"TELEMETRY_PAYLOAD_KIND_OTEL_LOG":            2,
-		"TELEMETRY_PAYLOAD_KIND_OTLP_TRACES":         3,
-		"TELEMETRY_PAYLOAD_KIND_OTLP_LOGS":           4,
-		"TELEMETRY_PAYLOAD_KIND_OTLP_METRICS":        5,
-		"TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC": 6,
+		"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED":          0,
+		"TELEMETRY_PAYLOAD_KIND_OCSF_EVENT":           1,
+		"TELEMETRY_PAYLOAD_KIND_OTEL_LOG":             2,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_TRACES":          3,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_LOGS":            4,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_METRICS":         5,
+		"TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC":  6,
+		"TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS": 7,
 	}
 )
 
@@ -1374,7 +1381,7 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\brelay_id\x18\x01 \x01(\x04R\arelayId\x12A\n" +
 	"\x05batch\x18\x02 \x01(\v2+.serviceradar.agent.addon.v1.TelemetryBatchR\x05batch\"4\n" +
 	"\fOtlpRelayAck\x12$\n" +
-	"\x0eacked_relay_id\x18\x01 \x01(\x04R\fackedRelayId*\xb1\x02\n" +
+	"\x0eacked_relay_id\x18\x01 \x01(\x04R\fackedRelayId*\xe2\x02\n" +
 	"\x14TelemetryPayloadKind\x12&\n" +
 	"\"TELEMETRY_PAYLOAD_KIND_UNSPECIFIED\x10\x00\x12%\n" +
 	"!TELEMETRY_PAYLOAD_KIND_OCSF_EVENT\x10\x01\x12#\n" +
@@ -1382,7 +1389,8 @@ const file_agent_addon_v1_addon_proto_rawDesc = "" +
 	"\"TELEMETRY_PAYLOAD_KIND_OTLP_TRACES\x10\x03\x12$\n" +
 	" TELEMETRY_PAYLOAD_KIND_OTLP_LOGS\x10\x04\x12'\n" +
 	"#TELEMETRY_PAYLOAD_KIND_OTLP_METRICS\x10\x05\x12.\n" +
-	"*TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC\x10\x062\x85\x06\n" +
+	"*TELEMETRY_PAYLOAD_KIND_OTLP_DERIVED_METRIC\x10\x06\x12/\n" +
+	"+TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS\x10\a2\x85\x06\n" +
 	"\fAddonService\x12[\n" +
 	"\x04Info\x12(.serviceradar.agent.addon.v1.InfoRequest\x1a).serviceradar.agent.addon.v1.InfoResponse\x12j\n" +
 	"\tConfigure\x12-.serviceradar.agent.addon.v1.ConfigureRequest\x1a..serviceradar.agent.addon.v1.ConfigureResponse\x12a\n" +

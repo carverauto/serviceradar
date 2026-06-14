@@ -1,9 +1,14 @@
 defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
   @moduledoc """
-  Publishes structured plugin result metrics to the high-rate metrics stream.
+  Publishes first-class plugin/add-on metric telemetry to the high-rate metrics stream.
   """
 
+  alias Serviceradar.Agent.Addon.V1.TelemetryBatch
+  alias Serviceradar.Agent.Addon.V1.TelemetryCounters
+  alias Serviceradar.Agent.Addon.V1.TelemetryRecord
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadarAgentGateway.IngressId
+  alias ServiceRadarAgentGateway.MetricEnvelopeAttestation
 
   require Logger
 
@@ -26,9 +31,9 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
   end
 
   defp do_publish(status, config) do
-    with {:ok, payload} <- plugin_payload(status),
-         {:ok, encoded_messages} <- encode_messages(status, payload) do
-      case encoded_messages do
+    with {:ok, batch} <- decode_telemetry_batch(status[:message]),
+         {:ok, messages} <- metric_messages(status, batch) do
+      case messages do
         [] -> :ok
         messages -> publish_messages(messages, config)
       end
@@ -41,24 +46,20 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     Application.get_env(@app, @config_key, [])
   end
 
-  defp plugin_payload(%{message: message}) when is_binary(message) do
-    with {:ok, decoded} <- Jason.decode(message),
-         metrics when is_list(metrics) <- Map.get(decoded, "metrics") do
-      {:ok, Map.put(decoded, "metrics", metrics)}
-    else
-      nil -> {:ok, %{"metrics" => []}}
-      {:error, reason} -> {:error, {:invalid_plugin_payload, reason}}
-      _other -> {:error, :invalid_plugin_metrics}
-    end
+  defp decode_telemetry_batch(message) when is_binary(message) do
+    {:ok, TelemetryBatch.decode(message)}
+  rescue
+    _ -> {:error, :invalid_plugin_metric_telemetry}
   end
 
-  defp plugin_payload(_status), do: {:error, :missing_plugin_message}
+  defp decode_telemetry_batch(_message), do: {:error, :missing_plugin_message}
 
-  defp encode_messages(status, payload) do
-    payload
-    |> Map.get("metrics", [])
-    |> Enum.reduce_while({:ok, []}, fn metric, {:ok, acc} ->
-      case encode_metric(status, payload, metric) do
+  defp metric_messages(status, %TelemetryBatch{} = batch) do
+    emit_spool_counters(batch.counters, status)
+
+    batch.records
+    |> Enum.reduce_while({:ok, []}, fn record, {:ok, acc} ->
+      case metric_message(status, record) do
         {:ok, nil} -> {:cont, {:ok, acc}}
         {:ok, message} -> {:cont, {:ok, [message | acc]}}
         {:error, reason} -> {:halt, {:error, reason}}
@@ -70,232 +71,52 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     end
   end
 
-  defp encode_metric(status, payload, metric) when is_map(metric) do
-    name = metric_name(metric)
-    value = metric_value(metric)
+  defp metric_message(status, %TelemetryRecord{} = record) do
+    if metric_payload_kind?(record.payload_kind) do
+      with {:ok, %MetricBatch{} = batch} <- decode_metric_batch(record.payload),
+           :ok <- validate_metric_batch(batch) do
+        ingress_context = ingress_context(status, record)
 
-    cond do
-      not (is_binary(name) and name != "") ->
-        drop_metric(status, :missing_metric_name, raw_metric_name(metric))
-        {:ok, nil}
+        batch =
+          MetricEnvelopeAttestation.attest(batch, status, ingress_context,
+            source: attested_source(status),
+            producer_id: status[:service_name],
+            producer_kind: attested_producer_kind(status)
+          )
 
-      not is_number(value) ->
-        drop_metric(status, :non_numeric_value, name)
-        {:ok, nil}
-
-      true ->
-        metric_type = metric_type(metric, name)
-        ingress_context = ingress_context(status)
-        envelope = metric_envelope(status, payload, metric, name, metric_type, value, ingress_context)
-
-        case Jason.encode(envelope) do
-          {:ok, encoded} -> {:ok, {subject(metric_type, name), encoded, ingress_context}}
-          {:error, reason} -> {:error, {:encode_failed, name, reason}}
-        end
+        {:ok, {subject(batch), MetricBatch.encode(batch), ingress_context}}
+      end
+    else
+      {:ok, nil}
     end
   end
 
-  defp encode_metric(status, _payload, _metric) do
-    drop_metric(status, :non_map_metric, nil)
-    {:ok, nil}
+  defp metric_message(_status, _record), do: {:ok, nil}
+
+  defp metric_payload_kind?(:TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS), do: true
+  defp metric_payload_kind?(7), do: true
+  defp metric_payload_kind?(_kind), do: false
+
+  defp decode_metric_batch(payload) when is_binary(payload) do
+    {:ok, MetricBatch.decode(payload)}
+  rescue
+    _ -> {:error, :invalid_metric_batch_payload}
   end
 
-  # A metric the producer intended to emit but that we cannot publish (blank name,
-  # non-numeric value, or a non-map entry) is dropped here. Surface it via telemetry
-  # and a debug log instead of vanishing silently (the invisible-data-loss gap in
-  # fj #3788). The flow still returns {:ok, nil} so a bad metric never fails the batch.
-  defp drop_metric(status, reason, metric_name) do
-    :telemetry.execute(
-      [:serviceradar, :agent_gateway, :plugin_metrics, :dropped],
-      %{count: 1},
-      %{
-        reason: reason,
-        agent_id: status[:agent_id],
-        gateway_id: status[:gateway_id],
-        partition: status[:partition],
-        service_name: status[:service_name]
-      }
-    )
+  defp validate_metric_batch(%MetricBatch{schema_version: @metric_schema, metrics: [_ | _]}), do: :ok
 
-    Logger.debug("Dropped plugin metric",
-      reason: reason,
-      metric_name: metric_name,
-      agent_id: status[:agent_id],
-      gateway_id: status[:gateway_id],
-      partition: status[:partition],
-      service_name: status[:service_name]
-    )
+  defp validate_metric_batch(_batch), do: {:error, :invalid_metric_batch_schema}
 
-    :ok
-  end
-
-  defp raw_metric_name(metric), do: metric_string(metric, ["name", "metric", "metric_name", "metricName"])
-
-  defp metric_envelope(status, payload, metric, name, metric_type, value, ingress_context) do
-    kind = metric_string(metric, ["kind"])
-    temporality = metric_string(metric, ["temporality"])
-    is_monotonic = boolean_field(metric, ["is_monotonic", "isMonotonic"])
-
-    start_time =
-      metric |> first_present(["start_time_unix_nano", "startTimeUnixNano"]) |> parse_number()
-
-    base = %{
-      "schema" => @metric_schema,
-      "schema_version" => schema_version(kind, temporality, is_monotonic, start_time),
-      "source" => "plugin-result",
-      "timestamp" => timestamp(payload, status),
-      "gateway_id" => status[:gateway_id],
-      "agent_id" => status[:agent_id],
-      "partition" => status[:partition],
-      "metric_name" => name,
-      "metric_type" => metric_type,
-      "value" => value,
-      "unit" => metric_string(metric, ["unit", "u"]),
-      "tags" => tags(status, payload),
-      "metadata" => metadata(status, payload, metric)
-    }
-
-    # OTLP-grade semantics (fj #3788, REC1) are carried through only when the
-    # producer declares them, so a legacy v1 plugin's flat envelope is genuinely
-    # absent these keys (not `null`) and the consumer reads it as a single gauge
-    # point.
-    otlp_semantics =
-      %{
-        "kind" => kind,
-        "temporality" => temporality,
-        "is_monotonic" => is_monotonic,
-        "start_time_unix_nano" => start_time
-      }
-      |> Enum.reject(fn {_key, value} -> is_nil(value) end)
-      |> Map.new()
-
-    IngressId.put_payload_metadata(Map.merge(base, otlp_semantics), ingress_context)
-  end
-
-  # serviceradar.metric.v1 schema_version (fj #3788, REC1): bump to 2 once the
-  # producer declares any OTLP-grade semantic; legacy flat envelopes stay v1.
-  defp schema_version(kind, temporality, is_monotonic, start_time) do
-    if kind || temporality || not is_nil(is_monotonic) || start_time, do: 2, else: 1
-  end
-
-  defp boolean_field(metric, keys) do
-    case first_present(metric, keys) do
-      value when value in [true, "true"] -> true
-      value when value in [false, "false"] -> false
-      _ -> nil
-    end
-  end
-
-  defp metric_name(metric) do
-    metric
-    |> first_present(["name", "metric", "metric_name", "metricName"])
-    |> normalize_string()
-  end
-
-  defp metric_value(metric) do
-    metric
-    |> first_present(["value", "val", "metric_value", "metricValue"])
-    |> parse_number()
-  end
-
-  defp metric_type(metric, metric_name) do
-    explicit_type =
-      metric
-      |> first_present(["metric_type", "metricType", "type", "category"])
-      |> normalize_metric_type()
-
-    explicit_type || infer_metric_type(metric, metric_name)
-  end
-
-  defp infer_metric_type(metric, metric_name) do
-    name = String.downcase(metric_name)
-    unit = metric |> metric_string(["unit", "u"]) |> normalize_metric_type()
-
-    cond do
-      String.match?(name, ~r/(^|[_\-.])(cpu|processor)([_\-.]|$)/) ->
-        "cpu"
-
-      String.match?(name, ~r/(^|[_\-.])(mem|memory|ram)([_\-.]|$)/) ->
-        "memory"
-
-      String.match?(name, ~r/(^|[_\-.])(disk|storage|filesystem|fs)([_\-.]|$)/) ->
-        "disk"
-
-      String.match?(name, ~r/(^|[_\-.])(interface|network|net|bytes|packets|octets|bandwidth)([_\-.]|$)/) ->
-        "interface"
-
-      String.match?(name, ~r/(^|[_\-.])(latency|duration|response_time)([_\-.]|$)/) ->
-        "latency"
-
-      unit == "count" or String.ends_with?(name, ["_count", "_total"]) ->
-        "count"
-
-      true ->
-        "custom"
-    end
-  end
-
-  defp timestamp(payload, status) do
-    Map.get(payload, "observed_at") || Map.get(payload, "observedAt") || status[:agent_timestamp] ||
-      status[:timestamp]
-  end
-
-  defp tags(status, payload) do
-    payload
-    |> first_present(["labels", "label"])
-    |> normalize_labels()
-    |> maybe_put("producer_id", normalize_string(status[:service_name]))
-    |> maybe_put("producer_kind", "plugin_result")
-    |> maybe_put("service_type", normalize_string(status[:service_type]))
-  end
-
-  defp metadata(status, payload, metric) do
-    %{}
-    # v2 semantics also land in metadata (fj #3788, REC1) so the event_writer
-    # consumer lift surfaces them to the anomaly normalizer, mirroring the SNMP path.
-    |> maybe_put("kind", metric_string(metric, ["kind"]))
-    |> maybe_put("temporality", metric_string(metric, ["temporality"]))
-    |> maybe_put("is_monotonic", boolean_field(metric, ["is_monotonic", "isMonotonic"]))
-    |> maybe_put("summary", metric_string(payload, ["summary"]))
-    |> maybe_put("status", metric_string(payload, ["status"]))
-    |> maybe_put("assignment_id", metric_string(payload, ["assignment_id", "assignmentId"]))
-    |> maybe_put("producer_id", normalize_string(status[:service_name]))
-    |> maybe_put("producer_kind", "plugin_result")
-    |> maybe_put("original_metric_name", metric_string(metric, ["name", "metric", "metric_name", "metricName"]))
-    |> maybe_put("service_name", normalize_string(status[:service_name]))
-    |> maybe_put("service_type", normalize_string(status[:service_type]))
-    |> maybe_put("status_timestamp_unix_nano", status[:timestamp])
-    |> maybe_put("agent_timestamp_unix_nano", status[:agent_timestamp])
-    |> maybe_put("warn", metric |> first_present(["warn", "warning"]) |> parse_number())
-    |> maybe_put("crit", metric |> first_present(["crit", "critical"]) |> parse_number())
-    |> maybe_put("min", metric |> first_present(["min"]) |> parse_number())
-    |> maybe_put("max", metric |> first_present(["max"]) |> parse_number())
-    # fj #3788 REC3: record whether metric_type was producer-declared or regex-inferred,
-    # so a subject-token reshuffle from a name change is observable downstream.
-    |> Map.put("metric_type_inferred", inferred_type?(metric))
-  end
-
-  defp inferred_type?(metric) do
-    metric
-    |> first_present(["metric_type", "metricType", "type", "category"])
-    |> normalize_metric_type()
-    |> is_nil()
-  end
-
-  defp metric_string(map, keys) when is_map(map) do
-    map
-    |> first_present(keys)
-    |> normalize_string()
-  end
-
-  defp metric_string(_map, _keys), do: nil
-
-  defp subject(metric_type, metric_name) do
+  defp subject(%MetricBatch{metrics: [metric | _]}) do
+    metric_type = normalize_string(metric.metric_type) || "custom"
+    metric_name = normalize_string(metric.name) || "unknown"
     type = safe_subject_token(metric_type)
     metric = safe_subject_token(metric_name)
 
     "#{@default_subject_prefix}.#{type || "custom"}.#{metric || "unknown"}"
   end
+
+  defp subject(_batch), do: "#{@default_subject_prefix}.custom.unknown"
 
   defp publish_messages(messages, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
@@ -319,48 +140,11 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     end
   end
 
-  defp normalize_labels(labels) when is_map(labels) do
-    Enum.reduce(labels, %{}, fn {key, value}, acc ->
-      Map.put(acc, to_string(key), value)
-    end)
-  end
-
-  defp normalize_labels(_labels), do: %{}
-
-  defp first_present(map, keys) when is_map(map) do
-    Enum.find_value(keys, fn key -> Map.get(map, key) end)
-  end
-
-  defp first_present(_map, _keys), do: nil
-
   defp normalize_string(nil), do: nil
   defp normalize_string(value) when is_binary(value), do: String.trim(value)
   defp normalize_string(value) when is_integer(value), do: Integer.to_string(value)
   defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
   defp normalize_string(_value), do: nil
-
-  defp normalize_metric_type(nil), do: nil
-
-  defp normalize_metric_type(value) do
-    value
-    |> normalize_string()
-    |> case do
-      nil -> nil
-      "" -> nil
-      type -> type |> String.downcase() |> String.replace(~r/[^a-z0-9_-]+/, "_")
-    end
-  end
-
-  defp parse_number(value) when is_number(value), do: value
-
-  defp parse_number(value) when is_binary(value) do
-    case Float.parse(String.trim(value)) do
-      {parsed, ""} -> parsed
-      _ -> nil
-    end
-  end
-
-  defp parse_number(_value), do: nil
 
   defp safe_subject_token(nil), do: nil
 
@@ -375,10 +159,6 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     end
   end
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp log_publish_error(reason, status, error) do
     Logger.warning("Failed to publish plugin metrics",
       reason: inspect(reason),
@@ -391,17 +171,65 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     error
   end
 
-  defp ingress_context(status) do
+  defp ingress_context(status, record) do
     ingress_time = System.system_time(:nanosecond)
     agent_id = status[:agent_id]
 
     %{
       ingress_time_unix_nano: ingress_time,
       ingress_id: IngressId.new(ingress_time),
+      event_id: record.event_id,
+      event_time_unix_nano: record.event_time_unix_nano,
+      observed_time_unix_nano: record.observed_time_unix_nano,
       agent_id: agent_id,
       gateway_id: status[:gateway_id],
       partition: status[:partition],
       ingest_identity: if(agent_id, do: "agent:" <> to_string(agent_id))
     }
   end
+
+  defp emit_spool_counters(%TelemetryCounters{} = counters, status) do
+    :telemetry.execute(
+      [:serviceradar, :plugin_metrics, :spool],
+      %{
+        received: counters.received || 0,
+        filtered: counters.filtered || 0,
+        emitted: counters.emitted || 0,
+        dropped: counters.dropped || 0,
+        queue_depth: counters.queue_depth || 0
+      },
+      %{
+        partition: status[:partition],
+        agent_id: status[:agent_id],
+        gateway_id: status[:gateway_id],
+        service_name: status[:service_name]
+      }
+    )
+  end
+
+  defp emit_spool_counters(_counters, _status), do: :ok
+
+  defp attested_source(%{source: source}) when is_binary(source) do
+    cond do
+      String.starts_with?(source, "addon:") -> "native-addon"
+      String.starts_with?(source, "plugin:") -> "wasm-plugin"
+      true -> source
+    end
+  end
+
+  defp attested_source(%{service_type: service_type}) when service_type in ["native-addon", :native_addon],
+    do: "native-addon"
+
+  defp attested_source(%{service_type: service_type}) when service_type in ["wasm-plugin", :wasm_plugin],
+    do: "wasm-plugin"
+
+  defp attested_source(_status), do: "plugin"
+
+  defp attested_producer_kind(%{service_type: service_type}) when service_type in ["native-addon", :native_addon],
+    do: "native-addon"
+
+  defp attested_producer_kind(%{service_type: service_type}) when service_type in ["wasm-plugin", :wasm_plugin],
+    do: "wasm-plugin"
+
+  defp attested_producer_kind(status), do: status[:service_type] || "plugin"
 end

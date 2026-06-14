@@ -10,7 +10,7 @@ The complete API reference, authoring guides, and code examples for every SDK li
 
 ## serviceradar-sdk-go
 
-The Go SDK is for building ServiceRadar Wasm plugins and integrations in Go. It provides a higher-level API over the raw Wasm host ABI — structured execution and error handling, config decoding, HTTP/TCP/UDP wrappers that respect the agent's allowlists, gateway-mediated artifact staging, advisory-feed batch helpers, producer schedule contract helpers, and result builders for metrics, labels, and UI widgets. Plugins built with it compile to Wasm with TinyGo.
+The Go SDK is for building ServiceRadar Wasm plugins and integrations in Go. It provides a higher-level API over the raw Wasm host ABI — structured execution and error handling, config decoding, HTTP/TCP/UDP wrappers that respect the agent's allowlists, gateway-mediated artifact staging, advisory-feed batch helpers, producer schedule contract helpers, first-class metric telemetry helpers, and result builders for labels and UI widgets. Plugins built with it compile to Wasm with TinyGo.
 
 Use it when you want to write a custom checker, feed producer, or integration in Go and prefer an ergonomic SDK over hand-writing host imports.
 
@@ -18,7 +18,7 @@ See the full reference at [developer.serviceradar.cloud](https://developer.servi
 
 ## serviceradar-sdk-rust
 
-The Rust SDK is the equivalent surface for building ServiceRadar Wasm plugins in Rust. It targets `wasm32-wasi` and exposes the same capability-based host functions, gateway-mediated artifact APIs, advisory-feed batch helpers, producer schedule contract helpers, and result-building helpers, with idiomatic Rust types and error handling.
+The Rust SDK is the equivalent surface for building ServiceRadar Wasm plugins in Rust. It targets `wasm32-wasi` and exposes the same capability-based host functions, gateway-mediated artifact APIs, advisory-feed batch helpers, producer schedule contract helpers, first-class metric telemetry helpers, and result-building helpers for non-metric plugin output, with idiomatic Rust types and error handling.
 
 Use it when you prefer Rust for plugin authoring, or when you want Rust's performance and type guarantees for a custom checker, feed producer, or integration.
 

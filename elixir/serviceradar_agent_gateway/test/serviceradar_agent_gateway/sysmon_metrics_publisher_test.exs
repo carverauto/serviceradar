@@ -1,6 +1,11 @@
 defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
   use ExUnit.Case, async: false
 
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
   alias ServiceRadarAgentGateway.SysmonMetricsPublisher
 
   setup do
@@ -17,56 +22,53 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     :ok
   end
 
-  test "publishes populated sysmon families to metrics.sysmon subjects" do
+  test "publishes protobuf sysmon metric batch with gateway-attested identity" do
     Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.sysmon",
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status())
+    payload = metric_batch_payload()
 
-    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload, cpu_opts}
-    assert_receive {:published, "metrics.sysmon.memory", memory_payload, _memory_opts}
-    assert_receive {:published, "metrics.sysmon.disk", disk_payload, _disk_opts}
-    refute_receive {:published, "metrics.sysmon.process", _payload, _opts}
+    assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status(payload))
 
-    assert %{
-             "metric_family" => "cpu",
-             "sample" => %{"host_id" => "host-1"},
-             "ingress_id" => ingress_id,
-             "ingress_timestamp_unix_nano" => ingress_timestamp
-           } = Jason.decode!(cpu_payload)
+    assert_receive {:published, "metrics.sysmon.sysmon_cpu.cpu_usage_percent", published_payload, opts}
 
-    assert ingress_id =~ uuidv8_pattern()
-    assert is_integer(ingress_timestamp)
-    assert ingress_headers(cpu_opts)
+    refute published_payload == payload
 
-    assert %{"metric_family" => "memory"} = Jason.decode!(memory_payload)
-    assert %{"metric_family" => "disk"} = Jason.decode!(disk_payload)
+    decoded = MetricBatch.decode(published_payload)
+    assert decoded.schema_version == "serviceradar.metric.v1"
+    assert decoded.resource.agent_id == "agent-1"
+    assert decoded.resource.gateway_id == "gateway-1"
+    assert decoded.resource.partition == "default"
+    assert decoded.resource.service_name == "sysmon"
+    assert decoded.resource.service_type == "sysmon"
+    assert decoded.resource.host_id == "host-1"
+    assert decoded.ingest_identity.source == "sysmon-metrics"
+    assert decoded.ingest_identity.payload_kind == "serviceradar.metric.v1"
+    assert decoded.ingest_identity.producer_id == "agent-1"
+    assert decoded.ingest_identity.producer_kind == "agent"
+    assert decoded.ingest_identity.attested_by == "gateway-1"
+    assert decoded.ingress_id =~ uuidv8_pattern()
+    assert decoded.ingress_timestamp_unix_nano > 0
+    assert decoded.metrics |> hd() |> Map.fetch!(:kind) == :METRIC_KIND_GAUGE
+    assert ingress_headers(opts)
   end
 
-  test "preserves future downsample window metadata on published samples" do
+  test "rejects legacy JSON sysmon metric payloads" do
     Application.put_env(:serviceradar_agent_gateway, :sysmon_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.sysmon",
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :ok = SysmonMetricsPublisher.publish_sysmon(sysmon_status_with_downsample_metadata())
+    assert {:error, :invalid_metric_batch_payload} =
+             SysmonMetricsPublisher.publish_sysmon(
+               sysmon_status(Jason.encode!(%{"status" => %{"cpus" => [%{"usage_percent" => 12.5}]}}))
+             )
 
-    assert_receive {:published, "metrics.sysmon.cpu", cpu_payload, _opts}
-
-    assert %{
-             "sample" => %{
-               "downsample_window" => %{
-                 "start" => "2026-06-12T00:00:00Z",
-                 "end" => "2026-06-12T00:01:00Z"
-               },
-               "downsample_mode" => %{"cpu" => "avg", "memory" => "avg"},
-               "sample_count" => 6
-             }
-           } = Jason.decode!(cpu_payload)
+    refute_receive {:published, _subject, _payload, _opts}
   end
 
   test "is disabled by default" do
@@ -75,7 +77,7 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :disabled = SysmonMetricsPublisher.publish_sysmon(sysmon_status())
+    assert :disabled = SysmonMetricsPublisher.publish_sysmon(sysmon_status(metric_batch_payload()))
     refute_receive {:published, _subject, _payload, _opts}
   end
 
@@ -87,9 +89,9 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     )
 
     assert {:error, {:publish_failed, failures}} =
-             SysmonMetricsPublisher.publish_sysmon(sysmon_status())
+             SysmonMetricsPublisher.publish_sysmon(sysmon_status(metric_batch_payload()))
 
-    assert {"metrics.sysmon.cpu", :nats_down} in failures
+    assert {"metrics.sysmon.sysmon_cpu.cpu_usage_percent", :nats_down} in failures
   end
 
   defmodule ConnectionStub do
@@ -111,7 +113,7 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     def publish(_subject, _payload, _opts), do: {:error, :nats_down}
   end
 
-  defp sysmon_status do
+  defp sysmon_status(payload) do
     %{
       service_name: "sysmon",
       service_type: "sysmon",
@@ -121,53 +123,45 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
       partition: "default",
       timestamp: 1_765_500_000_000_000_000,
       agent_timestamp: 1_765_499_999_000_000_000,
-      message:
-        Jason.encode!(%{
-          "available" => true,
-          "response_time" => 0,
-          "status" => %{
-            "timestamp" => "2026-06-12T00:00:00Z",
-            "host_id" => "host-1",
-            "host_ip" => "10.0.0.10",
-            "agent_id" => "agent-1",
-            "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
-            "clusters" => [],
-            "disks" => [%{"mount_point" => "/", "used_bytes" => 10, "total_bytes" => 100}],
-            "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
-            "network" => [],
-            "processes" => []
-          }
-        })
+      message: payload
     }
   end
 
-  defp sysmon_status_with_downsample_metadata do
-    put_in(
-      sysmon_status(),
-      [:message],
-      Jason.encode!(%{
-        "available" => true,
-        "response_time" => 0,
-        "status" => %{
-          "timestamp" => "2026-06-12T00:01:00Z",
-          "host_id" => "host-1",
-          "host_ip" => "10.0.0.10",
-          "agent_id" => "agent-1",
-          "cpus" => [%{"core_id" => 0, "usage_percent" => 12.5}],
-          "clusters" => [],
-          "disks" => [],
-          "memory" => %{"used_bytes" => 50, "total_bytes" => 100},
-          "network" => [],
-          "processes" => [],
-          "downsample_window" => %{
-            "start" => "2026-06-12T00:00:00Z",
-            "end" => "2026-06-12T00:01:00Z"
-          },
-          "downsample_mode" => %{"cpu" => "avg", "memory" => "avg"},
-          "sample_count" => 6
+  defp metric_batch_payload do
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "spoofed-agent",
+        gateway_id: "spoofed-gateway",
+        partition: "spoofed-partition",
+        service_name: "spoofed-service",
+        service_type: "spoofed-type",
+        host_id: "host-1",
+        host_ip: "10.0.0.10"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "spoofed-source",
+        payload_kind: "spoofed-payload",
+        producer_kind: "spoofed-kind",
+        producer_id: "spoofed-producer",
+        attested_by: "spoofed-attestor"
+      },
+      emitted_at_unix_nano: 1_765_500_000_000_000_000,
+      metrics: [
+        %Metric{
+          name: "cpu.usage_percent",
+          metric_type: "sysmon.cpu",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "%",
+          points: [
+            %MetricPoint{
+              value: 12.5,
+              observed_at_unix_nano: 1_765_500_000_000_000_000
+            }
+          ]
         }
-      })
-    )
+      ]
+    })
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
@@ -185,6 +179,7 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisherTest do
     assert headers["Sr-Gateway-Id"] == "gateway-1"
     assert headers["Sr-Partition"] == "default"
     assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+    assert headers["Nats-Msg-Id"] == headers["Sr-Ingress-Id"]
   end
 
   defp uuidv8_pattern do

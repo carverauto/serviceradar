@@ -10,6 +10,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   alias Opentelemetry.Proto.Metrics.V1.ResourceMetrics
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric, as: SrMetric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
 
@@ -21,11 +27,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   test "extracts sysmon memory utilization samples" do
     [sample] =
       SampleExtractor.extract(%{
-        data: Jason.encode!(sysmon_envelope("memory")),
+        data: sysmon_memory_batch(),
         metadata: %{subject: "metrics.sysmon.memory"}
       })
 
-    assert sample.series_key == "sysmon:memory:host-1"
+    # series_key is derived from attested fields, NOT the producer hint
+    # ("sysmon:memory:host-1"). It is prefixed by the metric class.
+    assert String.starts_with?(sample.series_key, "sysmon.memory:")
+    refute sample.series_key == "sysmon.memory:sysmon:memory:host-1"
+    assert sample.metadata["series_identity_hint"] == "sysmon:memory:host-1"
     assert is_binary(sample.event_id)
 
     assert {1_781_222_400_000_000_000, hash, 1_781_222_400_000_000_000, hash} =
@@ -39,14 +49,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   test "uses payload ingress id for sysmon event ordering" do
     [sample] =
       SampleExtractor.extract(%{
-        data:
-          "memory"
-          |> sysmon_envelope()
-          |> Map.merge(%{
-            "ingress_id" => @ingress_id,
-            "ingress_timestamp_unix_nano" => @ingress_time
-          })
-          |> Jason.encode!(),
+        data: sysmon_memory_batch(ingress_id: @ingress_id, ingress_timestamp: @ingress_time),
         metadata: %{subject: "metrics.sysmon.memory"}
       })
 
@@ -62,7 +65,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   test "extracts snmp scalar samples" do
     [sample] =
       SampleExtractor.extract(%{
-        data: Jason.encode!(snmp_envelope()),
+        data: snmp_batch(1234.5, @point_time_a),
         metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
       })
 
@@ -71,18 +74,60 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.metric_class == "snmp"
   end
 
+  test "SNMP target_device_ip resolves to the IP-bearing host tag, not the target name (finding 1)" do
+    # snmp_batch tags are {"target" => "router-a", "host" => "10.0.0.20"}.
+    # The IP must drive target_device_ip (and therefore the derived series key),
+    # not the logical target name.
+    [sample] =
+      SampleExtractor.extract(%{
+        data: snmp_batch(1234.5, @point_time_a),
+        metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
+      })
+
+    assert sample.metadata.target_device_ip == "10.0.0.20"
+  end
+
+  test "derives series_key from attested fields even when a different hint is present (finding 2a)" do
+    [sample] =
+      SampleExtractor.extract(%{
+        data: sysmon_memory_batch(series_identity_hint: "spoofed-canonical-key"),
+        metadata: %{subject: "metrics.sysmon.memory"}
+      })
+
+    # The hint must never become the canonical key; it is debug metadata only.
+    refute sample.series_key == "sysmon.memory:spoofed-canonical-key"
+    assert String.starts_with?(sample.series_key, "sysmon.memory:")
+    assert sample.metadata["series_identity_hint"] == "spoofed-canonical-key"
+  end
+
+  test "drops an identity-less sysmon sample WITH a hint (hint cannot rescue identity) (finding 2b)" do
+    assert [] =
+             SampleExtractor.extract(%{
+               data: identityless_sysmon_batch(series_identity_hint: "sysmon:memory:host-1"),
+               metadata: %{subject: "metrics.sysmon.memory"}
+             })
+  end
+
+  test "drops an identity-less sysmon sample without a hint (finding 2b)" do
+    assert [] =
+             SampleExtractor.extract(%{
+               data: identityless_sysmon_batch(series_identity_hint: ""),
+               metadata: %{subject: "metrics.sysmon.memory"}
+             })
+  end
+
   test "extracts SNMP counter semantics for counter normalization" do
     table = :ets.new(:sample_extractor_counter_normalizer_test, [:set, :private])
 
     [first] =
       SampleExtractor.extract(%{
-        data: Jason.encode!(snmp_counter_envelope(1_000, "2026-06-12T00:00:00Z")),
+        data: snmp_batch(1_000, @point_time_a),
         metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
       })
 
     [second] =
       SampleExtractor.extract(%{
-        data: Jason.encode!(snmp_counter_envelope(1_600, "2026-06-12T00:01:00Z")),
+        data: snmp_batch(1_600, @point_time_b),
         metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
       })
 
@@ -104,7 +149,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   test "extracts generic scalar metric samples" do
     [sample] =
       SampleExtractor.extract(%{
-        data: Jason.encode!(plugin_metric_envelope()),
+        data: plugin_metric_batch(),
         metadata: %{subject: "metrics.timeseries.cpu.proxmox_guest_cpu_ratio_max"}
       })
 
@@ -114,17 +159,87 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.metadata[:metric_name] == "proxmox_guest_cpu_ratio_max"
   end
 
-  test "extracts otel json duration samples" do
-    [sample] =
+  test "extracts every point from a ServiceRadar metric batch in order" do
+    samples =
       SampleExtractor.extract(%{
         data:
-          Jason.encode!(%{
-            "timestamp" => "2026-06-12T00:00:00Z",
-            "service_name" => "api",
-            "span_name" => "GET /devices",
-            "span_id" => "0000000000abc123",
-            "duration_ms" => 42.5
-          }),
+          metric_batch(
+            [
+              %SrMetric{
+                name: "custom.temperature_celsius",
+                metric_type: "environment.temperature",
+                kind: :METRIC_KIND_GAUGE,
+                unit: "Cel",
+                tags: entries(%{"source_zone" => "rack-a", "sensor" => "metric-default"}),
+                metadata: entries(%{"calibration" => "metric-default"}),
+                points: [
+                  %MetricPoint{
+                    value: 61.5,
+                    raw_value: "61.5",
+                    raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+                    observed_at_unix_nano: @point_time_a,
+                    attributes: entries(%{"sensor" => "cpu0"}),
+                    metadata: entries(%{"calibration" => "point-a"}),
+                    series_identity_hint: "sensor:cpu0"
+                  },
+                  %MetricPoint{
+                    value: 63.0,
+                    raw_value: "63.0",
+                    raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+                    observed_at_unix_nano: @point_time_b,
+                    attributes: entries(%{"sensor" => "cpu1"}),
+                    metadata: entries(%{"calibration" => "point-b"}),
+                    series_identity_hint: "sensor:cpu1"
+                  }
+                ]
+              }
+            ],
+            source: "native-addon",
+            service_name: "sample-native-addon",
+            service_type: "native-addon",
+            ingress_id: @ingress_id,
+            ingress_timestamp: @ingress_time
+          ),
+        metadata: %{subject: "metrics.timeseries.environment.temperature"}
+      })
+
+    # Keys are derived from attested fields (the differing "sensor" tag keeps
+    # the two points distinct), not from the producer hints "sensor:cpu0/1".
+    assert Enum.all?(
+             samples,
+             &String.starts_with?(&1.series_key, "environment.temperature:")
+           )
+
+    assert samples |> Enum.map(& &1.series_key) |> Enum.uniq() |> length() == 2
+    refute Enum.any?(samples, &(&1.series_key == "environment.temperature:sensor:cpu0"))
+
+    assert Enum.map(samples, & &1.metadata["series_identity_hint"]) == [
+             "sensor:cpu0",
+             "sensor:cpu1"
+           ]
+
+    assert Enum.map(samples, & &1.value) == [61.5, 63.0]
+    assert Enum.map(samples, & &1.observed_at_unix_nano) == [@point_time_a, @point_time_b]
+    assert Enum.map(samples, & &1.metadata.tags["sensor"]) == ["cpu0", "cpu1"]
+    assert Enum.map(samples, & &1.metadata["calibration"]) == ["point-a", "point-b"]
+    assert Enum.map(samples, & &1.metadata[:kind]) == ["gauge", "gauge"]
+    assert samples |> Enum.map(& &1.event_id) |> Enum.uniq() |> length() == 2
+    assert Enum.all?(samples, &String.starts_with?(&1.event_id, "#{@ingress_id}:"))
+  end
+
+  test "rejects JSON metric payloads on the canonical metrics stream" do
+    assert [] =
+             SampleExtractor.extract(%{
+               data:
+                 Jason.encode!(%{"schema_version" => "serviceradar.metric.v1", "metrics" => []}),
+               metadata: %{subject: "metrics.timeseries.cpu"}
+             })
+  end
+
+  test "extracts otel protobuf-derived duration samples" do
+    [sample] =
+      SampleExtractor.extract(%{
+        data: otel_derived_duration_batch(),
         metadata: %{subject: "otel.metrics.derived"}
       })
 
@@ -136,14 +251,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   test "uses NATS ingress headers for otel event ordering" do
     [sample] =
       SampleExtractor.extract(%{
-        data:
-          Jason.encode!(%{
-            "timestamp" => "2026-06-12T00:00:00Z",
-            "service_name" => "api",
-            "span_name" => "GET /devices",
-            "span_id" => "0000000000abc123",
-            "duration_ms" => 42.5
-          }),
+        data: otel_derived_duration_batch(),
         metadata: %{
           subject: "otel.metrics.derived",
           headers: [
@@ -212,72 +320,199 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.metric_class == "flow"
   end
 
-  defp sysmon_envelope(family) do
-    %{
-      "schema" => "serviceradar.sysmon.metrics.v1",
-      "source" => "sysmon-metrics",
-      "metric_family" => family,
-      "agent_id" => "agent-1",
-      "gateway_id" => "gateway-1",
-      "partition" => "default",
-      "sample" => %{
-        "timestamp" => "2026-06-12T00:00:00Z",
-        "host_id" => "host-1",
-        "agent_id" => "agent-1",
-        "memory" => %{"used_bytes" => 50, "total_bytes" => 100}
-      }
-    }
+  defp sysmon_memory_batch(opts \\ []) do
+    metric_batch(
+      [
+        %SrMetric{
+          name: "memory.used_percent",
+          metric_type: "sysmon.memory",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "%",
+          tags: entries(%{"host_id" => "host-1"}),
+          metadata: entries(%{"used_bytes" => "50", "total_bytes" => "100"}),
+          points: [
+            %MetricPoint{
+              value: 50.0,
+              raw_value: "50.0",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: @point_time_a,
+              series_identity_hint:
+                Keyword.get(opts, :series_identity_hint, "sysmon:memory:host-1")
+            }
+          ]
+        }
+      ],
+      source: "sysmon-metrics",
+      service_name: "sysmon",
+      service_type: "sysmon",
+      ingress_id: Keyword.get(opts, :ingress_id, ""),
+      ingress_timestamp: Keyword.get(opts, :ingress_timestamp, 0)
+    )
   end
 
-  defp snmp_envelope do
-    %{
-      "schema" => "serviceradar.snmp.interface_metric.v1",
-      "source" => "snmp-metrics",
-      "timestamp" => "2026-06-12T00:00:00Z",
-      "gateway_id" => "gateway-1",
-      "agent_id" => "agent-1",
-      "partition" => "default",
-      "metric_name" => "ifHCInOctets",
-      "metric_type" => "snmp",
-      "value" => 1234.5,
-      "target_device_ip" => "10.0.0.20",
-      "if_index" => 7,
-      "tags" => %{"target" => "10.0.0.20", "interface_uid" => "ifindex:7"},
-      "metadata" => %{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"}
-    }
-  end
-
-  defp snmp_counter_envelope(value, timestamp) do
-    Map.merge(snmp_envelope(), %{
-      "timestamp" => timestamp,
-      "value" => value * 1.0,
-      "unit" => "By",
-      "metadata" => %{
-        "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
-        "kind" => "sum",
-        "temporality" => "cumulative",
-        "is_monotonic" => true,
-        "raw_value" => value,
-        "counter_width" => 64
-      }
+  # A sysmon batch whose resource carries NO gateway-attested identity
+  # (agent_id/device_id/host_id/host_ip all empty). Used to prove the
+  # anti-spoof guard drops it regardless of any producer-set series hint.
+  defp identityless_sysmon_batch(opts) do
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "",
+        device_id: "",
+        host_id: "",
+        host_ip: "",
+        gateway_id: "gateway-1",
+        partition: "default",
+        service_name: "sysmon",
+        service_type: "sysmon"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "sysmon-metrics",
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "agent-1",
+        producer_kind: "agent"
+      },
+      emitted_at_unix_nano: @point_time_a,
+      metrics: [
+        %SrMetric{
+          name: "memory.used_percent",
+          metric_type: "sysmon.memory",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "%",
+          points: [
+            %MetricPoint{
+              value: 50.0,
+              raw_value: "50.0",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: @point_time_a,
+              series_identity_hint: Keyword.get(opts, :series_identity_hint, "")
+            }
+          ]
+        }
+      ]
     })
   end
 
-  defp plugin_metric_envelope do
-    %{
-      "schema" => "serviceradar.metric.v1",
-      "source" => "plugin-result",
-      "timestamp" => "2026-06-13T18:20:00Z",
-      "gateway_id" => "gateway-1",
-      "agent_id" => "agent-1",
-      "partition" => "default",
-      "metric_name" => "proxmox_guest_cpu_ratio_max",
-      "metric_type" => "cpu",
-      "value" => 0.91,
-      "unit" => "ratio",
-      "tags" => %{"producer_id" => "proxmox-inventory", "producer_kind" => "plugin_result"},
-      "metadata" => %{"status" => "WARNING"}
-    }
+  defp snmp_batch(value, observed_at) do
+    metric_batch(
+      [
+        %SrMetric{
+          name: "ifHCInOctets",
+          metric_type: "snmp",
+          kind: :METRIC_KIND_SUM,
+          temporality: :METRIC_TEMPORALITY_CUMULATIVE,
+          is_monotonic: true,
+          unit: "By",
+          counter_width: 64,
+          tags: entries(%{"target" => "router-a", "host" => "10.0.0.20"}),
+          metadata: entries(%{"oid" => ".1.3.6.1.2.1.31.1.1.1.6.7"}),
+          points: [
+            %MetricPoint{
+              value: value * 1.0,
+              raw_value: to_string(value),
+              raw_value_type: :METRIC_VALUE_TYPE_UINT64,
+              observed_at_unix_nano: observed_at,
+              if_index: 7,
+              interface_uid: "ifindex:7"
+            }
+          ]
+        }
+      ],
+      source: "snmp-metrics",
+      service_name: "snmp",
+      service_type: "snmp"
+    )
+  end
+
+  defp plugin_metric_batch do
+    metric_batch(
+      [
+        %SrMetric{
+          name: "proxmox_guest_cpu_ratio_max",
+          metric_type: "cpu",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "ratio",
+          tags:
+            entries(%{"producer_id" => "proxmox-inventory", "producer_kind" => "plugin_result"}),
+          metadata: entries(%{"status" => "WARNING"}),
+          points: [
+            %MetricPoint{
+              value: 0.91,
+              raw_value: "0.91",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: @point_time_a
+            }
+          ]
+        }
+      ],
+      source: "plugin-result",
+      service_name: "plugin",
+      service_type: "plugin"
+    )
+  end
+
+  defp otel_derived_duration_batch do
+    metric_batch(
+      [
+        %SrMetric{
+          name: "otel.span.duration_ms",
+          metric_type: "otel_span_derived",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "ms",
+          tags: entries(%{"metric_family" => "otel_span_derived"}),
+          points: [
+            %MetricPoint{
+              value: 42.5,
+              raw_value: "42.5",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: @point_time_a,
+              attributes:
+                entries(%{
+                  "service_name" => "api",
+                  "span_name" => "GET /devices"
+                }),
+              metadata:
+                entries(%{
+                  "timestamp" => "2026-06-12T00:00:00Z",
+                  "span_id" => "0000000000abc123",
+                  "metric_type" => "span",
+                  "duration_seconds" => "0.0425"
+                })
+            }
+          ]
+        }
+      ],
+      source: "otel-metrics-derived",
+      service_name: "otel-derived",
+      service_type: "otel"
+    )
+  end
+
+  defp metric_batch(metrics, opts) do
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+        partition: "default",
+        service_name: Keyword.fetch!(opts, :service_name),
+        service_type: Keyword.fetch!(opts, :service_type)
+      },
+      ingest_identity: %IngestIdentity{
+        source: Keyword.fetch!(opts, :source),
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "agent-1",
+        producer_kind: "agent"
+      },
+      ingress_id: Keyword.get(opts, :ingress_id, ""),
+      ingress_timestamp_unix_nano: Keyword.get(opts, :ingress_timestamp, 0),
+      emitted_at_unix_nano: @point_time_a,
+      metrics: metrics
+    })
+  end
+
+  defp entries(map) do
+    Enum.map(map, fn {key, value} -> %StringMapEntry{key: key, value: to_string(value)} end)
   end
 
   defp otel_multi_point_request do

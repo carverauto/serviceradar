@@ -4,6 +4,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   alias ServiceRadar.EventWriter.Config, as: EventWriterConfig
   alias ServiceRadar.Observability.AnomalyDetection
   alias ServiceRadar.Observability.AnomalyDetection.Config
+  alias ServiceRadar.Observability.AnomalyDetection.ContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.NativeContextEngine
+  alias ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine
 
   setup do
     previous_enabled = Application.get_env(:serviceradar_core, :anomaly_analysis_consumer_enabled)
@@ -18,6 +21,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
       System.delete_env("ANOMALY_ANALYSIS_NATS_CREDS_FILE")
       System.delete_env("ANOMALY_TEST_NATS_PASSWORD")
       System.delete_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY")
+      System.delete_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE")
+      System.delete_env("ANOMALY_ANALYSIS_MAX_SERIES")
+      System.delete_env("ANOMALY_ANALYSIS_MAX_SEEN_EVENTS")
+      System.delete_env("ANOMALY_ANALYSIS_EVENT_TTL_MS")
+      System.delete_env("ANOMALY_ANALYSIS_EVENT_PRUNE_INTERVAL_MS")
+      System.delete_env("ANOMALY_ANALYSIS_SHARD_COUNT")
     end)
 
     :ok
@@ -39,6 +48,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     assert Enum.map(streams, & &1.subject) == [
              "metrics.sysmon.*",
              "metrics.snmp.>",
+             "metrics.icmp.>",
              "metrics.timeseries.>",
              "otel.metrics.>",
              "flows.raw.netflow",
@@ -71,9 +81,26 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   test "defaults processing to otel metrics only" do
     config = Config.load()
 
+    assert config.context_engine == ContextEngine
     assert config.enabled_subjects == ["otel.metrics.>"]
     assert Config.subject_enabled?(config, "otel.metrics.raw")
     refute Config.subject_enabled?(config, "metrics.sysmon.cpu")
+  end
+
+  test "context engine is opt-in from env" do
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "sharded")
+
+    assert Config.load().context_engine ==
+             ShardedContextEngine
+
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "native")
+
+    assert Config.load().context_engine ==
+             NativeContextEngine
+
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "bogus")
+
+    assert Config.load().context_engine == ContextEngine
   end
 
   test "supports per-subject enable filters" do
@@ -98,6 +125,78 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     System.put_env("ANOMALY_ANALYSIS_PROCESSOR_CONCURRENCY", "0")
 
     assert Config.load().processor_concurrency == 4
+  end
+
+  test "leaves scale-engine bounds nil so the selected engine's own default applies" do
+    config = Config.load()
+
+    # nil means "use the scale engine's own default" — the two engines size these
+    # bounds in different units (NativeContextEngine total, ShardedContextEngine
+    # per-shard), so Config does not impose a single default. Supervisor drops the
+    # nil entries; behavior is unchanged until an operator sets an ANOMALY_ANALYSIS_*
+    # override (#3818).
+    assert config.max_series == nil
+    assert config.max_seen_events == nil
+    assert config.event_ttl_ms == nil
+    assert config.event_prune_interval_ms == nil
+  end
+
+  test "reads scale-engine bounds from env (#3818)" do
+    System.put_env("ANOMALY_ANALYSIS_MAX_SERIES", "5000000")
+    System.put_env("ANOMALY_ANALYSIS_MAX_SEEN_EVENTS", "9000000")
+    System.put_env("ANOMALY_ANALYSIS_EVENT_TTL_MS", "120000")
+    System.put_env("ANOMALY_ANALYSIS_EVENT_PRUNE_INTERVAL_MS", "30000")
+
+    config = Config.load()
+
+    assert config.max_series == 5_000_000
+    assert config.max_seen_events == 9_000_000
+    assert config.event_ttl_ms == 120_000
+    assert config.event_prune_interval_ms == 30_000
+  end
+
+  test "scale-engine env overrides fall back to defaults on invalid input" do
+    System.put_env("ANOMALY_ANALYSIS_MAX_SERIES", "0")
+    System.put_env("ANOMALY_ANALYSIS_MAX_SEEN_EVENTS", "not-a-number")
+
+    config = Config.load()
+
+    # Invalid env falls back to the default, which is now nil (engine default).
+    assert config.max_series == nil
+    assert config.max_seen_events == nil
+  end
+
+  test "scale-engine bounds are threaded into the engine child specs (#3818)" do
+    # The supervisor builds engine child specs from Config; verify the engines'
+    # child_spec/1 carries the bound opts so the knobs are no longer dead. We
+    # build the opts the same way Supervisor.scale_engine_opts/1 does and feed
+    # them through the public child_spec/1 without starting any GenServer.
+    System.put_env("ANOMALY_ANALYSIS_MAX_SERIES", "5000000")
+    System.put_env("ANOMALY_ANALYSIS_MAX_SEEN_EVENTS", "9000000")
+    System.put_env("ANOMALY_ANALYSIS_EVENT_TTL_MS", "120000")
+    System.put_env("ANOMALY_ANALYSIS_EVENT_PRUNE_INTERVAL_MS", "30000")
+    System.put_env("ANOMALY_ANALYSIS_SHARD_COUNT", "8")
+
+    config = Config.load()
+
+    opts = [
+      shard_count: config.shard_count,
+      max_series: config.max_series,
+      max_seen_events: config.max_seen_events,
+      event_ttl_ms: config.event_ttl_ms,
+      event_prune_interval_ms: config.event_prune_interval_ms
+    ]
+
+    for engine <- [NativeContextEngine, ShardedContextEngine] do
+      assert %{start: {^engine, :start_link, [start_opts]}} = engine.child_spec(opts)
+      assert Keyword.get(start_opts, :shard_count) == 8
+      assert Keyword.get(start_opts, :max_series) == 5_000_000
+      assert Keyword.get(start_opts, :max_seen_events) == 9_000_000
+      assert Keyword.get(start_opts, :event_ttl_ms) == 120_000
+      assert Keyword.get(start_opts, :event_prune_interval_ms) == 30_000
+    end
+
+    System.delete_env("ANOMALY_ANALYSIS_SHARD_COUNT")
   end
 
   test "materializes an EventWriter-compatible producer config" do

@@ -664,20 +664,30 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServer do
   defp max_message_bytes("results"), do: @max_results_message_bytes
   defp max_message_bytes("sysmon-metrics"), do: @max_sysmon_message_bytes
   defp max_message_bytes("snmp-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("icmp-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("rperf-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("mtr-metrics"), do: @max_results_message_bytes
+  defp max_message_bytes("sweep-metrics"), do: @max_results_message_bytes
   defp max_message_bytes("plugin-result"), do: @max_results_message_bytes
   defp max_message_bytes("workload-identity"), do: @max_workload_identity_message_bytes
   defp max_message_bytes("flow-attribution"), do: @max_flow_attribution_message_bytes
   defp max_message_bytes(@otlp_relay_source), do: @max_otlp_relay_message_bytes
   defp max_message_bytes("addon:" <> _addon_id), do: @max_flow_attribution_message_bytes
+  defp max_message_bytes("plugin:" <> _plugin_id), do: @max_flow_attribution_message_bytes
   defp max_message_bytes(_source), do: @max_status_message_bytes
 
   defp strict_message_size_source?("addon:" <> _addon_id), do: true
+  defp strict_message_size_source?("plugin:" <> _plugin_id), do: true
 
   defp strict_message_size_source?(source) do
     source in [
       "results",
       "sysmon-metrics",
       "snmp-metrics",
+      "icmp-metrics",
+      "rperf-metrics",
+      "mtr-metrics",
+      "sweep-metrics",
       "plugin-result",
       "workload-identity",
       "flow-attribution",

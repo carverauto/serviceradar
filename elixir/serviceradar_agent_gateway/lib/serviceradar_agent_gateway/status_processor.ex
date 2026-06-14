@@ -18,10 +18,14 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
   - Distributed routing for partition-aware processing
   """
 
+  alias ServiceRadarAgentGateway.IcmpMetricsPublisher
+  alias ServiceRadarAgentGateway.MtrMetricsPublisher
   alias ServiceRadarAgentGateway.OtlpRelayPublisher
   alias ServiceRadarAgentGateway.PluginMetricsPublisher
+  alias ServiceRadarAgentGateway.RperfMetricsPublisher
   alias ServiceRadarAgentGateway.SnmpMetricsPublisher
   alias ServiceRadarAgentGateway.StatusBuffer
+  alias ServiceRadarAgentGateway.SweepMetricsPublisher
   alias ServiceRadarAgentGateway.SysmonMetricsPublisher
 
   require Logger
@@ -63,7 +67,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           {:error, :otlp_relay_publisher_disabled}
 
         :not_otlp_relay ->
-          forward_then_publish(status)
+          publish_then_forward(status)
 
         :ok ->
           track_agent(status)
@@ -75,38 +79,63 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
     end
   end
 
-  defp forward_then_publish(status) do
-    if metric_only_source?(status) do
-      # fj #3788: sysmon/snmp metric statuses are delivered to core via the
-      # JetStream publishers below. Forwarding them over gRPC only reached a
-      # no-op cutover ack in core (results_router acknowledge_metrics_cutover),
-      # so skip the redundant forward and publish directly.
-      publish_sysmon_metrics(status)
-      publish_snmp_metrics(status)
-      track_agent(status)
-      :ok
-    else
-      case forward(status) do
-        :ok ->
-          publish_plugin_metrics(status)
+  defp publish_then_forward(status) do
+    case publish_gateway_metrics(status) do
+      :ok ->
+        if gateway_metric_status?(status) do
           track_agent(status)
           :ok
+        else
+          forward_then_track(status)
+        end
 
-        {:ok, _result} = ok ->
-          publish_plugin_metrics(status)
-          track_agent(status)
-          ok
-
-        {:error, _reason} = error ->
-          error
-      end
+      {:error, _reason} = error ->
+        error
     end
   end
 
-  defp metric_only_source?(%{source: source}),
-    do: source in ["sysmon-metrics", :sysmon_metrics, "snmp-metrics", :snmp_metrics]
+  defp forward_then_track(status) do
+    case forward(status) do
+      :ok ->
+        track_agent(status)
+        :ok
 
-  defp metric_only_source?(_status), do: false
+      {:ok, _result} = ok ->
+        track_agent(status)
+        ok
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp publish_gateway_metrics(status) do
+    Enum.reduce_while(
+      [
+        {:sysmon, publish_sysmon_metrics(status)},
+        {:snmp, publish_snmp_metrics(status)},
+        {:icmp, publish_icmp_metrics(status)},
+        {:package_telemetry, publish_plugin_metrics(status)},
+        {:rperf, publish_rperf_metrics(status)},
+        {:mtr, publish_mtr_metrics(status)},
+        {:sweep, publish_sweep_metrics(status)}
+      ],
+      :ok,
+      fn
+        {_source, result}, :ok when result in [:ok, nil] ->
+          {:cont, :ok}
+
+        {source, :disabled}, :ok when source in [:sysmon, :snmp, :icmp, :rperf, :mtr, :sweep] ->
+          {:halt, {:error, {:metric_publish_disabled, source}}}
+
+        {_source, :disabled}, :ok ->
+          {:cont, :ok}
+
+        {source, {:error, reason}}, :ok ->
+          {:halt, {:error, {:metric_publish_failed, source, reason}}}
+      end
+    )
+  end
 
   defp maybe_publish_otlp_relay(%{source: source} = status) when source in ["otlp-relay", :otlp_relay],
     do: otlp_relay_publisher().publish_relay(status)
@@ -330,11 +359,59 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :results,
       "sysmon-metrics",
       :sysmon_metrics,
+      "snmp-metrics",
+      :snmp_metrics,
+      "icmp-metrics",
+      :icmp_metrics,
+      "rperf-metrics",
+      :rperf_metrics,
+      "mtr-metrics",
+      :mtr_metrics,
+      "sweep-metrics",
+      :sweep_metrics,
       "plugin-result",
       :plugin_result,
       "workload-identity",
       :workload_identity
     ] or package_telemetry_source?(source)
+  end
+
+  defp gateway_metric_status?(status) do
+    sysmon_metrics_source?(status) or snmp_metrics_source?(status) or icmp_metrics_source?(status) or
+      rperf_metrics_source?(status) or mtr_metrics_source?(status) or sweep_metrics_source?(status)
+  end
+
+  defp publish_icmp_metrics(status) do
+    if icmp_metrics_source?(status) do
+      case icmp_metrics_publisher().publish_icmp(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :disabled
+
+        {:error, reason} ->
+          Logger.warning("ICMP metrics publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          {:error, reason}
+      end
+    end
+  end
+
+  defp icmp_metrics_source?(%{source: source}), do: source in ["icmp-metrics", :icmp_metrics]
+  defp icmp_metrics_source?(_status), do: false
+
+  defp icmp_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :icmp_metrics_publisher_module,
+      IcmpMetricsPublisher
+    )
   end
 
   defp publish_sysmon_metrics(status) do
@@ -344,7 +421,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           :ok
 
         :disabled ->
-          :ok
+          :disabled
 
         {:error, reason} ->
           Logger.warning("Sysmon metrics publish failed",
@@ -354,7 +431,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
             partition: status[:partition]
           )
 
-          :ok
+          {:error, reason}
       end
     end
   end
@@ -378,7 +455,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           :ok
 
         :disabled ->
-          :ok
+          :disabled
 
         {:error, reason} ->
           Logger.warning("SNMP metrics publish failed",
@@ -388,7 +465,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
             partition: status[:partition]
           )
 
-          :ok
+          {:error, reason}
       end
     end
   end
@@ -411,7 +488,7 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
           :ok
 
         :disabled ->
-          :ok
+          :disabled
 
         {:error, reason} ->
           Logger.warning("Plugin metrics publish failed",
@@ -422,12 +499,13 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
             service_name: status[:service_name]
           )
 
-          :ok
+          {:error, reason}
       end
     end
   end
 
-  defp plugin_result_source?(%{source: source}), do: source in ["plugin-result", :plugin_result]
+  defp plugin_result_source?(%{source: source}), do: package_telemetry_source?(source)
+
   defp plugin_result_source?(_status), do: false
 
   defp plugin_metrics_publisher do
@@ -435,6 +513,105 @@ defmodule ServiceRadarAgentGateway.StatusProcessor do
       :serviceradar_agent_gateway,
       :plugin_metrics_publisher_module,
       PluginMetricsPublisher
+    )
+  end
+
+  defp publish_rperf_metrics(status) do
+    if rperf_metrics_source?(status) do
+      case rperf_metrics_publisher().publish_rperf(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :disabled
+
+        {:error, reason} ->
+          Logger.warning("RPerf metrics publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          {:error, reason}
+      end
+    end
+  end
+
+  defp rperf_metrics_source?(%{source: source}), do: source in ["rperf-metrics", :rperf_metrics]
+  defp rperf_metrics_source?(_status), do: false
+
+  defp rperf_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :rperf_metrics_publisher_module,
+      RperfMetricsPublisher
+    )
+  end
+
+  defp publish_mtr_metrics(status) do
+    if mtr_metrics_source?(status) do
+      case mtr_metrics_publisher().publish_mtr(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :disabled
+
+        {:error, reason} ->
+          Logger.warning("MTR metrics publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          {:error, reason}
+      end
+    end
+  end
+
+  defp mtr_metrics_source?(%{source: source}), do: source in ["mtr-metrics", :mtr_metrics]
+  defp mtr_metrics_source?(_status), do: false
+
+  defp mtr_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :mtr_metrics_publisher_module,
+      MtrMetricsPublisher
+    )
+  end
+
+  defp publish_sweep_metrics(status) do
+    if sweep_metrics_source?(status) do
+      case sweep_metrics_publisher().publish_sweep(status) do
+        :ok ->
+          :ok
+
+        :disabled ->
+          :disabled
+
+        {:error, reason} ->
+          Logger.warning("Sweep metrics publish failed",
+            reason: inspect(reason),
+            agent_id: status[:agent_id],
+            gateway_id: status[:gateway_id],
+            partition: status[:partition]
+          )
+
+          {:error, reason}
+      end
+    end
+  end
+
+  defp sweep_metrics_source?(%{source: source}), do: source in ["sweep-metrics", :sweep_metrics]
+  defp sweep_metrics_source?(_status), do: false
+
+  defp sweep_metrics_publisher do
+    Application.get_env(
+      :serviceradar_agent_gateway,
+      :sweep_metrics_publisher_module,
+      SweepMetricsPublisher
     )
   end
 

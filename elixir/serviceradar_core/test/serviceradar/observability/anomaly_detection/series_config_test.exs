@@ -26,6 +26,20 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SeriesConfigTest do
     assert tuning.confirm_slots == 3
   end
 
+  test "resolves ICMP check metrics as RED samples" do
+    tuning =
+      SeriesConfig.resolve(%{
+        series_key: "icmp:check-a:icmp_response_time_ns",
+        metric_class: "icmp",
+        subject: "metrics.icmp.icmp.icmp_response_time_ns"
+      })
+
+    assert tuning.metric_group == "red"
+    assert tuning.window_size == 120
+    assert tuning.min_samples == 20
+    assert tuning.confirm_slots == 3
+  end
+
   test "exact series override wins over metric-class defaults" do
     tuning =
       SeriesConfig.resolve(
