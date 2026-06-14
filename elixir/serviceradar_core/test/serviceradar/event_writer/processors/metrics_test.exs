@@ -144,6 +144,20 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
     assert row.metadata["status"] == "WARNING"
   end
 
+  test "rejects an OCSF event (class_uid present) mis-routed to the metrics stream" do
+    payload = %{
+      "schema" => "serviceradar.metric.v1",
+      "class_uid" => 1008,
+      "metric_name" => "x",
+      "value" => 1.0
+    }
+
+    assert Metrics.parse_message(%{
+             data: Jason.encode!(payload),
+             metadata: %{subject: "metrics.timeseries.custom.x"}
+           }) == nil
+  end
+
   defmodule SysmonIngestorStub do
     @moduledoc false
     def ingest(payload, status) do

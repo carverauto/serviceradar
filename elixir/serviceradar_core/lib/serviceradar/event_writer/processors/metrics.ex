@@ -44,6 +44,7 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
     with {:ok, json} <- Jason.decode(data),
+         :ok <- reject_ocsf_on_metrics_stream(json),
          {:ok, kind} <- metric_kind(json, metadata) do
       case kind do
         :sysmon -> parse_sysmon(json, metadata)
@@ -53,6 +54,27 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
       _ -> nil
     end
   end
+
+  # REC9a (fj #3788): metrics and OCSF events are deliberately separate planes. An
+  # OCSF event always carries `class_uid`; a metric never does. If one lands on the
+  # metrics stream it is mis-routed — reject it loudly instead of silently parsing it
+  # as a metric (which would mis-bucket it into a hypertable).
+  defp reject_ocsf_on_metrics_stream(json) when is_map(json) do
+    if Map.has_key?(json, "class_uid") do
+      :telemetry.execute(
+        [:serviceradar, :event_writer, :metrics, :misbucketed],
+        %{count: 1},
+        %{reason: :ocsf_event_on_metrics_stream}
+      )
+
+      Logger.warning("Rejected OCSF event (class_uid present) on the metrics stream")
+      :error
+    else
+      :ok
+    end
+  end
+
+  defp reject_ocsf_on_metrics_stream(_json), do: :ok
 
   @doc false
   def parse_sysmon(json, metadata) do

@@ -53,5 +53,18 @@ defmodule ServiceRadar.EventWriter.Processors.EventsTest do
 
       assert row == nil
     end
+
+    test "rejects a metric payload mis-routed to the OCSF events stream" do
+      payload = %{
+        "schema" => "serviceradar.metric.v1",
+        "metric_name" => "cpu",
+        "value" => 1.0,
+        "temporality" => "cumulative"
+      }
+
+      message = %{data: Jason.encode!(payload), metadata: %{subject: "events.ocsf.processed"}}
+
+      assert Events.parse_message(message) == nil
+    end
   end
 end
