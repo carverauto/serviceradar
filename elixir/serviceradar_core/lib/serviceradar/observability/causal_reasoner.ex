@@ -71,6 +71,17 @@ defmodule ServiceRadar.Observability.CausalReasoner do
 
   @type batch_result :: {:ok, verdict()} | {:error, String.t()}
 
+  @type series_snapshot :: %{
+          required(:version) => pos_integer(),
+          required(:series_key) => String.t(),
+          required(:context) => context() | nil,
+          required(:window_tail) => [number()],
+          required(:rolling_acc) => rolling_acc(),
+          required(:consecutive_anomalous) => non_neg_integer(),
+          required(:evictions_since_recompute) => non_neg_integer(),
+          required(:active) => boolean()
+        }
+
   @type verdict :: %{
           required(:state) => String.t(),
           required(:anomalous) => boolean(),
@@ -194,6 +205,23 @@ defmodule ServiceRadar.Observability.CausalReasoner do
     Native.forget_series(shard_state, series_key)
   end
 
+  @doc """
+  Exports one native series state snapshot from a shard resource.
+  """
+  @spec export_series(shard_state(), String.t()) ::
+          {:ok, series_snapshot() | nil} | {:error, String.t()}
+  def export_series(shard_state, series_key) when is_binary(series_key) do
+    Native.export_series(shard_state, series_key)
+  end
+
+  @doc """
+  Imports one native series state snapshot into a shard resource.
+  """
+  @spec import_series(shard_state(), series_snapshot()) :: {:ok, boolean()} | {:error, String.t()}
+  def import_series(shard_state, %{} = snapshot) do
+    Native.import_series(shard_state, normalize_series_snapshot(snapshot))
+  end
+
   defp normalize_context(context) do
     %{
       baseline: Map.get(context, :baseline, Map.get(context, "baseline", [])),
@@ -269,6 +297,38 @@ defmodule ServiceRadar.Observability.CausalReasoner do
       observed_at
     }
   end
+
+  defp normalize_series_snapshot(%{} = snapshot) do
+    context = Map.get(snapshot, :context, Map.get(snapshot, "context"))
+
+    %{
+      version: Map.get(snapshot, :version, Map.get(snapshot, "version", 1)),
+      series_key: Map.get(snapshot, :series_key, Map.get(snapshot, "series_key")),
+      context: if(is_nil(context), do: nil, else: normalize_context(context)),
+      window_tail: Map.get(snapshot, :window_tail, Map.get(snapshot, "window_tail", [])),
+      rolling_acc:
+        normalize_rolling_acc(Map.get(snapshot, :rolling_acc, Map.get(snapshot, "rolling_acc"))),
+      consecutive_anomalous:
+        Map.get(snapshot, :consecutive_anomalous, Map.get(snapshot, "consecutive_anomalous", 0)),
+      evictions_since_recompute:
+        Map.get(
+          snapshot,
+          :evictions_since_recompute,
+          Map.get(snapshot, "evictions_since_recompute", 0)
+        ),
+      active: Map.get(snapshot, :active, Map.get(snapshot, "active", false))
+    }
+  end
+
+  defp normalize_rolling_acc(%{} = acc) do
+    %{
+      count: Map.get(acc, :count, Map.get(acc, "count", 0)),
+      mean: Map.get(acc, :mean, Map.get(acc, "mean", 0.0)),
+      m2: Map.get(acc, :m2, Map.get(acc, "m2", 0.0))
+    }
+  end
+
+  defp normalize_rolling_acc(_acc), do: %{count: 0, mean: 0.0, m2: 0.0}
 
   defp normalize_batch_result(%{ok: %{} = verdict, error: nil}), do: {:ok, verdict}
 

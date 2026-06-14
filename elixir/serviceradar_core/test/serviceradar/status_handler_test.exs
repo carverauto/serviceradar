@@ -83,6 +83,59 @@ defmodule ServiceRadar.StatusHandlerTest do
     assert_receive {:forwarded, ^status}
   end
 
+  test "rejects all metric-only sources before ResultsRouter when they reach core" do
+    parent = self()
+
+    router_pid =
+      spawn(fn ->
+        metric_router_loop(parent)
+      end)
+
+    Process.register(router_pid, ServiceRadar.ResultsRouter)
+
+    for source <- [
+          "sysmon-metrics",
+          "snmp-metrics",
+          "icmp-metrics",
+          "rperf-metrics",
+          "mtr-metrics",
+          "sweep-metrics"
+        ] do
+      status = %{
+        source: source,
+        service_type: "metrics",
+        service_name: source,
+        message: <<10, 0>>
+      }
+
+      assert {:reply, {:error, {:gateway_metric_status_not_core_routable, ^source}}, %{}} =
+               StatusHandler.handle_call({:status_update, status}, self(), %{})
+
+      refute_receive {:forwarded, ^status}, 20
+    end
+  end
+
+  test "rejects metric-only sources when ResultsRouter is unavailable" do
+    for source <- [
+          "sysmon-metrics",
+          "snmp-metrics",
+          "icmp-metrics",
+          "rperf-metrics",
+          "mtr-metrics",
+          "sweep-metrics"
+        ] do
+      status = %{
+        source: source,
+        service_type: "metrics",
+        service_name: source,
+        message: <<10, 0>>
+      }
+
+      assert {:reply, {:error, {:gateway_metric_status_not_core_routable, ^source}}, %{}} =
+               StatusHandler.handle_call({:status_update, status}, self(), %{})
+    end
+  end
+
   describe "flow-attribution source" do
     setup do
       original = Application.get_env(:serviceradar_core, StatusHandler, [])
@@ -493,5 +546,14 @@ defmodule ServiceRadar.StatusHandlerTest do
   def stub_publish(subject, payload, pid) when is_pid(pid) do
     send(pid, {:published, subject, payload})
     :ok
+  end
+
+  defp metric_router_loop(parent) do
+    receive do
+      {:"$gen_call", from, {:results_update, %{source: source} = status}} ->
+        send(parent, {:forwarded, status})
+        GenServer.reply(from, {:error, {:gateway_metric_status_not_core_routable, source}})
+        metric_router_loop(parent)
+    end
   end
 end

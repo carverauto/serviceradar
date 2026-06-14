@@ -40,6 +40,7 @@ defmodule ServiceRadar.Observability.CausalReasoner.Native do
   @type indexed_series_batch_input :: CausalReasoner.indexed_series_batch_input()
   @type indexed_value_input :: CausalReasoner.indexed_value_input()
   @type indexed_value_tuple_input :: CausalReasoner.indexed_value_tuple_input()
+  @type series_snapshot :: CausalReasoner.series_snapshot()
   @type batch_result ::
           %{
             required(:ok) => verdict() | nil,
@@ -84,4 +85,11 @@ defmodule ServiceRadar.Observability.CausalReasoner.Native do
 
   @spec forget_series(reference(), String.t()) :: boolean()
   def forget_series(_state, _series_key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec export_series(reference(), String.t()) ::
+          {:ok, series_snapshot() | nil} | {:error, String.t()}
+  def export_series(_state, _series_key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec import_series(reference(), series_snapshot()) :: {:ok, boolean()} | {:error, String.t()}
+  def import_series(_state, _snapshot), do: :erlang.nif_error(:nif_not_loaded)
 end

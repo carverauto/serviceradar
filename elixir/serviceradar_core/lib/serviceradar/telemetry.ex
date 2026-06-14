@@ -318,7 +318,104 @@ defmodule ServiceRadar.Telemetry do
         tags: [:status],
         description: "Days remaining before SPIFFE certificate expiration"
       )
-    ] ++ endpoint_inventory_metrics() ++ camera_relay_metrics() ++ observability_signal_metrics()
+    ] ++
+      endpoint_inventory_metrics() ++
+      camera_relay_metrics() ++ observability_signal_metrics() ++ anomaly_detection_metrics()
+  end
+
+  @doc """
+  Returns anomaly detection throughput, latency, and drop metric definitions.
+  """
+  @spec anomaly_detection_metrics() :: list()
+  def anomaly_detection_metrics do
+    import Telemetry.Metrics
+
+    batch_event = [:serviceradar, :anomaly_detection, :batch, :completed]
+    batch_tags = [:engine, :path]
+    consumer_tags = [:subject_class, :reason]
+
+    [
+      counter("serviceradar.anomaly_detection.batch.count",
+        event_name: batch_event,
+        measurement: :count,
+        tags: batch_tags,
+        description: "Anomaly detection batches completed by engine/path"
+      ),
+      distribution("serviceradar.anomaly_detection.batch.duration",
+        event_name: batch_event,
+        measurement: :duration,
+        tags: batch_tags,
+        unit: {:native, :millisecond},
+        reporter_options: [
+          buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000]
+        ],
+        description: "End-to-end anomaly detection batch duration"
+      ),
+      sum("serviceradar.anomaly_detection.input_samples.count",
+        event_name: batch_event,
+        measurement: :input_samples,
+        tags: batch_tags,
+        description: "Input samples received by anomaly detection"
+      ),
+      sum("serviceradar.anomaly_detection.evaluations.count",
+        event_name: batch_event,
+        measurement: :evaluations,
+        tags: batch_tags,
+        description: "Samples evaluated after idempotency and validation drops"
+      ),
+      sum("serviceradar.anomaly_detection.emitted_events.count",
+        event_name: batch_event,
+        measurement: :emitted_events,
+        tags: batch_tags,
+        description: "Sparse anomaly open/clear events emitted"
+      ),
+      sum("serviceradar.anomaly_detection.duplicate_drops.count",
+        event_name: batch_event,
+        measurement: :duplicate_drops,
+        tags: batch_tags,
+        description: "Samples dropped because their event_id was already committed"
+      ),
+      sum("serviceradar.anomaly_detection.dropped_samples.count",
+        event_name: batch_event,
+        measurement: :dropped_samples,
+        tags: batch_tags,
+        description: "Samples dropped for non-duplicate validation or preparation reasons"
+      ),
+      sum("serviceradar.anomaly_detection.failed_samples.count",
+        event_name: batch_event,
+        measurement: :failed_samples,
+        tags: batch_tags,
+        description: "Samples that failed during shard/native evaluation"
+      ),
+      counter("serviceradar.anomaly_detection.consumer.analyzed.count",
+        event_name: [:serviceradar, :anomaly_detection, :consumer, :analyzed],
+        measurement: :count,
+        tags: consumer_tags,
+        tag_values: &anomaly_consumer_tag_values/1,
+        description: "Metric samples analyzed by the live anomaly detection JetStream consumer"
+      ),
+      counter("serviceradar.anomaly_detection.consumer.disabled.count",
+        event_name: [:serviceradar, :anomaly_detection, :consumer, :disabled],
+        measurement: :count,
+        tags: consumer_tags,
+        tag_values: &anomaly_consumer_tag_values/1,
+        description: "Messages skipped because the anomaly consumer subject filter disabled them"
+      ),
+      counter("serviceradar.anomaly_detection.consumer.dropped.count",
+        event_name: [:serviceradar, :anomaly_detection, :consumer, :dropped],
+        measurement: :count,
+        tags: consumer_tags,
+        tag_values: &anomaly_consumer_tag_values/1,
+        description: "Messages or samples dropped by the live anomaly detection consumer"
+      ),
+      counter("serviceradar.anomaly_detection.consumer.failed.count",
+        event_name: [:serviceradar, :anomaly_detection, :consumer, :failed],
+        measurement: :count,
+        tags: consumer_tags,
+        tag_values: &anomaly_consumer_tag_values/1,
+        description: "Messages failed by the live anomaly detection consumer"
+      )
+    ]
   end
 
   @doc """
@@ -363,6 +460,43 @@ defmodule ServiceRadar.Telemetry do
         description:
           "Share of spans ingested in the recent window that are root spans " <>
             "(parent_span_id IS NULL); sustained high values indicate lost parent linkage"
+      ),
+      counter("serviceradar.metric_envelope.decode.completed.count",
+        event_name: [:serviceradar, :metric_envelope, :decode, :completed],
+        measurement: :count,
+        tags: [:source, :schema_version],
+        tag_values: &metric_envelope_tag_values/1,
+        description: "Canonical ServiceRadar metric envelope protobuf decode successes"
+      ),
+      sum("serviceradar.metric_envelope.decode.rows.count",
+        event_name: [:serviceradar, :metric_envelope, :decode, :completed],
+        measurement: :rows,
+        tags: [:source, :schema_version],
+        tag_values: &metric_envelope_tag_values/1,
+        description: "Rows extracted from canonical ServiceRadar metric envelopes"
+      ),
+      distribution("serviceradar.metric_envelope.decode.duration",
+        event_name: [:serviceradar, :metric_envelope, :decode, :completed],
+        measurement: :duration,
+        unit: {:native, :microsecond},
+        tags: [:source, :schema_version],
+        tag_values: &metric_envelope_tag_values/1,
+        reporter_options: [buckets: [10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]],
+        description: "Metric envelope protobuf decode and row extraction duration"
+      ),
+      counter("serviceradar.metric_envelope.decode.failed.count",
+        event_name: [:serviceradar, :metric_envelope, :decode, :failed],
+        measurement: :count,
+        tags: [:source, :reason],
+        tag_values: &metric_envelope_failure_tag_values/1,
+        description: "Canonical ServiceRadar metric envelope protobuf decode failures"
+      ),
+      counter("serviceradar.metric_envelope.schema_version.count",
+        event_name: [:serviceradar, :metric_envelope, :schema_version],
+        measurement: :count,
+        tags: [:source, :schema_version],
+        tag_values: &metric_envelope_tag_values/1,
+        description: "Observed canonical metric envelope schema versions"
       )
     ]
   end
@@ -733,6 +867,49 @@ defmodule ServiceRadar.Telemetry do
   # ============================================================================
   # Private Functions
   # ============================================================================
+
+  defp metric_envelope_tag_values(metadata) do
+    %{
+      source: stringify(metadata[:source], "unknown"),
+      schema_version: stringify(metadata[:schema_version], "unknown")
+    }
+  end
+
+  defp metric_envelope_failure_tag_values(metadata) do
+    %{
+      source: stringify(metadata[:source], "unknown"),
+      reason: stringify(metadata[:reason], "unknown")
+    }
+  end
+
+  defp anomaly_consumer_tag_values(metadata) do
+    %{
+      subject_class: subject_class(metadata[:subject]),
+      reason: stringify(metadata[:reason], "none")
+    }
+  end
+
+  defp subject_class(subject) when is_binary(subject) do
+    cond do
+      subject == "" -> "unknown"
+      String.starts_with?(subject, "metrics.sysmon.") -> "metrics.sysmon"
+      String.starts_with?(subject, "metrics.snmp.") -> "metrics.snmp"
+      String.starts_with?(subject, "metrics.icmp.") -> "metrics.icmp"
+      String.starts_with?(subject, "metrics.timeseries.") -> "metrics.timeseries"
+      String.starts_with?(subject, "otel.metrics.") -> "otel.metrics"
+      String.starts_with?(subject, "metrics.") -> "metrics.other"
+      true -> "other"
+    end
+  end
+
+  defp subject_class(nil), do: "unknown"
+  defp subject_class(subject), do: subject |> to_string() |> subject_class()
+
+  defp stringify(nil, default), do: default
+  defp stringify("", default), do: default
+  defp stringify(value, _default) when is_atom(value), do: Atom.to_string(value)
+  defp stringify(value, _default) when is_binary(value), do: value
+  defp stringify(value, _default), do: to_string(value)
 
   defp emit(event_name, measurements, metadata) do
     :telemetry.execute(event_name, measurements, metadata)

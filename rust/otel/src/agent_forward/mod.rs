@@ -39,7 +39,9 @@ use uuid::Uuid;
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
 use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest;
-use crate::output::{IngestContext, PerformanceMetric, PublishOutcome, TelemetryOutput};
+use crate::output::{
+    IngestContext, PerformanceMetric, PublishOutcome, TelemetryOutput, encode_derived_metric_batch,
+};
 
 use crate::nats::chunker::{
     MAX_PROTO_PUBLISH_BYTES, metric_request_data_points, split_logs_request, split_metrics_request,
@@ -200,14 +202,14 @@ fn now_unix_nanos() -> i64 {
         .unwrap_or(0)
 }
 
-/// One spool-ready derived-metrics chunk: the encoded JSON payload plus the
+/// One spool-ready derived-metrics chunk: the encoded protobuf payload plus the
 /// number of metrics inside it (for spool-rejection accounting).
 type DerivedMetricChunk = (Vec<u8>, usize);
 
-/// Splits derived span metrics into JSON payloads that fit the publish
-/// budget, preserving the exact array-of-[`PerformanceMetric`] shape the
-/// JetStream backend publishes. Returns `((payload, metric_count) chunks,
-/// rejected_metrics)` so spool-rejection accounting knows each chunk's size.
+/// Splits derived span metrics into canonical `serviceradar.metric.v1`
+/// protobuf payloads that fit the publish budget. Returns
+/// `((payload, metric_count) chunks, rejected_metrics)` so spool-rejection
+/// accounting knows each chunk's size.
 fn derived_metric_payloads(
     metrics: &[PerformanceMetric],
     max_payload_bytes: usize,
@@ -215,7 +217,7 @@ fn derived_metric_payloads(
     if metrics.is_empty() {
         return Ok((Vec::new(), 0));
     }
-    let payload = serde_json::to_vec(metrics)?;
+    let payload = encode_derived_metric_batch(metrics);
     if payload.len() <= max_payload_bytes {
         return Ok((vec![(payload, metrics.len())], 0));
     }
@@ -348,8 +350,8 @@ impl TelemetryOutput for AgentForwardOutput {
         })
     }
 
-    /// Spools collector-derived span metrics in the existing JSON shape (an
-    /// array of [`PerformanceMetric`]) with payload kind
+    /// Spools collector-derived span metrics as canonical
+    /// `serviceradar.metric.v1` protobuf payloads with payload kind
     /// `OTLP_DERIVED_METRIC` so core routes them to the derived-metrics
     /// subject.
     async fn publish_derived_metrics(
@@ -578,7 +580,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn derived_metrics_keep_existing_json_shape_with_kind_6() {
+    async fn derived_metrics_use_metric_batch_protobuf_with_kind_6() {
         let dir = tempfile::tempdir().unwrap();
         let spool = open_spool(dir.path());
         let output = AgentForwardOutput::new(Arc::clone(&spool));
@@ -599,9 +601,22 @@ mod tests {
         );
         assert_eq!(record.payload_kind, 6, "wire contract value");
 
-        // Byte-identical JSON shape to the JetStream backend's payload.
-        let expected = serde_json::to_vec(&metrics).unwrap();
-        assert_eq!(record.payload, expected);
+        let decoded = serviceradar_metric_proto::pb::MetricBatch::decode(record.payload.as_slice())
+            .expect("derived metrics decode as MetricBatch");
+        assert_eq!(decoded.schema_version, "serviceradar.metric.v1");
+        assert_eq!(decoded.metrics.len(), 1);
+        assert_eq!(decoded.metrics[0].points.len(), 2);
+        let point = &decoded.metrics[0].points[0];
+        assert_eq!(point.value, 123.0);
+        assert_eq!(entry(&point.metadata, "trace_id"), Some("ab".repeat(16)));
+        assert_eq!(
+            entry(&point.metadata, "metric_type"),
+            Some("slow_span".to_string())
+        );
+        assert_eq!(
+            entry(&point.attributes, "service_name"),
+            Some("svc".to_string())
+        );
     }
 
     #[tokio::test]
@@ -622,7 +637,7 @@ mod tests {
     fn derived_metric_payloads_split_until_they_fit() {
         let metrics: Vec<PerformanceMetric> =
             (0..8).map(|i| perf_metric(&format!("m{i}"))).collect();
-        let single = serde_json::to_vec(&metrics[..1].to_vec()).unwrap().len();
+        let single = encode_derived_metric_batch(&metrics[..1]).len();
 
         // A budget that fits ~2 metrics forces recursive splitting.
         let (payloads, rejected) = derived_metric_payloads(&metrics, single * 2 + 16).unwrap();
@@ -630,9 +645,14 @@ mod tests {
         assert!(payloads.len() >= 4, "got {} payloads", payloads.len());
         let mut total = 0usize;
         for (payload, units) in &payloads {
-            let decoded: Vec<serde_json::Value> = serde_json::from_slice(payload).unwrap();
-            assert_eq!(decoded.len(), *units, "chunk unit count matches payload");
-            total += decoded.len();
+            let decoded = serviceradar_metric_proto::pb::MetricBatch::decode(payload.as_slice())
+                .expect("chunk decodes as MetricBatch");
+            assert_eq!(
+                decoded.metrics[0].points.len(),
+                *units,
+                "chunk unit count matches payload"
+            );
+            total += decoded.metrics[0].points.len();
         }
         assert_eq!(total, 8, "no metric lost in splitting");
 
@@ -650,6 +670,16 @@ mod tests {
         fn available_bytes(&self, _path: &std::path::Path) -> Option<u64> {
             Some(0)
         }
+    }
+
+    fn entry(
+        entries: &[serviceradar_metric_proto::pb::StringMapEntry],
+        key: &str,
+    ) -> Option<String> {
+        entries
+            .iter()
+            .find(|entry| entry.key == key)
+            .map(|entry| entry.value.clone())
     }
 
     #[tokio::test]

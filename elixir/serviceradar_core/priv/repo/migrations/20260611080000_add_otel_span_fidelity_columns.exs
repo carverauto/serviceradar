@@ -20,6 +20,10 @@ defmodule ServiceRadar.Repo.Migrations.AddOtelSpanFidelityColumns do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - rebuilds the spans_red_1h CAGG: empty source on
+  # first boot makes the drop/recreate/refresh no-ops, bounded to the backfill window, with the
+  # continuous-aggregate/retention policies only registering background jobs.
+
   @disable_ddl_transaction true
   @disable_migration_lock true
 

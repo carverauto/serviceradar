@@ -143,42 +143,60 @@ func (s *SweepService) UpdateConfig(config *models.Config) error {
 
 // GetStatus returns the current status of the sweep service (lightweight version without hosts).
 func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, error) {
+	status, _, err := s.GetStatusWithMetricPayload(ctx)
+	return status, err
+}
+
+// GetStatusWithMetricPayload returns the regular status payload plus typed data
+// for building the canonical sweep MetricBatch without reparsing status JSON.
+func (s *SweepService) GetStatusWithMetricPayload(ctx context.Context) (*proto.StatusResponse, map[string]any, error) {
 	s.logger.Debug().Msg("Fetching sweep status")
 
 	summary, err := s.sweeper.GetStatus(ctx)
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to get sweep summary")
-		return nil, fmt.Errorf("failed to get sweep status: %w", err)
+		return nil, nil, fmt.Errorf("failed to get sweep status: %w", err)
 	}
 
 	s.mu.RLock()
-	data := struct {
-		Network        string                  `json:"network"`
-		TotalHosts     int                     `json:"total_hosts"`
-		AvailableHosts int                     `json:"available_hosts"`
-		LastSweep      int64                   `json:"last_sweep"`
-		Ports          []models.PortCount      `json:"ports"`
-		DefinedCIDRs   int                     `json:"defined_cidrs"`
-		UniqueIPs      int                     `json:"unique_ips"`
-		Sequence       uint64                  `json:"sequence"`
-		BannerGrab     *models.BannerGrabStats `json:"banner_grab,omitempty"`
-	}{
-		Network:        strings.Join(s.config.Networks, ","),
-		TotalHosts:     summary.TotalHosts,
-		AvailableHosts: summary.AvailableHosts,
-		LastSweep:      summary.LastSweep,
-		Ports:          summary.Ports,
-		DefinedCIDRs:   len(s.config.Networks),
-		UniqueIPs:      s.stats.uniqueIPs,
-		Sequence:       s.currentSequence,
-		BannerGrab:     s.sweeper.GetBannerGrabStats(),
+	network := ""
+	definedCIDRs := 0
+	if s.config != nil {
+		network = strings.Join(s.config.Networks, ",")
+		definedCIDRs = len(s.config.Networks)
+	}
+	bannerGrab := s.sweeper.GetBannerGrabStats()
+	data := map[string]any{
+		"network":         network,
+		"total_hosts":     summary.TotalHosts,
+		"available_hosts": summary.AvailableHosts,
+		"last_sweep":      summary.LastSweep,
+		"ports":           summary.Ports,
+		"defined_cidrs":   definedCIDRs,
+		"unique_ips":      s.stats.uniqueIPs,
+		"sequence":        s.currentSequence,
+	}
+	if bannerGrab != nil {
+		data["banner_grab"] = bannerGrab
 	}
 	s.mu.RUnlock()
 
-	statusJSON, err := json.Marshal(data)
+	statusJSON, err := json.Marshal(struct {
+		Network      string `json:"network"`
+		LastSweep    int64  `json:"last_sweep"`
+		DefinedCIDRs int    `json:"defined_cidrs"`
+		Sequence     uint64 `json:"sequence"`
+		Status       string `json:"status"`
+	}{
+		Network:      network,
+		LastSweep:    summary.LastSweep,
+		DefinedCIDRs: definedCIDRs,
+		Sequence:     s.currentSequence,
+		Status:       "collecting",
+	})
 	if err != nil {
 		s.logger.Error().Err(err).Msg("Failed to marshal status")
-		return nil, fmt.Errorf("failed to marshal sweep status: %w", err)
+		return nil, nil, fmt.Errorf("failed to marshal sweep status: %w", err)
 	}
 
 	return &proto.StatusResponse{
@@ -187,7 +205,7 @@ func (s *SweepService) GetStatus(ctx context.Context) (*proto.StatusResponse, er
 		ServiceName:  networkSweepServiceName,
 		ServiceType:  "sweep",
 		ResponseTime: time.Since(time.Unix(summary.LastSweep, 0)).Nanoseconds(),
-	}, nil
+	}, data, nil
 }
 
 func (s *SweepService) GetBannerGrabStats() *models.BannerGrabStats {

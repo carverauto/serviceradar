@@ -33,14 +33,17 @@ defmodule ServiceRadarAgentGateway.IngressId do
   def headers(context) when is_map(context) do
     ingress_time = Map.get(context, :ingress_time_unix_nano, System.system_time(:nanosecond))
     ingress_id = Map.get(context, :ingress_id) || new(ingress_time)
+    message_id = context[:nats_msg_id] || context[:message_id] || context[:event_id] || ingress_id
 
     [
       {"Sr-Ingress-Id", ingress_id},
       {"Sr-Ingress-Time-Unix-Nano", Integer.to_string(ingress_time)},
-      # JetStream message-dedup key (fj #3788, REC4). The ingress_id is unique per
-      # ingress, so this only collapses an EXACT redelivery of the same message
-      # within a stream's duplicate_window — never two distinct measurements.
-      {"Nats-Msg-Id", ingress_id}
+      # JetStream message-dedup key (fj #3788, REC4). When a publisher supplies a
+      # stable id (nats_msg_id/message_id/event_id) we use it so an exact
+      # redelivery dedups; otherwise we fall back to the per-ingress ingress_id.
+      # Either way this only collapses an EXACT redelivery within a stream's
+      # duplicate_window — never two distinct measurements.
+      {"Nats-Msg-Id", to_string(message_id)}
     ]
     |> maybe_header("Sr-Agent-Id", context[:agent_id])
     |> maybe_header("Sr-Gateway-Id", context[:gateway_id])

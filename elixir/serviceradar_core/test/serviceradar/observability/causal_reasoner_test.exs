@@ -240,4 +240,33 @@ defmodule ServiceRadar.Observability.CausalReasonerTest do
     assert clear.anomalous == false
     assert clear.breached == false
   end
+
+  test "map and tuple state-change batch APIs stay in parity" do
+    map_shard_state = CausalReasoner.new_shard_state()
+    tuple_shard_state = CausalReasoner.new_shard_state()
+    context = %{baseline: [], min_samples: 3, window_size: 3, confirm_slots: 1}
+
+    map_inputs = [
+      %{
+        index: 0,
+        series_key: "series-a",
+        context: context,
+        value: 10.0,
+        observed_at_unix_nano: 1
+      },
+      %{index: 1, series_key: "series-a", context: nil, value: 11.0, observed_at_unix_nano: 2},
+      %{index: 2, series_key: "series-a", context: nil, value: 12.0, observed_at_unix_nano: 3},
+      %{index: 3, series_key: "series-a", context: nil, value: 30.0, observed_at_unix_nano: 4},
+      %{index: 4, series_key: "series-a", context: nil, value: 31.0, observed_at_unix_nano: 5},
+      %{index: 5, series_key: "series-a", context: nil, value: 11.5, observed_at_unix_nano: 6}
+    ]
+
+    tuple_inputs =
+      Enum.map(map_inputs, fn input ->
+        {input.index, input.series_key, input.context, input.value, input.observed_at_unix_nano}
+      end)
+
+    assert CausalReasoner.reason_state_values_changes(map_shard_state, map_inputs) ==
+             CausalReasoner.reason_state_value_tuples_changes(tuple_shard_state, tuple_inputs)
+  end
 end

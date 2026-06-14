@@ -49,7 +49,7 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
 
   test "routes metrics subjects to the declared metrics batcher" do
     message = %Message{
-      data: Jason.encode!(%{"metric_name" => "cpu_usage", "value" => 42.0}),
+      data: <<10, 22, "serviceradar.metric.v1">>,
       metadata: %{subject: "metrics.sysmon.cpu"},
       acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
     }

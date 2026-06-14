@@ -2,8 +2,13 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.Actors.SystemActor
-  alias ServiceRadar.Observability.IcmpMetricsIngestor
-  alias ServiceRadar.Observability.SnmpMetricsIngestor
+  alias ServiceRadar.EventWriter.Processors.Metrics
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
@@ -18,50 +23,53 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
     :ok
   end
 
-  test "snmp ingest preserves distinct interface series and dedupes exact duplicates" do
+  test "protobuf snmp metric envelope preserves distinct interface series and dedupes exact duplicates" do
     actor = SystemActor.system(:test)
     agent_id = "snmp-series-agent-#{System.unique_integer([:positive])}"
     gateway_id = "snmp-series-gateway-#{System.unique_integer([:positive])}"
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    payload = %{
-      "results" => [
-        %{
-          "timestamp" => timestamp,
-          "metric" => "ifInOctets",
-          "value" => 123.0,
-          "target" => "192.0.2.20",
-          "interface_uid" => "ifindex:3",
-          "oid" => ".1.3.6.1.2.1.31.1.1.1.6.3"
+    observed_at =
+      DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_unix(:nanosecond)
+
+    payload =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        resource: %MetricResource{
+          agent_id: agent_id,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_name: "snmp",
+          service_type: "snmp"
         },
-        %{
-          "timestamp" => timestamp,
-          "metric" => "ifInOctets",
-          "value" => 123.0,
-          "target" => "192.0.2.20",
-          "interface_uid" => "ifindex:3",
-          "oid" => ".1.3.6.1.2.1.31.1.1.1.6.3"
+        ingest_identity: %IngestIdentity{
+          source: "snmp-metrics",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: agent_id,
+          producer_kind: "agent"
         },
-        %{
-          "timestamp" => timestamp,
-          "metric" => "ifInOctets",
-          "value" => 456.0,
-          "target" => "192.0.2.20",
-          "interface_uid" => "ifindex:4",
-          "oid" => ".1.3.6.1.2.1.31.1.1.1.6.4"
-        }
-      ]
-    }
+        metrics: [
+          %Metric{
+            name: "ifInOctets",
+            metric_type: "snmp",
+            kind: :METRIC_KIND_SUM,
+            temporality: :METRIC_TEMPORALITY_CUMULATIVE,
+            is_monotonic: true,
+            counter_width: 64,
+            points: [
+              snmp_point(123.0, observed_at, 3),
+              snmp_point(123.0, observed_at, 3),
+              snmp_point(456.0, observed_at, 4)
+            ],
+            tags: entries(%{"target" => "192.0.2.20"}),
+            metadata: entries(%{"oid" => ".1.3.6.1.2.1.31.1.1.1.6"})
+          }
+        ]
+      })
 
-    status = %{
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      partition: "default",
-      timestamp: DateTime.utc_now()
-    }
+    batch = [%{data: payload, metadata: %{subject: "metrics.snmp.snmp.ifInOctets"}}]
 
-    assert :ok = SnmpMetricsIngestor.ingest(payload, status)
-    assert :ok = SnmpMetricsIngestor.ingest(payload, status)
+    assert {:ok, 2} = Metrics.process_batch(batch)
+    assert {:ok, 0} = Metrics.process_batch(batch)
 
     metrics = fetch_metrics(actor, agent_id, gateway_id, "snmp", "ifInOctets")
 
@@ -70,37 +78,51 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
     assert MapSet.size(MapSet.new(Enum.map(metrics, & &1.series_key))) == 2
   end
 
-  test "icmp ingest preserves distinct check series at the same timestamp" do
+  test "protobuf icmp metric envelope preserves distinct check series at the same timestamp" do
     actor = SystemActor.system(:test)
     agent_id = "icmp-series-agent-#{System.unique_integer([:positive])}"
     gateway_id = "icmp-series-gateway-#{System.unique_integer([:positive])}"
-    timestamp = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
-    payload = %{
-      "results" => [
-        %{
-          "timestamp" => timestamp,
-          "target" => "192.0.2.30",
-          "response_time_ns" => 1_000_000,
-          "check_id" => "icmp-check-a"
+    observed_at =
+      DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_unix(:nanosecond)
+
+    payload =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        resource: %MetricResource{
+          agent_id: agent_id,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_name: "icmp_checks",
+          service_type: "icmp"
         },
-        %{
-          "timestamp" => timestamp,
-          "target" => "192.0.2.30",
-          "response_time_ns" => 2_000_000,
-          "check_id" => "icmp-check-b"
-        }
-      ]
-    }
+        ingest_identity: %IngestIdentity{
+          source: "icmp-metrics",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: agent_id,
+          producer_kind: "agent"
+        },
+        metrics: [
+          %Metric{
+            name: "icmp_response_time_ns",
+            metric_type: "icmp",
+            kind: :METRIC_KIND_GAUGE,
+            unit: "ns",
+            points: [
+              icmp_point(1_000_000, observed_at, "icmp-check-a"),
+              icmp_point(2_000_000, observed_at, "icmp-check-b")
+            ]
+          }
+        ]
+      })
 
-    status = %{
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      partition: "default",
-      timestamp: DateTime.utc_now()
-    }
-
-    assert :ok = IcmpMetricsIngestor.ingest(payload, status)
+    assert {:ok, 2} =
+             Metrics.process_batch([
+               %{
+                 data: payload,
+                 metadata: %{subject: "metrics.icmp.icmp.icmp_response_time_ns"}
+               }
+             ])
 
     metrics = fetch_metrics(actor, agent_id, gateway_id, "icmp", "icmp_response_time_ns")
 
@@ -108,11 +130,103 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
     assert MapSet.size(MapSet.new(Enum.map(metrics, & &1.series_key))) == 2
   end
 
-  # NOTE: the former "plugin ingest preserves label-distinguished series" test was
-  # removed alongside the direct PluginResultIngestor metric-insert path (fj #3788):
-  # plugin metrics now flow through JetStream -> Telemetry -> timeseries_metrics, so
-  # plugin-path series identity is covered by the Telemetry/timeseries tests, not by
-  # a direct ingest here. The snmp/icmp ingestors above still insert directly.
+  test "protobuf plugin metric envelope preserves label-distinguished series at the same timestamp" do
+    actor = SystemActor.system(:test)
+    agent_id = "plugin-series-agent-#{System.unique_integer([:positive])}"
+    gateway_id = "plugin-series-gateway-#{System.unique_integer([:positive])}"
+
+    observed_at =
+      DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_unix(:nanosecond)
+
+    payload =
+      MetricBatch.encode(%MetricBatch{
+        schema_version: "serviceradar.metric.v1",
+        resource: %MetricResource{
+          agent_id: agent_id,
+          gateway_id: gateway_id,
+          partition: "default",
+          service_name: "plugin-temp",
+          service_type: "plugin"
+        },
+        ingest_identity: %IngestIdentity{
+          source: "native-addon",
+          payload_kind: "serviceradar.metric.v1",
+          producer_id: "plugin-temp",
+          producer_kind: "plugin"
+        },
+        metrics: [
+          %Metric{
+            name: "temp_c",
+            metric_type: "plugin",
+            kind: :METRIC_KIND_GAUGE,
+            points: [
+              %MetricPoint{
+                value: 40.0,
+                raw_value: "40.0",
+                raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+                observed_at_unix_nano: observed_at,
+                attributes: entries(%{"instance" => "a", "plugin" => "temp"})
+              },
+              %MetricPoint{
+                value: 41.0,
+                raw_value: "41.0",
+                raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+                observed_at_unix_nano: observed_at,
+                attributes: entries(%{"instance" => "b", "plugin" => "temp"})
+              }
+            ]
+          }
+        ]
+      })
+
+    assert {:ok, 2} =
+             Metrics.process_batch([
+               %{
+                 data: payload,
+                 metadata: %{subject: "metrics.timeseries.plugin.temp_c"}
+               }
+             ])
+
+    metrics = fetch_metrics(actor, agent_id, gateway_id, "plugin", "temp_c")
+
+    assert length(metrics) == 2
+    assert MapSet.size(MapSet.new(Enum.map(metrics, & &1.series_key))) == 2
+  end
+
+  defp entries(values) do
+    Enum.map(values, fn {key, value} -> %StringMapEntry{key: key, value: value} end)
+  end
+
+  defp snmp_point(value, observed_at, if_index) do
+    %MetricPoint{
+      value: value,
+      raw_value: to_string(trunc(value)),
+      raw_value_type: :METRIC_VALUE_TYPE_UINT64,
+      observed_at_unix_nano: observed_at,
+      if_index: if_index,
+      interface_uid: "ifindex:#{if_index}",
+      attributes:
+        entries(%{
+          "target" => "192.0.2.20",
+          "interface_uid" => "ifindex:#{if_index}",
+          "oid" => ".1.3.6.1.2.1.31.1.1.1.6.#{if_index}"
+        })
+    }
+  end
+
+  defp icmp_point(value, observed_at, check_id) do
+    %MetricPoint{
+      value: value,
+      raw_value: Integer.to_string(value),
+      raw_value_type: :METRIC_VALUE_TYPE_INT64,
+      observed_at_unix_nano: observed_at,
+      attributes:
+        entries(%{
+          "target" => "192.0.2.30",
+          "check_id" => check_id
+        })
+    }
+  end
 
   defp fetch_metrics(actor, agent_id, gateway_id, metric_type, metric_name) do
     TimeseriesMetric

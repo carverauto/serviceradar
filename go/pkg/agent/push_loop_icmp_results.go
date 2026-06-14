@@ -18,7 +18,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"time"
 
 	"github.com/carverauto/serviceradar/go/pkg/models"
@@ -32,39 +31,71 @@ func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 		return false
 	}
 
-	payload := map[string]interface{}{
-		"results": results,
-	}
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
+	runtimeMetadata := currentRuntimeMetadata()
 
-	data, err := json.Marshal(payload)
+	message, err := marshalICMPMetricEnvelope(results, metricEnvelopeContext{
+		AgentID:   agentID,
+		GatewayID: gatewayID,
+		Partition: partition,
+		KvStoreID: kvStoreID,
+	})
 	if err != nil {
-		p.logger.Error().Err(err).Msg("Failed to marshal ICMP results payload")
+		p.logger.Error().Err(err).Msg("Failed to marshal ICMP metric envelope")
 		return false
 	}
 
-	chunk := &proto.ResultsChunk{
-		Data:        data,
+	status := &proto.GatewayServiceStatus{
+		ServiceName:  "icmp_checks",
+		ServiceType:  "icmp",
+		Available:    true,
+		Message:      message,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    gatewayID,
+		Partition:    partition,
+		Source:       "icmp-metrics",
+		KvStoreId:    kvStoreID,
+	}
+
+	chunk := &proto.GatewayStatusChunk{
+		Services:    []*proto.GatewayServiceStatus{status},
+		GatewayId:   gatewayID,
+		AgentId:     agentID,
+		Timestamp:   time.Now().UnixNano(),
+		Partition:   partition,
+		SourceIp:    p.getSourceIP(),
 		IsFinal:     true,
 		ChunkIndex:  0,
 		TotalChunks: 1,
-		Timestamp:   time.Now().UnixNano(),
-	}
-
-	statusChunks := p.buildResultsStatusChunks([]*proto.ResultsChunk{chunk}, "icmp_checks", "icmp")
-	if len(statusChunks) == 0 {
-		return false
+		KvStoreId:   kvStoreID,
+		Version:     runtimeMetadata.Version,
+		Hostname:    runtimeMetadata.Hostname,
+		Os:          runtimeMetadata.Os,
+		Arch:        runtimeMetadata.Arch,
 	}
 
 	pushCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	if _, err := p.gateway.StreamStatus(pushCtx, statusChunks); err != nil {
+	resp, err := p.gateway.StreamStatus(pushCtx, []*proto.GatewayStatusChunk{chunk})
+	if err != nil {
 		p.logger.Error().Err(err).Msg("Failed to stream ICMP results to gateway")
 		return false
 	}
 
-	p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
-	return true
+	if resp.Received {
+		p.logger.Info().Int("result_count", len(results)).Msg("Streamed ICMP results to gateway")
+		return true
+	}
+
+	p.logger.Warn().Msg("Gateway did not acknowledge ICMP metrics stream")
+	return false
 }
 
 func (p *PushLoop) collectDueICMPResults(ctx context.Context) []icmpCheckResult {

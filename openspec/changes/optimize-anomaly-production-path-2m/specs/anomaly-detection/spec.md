@@ -41,12 +41,13 @@ The anomaly production path SHALL support evaluating batches that are already pa
 - **AND** that compatibility path SHALL NOT be used as the benchmarked production target for the throughput gate
 
 ### Requirement: Low-Overhead Native Input Contract
-The native reasoner SHALL provide a benchmarked input contract lower overhead than per-sample tuple terms when tuple decode overhead prevents the production path from reaching the direct native shard ceiling.
+The native reasoner SHALL provide a benchmarked input contract lower overhead than per-sample tuple terms only when production profiling proves tuple decode overhead prevents the production path from reaching the direct native shard ceiling.
 
-#### Scenario: Columnar or binary input is benchmarked
-- **WHEN** production-path optimization is implemented
-- **THEN** at least one columnar, packed-binary, or hybrid native input contract SHALL be benchmarked against the existing tuple input contract
-- **AND** the selected production contract SHALL preserve anomaly semantics and sparse event output
+#### Scenario: Packed binary input is rejected without consistent production gain
+- **GIVEN** a detector-local packed-binary input contract is benchmarked against the tuple input contract
+- **WHEN** the packed-binary path is not consistently faster in the production wrapper
+- **THEN** the implementation SHALL NOT ship that detector-local binary ABI as the selected production contract
+- **AND** the benchmark notes SHALL record the accepted or rejected result
 
 #### Scenario: Numeric IDs avoid per-sample BEAM lookup
 - **WHEN** numeric series identifiers are used in the production hot path
@@ -57,6 +58,11 @@ The native reasoner SHALL provide a benchmarked input contract lower overhead th
 - **WHEN** the native shard interns series keys into numeric identifiers
 - **THEN** the intern table SHALL be bounded by the same max-series/eviction policy as detector state
 - **AND** evicting a series SHALL remove its native id mapping, detector state, active-state marker, and recent idempotency tokens
+
+#### Scenario: Stream payload encoding remains source-neutral
+- **WHEN** JetStream metric payload serialization is optimized with protobuf or another binary envelope
+- **THEN** the envelope SHALL describe canonical metric facts such as source identity, resource identity, metric identity, kind, temporality, monotonicity, value, raw value, observed timestamp, attributes, and schema version
+- **AND** it SHALL NOT expose detector-specific shard, Welford, or packed-NIF record internals to metric producers
 
 ### Requirement: Production Throughput Benchmark Gate
 The anomaly production path SHALL include a throughput benchmark gate and an explanatory failure report for the standard synthetic workload.
@@ -71,3 +77,15 @@ The anomaly production path SHALL include a throughput benchmark gate and an exp
 - **WHEN** the optimized production benchmark does not reach the change target
 - **THEN** the benchmark report SHALL break down time spent in compact sample preparation, shard routing, native evaluation, series lookup/interning, and result re-association
 - **AND** the implementation notes SHALL document the next limiting component before claiming the target is blocked by hardware
+
+### Requirement: Runtime Anomaly Engine Telemetry
+The anomaly production path SHALL emit low-cardinality batch telemetry suitable for Prometheus-compatible reporting through the existing telemetry metrics system.
+
+#### Scenario: Batch completion emits throughput and latency measurements
+- **WHEN** an anomaly evaluation batch completes
+- **THEN** the system SHALL emit a telemetry event with measurements for duration, input sample count, evaluated sample count, emitted sparse event count, duplicate drops, other drops, failed samples, and output result count
+- **AND** the event SHALL include bounded metadata tags for engine and path
+
+#### Scenario: Telemetry avoids high-cardinality labels
+- **WHEN** anomaly telemetry is exported as metrics
+- **THEN** the exporter-facing metric tags SHALL NOT include series key, device id, subject, metric name, event id, or other per-sample identifiers

@@ -38,6 +38,17 @@ defmodule ServiceRadarAgentGateway.IngressIdTest do
            ]
   end
 
+  test "uses stable event id as JetStream message id when available" do
+    headers =
+      IngressId.headers(%{
+        ingress_id: "00000645-50de-8e80-8000-000000000001",
+        ingress_time_unix_nano: 1_765_500_000_000_000_000,
+        event_id: "plugin-event-1"
+      })
+
+    assert {"Nats-Msg-Id", "plugin-event-1"} in headers
+  end
+
   test "stamps payload metadata" do
     payload =
       IngressId.put_payload_metadata(%{"schema" => "example.v1"}, %{

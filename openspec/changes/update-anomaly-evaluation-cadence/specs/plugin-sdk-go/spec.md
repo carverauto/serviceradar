@@ -9,10 +9,11 @@ The Go plugin SDK SHALL provide first-class helpers for emitting canonical metri
 - **THEN** the host SHALL receive a canonical `serviceradar.metric.v1` metric payload
 - **AND** the plugin result payload SHALL NOT be required to carry that time-series value
 
-#### Scenario: Legacy metric helpers remain compatible
-- **GIVEN** an existing Go plugin uses `Result.AddMetric`
-- **WHEN** the plugin is executed after this change
-- **THEN** the SDK SHALL lower the legacy metric to a compatible single-point gauge metric during migration
+#### Scenario: Result metric helpers are absent after cutover
+- **GIVEN** a Go plugin needs to emit metric time-series
+- **WHEN** the plugin is built or executed after the protobuf metric-envelope cutover
+- **THEN** the SDK SHALL provide no result metric helper or `metrics` result field
+- **AND** the plugin author SHALL use the first-class metric telemetry API instead
 
 ### Requirement: Metric Kind and Temporality Declaration
 The Go plugin SDK SHALL allow plugin authors to declare metric kind, temporality, monotonicity, unit, resource identity, point attributes, and thresholds.

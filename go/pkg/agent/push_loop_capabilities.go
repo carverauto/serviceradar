@@ -36,8 +36,6 @@ import (
 )
 
 const (
-	maxSysmonStatusPayloadBytes = 8 * 1024 * 1024
-
 	capabilityHostNetworkVisibility                       = "host-network-visibility"
 	capabilityHostNetworkVisibilityFingerprintEnabled     = "host-network-visibility.fingerprint.enabled"
 	capabilityHostNetworkVisibilityFingerprintUnavailable = "host-network-visibility.fingerprint.unavailable"

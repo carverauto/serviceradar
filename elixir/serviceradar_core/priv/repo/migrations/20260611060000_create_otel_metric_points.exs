@@ -8,6 +8,10 @@ defmodule ServiceRadar.Repo.Migrations.CreateOtelMetricPoints do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - add_retention_policy only registers a background
+  # retention job on the freshly-created (empty) otel_metric_points hypertable; no synchronous
+  # data maintenance runs on the first-boot path.
+
   @disable_ddl_transaction true
   @disable_migration_lock true
 

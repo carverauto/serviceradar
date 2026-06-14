@@ -20,6 +20,14 @@
 // supervised subprocess speaking gRPC over a restricted Unix-domain socket with
 // AutoMTLS, negotiated by the agent (the go-plugin client).
 //
+// Native metrics:
+//
+// Add-ons that collect ServiceRadar-native metrics should emit them through
+// AddonService.StreamTelemetry with ServiceRadarMetricRecord. The telemetry
+// record payload is an encoded serviceradar.metric.v1.MetricBatch; it is not a
+// JSON metrics array and it is published upstream through the normal
+// JetStream metrics.* path.
+//
 // Minimal add-on:
 //
 //	func main() { sdk.Serve(&myAddon{}) }

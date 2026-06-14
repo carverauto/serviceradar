@@ -736,17 +736,21 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> checkpoint_value(:window_tail, fallback[:window_tail] || baseline)
       |> numeric_list(fallback[:window_tail] || baseline)
 
+    window_size = positive_int(checkpoint_value(context, :window_size), fallback.window_size)
+    truncated_window_tail = Enum.take(window_tail, -window_size)
+
     %{
       baseline: [],
-      window_tail:
-        Enum.take(
-          window_tail,
-          -positive_int(checkpoint_value(context, :window_size), fallback.window_size)
-        ),
-      rolling_acc:
-        context
-        |> checkpoint_value(:rolling_acc, fallback[:rolling_acc])
-        |> normalize_rolling_acc(fallback[:rolling_acc]),
+      window_tail: truncated_window_tail,
+      # Fix(review): restore window_tail and rolling_acc ATOMICALLY from the same
+      # checkpoint. The acc is only kept when it is present in THIS checkpoint and
+      # its count matches the truncated window_tail it pairs with. We never fall
+      # back to a different state's acc (e.g. base_context's): the NIF's
+      # valid_for_count is count-only, so a fallback/stale acc whose count happens
+      # to equal the window length would install a corrupt mean/m2 baseline.
+      # Setting rolling_acc to nil forces the NIF to recompute it from window_tail
+      # via WelfordAcc::from_values.
+      rolling_acc: consistent_rolling_acc(context, truncated_window_tail),
       min_samples: positive_int(checkpoint_value(context, :min_samples), fallback.min_samples),
       window_size: positive_int(checkpoint_value(context, :window_size), fallback.window_size),
       n_sigma: number(checkpoint_value(context, :n_sigma), fallback.n_sigma),
@@ -922,6 +926,22 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwner do
       |> Enum.take(-context.window_size)
 
     %{context | baseline: [], window_tail: window_tail, rolling_acc: rolling_acc}
+  end
+
+  # Fix(review): only accept a checkpoint's rolling_acc when it pairs consistently
+  # with the window_tail restored from the SAME checkpoint. The acc must (a) be
+  # present in this checkpoint (no cross-state fallback), (b) be structurally valid,
+  # and (c) have count == length(window_tail). Otherwise return nil so the NIF
+  # recomputes the acc from window_tail (WelfordAcc::from_values). This prevents a
+  # restored window_tail of length N from being paired with a stale/fallback acc of
+  # count N, which the NIF's count-only valid_for_count would wrongly trust.
+  defp consistent_rolling_acc(context, window_tail) do
+    expected_count = length(window_tail)
+
+    case normalize_rolling_acc(checkpoint_value(context, :rolling_acc), nil) do
+      %{count: ^expected_count} = acc -> acc
+      _ -> nil
+    end
   end
 
   defp normalize_rolling_acc(%{} = acc, fallback) do

@@ -21,7 +21,13 @@
 //!   it.
 
 use anyhow::Result;
+use chrono::DateTime;
+use prost::Message;
 use serde::Serialize;
+use serviceradar_metric_proto::pb::{
+    IngestIdentity, Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricValueType,
+    StringMapEntry,
+};
 
 use crate::opentelemetry::proto::collector::logs::v1::ExportLogsServiceRequest;
 use crate::opentelemetry::proto::collector::metrics::v1::ExportMetricsServiceRequest;
@@ -32,6 +38,8 @@ use crate::opentelemetry::proto::collector::trace::v1::ExportTraceServiceRequest
 /// whose [`IngestContext::identity`] is set; consumers that do not know the
 /// header ignore it.
 pub const INGEST_IDENTITY_HEADER: &str = "Sr-Ingest-Identity";
+pub const METRIC_ENVELOPE_SCHEMA_VERSION: &str = "serviceradar.metric.v1";
+pub const DERIVED_METRIC_SOURCE: &str = "otel-metrics-derived";
 
 /// Per-request ingestion context threaded from the listener (gRPC
 /// interceptor / HTTP auth check) through the export handlers into the
@@ -138,4 +146,97 @@ pub struct PerformanceMetric {
     // Additional metadata
     pub component: String, // "otel-collector"
     pub level: String,     // "info", "warn" for slow spans
+}
+
+pub fn encode_derived_metric_batch(metrics: &[PerformanceMetric]) -> Vec<u8> {
+    derived_metric_batch(metrics).encode_to_vec()
+}
+
+fn derived_metric_batch(metrics: &[PerformanceMetric]) -> MetricBatch {
+    MetricBatch {
+        schema_version: METRIC_ENVELOPE_SCHEMA_VERSION.to_owned(),
+        resource: Some(MetricResource {
+            service_name: "otel-derived".to_owned(),
+            service_type: "otel".to_owned(),
+            ..Default::default()
+        }),
+        ingest_identity: Some(IngestIdentity {
+            source: DERIVED_METRIC_SOURCE.to_owned(),
+            payload_kind: METRIC_ENVELOPE_SCHEMA_VERSION.to_owned(),
+            producer_id: "otel-collector".to_owned(),
+            producer_kind: "otel-collector".to_owned(),
+            ..Default::default()
+        }),
+        metrics: vec![Metric {
+            name: "otel.span.duration_ms".to_owned(),
+            metric_type: "otel_span_derived".to_owned(),
+            kind: MetricKind::Gauge as i32,
+            unit: "ms".to_owned(),
+            points: metrics.iter().map(derived_metric_point).collect(),
+            tags: string_entries([("metric_family", "otel_span_derived")]),
+            ..Default::default()
+        }],
+        ..Default::default()
+    }
+}
+
+fn derived_metric_point(metric: &PerformanceMetric) -> MetricPoint {
+    let mut metadata = string_entries([
+        ("timestamp", metric.timestamp.as_str()),
+        ("trace_id", metric.trace_id.as_str()),
+        ("span_id", metric.span_id.as_str()),
+        ("metric_type", metric.metric_type.as_str()),
+        ("is_slow", if metric.is_slow { "true" } else { "false" }),
+        ("component", metric.component.as_str()),
+        ("level", metric.level.as_str()),
+    ]);
+    metadata.push(StringMapEntry {
+        key: "duration_seconds".to_owned(),
+        value: metric.duration_seconds.to_string(),
+    });
+
+    MetricPoint {
+        value: metric.duration_ms,
+        raw_value: metric.duration_ms.to_string(),
+        raw_value_type: MetricValueType::Double as i32,
+        observed_at_unix_nano: timestamp_unix_nano(&metric.timestamp),
+        attributes: string_entries([
+            ("service_name", metric.service_name.as_str()),
+            ("span_name", metric.span_name.as_str()),
+            ("span_kind", metric.span_kind.as_str()),
+            ("http_method", metric.http_method.as_deref().unwrap_or("")),
+            ("http_route", metric.http_route.as_deref().unwrap_or("")),
+            (
+                "http_status_code",
+                metric.http_status_code.as_deref().unwrap_or(""),
+            ),
+            ("grpc_service", metric.grpc_service.as_deref().unwrap_or("")),
+            ("grpc_method", metric.grpc_method.as_deref().unwrap_or("")),
+            (
+                "grpc_status_code",
+                metric.grpc_status_code.as_deref().unwrap_or(""),
+            ),
+        ]),
+        metadata,
+        ..Default::default()
+    }
+}
+
+fn timestamp_unix_nano(timestamp: &str) -> u64 {
+    DateTime::parse_from_rfc3339(timestamp)
+        .ok()
+        .and_then(|dt| dt.timestamp_nanos_opt())
+        .and_then(|nanos| u64::try_from(nanos).ok())
+        .unwrap_or(0)
+}
+
+fn string_entries<'a>(values: impl IntoIterator<Item = (&'a str, &'a str)>) -> Vec<StringMapEntry> {
+    values
+        .into_iter()
+        .filter(|(_key, value)| !value.is_empty())
+        .map(|(key, value)| StringMapEntry {
+            key: key.to_owned(),
+            value: value.to_owned(),
+        })
+        .collect()
 }

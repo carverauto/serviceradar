@@ -136,8 +136,11 @@ fn treats_zero_variance_spike_as_breach_without_infinite_score() {
     let verdict = reason_impl(context(vec![10.0, 10.0, 10.0], 3), sample(20.0)).unwrap();
 
     assert_eq!(verdict.state, "pending_anomaly");
-    assert_eq!(verdict.score, 4.0);
+    // Zero-variance breach score is now magnitude-aware (finding 3): it still
+    // clears the historical breach floor (threshold + 1.0 == 4.0) and stays
+    // finite, but grows with the deviation instead of collapsing to a constant.
     assert!(verdict.score.is_finite());
+    assert!(verdict.score >= 4.0);
     assert!(!verdict.include_in_baseline);
 }
 

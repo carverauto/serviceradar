@@ -4,6 +4,11 @@ defmodule ServiceRadar.Repo.Migrations.CreateTimeseriesMetricsInterfaceHourly do
   """
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - interface-hourly CAGG: the source hypertable
+  # is empty on first boot so the create/refresh are no-ops; the one-time refresh is bounded
+  # to the retention window and the continuous-aggregate/retention policies only register
+  # background jobs.
+
   @disable_ddl_transaction true
   @disable_migration_lock true
 

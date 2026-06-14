@@ -1,0 +1,133 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+syntax = "proto3";
+
+package serviceradar.metric.v1;
+
+option go_package = "github.com/carverauto/serviceradar/proto/metric/v1;metricpb";
+
+// MetricKind identifies the metric's semantic shape. It intentionally mirrors
+// the OTLP concepts without importing OTLP enum values into ServiceRadar's
+// source-neutral metric contract.
+enum MetricKind {
+  METRIC_KIND_UNSPECIFIED = 0;
+  METRIC_KIND_GAUGE = 1;
+  METRIC_KIND_SUM = 2;
+  METRIC_KIND_HISTOGRAM = 3;
+}
+
+// MetricTemporality identifies how points should be interpreted over time.
+enum MetricTemporality {
+  METRIC_TEMPORALITY_UNSPECIFIED = 0;
+  METRIC_TEMPORALITY_DELTA = 1;
+  METRIC_TEMPORALITY_CUMULATIVE = 2;
+}
+
+// MetricValueType preserves the producer's original value shape where it
+// matters for counters and lossless persistence. The normalized numeric value
+// used by anomaly detection is still carried as MetricPoint.value.
+enum MetricValueType {
+  METRIC_VALUE_TYPE_UNSPECIFIED = 0;
+  METRIC_VALUE_TYPE_DOUBLE = 1;
+  METRIC_VALUE_TYPE_INT64 = 2;
+  METRIC_VALUE_TYPE_UINT64 = 3;
+  METRIC_VALUE_TYPE_BOOL = 4;
+  METRIC_VALUE_TYPE_STRING = 5;
+}
+
+message StringMapEntry {
+  string key = 1;
+  string value = 2;
+}
+
+message MetricResource {
+  // Reserve a high field-number range for additive evolution so future fields
+  // cannot collide with numbers already in use here.
+  reserved 100 to 199;
+
+  string agent_id = 1;
+  string gateway_id = 2;
+  string partition = 3;
+  string service_name = 4;
+  string service_type = 5;
+  string host_id = 6;
+  string host_ip = 7;
+  string target_device_ip = 8;
+  string device_id = 9;
+  string kv_store_id = 10;
+  repeated StringMapEntry attributes = 20;
+}
+
+message IngestIdentity {
+  string source = 1;
+  string payload_kind = 2;
+  string producer_id = 3;
+  string producer_kind = 4;
+  string attested_by = 5;
+  repeated StringMapEntry attributes = 20;
+}
+
+message MetricPoint {
+  // Reserve a high field-number range for additive evolution so future fields
+  // cannot collide with numbers already in use here.
+  reserved 100 to 199;
+
+  double value = 1;
+  string raw_value = 2;
+  MetricValueType raw_value_type = 3;
+  uint64 observed_at_unix_nano = 4;
+  uint64 start_time_unix_nano = 5;
+  string reset_anchor = 6;
+  int32 if_index = 7;
+  string interface_uid = 8;
+  string series_identity_hint = 9;
+  repeated StringMapEntry attributes = 20;
+  repeated StringMapEntry metadata = 21;
+}
+
+message Metric {
+  // Reserve a high field-number range for additive evolution so future fields
+  // cannot collide with numbers already in use here.
+  reserved 100 to 199;
+
+  string name = 1;
+  string metric_type = 2;
+  MetricKind kind = 3;
+  MetricTemporality temporality = 4;
+  bool is_monotonic = 5;
+  string unit = 6;
+  double scale = 7;
+  uint32 counter_width = 8;
+  repeated MetricPoint points = 20;
+  repeated StringMapEntry tags = 30;
+  repeated StringMapEntry metadata = 31;
+  repeated StringMapEntry thresholds = 32;
+}
+
+message MetricBatch {
+  // Reserve a high field-number range for additive evolution so future fields
+  // cannot collide with numbers already in use here.
+  reserved 100 to 199;
+
+  string schema_version = 1;
+  MetricResource resource = 2;
+  IngestIdentity ingest_identity = 3;
+  string ingress_id = 4;
+  uint64 ingress_timestamp_unix_nano = 5;
+  uint64 emitted_at_unix_nano = 6;
+  repeated Metric metrics = 20;
+}

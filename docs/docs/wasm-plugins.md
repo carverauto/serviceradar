@@ -41,10 +41,13 @@ and a declarative display contract shipped with the same package version. See
 [Telemetry Display Contracts](./telemetry-display-contracts.md) for the operator
 review model and fallback behavior.
 
-Use the `emit_telemetry` capability for first-class plugin events or logs that
-should be ingested independently of the check result. Check-scoped annotations can
-still use the `events` field in `serviceradar.plugin_result.v1`, but those events
-are coupled to `submit_result` and are not a streaming telemetry surface.
+Use the `emit_telemetry` capability for first-class plugin events, logs, or
+metric batches that should be ingested independently of the check result. Metric
+time-series must use the canonical `serviceradar.metric.v1` telemetry payload;
+`serviceradar.plugin_result.v1` metrics are no longer a metric ingestion path.
+Check-scoped annotations can still use the `events` field in
+`serviceradar.plugin_result.v1`, but those events are coupled to `submit_result`
+and are not a streaming telemetry surface.
 
 ## Gateway-Mediated Artifacts
 

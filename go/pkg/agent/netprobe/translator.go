@@ -134,10 +134,7 @@ func ProcessSnapshotToDiscoveredDevice(snapshot *netprobepb.ProcessSnapshot, opt
 		return nil, fmt.Errorf("%w: collector_ip", ErrProcessSnapshotMissing)
 	}
 
-	metadata, err := processSnapshotMetadataMap(snapshot, opts, ip)
-	if err != nil {
-		return nil, err
-	}
+	metadata := processSnapshotMetadataMap(snapshot, opts, ip)
 
 	return &discoverypb.DiscoveredDevice{
 		Ip:       ip,
@@ -282,7 +279,7 @@ func dpiMetadata(event *netprobepb.DpiEvent, opts TranslationOptions, ip string,
 	return metadata
 }
 
-func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts TranslationOptions, ip string) (map[string]string, error) {
+func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts TranslationOptions, ip string) map[string]string {
 	source := string(models.DiscoverySourcePassiveNetprobe)
 	observed := observedAtUnixNano(snapshot.GetObservedAtUnixNano())
 	observedText := ""
@@ -316,7 +313,7 @@ func processSnapshotMetadataMap(snapshot *netprobepb.ProcessSnapshot, opts Trans
 		metadata["ip_alias:"+ip] = ""
 	}
 
-	return metadata, nil
+	return metadata
 }
 
 func processSnapshotSummary(entries []*netprobepb.ProcessSnapshotEntry) map[string]string {

@@ -26,6 +26,50 @@ pub mod reasoner;
 pub mod snapshot;
 pub mod subscriber;
 
+#[cfg(test)]
+mod metric_proto_contract_tests {
+    use serviceradar_metric_proto::pb::{
+        Metric, MetricBatch, MetricKind, MetricPoint, MetricResource, MetricTemporality,
+    };
+
+    #[test]
+    fn causal_engine_links_against_canonical_metric_envelope_prost_types() {
+        let batch = MetricBatch {
+            schema_version: "serviceradar.metric.v1".to_owned(),
+            resource: Some(MetricResource {
+                agent_id: "agent-1".to_owned(),
+                gateway_id: "gateway-1".to_owned(),
+                ..Default::default()
+            }),
+            metrics: vec![Metric {
+                name: "ifHCInOctets".to_owned(),
+                metric_type: "snmp".to_owned(),
+                kind: MetricKind::Sum as i32,
+                temporality: MetricTemporality::Cumulative as i32,
+                is_monotonic: true,
+                points: vec![MetricPoint {
+                    value: 128.0,
+                    raw_value: "128".to_owned(),
+                    observed_at_unix_nano: 1_765_500_000_000_000_000,
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        assert_eq!(batch.schema_version, "serviceradar.metric.v1");
+        assert_eq!(batch.resource.as_ref().unwrap().agent_id, "agent-1");
+        assert_eq!(batch.metrics[0].kind, MetricKind::Sum as i32);
+        assert_eq!(
+            batch.metrics[0].temporality,
+            MetricTemporality::Cumulative as i32
+        );
+        assert!(batch.metrics[0].is_monotonic);
+        assert_eq!(batch.metrics[0].points[0].raw_value, "128");
+    }
+}
+
 pub use config::Config;
 pub use context_hydrator::{ContextHydrator, ContextStore};
 pub use delta::{StateChangeDelta, apply_delta, parse_state_change};

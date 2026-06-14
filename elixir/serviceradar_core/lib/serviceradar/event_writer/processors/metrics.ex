@@ -2,38 +2,39 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
   @moduledoc """
   Processor for the dedicated high-rate `metrics.>` stream.
 
-  Sysmon messages are family envelopes emitted by the agent gateway and are
-  persisted through the shared hypertable ingestor.
-  SNMP and plugin metric messages are flat scalar telemetry records and continue
-  through the generic timeseries processor.
+  Non-OTLP metrics use ServiceRadar's canonical protobuf metric envelope. Sysmon,
+  SNMP, ICMP, MTR, sweep, rperf, plugin, native add-on, and custom scalar metrics
+  are decoded once and persisted through the generic timeseries processor.
   """
 
   @behaviour ServiceRadar.EventWriter.Processor
 
+  alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.EventWriter.Processors.Telemetry
-  alias ServiceRadar.Observability.SysmonMetricsIngestor
+  alias ServiceRadar.EventWriter.SignalTelemetry
+  alias ServiceRadar.Identity.DeviceLookup
+  alias ServiceRadar.Observability.MetricEnvelope
 
   require Logger
-
-  @sysmon_schema "serviceradar.sysmon.metrics.v1"
-  @snmp_schema "serviceradar.snmp.interface_metric.v1"
-  @generic_metric_schema "serviceradar.metric.v1"
 
   @impl true
   def table_name, do: "metrics"
 
   @impl true
   def process_batch(messages) do
-    {sysmon_messages, timeseries_messages, rejected} = partition_messages(messages)
+    SignalTelemetry.emit(:metrics, :received, length(messages))
+
+    {rows, rejected} = build_rows(messages)
+    rows = backfill_device_ids(rows)
+    SignalTelemetry.emit(:metrics, :rejected, rejected)
 
     if rejected > 0 do
-      Logger.debug("Metrics processor rejected unsupported messages", count: rejected)
+      Logger.warning("Metrics processor rejected non-protobuf metric messages", count: rejected)
     end
 
-    sysmon_count = ingest_sysmon_messages(sysmon_messages)
-
-    with {:ok, timeseries_count} <- Telemetry.process_batch(timeseries_messages) do
-      {:ok, sysmon_count + timeseries_count}
+    with {:ok, count} <- Telemetry.insert_rows(rows) do
+      SignalTelemetry.emit(:metrics, :written, count)
+      {:ok, count}
     end
   rescue
     e ->
@@ -43,161 +44,89 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   @impl true
   def parse_message(%{data: data, metadata: metadata}) do
-    with {:ok, json} <- Jason.decode(data),
-         :ok <- reject_ocsf_on_metrics_stream(json),
-         {:ok, kind} <- metric_kind(json, metadata) do
-      case kind do
-        :sysmon -> parse_sysmon(json, metadata)
-        :timeseries -> Telemetry.parse_message(%{data: data, metadata: metadata})
-      end
-    else
-      _ -> nil
+    started_at = System.monotonic_time()
+
+    case MetricEnvelope.decode_rows_count(data) do
+      {:ok, rows, count} ->
+        emit_decode_completed(rows, count, metadata, started_at)
+        rows
+
+      {:error, reason} ->
+        emit_decode_failed(reason, metadata, started_at)
+
+        Logger.debug("Failed to parse metric protobuf envelope",
+          reason: inspect(reason),
+          subject: subject(metadata)
+        )
+
+        nil
     end
   end
 
-  # REC9a (fj #3788): metrics and OCSF events are deliberately separate planes. An
-  # OCSF event always carries `class_uid`; a metric never does. If one lands on the
-  # metrics stream it is mis-routed — reject it loudly instead of silently parsing it
-  # as a metric (which would mis-bucket it into a hypertable).
-  defp reject_ocsf_on_metrics_stream(json) when is_map(json) do
-    if Map.has_key?(json, "class_uid") do
-      :telemetry.execute(
-        [:serviceradar, :event_writer, :metrics, :misbucketed],
-        %{count: 1},
-        %{reason: :ocsf_event_on_metrics_stream}
-      )
+  # Canonical device_id enrichment for the DB-sync persistence path (the deleted
+  # legacy ingestors did this). Resolution is batched once per message batch and
+  # is strictly best-effort: an unknown IP or a lookup failure leaves device_id
+  # nil rather than dropping the metric. The anomaly hot path is unaffected — it
+  # never calls this; only the CNPG persistence path enriches device_id.
+  defp backfill_device_ids(rows) do
+    ips =
+      rows
+      |> Enum.filter(fn row -> is_nil(row[:device_id]) and is_binary(row[:target_device_ip]) end)
+      |> Enum.map(& &1[:target_device_ip])
+      |> Enum.uniq()
 
-      Logger.warning("Rejected OCSF event (class_uid present) on the metrics stream")
-      :error
-    else
-      :ok
+    case ips do
+      [] ->
+        rows
+
+      ips ->
+        resolved = resolve_device_ids(ips)
+
+        Enum.map(rows, fn row ->
+          case {row[:device_id], Map.get(resolved, row[:target_device_ip])} do
+            {nil, device_id} when is_binary(device_id) -> %{row | device_id: device_id}
+            _ -> row
+          end
+        end)
     end
   end
 
-  defp reject_ocsf_on_metrics_stream(_json), do: :ok
+  defp resolve_device_ids(ips) do
+    actor = SystemActor.system(:metric_envelope_ingestor)
 
-  @doc false
-  def parse_sysmon(json, metadata) do
-    with %{} = sample <- Map.get(json, "sample"),
-         family when family in ["cpu", "memory", "disk", "process"] <-
-           sysmon_family(json, metadata),
-         filtered_sample when is_map(filtered_sample) <- filter_sysmon_sample(sample, family) do
-      %{
-        payload: %{"status" => filtered_sample},
-        status: status_from_envelope(json),
-        family: family
-      }
-    else
-      _ -> nil
-    end
+    ips
+    |> DeviceLookup.batch_lookup_by_ip(actor: actor, include_deleted: true)
+    |> Enum.reduce(%{}, fn
+      {ip, %{canonical_device_id: device_id}}, acc
+      when is_binary(device_id) and device_id != "" ->
+        Map.put(acc, ip, device_id)
+
+      _entry, acc ->
+        acc
+    end)
+  rescue
+    error ->
+      Logger.debug("metric device_id resolution failed", error: inspect(error))
+      %{}
   end
 
-  @doc false
-  def filter_sysmon_sample(sample, family) when family in ["cpu", "memory", "disk", "process"] do
-    base =
-      Map.take(sample, [
-        "timestamp",
-        "host_id",
-        "host_ip",
-        "agent_id",
-        "partition"
-      ])
-
-    case family do
-      "cpu" ->
-        base
-        |> maybe_put("cpus", list_or_empty(sample["cpus"]))
-        |> maybe_put("clusters", list_or_empty(sample["clusters"]))
-
-      "memory" ->
-        maybe_put(base, "memory", map_or_nil(sample["memory"]))
-
-      "disk" ->
-        maybe_put(base, "disks", list_or_empty(sample["disks"]))
-
-      "process" ->
-        maybe_put(base, "processes", list_or_empty(sample["processes"]))
-    end
-  end
-
-  def filter_sysmon_sample(_sample, _family), do: nil
-
-  defp partition_messages(messages) do
+  defp build_rows(messages) do
     messages
-    |> Enum.reduce({[], [], 0}, fn message, {sysmon, snmp, rejected} ->
+    |> Enum.reduce({[], 0}, fn message, {timeseries, rejected} ->
       case parse_message(message) do
-        %{payload: _payload, status: _status} = parsed ->
-          {[parsed | sysmon], snmp, rejected}
-
         row when is_map(row) ->
-          {sysmon, [message | snmp], rejected}
+          {[row | timeseries], rejected}
+
+        rows when is_list(rows) ->
+          {Enum.reverse(rows, timeseries), rejected}
 
         _ ->
-          {sysmon, snmp, rejected + 1}
+          {timeseries, rejected + 1}
       end
     end)
-    |> then(fn {sysmon, snmp, rejected} ->
-      {Enum.reverse(sysmon), Enum.reverse(snmp), rejected}
+    |> then(fn {timeseries, rejected} ->
+      {Enum.reverse(timeseries), rejected}
     end)
-  end
-
-  defp ingest_sysmon_messages(sysmon_messages) do
-    Enum.reduce(sysmon_messages, 0, fn %{payload: payload, status: status}, success_count ->
-      case sysmon_ingestor().ingest(payload, status) do
-        :ok ->
-          success_count + 1
-
-        {:error, reason} ->
-          Logger.warning("Metrics processor skipped sysmon metric message",
-            reason: inspect(reason),
-            gateway_id: status[:gateway_id],
-            agent_id: status[:agent_id],
-            source: status[:source]
-          )
-
-          success_count
-      end
-    end)
-  end
-
-  defp sysmon_ingestor do
-    Application.get_env(:serviceradar_core, :metrics_sysmon_ingestor, SysmonMetricsIngestor)
-  end
-
-  defp metric_kind(json, metadata) do
-    subject = subject(metadata)
-    schema = Map.get(json, "schema")
-
-    cond do
-      schema == @sysmon_schema or String.starts_with?(subject, "metrics.sysmon.") ->
-        {:ok, :sysmon}
-
-      schema == @snmp_schema or String.starts_with?(subject, "metrics.snmp.") ->
-        {:ok, :timeseries}
-
-      schema == @generic_metric_schema or String.starts_with?(subject, "metrics.timeseries.") ->
-        {:ok, :timeseries}
-
-      true ->
-        :error
-    end
-  end
-
-  defp sysmon_family(json, metadata) do
-    Map.get(json, "metric_family") || metadata |> subject() |> String.split(".") |> List.last()
-  end
-
-  defp status_from_envelope(json) do
-    %{
-      service_name: Map.get(json, "service_name") || "sysmon",
-      service_type: Map.get(json, "service_type") || "sysmon",
-      source: Map.get(json, "source") || "sysmon-metrics",
-      agent_id: Map.get(json, "agent_id"),
-      gateway_id: Map.get(json, "gateway_id"),
-      partition: Map.get(json, "partition"),
-      timestamp: Map.get(json, "status_timestamp_unix_nano"),
-      agent_timestamp: Map.get(json, "agent_timestamp_unix_nano")
-    }
   end
 
   defp subject(metadata) when is_map(metadata) do
@@ -206,13 +135,56 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   defp subject(_metadata), do: ""
 
-  defp list_or_empty(value) when is_list(value), do: value
-  defp list_or_empty(_value), do: []
+  defp emit_decode_completed(rows, row_count, metadata, started_at) do
+    duration = System.monotonic_time() - started_at
+    schema_version = schema_version(rows)
 
-  defp map_or_nil(value) when is_map(value), do: value
-  defp map_or_nil(_value), do: nil
+    :telemetry.execute(
+      [:serviceradar, :metric_envelope, :decode, :completed],
+      %{count: 1, rows: row_count, duration: duration},
+      %{
+        subject: subject(metadata),
+        source: source(metadata),
+        schema_version: schema_version
+      }
+    )
 
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, []), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
+    :telemetry.execute(
+      [:serviceradar, :metric_envelope, :schema_version],
+      %{count: 1},
+      %{source: source(metadata), schema_version: schema_version}
+    )
+
+    :ok
+  end
+
+  defp emit_decode_failed(reason, metadata, started_at) do
+    :telemetry.execute(
+      [:serviceradar, :metric_envelope, :decode, :failed],
+      %{count: 1, duration: System.monotonic_time() - started_at},
+      %{
+        subject: subject(metadata),
+        source: source(metadata),
+        reason: reason_tag(reason)
+      }
+    )
+
+    :ok
+  end
+
+  defp schema_version([%{metadata: %{} = metadata} | _]) do
+    Map.get(metadata, "schema") || Map.get(metadata, :schema) || "unknown"
+  end
+
+  defp schema_version(_rows), do: "unknown"
+
+  defp source(metadata) when is_map(metadata) do
+    metadata[:source] || metadata["source"] || subject(metadata) || "unknown"
+  end
+
+  defp source(_metadata), do: "unknown"
+
+  defp reason_tag(reason) when is_atom(reason), do: reason
+  defp reason_tag(%module{}), do: module
+  defp reason_tag(_reason), do: :decode_error
 end

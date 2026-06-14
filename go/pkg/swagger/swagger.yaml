@@ -184,99 +184,6 @@ definitions:
         example: "2025-04-24T14:15:22Z"
         type: string
     type: object
-  models.RperfMetric:
-    description: Single network performance test result for a specific target.
-    properties:
-      bits_per_second:
-        description: Network throughput in bits per second
-        example: 943215000
-        type: number
-      bytes_received:
-        description: Total bytes received during the test
-        example: 12582912
-        type: integer
-      bytes_sent:
-        description: Total bytes sent during the test
-        example: 12582912
-        type: integer
-      duration:
-        description: Test duration in seconds
-        example: 10.05
-        type: number
-      error:
-        description: Error message if test failed (null if successful)
-        example: connection refused
-        type: string
-      jitter_ms:
-        description: Network jitter in milliseconds
-        example: 0.85
-        type: number
-      loss_percent:
-        description: Percentage of packets lost during the test
-        example: 0.02
-        type: number
-      name:
-        description: Test name or identifier
-        example: rperf_tcp_test
-        type: string
-      packets_lost:
-        description: Number of packets lost during the test
-        example: 2
-        type: integer
-      packets_received:
-        description: Number of packets received during the test
-        example: 9998
-        type: integer
-      packets_sent:
-        description: Number of packets sent during the test
-        example: 10000
-        type: integer
-      success:
-        description: Whether the test was successful
-        example: true
-        type: boolean
-      target:
-        description: Target hostname or IP address
-        example: 192.168.1.1
-        type: string
-      timestamp:
-        description: When the test was performed
-        example: "2025-04-24T14:15:22Z"
-        type: string
-    type: object
-  models.SNMPMetric:
-    description: A metric collected via SNMP, including its value, type, and timestamp.
-    properties:
-      is_delta:
-        description: |-
-          Whether the metric represents a delta value
-          @example false
-        type: boolean
-      oid_name:
-        description: |-
-          The name of the OID (Object Identifier)
-          @example "sysUpTime"
-        type: string
-      scale:
-        description: |-
-          The scale factor applied to the value
-          @example 1.0
-        type: number
-      timestamp:
-        description: |-
-          The time when the metric was collected
-          @example "2025-04-24T14:15:22Z"
-        type: string
-      value:
-        description: |-
-          The value of the metric
-          @example 12345
-      value_type:
-        description: |-
-          The type of the value (e.g., integer, string)
-          @example "integer"
-        type: string
-    type: object
   models.Token:
     description: Authentication tokens for API access.
     properties:
@@ -522,7 +429,8 @@ paths:
           description: SNMP metrics data
           schema:
             items:
-              $ref: '#/definitions/models.SNMPMetric'
+              additionalProperties: true
+              type: object
             type: array
         "400":
           description: Invalid request parameters
@@ -751,7 +659,8 @@ paths:
           description: Network performance metrics data
           schema:
             items:
-              $ref: '#/definitions/models.RperfMetric'
+              additionalProperties: true
+              type: object
             type: array
         "400":
           description: Invalid request parameters

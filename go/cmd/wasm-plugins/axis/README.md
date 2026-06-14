@@ -10,7 +10,8 @@ ServiceRadar TinyGo/WASM plugin for AXIS cameras via VAPIX.
 - Optional AXIS websocket event collection (`/vapix/ws-data-stream`) mapped to OCSF events
   - Uses URL userinfo credentials through the host websocket bridge when credentials are configured
   - Supports comma/newline topic filters through `event_topic_filters`
-- Emits `serviceradar.plugin_result.v1` with metrics, summary, and JSON details
+- Emits `serviceradar.plugin_result.v1` summary/details plus canonical
+  `serviceradar.metric.v1` telemetry for AXIS health metrics
 - Includes a reference `stream_camera` entrypoint and `manifest.stream.json` for the new Wasm media host bridge
   - `stream_camera` now uses a narrow RTSP-over-TCP + interleaved RTP/H264 path suitable for AXIS main-stream relay
   - Current scope is intentionally narrow: H264 video over RTSP/TCP with basic auth handling and a single H264 video track

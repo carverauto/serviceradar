@@ -2,6 +2,10 @@ defmodule ServiceRadar.Repo.Migrations.NormalizeAgentCommandJsonPayloads do
   @moduledoc false
   use Ecto.Migration
 
+  # serviceradar:allow-startup-maintenance - agent_commands is empty on first boot so the
+  # normalization UPDATE is a no-op; on upgrades it is a single bounded one-time backfill of
+  # existing command rows.
+
   @jsonb_map_columns [:payload, :context, :result_payload, :progress_payload]
 
   def up do

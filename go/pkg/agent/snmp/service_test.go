@@ -19,6 +19,7 @@ package snmp
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -27,6 +28,7 @@ import (
 	"go.uber.org/mock/gomock"
 
 	"github.com/carverauto/serviceradar/go/pkg/logger"
+	"github.com/carverauto/serviceradar/proto"
 )
 
 func TestSNMPService(t *testing.T) {
@@ -64,6 +66,46 @@ func TestSNMPService(t *testing.T) {
 	t.Run("GetStatus", testGetStatus(ctrl, config))
 }
 
+func TestSNMPServiceStatusResponsesDoNotExposeOIDValues(t *testing.T) {
+	t.Parallel()
+
+	ctrl := gomock.NewController(t)
+	mockCollector := NewMockCollector(ctrl)
+	pollTime := time.Unix(1_700_000_000, 0).UTC()
+	rawStatus := TargetStatus{
+		Available: true,
+		LastPoll:  pollTime,
+		HostIP:    "192.0.2.10",
+		HostName:  "router-a",
+		OIDStatus: map[string]OIDStatus{
+			"sysUptime": {
+				LastValue:  uint64(123456),
+				LastUpdate: pollTime,
+				ErrorCount: 2,
+			},
+		},
+	}
+	mockCollector.EXPECT().GetStatus().Return(rawStatus).AnyTimes()
+
+	service := &SNMPService{
+		collectors:  map[string]Collector{"router-a": mockCollector},
+		aggregators: make(map[string]Aggregator),
+		config:      &SNMPConfig{},
+		status:      make(map[string]TargetStatus),
+		logger:      logger.NewTestLogger(),
+	}
+
+	available, message := service.Check(context.Background())
+	require.True(t, available)
+	assertSNMPStatusSummaryOnly(t, []byte(message))
+
+	response, err := service.GetServiceStatus(context.Background(), &proto.StatusRequest{ServiceType: "snmp"})
+	require.NoError(t, err)
+	require.NotNil(t, response)
+	require.True(t, response.Available)
+	assertSNMPStatusSummaryOnly(t, response.Message)
+}
+
 func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 	return func(t *testing.T) {
 		testLogger := logger.NewTestLogger()
@@ -73,6 +115,32 @@ func testNewSNMPService(config *SNMPConfig) func(t *testing.T) {
 		assert.NotNil(t, service.collectors)
 		assert.NotNil(t, service.aggregators)
 	}
+}
+
+func assertSNMPStatusSummaryOnly(t *testing.T, message []byte) {
+	t.Helper()
+
+	text := string(message)
+	assert.NotContains(t, text, "123456")
+	assert.NotContains(t, text, `"oid_status"`)
+	assert.NotContains(t, text, `"last_value"`)
+
+	var payload map[string]struct {
+		Available  bool   `json:"available"`
+		ErrorCount int    `json:"error_count"`
+		HostIP     string `json:"host_ip"`
+		HostName   string `json:"host_name"`
+		OIDCount   int    `json:"oid_count"`
+	}
+	require.NoError(t, json.Unmarshal(message, &payload))
+	require.Contains(t, payload, "router-a")
+
+	target := payload["router-a"]
+	assert.True(t, target.Available)
+	assert.Equal(t, 2, target.ErrorCount)
+	assert.Equal(t, "192.0.2.10", target.HostIP)
+	assert.Equal(t, "router-a", target.HostName)
+	assert.Equal(t, 1, target.OIDCount)
 }
 
 func testStartStopService(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.T) {
@@ -128,11 +196,11 @@ func testAddTarget(ctrl *gomock.Controller, config *SNMPConfig) func(t *testing.
 		mockCollectorFactory := NewMockCollectorFactory(ctrl)
 		mockAggregatorFactory := NewMockAggregatorFactory(ctrl)
 
-	// Create mock collector and aggregator
-	mockCollector := NewMockCollector(ctrl)
-	mockAggregator := NewMockAggregator(ctrl)
-	mockCollectorNew := NewMockCollector(ctrl)
-	mockAggregatorNew := NewMockAggregator(ctrl)
+		// Create mock collector and aggregator
+		mockCollector := NewMockCollector(ctrl)
+		mockAggregator := NewMockAggregator(ctrl)
+		mockCollectorNew := NewMockCollector(ctrl)
+		mockAggregatorNew := NewMockAggregator(ctrl)
 
 		// Create service with mocks
 		testLogger := logger.NewTestLogger()

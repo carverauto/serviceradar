@@ -198,6 +198,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
     :series_config_opts,
     :context_overrides,
     :max_series,
+    # Monotonic logical clock used to stamp series `last_seen` so the limit
+    # enforcer can evict the least-recently-seen series first.
+    clock: 0,
     series: %{}
   ]
 
@@ -237,7 +240,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
        series_config_resolver: Keyword.get(opts, :series_config_resolver, SeriesConfig),
        series_config_opts: Keyword.get(opts, :series_config_opts, []),
        context_overrides: context_overrides_from_opts(opts),
-       max_series: Keyword.get(opts, :max_series, @default_max_series)
+       # Operator-tunable per-shard series cap. The integrator wires the
+       # `:anomaly_detection_*` config through to these opts, so reading
+       # `opts[:max_series]` here keeps the bound configurable at runtime.
+       max_series: positive_int(Keyword.get(opts, :max_series), @default_max_series)
      }}
   end
 
@@ -294,10 +300,18 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
   end
 
   defp evaluate_native_batch(state, batch) do
+    # Advance the logical clock once per batch so every series touched here is
+    # stamped as more-recently-seen than series left untouched.
+    tick = state.clock + 1
+
     {inputs, series_states} =
       Enum.map_reduce(batch, state.series, fn {sample, _index}, series_states ->
         key = series_key(sample)
-        series_state = Map.get_lazy(series_states, key, fn -> new_series_state(state, sample) end)
+
+        series_state =
+          series_states
+          |> Map.get_lazy(key, fn -> new_series_state(state, sample) end)
+          |> stamp_seen(tick)
 
         {
           %{
@@ -311,7 +325,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
 
     results = reason_state_batch(state, inputs)
 
-    state = enforce_series_limit(%{state | series: series_states})
+    state = enforce_series_limit(%{state | clock: tick, series: series_states})
 
     batch
     |> Enum.zip(results)
@@ -325,19 +339,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
   end
 
   defp evaluate_native_changes_batch(state, batch) do
-    {inputs, duplicate_results, series_states, candidates} =
-      Enum.reduce(batch, {[], [], state.series, []}, fn {sample, index},
-                                                        {inputs, duplicates, series_states,
-                                                         candidates} ->
+    tick = state.clock + 1
+
+    # `seen_in_batch` tracks {series_key, event_key} pairs already routed into the
+    # NIF earlier in THIS same batch. The committed-event MapSet on the series
+    # state is only persisted *after* the whole batch is reasoned, so without an
+    # in-batch guard two samples sharing an event_id in one batch would both fold
+    # into the NIF (double-counting). Repeats inside the batch are dropped as
+    # :duplicate_event, matching the cross-batch redelivery behavior.
+    {inputs, duplicate_results, series_states, candidates, _seen_in_batch} =
+      Enum.reduce(batch, {[], [], state.series, [], MapSet.new()}, fn {sample, index},
+                                                                      {inputs, duplicates,
+                                                                       series_states, candidates,
+                                                                       seen_in_batch} ->
         key = series_key(sample)
         existing? = Map.has_key?(series_states, key)
-        series_state = Map.get_lazy(series_states, key, fn -> new_series_state(state, sample) end)
+
+        series_state =
+          series_states
+          |> Map.get_lazy(key, fn -> new_series_state(state, sample) end)
+          |> stamp_seen(tick)
 
         case event_identity(sample) do
           event_key when not is_nil(event_key) ->
-            if event_seen?(series_state, event_key) do
-              {inputs, [{index, {:drop, :duplicate_event}} | duplicates], series_states,
-               candidates}
+            batch_key = {key, event_key}
+
+            if event_seen?(series_state, event_key) or
+                 MapSet.member?(seen_in_batch, batch_key) do
+              # Still stamp last_seen so a redelivered duplicate keeps the series warm.
+              {inputs, [{index, {:drop, :duplicate_event}} | duplicates],
+               Map.put(series_states, key, series_state), candidates, seen_in_batch}
             else
               input = native_value_input(sample, index, key, existing?, series_state)
 
@@ -345,7 +376,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
                 [input | inputs],
                 duplicates,
                 Map.put(series_states, key, series_state),
-                [{key, event_key, index} | candidates]
+                [{key, event_key, index} | candidates],
+                MapSet.put(seen_in_batch, batch_key)
               }
             end
 
@@ -356,7 +388,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
               [input | inputs],
               duplicates,
               Map.put(series_states, key, series_state),
-              [{key, nil, index} | candidates]
+              [{key, nil, index} | candidates],
+              seen_in_batch
             }
         end
       end)
@@ -377,9 +410,36 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
           end
       end)
 
-    state = enforce_series_limit(%{state | series: series_states})
+    # Track open/cleared anomalies so enforce_series_limit can protect series
+    # that currently have an active anomaly from cardinality eviction.
+    series_states = apply_anomaly_changes(series_states, candidates, results)
+
+    state = enforce_series_limit(%{state | clock: tick, series: series_states})
 
     {state, Enum.reverse(duplicate_results, results)}
+  end
+
+  # The changes path only emits state-transition verdicts (anomaly start / clear),
+  # so each emitted verdict for a series flips its `anomaly_active?` flag to match
+  # the latest transition. Errors are ignored (no state change committed).
+  defp apply_anomaly_changes(series_states, candidates, results) do
+    result_by_index = Map.new(results)
+
+    Enum.reduce(candidates, series_states, fn {key, _event_key, index}, acc ->
+      case Map.get(result_by_index, index) do
+        {:ok, verdict} when is_map_key(acc, key) ->
+          Map.update!(acc, key, fn series_state ->
+            %{series_state | anomaly_active?: anomalous_verdict?(verdict)}
+          end)
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  defp anomalous_verdict?(verdict) do
+    Map.get(verdict, :anomalous, Map.get(verdict, "anomalous", false)) == true
   end
 
   defp native_value_input(sample, index, key, existing?, series_state) do
@@ -416,10 +476,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
   end
 
   defp evaluate_independent_batch(state, batch) do
+    tick = state.clock + 1
+
     {inputs, series_states} =
       Enum.map_reduce(batch, state.series, fn {sample, _index}, series_states ->
         key = series_key(sample)
-        series_state = Map.get_lazy(series_states, key, fn -> new_series_state(state, sample) end)
+
+        series_state =
+          series_states
+          |> Map.get_lazy(key, fn -> new_series_state(state, sample) end)
+          |> stamp_seen(tick)
+
         {{series_state.context, reason_sample(sample)}, Map.put(series_states, key, series_state)}
       end)
 
@@ -427,7 +494,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
 
     batch
     |> Enum.zip(results)
-    |> Enum.reduce({%{state | series: series_states}, []}, fn
+    |> Enum.reduce({%{state | clock: tick, series: series_states}, []}, fn
       {{sample, index}, {:ok, verdict}}, {state, results} ->
         key = series_key(sample)
 
@@ -485,18 +552,45 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
     enforce_series_limit(%{state | series: Map.put(state.series, key, series_state)})
   end
 
-  defp enforce_series_limit(state) do
+  # Mirrors NativeContextEngine.enforce_series_limit: when the cap is exceeded,
+  # drop `map_size - max_series` keys in one pass (not just one), evicting the
+  # least-recently-seen idle series first and forgetting each in the NIF so the
+  # native shard guard stays in sync. Series with an open anomaly are protected
+  # from eviction; only if every removable (idle) series is exhausted do we fall
+  # back to dropping anomaly-active series so the bound is still honored.
+  defp enforce_series_limit(%{max_series: max_series} = state)
+       when is_integer(max_series) and max_series > 0 do
     series = state.series
+    over = map_size(series) - max_series
 
-    if map_size(series) > state.max_series do
-      [evicted | keys] = Map.keys(series)
-      forget_native_series(state, evicted)
+    if over > 0 do
+      {idle, active} =
+        Enum.split_with(series, fn {_key, series_state} ->
+          not Map.get(series_state, :anomaly_active?, false)
+        end)
 
-      %{state | series: Map.take(series, keys)}
+      victims =
+        idle
+        |> Enum.sort_by(fn {_key, series_state} -> Map.get(series_state, :last_seen, 0) end)
+        |> Kernel.++(
+          # Fallback: if idle series alone cannot satisfy the cap, evict the
+          # least-recently-seen anomaly-active series last.
+          Enum.sort_by(active, fn {_key, series_state} ->
+            Map.get(series_state, :last_seen, 0)
+          end)
+        )
+        |> Enum.take(over)
+        |> Enum.map(fn {key, _series_state} -> key end)
+
+      Enum.each(victims, &forget_native_series(state, &1))
+
+      %{state | series: Map.drop(series, victims)}
     else
       state
     end
   end
+
+  defp enforce_series_limit(state), do: state
 
   defp forget_native_series(%{native_state: nil}, _key), do: :ok
 
@@ -516,8 +610,21 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
         state.context_overrides
       )
 
-    %{context: context, event_ids: MapSet.new(), event_order: []}
+    # `last_seen` is stamped lazily by `stamp_seen/2` on first use; until then a
+    # series is considered the oldest (clock 0). `anomaly_active?` protects a
+    # series with an open anomaly from being evicted under cardinality pressure.
+    %{
+      context: context,
+      event_ids: MapSet.new(),
+      event_order: [],
+      last_seen: 0,
+      anomaly_active?: false
+    }
   end
+
+  # Stamp the series with the current logical tick so the limit enforcer can
+  # evict the least-recently-seen series first.
+  defp stamp_seen(series_state, tick), do: Map.put(series_state, :last_seen, tick)
 
   defp event_seen?(%{event_ids: event_ids}, event_key), do: MapSet.member?(event_ids, event_key)
   defp event_seen?(_series_state, _event_key), do: false
@@ -679,12 +786,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngine.Shard
     |> Map.new()
   end
 
+  defp positive_int(value, _fallback) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value, fallback), do: fallback
+
   defp reasoner do
     Application.get_env(:serviceradar_core, :anomaly_detection_reasoner, CausalReasoner)
   end
 
   defp new_native_state(reasoner) do
-    if function_exported?(reasoner, :new_shard_state, 0) and
+    if Code.ensure_loaded?(reasoner) and function_exported?(reasoner, :new_shard_state, 0) and
          function_exported?(reasoner, :reason_state_batch, 2) do
       reasoner.new_shard_state()
     end

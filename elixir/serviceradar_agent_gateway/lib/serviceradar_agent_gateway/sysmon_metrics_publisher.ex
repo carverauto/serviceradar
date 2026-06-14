@@ -1,15 +1,18 @@
 defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
   @moduledoc """
-  Publishes sysmon metric samples to the high-rate metrics stream.
+  Publishes protobuf sysmon metric batches to the high-rate metrics stream.
   """
 
+  alias Serviceradar.Metric.V1.MetricBatch
   alias ServiceRadarAgentGateway.IngressId
+  alias ServiceRadarAgentGateway.MetricEnvelopeAttestation
 
   require Logger
 
   @app :serviceradar_agent_gateway
   @config_key :sysmon_metrics_publisher
   @default_subject_prefix "metrics.sysmon"
+  @metric_schema "serviceradar.metric.v1"
 
   @type publish_result :: :ok | :disabled | {:error, term()}
 
@@ -25,12 +28,19 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
   end
 
   defp do_publish(status, config) do
-    with {:ok, sample} <- sysmon_sample(status),
-         families when families != [] <- metric_families(sample),
-         {:ok, encoded_messages} <- encode_messages(status, sample, families) do
-      publish_messages(encoded_messages, config)
+    with {:ok, %MetricBatch{} = batch} <- decode_metric_batch(status[:message]),
+         :ok <- validate_metric_batch(batch) do
+      ingress_context = ingress_context(status)
+
+      batch =
+        MetricEnvelopeAttestation.attest(batch, status, ingress_context,
+          source: "sysmon-metrics",
+          producer_id: status[:agent_id],
+          producer_kind: "agent"
+        )
+
+      publish_message(subject(batch), MetricBatch.encode(batch), ingress_context, config)
     else
-      [] -> :ok
       {:error, reason} = error -> log_publish_error(reason, status, error)
     end
   end
@@ -39,108 +49,57 @@ defmodule ServiceRadarAgentGateway.SysmonMetricsPublisher do
     Application.get_env(@app, @config_key, [])
   end
 
-  defp sysmon_sample(%{message: message}) when is_binary(message) do
-    with {:ok, decoded} <- Jason.decode(message),
-         %{} = sample <- Map.get(decoded, "status") do
-      {:ok, sample}
-    else
-      nil -> {:error, :missing_sysmon_status}
-      {:error, reason} -> {:error, {:invalid_sysmon_payload, reason}}
-      _other -> {:error, :invalid_sysmon_status}
-    end
+  defp decode_metric_batch(message) when is_binary(message) do
+    {:ok, MetricBatch.decode(message)}
+  rescue
+    _ -> {:error, :invalid_metric_batch_payload}
   end
 
-  defp sysmon_sample(_status), do: {:error, :missing_sysmon_message}
+  defp decode_metric_batch(_message), do: {:error, :missing_sysmon_message}
 
-  defp metric_families(sample) do
-    []
-    |> maybe_add_family("cpu", has_non_empty_list?(sample, "cpus") or has_non_empty_list?(sample, "clusters"))
-    |> maybe_add_family("memory", populated_memory?(Map.get(sample, "memory")))
-    |> maybe_add_family("disk", has_non_empty_list?(sample, "disks"))
-    |> maybe_add_family("process", has_non_empty_list?(sample, "processes"))
+  defp validate_metric_batch(%MetricBatch{schema_version: @metric_schema, metrics: [_ | _]}), do: :ok
+  defp validate_metric_batch(_batch), do: {:error, :invalid_metric_batch_schema}
+
+  defp subject(%MetricBatch{metrics: [metric | _]}) do
+    metric_type = normalize_string(metric.metric_type) || "custom"
+    metric_name = normalize_string(metric.name) || "unknown"
+    type = safe_subject_token(metric_type) || "custom"
+    name = safe_subject_token(metric_name) || "unknown"
+
+    "#{@default_subject_prefix}.#{type}.#{name}"
   end
 
-  defp maybe_add_family(families, family, true), do: [family | families]
-  defp maybe_add_family(families, _family, false), do: families
+  defp subject(_batch), do: "#{@default_subject_prefix}.custom.unknown"
 
-  defp has_non_empty_list?(sample, key) do
-    case Map.get(sample, key) do
-      [_ | _] -> true
-      _ -> false
-    end
-  end
-
-  defp populated_memory?(%{} = memory) do
-    Enum.any?(["used_bytes", "total_bytes", "swap_used_bytes", "swap_total_bytes"], fn key ->
-      case Map.get(memory, key) do
-        value when is_integer(value) -> value > 0
-        value when is_float(value) -> value > 0
-        _ -> false
-      end
-    end)
-  end
-
-  defp populated_memory?(_memory), do: false
-
-  defp encode_messages(status, sample, families) do
-    base = base_envelope(status, sample)
-
-    families
-    |> Enum.reverse()
-    |> Enum.reduce_while({:ok, []}, fn family, {:ok, acc} ->
-      ingress_context = ingress_context(status)
-
-      envelope =
-        base
-        |> Map.put("metric_family", family)
-        |> IngressId.put_payload_metadata(ingress_context)
-
-      case Jason.encode(envelope) do
-        {:ok, encoded} -> {:cont, {:ok, [{family, encoded, ingress_context} | acc]}}
-        {:error, reason} -> {:halt, {:error, {:encode_failed, family, reason}}}
-      end
-    end)
-    |> case do
-      {:ok, messages} -> {:ok, Enum.reverse(messages)}
-      error -> error
-    end
-  end
-
-  defp base_envelope(status, sample) do
-    %{
-      "schema" => "serviceradar.sysmon.metrics.v1",
-      "source" => "sysmon-metrics",
-      "agent_id" => status[:agent_id],
-      "gateway_id" => status[:gateway_id],
-      "partition" => status[:partition],
-      "service_name" => status[:service_name],
-      "service_type" => status[:service_type],
-      "status_timestamp_unix_nano" => status[:timestamp],
-      "agent_timestamp_unix_nano" => status[:agent_timestamp],
-      "received_at_unix_nano" => System.system_time(:nanosecond),
-      "sample" => sample
-    }
-  end
-
-  defp publish_messages(messages, config) do
+  defp publish_message(subject, payload, ingress_context, config) do
     connection = Keyword.get(config, :connection, ServiceRadar.NATS.Connection)
     subject_prefix = Keyword.get(config, :subject_prefix, @default_subject_prefix)
     configured_headers = Keyword.get(config, :headers, [])
+    subject = String.replace_prefix(subject, @default_subject_prefix, subject_prefix)
+    headers = configured_headers ++ IngressId.headers(ingress_context)
 
-    errors =
-      Enum.reduce(messages, [], fn {family, payload, ingress_context}, acc ->
-        subject = "#{subject_prefix}.#{family}"
-        headers = configured_headers ++ IngressId.headers(ingress_context)
+    case connection.publish(subject, payload, headers: headers) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:publish_failed, [{subject, reason}]}}
+    end
+  end
 
-        case connection.publish(subject, payload, headers: headers) do
-          :ok -> acc
-          {:error, reason} -> [{subject, reason} | acc]
-        end
-      end)
+  defp normalize_string(nil), do: nil
+  defp normalize_string(value) when is_binary(value), do: String.trim(value)
+  defp normalize_string(value) when is_integer(value), do: Integer.to_string(value)
+  defp normalize_string(value) when is_atom(value), do: Atom.to_string(value)
+  defp normalize_string(_value), do: nil
 
-    case Enum.reverse(errors) do
-      [] -> :ok
-      errors -> {:error, {:publish_failed, errors}}
+  defp safe_subject_token(nil), do: nil
+
+  defp safe_subject_token(value) do
+    value
+    |> String.downcase()
+    |> String.replace(~r/[^a-z0-9_-]+/, "_")
+    |> String.trim("_")
+    |> case do
+      "" -> nil
+      token -> token
     end
   end
 

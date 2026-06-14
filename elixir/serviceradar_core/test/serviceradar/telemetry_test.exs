@@ -501,6 +501,38 @@ defmodule ServiceRadar.TelemetryTest do
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_timed_out, :count] in metric_names
 
       assert [:serviceradar, :camera_relay, :analysis, :dispatch_dropped, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :batch, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :batch, :duration] in metric_names
+      assert [:serviceradar, :anomaly_detection, :evaluations, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :analyzed, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :dropped, :count] in metric_names
+    end
+  end
+
+  describe "anomaly_detection_metrics/0" do
+    test "returns the anomaly detection metric subset with bounded tags" do
+      metrics = Telemetry.anomaly_detection_metrics()
+
+      metric_names = Enum.map(metrics, & &1.name)
+
+      assert [:serviceradar, :anomaly_detection, :batch, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :batch, :duration] in metric_names
+      assert [:serviceradar, :anomaly_detection, :input_samples, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :duplicate_drops, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :analyzed, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :disabled, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :dropped, :count] in metric_names
+      assert [:serviceradar, :anomaly_detection, :consumer, :failed, :count] in metric_names
+
+      Enum.each(metrics, fn metric ->
+        tags = MapSet.new(metric.tags)
+
+        if :subject_class in metric.tags do
+          assert MapSet.subset?(tags, MapSet.new([:subject_class, :reason]))
+        else
+          assert MapSet.subset?(tags, MapSet.new([:engine, :path]))
+        end
+      end)
     end
   end
 

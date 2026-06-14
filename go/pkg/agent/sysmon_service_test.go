@@ -215,18 +215,19 @@ func TestSysmonServiceGetStatusPayload(t *testing.T) {
 
 	// Parse the message to verify structure
 	var payload struct {
-		Available    bool                 `json:"available"`
-		ResponseTime int64                `json:"response_time"`
-		Status       *sysmon.MetricSample `json:"status"`
+		Available    bool   `json:"available"`
+		ResponseTime int64  `json:"response_time"`
+		Status       string `json:"status"`
 	}
 	err = json.Unmarshal(status.Message, &payload)
 	require.NoError(t, err)
 
 	assert.True(t, payload.Available)
 	assert.Positive(t, payload.ResponseTime)
-	require.NotNil(t, payload.Status)
-	assert.NotEmpty(t, payload.Status.HostID)
-	assert.NotEmpty(t, payload.Status.Timestamp)
+	assert.Equal(t, "collecting", payload.Status)
+	assert.NotContains(t, string(status.Message), `"cpus"`)
+	assert.NotContains(t, string(status.Message), `"memory"`)
+	assert.NotContains(t, string(status.Message), `"processes"`)
 }
 
 func TestSysmonServiceReconfigure(t *testing.T) {

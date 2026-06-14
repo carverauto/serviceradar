@@ -34,7 +34,10 @@ rust_library(
     compile_data = [
         "config/default_template.json",
     ],
-    deps = all_crate_deps(normal = True) + [":build_script"],
+    deps = all_crate_deps(normal = True) + [
+        ":build_script",
+        "//rust/metric-proto:serviceradar_metric_proto",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )
 

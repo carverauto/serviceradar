@@ -1,6 +1,12 @@
 defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
   use ExUnit.Case, async: false
 
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadarAgentGateway.SnmpMetricsPublisher
 
   setup do
@@ -17,58 +23,78 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     :ok
   end
 
-  test "publishes high-capacity interface octets to metrics.snmp subjects" do
+  test "publishes protobuf SNMP metric batch with gateway-attested identity" do
     Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
       enabled: true,
       subject_prefix: "metrics.snmp",
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
+    payload = metric_batch_payload()
 
-    assert_receive {:published, "metrics.snmp.interface.ifHCInOctets", in_payload, in_opts}
-    assert_receive {:published, "metrics.snmp.interface.ifHCOutOctets", out_payload, _out_opts}
-    refute_receive {:published, "metrics.snmp.interface.ifInOctets", _payload, _opts}
+    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status(payload))
 
-    assert %{
-             "schema" => "serviceradar.snmp.interface_metric.v1",
-             "source" => "snmp-metrics",
-             "gateway_id" => "gateway-1",
-             "agent_id" => "agent-1",
-             "partition" => "default",
-             "metric_name" => "ifHCInOctets",
-             "metric_type" => "snmp",
-             "value" => 1234,
-             "raw_value" => "1234",
-             "kind" => "sum",
-             "temporality" => "cumulative",
-             "is_monotonic" => true,
-             "counter_width" => 64,
-             "is_delta" => false,
-             "target_device_ip" => "10.0.0.20",
-             "if_index" => 7,
-             "tags" => %{"interface_uid" => "ifindex:7", "target" => "10.0.0.20"},
-             "metadata" => %{
-               "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
-               "kind" => "sum",
-               "temporality" => "cumulative",
-               "is_monotonic" => true,
-               "counter_width" => 64,
-               "raw_value" => "1234"
-             },
-             "ingress_id" => ingress_id,
-             "ingress_timestamp_unix_nano" => ingress_timestamp
-           } = Jason.decode!(in_payload)
+    assert_receive {:published, "metrics.snmp.snmp.ifhcinoctets", published_payload, opts}
 
-    assert ingress_id =~ uuidv8_pattern()
-    assert is_integer(ingress_timestamp)
-    assert ingress_headers(in_opts)
+    refute published_payload == payload
 
-    assert %{
-             "metric_name" => "ifHCOutOctets",
-             "if_index" => 7,
-             "target_device_ip" => "10.0.0.20"
-           } = Jason.decode!(out_payload)
+    decoded = MetricBatch.decode(published_payload)
+    counter = hd(decoded.metrics)
+    assert decoded.schema_version == "serviceradar.metric.v1"
+
+    assert Map.take(decoded.resource, [
+             :agent_id,
+             :gateway_id,
+             :partition,
+             :service_name,
+             :service_type,
+             :target_device_ip
+           ]) == %{
+             agent_id: "agent-1",
+             gateway_id: "gateway-1",
+             partition: "default",
+             service_name: "snmp",
+             service_type: "snmp",
+             target_device_ip: "10.0.0.20"
+           }
+
+    assert Map.take(decoded.ingest_identity, [
+             :source,
+             :payload_kind,
+             :producer_id,
+             :producer_kind,
+             :attested_by
+           ]) == %{
+             source: "snmp-metrics",
+             payload_kind: "serviceradar.metric.v1",
+             producer_id: "agent-1",
+             producer_kind: "agent",
+             attested_by: "gateway-1"
+           }
+
+    assert decoded.ingress_id =~ uuidv8_pattern()
+    assert decoded.ingress_timestamp_unix_nano > 0
+    assert counter.kind == :METRIC_KIND_SUM
+    assert counter.temporality == :METRIC_TEMPORALITY_CUMULATIVE
+    assert counter.is_monotonic
+    assert counter.counter_width == 64
+    assert hd(counter.points).raw_value == "1234"
+    assert ingress_headers(opts)
+  end
+
+  test "rejects legacy JSON SNMP metric payloads" do
+    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
+      enabled: true,
+      subject_prefix: "metrics.snmp",
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert {:error, :invalid_metric_batch_payload} =
+             SnmpMetricsPublisher.publish_snmp(
+               snmp_status(Jason.encode!(%{"results" => [%{"metric" => "ifHCInOctets", "value" => 1234}]}))
+             )
+
+    refute_receive {:published, _subject, _payload, _opts}
   end
 
   test "is disabled by default" do
@@ -77,7 +103,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
       connection: __MODULE__.ConnectionStub
     )
 
-    assert :disabled = SnmpMetricsPublisher.publish_snmp(snmp_status())
+    assert :disabled = SnmpMetricsPublisher.publish_snmp(snmp_status(metric_batch_payload()))
     refute_receive {:published, _subject, _payload, _opts}
   end
 
@@ -89,32 +115,9 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     )
 
     assert {:error, {:publish_failed, failures}} =
-             SnmpMetricsPublisher.publish_snmp(snmp_status())
+             SnmpMetricsPublisher.publish_snmp(snmp_status(metric_batch_payload()))
 
-    assert {"metrics.snmp.interface.ifHCInOctets", :nats_down} in failures
-  end
-
-  test "drops non-allowlisted OIDs by default" do
-    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
-      enabled: true,
-      connection: __MODULE__.ConnectionStub
-    )
-
-    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
-    assert_receive {:published, "metrics.snmp.interface.ifHCInOctets", _p, _o}
-    refute_receive {:published, "metrics.snmp.interface.ifInOctets", _payload, _opts}
-  end
-
-  test "forwards non-octet OIDs when interface_metrics is widened to :all" do
-    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
-      enabled: true,
-      interface_metrics: :all,
-      connection: __MODULE__.ConnectionStub
-    )
-
-    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
-    assert_receive {:published, "metrics.snmp.interface.ifInOctets", payload, _opts}
-    assert %{"metric_name" => "ifInOctets", "value" => 111} = Jason.decode!(payload)
+    assert {"metrics.snmp.snmp.ifhcinoctets", :nats_down} in failures
   end
 
   defmodule ConnectionStub do
@@ -136,7 +139,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     def publish(_subject, _payload, _opts), do: {:error, :nats_down}
   end
 
-  defp snmp_status do
+  defp snmp_status(payload) do
     %{
       service_name: "snmp",
       service_type: "snmp",
@@ -146,58 +149,58 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
       partition: "default",
       timestamp: 1_765_500_000_000_000_000,
       agent_timestamp: 1_765_499_999_000_000_000,
-      message:
-        Jason.encode!(%{
-          "results" => [
-            %{
-              "target" => "core-switch",
-              "host" => "10.0.0.20",
-              "metric" => "ifHCInOctets",
-              "oid" => ".1.3.6.1.2.1.31.1.1.1.6.7",
-              "value" => 1234,
-              "raw_value" => "1234",
-              "timestamp" => "2026-06-12T00:00:00Z",
-              "data_type" => "counter",
-              "scale" => 1.0,
-              "delta" => false,
-              "kind" => "sum",
-              "temporality" => "cumulative",
-              "is_monotonic" => true,
-              "counter_width" => 64,
-              "if_index" => 7,
-              "interface_uid" => "ifindex:7"
-            },
-            %{
-              "target" => "core-switch",
-              "host" => "10.0.0.20",
-              "metric" => "ifHCOutOctets::7",
-              "oid" => ".1.3.6.1.2.1.31.1.1.1.10.7",
-              "value" => "4321",
-              "timestamp" => "2026-06-12T00:00:01Z",
-              "data_type" => "counter",
-              "scale" => 1.0,
-              "delta" => true,
-              "if_index" => "7",
-              "interface_uid" => "ifindex:7"
-            },
-            %{
-              "target" => "core-switch",
-              "host" => "10.0.0.20",
-              "metric" => "ifInOctets",
-              "oid" => ".1.3.6.1.2.1.2.2.1.10.7",
-              "value" => 111,
-              "if_index" => 7
-            },
-            %{
-              "target" => "core-switch",
-              "host" => "10.0.0.20",
-              "metric" => "ifHCInOctets",
-              "oid" => ".1.3.6.1.2.1.31.1.1.1.6",
-              "value" => 222
-            }
-          ]
-        })
+      message: payload
     }
+  end
+
+  defp metric_batch_payload do
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "spoofed-agent",
+        gateway_id: "spoofed-gateway",
+        partition: "spoofed-partition",
+        service_name: "spoofed-service",
+        service_type: "spoofed-type",
+        target_device_ip: "10.0.0.20"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "spoofed-source",
+        payload_kind: "spoofed-payload",
+        producer_kind: "spoofed-kind",
+        producer_id: "spoofed-producer",
+        attested_by: "spoofed-attestor"
+      },
+      emitted_at_unix_nano: 1_765_500_000_000_000_000,
+      metrics: [
+        %Metric{
+          name: "ifHCInOctets",
+          metric_type: "snmp",
+          kind: :METRIC_KIND_SUM,
+          temporality: :METRIC_TEMPORALITY_CUMULATIVE,
+          is_monotonic: true,
+          counter_width: 64,
+          points: [
+            %MetricPoint{
+              value: 1234,
+              raw_value: "1234",
+              raw_value_type: :METRIC_VALUE_TYPE_UINT64,
+              observed_at_unix_nano: 1_765_500_000_000_000_000,
+              if_index: 7,
+              interface_uid: "ifindex:7"
+            }
+          ],
+          tags: [
+            %StringMapEntry{key: "target", value: "10.0.0.20"},
+            %StringMapEntry{key: "interface_uid", value: "ifindex:7"}
+          ],
+          metadata: [
+            %StringMapEntry{key: "oid", value: ".1.3.6.1.2.1.31.1.1.1.6.7"},
+            %StringMapEntry{key: "data_type", value: "counter"}
+          ]
+        }
+      ]
+    })
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_agent_gateway, key)
@@ -215,6 +218,7 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     assert headers["Sr-Gateway-Id"] == "gateway-1"
     assert headers["Sr-Partition"] == "default"
     assert headers["Sr-Ingest-Identity"] == "agent:agent-1"
+    assert headers["Nats-Msg-Id"] == headers["Sr-Ingress-Id"]
   end
 
   defp uuidv8_pattern do

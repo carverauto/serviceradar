@@ -216,6 +216,224 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ContextOwnerTest do
     assert ContextOwner.snapshot(replacement).context.window_tail == [10.0, 11.0]
   end
 
+  test "does not borrow base_context's acc when the checkpoint's context omits its own acc" do
+    # Fix(review): window_tail and rolling_acc must be restored atomically from the
+    # SAME checkpoint state. Here the checkpoint's `context` carries a window_tail of
+    # length 3 but NO rolling_acc, while its `base_context` carries a count-3 acc with
+    # a corrupt mean/m2 (e.g. from a different window). The previous code restored
+    # window_tail from `context` but fell back to `base_context`'s acc; since the
+    # NIF's valid_for_count is count-only, that count-3 corrupt acc would be trusted
+    # and install a corrupt baseline. The owner must instead set rolling_acc to nil so
+    # the NIF recomputes from window_tail.
+    series_key = "series-cross-source-acc-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    window_tail = [10.0, 11.0, 12.0]
+    # Count matches length(window_tail) so the count-only NIF check would accept it,
+    # but the mean/m2 are deliberately wrong for [10.0, 11.0, 12.0].
+    corrupt_acc = %{count: 3, mean: 999.0, m2: 4242.0}
+
+    base_context = %{
+      baseline: [],
+      window_tail: window_tail,
+      rolling_acc: corrupt_acc,
+      min_samples: 2,
+      window_size: 3,
+      n_sigma: 3.0,
+      confirm_slots: 5,
+      consecutive_anomalous: 0
+    }
+
+    # context omits rolling_acc entirely; only window_tail is present.
+    context = Map.delete(base_context, :rolling_acc)
+
+    checkpoint = %{
+      version: 1,
+      series_key: series_key,
+      updates: [],
+      verdicts: %{},
+      base_context: base_context,
+      context: context
+    }
+
+    Agent.update(checkpoint_agent, &Map.put(&1, series_key, checkpoint))
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.AgentCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
+      reasoner: __MODULE__.CompactStateReasoner,
+      window_size: 3,
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.checkpoint_restored?
+    assert snapshot.context.window_tail == window_tail
+    # The corrupt cross-source acc is NOT borrowed; the NIF recomputes from window_tail.
+    assert snapshot.context.rolling_acc == nil
+
+    # Folding the next sample produces the correct baseline (count 3 over the window
+    # [11.0, 12.0, 13.0]), not one tainted by the corrupt mean/m2.
+    assert {:ok, %{state: "clean"}} = ContextOwner.evaluate(pid, sample("e4", 4, 13.0))
+
+    acc = ContextOwner.snapshot(pid).context.rolling_acc
+    assert acc.count == 3
+    assert_in_delta acc.mean, 12.0, 0.0001
+    assert_in_delta acc.m2, 2.0, 0.0001
+  end
+
+  test "drops a restored acc whose count disagrees with the restored window_tail length" do
+    # Fix(review): even a rolling_acc present in the same checkpoint state must be
+    # dropped when its count does not match the (possibly truncated) window_tail it
+    # pairs with. Here window_size=3 truncates the 4-element window_tail to length 3,
+    # but the persisted acc claims count 4. The owner sets rolling_acc to nil so the
+    # NIF recomputes from the truncated window_tail.
+    series_key = "series-count-mismatch-acc-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    context = %{
+      baseline: [],
+      window_tail: [9.0, 10.0, 11.0, 12.0],
+      rolling_acc: %{count: 4, mean: 10.5, m2: 5.0},
+      min_samples: 2,
+      window_size: 3,
+      n_sigma: 3.0,
+      confirm_slots: 5,
+      consecutive_anomalous: 0
+    }
+
+    checkpoint = %{
+      version: 1,
+      series_key: series_key,
+      updates: [],
+      verdicts: %{},
+      base_context: context,
+      context: context
+    }
+
+    Agent.update(checkpoint_agent, &Map.put(&1, series_key, checkpoint))
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.AgentCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
+      reasoner: __MODULE__.CompactStateReasoner,
+      window_size: 3,
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.checkpoint_restored?
+    # window_tail truncated to window_size (3); acc count 4 no longer matches.
+    assert snapshot.context.window_tail == [10.0, 11.0, 12.0]
+    assert snapshot.context.rolling_acc == nil
+  end
+
+  test "keeps a restored acc that is consistent with the restored window_tail" do
+    # Sanity: a valid, count-matching acc from the same checkpoint state is preserved
+    # so the NIF reuses the O(1) Welford state rather than recomputing every restore.
+    series_key = "series-consistent-acc-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    context = %{
+      baseline: [],
+      window_tail: [10.0, 11.0, 12.0],
+      rolling_acc: %{count: 3, mean: 11.0, m2: 2.0},
+      min_samples: 2,
+      window_size: 3,
+      n_sigma: 3.0,
+      confirm_slots: 5,
+      consecutive_anomalous: 0
+    }
+
+    checkpoint = %{
+      version: 1,
+      series_key: series_key,
+      updates: [],
+      verdicts: %{},
+      base_context: context,
+      context: context
+    }
+
+    Agent.update(checkpoint_agent, &Map.put(&1, series_key, checkpoint))
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.AgentCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
+      reasoner: __MODULE__.CompactStateReasoner,
+      window_size: 3,
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.checkpoint_restored?
+    assert snapshot.context.window_tail == [10.0, 11.0, 12.0]
+    assert snapshot.context.rolling_acc.count == 3
+    assert_in_delta snapshot.context.rolling_acc.mean, 11.0, 0.0001
+    assert_in_delta snapshot.context.rolling_acc.m2, 2.0, 0.0001
+  end
+
+  test "restores rolling_acc as nil when the checkpoint omits the acc for a window_tail" do
+    # Fix(review): a checkpoint may carry a window_tail with no rolling_acc at all
+    # (e.g. written by an older reasoner). The owner must NOT borrow base_context's
+    # acc as a fallback; it sets rolling_acc to nil so the NIF recomputes.
+    series_key = "series-missing-acc-#{System.unique_integer([:positive])}"
+    {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)
+
+    window_tail = [10.0, 11.0, 12.0]
+
+    context = %{
+      baseline: [],
+      window_tail: window_tail,
+      # rolling_acc intentionally omitted.
+      min_samples: 2,
+      window_size: 3,
+      n_sigma: 3.0,
+      confirm_slots: 5,
+      consecutive_anomalous: 0
+    }
+
+    checkpoint = %{
+      version: 1,
+      series_key: series_key,
+      updates: [],
+      verdicts: %{},
+      base_context: context,
+      context: context
+    }
+
+    Agent.update(checkpoint_agent, &Map.put(&1, series_key, checkpoint))
+
+    opts = [
+      series_key: series_key,
+      checkpoint_store: __MODULE__.AgentCheckpoint,
+      checkpoint_opts: [agent: checkpoint_agent],
+      checkpoint_flush_interval_ms: 0,
+      reasoner: __MODULE__.CompactStateReasoner,
+      window_size: 3,
+      min_samples: 2
+    ]
+
+    {:ok, pid} = start_owner(opts)
+    snapshot = ContextOwner.snapshot(pid)
+
+    assert snapshot.checkpoint_restored?
+    assert snapshot.context.window_tail == window_tail
+    assert snapshot.context.rolling_acc == nil
+    assert snapshot.base_context.rolling_acc == nil
+  end
+
   test "checkpoint replay preserves anomalous verdict evidence after JSON restore" do
     series_key = "series-verdict-replay-#{System.unique_integer([:positive])}"
     {:ok, checkpoint_agent} = Agent.start_link(fn -> %{} end)

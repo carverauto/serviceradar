@@ -33,6 +33,7 @@ rust_library(
         ":build_script",
         "//rust/addon-sdk:addon_sdk",
         "//rust/kvutil:kvutil",
+        "//rust/metric-proto:serviceradar_metric_proto",
     ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],

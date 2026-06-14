@@ -22,7 +22,10 @@ rust_library(
     crate_name = "causal_engine",
     crate_root = "src/lib.rs",
     edition = "2024",
-    deps = all_crate_deps(normal = True) + ["//rust/srql:srql_lib"],
+    deps = all_crate_deps(normal = True) + [
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/srql:srql_lib",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
     visibility = ["//visibility:public"],
 )
@@ -34,6 +37,7 @@ rust_binary(
     edition = "2024",
     deps = [
         ":causal_engine_lib",
+        "//rust/metric-proto:serviceradar_metric_proto",
         "//rust/srql:srql_lib",
     ] + all_crate_deps(normal = True),
     proc_macro_deps = all_crate_deps(proc_macro = True),
@@ -43,6 +47,9 @@ rust_binary(
 rust_test(
     name = "causal_engine_test",
     crate = ":causal_engine_lib",
-    deps = all_crate_deps(normal = True, normal_dev = True) + ["//rust/srql:srql_lib"],
+    deps = all_crate_deps(normal = True, normal_dev = True) + [
+        "//rust/metric-proto:serviceradar_metric_proto",
+        "//rust/srql:srql_lib",
+    ],
     proc_macro_deps = all_crate_deps(proc_macro = True),
 )

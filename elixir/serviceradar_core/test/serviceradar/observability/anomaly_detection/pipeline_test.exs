@@ -11,6 +11,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   alias Opentelemetry.Proto.Metrics.V1.ScopeMetrics
   alias Opentelemetry.Proto.Metrics.V1.Sum
   alias Opentelemetry.Proto.Resource.V1.Resource
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric, as: SrMetric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
   alias ServiceRadar.Observability.AnomalyDetection.Config
   alias ServiceRadar.Observability.AnomalyDetection.Pipeline
 
@@ -480,7 +486,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
   defp message(subject, payload) do
     %Message{
-      data: Jason.encode!(payload),
+      data: payload,
       metadata: %{subject: subject, reply_to: "$JS.ACK.test"},
       acknowledger: {Pipeline, :ack_ref, %{ack_fun: fn _ -> :ok end}}
     }
@@ -535,20 +541,47 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
   end
 
   defp sysmon_envelope(family) do
-    %{
-      "schema" => "serviceradar.sysmon.metrics.v1",
-      "source" => "sysmon-metrics",
-      "metric_family" => family,
-      "agent_id" => "agent-1",
-      "gateway_id" => "gateway-1",
-      "partition" => "default",
-      "sample" => %{
-        "timestamp" => "2026-06-12T00:00:00Z",
-        "host_id" => "host-1",
-        "agent_id" => "agent-1",
-        "memory" => %{"used_bytes" => 50, "total_bytes" => 100}
-      }
-    }
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+        partition: "default",
+        service_name: "sysmon",
+        service_type: "sysmon",
+        host_id: "host-1"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "sysmon-metrics",
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "agent-1",
+        producer_kind: "agent"
+      },
+      emitted_at_unix_nano: 1_781_222_400_000_000_000,
+      metrics: [
+        %SrMetric{
+          name: "#{family}.used_percent",
+          metric_type: "sysmon",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "%",
+          tags: entries(%{"host_id" => "host-1"}),
+          metadata: entries(%{"used_bytes" => "50", "total_bytes" => "100"}),
+          points: [
+            %MetricPoint{
+              value: 50.0,
+              raw_value: "50.0",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: 1_781_222_400_000_000_000,
+              series_identity_hint: "#{family}:host-1"
+            }
+          ]
+        }
+      ]
+    })
+  end
+
+  defp entries(map) do
+    Enum.map(map, fn {key, value} -> %StringMapEntry{key: key, value: to_string(value)} end)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)

@@ -9,6 +9,7 @@ defmodule ServiceRadarAgentGateway.AgentGatewayServerTest do
       try do
         Config.get()
       rescue
+        # credo:disable-for-next-line ExSlop.Check.Warning.BlanketRescue
         ArgumentError -> nil
       end
 

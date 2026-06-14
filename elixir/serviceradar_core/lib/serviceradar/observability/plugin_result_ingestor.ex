@@ -4,9 +4,9 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   and registered platform handlers.
 
   Numeric plugin metrics are published by the agent gateway to the shared
-  JetStream metrics stream and persisted by event_writer. The direct metric
-  insert path remains available only behind an explicit legacy compatibility
-  flag.
+  JetStream metrics stream as `serviceradar.metric.v1` protobuf envelopes and
+  persisted by event_writer. Plugin-result JSON payloads are not a metric
+  ingestion path.
   """
 
   alias ServiceRadar.Actors.SystemActor

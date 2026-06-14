@@ -10,7 +10,8 @@ mod window;
 use detector::reason_impl;
 use runtime::{
     ReasonIndexedEventResult, ReasonIndexedSeriesInput, ReasonIndexedValueInput,
-    ReasonIndexedValueTupleInput, ReasonSeriesInput, RuntimeShardState, forget_series_impl,
+    ReasonIndexedValueTupleInput, ReasonSeriesInput, RuntimeSeriesSnapshot, RuntimeShardState,
+    catch_item_panic, export_series_impl, forget_series_impl, import_series_impl,
     new_runtime_shard_state, reason_state_batch_changes_impl, reason_state_batch_events_impl,
     reason_state_batch_impl, reason_state_value_tuples_changes_impl,
     reason_state_values_changes_impl,
@@ -27,7 +28,10 @@ const DEFAULT_N_SIGMA: f64 = 3.0;
 const DEFAULT_CONFIRM_SLOTS: usize = 5;
 const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
-#[rustler::nif(schedule = "DirtyCpu")]
+// reason/2 evaluates a single sample (microseconds of Welford work), so it does
+// not belong on a dirty scheduler; route it to a normal scheduler. Only the
+// genuinely-large batch entrypoints below stay on DirtyCpu. (review finding 2)
+#[rustler::nif]
 fn reason(context: ReasonContext, sample: ReasonSample) -> Result<ReasonVerdict, String> {
     reason_impl(context, sample)
 }
@@ -87,18 +91,41 @@ fn forget_series(state: ResourceArc<RuntimeShardState>, series_key: String) -> b
     forget_series_impl(state, series_key)
 }
 
+#[rustler::nif(schedule = "DirtyCpu")]
+fn export_series(
+    state: ResourceArc<RuntimeShardState>,
+    series_key: String,
+) -> Result<Option<RuntimeSeriesSnapshot>, String> {
+    export_series_impl(state, series_key)
+}
+
+#[rustler::nif(schedule = "DirtyCpu")]
+fn import_series(
+    state: ResourceArc<RuntimeShardState>,
+    snapshot: RuntimeSeriesSnapshot,
+) -> Result<bool, String> {
+    import_series_impl(state, snapshot)
+}
+
 pub(crate) fn reason_batch_impl(inputs: Vec<ReasonBatchInput>) -> Vec<ReasonBatchResult> {
     inputs
         .into_iter()
-        .map(|input| match reason_impl(input.context, input.sample) {
-            Ok(verdict) => ReasonBatchResult {
-                ok: Some(verdict),
-                error: None,
-            },
-            Err(error) => ReasonBatchResult {
-                ok: None,
-                error: Some(error),
-            },
+        .map(|input| {
+            // rustler wraps the whole NIF body in catch_unwind, so a panic in one
+            // item would otherwise raise the entire reason_batch call and discard
+            // every other result. Isolate each item so a panicking one becomes an
+            // error result and the rest of the batch still returns. (review finding 1)
+            let outcome = catch_item_panic(|| reason_impl(input.context, input.sample));
+            match outcome {
+                Ok(verdict) => ReasonBatchResult {
+                    ok: Some(verdict),
+                    error: None,
+                },
+                Err(error) => ReasonBatchResult {
+                    ok: None,
+                    error: Some(error),
+                },
+            }
         })
         .collect()
 }

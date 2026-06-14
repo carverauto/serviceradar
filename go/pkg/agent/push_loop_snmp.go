@@ -18,7 +18,6 @@ package agent
 
 import (
 	"context"
-	"encoding/json"
 	"strconv"
 	"strings"
 	"time"
@@ -28,22 +27,22 @@ import (
 )
 
 type snmpMetricResult struct {
-	Target       string      `json:"target"`
-	Host         string      `json:"host"`
-	Metric       string      `json:"metric"`
-	OID          string      `json:"oid"`
-	Value        interface{} `json:"value"`
-	RawValue     interface{} `json:"raw_value,omitempty"`
-	Timestamp    time.Time   `json:"timestamp"`
-	DataType     string      `json:"data_type,omitempty"`
-	Scale        float64     `json:"scale,omitempty"`
-	Delta        bool        `json:"delta,omitempty"`
-	Kind         string      `json:"kind,omitempty"`
-	Temporality  string      `json:"temporality,omitempty"`
-	IsMonotonic  bool        `json:"is_monotonic,omitempty"`
-	CounterWidth int         `json:"counter_width,omitempty"`
-	IfIndex      *int        `json:"if_index,omitempty"`
-	InterfaceUID string      `json:"interface_uid,omitempty"`
+	Target       string
+	Host         string
+	Metric       string
+	OID          string
+	Value        interface{}
+	RawValue     interface{}
+	Timestamp    time.Time
+	DataType     string
+	Scale        float64
+	Delta        bool
+	Kind         string
+	Temporality  string
+	IsMonotonic  bool
+	CounterWidth int
+	IfIndex      *int
+	InterfaceUID string
 }
 
 func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
@@ -84,13 +83,14 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		return false
 	}
 
-	payload := map[string]interface{}{
-		"results": results,
-	}
-
-	messageBytes, err := json.Marshal(payload)
+	messageBytes, err := marshalSNMPMetricEnvelope(results, metricEnvelopeContext{
+		AgentID:   agentID,
+		GatewayID: gatewayID,
+		Partition: partition,
+		KvStoreID: kvStoreID,
+	})
 	if err != nil {
-		p.logger.Warn().Err(err).Msg("Failed to marshal SNMP metrics payload")
+		p.logger.Warn().Err(err).Msg("Failed to marshal SNMP metric envelope")
 		return false
 	}
 

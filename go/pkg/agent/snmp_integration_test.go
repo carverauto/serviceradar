@@ -334,13 +334,26 @@ func TestSNMPAgentIntegration_GetStatusWithTargets(t *testing.T) {
 	assert.NotEmpty(t, status.Message)
 
 	var payload struct {
-		Available    bool                          `json:"available"`
-		ResponseTime int64                         `json:"response_time"`
-		Targets      map[string]snmp.TargetStatus  `json:"targets"`
+		Available      bool  `json:"available"`
+		ResponseTime   int64 `json:"response_time"`
+		TargetCount    int   `json:"target_count"`
+		AvailableCount int   `json:"available_count"`
+		Targets        map[string]struct {
+			Available  bool      `json:"available"`
+			LastPoll   time.Time `json:"last_poll"`
+			ErrorCount int       `json:"error_count"`
+			HostIP     string    `json:"host_ip"`
+			HostName   string    `json:"host_name"`
+			OIDCount   int       `json:"oid_count"`
+		} `json:"targets"`
 	}
 	err = json.Unmarshal(status.Message, &payload)
 	require.NoError(t, err)
 	assert.True(t, payload.Available)
+	assert.Equal(t, 1, payload.TargetCount)
+	assert.Equal(t, 1, payload.AvailableCount)
+	assert.NotContains(t, string(status.Message), `"oid_status"`)
+	assert.NotContains(t, string(status.Message), `"last_value"`)
 }
 
 // TestSNMPAgentIntegration_SNMPv3Config tests applying SNMPv3 configuration.

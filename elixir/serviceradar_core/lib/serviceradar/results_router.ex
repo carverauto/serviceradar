@@ -11,7 +11,6 @@ defmodule ServiceRadar.ResultsRouter do
   alias ServiceRadar.Inventory.EndpointInventoryIngestorQueue
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NetworkDiscovery.MapperResultsIngestor
-  alias ServiceRadar.Observability.IcmpMetricsIngestor
   alias ServiceRadar.Observability.MtrMetricsIngestor
   alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.ServiceStateRegistry
@@ -91,11 +90,6 @@ defmodule ServiceRadar.ResultsRouter do
   end
 
   defp process(%{source: source, service_type: service_type} = status, _opts)
-       when source in ["results", :results] and service_type in ["icmp", "ping"] do
-    handle_icmp_results(status)
-  end
-
-  defp process(%{source: source, service_type: service_type} = status, _opts)
        when source in ["results", :results] and service_type in ["mapper", "mapper_discovery"] do
     handle_mapper_results(status)
   end
@@ -124,6 +118,35 @@ defmodule ServiceRadar.ResultsRouter do
   defp process(%{source: source, service_type: "endpoint_inventory"} = status, opts)
        when source in ["results", :results] do
     handle_endpoint_inventory_results(status, opts)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in ["sysmon-metrics", :sysmon_metrics] do
+    handle_sysmon_metrics(status)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in ["snmp-metrics", :snmp_metrics] do
+    handle_snmp_metrics(status)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in ["icmp-metrics", :icmp_metrics] do
+    handle_icmp_results(status)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in ["rperf-metrics", :rperf_metrics] do
+    handle_rperf_metrics(status)
+  end
+
+  defp process(%{source: source} = status, _opts) when source in ["mtr-metrics", :mtr_metrics] do
+    handle_mtr_metrics(status)
+  end
+
+  defp process(%{source: source} = status, _opts)
+       when source in ["sweep-metrics", :sweep_metrics] do
+    handle_sweep_metrics(status)
   end
 
   defp process(%{source: source} = status, _opts)
@@ -226,18 +249,64 @@ defmodule ServiceRadar.ResultsRouter do
     end
   end
 
+  defp handle_sysmon_metrics(status) do
+    reject_gateway_metric_status(status)
+  end
+
+  defp handle_snmp_metrics(status) do
+    reject_gateway_metric_status(status)
+  end
+
+  defp handle_sweep_metrics(status) do
+    reject_gateway_metric_status(status)
+  end
+
   defp handle_plugin_results(status) do
     case decode_payload(status[:message]) do
-      {:ok, payload} -> plugin_ingestor().ingest(payload, status)
-      {:error, reason} -> {:error, reason}
+      {:ok, payload} ->
+        with :ok <- reject_legacy_plugin_metrics(payload) do
+          plugin_ingestor().ingest(payload, status)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
-  defp handle_icmp_results(status) do
-    case decode_payload(status[:message]) do
-      {:ok, payload} -> icmp_ingestor().ingest(payload, status)
-      {:error, reason} -> {:error, reason}
+  defp reject_legacy_plugin_metrics(payload) when is_map(payload) do
+    if Map.has_key?(payload, "metrics") or Map.has_key?(payload, :metrics) do
+      {:error, :plugin_result_metrics_unsupported}
+    else
+      :ok
     end
+  end
+
+  defp reject_legacy_plugin_metrics(payload) when is_list(payload) do
+    if Enum.any?(payload, &legacy_plugin_metrics?/1) do
+      {:error, :plugin_result_metrics_unsupported}
+    else
+      :ok
+    end
+  end
+
+  defp reject_legacy_plugin_metrics(_payload), do: :ok
+
+  defp legacy_plugin_metrics?(payload) when is_map(payload) do
+    Map.has_key?(payload, "metrics") or Map.has_key?(payload, :metrics)
+  end
+
+  defp legacy_plugin_metrics?(_payload), do: false
+
+  defp handle_icmp_results(status) do
+    reject_gateway_metric_status(status)
+  end
+
+  defp handle_rperf_metrics(status) do
+    reject_gateway_metric_status(status)
+  end
+
+  defp handle_mtr_metrics(status) do
+    reject_gateway_metric_status(status)
   end
 
   defp handle_mtr_results(status) do
@@ -590,12 +659,12 @@ defmodule ServiceRadar.ResultsRouter do
 
   defp parse_integer(_value), do: nil
 
-  defp sweep_ingestor do
-    Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)
+  defp reject_gateway_metric_status(status) do
+    {:error, {:gateway_metric_status_not_core_routable, status[:source]}}
   end
 
-  defp icmp_ingestor do
-    Application.get_env(:serviceradar_core, :icmp_metrics_ingestor, IcmpMetricsIngestor)
+  defp sweep_ingestor do
+    Application.get_env(:serviceradar_core, :sweep_ingestor, SweepResultsIngestor)
   end
 
   defp plugin_ingestor do

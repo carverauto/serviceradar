@@ -5,12 +5,34 @@ alias ServiceRadar.NATS.Connection
 # Logger configuration
 config :logger, :console,
   format: "$time $metadata[$level] $message\n",
-  metadata: [:request_id, :gateway_id, :partition_id]
+  metadata: [
+    :request_id,
+    :gateway_id,
+    :partition_id,
+    :agent_id,
+    :partition,
+    :subject,
+    :reason,
+    :service_name,
+    :message_size,
+    :payload_kind,
+    :event_id
+  ]
+
+config :serviceradar_agent_gateway, :icmp_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.icmp",
+  connection: Connection
 
 config :serviceradar_agent_gateway, :metrics,
   enabled: true,
   ip: {0, 0, 0, 0},
   port: 9090
+
+config :serviceradar_agent_gateway, :mtr_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.mtr",
+  connection: Connection
 
 config :serviceradar_agent_gateway, :otlp_relay_publisher,
   enabled: false,
@@ -25,9 +47,19 @@ config :serviceradar_agent_gateway, :plugin_metrics_publisher,
   subject_prefix: "metrics.timeseries",
   connection: Connection
 
+config :serviceradar_agent_gateway, :rperf_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.rperf",
+  connection: Connection
+
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: false,
   subject_prefix: "metrics.snmp",
+  connection: Connection
+
+config :serviceradar_agent_gateway, :sweep_metrics_publisher,
+  enabled: false,
+  subject_prefix: "metrics.sweep",
   connection: Connection
 
 config :serviceradar_agent_gateway, :sysmon_metrics_publisher,

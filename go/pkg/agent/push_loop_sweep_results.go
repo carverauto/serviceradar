@@ -79,9 +79,22 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 			serviceType = sweepType
 		}
 
-		statusChunks := p.buildResultsStatusChunks(chunks, serviceName, serviceType)
+		statusChunks := p.buildResultsStatusChunks(sweepResultProtoChunks(chunks), serviceName, serviceType)
 		if len(statusChunks) == 0 {
 			return sentAny
+		}
+		for idx, chunk := range chunks {
+			metricStatus, err := p.sweepMetricStatusFromMap(chunk.MetricPayload)
+			if err != nil {
+				p.logger.Error().
+					Err(err).
+					Int("chunk_index", idx).
+					Str("service_name", serviceName).
+					Msg("Failed to marshal sweep result metric envelope")
+
+				return sentAny
+			}
+			statusChunks[idx].Services = append(statusChunks[idx].Services, metricStatus)
 		}
 
 		pushCtx, cancel := context.WithTimeout(ctx, sweepResultsStreamTimeout(len(statusChunks)))
@@ -117,7 +130,55 @@ func (p *PushLoop) pushSweepResults(ctx context.Context) bool {
 	return sentAny
 }
 
-func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsChunk, error) {
+func (p *PushLoop) sweepMetricStatusFromMap(payload map[string]any) (*proto.GatewayServiceStatus, error) {
+	p.server.mu.RLock()
+	agentID := p.server.config.AgentID
+	partition := p.server.config.Partition
+	kvStoreID := p.server.config.KVAddress
+	p.server.mu.RUnlock()
+	gatewayID := p.gateway.GetGatewayID()
+
+	message, err := marshalSweepMetricEnvelopeFromMap(payload, metricEnvelopeContext{
+		AgentID:   agentID,
+		GatewayID: gatewayID,
+		Partition: partition,
+		KvStoreID: kvStoreID,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return &proto.GatewayServiceStatus{
+		ServiceName:  networkSweepServiceName,
+		ServiceType:  sweepType,
+		Available:    true,
+		Message:      message,
+		ResponseTime: 0,
+		AgentId:      agentID,
+		GatewayId:    gatewayID,
+		Partition:    partition,
+		Source:       "sweep-metrics",
+		KvStoreId:    kvStoreID,
+	}, nil
+}
+
+type sweepResultsChunk struct {
+	*proto.ResultsChunk
+	MetricPayload map[string]any
+}
+
+func sweepResultProtoChunks(chunks []*sweepResultsChunk) []*proto.ResultsChunk {
+	result := make([]*proto.ResultsChunk, 0, len(chunks))
+	for _, chunk := range chunks {
+		if chunk == nil {
+			continue
+		}
+		result = append(result, chunk.ResultsChunk)
+	}
+	return result
+}
+
+func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*sweepResultsChunk, error) {
 	if response == nil {
 		return nil, nil
 	}
@@ -128,20 +189,23 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 
 	maxChunkSize, maxHostsPerChunk := sweepResultsChunkLimits()
 
-	if len(response.Data) <= maxChunkSize {
-		return []*proto.ResultsChunk{{
-			Data:            response.Data,
-			IsFinal:         true,
-			ChunkIndex:      0,
-			TotalChunks:     1,
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
-		}}, nil
-	}
-
-	var sweepData map[string]interface{}
+	var sweepData map[string]any
 	if err := json.Unmarshal(response.Data, &sweepData); err != nil {
 		return nil, fmt.Errorf("parse sweep data: %w", err)
+	}
+
+	if len(response.Data) <= maxChunkSize {
+		return []*sweepResultsChunk{{
+			ResultsChunk: &proto.ResultsChunk{
+				Data:            response.Data,
+				IsFinal:         true,
+				ChunkIndex:      0,
+				TotalChunks:     1,
+				CurrentSequence: response.CurrentSequence,
+				Timestamp:       response.Timestamp,
+			},
+			MetricPayload: sweepData,
+		}}, nil
 	}
 
 	hostsInterface, ok := sweepData["hosts"]
@@ -218,7 +282,7 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 	}
 
 	totalChunks := len(ranges)
-	chunks := make([]*proto.ResultsChunk, 0, totalChunks)
+	chunks := make([]*sweepResultsChunk, 0, totalChunks)
 
 	for chunkIndex, chunkRange := range ranges {
 		chunkHosts := hosts[chunkRange.start:chunkRange.end]
@@ -234,13 +298,16 @@ func buildSweepResultsChunks(response *proto.ResultsResponse) ([]*proto.ResultsC
 			return nil, fmt.Errorf("marshal sweep chunk %d: %w", chunkIndex, err)
 		}
 
-		chunks = append(chunks, &proto.ResultsChunk{
-			Data:            chunkBytes,
-			IsFinal:         chunkIndex == totalChunks-1,
-			ChunkIndex:      int32(chunkIndex),
-			TotalChunks:     int32(totalChunks),
-			CurrentSequence: response.CurrentSequence,
-			Timestamp:       response.Timestamp,
+		chunks = append(chunks, &sweepResultsChunk{
+			ResultsChunk: &proto.ResultsChunk{
+				Data:            chunkBytes,
+				IsFinal:         chunkIndex == totalChunks-1,
+				ChunkIndex:      int32(chunkIndex),
+				TotalChunks:     int32(totalChunks),
+				CurrentSequence: response.CurrentSequence,
+				Timestamp:       response.Timestamp,
+			},
+			MetricPayload: chunkData,
 		})
 	}
 

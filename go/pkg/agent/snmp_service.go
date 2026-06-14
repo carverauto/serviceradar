@@ -69,6 +69,24 @@ var ErrSNMPServiceNotInitialized = fmt.Errorf("SNMP service not initialized")
 // ErrNilProtoConfig is returned when a nil proto config is passed to ApplyProtoConfig.
 var ErrNilProtoConfig = fmt.Errorf("nil proto config")
 
+type snmpStatusSummary struct {
+	Available      bool                         `json:"available"`
+	ResponseTime   int64                        `json:"response_time"`
+	TargetCount    int                          `json:"target_count"`
+	AvailableCount int                          `json:"available_count"`
+	Targets        map[string]snmpTargetSummary `json:"targets,omitempty"`
+}
+
+type snmpTargetSummary struct {
+	Available  bool      `json:"available"`
+	LastPoll   time.Time `json:"last_poll,omitempty"`
+	ErrorCount int       `json:"error_count,omitempty"`
+	Error      string    `json:"error,omitempty"`
+	HostIP     string    `json:"host_ip,omitempty"`
+	HostName   string    `json:"host_name,omitempty"`
+	OIDCount   int       `json:"oid_count,omitempty"`
+}
+
 // SNMPAgentService wraps the SNMP service as an agent Service.
 type SNMPAgentService struct {
 	mu        sync.RWMutex
@@ -308,15 +326,18 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 		}
 	}
 
-	// Build the response payload
-	payload := struct {
-		Available    bool                         `json:"available"`
-		ResponseTime int64                        `json:"response_time"`
-		Targets      map[string]snmp.TargetStatus `json:"targets"`
-	}{
+	// Status JSON is deliberately lightweight. Full SNMP values are shipped only
+	// through the protobuf metrics envelope drained by the push loop.
+	payload := snmpStatusSummary{
 		Available:    available,
 		ResponseTime: time.Since(start).Nanoseconds(),
-		Targets:      statusMap,
+		Targets:      summarizeSNMPTargets(statusMap),
+	}
+	payload.TargetCount = len(payload.Targets)
+	for _, target := range payload.Targets {
+		if target.Available {
+			payload.AvailableCount++
+		}
 	}
 
 	messageBytes, err := json.Marshal(payload)
@@ -338,6 +359,32 @@ func (s *SNMPAgentService) GetStatus(ctx context.Context) (*proto.StatusResponse
 		ServiceType:  SNMPServiceType,
 		ResponseTime: time.Since(start).Nanoseconds(),
 	}, nil
+}
+
+func summarizeSNMPTargets(statusMap map[string]snmp.TargetStatus) map[string]snmpTargetSummary {
+	if len(statusMap) == 0 {
+		return nil
+	}
+
+	summaries := make(map[string]snmpTargetSummary, len(statusMap))
+	for targetName, targetStatus := range statusMap {
+		summary := snmpTargetSummary{
+			Available: targetStatus.Available,
+			LastPoll:  targetStatus.LastPoll,
+			Error:     targetStatus.Error,
+			HostIP:    targetStatus.HostIP,
+			HostName:  targetStatus.HostName,
+			OIDCount:  len(targetStatus.OIDStatus),
+		}
+
+		for _, oidStatus := range targetStatus.OIDStatus {
+			summary.ErrorCount += oidStatus.ErrorCount
+		}
+
+		summaries[targetName] = summary
+	}
+
+	return summaries
 }
 
 // GetTargetStatuses returns the raw SNMP target status map, including target config.

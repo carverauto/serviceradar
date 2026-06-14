@@ -40,6 +40,13 @@ type SweepStatusProvider interface {
 	GetStatus(context.Context) (*proto.StatusResponse, error)
 }
 
+// SweepStatusMetricPayloadProvider lets metric-producing status services return
+// a typed metric payload beside the normal JSON status payload. This avoids
+// reparsing status JSON just to build the canonical MetricBatch.
+type SweepStatusMetricPayloadProvider interface {
+	GetStatusWithMetricPayload(context.Context) (*proto.StatusResponse, map[string]any, error)
+}
+
 // StatusRoutingProvider lets status-producing services override the default
 // sweep/status routing metadata used by the push loop.
 type StatusRoutingProvider interface {

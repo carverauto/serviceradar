@@ -17,6 +17,12 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
   alias Opentelemetry.Proto.Metrics.V1.Sum
   alias Opentelemetry.Proto.Resource.V1.Resource
   alias ServiceRadar.EventWriter.Processors.OtelMetrics
+  alias Serviceradar.Metric.V1.IngestIdentity, as: SRIngestIdentity
+  alias Serviceradar.Metric.V1.Metric, as: SRMetric
+  alias Serviceradar.Metric.V1.MetricBatch, as: SRMetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint, as: SRMetricPoint
+  alias Serviceradar.Metric.V1.MetricResource, as: SRMetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry, as: SRStringMapEntry
 
   describe "table_name/0" do
     test "returns correct table name" do
@@ -25,24 +31,27 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
   end
 
   describe "parse_message/1" do
-    test "parses valid JSON metric message" do
-      json_data =
-        Jason.encode!(%{
-          "timestamp" => "2024-01-15T10:30:00Z",
-          "trace_id" => "0123456789abcdef0123456789abcdef",
-          "span_id" => "0123456789abcdef",
-          "service_name" => "test-service",
-          "span_name" => "test-operation",
-          "span_kind" => "SERVER",
-          "duration_ms" => 150.5,
-          "http_method" => "GET",
-          "http_route" => "/api/test",
-          "http_status_code" => 200,
-          "is_slow" => false
-        })
+    test "parses valid derived MetricBatch message" do
+      message = %{
+        data:
+          derived_metric_payload(
+            trace_id: "0123456789abcdef0123456789abcdef",
+            span_id: "0123456789abcdef",
+            service_name: "test-service",
+            span_name: "test-operation",
+            span_kind: "SERVER",
+            duration_ms: 150.5,
+            duration_seconds: "0.1505",
+            metric_type: "http",
+            http_method: "GET",
+            http_route: "/api/test",
+            http_status_code: "200",
+            is_slow: "false"
+          ),
+        metadata: %{subject: "otel.metrics.derived"}
+      }
 
-      message = %{data: json_data, metadata: %{subject: "otel.metrics.test"}}
-      result = OtelMetrics.parse_message(message)
+      [result] = OtelMetrics.parse_message(message)
 
       assert result.trace_id == "0123456789abcdef0123456789abcdef"
       assert result.span_id == "0123456789abcdef"
@@ -50,6 +59,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert result.span_name == "test-operation"
       assert result.span_kind == "SERVER"
       assert result.duration_ms == 150.5
+      assert result.duration_seconds == 0.1505
+      assert result.metric_type == "http"
       assert result.http_method == "GET"
       assert result.http_route == "/api/test"
       assert result.http_status_code == "200"
@@ -58,20 +69,22 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert %DateTime{} = result.created_at
     end
 
-    test "parses camelCase fields" do
-      json_data =
-        Jason.encode!(%{
-          "traceId" => "ABCDEF0123456789ABCDEF0123456789",
-          "spanId" => "ABCDEF0123456789",
-          "serviceName" => "camel-service",
-          "spanName" => "camel-operation",
-          "durationMs" => 200.0,
-          "httpMethod" => "POST",
-          "httpStatusCode" => 201
-        })
+    test "normalizes uppercase ids from derived MetricBatch metadata" do
+      message = %{
+        data:
+          derived_metric_payload(
+            trace_id: "ABCDEF0123456789ABCDEF0123456789",
+            span_id: "ABCDEF0123456789",
+            service_name: "camel-service",
+            span_name: "camel-operation",
+            duration_ms: 200.0,
+            http_method: "POST",
+            http_status_code: "201"
+          ),
+        metadata: %{subject: "otel.metrics.derived"}
+      }
 
-      message = %{data: json_data, metadata: %{}}
-      result = OtelMetrics.parse_message(message)
+      [result] = OtelMetrics.parse_message(message)
 
       # Uppercase hex ids are downcased to the canonical form
       assert result.trace_id == "abcdef0123456789abcdef0123456789"
@@ -84,9 +97,8 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     end
 
     test "handles missing fields with defaults" do
-      json_data = Jason.encode!(%{})
-      message = %{data: json_data, metadata: %{}}
-      result = OtelMetrics.parse_message(message)
+      message = %{data: derived_metric_payload([]), metadata: %{subject: "otel.metrics.derived"}}
+      [result] = OtelMetrics.parse_message(message)
 
       assert result.service_name == "unknown"
       assert result.span_name == "unknown"
@@ -95,59 +107,106 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
       assert %DateTime{} = result.timestamp
     end
 
-    test "parses duration_seconds and converts to duration_ms" do
-      json_data =
-        Jason.encode!(%{
-          "duration_seconds" => 1.5,
-          "service_name" => "test"
-        })
+    test "rejects legacy JSON derived metric message" do
+      json_data = Jason.encode!(%{"duration_ms" => 1500.0, "service_name" => "test"})
+      message = %{data: json_data, metadata: %{subject: "otel.metrics.derived"}}
 
-      message = %{data: json_data, metadata: %{}}
-      result = OtelMetrics.parse_message(message)
-
-      assert result.duration_ms == 1500.0
-      assert result.duration_seconds == 1.5
+      assert OtelMetrics.parse_message(message) == nil
     end
 
-    test "handles integer timestamps" do
-      # Unix timestamp in milliseconds
-      timestamp_ms = 1_705_315_800_000
-
-      json_data =
-        Jason.encode!(%{
-          "timestamp" => timestamp_ms,
-          "service_name" => "test"
-        })
-
-      message = %{data: json_data, metadata: %{}}
-      result = OtelMetrics.parse_message(message)
-
-      assert %DateTime{} = result.timestamp
-    end
-
-    test "returns nil for invalid JSON" do
-      message = %{data: "not valid json", metadata: %{}}
+    test "returns nil for invalid protobuf" do
+      message = %{data: "not valid protobuf", metadata: %{subject: "otel.metrics.derived"}}
       result = OtelMetrics.parse_message(message)
 
       assert result == nil
     end
 
     test "handles gRPC fields" do
-      json_data =
-        Jason.encode!(%{
-          "service_name" => "grpc-service",
-          "grpc_service" => "MyService",
-          "grpc_method" => "GetData",
-          "grpc_status_code" => 0
-        })
+      message = %{
+        data:
+          derived_metric_payload(
+            service_name: "grpc-service",
+            grpc_service: "MyService",
+            grpc_method: "GetData",
+            grpc_status_code: "0"
+          ),
+        metadata: %{subject: "otel.metrics.derived"}
+      }
 
-      message = %{data: json_data, metadata: %{}}
-      result = OtelMetrics.parse_message(message)
+      [result] = OtelMetrics.parse_message(message)
 
       assert result.grpc_service == "MyService"
       assert result.grpc_method == "GetData"
       assert result.grpc_status_code == "0"
     end
+  end
+
+  defp derived_metric_payload(opts) do
+    attrs =
+      opts
+      |> Keyword.take([
+        :service_name,
+        :span_name,
+        :span_kind,
+        :http_method,
+        :http_route,
+        :http_status_code,
+        :grpc_service,
+        :grpc_method,
+        :grpc_status_code
+      ])
+      |> sr_entries()
+
+    metadata =
+      opts
+      |> Keyword.take([
+        :trace_id,
+        :span_id,
+        :duration_seconds,
+        :metric_type,
+        :is_slow,
+        :component,
+        :level
+      ])
+      |> sr_entries()
+
+    SRMetricBatch.encode(%SRMetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %SRMetricResource{service_name: "otel-derived", service_type: "otel"},
+      ingest_identity: %SRIngestIdentity{
+        source: "otel-metrics-derived",
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "otel-collector",
+        producer_kind: "otel-collector"
+      },
+      metrics: [
+        %SRMetric{
+          name: "otel.span.duration_ms",
+          metric_type: "otel_span_derived",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "ms",
+          points: [
+            %SRMetricPoint{
+              value: Keyword.get(opts, :duration_ms, 0.0),
+              raw_value: to_string(Keyword.get(opts, :duration_ms, 0.0)),
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano:
+                Keyword.get(opts, :observed_at_unix_nano, 1_705_315_800_000_000_000),
+              attributes: attrs,
+              metadata: metadata
+            }
+          ]
+        }
+      ]
+    })
+  end
+
+  defp sr_entries(entries) do
+    entries
+    |> Enum.reject(fn {_key, value} -> value in [nil, ""] end)
+    |> Enum.map(fn {key, value} ->
+      %SRStringMapEntry{key: Atom.to_string(key), value: to_string(value)}
+    end)
   end
 
   describe "parse_message/1 with protobuf metric points" do
@@ -495,18 +554,10 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     ]
 
     test "maps Sr-* headers onto span-sample rows" do
-      data =
-        Jason.encode!(%{
-          "timestamp" => "2024-01-15T10:30:00Z",
-          "service_name" => "svc",
-          "span_name" => "op",
-          "duration_ms" => 12.5
-        })
-
-      row =
+      [row] =
         OtelMetrics.parse_message(%{
-          data: data,
-          metadata: %{subject: "otel.metrics", headers: @sr_headers}
+          data: derived_metric_payload(service_name: "svc", span_name: "op", duration_ms: 12.5),
+          metadata: %{subject: "otel.metrics.derived", headers: @sr_headers}
         })
 
       assert row.ingest_identity == "spiffe://serviceradar/gateway/gw-1"
@@ -535,14 +586,11 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetricsTest do
     end
 
     test "absent headers default the ingest columns to empty strings" do
-      data =
-        Jason.encode!(%{
-          "timestamp" => "2024-01-15T10:30:00Z",
-          "service_name" => "svc",
-          "span_name" => "op"
+      [row] =
+        OtelMetrics.parse_message(%{
+          data: derived_metric_payload(service_name: "svc", span_name: "op"),
+          metadata: %{subject: "otel.metrics.derived"}
         })
-
-      row = OtelMetrics.parse_message(%{data: data, metadata: %{subject: "otel.metrics"}})
 
       assert row.ingest_identity == ""
       assert row.ingest_agent_id == ""

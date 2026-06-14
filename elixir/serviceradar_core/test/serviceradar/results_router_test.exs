@@ -412,57 +412,65 @@ defmodule ServiceRadar.ResultsRouterTest do
     refute_receive {:sweep_ingest, _results, ^execution_id, _opts}
   end
 
-  # sysmon-metrics flow exclusively through JetStream (metrics.timeseries.>);
-  # the router has no dedicated clause, so they hit the generic :ok fallthrough
-  # and must never be ingested directly into CNPG.
-  test "ignores sysmon metrics without direct CNPG ingestion" do
-    payload = %{
-      "available" => true,
-      "response_time" => 123,
-      "status" => %{
-        "timestamp" => "2025-04-24T14:15:22Z",
-        "host_id" => "host-1",
-        "host_ip" => "192.168.1.100",
-        "cpus" => [],
-        "disks" => [],
-        "memory" => %{"used_bytes" => 1, "total_bytes" => 2},
-        "processes" => []
-      }
-    }
-
+  test "rejects direct core routing for sysmon metric statuses" do
     status = %{
       source: "sysmon-metrics",
       service_type: "sysmon",
-      message: Jason.encode!(payload),
+      message: metric_batch_fixture(),
       agent_id: "agent-1",
       gateway_id: "gateway-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "sysmon-metrics"}}, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
 
     refute_receive {:sysmon_ingest, _decoded, ^status}
   end
 
-  # snmp-metrics likewise flow through JetStream and hit the generic :ok
-  # fallthrough; the router must never ingest them directly into CNPG.
-  test "ignores SNMP metrics without direct CNPG ingestion" do
+  test "rejects direct core routing for SNMP metric statuses" do
     status = %{
       source: "snmp-metrics",
       service_type: "snmp",
-      message: Jason.encode!(%{"results" => [%{"metric" => "ifHCInOctets", "value" => 1}]}),
+      message: metric_batch_fixture(),
       agent_id: "agent-1",
       gateway_id: "gateway-1"
     }
 
-    assert {:noreply, %{}} = ResultsRouter.handle_cast({:results_update, status}, %{})
+    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "snmp-metrics"}}, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+  end
+
+  test "rejects direct core routing for ICMP metric statuses" do
+    status = %{
+      source: "icmp-metrics",
+      service_type: "icmp",
+      message: metric_batch_fixture(),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "icmp-metrics"}}, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+  end
+
+  test "rejects direct core routing for rperf metric statuses" do
+    status = %{
+      source: "rperf-metrics",
+      service_type: "rperf",
+      message: metric_batch_fixture(),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:reply, {:error, {:gateway_metric_status_not_core_routable, "rperf-metrics"}}, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
   end
 
   test "routes plugin results payloads" do
     payload = %{
       "status" => "OK",
       "summary" => "plugin ok",
-      "perfdata" => "latency=3ms",
-      "metrics" => [%{"name" => "latency_ms", "value" => 3, "unit" => "ms"}]
+      "perfdata" => "latency=3ms"
     }
 
     status = %{
@@ -477,6 +485,28 @@ defmodule ServiceRadar.ResultsRouterTest do
 
     assert_receive {:plugin_ingest, decoded, ^status}
     assert %{"summary" => "plugin ok"} = decoded
+    refute Map.has_key?(decoded, "metrics")
+  end
+
+  test "rejects legacy plugin result metrics instead of sanitizing them" do
+    payload = %{
+      "status" => "OK",
+      "summary" => "plugin ok",
+      "metrics" => [%{"name" => "latency_ms", "value" => 3, "unit" => "ms"}]
+    }
+
+    status = %{
+      source: "plugin-result",
+      service_type: "plugin",
+      message: Jason.encode!(payload),
+      agent_id: "agent-1",
+      gateway_id: "gateway-1"
+    }
+
+    assert {:reply, {:error, :plugin_result_metrics_unsupported}, %{}} =
+             ResultsRouter.handle_call({:results_update, status}, self(), %{})
+
+    refute_receive {:plugin_ingest, _payload, _status}
   end
 
   test "routes asynchronous endpoint inventory payloads through bounded queue" do
@@ -524,6 +554,8 @@ defmodule ServiceRadar.ResultsRouterTest do
     assert_receive {:endpoint_inventory_ingest, ^expected_payload, opts}, 500
     assert Keyword.keyword?(opts)
   end
+
+  defp metric_batch_fixture, do: <<10, 22, "serviceradar.metric.v1">>
 
   defp restore_env(key, nil), do: Application.delete_env(:serviceradar_core, key)
   defp restore_env(key, value), do: Application.put_env(:serviceradar_core, key, value)

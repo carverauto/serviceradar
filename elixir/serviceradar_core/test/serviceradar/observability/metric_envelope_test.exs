@@ -1,0 +1,180 @@
+defmodule ServiceRadar.Observability.MetricEnvelopeTest do
+  use ExUnit.Case, async: true
+
+  alias Serviceradar.Metric.V1.IngestIdentity
+  alias Serviceradar.Metric.V1.Metric
+  alias Serviceradar.Metric.V1.MetricBatch
+  alias Serviceradar.Metric.V1.MetricPoint
+  alias Serviceradar.Metric.V1.MetricResource
+  alias Serviceradar.Metric.V1.StringMapEntry
+  alias ServiceRadar.Observability.MetricEnvelope
+  alias ServiceRadar.Observability.TimeseriesSeriesKey
+
+  @point_time 1_781_222_400_000_000_000
+
+  describe "target_device_ip resolution (finding 1)" do
+    test "SNMP envelope resolves target_device_ip to the IP-bearing host tag, not the target name" do
+      # Producer convention: tags["host"] = polled IP, tags["target"] = logical
+      # name. The IP must win so downstream identity/series keys use the IP.
+      [row] =
+        decode_one(snmp_metric(tags: %{"target" => "router-a", "host" => "10.0.0.20"}))
+
+      assert row.target_device_ip == "10.0.0.20"
+    end
+
+    test "falls back to the logical target name only when no IP-bearing key is present" do
+      [row] = decode_one(snmp_metric(tags: %{"target" => "router-a"}))
+
+      assert row.target_device_ip == "router-a"
+    end
+  end
+
+  describe "series_key trust boundary (finding 2a)" do
+    test "derives series_key from attested fields even when a different hint is present" do
+      [row] =
+        decode_one(
+          gauge_metric("memory.used_percent", "sysmon.memory", 50.0,
+            tags: %{"host_id" => "host-1"},
+            series_identity_hint: "spoofed-key"
+          )
+        )
+
+      # The canonical key is the attested-field derivation, NOT the hint.
+      assert row.series_key == TimeseriesSeriesKey.build(Map.delete(row, :series_key))
+      refute row.series_key == "spoofed-key"
+    end
+
+    test "keeps the hint only as debug metadata, never as the canonical key" do
+      [row] =
+        decode_one(
+          gauge_metric("memory.used_percent", "sysmon.memory", 50.0,
+            tags: %{"host_id" => "host-1"},
+            series_identity_hint: "sysmon:memory:host-1"
+          )
+        )
+
+      assert row.metadata["series_identity_hint"] == "sysmon:memory:host-1"
+      assert row.series_key != "sysmon:memory:host-1"
+    end
+
+    test "omits the hint metadata key entirely when no hint is supplied" do
+      [row] =
+        decode_one(
+          gauge_metric("memory.used_percent", "sysmon.memory", 50.0,
+            tags: %{"host_id" => "host-1"}
+          )
+        )
+
+      refute Map.has_key?(row.metadata, "series_identity_hint")
+    end
+  end
+
+  describe "device_id resolution on the row-build path (finding 4)" do
+    test "is lookup-free by default and leaves device_id from the attested resource" do
+      [row] = decode_one(snmp_metric(tags: %{"host" => "10.0.0.20"}))
+
+      # No resolver supplied: device_id is whatever the gateway attested (nil here).
+      assert row.device_id == nil
+    end
+
+    test "backfills device_id from the batched resolver keyed on target_device_ip" do
+      payload = encode_batch([snmp_metric(tags: %{"host" => "10.0.0.20"})])
+
+      resolver = fn ips ->
+        assert ips == ["10.0.0.20"]
+        %{"10.0.0.20" => "device-canonical-1"}
+      end
+
+      {:ok, [row], 1} =
+        MetricEnvelope.decode_rows_count(payload, device_resolver: resolver)
+
+      assert row.device_id == "device-canonical-1"
+    end
+
+    test "does not override an already-attested device_id" do
+      payload =
+        encode_batch([snmp_metric(tags: %{"host" => "10.0.0.20"})],
+          device_id: "attested-device"
+        )
+
+      resolver = fn _ips -> %{"10.0.0.20" => "resolver-device"} end
+
+      {:ok, [row], 1} =
+        MetricEnvelope.decode_rows_count(payload, device_resolver: resolver)
+
+      assert row.device_id == "attested-device"
+    end
+  end
+
+  defp decode_one(metric) do
+    {:ok, rows} = MetricEnvelope.decode_rows(encode_batch([metric]))
+    rows
+  end
+
+  defp encode_batch(metrics, opts \\ []) do
+    MetricBatch.encode(%MetricBatch{
+      schema_version: "serviceradar.metric.v1",
+      resource: %MetricResource{
+        agent_id: "agent-1",
+        gateway_id: "gateway-1",
+        partition: "default",
+        device_id: Keyword.get(opts, :device_id, ""),
+        service_name: "metrics",
+        service_type: "metrics"
+      },
+      ingest_identity: %IngestIdentity{
+        source: "metrics",
+        payload_kind: "serviceradar.metric.v1",
+        producer_id: "agent-1",
+        producer_kind: "agent"
+      },
+      emitted_at_unix_nano: @point_time,
+      metrics: metrics
+    })
+  end
+
+  defp snmp_metric(opts) do
+    %Metric{
+      name: "ifHCInOctets",
+      metric_type: "snmp",
+      kind: :METRIC_KIND_SUM,
+      temporality: :METRIC_TEMPORALITY_CUMULATIVE,
+      is_monotonic: true,
+      unit: "By",
+      counter_width: 64,
+      tags: opts |> Keyword.get(:tags, %{}) |> entries(),
+      points: [
+        %MetricPoint{
+          value: 1234.5,
+          raw_value: "1234",
+          raw_value_type: :METRIC_VALUE_TYPE_UINT64,
+          observed_at_unix_nano: @point_time,
+          if_index: 7
+        }
+      ]
+    }
+  end
+
+  defp gauge_metric(name, metric_type, value, opts) do
+    %Metric{
+      name: name,
+      metric_type: metric_type,
+      kind: :METRIC_KIND_GAUGE,
+      unit: "%",
+      tags: opts |> Keyword.get(:tags, %{}) |> entries(),
+      points: [
+        %MetricPoint{
+          value: value,
+          raw_value: Float.to_string(value),
+          raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+          observed_at_unix_nano: @point_time,
+          series_identity_hint: Keyword.get(opts, :series_identity_hint, "")
+        }
+      ]
+    }
+  end
+
+  defp entries(map) do
+    Enum.map(map, fn {key, value} -> %StringMapEntry{key: key, value: to_string(value)} end)
+  end
+end

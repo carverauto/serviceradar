@@ -35,7 +35,10 @@ ADDON_SDK_DEPS = crate_deps([
     "tokio-stream",
     "tonic",
     "tonic-health",
-]) + [":build_script"]
+]) + [
+    ":build_script",
+    "//rust/metric-proto:serviceradar_metric_proto",
+]
 
 # async-trait is a pure proc-macro crate; rules_rust requires proc-macros in
 # proc_macro_deps, not deps (otherwise the target fails to analyze).

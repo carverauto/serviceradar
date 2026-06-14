@@ -22,8 +22,15 @@ guards must remain in force before any native path is promoted.
   and the idempotency key for redelivery-safe native state application.
 - Move shard partitioning and compact sample preparation earlier in the pipeline
   so `NativeContextEngine` receives shard-ready batches.
-- Add a columnar or binary NIF input path that minimizes BEAM term decode work
-  for `{index, series, value, timestamp}`-shaped samples.
+- Record the packed-binary NIF prototype result and do not ship a detector-local
+  binary ABI unless it is consistently faster than tuples in the production
+  wrapper.
+- Add batch-level anomaly telemetry so production throughput, latency, drops,
+  failures, and sparse event output are visible through the existing metrics
+  pipeline.
+- Treat canonical protobuf JetStream metric envelopes as the next serialization
+  boundary to evaluate if map/JSON decode remains hot; source producers should
+  emit source-neutral metric facts, not detector-specific binary records.
 - Avoid hot-path ETS lookups for numeric series IDs; any ID assignment must be
   done outside the per-sample loop or inside bounded native shard state.
 - Preserve per-shard single-writer evaluation; larger batches must not reintroduce
@@ -37,8 +44,8 @@ guards must remain in force before any native path is promoted.
 - Affected specs: `anomaly-detection`
 - Affected code: `elixir/serviceradar_core` anomaly sample extraction,
   `NativeContextEngine`, `CausalReasoner` Elixir wrapper, Rust
-  `causal_reasoner_nif` runtime input APIs, benchmark harnesses, and focused
-  anomaly tests
+  `causal_reasoner_nif` runtime input APIs, benchmark harnesses, telemetry
+  metrics, and focused anomaly tests
 - Runtime impact: lower production BEAM allocation/term-copy overhead, tighter
   shard ownership, and benchmarked throughput closer to the direct native shard
   ceiling

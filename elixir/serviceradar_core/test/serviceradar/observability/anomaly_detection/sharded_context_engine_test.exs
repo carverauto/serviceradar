@@ -33,7 +33,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngineTest d
 
     assert [{:ok, %{state: "clean"}}, {:ok, %{state: "clean"}}] = results
     assert_receive {:reason_batch, batch}
-    assert length(batch) >= 1
+    refute Enum.empty?(batch)
   end
 
   test "preserves same-series order by splitting dependent samples across batches" do
@@ -82,6 +82,125 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ShardedContextEngineTest d
              {_sample, {:drop, :duplicate_event}} -> true
              _other -> false
            end)
+  end
+
+  test "evicts down to the cap (not just one) when a batch adds many new series" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_reasoner,
+      __MODULE__.NativeReasoner
+    )
+
+    # Single shard so every series lands on the same shard map; small cap so the
+    # batch overflows it by far more than one.
+    start_supervised!({ShardedContextEngine, shard_count: 1, max_series: 3})
+
+    samples =
+      Enum.map(1..20, fn n ->
+        sample("series-#{n}", "e#{n}", n, n * 1.0)
+      end)
+
+    results = ShardedContextEngine.evaluate_batch(samples)
+    assert length(results) == 20
+    assert Enum.all?(results, &match?({:ok, _}, &1))
+
+    # The cap is enforced in a single pass: the shard holds exactly max_series,
+    # not max_series + (batch_size - 1) as the old one-key-per-batch eviction did.
+    shard_state = :sys.get_state(ShardedContextEngine.shard_name(0))
+    assert map_size(shard_state.series) == 3
+
+    # Every evicted series must be forgotten in the NIF so the native guard stays
+    # in sync; 20 added - 3 retained = 17 forgets.
+    forgotten = drain_forgets()
+    assert length(forgotten) == 17
+  end
+
+  test "intra-batch duplicate event_id folds the native series state once" do
+    Application.put_env(
+      :serviceradar_core,
+      :anomaly_detection_reasoner,
+      __MODULE__.NativeReasoner
+    )
+
+    start_supervised!({ShardedContextEngine, shard_count: 1, max_series: 100})
+
+    # Two samples in the SAME batch carry the same event_id for the same series.
+    # Only the first may fold into the NIF; the second must be dropped as a
+    # duplicate before any native input is built.
+    samples = [
+      sample("series-dup", "shared", 1, 10.0),
+      sample("series-dup", "shared", 1, 10.0)
+    ]
+
+    results = ShardedContextEngine.evaluate_events_batch(samples)
+
+    assert [{_first, _first_result}, {_second, {:drop, :duplicate_event}}] = results
+
+    # Exactly one sample reached the native reasoner for this series.
+    native_inputs = drain_native_value_changes()
+    folded_for_series = Enum.filter(native_inputs, &(&1.series_key == "series-dup"))
+    assert length(folded_for_series) == 1
+  end
+
+  defp drain_forgets(acc \\ []) do
+    receive do
+      {:forget_series, key} -> drain_forgets([key | acc])
+    after
+      0 -> acc
+    end
+  end
+
+  defp drain_native_value_changes(acc \\ []) do
+    receive do
+      {:reason_state_values_changes, inputs} -> drain_native_value_changes(acc ++ inputs)
+    after
+      0 -> acc
+    end
+  end
+
+  defmodule NativeReasoner do
+    @moduledoc """
+    Native-path test double: activates the in-NIF rolling-state code paths of the
+    sharded engine (new_shard_state/0 + reason_state_batch/2) and records
+    forget_series/2 and reason_state_values_changes/2 calls back to the test pid.
+    """
+
+    def new_shard_state, do: make_ref()
+
+    def reason_state_batch(_shard_state, inputs) do
+      Enum.map(inputs, fn _input -> {:ok, clean_verdict()} end)
+    end
+
+    def reason_state_values_changes(_shard_state, inputs) do
+      send(
+        Application.fetch_env!(:serviceradar_core, :sharded_context_engine_test_pid),
+        {:reason_state_values_changes, inputs}
+      )
+
+      # Emit a single clean state-change verdict per input so the engine commits
+      # event ids; index mirrors the native indexed-result contract.
+      Enum.map(inputs, fn input -> {input.index, {:ok, clean_verdict()}} end)
+    end
+
+    def forget_series(_shard_state, key) do
+      send(
+        Application.fetch_env!(:serviceradar_core, :sharded_context_engine_test_pid),
+        {:forget_series, key}
+      )
+
+      :ok
+    end
+
+    defp clean_verdict do
+      %{
+        state: "clean",
+        anomalous: false,
+        include_in_baseline: true,
+        next_consecutive_anomalous: 0,
+        next_window_tail: [],
+        next_rolling_acc: %{count: 0, mean: 0.0, m2: 0.0}
+      }
+    end
   end
 
   defmodule BatchReasoner do

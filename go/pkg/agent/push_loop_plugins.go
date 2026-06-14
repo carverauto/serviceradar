@@ -81,6 +81,10 @@ func (p *PushLoop) normalizePluginPayload(
 		return nil, false, fmt.Errorf("%w: %s", errPluginInvalidStatus, statusRaw)
 	}
 
+	if _, ok := payload["metrics"]; ok {
+		return nil, false, errPluginResultMetricsUnsupported
+	}
+
 	summary, ok := payload["summary"].(string)
 	if !ok || strings.TrimSpace(summary) == "" {
 		return nil, false, errPluginMissingSummary
