@@ -125,6 +125,13 @@ spec:
           value: {{ $snmpMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX
           value: {{ default "metrics.snmp" $gateway.snmpMetricsSubjectPrefix | quote }}
+        {{- if $gateway.snmpInterfaceMetrics }}
+        # "all" to publish every collected SNMP interface OID, or a comma-separated
+        # allowlist of metric names. Unset keeps the built-in default
+        # (ifHCInOctets, ifHCOutOctets). See fj #3788 REC7e.
+        - name: AGENT_GATEWAY_SNMP_INTERFACE_METRICS
+          value: {{ $gateway.snmpInterfaceMetrics | quote }}
+        {{- end }}
         - name: AGENT_GATEWAY_PLUGIN_METRICS_ENABLED
           value: {{ $pluginMetricsEnabled | quote }}
         - name: AGENT_GATEWAY_PLUGIN_METRICS_SUBJECT_PREFIX

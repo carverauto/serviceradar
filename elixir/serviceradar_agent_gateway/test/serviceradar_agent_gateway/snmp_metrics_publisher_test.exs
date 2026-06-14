@@ -94,6 +94,29 @@ defmodule ServiceRadarAgentGateway.SnmpMetricsPublisherTest do
     assert {"metrics.snmp.interface.ifHCInOctets", :nats_down} in failures
   end
 
+  test "drops non-allowlisted OIDs by default" do
+    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
+      enabled: true,
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
+    assert_receive {:published, "metrics.snmp.interface.ifHCInOctets", _p, _o}
+    refute_receive {:published, "metrics.snmp.interface.ifInOctets", _payload, _opts}
+  end
+
+  test "forwards non-octet OIDs when interface_metrics is widened to :all" do
+    Application.put_env(:serviceradar_agent_gateway, :snmp_metrics_publisher,
+      enabled: true,
+      interface_metrics: :all,
+      connection: __MODULE__.ConnectionStub
+    )
+
+    assert :ok = SnmpMetricsPublisher.publish_snmp(snmp_status())
+    assert_receive {:published, "metrics.snmp.interface.ifInOctets", payload, _opts}
+    assert %{"metric_name" => "ifInOctets", "value" => 111} = Jason.decode!(payload)
+  end
+
   defmodule ConnectionStub do
     @moduledoc false
     def publish(subject, payload, opts) do

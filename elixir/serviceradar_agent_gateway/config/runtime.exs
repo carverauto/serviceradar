@@ -315,6 +315,22 @@ sysmon_metrics_publish_enabled =
 snmp_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_SNMP_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
+# SNMP interface-metric allowlist (fj #3788, REC7e). Operators widen the gateway
+# allowlist via the release/Helm path: "all" publishes every collected OID,
+# a comma-separated list restricts to those metric names, and absent/empty keeps
+# the publisher's built-in default (ifHCInOctets, ifHCOutOctets).
+snmp_interface_metrics =
+  case System.get_env("AGENT_GATEWAY_SNMP_INTERFACE_METRICS") do
+    blank when blank in [nil, ""] ->
+      nil
+
+    value ->
+      case value |> String.trim() |> String.downcase() do
+        "all" -> :all
+        _ -> value |> String.split(",", trim: true) |> Enum.map(&String.trim/1)
+      end
+  end
+
 plugin_metrics_publish_enabled =
   System.get_env("AGENT_GATEWAY_PLUGIN_METRICS_ENABLED", "true") in ~w(true 1 yes)
 
@@ -342,6 +358,7 @@ config :serviceradar_agent_gateway, :plugin_metrics_publisher,
 config :serviceradar_agent_gateway, :snmp_metrics_publisher,
   enabled: snmp_metrics_publish_enabled,
   subject_prefix: System.get_env("AGENT_GATEWAY_SNMP_METRICS_SUBJECT_PREFIX", "metrics.snmp"),
+  interface_metrics: snmp_interface_metrics,
   connection: Connection
 
 config :serviceradar_agent_gateway, :sysmon_metrics_publisher,
