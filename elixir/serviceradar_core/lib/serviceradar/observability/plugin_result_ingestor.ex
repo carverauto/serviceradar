@@ -20,10 +20,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
   alias ServiceRadar.Observability.ServiceIdentity
   alias ServiceRadar.Observability.ServiceStateRegistry
   alias ServiceRadar.Observability.ServiceStatus
-  alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.ThreatIntelPluginIngestor
-  alias ServiceRadar.Observability.TimeseriesMetric
-  alias ServiceRadar.Observability.TimeseriesSeriesKey
   alias ServiceRadar.WifiMap.BatchIngestor
 
   require Logger
@@ -48,8 +45,7 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       )
 
     with :ok <- insert_status(status_row, actor),
-         :ok <- upsert_current_state(status_row),
-         :ok <- maybe_insert_metrics(payload, status, observed_at, created_at, actor) do
+         :ok <- upsert_current_state(status_row) do
       ingest_registered_handlers(payload, status, observed_at, actor)
     end
   rescue
@@ -166,121 +162,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
     }
   end
 
-  defp insert_metrics(payload, status, observed_at, created_at, actor) do
-    rows =
-      payload
-      |> extract_metrics()
-      |> Enum.map(&build_metric_row(&1, payload, status, observed_at, created_at))
-      |> Enum.reject(&is_nil/1)
-      |> TimeseriesSeriesKey.dedupe_rows()
-
-    if Enum.empty?(rows) do
-      :ok
-    else
-      case Ash.bulk_create(rows, TimeseriesMetric, :create,
-             actor: actor,
-             domain: ServiceRadar.Observability,
-             return_records?: false,
-             return_errors?: true,
-             stop_on_error?: false,
-             upsert?: true,
-             upsert_identity: :unique_timeseries_metric,
-             upsert_fields: []
-           ) do
-        %Ash.BulkResult{status: :success} ->
-          evaluate_metric_alerts(rows)
-          :ok
-
-        %Ash.BulkResult{errors: errors} = result ->
-          {:error, errors || result}
-      end
-    end
-  end
-
-  defp maybe_insert_metrics(payload, status, observed_at, created_at, actor) do
-    if Application.get_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, false) do
-      insert_metrics(payload, status, observed_at, created_at, actor)
-    else
-      :ok
-    end
-  end
-
-  defp evaluate_metric_alerts(rows) do
-    case StatefulAlertEngine.evaluate_metrics(rows) do
-      :ok ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("Metric alert evaluation failed: #{inspect(reason)}")
-        :ok
-    end
-  end
-
-  defp extract_metrics(%{"metrics" => metrics}) when is_list(metrics), do: metrics
-  defp extract_metrics(%{metrics: metrics}) when is_list(metrics), do: metrics
-  defp extract_metrics(_), do: []
-
-  defp build_metric_row(metric, payload, status, observed_at, created_at) when is_map(metric) do
-    name = fetch_string(metric, ["name", "metric", "metric_name", "metricName"])
-
-    case parse_metric_value(fetch_value(metric, ["value", "val", "metric_value", "metricValue"])) do
-      {:ok, value} when is_binary(name) and name != "" ->
-        unit = fetch_string(metric, ["unit", "u"])
-        tags = build_tags(payload)
-        metadata = build_metadata(metric, payload)
-
-        row = %{
-          timestamp: observed_at,
-          gateway_id: status[:gateway_id] || "unknown",
-          agent_id: status[:agent_id],
-          metric_name: name,
-          metric_type: "plugin",
-          value: FieldParser.parse_value(value),
-          unit: unit,
-          tags: tags,
-          partition: status[:partition],
-          metadata: metadata,
-          created_at: created_at
-        }
-
-        Map.put(row, :series_key, TimeseriesSeriesKey.build(row))
-
-      _ ->
-        nil
-    end
-  end
-
-  defp build_metric_row(_metric, _payload, _status, _observed_at, _created_at), do: nil
-
-  defp build_tags(payload) do
-    payload
-    |> fetch_value(["labels", "label"])
-    |> normalize_labels()
-  end
-
-  defp build_metadata(metric, payload) do
-    %{}
-    |> maybe_put("warn", parse_metric_number(fetch_value(metric, ["warn", "warning"])))
-    |> maybe_put("crit", parse_metric_number(fetch_value(metric, ["crit", "critical"])))
-    |> maybe_put("min", parse_metric_number(fetch_value(metric, ["min"])))
-    |> maybe_put("max", parse_metric_number(fetch_value(metric, ["max"])))
-    |> maybe_put("perfdata", fetch_string(payload, ["perfdata"]))
-  end
-
-  defp normalize_labels(nil), do: %{}
-
-  defp normalize_labels(labels) when is_map(labels) do
-    Enum.reduce(labels, %{}, fn {key, value}, acc ->
-      Map.put(acc, to_string(key), value)
-    end)
-  end
-
-  defp normalize_labels(_), do: %{}
-
-  defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, key, value), do: Map.put(map, key, value)
-
   defp fetch_value(map, keys) when is_map(map) and is_list(keys) do
     Enum.find_value(keys, fn key ->
       Map.get(map, key) || Map.get(map, to_string(key))
@@ -298,30 +179,6 @@ defmodule ServiceRadar.Observability.PluginResultIngestor do
       _ -> nil
     end
   end
-
-  defp parse_metric_value(nil), do: :error
-  defp parse_metric_value(value) when is_number(value), do: {:ok, value / 1}
-
-  defp parse_metric_value(value) when is_binary(value) do
-    case Float.parse(value) do
-      {parsed, _} -> {:ok, parsed}
-      :error -> :error
-    end
-  end
-
-  defp parse_metric_value(_), do: :error
-
-  defp parse_metric_number(nil), do: nil
-  defp parse_metric_number(value) when is_number(value), do: value / 1
-
-  defp parse_metric_number(value) when is_binary(value) do
-    case Float.parse(value) do
-      {parsed, _} -> parsed
-      :error -> nil
-    end
-  end
-
-  defp parse_metric_number(_), do: nil
 
   defp ingest_registered_handlers(payload, status, observed_at, actor) do
     Enum.each(plugin_result_handlers(), fn handler ->
