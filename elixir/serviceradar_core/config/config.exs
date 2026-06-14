@@ -128,10 +128,6 @@ config :serviceradar_core, :object_store_retention,
   native_addon_orphan_grace_seconds: 604_800,
   datasvc_timeout_ms: 30_000
 
-# Legacy compatibility only. Numeric plugin metrics should flow through
-# JetStream (`metrics.timeseries.>`) before persistence.
-config :serviceradar_core, :plugin_result_direct_metrics_enabled, false
-
 # Plugin blob storage download configuration (used to generate signed download URLs)
 config :serviceradar_core, :plugin_storage,
   public_url: nil,

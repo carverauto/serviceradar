@@ -3,7 +3,6 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Observability.IcmpMetricsIngestor
-  alias ServiceRadar.Observability.PluginResultIngestor
   alias ServiceRadar.Observability.SnmpMetricsIngestor
   alias ServiceRadar.Observability.TimeseriesMetric
   alias ServiceRadar.Repo
@@ -109,63 +108,11 @@ defmodule ServiceRadar.Observability.TimeseriesSeriesIdentityIntegrationTest do
     assert MapSet.size(MapSet.new(Enum.map(metrics, & &1.series_key))) == 2
   end
 
-  test "plugin ingest preserves label-distinguished series at the same timestamp" do
-    previous = Application.get_env(:serviceradar_core, :plugin_result_direct_metrics_enabled)
-    Application.put_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, true)
-
-    on_exit(fn ->
-      if is_nil(previous) do
-        Application.delete_env(:serviceradar_core, :plugin_result_direct_metrics_enabled)
-      else
-        Application.put_env(:serviceradar_core, :plugin_result_direct_metrics_enabled, previous)
-      end
-    end)
-
-    actor = SystemActor.system(:test)
-    agent_id = "plugin-series-agent-#{System.unique_integer([:positive])}"
-    gateway_id = "plugin-series-gateway-#{System.unique_integer([:positive])}"
-    observed_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-
-    payload_a = %{
-      "observed_at" => observed_at,
-      "status" => "ok",
-      "labels" => %{"instance" => "a", "plugin" => "temp"},
-      "metrics" => [%{"name" => "temp_c", "value" => 40.0}]
-    }
-
-    payload_b = %{
-      "observed_at" => observed_at,
-      "status" => "ok",
-      "labels" => %{"instance" => "b", "plugin" => "temp"},
-      "metrics" => [%{"name" => "temp_c", "value" => 41.0}]
-    }
-
-    status_a = %{
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      partition: "default",
-      service_name: "plugin-temp-a",
-      service_type: "plugin",
-      timestamp: DateTime.utc_now()
-    }
-
-    status_b = %{
-      agent_id: agent_id,
-      gateway_id: gateway_id,
-      partition: "default",
-      service_name: "plugin-temp-b",
-      service_type: "plugin",
-      timestamp: DateTime.utc_now()
-    }
-
-    assert :ok = PluginResultIngestor.ingest(payload_a, status_a)
-    assert :ok = PluginResultIngestor.ingest(payload_b, status_b)
-
-    metrics = fetch_metrics(actor, agent_id, gateway_id, "plugin", "temp_c")
-
-    assert length(metrics) == 2
-    assert MapSet.size(MapSet.new(Enum.map(metrics, & &1.series_key))) == 2
-  end
+  # NOTE: the former "plugin ingest preserves label-distinguished series" test was
+  # removed alongside the direct PluginResultIngestor metric-insert path (fj #3788):
+  # plugin metrics now flow through JetStream -> Telemetry -> timeseries_metrics, so
+  # plugin-path series identity is covered by the Telemetry/timeseries tests, not by
+  # a direct ingest here. The snmp/icmp ingestors above still insert directly.
 
   defp fetch_metrics(actor, agent_id, gateway_id, metric_type, metric_name) do
     TimeseriesMetric
