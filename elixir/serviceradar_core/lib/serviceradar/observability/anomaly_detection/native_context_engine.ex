@@ -20,6 +20,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   @default_max_series 200_000
   @default_event_ttl_ms 3_600_000
   @default_max_seen_events 1_000_000
+  @default_event_prune_interval_ms 60_000
 
   @resources_key {__MODULE__, :resources}
   @shard_count_key {__MODULE__, :shard_count}
@@ -63,7 +64,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
        max_series: positive_int(Keyword.get(opts, :max_series), @default_max_series),
        event_ttl_ms: positive_int(Keyword.get(opts, :event_ttl_ms), @default_event_ttl_ms),
        max_seen_events:
-         positive_int(Keyword.get(opts, :max_seen_events), @default_max_seen_events)
+         positive_int(Keyword.get(opts, :max_seen_events), @default_max_seen_events),
+       event_prune_interval_ms:
+         positive_int(
+           Keyword.get(opts, :event_prune_interval_ms),
+           @default_event_prune_interval_ms
+         ),
+       last_event_prune_ms: System.monotonic_time(:millisecond)
      }}
   end
 
@@ -138,7 +145,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     |> Enum.reject(fn {_sample, index, _event_key} -> MapSet.member?(error_indexes, index) end)
     |> mark_seen_events()
 
-    prune_seen_events(state)
+    state = prune_seen_events(state)
 
     reply =
       (duplicate_results ++ results)
@@ -182,7 +189,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
         |> mark_seen_events()
       end)
 
-    {_prune_result, prune_seen_ns} = timed(fn -> prune_seen_events(state) end)
+    {state, prune_seen_ns} = timed(fn -> prune_seen_events(state) end)
 
     {reply, reassociate_ns} =
       timed(fn ->
@@ -558,24 +565,40 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     end)
   end
 
-  defp prune_seen_events(%{event_ttl_ms: ttl_ms, max_seen_events: max_seen_events}) do
+  defp prune_seen_events(
+         %{
+           event_ttl_ms: ttl_ms,
+           max_seen_events: max_seen_events,
+           event_prune_interval_ms: prune_interval_ms,
+           last_event_prune_ms: last_prune_ms
+         } = state
+       ) do
     now = System.monotonic_time(:millisecond)
+    size = :ets.info(@seen_events_table, :size)
+    over_limit? = is_integer(size) and size > max_seen_events
+    ttl_due? = ttl_ms > 0 and now - last_prune_ms >= prune_interval_ms
 
-    @seen_events_table
-    |> :ets.tab2list()
-    |> Enum.reject(fn {_key, seen_at} -> ttl_ms > 0 and now - seen_at <= ttl_ms end)
-    |> Enum.each(fn {key, _seen_at} -> :ets.delete(@seen_events_table, key) end)
+    if over_limit? or ttl_due? do
+      @seen_events_table
+      |> :ets.tab2list()
+      |> Enum.reject(fn {_key, seen_at} -> ttl_ms > 0 and now - seen_at <= ttl_ms end)
+      |> Enum.each(fn {key, _seen_at} -> :ets.delete(@seen_events_table, key) end)
 
-    case :ets.info(@seen_events_table, :size) do
-      size when is_integer(size) and size > max_seen_events ->
-        @seen_events_table
-        |> :ets.tab2list()
-        |> Enum.sort_by(fn {_key, seen_at} -> seen_at end)
-        |> Enum.take(size - max_seen_events)
-        |> Enum.each(fn {key, _seen_at} -> :ets.delete(@seen_events_table, key) end)
+      case :ets.info(@seen_events_table, :size) do
+        size when is_integer(size) and size > max_seen_events ->
+          @seen_events_table
+          |> :ets.tab2list()
+          |> Enum.sort_by(fn {_key, seen_at} -> seen_at end)
+          |> Enum.take(size - max_seen_events)
+          |> Enum.each(fn {key, _seen_at} -> :ets.delete(@seen_events_table, key) end)
 
-      _ ->
-        :ok
+        _ ->
+          :ok
+      end
+
+      %{state | last_event_prune_ms: now}
+    else
+      state
     end
   end
 
