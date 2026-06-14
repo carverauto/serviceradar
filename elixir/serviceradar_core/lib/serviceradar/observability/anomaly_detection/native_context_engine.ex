@@ -23,6 +23,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   @default_event_prune_interval_ms 60_000
 
   @resources_key {__MODULE__, :resources}
+  @workers_key {__MODULE__, :workers}
   @shard_count_key {__MODULE__, :shard_count}
   @opts_key {__MODULE__, :opts}
   @seen_table __MODULE__.SeenSeries
@@ -51,10 +52,17 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
     resources =
       List.to_tuple(Enum.map(1..shard_count, fn _ -> CausalReasoner.new_shard_state() end))
 
+    workers =
+      resources
+      |> Tuple.to_list()
+      |> Enum.map(&start_shard_worker/1)
+      |> List.to_tuple()
+
     reset_table(@seen_table)
     reset_table(@seen_events_table)
 
     :persistent_term.put(@resources_key, resources)
+    :persistent_term.put(@workers_key, workers)
     :persistent_term.put(@shard_count_key, shard_count)
     :persistent_term.put(@opts_key, opts)
 
@@ -76,7 +84,9 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   @impl true
   def terminate(_reason, _state) do
+    stop_shard_workers()
     :persistent_term.erase(@resources_key)
+    :persistent_term.erase(@workers_key)
     :persistent_term.erase(@shard_count_key)
     :persistent_term.erase(@opts_key)
 
@@ -288,6 +298,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   defp do_evaluate_candidate_events_profiled(candidates, state, initial_results) do
     shard_count = current_shard_count()
     resources = current_resources()
+    workers = current_workers()
     opts = current_opts()
 
     {{samples_by_index, groups}, shard_input_build_ns} =
@@ -300,29 +311,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
     {results, native_eval_ns} =
       timed(fn ->
-        0..(shard_count - 1)
-        |> Enum.flat_map(fn shard_index ->
-          case elem(groups, shard_index) do
-            [] ->
-              []
-
-            inputs ->
-              [{shard_index, Enum.reverse(inputs)}]
-          end
-        end)
-        |> Task.async_stream(
-          fn {shard_index, inputs} ->
-            resource = elem(resources, shard_index)
-            CausalReasoner.reason_state_value_tuples_changes(resource, inputs)
-          end,
-          max_concurrency: shard_count,
-          timeout: :infinity,
-          ordered: false
-        )
-        |> Enum.flat_map(fn
-          {:ok, results} -> results
-          {:exit, reason} -> [{-1, {:error, {:shard_exit, reason}}}]
-        end)
+        evaluate_shard_groups(groups, workers, shard_count)
       end)
 
     {_eviction_result, eviction_ns} =
@@ -372,6 +361,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
   defp do_evaluate_candidate_events(candidates, state, initial_results) do
     shard_count = current_shard_count()
     resources = current_resources()
+    workers = current_workers()
     opts = current_opts()
 
     samples_by_index =
@@ -379,30 +369,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
     groups = build_shard_inputs(candidates, shard_count, opts)
 
-    results =
-      0..(shard_count - 1)
-      |> Enum.flat_map(fn shard_index ->
-        case elem(groups, shard_index) do
-          [] ->
-            []
-
-          inputs ->
-            [{shard_index, Enum.reverse(inputs)}]
-        end
-      end)
-      |> Task.async_stream(
-        fn {shard_index, inputs} ->
-          resource = elem(resources, shard_index)
-          CausalReasoner.reason_state_value_tuples_changes(resource, inputs)
-        end,
-        max_concurrency: shard_count,
-        timeout: :infinity,
-        ordered: false
-      )
-      |> Enum.flat_map(fn
-        {:ok, results} -> results
-        {:exit, reason} -> [{-1, {:error, {:shard_exit, reason}}}]
-      end)
+    results = evaluate_shard_groups(groups, workers, shard_count)
 
     enforce_series_limit(resources, state.max_series)
 
@@ -442,6 +409,57 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
       end)
 
     groups
+  end
+
+  defp evaluate_shard_groups(groups, workers, shard_count) do
+    0..(shard_count - 1)
+    |> Enum.reduce([], fn shard_index, requests ->
+      case elem(groups, shard_index) do
+        [] ->
+          requests
+
+        inputs ->
+          ref = make_ref()
+          send(elem(workers, shard_index), {:evaluate, self(), ref, Enum.reverse(inputs)})
+          [ref | requests]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.flat_map(&receive_shard_result/1)
+  end
+
+  defp receive_shard_result(ref) do
+    receive do
+      {^ref, results} -> results
+    end
+  end
+
+  defp start_shard_worker(resource), do: spawn_link(fn -> shard_worker_loop(resource) end)
+
+  defp shard_worker_loop(resource) do
+    receive do
+      {:evaluate, caller, ref, inputs} ->
+        send(caller, {ref, evaluate_shard_group(resource, inputs)})
+        shard_worker_loop(resource)
+
+      :stop ->
+        :ok
+    end
+  end
+
+  defp evaluate_shard_group(resource, inputs) do
+    CausalReasoner.reason_state_value_tuples_changes(resource, inputs)
+  rescue
+    reason -> [{-1, {:error, {:shard_exit, reason}}}]
+  catch
+    kind, reason -> [{-1, {:error, {:shard_exit, {kind, reason}}}}]
+  end
+
+  defp stop_shard_workers do
+    case :persistent_term.get(@workers_key, nil) do
+      nil -> :ok
+      workers -> workers |> Tuple.to_list() |> Enum.each(&send(&1, :stop))
+    end
   end
 
   defp input(sample, index, key, shard_index, opts) do
@@ -493,6 +511,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine do
 
   defp current_resources do
     :persistent_term.get(@resources_key)
+  end
+
+  defp current_workers do
+    :persistent_term.get(@workers_key)
   end
 
   defp current_shard_count do
