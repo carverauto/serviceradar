@@ -229,6 +229,16 @@ defmodule ServiceRadarAgentGateway.PluginMetricsPublisher do
     |> maybe_put("crit", metric |> first_present(["crit", "critical"]) |> parse_number())
     |> maybe_put("min", metric |> first_present(["min"]) |> parse_number())
     |> maybe_put("max", metric |> first_present(["max"]) |> parse_number())
+    # fj #3788 REC3: record whether metric_type was producer-declared or regex-inferred,
+    # so a subject-token reshuffle from a name change is observable downstream.
+    |> Map.put("metric_type_inferred", inferred_type?(metric))
+  end
+
+  defp inferred_type?(metric) do
+    metric
+    |> first_present(["metric_type", "metricType", "type", "category"])
+    |> normalize_metric_type()
+    |> is_nil()
   end
 
   defp metric_string(map, keys) when is_map(map) do
