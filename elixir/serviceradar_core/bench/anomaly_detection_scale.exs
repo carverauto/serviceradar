@@ -772,8 +772,10 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
 
     Enum.each(
       [
+        :batch_prepare_ns,
         :dedupe_ns,
         :missing_split_ns,
+        :sample_lookup_ns,
         :shard_input_build_ns,
         :native_eval_ns,
         :eviction_ns,
