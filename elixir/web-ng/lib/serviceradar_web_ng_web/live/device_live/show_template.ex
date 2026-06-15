@@ -243,6 +243,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.process_metrics_section
                 :if={@sysmon_metrics_visible and is_list(@process_metrics)}
                 metrics={@process_metrics}
+                search={@process_metrics_search}
+                page={@process_metrics_page}
               />
 
               <.anomaly_capacity_section
@@ -366,7 +368,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           </div>
 
           <div :if={@active_tab == "process-listeners"}>
-            <.process_listeners_tab_content device_row={@device_row} />
+            <.process_listeners_tab_content
+              device_row={@device_row}
+              search={@process_listeners_search}
+              page={@process_listeners_page}
+            />
           </div>
 
           <.mtr_tab_content

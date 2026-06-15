@@ -3,38 +3,69 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, only: [search_bar: 1, paginator: 1]
+
+  alias ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination
+
   # ---------------------------------------------------------------------------
   # Process Metrics Section
   # ---------------------------------------------------------------------------
 
   attr(:metrics, :list, required: true)
+  attr(:search, :string, default: "")
+  attr(:page, :integer, default: 1)
 
   def process_metrics_section(assigns) do
-    ~H"""
-    <% rows = @metrics || [] %>
-    <% row_count = length(rows) %>
-    <% last_sampled =
-      rows
+    all_rows = assigns.metrics || []
+
+    last_sampled =
+      all_rows
       |> Enum.max_by(&timestamp_sort_key/1, fn -> nil end)
       |> case do
         nil -> nil
         row -> Map.get(row, "timestamp")
-      end %>
+      end
+
+    pagination =
+      ProcessTablePagination.paginate(all_rows, assigns.search, assigns.page, fields: &process_metric_search_fields/1)
+
+    assigns =
+      assigns
+      |> assign(:rows, pagination.rows)
+      |> assign(:pagination, pagination)
+      |> assign(:row_count, pagination.total)
+      |> assign(:last_sampled, last_sampled)
+
+    ~H"""
     <div class="rounded-xl border border-base-200 bg-base-100">
-      <div class="px-4 py-3 border-b border-base-200 flex items-center justify-between gap-3">
-        <div class="flex items-center gap-2">
-          <.icon name="hero-command-line" class="size-4 text-accent" />
-          <span class="text-sm font-semibold">Processes</span>
-          <span class="text-xs text-base-content/50">
-            last 15m{if row_count > 0, do: " · top #{row_count} by CPU", else: ""}
-          </span>
+      <div class="px-4 py-3 border-b border-base-200">
+        <div class="flex items-center justify-between gap-3">
+          <div class="flex items-center gap-2">
+            <.icon name="hero-command-line" class="size-4 text-accent" />
+            <span class="text-sm font-semibold">Processes</span>
+            <span class="text-xs text-base-content/50">
+              last 15m{if @row_count > 0, do: " · top #{@row_count} by CPU", else: ""}
+            </span>
+          </div>
+          <div class="text-xs text-base-content/50">
+            <span :if={@row_count > 0} class="font-mono">{format_timestamp(@last_sampled)}</span>
+          </div>
         </div>
-        <div class="text-xs text-base-content/50">
-          <span :if={row_count > 0} class="font-mono">{format_timestamp(last_sampled)}</span>
+
+        <div :if={@row_count > 0} class="mt-3">
+          <.search_bar
+            id="process-metrics-search"
+            event="process_metrics_search"
+            search={@search}
+            placeholder="Search by process, PID, status…"
+            total={@pagination.total}
+            filtered_total={@pagination.filtered_total}
+            filtered?={@pagination.filtered?}
+          />
         </div>
       </div>
 
-      <div :if={row_count == 0} class="p-6 text-center">
+      <div :if={@row_count == 0} class="p-6 text-center">
         <.icon name="hero-command-line" class="size-10 text-base-content/20 mx-auto" />
         <p class="text-sm text-base-content/70 mt-2">No process metrics collected.</p>
         <p class="text-xs text-base-content/50 mt-1">
@@ -42,7 +73,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
         </p>
       </div>
 
-      <div :if={row_count > 0} class="p-4 overflow-x-auto">
+      <div
+        :if={@row_count > 0 and @pagination.filtered_total == 0}
+        class="p-6 text-center text-sm text-base-content/70"
+      >
+        No processes match the current search.
+      </div>
+
+      <div :if={@pagination.filtered_total > 0} class="p-4 overflow-x-auto">
         <table class="table table-xs">
           <thead>
             <tr>
@@ -55,7 +93,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
             </tr>
           </thead>
           <tbody>
-            <%= for row <- rows do %>
+            <%= for row <- @rows do %>
               <tr class="hover">
                 <td class="text-xs font-medium">{format_value(Map.get(row, "name"))}</td>
                 <td class="text-xs font-mono text-right">{format_value(Map.get(row, "pid"))}</td>
@@ -72,9 +110,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ProcessMetricsComponents do
           </tbody>
         </table>
       </div>
+
+      <.paginator
+        page={@pagination.page}
+        page_count={@pagination.page_count}
+        range_start={@pagination.range_start}
+        range_end={@pagination.range_end}
+        filtered_total={@pagination.filtered_total}
+        prev_event="process_metrics_prev_page"
+        next_event="process_metrics_next_page"
+      />
     </div>
     """
   end
+
+  defp process_metric_search_fields(row) when is_map(row) do
+    [
+      Map.get(row, "name"),
+      Map.get(row, "pid"),
+      Map.get(row, "status")
+    ]
+  end
+
+  defp process_metric_search_fields(_row), do: []
 
   defp timestamp_sort_key(row) when is_map(row) do
     case parse_datetime(Map.get(row, "timestamp")) do
