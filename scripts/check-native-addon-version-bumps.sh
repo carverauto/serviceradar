@@ -83,7 +83,6 @@ module_lock_has_file_hash() {
 
 addon_ids() {
   cat <<'EOF'
-advisory-producer
 netprobe
 powerdns
 workload-identity
@@ -97,7 +96,6 @@ EOF
 manifest_path() {
   case "$1" in
     sample) echo "addons/sample-addon/addon.yaml" ;;
-    advisory-producer) echo "addons/advisory-producer/addon.yaml" ;;
     rust-sample) echo "addons/rust-sample-addon/addon.yaml" ;;
     netprobe) echo "addons/netprobe/addon.yaml" ;;
     powerdns) echo "addons/powerdns/addon.yaml" ;;
@@ -142,11 +140,6 @@ path_belongs_to_addon() {
     sample)
       case "${path}" in
         addons/sample-addon/*|go/cmd/serviceradar-sample-addon/*) return 0 ;;
-      esac
-      ;;
-    advisory-producer)
-      case "${path}" in
-        addons/advisory-producer/*|go/cmd/serviceradar-advisory-producer/*) return 0 ;;
       esac
       ;;
     rust-sample)
@@ -237,6 +230,25 @@ inventory_stanza_changed() {
   [[ "$(inventory_stanza "${BASE_REF}" "${addon}")" != "$(inventory_stanza "${HEAD_REF}" "${addon}")" ]]
 }
 
+# True when the addon_inventory.bzl diff introduces new or modified bundle
+# content (i.e. added non-comment, non-blank lines). A diff that is purely
+# deletions (retiring an add-on bundle) does not add anything to the signed
+# import index for a surviving add-on, so it does not require a version bump.
+inventory_adds_content() {
+  git diff "${BASE_REF}" "${HEAD_REF}" -- build/native_addons/addon_inventory.bzl |
+    awk '
+      /^\+\+\+/ { next }
+      /^\+/ {
+        line = substr($0, 2)
+        sub(/^[[:space:]]+/, "", line)
+        if (line == "" || line ~ /^#/) next
+        found = 1
+        exit
+      }
+      END { exit(found ? 0 : 1) }
+    '
+}
+
 version_changed() {
   local addon="$1" manifest old_version new_version
   manifest="$(manifest_path "${addon}")"
@@ -293,7 +305,7 @@ done <<<"${changed_paths}"
     fi
   done < <(addon_ids)
 
-  if [[ "${inventory_mapped}" == false ]]; then
+  if [[ "${inventory_mapped}" == false ]] && inventory_adds_content; then
     bumped_any=false
     while IFS= read -r addon; do
       if version_changed "${addon}"; then

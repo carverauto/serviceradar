@@ -19,6 +19,9 @@
 {{- $objectStoreRetentionDryRun := false -}}
 {{- if hasKey $objectStoreRetention "dryRun" -}}{{- $objectStoreRetentionDryRun = get $objectStoreRetention "dryRun" -}}{{- end -}}
 {{- $geoipMmdb := default (dict) .Values.geoipMmdb -}}
+{{- $advisoryFeeds := default (dict) (get (default (dict) .Values.core) "advisoryFeeds") -}}
+{{- $advisoryFeedsEnabled := default false $advisoryFeeds.enabled -}}
+{{- $advisoryFeedsDir := default "/var/lib/serviceradar/advisory-feeds" $advisoryFeeds.stagingDir -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $gatewayArtifactPublicUrl := "" -}}
 {{- if $gateway.publicHostname -}}
@@ -515,6 +518,16 @@ spec:
         - name: GEOLITE_MMDB_DIR
           value: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
         {{- end }}
+        - name: SERVICERADAR_ADVISORY_FEEDS_ENABLED
+          value: {{ $advisoryFeedsEnabled | quote }}
+        - name: ADVISORY_FEED_SCHEDULER_ENABLED
+          value: {{ $advisoryFeedsEnabled | quote }}
+        - name: SERVICERADAR_ADVISORY_STAGING_DIR
+          value: {{ $advisoryFeedsDir | quote }}
+        {{- if $advisoryFeeds.nistNvd2Enabled | default false }}
+        - name: SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED
+          value: "true"
+        {{- end }}
         {{- with .Values.otelExporter }}
         {{- if .enabled }}
         - name: OTEL_EXPORTER_OTLP_ENDPOINT
@@ -560,6 +573,10 @@ spec:
         {{- if $geoipMmdb.enabled }}
         - name: geoip-mmdb
           mountPath: {{ default "/var/lib/serviceradar/geoip" $geoipMmdb.basePath | quote }}
+        {{- end }}
+        {{- if $advisoryFeedsEnabled }}
+        - name: advisory-feeds
+          mountPath: {{ $advisoryFeedsDir | quote }}
         {{- end }}
         {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
         - name: nats-creds
@@ -616,6 +633,11 @@ spec:
       - name: geoip-mmdb
         persistentVolumeClaim:
           claimName: {{ default "serviceradar-geoip-mmdb" $geoipMmdb.existingClaim | quote }}
+      {{- end }}
+      {{- if $advisoryFeedsEnabled }}
+      - name: advisory-feeds
+        persistentVolumeClaim:
+          claimName: {{ default "serviceradar-advisory-feeds" $advisoryFeeds.existingClaim | quote }}
       {{- end }}
       {{- if or .Values.natsCreds.platform .Values.natsCreds.system .Values.natsCreds.autoGenerate }}
       - name: nats-creds

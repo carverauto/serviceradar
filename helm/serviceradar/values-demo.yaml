@@ -449,6 +449,14 @@ core:
       memory: "16Gi"
   clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
   clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
+  # Core advisory feed ingestion (refactor-advisory-feeds-into-core). Enabled in
+  # demo so CISA KEV + VulnCheck KEV enrichment runs in core on a PVC. nist-nvd2
+  # (full NVD CPE load) stays sub-gated off until the PVC + stable gateway are
+  # validated under load.
+  advisoryFeeds:
+    enabled: true
+    nistNvd2Enabled: false
+    size: "5Gi"
   database:
     poolSize: 10
   controlDatabase:
