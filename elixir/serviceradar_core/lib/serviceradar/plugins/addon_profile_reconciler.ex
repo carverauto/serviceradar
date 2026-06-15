@@ -794,8 +794,13 @@ defmodule ServiceRadar.Plugins.AddonProfileReconciler do
 
     @impl true
     def update_assignment(existing, spec, actor) do
+      # agent_uid is create-only identity on AddonAssignment (the existing row is
+      # already matched by assignment_key, which includes agent_uid); the :update
+      # action rejects it (NoSuchInput), so drop it from the update changeset.
+      attrs = Map.delete(spec_to_attrs(spec), :agent_uid)
+
       existing
-      |> Ash.Changeset.for_update(:update, spec_to_attrs(spec))
+      |> Ash.Changeset.for_update(:update, attrs)
       |> Ash.update(actor: actor, authorize?: true)
     end
 
