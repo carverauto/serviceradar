@@ -46,7 +46,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
     streams = Config.default_streams()
 
     assert Enum.map(streams, & &1.subject) == [
-             "metrics.sysmon.*",
+             "metrics.sysmon.>",
              "metrics.snmp.>",
              "metrics.icmp.>",
              "metrics.timeseries.>",
@@ -69,7 +69,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
 
     assert db_sync_metrics.stream_name == analysis_metrics.stream_name
     assert db_sync_metrics.subject == "metrics.>"
-    assert analysis_metrics.subject == "metrics.sysmon.*"
+    assert analysis_metrics.subject == "metrics.sysmon.>"
     assert db_sync_metrics.stream_retention == "limits"
     assert db_sync_metrics.consumer_max_deliver == 5
     assert Map.get(db_sync_metrics, :consumer_deliver_policy, :all) == :all
@@ -106,7 +106,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   test "supports per-subject enable filters" do
     System.put_env(
       "ANOMALY_ANALYSIS_ENABLED_SUBJECTS",
-      "metrics.sysmon.*,metrics.snmp.>,metrics.timeseries.>"
+      "metrics.sysmon.>,metrics.snmp.>,metrics.timeseries.>"
     )
 
     config = Config.load()

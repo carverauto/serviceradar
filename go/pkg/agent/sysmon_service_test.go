@@ -758,3 +758,45 @@ func TestSysmonRefreshSkipsCacheWhileRemoteActive(t *testing.T) {
 	assert.Equal(t, remoteHash, svc.GetConfigHash())
 	require.Len(t, collector.reconfigured, 1)
 }
+
+func TestSysmonServiceApplyRemoteConfigStartsCollectorAfterDisabledBoot(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	disabledConfig := sysmon.DefaultConfig()
+	disabledConfig.Enabled = false
+
+	svc, err := NewSysmonService(SysmonServiceConfig{
+		AgentID:    "test-agent",
+		CachePath:  filepath.Join(t.TempDir(), "cache", "sysmon-config.json"),
+		Logger:     logger.NewTestLogger(),
+		TestConfig: &disabledConfig,
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, svc.Start(ctx))
+	assert.False(t, svc.IsEnabled())
+	assert.Nil(t, svc.collector)
+
+	remoteConfig := sysmon.Config{
+		Enabled:          true,
+		SampleInterval:   "100ms",
+		CollectCPU:       false,
+		CollectMemory:    false,
+		CollectDisk:      false,
+		CollectNetwork:   false,
+		CollectProcesses: true,
+		ProcessLimit:     5,
+	}
+
+	require.NoError(t, svc.ApplyRemoteConfig(remoteConfig))
+	t.Cleanup(func() {
+		_ = svc.Stop(context.Background())
+	})
+
+	assert.True(t, svc.IsEnabled())
+	assert.NotNil(t, svc.collector)
+	assert.Equal(t, configSourceRemote, svc.GetConfigSource())
+}
