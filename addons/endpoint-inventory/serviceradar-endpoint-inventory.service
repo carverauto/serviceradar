@@ -7,7 +7,9 @@ After=local-fs.target
 Type=oneshot
 User=root
 Group=serviceradar
-UMask=0027
+# Group-writable umask so the non-root agent (user serviceradar) can write
+# upload-success markers and runtime profiles into the shared state dirs.
+UMask=0007
 # Share cgroup accounting with the host agent while preserving independent
 # systemd supervision, restart policy, privileges, and hardening.
 Slice=serviceradar.slice
@@ -37,6 +39,8 @@ MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 SystemCallFilter=@system-service
 SystemCallFilter=~@privileged @resources
-StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
-StateDirectoryMode=0750
+StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/cache serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
+# setgid (2) + group-write so dirs stay owned by the serviceradar group and the
+# non-root agent can write markers; systemd re-asserts this on every start.
+StateDirectoryMode=2770
 ReadWritePaths=/var/lib/serviceradar/endpoint-inventory

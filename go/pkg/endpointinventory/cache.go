@@ -55,10 +55,13 @@ func WriteCacheManifest(cfg Config, manifest *InventoryCacheManifest) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(cfg.CacheDir, 0750); err != nil {
+	// 0770 (group-writable) so both the root scanner and the non-root
+	// serviceradar agent can write the cache manifest via the shared
+	// serviceradar-group dirs.
+	if err := os.MkdirAll(cfg.CacheDir, 0770); err != nil {
 		return fmt.Errorf("create endpoint inventory cache dir: %w", err)
 	}
-	if err := os.MkdirAll(cfg.TmpDir, 0750); err != nil {
+	if err := os.MkdirAll(cfg.TmpDir, 0770); err != nil {
 		return fmt.Errorf("create tmp dir: %w", err)
 	}
 

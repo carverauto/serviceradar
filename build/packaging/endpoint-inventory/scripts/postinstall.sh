@@ -10,11 +10,32 @@ if ! id -u serviceradar >/dev/null 2>&1; then
 fi
 
 install -d -m 0755 /etc/serviceradar
-install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/endpoint-inventory
-install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/endpoint-inventory/profile
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/endpoint-inventory/spool
-install -d -o root -g serviceradar -m 0750 /var/lib/serviceradar/endpoint-inventory/spool/runs
-install -d -o root -g serviceradar -m 0770 /var/lib/serviceradar/endpoint-inventory/tmp
+# setgid (2) + group-write so the root scanner and the non-root serviceradar
+# agent can both write spool entries, cache manifests, runtime profiles, and
+# upload markers into the shared serviceradar-group dirs.
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory/profile
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory/cache
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory/spool
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory/spool/runs
+install -d -o root -g serviceradar -m 2770 /var/lib/serviceradar/endpoint-inventory/tmp
+
+# Re-assert modes on upgrade: `install -d` leaves the mode of pre-existing dirs
+# untouched, so older installs that created these at 0750 (and a root-owned
+# cache/ dir) must be relaxed to setgid group-writable so the non-root agent can
+# write upload markers and clear pending-upload.json.
+for d in \
+    /var/lib/serviceradar/endpoint-inventory \
+    /var/lib/serviceradar/endpoint-inventory/profile \
+    /var/lib/serviceradar/endpoint-inventory/cache \
+    /var/lib/serviceradar/endpoint-inventory/spool \
+    /var/lib/serviceradar/endpoint-inventory/spool/runs \
+    /var/lib/serviceradar/endpoint-inventory/tmp; do
+    if [ -d "$d" ]; then
+        chown root:serviceradar "$d" || true
+        chmod 2770 "$d" || true
+    fi
+done
 
 if [ -f /etc/serviceradar/endpoint-inventory.json ]; then
     chown root:serviceradar /etc/serviceradar/endpoint-inventory.json

@@ -7,18 +7,25 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 User=root
-Group=root
+# Group=serviceradar so the shared endpoint-inventory spool/cache/tmp/profile
+# dirs stay owned by the serviceradar group and the non-root agent can keep
+# writing upload markers after this scanner runs.
+Group=serviceradar
 WorkingDirectory=/var/lib/serviceradar/endpoint-inventory
 Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
 ExecStart=/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory -config /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/scalibr-endpoint-inventory.json
-UMask=0077
+# Group-writable umask so the non-root agent can write into the shared dirs.
+UMask=0007
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadOnlyPaths=/
 ReadWritePaths=/var/lib/serviceradar/endpoint-inventory
-StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
+StateDirectory=serviceradar/endpoint-inventory serviceradar/endpoint-inventory/profile serviceradar/endpoint-inventory/cache serviceradar/endpoint-inventory/spool serviceradar/endpoint-inventory/spool/runs serviceradar/endpoint-inventory/tmp
+# setgid (2) + group-write so dirs stay group-owned and group-writable across
+# every run; systemd re-asserts this on each start.
+StateDirectoryMode=2770
 
 [Install]
 WantedBy=multi-user.target

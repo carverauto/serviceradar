@@ -42,13 +42,16 @@ func WriteSpool(cfg Config, payload *ScanPayload) error {
 		return nil
 	}
 
-	if err := os.MkdirAll(cfg.SpoolDir, 0750); err != nil {
+	// 0770 (group-writable) so both the root scanner and the non-root
+	// serviceradar agent can write spool entries and upload markers into the
+	// shared serviceradar-group dirs.
+	if err := os.MkdirAll(cfg.SpoolDir, 0770); err != nil {
 		return fmt.Errorf("create spool dir: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Join(cfg.SpoolDir, "runs"), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Join(cfg.SpoolDir, "runs"), 0770); err != nil {
 		return fmt.Errorf("create run spool dir: %w", err)
 	}
-	if err := os.MkdirAll(cfg.TmpDir, 0750); err != nil {
+	if err := os.MkdirAll(cfg.TmpDir, 0770); err != nil {
 		return fmt.Errorf("create tmp dir: %w", err)
 	}
 
