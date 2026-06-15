@@ -64,6 +64,52 @@ defmodule ServiceRadar.Inventory.EndpointInventoryPackageSet do
     end)
   end
 
+  @doc """
+  Normalizes the package list carried in a delta wire payload (the `added`,
+  `removed`, and `changed` arrays). Each entry has the same shape as a full-set
+  package, so they reuse `normalize_package/1`.
+  """
+  def normalize_delta_packages(entries) when is_list(entries) do
+    entries
+    |> Enum.map(&normalize_package/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  def normalize_delta_packages(_entries), do: []
+
+  @doc """
+  Applies a normalized delta (added/removed/changed lists of normalized
+  packages) to the current package set and returns the reconstructed target set.
+
+  Packages are aligned by `identity_key/1` (manager+name+arch+ecosystem), which
+  is version independent, so a `changed` entry replaces the prior coordinate and
+  an `added` entry whose coordinate already exists also replaces it (idempotent).
+  The caller MUST verify the reconstructed set's `server_package_set_hash/1`
+  matches the delta's declared target hash before trusting it; this function does
+  not validate hashes itself.
+  """
+  def apply_delta(current_packages, %{added: added, removed: removed, changed: changed}) do
+    indexed = Map.new(current_packages, &{identity_key(&1), &1})
+
+    removed_keys = MapSet.new(removed, &identity_key/1)
+
+    indexed
+    |> Map.reject(fn {key, _package} -> MapSet.member?(removed_keys, key) end)
+    |> apply_delta_upserts(changed)
+    |> apply_delta_upserts(added)
+    |> Map.values()
+    |> Enum.uniq_by(fn package ->
+      package.purl_canonical ||
+        {package.package_manager, package.name, package.version, package.architecture}
+    end)
+  end
+
+  defp apply_delta_upserts(indexed, packages) do
+    Enum.reduce(packages, indexed, fn package, acc ->
+      Map.put(acc, identity_key(package), package)
+    end)
+  end
+
   def normalize_diagnostics(diagnostics) do
     diagnostics
     |> Enum.map(fn

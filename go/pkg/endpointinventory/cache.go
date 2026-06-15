@@ -83,8 +83,19 @@ func cacheCanSkipFullScan(cfg Config, manifest *InventoryCacheManifest, current 
 	if manifest == nil || manifest.PackageSetHash == "" || manifest.ArtifactHash == "" {
 		return false
 	}
+	if cfg.ForceFreshScan {
+		return false
+	}
 	if manifest.ServerReconcileRequestedAt != nil {
 		return false
+	}
+	// Cadence floor: if the package sources are unchanged and we already scanned
+	// within the configured cadence window, short-circuit to the cached
+	// unchanged payload rather than re-collecting. This caps the effective scan
+	// rate at ~cadence regardless of how frequently the timer / trigger fires,
+	// while still honoring a source mtime change (handled below) immediately.
+	if cadenceFloorActive(cfg, manifest) && sourceMTimesEqual(cfg.Sources, manifest.SourceMTimes, current) {
+		return true
 	}
 	if cfg.ForceFullScanInterval <= 1 {
 		return false
@@ -94,6 +105,22 @@ func cacheCanSkipFullScan(cfg Config, manifest *InventoryCacheManifest, current 
 	}
 
 	return sourceMTimesEqual(cfg.Sources, manifest.SourceMTimes, current)
+}
+
+// cadenceFloorActive reports whether the previous scan happened recently enough
+// (within the configured cadence) that a fresh full collection should be
+// skipped. A zero/invalid cadence disables the floor so behavior matches the
+// pre-existing source-mtime gate.
+func cadenceFloorActive(cfg Config, manifest *InventoryCacheManifest) bool {
+	cadence, err := time.ParseDuration(cfg.Cadence)
+	if err != nil || cadence <= 0 {
+		return false
+	}
+	if manifest.LastScanAt.IsZero() {
+		return false
+	}
+
+	return time.Since(manifest.LastScanAt) < cadence
 }
 
 func sourceMTimesEqual(sources []string, previous map[string]SourceMTime, current map[string]SourceMTime) bool {
