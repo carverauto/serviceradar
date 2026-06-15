@@ -29,7 +29,10 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   # per-second "rates" for the affected bucket. Converted to utilization these become
   # physically impossible (>>100% of link capacity) and poison the trend fit. Drop any
   # converted interface utilization above this ceiling as a counter artifact.
-  @max_interface_utilization_percent 1000.0
+  # A 1-hour average interface utilization physically cannot exceed 100% of link capacity;
+  # anything materially above that is an SNMP counter wrap/reset artifact in the rollup. Keep
+  # a small margin for measurement jitter, then drop the sample so it can't poison the trend.
+  @max_interface_utilization_percent 150.0
 
   # Safety net: even after dropping contaminated samples, refuse to persist an absurd
   # projection for a bounded-threshold metric (e.g. utilization_percent). A projected
@@ -527,8 +530,20 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
 
   defp resource_id(%Source{} = source, row) do
     source.key_fields
-    |> Enum.find_value(&string_value(row, &1))
+    |> Enum.find_value(&present_string_value(row, &1))
     |> Kernel.||(resource_key(source, row))
+  end
+
+  # A key field that is present but blank (e.g. the sysmon series uid resolves to "")
+  # must NOT be treated as the resource_id: an empty string is truthy in Elixir, so a raw
+  # find_value would return "" and short-circuit the resource_key fallback, producing a
+  # blank resource_id that fails the required-attribute check and halts the whole worker
+  # run (blocking every later source's forecasts too).
+  defp present_string_value(row, field) do
+    case string_value(row, field) do
+      value when value in [nil, ""] -> nil
+      value -> value
+    end
   end
 
   defp resource_label(%Source{label_fields: []} = source, _row), do: source.name
