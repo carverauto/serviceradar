@@ -151,13 +151,28 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # First run: initialize the watermark one hour back.
   @initial_lookback_seconds 3600
   @default_cleanup_batch_size 5_000
-  @cleanup_time_budget_ms 10_000
+  @default_cleanup_time_budget_ms 10_000
   @default_retention_days 3
+  @default_probe_timeout_ms 30_000
+  @default_upsert_timeout_ms 120_000
+  @default_watermark_timeout_ms 30_000
+  @default_cleanup_timeout_ms 60_000
+  @default_remaining_estimate_timeout_ms 30_000
 
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
   def watermark_key, do: @watermark_key
   def ingest_chunk_seconds, do: @ingest_chunk_seconds
+  def probe_timeout_ms, do: config_positive_integer(:probe_timeout_ms, @default_probe_timeout_ms)
+
+  def upsert_timeout_ms,
+    do: config_positive_integer(:upsert_timeout_ms, @default_upsert_timeout_ms)
+
+  def watermark_timeout_ms,
+    do: config_positive_integer(:watermark_timeout_ms, @default_watermark_timeout_ms)
+
+  def cleanup_timeout_ms,
+    do: config_positive_integer(:cleanup_timeout_ms, @default_cleanup_timeout_ms)
 
   @impl Oban.Worker
   def perform(_job) do
@@ -183,7 +198,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp read_watermark(now) do
-    case SQL.query(ServiceRadar.Repo, @read_watermark_sql, [@watermark_key], timeout: 10_000) do
+    case SQL.query(ServiceRadar.Repo, @read_watermark_sql, [@watermark_key],
+           timeout: watermark_timeout_ms()
+         ) do
       {:ok, %{rows: [[%DateTime{} = watermark]]}} ->
         watermark
 
@@ -226,7 +243,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              ServiceRadar.Repo,
              @upsert_sql,
              [window_start, window_end, retention_days()],
-             timeout: 60_000
+             timeout: upsert_timeout_ms()
            ) do
         {:ok, _result} ->
           :ok
@@ -256,7 +273,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     )
     """
 
-    case SQL.query(ServiceRadar.Repo, sql, [window_start, window_end], timeout: 5_000) do
+    case SQL.query(ServiceRadar.Repo, sql, [window_start, window_end],
+           timeout: probe_timeout_ms()
+         ) do
       {:ok, %{rows: [[true]]}} -> true
       {:ok, _result} -> false
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false
@@ -272,7 +291,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              ServiceRadar.Repo,
              @max_ingested_at_sql,
              [window_start, window_end],
-             timeout: 10_000
+             timeout: watermark_timeout_ms()
            ) do
         {:ok, %{rows: [[%DateTime{} = max_created_at]]}} ->
           max_created_at
@@ -288,7 +307,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
            ServiceRadar.Repo,
            @write_watermark_sql,
            [@watermark_key, new_watermark],
-           timeout: 10_000
+           timeout: watermark_timeout_ms()
          ) do
       {:ok, _result} ->
         :ok
@@ -308,14 +327,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp cleanup_old_summaries do
     batch_size = cleanup_batch_size()
     retention_days = retention_days()
-    deadline = System.monotonic_time(:millisecond) + @cleanup_time_budget_ms
+    deadline = System.monotonic_time(:millisecond) + cleanup_time_budget_ms()
 
     drain_cleanup(batch_size, retention_days, deadline, 0)
   end
 
   defp drain_cleanup(batch_size, retention_days, deadline, total_deleted) do
     case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size, retention_days],
-           timeout: 30_000
+           timeout: cleanup_timeout_ms()
          ) do
       {:ok, %{num_rows: deleted_rows}} ->
         total_deleted = total_deleted + deleted_rows
@@ -360,7 +379,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
            ServiceRadar.Repo,
            @remaining_estimate_sql,
            [retention_days, 50_000],
-           timeout: 10_000
+           timeout: remaining_estimate_timeout_ms()
          ) do
       {:ok, %{rows: [[count]]}} when is_integer(count) -> count
       _ -> nil
@@ -368,25 +387,29 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp retention_days do
-    :serviceradar_core
-    |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:retention_days, @default_retention_days)
-    |> positive_integer(@default_retention_days)
+    config_positive_integer(:retention_days, @default_retention_days)
   end
 
   defp cleanup_batch_size do
-    "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE"
-    |> System.get_env()
-    |> parse_positive_integer(@default_cleanup_batch_size)
+    config_positive_integer(:cleanup_batch_size, @default_cleanup_batch_size)
   end
 
-  defp parse_positive_integer(nil, default), do: default
+  defp cleanup_time_budget_ms do
+    config_positive_integer(:cleanup_time_budget_ms, @default_cleanup_time_budget_ms)
+  end
 
-  defp parse_positive_integer(value, default) do
-    case Integer.parse(value) do
-      {int, ""} when int > 0 -> int
-      _ -> default
-    end
+  defp remaining_estimate_timeout_ms do
+    config_positive_integer(
+      :remaining_estimate_timeout_ms,
+      @default_remaining_estimate_timeout_ms
+    )
+  end
+
+  defp config_positive_integer(key, default) do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(key, default)
+    |> positive_integer(default)
   end
 
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value

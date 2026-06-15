@@ -1,10 +1,45 @@
 defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorkerTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
 
+  setup do
+    original_config = Application.get_env(:serviceradar_core, RefreshTraceSummariesWorker)
+
+    on_exit(fn ->
+      if is_nil(original_config) do
+        Application.delete_env(:serviceradar_core, RefreshTraceSummariesWorker)
+      else
+        Application.put_env(:serviceradar_core, RefreshTraceSummariesWorker, original_config)
+      end
+    end)
+  end
+
   test "uses bounded ingest chunks for high-volume trace streams" do
     assert RefreshTraceSummariesWorker.ingest_chunk_seconds() == 300
+  end
+
+  test "uses production-safe query timeout defaults" do
+    Application.delete_env(:serviceradar_core, RefreshTraceSummariesWorker)
+
+    assert RefreshTraceSummariesWorker.probe_timeout_ms() == 30_000
+    assert RefreshTraceSummariesWorker.upsert_timeout_ms() == 120_000
+    assert RefreshTraceSummariesWorker.watermark_timeout_ms() == 30_000
+    assert RefreshTraceSummariesWorker.cleanup_timeout_ms() == 60_000
+  end
+
+  test "allows query timeouts to be overridden by runtime config" do
+    Application.put_env(:serviceradar_core, RefreshTraceSummariesWorker,
+      probe_timeout_ms: 45_000,
+      upsert_timeout_ms: 180_000,
+      watermark_timeout_ms: 40_000,
+      cleanup_timeout_ms: 90_000
+    )
+
+    assert RefreshTraceSummariesWorker.probe_timeout_ms() == 45_000
+    assert RefreshTraceSummariesWorker.upsert_timeout_ms() == 180_000
+    assert RefreshTraceSummariesWorker.watermark_timeout_ms() == 40_000
+    assert RefreshTraceSummariesWorker.cleanup_timeout_ms() == 90_000
   end
 
   describe "upsert_sql/0" do
