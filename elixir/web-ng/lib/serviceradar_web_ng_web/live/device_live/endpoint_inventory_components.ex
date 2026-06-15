@@ -409,7 +409,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     No package rows match the current filters.
                   </td>
                 </tr>
-                <tr :for={package <- @page_packages}>
+                <tr
+                  :for={package <- @page_packages}
+                  class="cursor-pointer hover"
+                  phx-click="endpoint_inventory_open_package"
+                  phx-value-ref={field(package, :id)}
+                  title="View package details"
+                >
                   <td class="font-medium">{field(package, :name)}</td>
                   <td class="font-mono text-xs">{empty_dash(field(package, :version))}</td>
                   <td>
@@ -457,6 +463,172 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         </div>
       </div>
     </section>
+    """
+  end
+
+  attr(:show, :boolean, default: false)
+  attr(:package, :any, default: nil)
+  attr(:matches, :list, default: [])
+
+  @doc """
+  Detail modal for a single Current Packages row. Renders the full package
+  coordinate plus any vulnerability matches scoped to this device + package.
+  """
+  def endpoint_inventory_package_modal(assigns) do
+    assigns = assign(assigns, :match_count, length(assigns.matches || []))
+
+    ~H"""
+    <div :if={@show and @package} class="modal modal-open" data-testid="endpoint-package-modal">
+      <div class="modal-box max-w-3xl">
+        <div class="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-bold">{field(@package, :name) || "Package"}</h3>
+            <p class="font-mono text-xs text-base-content/60">
+              {empty_dash(field(@package, :version))}
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="endpoint_inventory_close_package"
+            class="btn btn-sm btn-ghost"
+          >
+            Close
+          </button>
+        </div>
+
+        <div class="overflow-hidden rounded border border-base-300">
+          <table class="table table-sm">
+            <tbody>
+              <.detail_row label="Name" value={field(@package, :name)} />
+              <.detail_row label="Version" value={field(@package, :version)} mono />
+              <.detail_row label="Manager" value={field(@package, :package_manager)} />
+              <.detail_row label="Ecosystem" value={field(@package, :ecosystem)} />
+              <.detail_row label="Architecture" value={field(@package, :architecture)} mono />
+              <.detail_row label="PURL" value={field(@package, :purl_canonical)} mono />
+              <.detail_row
+                :if={
+                  field(@package, :purl) && field(@package, :purl) != field(@package, :purl_canonical)
+                }
+                label="PURL (raw)"
+                value={field(@package, :purl)}
+                mono
+              />
+              <.detail_row label="CPEs" value={cpe_display(field(@package, :cpes))} mono />
+              <.detail_row label="Source" value={field(@package, :source)} />
+              <.detail_row label="Coordinate" value={coordinate_display(@package)} mono />
+              <.detail_row label="First Seen" value={format_timestamp(field(@package, :inserted_at))} />
+              <.detail_row label="Last Seen" value={format_timestamp(field(@package, :updated_at))} />
+              <.detail_row label="Scan Ref" value={field(@package, :scan_ref)} mono />
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-4">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <h4 class="text-xs font-semibold uppercase text-base-content/60">
+              Vulnerability Details
+            </h4>
+            <span :if={@match_count > 0} class="badge badge-error badge-sm">
+              {@match_count} {if @match_count == 1, do: "match", else: "matches"}
+            </span>
+          </div>
+
+          <div
+            :if={@match_count == 0}
+            class="rounded border border-base-300 bg-base-200/40 px-3 py-4 text-center text-sm text-base-content/60"
+          >
+            No known vulnerabilities for this package.
+          </div>
+
+          <div :if={@match_count > 0} class="space-y-3">
+            <div
+              :for={match <- @matches}
+              class="rounded border border-base-300 p-3"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-1">
+                  <span class={[
+                    "badge badge-sm",
+                    vulnerability_severity_class(field(match, :severity))
+                  ]}>
+                    {vulnerability_severity(match)}
+                  </span>
+                  <span :if={field(match, :kev)} class="badge badge-error badge-sm">KEV</span>
+                  <span :if={field(match, :exploit_available)} class="badge badge-warning badge-sm">
+                    Exploit
+                  </span>
+                  <span class={["badge badge-sm", match_status_class(field(match, :status))]}>
+                    {String.capitalize(to_string(field(match, :status) || "unknown"))}
+                  </span>
+                </div>
+                <span class="font-mono text-xs text-base-content/60">
+                  CVSS {empty_dash(field(match, :cvss_score))}
+                </span>
+              </div>
+
+              <div class="mt-2 font-medium">
+                {field(match, :cve_id) || field(match, :advisory_id) || "Advisory"}
+                <span
+                  :if={
+                    field(match, :cve_id) && field(match, :advisory_id) &&
+                      field(match, :cve_id) != field(match, :advisory_id)
+                  }
+                  class="ml-1 font-mono text-xs text-base-content/60"
+                >
+                  ({field(match, :advisory_id)})
+                </span>
+              </div>
+
+              <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+                <div>
+                  <span class="text-base-content/50">Fixed Version:</span>
+                  <span class="font-mono">{empty_dash(field(match, :fixed_version))}</span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Coordinate:</span>
+                  <span class="font-mono">{match_coordinate(match)}</span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Source:</span>
+                  <span class="font-mono">
+                    {field(match, :provider)}{feed_suffix(field(match, :feed_key))}
+                  </span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Confidence:</span>
+                  <span>{String.capitalize(to_string(field(match, :confidence) || "unknown"))}</span>
+                </div>
+              </div>
+
+              <a
+                :for={url <- advisory_reference_urls(match)}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-2 inline-flex items-center gap-1 text-xs text-info hover:underline"
+              >
+                <.icon name="hero-arrow-top-right-on-square" class="h-3 w-3" />
+                {url}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop" phx-click="endpoint_inventory_close_package"></div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:mono, :boolean, default: false)
+
+  defp detail_row(assigns) do
+    ~H"""
+    <tr>
+      <th class="w-36 text-xs text-base-content/60">{@label}</th>
+      <td class={["break-all text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
+    </tr>
     """
   end
 
@@ -721,10 +893,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       tone: :warning,
       label: "No agent",
       title: "No enrolled endpoint inventory agent",
-      detail:
-        "Endpoint inventory cannot run until this device is associated with an enrolled agent.",
-      empty_message:
-        "No enrolled endpoint inventory agent or package inventory is available for this device."
+      detail: "Endpoint inventory cannot run until this device is associated with an enrolled agent.",
+      empty_message: "No enrolled endpoint inventory agent or package inventory is available for this device."
     }
   end
 
@@ -736,8 +906,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       title: "No endpoint inventory scan yet",
       detail:
         "This device has an agent identity, but no endpoint inventory scan has been ingested. Reconcile the endpoint inventory profile or refresh after the add-on checks in.",
-      empty_message:
-        "Endpoint inventory is available for this device, but no scan has reported yet."
+      empty_message: "Endpoint inventory is available for this device, but no scan has reported yet."
     }
   end
 
@@ -768,8 +937,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Failed",
           title: "Latest endpoint inventory scan failed",
           detail: reason,
-          empty_message:
-            "The latest endpoint inventory scan failed before package rows were accepted."
+          empty_message: "The latest endpoint inventory scan failed before package rows were accepted."
         }
 
       coverage == "partial" ->
@@ -785,10 +953,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           detail: reason,
           empty_message:
             if(loaded_count == 0,
-              do:
-                "The latest endpoint inventory scan is partial and produced no current package rows.",
-              else:
-                "The latest endpoint inventory scan is partial; loaded rows may be incomplete."
+              do: "The latest endpoint inventory scan is partial and produced no current package rows.",
+              else: "The latest endpoint inventory scan is partial; loaded rows may be incomplete."
             )
         }
 
@@ -802,8 +968,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           detail:
             diagnostic_reason(scan) ||
               "The scanner did not report a supported package source for this device.",
-          empty_message:
-            "Endpoint inventory has not found a supported package source on this device."
+          empty_message: "Endpoint inventory has not found a supported package source on this device."
         }
 
       coverage == "unknown" ->
@@ -824,8 +989,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Stale",
           title: "Latest successful scan is stale",
           detail: "The latest successful endpoint inventory scan is older than 24 hours.",
-          empty_message:
-            "No current package rows are available and the latest successful scan is stale."
+          empty_message: "No current package rows are available and the latest successful scan is stale."
         }
 
       loaded_count == 0 and coverage == "complete" ->
@@ -834,10 +998,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           tone: :info,
           label: "Empty",
           title: "Scan completed with no package rows",
-          detail:
-            "The scanner reported complete coverage, but no current package rows were loaded for this device.",
-          empty_message:
-            "The latest endpoint inventory scan completed, but it did not report current package rows."
+          detail: "The scanner reported complete coverage, but no current package rows were loaded for this device.",
+          empty_message: "The latest endpoint inventory scan completed, but it did not report current package rows."
         }
 
       true ->
@@ -847,8 +1009,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Complete",
           title: "Endpoint inventory is current",
           detail: "The latest endpoint inventory scan completed successfully.",
-          empty_message:
-            "No current package rows are available for the latest endpoint inventory scan."
+          empty_message: "No current package rows are available for the latest endpoint inventory scan."
         }
     end
   end
@@ -881,8 +1042,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     |> String.downcase()
   end
 
-  defp normalized_state(value) when is_atom(value),
-    do: value |> Atom.to_string() |> normalized_state()
+  defp normalized_state(value) when is_atom(value), do: value |> Atom.to_string() |> normalized_state()
 
   defp normalized_state(_value), do: nil
 
@@ -910,11 +1070,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp device_value(nil, _key), do: nil
 
-  defp device_value(%{} = row, "risk_score"),
-    do: Map.get(row, "risk_score") || Map.get(row, :risk_score)
+  defp device_value(%{} = row, "risk_score"), do: Map.get(row, "risk_score") || Map.get(row, :risk_score)
 
-  defp device_value(%{} = row, "risk_level"),
-    do: Map.get(row, "risk_level") || Map.get(row, :risk_level)
+  defp device_value(%{} = row, "risk_level"), do: Map.get(row, "risk_level") || Map.get(row, :risk_level)
 
   defp device_value(%{} = row, key), do: Map.get(row, key)
   defp device_value(_row, _key), do: nil
@@ -1055,6 +1213,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     end
   end
 
+  defp cpe_display(cpes) when is_list(cpes) do
+    cpes
+    |> Enum.reject(&blank?/1)
+    |> case do
+      [] -> nil
+      values -> Enum.join(values, ", ")
+    end
+  end
+
+  defp cpe_display(_cpes), do: nil
+
+  defp coordinate_display(package) do
+    field(package, :purl_canonical) || field(package, :purl) ||
+      List.first(field(package, :cpes) || [])
+  end
+
+  defp match_coordinate(match) do
+    type = field(match, :coordinate_type)
+    value = field(match, :coordinate_value)
+
+    [type, value]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(": ")
+    |> case do
+      "" -> "-"
+      coordinate -> coordinate
+    end
+  end
+
+  defp match_status_class(status) when is_binary(status) do
+    case String.downcase(status) do
+      "active" -> "badge-error"
+      "resolved" -> "badge-success"
+      "suppressed" -> "badge-ghost"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp match_status_class(_status), do: "badge-ghost"
+
+  defp feed_suffix(nil), do: ""
+  defp feed_suffix(""), do: ""
+  defp feed_suffix(feed_key), do: " / #{feed_key}"
+
+  defp advisory_reference_urls(match) do
+    match
+    |> field(:advisory)
+    |> case do
+      %{} = advisory -> field(advisory, :references)
+      _ -> nil
+    end
+    |> List.wrap()
+    |> Enum.filter(&reference_url?/1)
+    |> Enum.take(5)
+  end
+
+  defp reference_url?(value) when is_binary(value) do
+    String.starts_with?(value, "http://") or String.starts_with?(value, "https://")
+  end
+
+  defp reference_url?(_value), do: false
+
   defp scan_status_class("scanned"), do: "badge-success"
   defp scan_status_class("upload_deferred"), do: "badge-warning"
   defp scan_status_class("scan_failed"), do: "badge-error"
@@ -1077,8 +1297,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp truncate_hash(nil), do: nil
 
-  defp truncate_hash(value) when is_binary(value) and byte_size(value) > 18,
-    do: String.slice(value, 0, 18) <> "..."
+  defp truncate_hash(value) when is_binary(value) and byte_size(value) > 18, do: String.slice(value, 0, 18) <> "..."
 
   defp truncate_hash(value), do: value
 
@@ -1107,11 +1326,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_073_741_824,
     do: "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
 
-  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576,
-    do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576, do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
 
-  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1024,
-    do: "#{Float.round(bytes / 1024, 1)} KiB"
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1024, do: "#{Float.round(bytes / 1024, 1)} KiB"
 
   defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_bytes(_bytes), do: "-"

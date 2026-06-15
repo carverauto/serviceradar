@@ -63,22 +63,49 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   """
   def load_packages(scope, device_uid, package_opts \\ [])
 
-  def load_packages(scope, device_uid, package_opts)
-      when is_binary(device_uid) and device_uid != "" do
+  def load_packages(scope, device_uid, package_opts) when is_binary(device_uid) and device_uid != "" do
     case read_current_packages(scope, device_uid, package_opts) do
       {:ok, page} ->
         {:ok, Map.put(page, :stored_package_count, read_stored_package_count(scope, device_uid))}
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load endpoint inventory packages for #{device_uid}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load endpoint inventory packages for #{device_uid}: #{inspect(reason)}")
 
         :error
     end
   end
 
   def load_packages(_scope, _device_uid, _package_opts), do: :error
+
+  @doc """
+  Loads every vulnerability match (any status) for a single endpoint package on a
+  device, with the advisory relationship preloaded so the package-detail modal can
+  link out to references. Returns a list (empty when no matches or on failure).
+  """
+  def load_package_vulnerabilities(scope, device_uid, endpoint_package_ref)
+      when is_binary(device_uid) and device_uid != "" and is_binary(endpoint_package_ref) and endpoint_package_ref != "" do
+    EndpointVulnerabilityMatch
+    |> Ash.Query.for_read(
+      :current_by_device_and_package,
+      %{device_uid: device_uid, endpoint_package_ref: endpoint_package_ref},
+      scope: scope
+    )
+    |> Ash.Query.limit(@match_limit)
+    |> Ash.read(scope: scope)
+    |> case do
+      {:ok, matches} ->
+        matches
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load package vulnerabilities for #{device_uid}/#{endpoint_package_ref}: #{inspect(reason)}"
+        )
+
+        []
+    end
+  end
+
+  def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: []
 
   defp empty do
     %{
@@ -196,9 +223,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         matches
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load endpoint vulnerability matches for #{device_uid}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load endpoint vulnerability matches for #{device_uid}: #{inspect(reason)}")
 
         []
     end

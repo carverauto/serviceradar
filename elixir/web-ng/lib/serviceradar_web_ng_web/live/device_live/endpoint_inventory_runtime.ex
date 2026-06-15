@@ -32,6 +32,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:endpoint_inventory_force_refresh_running, false)
     |> assign(:endpoint_inventory_cohort_running, false)
     |> assign(:endpoint_inventory_pending_command_ids, MapSet.new())
+    |> assign(:show_endpoint_inventory_package_modal, false)
+    |> assign(:endpoint_inventory_selected_package, nil)
+    |> assign(:endpoint_inventory_selected_package_matches, [])
   end
 
   def dispatch_device_query(socket, params, opts \\ []) when is_map(params) do
@@ -136,8 +139,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     end
   end
 
-  def apply_command_update(socket, kind, msg)
-      when kind in [:ack, :progress, :result] and is_map(msg) do
+  def apply_command_update(socket, kind, msg) when kind in [:ack, :progress, :result] and is_map(msg) do
     command_type = map_get(msg, :command_type)
 
     if endpoint_inventory_command_type?(command_type) and relevant_command_update?(socket, msg) do
@@ -216,6 +218,66 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:endpoint_inventory_package_page, clamp_page(page, total_pages(socket)))
     |> reload_packages()
   end
+
+  @doc """
+  Opens the package-detail modal for the package row with the given id. The row is
+  taken from the already-loaded page; its vulnerability matches are queried scoped
+  to the device and the package's `endpoint_package_ref`.
+  """
+  def open_package_detail(socket, package_ref) when is_binary(package_ref) do
+    packages = socket.assigns[:endpoint_inventory_packages] || []
+
+    case Enum.find(packages, &(package_id(&1) == package_ref)) do
+      nil ->
+        socket
+
+      package ->
+        matches =
+          EndpointInventoryData.load_package_vulnerabilities(
+            Map.get(socket.assigns, :current_scope),
+            socket.assigns[:device_uid],
+            endpoint_package_ref(package)
+          )
+
+        socket
+        |> assign(:endpoint_inventory_selected_package, package)
+        |> assign(:endpoint_inventory_selected_package_matches, matches)
+        |> assign(:show_endpoint_inventory_package_modal, true)
+    end
+  end
+
+  def open_package_detail(socket, _package_ref), do: socket
+
+  @doc """
+  Closes the package-detail modal and clears its selection.
+  """
+  def close_package_detail(socket) do
+    socket
+    |> assign(:show_endpoint_inventory_package_modal, false)
+    |> assign(:endpoint_inventory_selected_package, nil)
+    |> assign(:endpoint_inventory_selected_package_matches, [])
+  end
+
+  defp package_id(package) do
+    package
+    |> field(:id)
+    |> to_string_or_nil()
+  end
+
+  defp endpoint_package_ref(package) do
+    package
+    |> field(:endpoint_package_ref)
+    |> to_string_or_nil()
+  end
+
+  defp field(row, key) when is_map(row) do
+    Map.get(row, key) || Map.get(row, to_string(key))
+  end
+
+  defp field(_row, _key), do: nil
+
+  defp to_string_or_nil(nil), do: nil
+  defp to_string_or_nil(value), do: to_string(value)
 
   defp reload_packages(socket) do
     scope = Map.get(socket.assigns, :current_scope)
@@ -323,8 +385,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> maybe_assign_result_error(success?, msg)
   end
 
-  defp maybe_assign_result_error(socket, true, _msg),
-    do: assign(socket, :endpoint_inventory_command_error, nil)
+  defp maybe_assign_result_error(socket, true, _msg), do: assign(socket, :endpoint_inventory_command_error, nil)
 
   defp maybe_assign_result_error(socket, false, msg) do
     assign(
@@ -478,8 +539,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     }
   end
 
-  defp partition_id(socket),
-    do: device_field(socket.assigns[:device_row], "partition_id") || "default"
+  defp partition_id(socket), do: device_field(socket.assigns[:device_row], "partition_id") || "default"
 
   defp actor(socket), do: socket.assigns.current_scope.user
 
