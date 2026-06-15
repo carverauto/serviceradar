@@ -933,7 +933,17 @@ if config_env() == :prod do
       "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
   config :serviceradar_core, RefreshTraceSummariesWorker,
-    retention_days: trace_summary_retention_days
+    retention_days: trace_summary_retention_days,
+    cleanup_batch_size: "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE" |> parse_int_env.(5_000) |> max(1),
+    cleanup_time_budget_ms:
+      "TRACE_SUMMARIES_CLEANUP_TIME_BUDGET_MS" |> parse_int_env.(10_000) |> max(1),
+    probe_timeout_ms: "TRACE_SUMMARIES_PROBE_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1),
+    upsert_timeout_ms: "TRACE_SUMMARIES_UPSERT_TIMEOUT_MS" |> parse_int_env.(120_000) |> max(1),
+    watermark_timeout_ms:
+      "TRACE_SUMMARIES_WATERMARK_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1),
+    cleanup_timeout_ms: "TRACE_SUMMARIES_CLEANUP_TIMEOUT_MS" |> parse_int_env.(60_000) |> max(1),
+    remaining_estimate_timeout_ms:
+      "TRACE_SUMMARIES_REMAINING_ESTIMATE_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1)
 
   config :serviceradar_core, RootSpanRatioWorker,
     threshold: root_span_ratio_threshold,
@@ -1120,8 +1130,7 @@ if config_env() == :prod do
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
       integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
-      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5")
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
     ],
     plugins: [
       Oban.Plugins.Pruner,
@@ -1383,13 +1392,30 @@ if config_env() == :prod do
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
+      # Flow control: bound per-consumer in-flight (max_ack_pending) so up to ~9
+      # PUSH consumers cannot flood the single producer mailbox (the OOM
+      # regression). All tunable without a rebuild via env.
+      max_ack_pending: String.to_integer(System.get_env("EVENT_WRITER_MAX_ACK_PENDING") || "256"),
+      processor_concurrency:
+        String.to_integer(System.get_env("EVENT_WRITER_PROCESSOR_CONCURRENCY") || "10"),
+      ack_wait_ns:
+        String.to_integer(System.get_env("EVENT_WRITER_ACK_WAIT_SECONDS") || "120") *
+          1_000_000_000,
+      max_deliver: String.to_integer(System.get_env("EVENT_WRITER_MAX_DELIVER") || "5"),
       streams: [
         %{
           name: "EVENTS",
           subject: "events.>",
           processor: ServiceRadar.EventWriter.Processors.Events,
           batch_size: 100,
-          batch_timeout: 1_000
+          batch_timeout: 1_000,
+          # Retention guard: drop oldest if the consumer falls behind instead of
+          # growing the shared `events` stream until core OOMs (8 GiB / 24h).
+          stream_retention: "limits",
+          stream_storage: "file",
+          stream_discard: "old",
+          stream_max_bytes: 8_589_934_592,
+          stream_max_age: 86_400_000_000_000
         },
         %{
           name: "PDNS_OCSF",

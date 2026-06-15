@@ -33,6 +33,12 @@ import (
 
 const collectorName = "serviceradar-endpoint-inventory"
 
+// collectorVersion identifies the legacy endpoint-inventory collector build. It
+// is surfaced on every ScanPayload so the core ingest path and UI can attribute
+// a scan to a concrete collector revision instead of showing an empty/"None"
+// version. Keep this in sync with addons/endpoint-inventory/addon.yaml.
+const collectorVersion = "0.1.1"
+
 const (
 	scanStateFailed       = "scan_failed"
 	scanStateNotScanned   = "not_scanned"
@@ -122,6 +128,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 		SchemaVersion:        SchemaVersion,
 		AgentID:              r.cfg.AgentID,
 		ScanID:               newScanID(),
+		CollectorVersion:     collectorVersion,
 		State:                state,
 		CoverageState:        coverage,
 		ConfigHash:           configHash,
@@ -142,6 +149,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 	if uploadReason == UploadReasonChanged {
 		payload.SBOM = &sbom
+		payload.PackageDelta = changedScanDelta(cache, packages, packageSetHash, serverReconcileRequested)
 		if serverReconcileRequested {
 			payload.Metadata["reason"] = metadataReasonServerReconcileFloor
 			payload.Metadata["server_reconcile_requested_at"] = cache.ServerReconcileRequestedAt
@@ -160,18 +168,50 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	return payload, nil
 }
 
+// changedScanDelta computes the change-only delta for a changed upload relative
+// to the previously uploaded package set. It returns nil (forcing core to
+// consume the full SBOM anchor) when there is no trustworthy prior state to diff
+// against: a first-ever upload, a server-requested reconcile (which must resync
+// from a full anchor), or a missing/empty last-uploaded hash. The delta's base
+// hash is the previously uploaded hash so core can verify it still holds that
+// exact state before applying.
+func changedScanDelta(
+	cache *InventoryCacheManifest,
+	packages []Package,
+	targetHash string,
+	serverReconcileRequested bool,
+) *PackageSetDelta {
+	if cache == nil || serverReconcileRequested {
+		return nil
+	}
+	baseHash := strings.TrimSpace(cache.LastUploadedPackageSetHash)
+	if baseHash == "" {
+		return nil
+	}
+	// Guard: the stored package set must actually correspond to the last
+	// uploaded hash. fullScanManifest persists the current packages on every
+	// full scan, and MarkUploadSucceeded records the hash that was uploaded;
+	// they align when the last full scan was the one that got uploaded.
+	if strings.TrimSpace(cache.PackageSetHash) != baseHash {
+		return nil
+	}
+
+	return ComputePackageSetDelta(cache.Packages, packages, baseHash, targetHash)
+}
+
 func disabledPayload(cfg Config, scannedAt time.Time, configHash string) *ScanPayload {
 	return &ScanPayload{
-		SchemaVersion:  SchemaVersion,
-		AgentID:        cfg.AgentID,
-		ScanID:         "endpoint-inventory-disabled",
-		State:          scanStateNotScanned,
-		CoverageState:  coverageDisabled,
-		ConfigHash:     configHash,
-		LastScanAt:     scannedAt,
-		EnabledPlugins: append([]string(nil), cfg.Sources...),
-		Diagnostics:    []SourceSummary{},
-		Metadata:       withMetadataValue(collectionPolicyMetadata(cfg), "reason", "disabled"),
+		SchemaVersion:    SchemaVersion,
+		AgentID:          cfg.AgentID,
+		ScanID:           "endpoint-inventory-disabled",
+		CollectorVersion: collectorVersion,
+		State:            scanStateNotScanned,
+		CoverageState:    coverageDisabled,
+		ConfigHash:       configHash,
+		LastScanAt:       scannedAt,
+		EnabledPlugins:   append([]string(nil), cfg.Sources...),
+		Diagnostics:      []SourceSummary{},
+		Metadata:         withMetadataValue(collectionPolicyMetadata(cfg), "reason", "disabled"),
 	}
 }
 
@@ -185,6 +225,7 @@ func (r *Runner) unchangedPayload(
 		SchemaVersion:        SchemaVersion,
 		AgentID:              r.cfg.AgentID,
 		ScanID:               newScanID(),
+		CollectorVersion:     collectorVersion,
 		State:                scanStateUnchanged,
 		CoverageState:        coverageUnchanged,
 		ConfigHash:           computeConfigHash(r.cfg),
@@ -271,19 +312,20 @@ func failurePayload(
 	configHash string,
 ) *ScanPayload {
 	return &ScanPayload{
-		SchemaVersion:   SchemaVersion,
-		AgentID:         cfg.AgentID,
-		ScanID:          newScanID(),
-		State:           scanStateFailed,
-		CoverageState:   coverageFailed,
-		ConfigHash:      configHash,
-		LastScanAt:      scannedAt,
-		OS:              osInfo,
-		EnabledPlugins:  append([]string(nil), cfg.Sources...),
-		DetectedPlugins: detectedSources(sources),
-		Diagnostics:     scannerDiagnostics(sources),
-		Truncated:       summariesTruncated(sources),
-		Metadata:        withMetadataValue(collectionPolicyMetadata(cfg), "error", err.Error()),
+		SchemaVersion:    SchemaVersion,
+		AgentID:          cfg.AgentID,
+		ScanID:           newScanID(),
+		CollectorVersion: collectorVersion,
+		State:            scanStateFailed,
+		CoverageState:    coverageFailed,
+		ConfigHash:       configHash,
+		LastScanAt:       scannedAt,
+		OS:               osInfo,
+		EnabledPlugins:   append([]string(nil), cfg.Sources...),
+		DetectedPlugins:  detectedSources(sources),
+		Diagnostics:      scannerDiagnostics(sources),
+		Truncated:        summariesTruncated(sources),
+		Metadata:         withMetadataValue(collectionPolicyMetadata(cfg), "error", err.Error()),
 	}
 }
 

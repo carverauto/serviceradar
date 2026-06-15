@@ -10,16 +10,31 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
       |> Enum.map(& &1.query)
 
     assert Enum.all?(queries, &String.contains?(&1, "time:last_30d"))
-    assert Enum.all?(queries, &String.contains?(&1, "sort:bucket:desc"))
+
+    assert Enum.all?(
+             queries,
+             &(String.contains?(&1, "sort:bucket:desc") or
+                 String.contains?(&1, "sort:timestamp:desc"))
+           )
+
     assert Enum.all?(queries, &String.contains?(&1, "limit:123"))
     refute Enum.any?(queries, &String.contains?(&1, "sort:bucket:asc"))
   end
 
-  test "defaults avoid raw generic timeseries values because counters are stored as cumulative ramps" do
+  test "defaults use normalized sysmon timeseries and interface counter rollups" do
     sources = Source.defaults()
 
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))
-    refute Enum.any?(sources, &String.contains?(&1.query, "in:timeseries_metrics"))
+
+    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"memory.used_percent"|))
+    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"disk.used_percent"|))
+    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"process.count"|))
+
+    assert Enum.all?(
+             Enum.filter(sources, &String.contains?(&1.query, "in:timeseries_metrics")),
+             &(&1.value_field == "value" and &1.bucket_field == "timestamp")
+           )
 
     assert Enum.any?(
              sources,

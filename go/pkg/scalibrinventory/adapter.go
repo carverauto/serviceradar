@@ -42,6 +42,7 @@ import (
 	scalibrinventory "github.com/google/osv-scalibr/inventory"
 	"github.com/google/osv-scalibr/plugin"
 	"github.com/google/osv-scalibr/result"
+	"github.com/google/osv-scalibr/stats"
 )
 
 const (
@@ -423,6 +424,10 @@ func runScaLibrFilesystemScan(
 		ScanRoots:      scanRoots,
 		MaxInodes:      cfg.MaxInodes,
 		MaxFileSize:    cfg.MaxFileSize,
+		// osv-scalibr's filesystem walker calls stats.AfterInodeVisited on every inode
+		// with no nil guard (extractor/filesystem/filesystem.go), so a nil Stats panics on
+		// the first inode of every scan. Provide the library's no-op collector.
+		Stats: stats.NoopCollector{},
 	})
 
 	ended := time.Now().UTC()

@@ -469,7 +469,8 @@ func (p *PushLoop) applySystemdAddon(
 	delivery, supervision string,
 	now time.Time,
 ) addonDeliveryDisposition {
-	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" && p.systemdAddonAssignmentCurrent(a, "") {
+	if delivery == addonDeliveryPushedArtifact && a.GetArtifactObjectKey() != "" &&
+		p.systemdAddonAssignmentCurrent(a, "") && p.systemdAddonPrimaryUnitActive(ctx, a, supervision) {
 		p.logger.Debug().
 			Str("addon", a.GetAddonId()).
 			Str("version", a.GetVersion()).
@@ -548,6 +549,50 @@ func (p *PushLoop) systemdAddonAssignmentCurrent(a *proto.AddonAssignmentConfig,
 			addonAssignmentConfigSHA256(a.GetConfigJson()),
 			units,
 		)
+}
+
+// systemdAddonPrimaryUnitActive reports whether the add-on's primary (enable) systemd unit
+// is actually present and active on the host. The staged-artifact/activation-metadata
+// checks in systemdAddonAssignmentCurrent only prove the bundle is on disk; they do not
+// catch a unit file that was never installed or was removed/stopped out-of-band (e.g. the
+// netprobe sidecar unit going missing, which silently freezes process-listener snapshots).
+// Gating the unchanged-skip on this lets the next delivery/poll re-install + re-enable a
+// vanished or stopped unit instead of treating the add-on as healthy forever.
+func (p *PushLoop) systemdAddonPrimaryUnitActive(ctx context.Context, a *proto.AddonAssignmentConfig, supervision string) bool {
+	units := p.systemdAddonUnits(a.GetAddonId())
+	if len(units) == 0 {
+		return false
+	}
+
+	enable, err := pickPrimarySystemdUnit(units, supervision)
+	if err != nil || strings.TrimSpace(enable) == "" {
+		return false
+	}
+
+	if systemdUnitActive(ctx, enable) {
+		return true
+	}
+
+	p.logger.Warn().
+		Str("addon", a.GetAddonId()).
+		Str("unit", enable).
+		Msg("Add-on systemd unit is missing or inactive; reconciling (reinstall + enable)")
+
+	return false
+}
+
+// systemdUnitActive reports whether a systemd unit is currently active. is-active is a
+// non-privileged read, so the agent can probe host state directly; a missing unit file
+// also reports inactive, so this catches both the never-installed and stopped cases.
+func systemdUnitActive(ctx context.Context, unit string) bool {
+	if validateAddonUnitName(unit) != nil {
+		return false
+	}
+
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	return runSystemctl(checkCtx, "is-active", "--quiet", unit) == nil
 }
 
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned

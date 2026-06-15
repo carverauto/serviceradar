@@ -994,9 +994,69 @@ func sysmonNetworkMetrics(sample *sysmon.MetricSample, observedAt uint64) []*met
 }
 
 func sysmonProcessMetrics(sample *sysmon.MetricSample, observedAt uint64) []*metricpb.Metric {
-	return []*metricpb.Metric{
+	metrics := []*metricpb.Metric{
 		gaugeMetric("process.count", "sysmon.process", "{process}", float64(len(sample.Processes)), observedAt, nil),
 	}
+
+	if len(sample.Processes) == 0 {
+		return metrics
+	}
+
+	cpu := &metricpb.Metric{
+		Name:       "process.cpu_usage",
+		MetricType: "sysmon.process",
+		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
+		Unit:       "%",
+		Points:     make([]*metricpb.MetricPoint, 0, len(sample.Processes)),
+	}
+
+	memory := &metricpb.Metric{
+		Name:       "process.memory_usage",
+		MetricType: "sysmon.process",
+		Kind:       metricpb.MetricKind_METRIC_KIND_GAUGE,
+		Unit:       "By",
+		Points:     make([]*metricpb.MetricPoint, 0, len(sample.Processes)),
+	}
+
+	for _, process := range sample.Processes {
+		attrs := processAttributes(process)
+		seriesHint := processSeriesHint(process)
+
+		cpu.Points = append(cpu.Points, &metricpb.MetricPoint{
+			Value:              float64(process.CPUUsage),
+			RawValue:           strconv.FormatFloat(float64(process.CPUUsage), 'f', -1, 64),
+			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_DOUBLE,
+			ObservedAtUnixNano: observedAt,
+			SeriesIdentityHint: seriesHint,
+			Attributes:         entries(attrs),
+		})
+
+		memory.Points = append(memory.Points, &metricpb.MetricPoint{
+			Value:              float64(process.MemoryUsage),
+			RawValue:           strconv.FormatUint(process.MemoryUsage, 10),
+			RawValueType:       metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64,
+			ObservedAtUnixNano: observedAt,
+			SeriesIdentityHint: seriesHint,
+			Attributes:         entries(attrs),
+		})
+	}
+
+	metrics = append(metrics, cpu, memory)
+
+	return metrics
+}
+
+func processAttributes(process sysmon.ProcessMetric) map[string]string {
+	return map[string]string{
+		"pid":        strconv.FormatUint(uint64(process.PID), 10),
+		"name":       process.Name,
+		"status":     process.Status,
+		"start_time": process.StartTime,
+	}
+}
+
+func processSeriesHint(process sysmon.ProcessMetric) string {
+	return fmt.Sprintf("process:%d:%s", process.PID, strings.TrimSpace(process.Name))
 }
 
 func gaugeMetric(name, metricType, unit string, value float64, observedAt uint64, attrs map[string]string) *metricpb.Metric {

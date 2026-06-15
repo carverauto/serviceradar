@@ -19,6 +19,7 @@ package endpointinventory
 import (
 	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -34,6 +35,78 @@ func PayloadRequiresFullUpload(payload *ScanPayload) bool {
 		payload.PackageSetHash != "" &&
 		payload.ArtifactHash != "" &&
 		payload.SBOM != nil
+}
+
+// stableUnchangedScanIDPrefix prefixes the deterministic scan id minted for an
+// already-acknowledged unchanged status so the value is identical across scans.
+const stableUnchangedScanIDPrefix = "unchanged-"
+
+// IsUploadedUnchangedScan reports whether a status payload represents a scan
+// whose package set is unchanged and has already been acknowledged upstream
+// (the manifest's last-uploaded hashes match the payload). Such a payload
+// carries no new information for core and must not generate fresh ingest rows
+// on every heartbeat.
+func IsUploadedUnchangedScan(payload *ScanPayload, manifest *InventoryCacheManifest) bool {
+	if payload == nil || manifest == nil {
+		return false
+	}
+	if payload.SBOM != nil || PayloadRequiresFullUpload(payload) {
+		return false
+	}
+	if manifest.PendingUpload != nil {
+		return false
+	}
+	if payload.PackageSetHash == "" || payload.ArtifactHash == "" {
+		return false
+	}
+
+	return manifest.LastUploadedPackageSetHash == payload.PackageSetHash &&
+		manifest.LastUploadedArtifactHash == payload.ArtifactHash
+}
+
+// StabilizeUnchangedScanPayload normalizes the volatile fields of an
+// already-acknowledged unchanged status so repeated emissions produce a
+// byte-identical payload. The scan id is replaced with a deterministic value
+// derived from the package-set hash, per-scan timestamps and durations are
+// cleared, and the upload reason is pinned to unchanged. The package-set and
+// artifact hashes (the identity-bearing fields core reconciles against) are
+// preserved.
+func StabilizeUnchangedScanPayload(payload *ScanPayload) {
+	if payload == nil {
+		return
+	}
+
+	payload.ScanID = StableUnchangedScanID(payload.PackageSetHash)
+	payload.UploadReason = UploadReasonUnchanged
+	payload.SBOM = nil
+	payload.State = scanStateUnchanged
+	payload.CoverageState = coverageUnchanged
+	payload.LastScanAt = time.Time{}
+	payload.LastSuccessfulScanAt = nil
+	payload.DurationMillis = 0
+
+	if payload.Metadata == nil {
+		payload.Metadata = map[string]any{}
+	}
+	payload.Metadata["reason"] = "upload_already_acknowledged"
+	// Drop volatile counters that change every scan but carry no ingest value.
+	delete(payload.Metadata, "scans_since_full")
+	delete(payload.Metadata, "server_reconcile_requested_at")
+}
+
+// StableUnchangedScanID derives a deterministic scan id for an unchanged
+// status from the package-set hash so the value is stable across scans. Falling
+// back to a fixed sentinel keeps the signature stable even when the hash is
+// somehow empty (which IsUploadedUnchangedScan already guards against).
+func StableUnchangedScanID(packageSetHash string) string {
+	hash := strings.TrimSpace(packageSetHash)
+	if hash == "" {
+		return stableUnchangedScanIDPrefix + "unknown"
+	}
+
+	sum := sha256.Sum256([]byte(hash))
+
+	return stableUnchangedScanIDPrefix + hex.EncodeToString(sum[:16])
 }
 
 func PendingUploadDue(cfg Config, manifest *InventoryCacheManifest, now time.Time) bool {

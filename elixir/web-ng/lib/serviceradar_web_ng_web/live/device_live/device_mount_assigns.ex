@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
 
@@ -25,8 +26,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_scan, nil)
     |> assign(:endpoint_inventory_scans, [])
     |> assign(:endpoint_inventory_packages, [])
+    |> assign(:endpoint_inventory_package_total, 0)
+    |> assign(:endpoint_inventory_package_page, 1)
+    |> assign(:endpoint_inventory_package_page_size, EndpointInventoryData.default_page_size())
+    |> assign(:endpoint_inventory_stored_package_count, 0)
     |> assign(:endpoint_inventory_artifacts, [])
     |> assign(:endpoint_inventory_vulnerability_matches, [])
+    |> assign(:show_endpoint_inventory_package_modal, false)
+    |> assign(:endpoint_inventory_selected_package, nil)
+    |> assign(:endpoint_inventory_selected_package_matches, [])
     |> assign(:endpoint_inventory_error, nil)
     |> assign(:has_software_inventory, false)
     |> assign(:bumblebee_postures, [])
@@ -37,6 +45,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:has_virtualization_guests, false)
     |> assign(:sweep_results, nil)
     |> assign(:process_metrics, nil)
+    |> assign(:process_metrics_search, "")
+    |> assign(:process_metrics_page, 1)
+    |> assign(:process_listeners_search, "")
+    |> assign(:process_listeners_page, 1)
     |> assign(:can_view_anomaly_capacity, false)
     |> assign(:anomaly_capacity, AnomalyCapacityData.empty())
     |> assign(:limit, Keyword.fetch!(opts, :default_limit))
