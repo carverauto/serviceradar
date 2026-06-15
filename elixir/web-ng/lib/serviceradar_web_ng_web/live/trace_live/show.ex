@@ -7,8 +7,13 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
   import ServiceRadarWebNGWeb.UIComponents
 
+  alias ServiceRadarWebNGWeb.SRQL.Builder
+  alias ServiceRadarWebNGWeb.SRQL.Page, as: SRQLPage
+
   @span_limit 1000
   @log_limit 50
+  # Limit forwarded to the observability traces pane when the SRQL bar submits.
+  @srql_limit 20
   # Padding applied around the trace's own start/end when querying logs.
   @log_window_pad_seconds 300
   @nanos_per_second 1_000_000_000
@@ -53,7 +58,7 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   def normalize_span_id(_value), do: :error
 
   @impl true
-  def mount(_params, _session, socket) do
+  def mount(params, _session, socket) do
     {:ok,
      socket
      |> assign(:page_title, "Trace")
@@ -73,7 +78,10 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
      |> assign(:logs, [])
      |> assign(:logs_query, nil)
      |> assign(:logs_error, nil)
-     |> assign(:error, nil)}
+     |> assign(:error, nil)
+     |> assign(:limit, @srql_limit)
+     |> SRQLPage.init("otel_trace_summaries", default_limit: @srql_limit)
+     |> prefill_srql_bar(params)}
   end
 
   @impl true
@@ -116,10 +124,42 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
     {:noreply, socket |> assign(:expanded_idx, expanded) |> assign(:highlight_idx, nil)}
   end
 
+  def handle_event("srql_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_change", params)}
+  end
+
+  def handle_event("srql_submit", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_submit", params, fallback_path: "/observability")}
+  end
+
+  def handle_event("srql_builder_toggle", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_toggle", %{}, entity: "otel_trace_summaries")}
+  end
+
+  def handle_event("srql_builder_change", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_change", params)}
+  end
+
+  def handle_event("srql_builder_apply", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_apply", %{})}
+  end
+
+  def handle_event("srql_builder_run", _params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_run", %{}, fallback_path: "/observability")}
+  end
+
+  def handle_event("srql_builder_add_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_add_filter", params, entity: "otel_trace_summaries")}
+  end
+
+  def handle_event("srql_builder_remove_filter", params, socket) do
+    {:noreply, SRQLPage.handle_event(socket, "srql_builder_remove_filter", params, entity: "otel_trace_summaries")}
+  end
+
   @impl true
   def render(assigns) do
     ~H"""
-    <Layouts.app flash={@flash} current_scope={@current_scope}>
+    <Layouts.app flash={@flash} current_scope={@current_scope} srql={@srql}>
       <div class="mx-auto max-w-7xl p-6">
         <.header>
           Trace
@@ -535,7 +575,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
       end
 
     socket
-    |> assign(:root_service, non_empty(Map.get(summary, "root_service_name")) || (first_root && first_root.service))
+    |> assign(
+      :root_service,
+      non_empty(Map.get(summary, "root_service_name")) ||
+        (first_root && first_root.service) ||
+        first_service(Map.get(summary, "service_set"))
+    )
     |> assign(:root_operation, non_empty(Map.get(summary, "root_span_name")) || (first_root && first_root.name))
     |> assign(:duration_ms, to_number(Map.get(summary, "duration_ms")) || computed_duration)
     |> assign(:span_count, span_count)
@@ -900,6 +945,14 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
 
   defp non_empty(_value), do: nil
 
+  # Orphan traces have a NULL root_service_name in the summary but still record
+  # the services seen on the trace in service_set; use the first as a fallback.
+  defp first_service(services) when is_list(services) do
+    Enum.find_value(services, &non_empty/1)
+  end
+
+  defp first_service(_value), do: nil
+
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)
 
@@ -946,6 +999,40 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
+
+  # Prefills the shared SRQL bar with a trace-summary query for the current
+  # trace. Submitting the bar routes through the entity catalog, so trace
+  # summary queries land on /observability?tab=traces.
+  defp prefill_srql_bar(socket, params) do
+    case normalize_trace_id(Map.get(params, "trace_id")) do
+      {:ok, trace_id} ->
+        query = ~s(in:otel_trace_summaries trace_id:"#{trace_id}")
+
+        srql =
+          socket.assigns.srql
+          |> Map.merge(%{
+            query: query,
+            draft: query,
+            page_path: "/observability/traces/#{trace_id}"
+          })
+          |> sync_builder_state(query)
+
+        assign(socket, :srql, srql)
+
+      :error ->
+        socket
+    end
+  end
+
+  defp sync_builder_state(srql, query) do
+    case Builder.parse(query) do
+      {:ok, builder} ->
+        Map.merge(srql, %{builder: builder, builder_supported: true, builder_sync: true})
+
+      {:error, _reason} ->
+        Map.merge(srql, %{builder_supported: false, builder_sync: false})
+    end
+  end
 
   defp srql_module do
     Application.get_env(:serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL)

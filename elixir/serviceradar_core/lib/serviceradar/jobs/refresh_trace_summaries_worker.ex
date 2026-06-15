@@ -16,8 +16,12 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
      remain or a bounded time budget expires.
 
   Root spans are detected via `parent_span_id IS NULL` (the canonical id
-  contract maps `''`/all-zero parents to NULL at ingest); error counting uses
-  OTLP STATUS_ERROR (`status_code = 2`) only.
+  contract maps `''`/all-zero parents to NULL at ingest). When a trace has no
+  such span — common for "orphan" traces whose real root was never exported —
+  the earliest span (min `start_time_unix_nano`) stands in as the
+  representative root, so `root_service_name`/`root_span_name` are populated
+  rather than NULL. Error counting uses OTLP STATUS_ERROR (`status_code = 2`)
+  only.
   """
 
   use Oban.Worker,
@@ -34,7 +38,39 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Upsert traces whose spans were ingested within (`$1`, `$2`].
   # For each matching trace_id, aggregates ALL its spans inside the configured
   # retention window.
+  #
+  # Root naming uses the trace's true root span (`parent_span_id IS NULL`) when
+  # present. Many traces in practice are "orphans": every exported span points
+  # at a parent that was never exported (the real root belongs to an
+  # un-instrumented or sampled-out caller), so no span has a NULL parent. For
+  # those traces we fall back to the earliest span (min start_time_unix_nano,
+  # tie-broken by span_id) as the representative root so the summary — and the
+  # traces list/detail UI that reads it — still shows a service + operation
+  # name instead of blanks. The chosen-root attributes are computed once per
+  # trace in `roots` via DISTINCT ON and joined to the per-trace aggregate.
   @upsert_sql """
+  WITH candidates AS (
+    SELECT t.trace_id, t.span_id, t.parent_span_id, t.name, t.service_name,
+           t.service_namespace, t.deployment_environment, t.kind,
+           t.status_code, t.status_message, t.start_time_unix_nano,
+           (t.parent_span_id IS NULL) AS is_root
+    FROM otel_traces t
+    WHERE t.trace_id IN (
+      SELECT DISTINCT trace_id FROM otel_traces
+      WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
+    )
+    AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
+    AND t.trace_id IS NOT NULL
+  ),
+  roots AS (
+    SELECT DISTINCT ON (trace_id)
+      trace_id, span_id, name, service_name, service_namespace,
+      deployment_environment, kind, status_code, status_message
+    FROM candidates
+    -- Prefer a true root span; otherwise the earliest span stands in as root.
+    ORDER BY trace_id, is_root DESC,
+             start_time_unix_nano ASC NULLS LAST, span_id ASC
+  )
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
     root_service_namespace, deployment_environment,
@@ -44,29 +80,31 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   SELECT
     t.trace_id,
     max(t.timestamp),
-    max(t.span_id) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.name) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.service_name) FILTER (WHERE t.parent_span_id IS NULL),
-    COALESCE(max(t.service_namespace) FILTER (WHERE t.parent_span_id IS NULL), ''),
-    COALESCE(max(t.deployment_environment) FILTER (WHERE t.parent_span_id IS NULL), ''),
-    max(t.kind) FILTER (WHERE t.parent_span_id IS NULL),
+    r.span_id,
+    r.name,
+    r.service_name,
+    COALESCE(r.service_namespace, ''),
+    COALESCE(r.deployment_environment, ''),
+    r.kind,
     min(t.start_time_unix_nano),
     max(t.end_time_unix_nano),
     (max(t.end_time_unix_nano) - min(t.start_time_unix_nano))::float8 / 1000000.0,
-    max(t.status_code) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.status_message) FILTER (WHERE t.parent_span_id IS NULL),
+    r.status_code,
+    r.status_message,
     array_agg(DISTINCT t.service_name) FILTER (WHERE t.service_name IS NOT NULL),
     count(*),
     count(*) FILTER (WHERE t.status_code = 2),
     NOW()
   FROM otel_traces t
+  JOIN roots r ON r.trace_id = t.trace_id
   WHERE t.trace_id IN (
     SELECT DISTINCT trace_id FROM otel_traces
     WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
   )
   AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
   AND t.trace_id IS NOT NULL
-  GROUP BY t.trace_id
+  GROUP BY t.trace_id, r.span_id, r.name, r.service_name, r.service_namespace,
+           r.deployment_environment, r.kind, r.status_code, r.status_message
   ON CONFLICT (trace_id) DO UPDATE SET
     timestamp = EXCLUDED.timestamp,
     root_span_id = EXCLUDED.root_span_id,
