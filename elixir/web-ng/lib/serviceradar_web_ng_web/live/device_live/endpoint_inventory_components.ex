@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:scan, :any, default: nil)
   attr(:scans, :list, default: [])
   attr(:packages, :list, default: [])
+  attr(:package_total, :integer, default: 0)
+  attr(:package_page, :integer, default: 1)
+  attr(:package_page_size, :integer, default: 100)
+  attr(:stored_package_count, :integer, default: 0)
   attr(:artifacts, :list, default: [])
   attr(:vulnerability_matches, :list, default: [])
   attr(:error, :string, default: nil)
@@ -26,21 +30,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:cohort_running, :boolean, default: false)
 
   def endpoint_inventory_section(assigns) do
+    page_packages = assigns.packages || []
+    page_size = max(assigns.package_page_size || 100, 1)
+    total = assigns.package_total || length(page_packages)
+    stored_total = assigns.stored_package_count || total
+    page = max(assigns.package_page || 1, 1)
+    total_pages = max(1, ceil(total / page_size))
+    page = min(page, total_pages)
+    first_row = if total == 0, do: 0, else: (page - 1) * page_size + 1
+    last_row = min(page * page_size, total)
+
     assigns =
       assigns
       |> assign(:package_filter_params, form_params(assigns.package_filter_form))
-      |> assign(:filtered_packages, filter_packages(assigns.packages || [], form_params(assigns.package_filter_form)))
-      |> assign(:package_count, length(assigns.packages || []))
-      |> assign(
-        :filtered_package_count,
-        length(filter_packages(assigns.packages || [], form_params(assigns.package_filter_form)))
-      )
+      # `@packages` is already the server-side filtered + paginated page.
+      |> assign(:page_packages, page_packages)
+      |> assign(:package_total, total)
+      |> assign(:stored_package_count, stored_total)
+      |> assign(:current_page, page)
+      |> assign(:total_pages, total_pages)
+      |> assign(:first_row, first_row)
+      |> assign(:last_row, last_row)
       |> assign(:scan_count, length(assigns.scans || []))
       |> assign(:risk_score, device_value(assigns.device_row, "risk_score"))
       |> assign(:risk_level, device_value(assigns.device_row, "risk_level"))
       |> assign(
         :software_state,
-        software_state(assigns.scan, assigns.packages || [], assigns.has_inventory, assigns.show_controls)
+        software_state(assigns.scan, stored_total, assigns.has_inventory, assigns.show_controls)
       )
 
     ~H"""
@@ -52,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <div>
           <h2 class="text-sm font-semibold text-base-content">Endpoint Software</h2>
           <p class="text-xs text-base-content/60">
-            {@package_count} current package rows | {@scan_count} scans
+            {@stored_package_count} current package rows | {@scan_count} scans
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -68,16 +84,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       <.software_state_notice state={@software_state} />
 
       <div
-        :if={inventory_row_mismatch?(@scan, @package_count)}
+        :if={inventory_row_mismatch?(@scan, @stored_package_count)}
         class="mx-4 mt-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-content"
       >
-        The latest scan reported {inventory_count(@scan, @package_count)} packages, but only {@package_count} current package rows are loaded. Check ingest, row retention, and source diagnostics before treating this inventory as complete.
+        The latest scan reported {inventory_count(@scan, @stored_package_count)} packages, but only {@stored_package_count} current package rows are stored. Check ingest, row retention, and source diagnostics before treating this inventory as complete.
       </div>
 
       <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div class="space-y-4">
           <div class="grid grid-cols-2 gap-3">
-            <.summary_stat label="Packages" value={inventory_count(@scan, @package_count)} />
+            <.summary_stat label="Packages" value={inventory_count(@scan, @stored_package_count)} />
             <.summary_stat label="Scans" value={@scan_count} />
             <.summary_stat label="Risk Score" value={risk_score_display(@risk_score)} />
             <.summary_stat label="Risk Level" value={risk_level_display(@risk_level)} />
@@ -323,7 +339,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     Current Packages
                   </h3>
                   <p class="text-xs text-base-content/60">
-                    Showing {@filtered_package_count} of {@package_count} loaded rows
+                    {package_range_label(@first_row, @last_row, @package_total)}
+                    <span :if={package_filters_active?(@package_filter_params)}>
+                      (of {@stored_package_count} total)
+                    </span>
                   </p>
                 </div>
                 <span
@@ -380,17 +399,23 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 </tr>
               </thead>
               <tbody>
-                <tr :if={@package_count == 0}>
+                <tr :if={@package_total == 0 and @stored_package_count == 0}>
                   <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
                     {field(@software_state, :empty_message)}
                   </td>
                 </tr>
-                <tr :if={@package_count > 0 and @filtered_packages == []}>
+                <tr :if={@package_total == 0 and @stored_package_count > 0}>
                   <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
                     No package rows match the current filters.
                   </td>
                 </tr>
-                <tr :for={package <- @filtered_packages}>
+                <tr
+                  :for={package <- @page_packages}
+                  class="cursor-pointer hover"
+                  phx-click="endpoint_inventory_open_package"
+                  phx-value-ref={field(package, :id)}
+                  title="View package details"
+                >
                   <td class="font-medium">{field(package, :name)}</td>
                   <td class="font-mono text-xs">{empty_dash(field(package, :version))}</td>
                   <td>
@@ -405,10 +430,205 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 </tr>
               </tbody>
             </table>
+
+            <div
+              :if={@total_pages > 1}
+              class="flex items-center justify-between gap-2 border-t border-base-300 bg-base-200/30 px-3 py-2"
+            >
+              <span class="text-xs text-base-content/60">
+                Page {@current_page} of {@total_pages}
+              </span>
+              <div class="join">
+                <button
+                  type="button"
+                  class="btn btn-xs join-item"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page - 1}
+                  disabled={@current_page <= 1}
+                >
+                  <.icon name="hero-chevron-left" class="h-3 w-3" /> Prev
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs join-item"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page + 1}
+                  disabled={@current_page >= @total_pages}
+                >
+                  Next <.icon name="hero-chevron-right" class="h-3 w-3" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
     </section>
+    """
+  end
+
+  attr(:show, :boolean, default: false)
+  attr(:package, :any, default: nil)
+  attr(:matches, :list, default: [])
+
+  @doc """
+  Detail modal for a single Current Packages row. Renders the full package
+  coordinate plus any vulnerability matches scoped to this device + package.
+  """
+  def endpoint_inventory_package_modal(assigns) do
+    assigns = assign(assigns, :match_count, length(assigns.matches || []))
+
+    ~H"""
+    <div :if={@show and @package} class="modal modal-open" data-testid="endpoint-package-modal">
+      <div class="modal-box max-w-3xl">
+        <div class="mb-3 flex items-start justify-between gap-3">
+          <div>
+            <h3 class="text-lg font-bold">{field(@package, :name) || "Package"}</h3>
+            <p class="font-mono text-xs text-base-content/60">
+              {empty_dash(field(@package, :version))}
+            </p>
+          </div>
+          <button
+            type="button"
+            phx-click="endpoint_inventory_close_package"
+            class="btn btn-sm btn-ghost"
+          >
+            Close
+          </button>
+        </div>
+
+        <div class="overflow-hidden rounded border border-base-300">
+          <table class="table table-sm">
+            <tbody>
+              <.detail_row label="Name" value={field(@package, :name)} />
+              <.detail_row label="Version" value={field(@package, :version)} mono />
+              <.detail_row label="Manager" value={field(@package, :package_manager)} />
+              <.detail_row label="Ecosystem" value={field(@package, :ecosystem)} />
+              <.detail_row label="Architecture" value={field(@package, :architecture)} mono />
+              <.detail_row label="PURL" value={field(@package, :purl_canonical)} mono />
+              <.detail_row
+                :if={
+                  field(@package, :purl) && field(@package, :purl) != field(@package, :purl_canonical)
+                }
+                label="PURL (raw)"
+                value={field(@package, :purl)}
+                mono
+              />
+              <.detail_row label="CPEs" value={cpe_display(field(@package, :cpes))} mono />
+              <.detail_row label="Source" value={field(@package, :source)} />
+              <.detail_row label="Coordinate" value={coordinate_display(@package)} mono />
+              <.detail_row label="First Seen" value={format_timestamp(field(@package, :inserted_at))} />
+              <.detail_row label="Last Seen" value={format_timestamp(field(@package, :updated_at))} />
+              <.detail_row label="Scan Ref" value={field(@package, :scan_ref)} mono />
+            </tbody>
+          </table>
+        </div>
+
+        <div class="mt-4">
+          <div class="mb-2 flex items-center justify-between gap-2">
+            <h4 class="text-xs font-semibold uppercase text-base-content/60">
+              Vulnerability Details
+            </h4>
+            <span :if={@match_count > 0} class="badge badge-error badge-sm">
+              {@match_count} {if @match_count == 1, do: "match", else: "matches"}
+            </span>
+          </div>
+
+          <div
+            :if={@match_count == 0}
+            class="rounded border border-base-300 bg-base-200/40 px-3 py-4 text-center text-sm text-base-content/60"
+          >
+            No known vulnerabilities for this package.
+          </div>
+
+          <div :if={@match_count > 0} class="space-y-3">
+            <div
+              :for={match <- @matches}
+              class="rounded border border-base-300 p-3"
+            >
+              <div class="flex flex-wrap items-center justify-between gap-2">
+                <div class="flex flex-wrap items-center gap-1">
+                  <span class={[
+                    "badge badge-sm",
+                    vulnerability_severity_class(field(match, :severity))
+                  ]}>
+                    {vulnerability_severity(match)}
+                  </span>
+                  <span :if={field(match, :kev)} class="badge badge-error badge-sm">KEV</span>
+                  <span :if={field(match, :exploit_available)} class="badge badge-warning badge-sm">
+                    Exploit
+                  </span>
+                  <span class={["badge badge-sm", match_status_class(field(match, :status))]}>
+                    {String.capitalize(to_string(field(match, :status) || "unknown"))}
+                  </span>
+                </div>
+                <span class="font-mono text-xs text-base-content/60">
+                  CVSS {empty_dash(field(match, :cvss_score))}
+                </span>
+              </div>
+
+              <div class="mt-2 font-medium">
+                {field(match, :cve_id) || field(match, :advisory_id) || "Advisory"}
+                <span
+                  :if={
+                    field(match, :cve_id) && field(match, :advisory_id) &&
+                      field(match, :cve_id) != field(match, :advisory_id)
+                  }
+                  class="ml-1 font-mono text-xs text-base-content/60"
+                >
+                  ({field(match, :advisory_id)})
+                </span>
+              </div>
+
+              <div class="mt-2 grid gap-x-4 gap-y-1 text-xs sm:grid-cols-2">
+                <div>
+                  <span class="text-base-content/50">Fixed Version:</span>
+                  <span class="font-mono">{empty_dash(field(match, :fixed_version))}</span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Coordinate:</span>
+                  <span class="font-mono">{match_coordinate(match)}</span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Source:</span>
+                  <span class="font-mono">
+                    {field(match, :provider)}{feed_suffix(field(match, :feed_key))}
+                  </span>
+                </div>
+                <div>
+                  <span class="text-base-content/50">Confidence:</span>
+                  <span>{String.capitalize(to_string(field(match, :confidence) || "unknown"))}</span>
+                </div>
+              </div>
+
+              <a
+                :for={url <- advisory_reference_urls(match)}
+                href={url}
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-2 inline-flex items-center gap-1 text-xs text-info hover:underline"
+              >
+                <.icon name="hero-arrow-top-right-on-square" class="h-3 w-3" />
+                {url}
+              </a>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-backdrop" phx-click="endpoint_inventory_close_package"></div>
+    </div>
+    """
+  end
+
+  attr(:label, :string, required: true)
+  attr(:value, :any, required: true)
+  attr(:mono, :boolean, default: false)
+
+  defp detail_row(assigns) do
+    ~H"""
+    <tr>
+      <th class="w-36 text-xs text-base-content/60">{@label}</th>
+      <td class={["break-all text-xs", @mono && "font-mono"]}>{empty_dash(@value)}</td>
+    </tr>
     """
   end
 
@@ -661,66 +881,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp package_filters_active?(_params), do: false
 
-  defp filter_packages(packages, params) do
-    filters = %{
-      q: normalized_filter(Map.get(params, "q")),
-      package_manager: normalized_filter(Map.get(params, "package_manager")),
-      version: normalized_filter(Map.get(params, "version")),
-      purl: normalized_filter(Map.get(params, "purl")),
-      cpe: normalized_filter(Map.get(params, "cpe"))
-    }
+  defp package_range_label(_first, _last, 0), do: "No packages"
 
-    Enum.filter(packages, &package_matches?(&1, filters))
+  defp package_range_label(first, last, total) do
+    "Showing #{first}-#{last} of #{total}"
   end
-
-  defp package_matches?(package, filters) do
-    matches_query?(package, filters.q) and
-      matches_field?(field(package, :package_manager), filters.package_manager) and
-      matches_field?(field(package, :version), filters.version) and
-      matches_any?([field(package, :purl_canonical), field(package, :purl)], filters.purl) and
-      matches_any?(field(package, :cpes) || [], filters.cpe)
-  end
-
-  defp matches_query?(_package, nil), do: true
-
-  defp matches_query?(package, query) do
-    values = [
-      field(package, :name),
-      field(package, :version),
-      field(package, :package_manager),
-      field(package, :architecture),
-      field(package, :purl_canonical),
-      field(package, :purl)
-    ]
-
-    matches_any?(values ++ (field(package, :cpes) || []), query)
-  end
-
-  defp matches_field?(_value, nil), do: true
-  defp matches_field?(value, filter), do: value |> normalized_filter() |> contains_filter?(filter)
-
-  defp matches_any?(_values, nil), do: true
-
-  defp matches_any?(values, filter) do
-    values
-    |> List.wrap()
-    |> Enum.any?(&(&1 |> normalized_filter() |> contains_filter?(filter)))
-  end
-
-  defp contains_filter?(nil, _filter), do: false
-  defp contains_filter?(value, filter), do: String.contains?(value, filter)
-
-  defp normalized_filter(value) when is_binary(value) do
-    value =
-      value
-      |> String.trim()
-      |> String.downcase()
-
-    if value == "", do: nil, else: value
-  end
-
-  defp normalized_filter(nil), do: nil
-  defp normalized_filter(value), do: value |> to_string() |> normalized_filter()
 
   defp software_state(nil, _packages, false, false) do
     %{
@@ -745,10 +910,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     }
   end
 
-  defp software_state(scan, packages, _has_inventory, _show_controls) do
+  defp software_state(scan, stored_count, _has_inventory, _show_controls) do
     state = scan |> field(:state) |> normalized_state()
     coverage = scan |> field(:coverage_state) |> normalized_state()
-    loaded_count = length(packages || [])
+    loaded_count = stored_count || 0
 
     cond do
       state == "disabled" or coverage == "disabled" ->
@@ -762,7 +927,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         }
 
       state in ["scan_failed", "failed"] or coverage == "failed" ->
-        reason = diagnostic_reason(scan) || "Check source diagnostics and collector logs for the failure reason."
+        reason =
+          diagnostic_reason(scan) ||
+            "Check source diagnostics and collector logs for the failure reason."
 
         %{
           show: true,
@@ -791,7 +958,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             )
         }
 
-      state in ["not_scanned", "not_supported"] or coverage in ["not_scanned", "no_supported_package_source"] ->
+      state in ["not_scanned", "not_supported"] or
+          coverage in ["not_scanned", "no_supported_package_source"] ->
         %{
           show: true,
           tone: :warning,
@@ -875,6 +1043,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   end
 
   defp normalized_state(value) when is_atom(value), do: value |> Atom.to_string() |> normalized_state()
+
   defp normalized_state(_value), do: nil
 
   defp software_state_class(:error), do: "border-error/40 bg-error/10 text-error"
@@ -1043,6 +1212,68 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       _ -> %{}
     end
   end
+
+  defp cpe_display(cpes) when is_list(cpes) do
+    cpes
+    |> Enum.reject(&blank?/1)
+    |> case do
+      [] -> nil
+      values -> Enum.join(values, ", ")
+    end
+  end
+
+  defp cpe_display(_cpes), do: nil
+
+  defp coordinate_display(package) do
+    field(package, :purl_canonical) || field(package, :purl) ||
+      List.first(field(package, :cpes) || [])
+  end
+
+  defp match_coordinate(match) do
+    type = field(match, :coordinate_type)
+    value = field(match, :coordinate_value)
+
+    [type, value]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join(": ")
+    |> case do
+      "" -> "-"
+      coordinate -> coordinate
+    end
+  end
+
+  defp match_status_class(status) when is_binary(status) do
+    case String.downcase(status) do
+      "active" -> "badge-error"
+      "resolved" -> "badge-success"
+      "suppressed" -> "badge-ghost"
+      _ -> "badge-ghost"
+    end
+  end
+
+  defp match_status_class(_status), do: "badge-ghost"
+
+  defp feed_suffix(nil), do: ""
+  defp feed_suffix(""), do: ""
+  defp feed_suffix(feed_key), do: " / #{feed_key}"
+
+  defp advisory_reference_urls(match) do
+    match
+    |> field(:advisory)
+    |> case do
+      %{} = advisory -> field(advisory, :references)
+      _ -> nil
+    end
+    |> List.wrap()
+    |> Enum.filter(&reference_url?/1)
+    |> Enum.take(5)
+  end
+
+  defp reference_url?(value) when is_binary(value) do
+    String.starts_with?(value, "http://") or String.starts_with?(value, "https://")
+  end
+
+  defp reference_url?(_value), do: false
 
   defp scan_status_class("scanned"), do: "badge-success"
   defp scan_status_class("upload_deferred"), do: "badge-warning"
