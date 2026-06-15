@@ -10,10 +10,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   require Logger
 
   @metrics_limit 300
-  @disk_panel_limit 6
-  @disk_metrics_limit @metrics_limit * @disk_panel_limit
-  @process_limit 25
-  @process_query_limit 200
+  @disk_metrics_limit @metrics_limit
+  @process_query_limit 10_000
 
   defp escape_value(value) when is_binary(value) do
     value
@@ -23,9 +21,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp escape_value(other), do: escape_value(to_string(other))
 
-  defp present?(value) when is_binary(value), do: String.trim(value) != ""
-  defp present?(value), do: not is_nil(value)
-
   defp format_error(%Jason.DecodeError{} = err), do: Exception.message(err)
   defp format_error(%ArgumentError{} = err), do: Exception.message(err)
   defp format_error(reason) when is_binary(reason), do: reason
@@ -34,51 +29,98 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   def load_process_metrics(_srql_module, [], _scope), do: []
 
   def load_process_metrics(srql_module, filter_tokens, scope) do
-    query = process_metrics_query(filter_tokens)
+    cpu_query = process_metric_query("process.cpu_usage", filter_tokens)
+    memory_query = process_metric_query("process.memory_usage", filter_tokens)
 
-    case srql_module.query(query, %{scope: scope}) do
-      {:ok, %{"results" => results}} when is_list(results) ->
-        normalize_process_rows(results)
-
-      {:ok, other} ->
-        Logger.warning(
-          "Unexpected sysmon process_metrics SRQL response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
-        )
-
-        []
-
-      {:error, reason} ->
-        Logger.warning(
-          "Failed to load sysmon process_metrics for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
-        )
-
-        []
+    with {:ok, cpu_rows} <- query_process_metric(srql_module, cpu_query, filter_tokens, scope),
+         {:ok, memory_rows} <- query_process_metric(srql_module, memory_query, filter_tokens, scope) do
+      normalize_process_rows(cpu_rows, memory_rows)
+    else
+      {:error, _reason} -> []
     end
   end
 
-  defp process_metrics_query(filter_tokens) do
-    [
-      "in:process_metrics",
-      "time:last_15m"
-    ]
-    |> Kernel.++(filter_tokens)
-    |> Kernel.++(["sort:timestamp:desc", "limit:#{@process_query_limit}"])
-    |> Enum.join(" ")
+  defp query_process_metric(srql_module, query, filter_tokens, scope) do
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) ->
+        {:ok, results}
+
+      {:ok, other} ->
+        Logger.warning(
+          "Unexpected sysmon process timeseries SRQL response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
+        )
+
+        {:error, {:unexpected_response, other}}
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to load sysmon process timeseries for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
+        )
+
+        {:error, reason}
+    end
   end
 
-  defp normalize_process_rows(rows) when is_list(rows) do
+  defp process_metric_query(metric_name, filter_tokens) do
+    timeseries_metric_query(
+      "sysmon.process",
+      metric_name,
+      filter_tokens,
+      nil,
+      @process_query_limit,
+      time_range: "last_15m",
+      bucket?: false
+    )
+  end
+
+  defp normalize_process_rows(cpu_rows, memory_rows) when is_list(cpu_rows) and is_list(memory_rows) do
+    memory_by_process = latest_process_metric_by_identity(memory_rows, "memory_usage")
+
+    cpu_rows
+    |> latest_process_metric_by_identity("cpu_usage")
+    |> Enum.map(fn {identity, row} ->
+      memory_row = Map.get(memory_by_process, identity, %{})
+
+      row
+      |> Map.put("memory_usage", Map.get(memory_row, "memory_usage"))
+      |> Map.put_new("status", Map.get(memory_row, "status"))
+      |> Map.put_new("start_time", Map.get(memory_row, "start_time"))
+    end)
+    |> Enum.sort_by(&process_cpu_sort_key/1, :desc)
+  end
+
+  defp normalize_process_rows(_cpu_rows, _memory_rows), do: []
+
+  defp latest_process_metric_by_identity(rows, value_field) do
     rows
     |> Enum.filter(&is_map/1)
+    |> Enum.map(&normalize_process_metric_row(&1, value_field))
+    |> Enum.reject(&is_nil/1)
     |> Enum.sort_by(&timestamp_sort_key/1, :desc)
     |> Enum.reduce(%{}, fn row, acc ->
       Map.put_new(acc, process_identity(row), row)
     end)
-    |> Map.values()
-    |> Enum.sort_by(&process_cpu_sort_key/1, :desc)
-    |> Enum.take(@process_limit)
   end
 
-  defp normalize_process_rows(_), do: []
+  defp normalize_process_metric_row(row, value_field) when is_map(row) do
+    tags = map_value(row, "tags") || %{}
+
+    with pid when not is_nil(pid) <- map_value(tags, "pid"),
+         name when is_binary(name) <- map_value(tags, "name") do
+      %{
+        "pid" => pid,
+        "name" => name,
+        "status" => map_value(tags, "status"),
+        "start_time" => map_value(tags, "start_time"),
+        "timestamp" => map_value(row, "timestamp"),
+        value_field => map_value(row, "value")
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp normalize_process_metric_row(_row, _value_field), do: nil
 
   defp process_identity(row) when is_map(row) do
     {Map.get(row, "pid"), Map.get(row, "name")}
@@ -109,7 +151,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_cpu_section(srql_module, filter_tokens, scope) do
-    query = metric_query("cpu_metrics", filter_tokens, nil, "usage_percent", @metrics_limit)
+    query =
+      timeseries_metric_query(
+        "sysmon.cpu",
+        "cpu.usage_percent",
+        filter_tokens,
+        nil,
+        @metrics_limit
+      )
 
     base = %{
       key: "cpu",
@@ -143,46 +192,38 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_memory_section(srql_module, filter_tokens, scope) do
-    series_limit = @metrics_limit
-    used_query = metric_query("memory_metrics", filter_tokens, nil, "used_bytes", series_limit)
-
-    available_query =
-      metric_query("memory_metrics", filter_tokens, nil, "available_bytes", series_limit)
+    query =
+      timeseries_metric_query(
+        "sysmon.memory",
+        "memory.used_percent",
+        filter_tokens,
+        nil,
+        @metrics_limit
+      )
 
     base = %{
       key: "memory",
       title: "Memory",
-      subtitle: "last 24h · 5m buckets · avg",
-      query: used_query,
+      subtitle: "last 24h · 5m buckets · used percent",
+      query: query,
       panels: [],
-      error: nil
+      error: nil,
+      header_value: nil,
+      header_stats: nil
     }
 
-    with {:ok, %{"results" => used_rows}} when is_list(used_rows) <-
-           srql_module.query(used_query, %{scope: scope}),
-         {:ok, %{"results" => available_rows}} when is_list(available_rows) <-
-           srql_module.query(available_query, %{scope: scope}) do
-      combined =
-        used_rows
-        |> build_series_rows("Used", "bytes")
-        |> Kernel.++(build_series_rows(available_rows, "Available", "bytes"))
-        |> sort_rows_by_timestamp()
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        normalized = normalize_metric_results(results, "used_percent")
+        viz = timeseries_viz("used_percent", nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        header_value = latest_metric_value(normalized, "used_percent")
+        header_stats = metric_stats(normalized, "used_percent")
+        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
 
-      if combined == [] do
+      {:ok, %{"results" => results}} when is_list(results) ->
         base
-      else
-        viz = timeseries_viz("bytes", "series")
-        panels = build_metric_panels(%{"results" => combined, "viz" => viz}, combined, "series")
 
-        panels =
-          apply_panel_assigns(panels, %{
-            combine_all_series: true,
-            combined_title: "Memory (Used vs Available)"
-          })
-
-        %{base | panels: panels}
-      end
-    else
       {:ok, other} ->
         %{base | error: "unexpected SRQL response: #{inspect(other)}"}
 
@@ -192,144 +233,44 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   end
 
   defp build_disk_section(srql_module, filter_tokens, scope) do
-    series_field = resolve_disk_series_field(srql_module, filter_tokens, scope)
-
-    used_query =
-      metric_query("disk_metrics", filter_tokens, series_field, "used_bytes", @disk_metrics_limit)
-
-    total_query =
-      metric_query(
-        "disk_metrics",
+    query =
+      timeseries_metric_query(
+        "sysmon.disk",
+        "disk.used_percent",
         filter_tokens,
-        series_field,
-        "total_bytes",
+        nil,
         @disk_metrics_limit
       )
 
     base = %{
       key: "disk",
       title: "Disk",
-      subtitle: "last 24h · 5m buckets · avg",
-      query: used_query,
+      subtitle: "last 24h · 5m buckets · used percent",
+      query: query,
       panels: [],
-      error: nil
+      error: nil,
+      header_value: nil,
+      header_stats: nil
     }
 
-    with {:ok, %{"results" => used_rows}} when is_list(used_rows) <-
-           srql_module.query(used_query, %{scope: scope}),
-         {:ok, %{"results" => total_rows}} when is_list(total_rows) <-
-           srql_module.query(total_query, %{scope: scope}) do
-      panels = build_disk_panels(used_rows, total_rows)
-      %{base | panels: panels}
-    else
+    case srql_module.query(query, %{scope: scope}) do
+      {:ok, %{"results" => results}} when is_list(results) and results != [] ->
+        normalized = normalize_metric_results(results, "used_percent")
+        viz = timeseries_viz("used_percent", nil)
+        panels = build_metric_panels(%{"results" => normalized, "viz" => viz}, normalized, nil)
+        header_value = latest_metric_value(normalized, "used_percent")
+        header_stats = metric_stats(normalized, "used_percent")
+        %{base | panels: panels, header_value: header_value, header_stats: header_stats}
+
+      {:ok, %{"results" => results}} when is_list(results) ->
+        base
+
       {:ok, other} ->
         %{base | error: "unexpected SRQL response: #{inspect(other)}"}
 
       {:error, reason} ->
         %{base | error: "SRQL error: #{format_error(reason)}"}
     end
-  end
-
-  defp resolve_disk_series_field(srql_module, filter_tokens, scope) do
-    probe_query = metric_probe_query("disk_metrics", filter_tokens)
-
-    case srql_module.query(probe_query, %{scope: scope}) do
-      {:ok, %{"results" => [row | _]}} when is_map(row) ->
-        cond do
-          present?(Map.get(row, "device_name")) -> "device_name"
-          present?(Map.get(row, "partition")) -> "partition"
-          present?(Map.get(row, "mount_point")) -> "mount_point"
-          true -> "mount_point"
-        end
-
-      _ ->
-        "mount_point"
-    end
-  end
-
-  defp build_disk_panels(used_rows, total_rows) do
-    used_by_series = group_rows_by_series(used_rows)
-    total_by_series = group_rows_by_series(total_rows)
-
-    used_by_series
-    |> disk_series_keys(total_by_series)
-    |> Enum.take(@disk_panel_limit)
-    |> Enum.map(&build_disk_series_panels(&1, used_by_series, total_by_series))
-    |> Enum.flat_map(& &1)
-  end
-
-  defp disk_series_keys(used_by_series, total_by_series) do
-    (Map.keys(used_by_series) ++ Map.keys(total_by_series))
-    |> Enum.uniq()
-    |> Enum.sort()
-  end
-
-  defp build_disk_series_panels(series, used_by_series, total_by_series) do
-    combined =
-      used_by_series
-      |> Map.get(series, [])
-      |> build_series_rows("Used", "bytes")
-      |> Kernel.++(build_series_rows(Map.get(total_by_series, series, []), "Total", "bytes"))
-      |> sort_rows_by_timestamp()
-
-    if combined == [] do
-      []
-    else
-      viz = timeseries_viz("bytes", "series")
-
-      %{"results" => combined, "viz" => viz}
-      |> build_metric_panels(combined, "series")
-      |> Enum.map(fn panel ->
-        Map.put(panel, :title, "Disk · #{series_label(series)}")
-      end)
-    end
-  end
-
-  defp group_rows_by_series(rows) when is_list(rows) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.group_by(fn row ->
-      series_label(Map.get(row, "series"))
-    end)
-  end
-
-  defp group_rows_by_series(_), do: %{}
-
-  defp series_label(nil), do: "unknown"
-
-  defp series_label(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> "unknown"
-      other -> other
-    end
-  end
-
-  defp series_label(value), do: series_label(to_string(value))
-
-  defp build_series_rows(rows, series_label, output_field) do
-    rows
-    |> Enum.filter(&is_map/1)
-    |> Enum.reduce([], fn row, acc ->
-      value = Map.get(row, "value")
-
-      if is_nil(value) do
-        acc
-      else
-        [
-          %{
-            "timestamp" => Map.get(row, "timestamp"),
-            output_field => value,
-            "series" => series_label
-          }
-          | acc
-        ]
-      end
-    end)
-    |> Enum.reverse()
-  end
-
-  defp sort_rows_by_timestamp(rows) when is_list(rows) do
-    Enum.sort_by(rows, &timestamp_sort_key/1)
   end
 
   defp timestamp_sort_key(row) when is_map(row) do
@@ -484,17 +425,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     Map.put(viz, "series", series_field)
   end
 
-  defp metric_probe_query(entity, filter_tokens) do
-    [
-      "in:#{entity}",
-      "time:last_24h",
-      "sort:timestamp:desc",
-      "limit:1"
-    ]
-    |> Kernel.++(filter_tokens)
-    |> Enum.join(" ")
-  end
-
   defp build_metric_panels(resp, results, series_field) do
     srql_response = %{"results" => results, "viz" => extract_viz(resp)}
 
@@ -508,14 +438,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     |> maybe_force_timeseries(results, series_field)
     |> drop_category_panels_when_timeseries()
   end
-
-  defp apply_panel_assigns(panels, assigns) when is_list(panels) and is_map(assigns) do
-    Enum.map(panels, fn panel ->
-      Map.update(panel, :assigns, assigns, &Map.merge(&1, assigns))
-    end)
-  end
-
-  defp apply_panel_assigns(panels, _assigns), do: panels
 
   defp extract_viz(resp) do
     case Map.get(resp, "viz") do
@@ -625,7 +547,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   def resolve_sysmon_filter_tokens(_srql_module, identity, _scope) when identity == %{} or identity == nil, do: []
 
   def resolve_sysmon_filter_tokens(srql_module, identity, scope) do
-    device_tokens = sysmon_filter_tokens(identity, :device_uid, "device_id")
+    device_tokens = sysmon_filter_tokens(identity, :device_uid, "uid")
     agent_tokens = sysmon_filter_tokens(identity, :agent_id, "agent_id")
     host_tokens = sysmon_filter_tokens(identity, :host_id, "host_id")
 
@@ -646,22 +568,29 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
   defp sysmon_filter_has_data?(srql_module, filter_tokens, scope) do
     Enum.any?(
-      ["cpu_metrics", "memory_metrics", "disk_metrics", "process_metrics"],
-      &sysmon_entity_has_data?(srql_module, &1, filter_tokens, scope)
+      [
+        {"sysmon.cpu", "cpu.usage_percent"},
+        {"sysmon.memory", "memory.used_percent"},
+        {"sysmon.disk", "disk.used_percent"},
+        {"sysmon.process", "process.cpu_usage"},
+        {"sysmon.process", "process.count"}
+      ],
+      fn {metric_type, metric_name} ->
+        sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope)
+      end
     )
   end
 
-  defp sysmon_entity_has_data?(srql_module, entity, filter_tokens, scope) do
+  defp sysmon_timeseries_has_data?(srql_module, metric_type, metric_name, filter_tokens, scope) do
     query =
-      Enum.join(
-        [
-          "in:#{entity}",
-          Enum.join(filter_tokens, " "),
-          "time:last_24h",
-          "sort:timestamp:desc",
-          "limit:1"
-        ],
-        " "
+      timeseries_metric_query(
+        metric_type,
+        metric_name,
+        filter_tokens,
+        nil,
+        1,
+        time_range: "last_24h",
+        bucket?: false
       )
 
     case srql_module.query(query, %{scope: scope}) do
@@ -670,14 +599,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
 
       {:ok, other} ->
         Logger.warning(
-          "Unexpected sysmon #{entity} presence probe response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
+          "Unexpected sysmon #{metric_type}/#{metric_name} presence probe response for filters #{inspect(filter_tokens)}: #{inspect(other)}"
         )
 
         false
 
       {:error, reason} ->
         Logger.warning(
-          "Failed sysmon #{entity} presence probe for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
+          "Failed sysmon #{metric_type}/#{metric_name} presence probe for filters #{inspect(filter_tokens)}: #{format_error(reason)}"
         )
 
         false
@@ -694,7 +623,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
     end
   end
 
-  defp metric_query(entity, filter_tokens, series_field, value_field, limit) do
+  defp timeseries_metric_query(metric_type, metric_name, filter_tokens, series_field, limit, opts \\ []) do
     series_field =
       case series_field do
         nil -> nil
@@ -702,24 +631,28 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
         other -> other |> to_string() |> String.trim()
       end
 
-    value_field =
-      case value_field do
-        "" -> nil
-        other -> other |> to_string() |> String.trim()
-      end
-
     tokens =
-      [
-        "in:#{entity}",
-        "time:last_24h",
-        "bucket:5m",
-        "agg:avg"
-      ]
+      if Keyword.get(opts, :bucket?, true) do
+        [
+          "in:timeseries_metrics",
+          ~s|metric_type:"#{escape_value(metric_type)}"|,
+          ~s|metric_name:"#{escape_value(metric_name)}"|,
+          "time:#{Keyword.get(opts, :time_range, "last_24h")}",
+          "bucket:5m",
+          "agg:avg"
+        ]
+      else
+        [
+          "in:timeseries_metrics",
+          ~s|metric_type:"#{escape_value(metric_type)}"|,
+          ~s|metric_name:"#{escape_value(metric_name)}"|,
+          "time:#{Keyword.get(opts, :time_range, "last_24h")}"
+        ]
+      end
 
     tokens =
       tokens
       |> maybe_add_token("series", series_field)
-      |> maybe_add_token("value_field", value_field)
       |> Kernel.++(filter_tokens)
       |> Kernel.++(["sort:timestamp:desc", "limit:#{limit}"])
 
@@ -732,4 +665,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.SysmonMetrics do
   defp maybe_add_token(tokens, key, value) do
     tokens ++ ["#{key}:#{value}"]
   end
+
+  defp map_value(%{} = row, key) do
+    Map.get(row, key) || Map.get(row, to_string(key)) || Map.get(row, existing_atom(key))
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp map_value(_row, _key), do: nil
+
+  defp existing_atom(key) when is_atom(key), do: key
+  defp existing_atom(key) when is_binary(key), do: String.to_existing_atom(key)
 end

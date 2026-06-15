@@ -396,6 +396,36 @@ func TestDisabledPayloadIncludesCollectionPolicy(t *testing.T) {
 	}
 }
 
+func TestScanPayloadsCarryCollectorVersion(t *testing.T) {
+	if collectorVersion == "" {
+		t.Fatal("collectorVersion constant must not be empty")
+	}
+
+	// Disabled scan path.
+	disabledCfg := DefaultConfig()
+	disabledCfg.AgentID = endpointInventoryTestAgentID
+	disabledScan, err := NewRunner(disabledCfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if disabledScan.CollectorVersion != collectorVersion {
+		t.Fatalf("disabled payload CollectorVersion = %q, want %q", disabledScan.CollectorVersion, collectorVersion)
+	}
+
+	// Full scan path.
+	tmpDir := t.TempDir()
+	dpkgPath := writeEndpointInventoryFixture(t, tmpDir)
+	cfg := testEndpointInventoryConfig(tmpDir, dpkgPath)
+
+	scan, err := NewRunner(cfg).Run(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scan.CollectorVersion != collectorVersion {
+		t.Fatalf("scan payload CollectorVersion = %q, want %q", scan.CollectorVersion, collectorVersion)
+	}
+}
+
 func propertyValue(properties []CycloneDXProperty, name string) string {
 	for _, property := range properties {
 		if property.Name == name {

@@ -83,7 +83,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
 
   test "extracts enabled samples and invokes the reasoner" do
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
 
@@ -102,7 +102,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
 
@@ -125,7 +125,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
 
@@ -181,7 +181,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
 
@@ -205,7 +205,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
     assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, active_verdict}
@@ -240,7 +240,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert ^message = Pipeline.handle_message(:default, message, config)
     assert_receive {:emit_anomaly_verdict, %{series_key: "sysmon:memory:host-1"}, active_verdict}
@@ -277,7 +277,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert %Message{status: {:failed, {:anomaly_verdict_emit_failed, :nats_down}}} =
              Pipeline.handle_message(:default, message, config)
@@ -291,7 +291,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.PipelineTest do
     )
 
     message = message("metrics.sysmon.memory", sysmon_envelope("memory"))
-    config = config(enabled_subjects: ["metrics.sysmon.*"])
+    config = config(enabled_subjects: ["metrics.sysmon.>"])
 
     assert %Message{status: {:failed, "bad sample"}} =
              Pipeline.handle_message(:default, message, config)

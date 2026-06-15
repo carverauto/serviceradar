@@ -202,7 +202,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
         if consumer_exists_error?(description) do
-          update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
         else
           {:error, err}
         end
@@ -215,7 +215,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
         if consumer_exists_error?(description) do
-          update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
         else
           {:error, err}
         end
@@ -231,6 +231,63 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
 
     case Util.request(connection_ref, topic, payload) do
+      {:ok, %{"error" => error}} -> {:error, error}
+      {:ok, _} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # An existing durable can have a non-mutable field (notably filter_subject) that no
+  # longer matches the desired config. NATS forbids changing filter_subject via
+  # CONSUMER.UPDATE, so when it has drifted we delete and recreate the durable; otherwise
+  # a plain update is sufficient to reconcile the mutable settings.
+  defp reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
+    domain = Keyword.get(opts, :domain)
+
+    case consumer_filter_subject(connection_ref, stream_name, consumer_name, domain) do
+      {:ok, ^subject} ->
+        update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+
+      {:ok, existing} ->
+        Logger.info("Recreating JetStream durable due to filter_subject drift",
+          stream: stream_name,
+          consumer: consumer_name,
+          existing_filter: existing,
+          desired_filter: subject
+        )
+
+        with :ok <- delete_consumer(connection_ref, stream_name, consumer_name, domain) do
+          create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+        end
+
+      {:error, _reason} ->
+        # Could not read the existing filter; fall back to a best-effort update.
+        update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+    end
+  end
+
+  defp consumer_filter_subject(connection_ref, stream_name, consumer_name, domain) do
+    topic = "#{js_api(domain)}.CONSUMER.INFO.#{stream_name}.#{consumer_name}"
+
+    case Util.request(connection_ref, topic, "") do
+      {:ok, %{"config" => config}} when is_map(config) ->
+        {:ok, Map.get(config, "filter_subject", "")}
+
+      {:ok, %{"error" => error}} ->
+        {:error, error}
+
+      {:ok, other} ->
+        {:error, {:unexpected_consumer_info_response, other}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp delete_consumer(connection_ref, stream_name, consumer_name, domain) do
+    topic = "#{js_api(domain)}.CONSUMER.DELETE.#{stream_name}.#{consumer_name}"
+
+    case Util.request(connection_ref, topic, "") do
       {:ok, %{"error" => error}} -> {:error, error}
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}

@@ -27,6 +27,24 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
 
       assert row.target_device_ip == "router-a"
     end
+
+    test "uses resource host_ip for sysmon device-id backfill" do
+      payload =
+        encode_batch([gauge_metric("cpu.usage_percent", "sysmon.cpu", 12.5, [])],
+          host_ip: "10.0.2.13"
+        )
+
+      resolver = fn ips ->
+        assert ips == ["10.0.2.13"]
+        %{"10.0.2.13" => "sr:k8s-cp3-worker3"}
+      end
+
+      {:ok, [row], 1} =
+        MetricEnvelope.decode_rows_count(payload, device_resolver: resolver)
+
+      assert row.target_device_ip == "10.0.2.13"
+      assert row.device_id == "sr:k8s-cp3-worker3"
+    end
   end
 
   describe "series_key trust boundary (finding 2a)" do
@@ -119,6 +137,7 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
         gateway_id: "gateway-1",
         partition: "default",
         device_id: Keyword.get(opts, :device_id, ""),
+        host_ip: Keyword.get(opts, :host_ip, ""),
         service_name: "metrics",
         service_type: "metrics"
       },

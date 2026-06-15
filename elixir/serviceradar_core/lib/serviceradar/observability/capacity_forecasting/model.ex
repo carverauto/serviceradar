@@ -13,6 +13,13 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Model do
   @seasonal_strength_threshold 0.25
   @epsilon 1.0e-9
 
+  # A projected threshold crossing more than this many horizons past the last sample is
+  # not a forecast, it is noise from a near-zero slope (the source of the year-5256
+  # exhaustion dates). Such crossings collapse to "no projected exhaustion". The bound is
+  # generous so the worker's warning-horizon classification still sees plausible
+  # beyond-horizon crossings.
+  @exhaustion_horizon_multiplier 10
+
   @type point :: %{required(:at) => DateTime.t(), required(:value) => number()}
   @type forecast :: %{
           model: String.t(),
@@ -81,7 +88,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Model do
        slope_per_second: slope,
        intercept: intercept,
        projected_value: projected_value,
-       projected_exhaustion_at: exhaustion_at(first_at, last_x, slope, intercept, threshold),
+       projected_exhaustion_at:
+         exhaustion_at(first_at, last_x, slope, intercept, threshold, horizon_seconds),
        confidence: confidence(rmse, ys, threshold),
        lower_bound: projected_value - 1.96 * rmse,
        upper_bound: projected_value + 1.96 * rmse,
@@ -241,20 +249,25 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Model do
     |> :math.sqrt()
   end
 
-  defp exhaustion_at(_first_at, _last_x, slope, _intercept, _threshold) when slope <= 0.0, do: nil
+  defp exhaustion_at(_first_at, _last_x, slope, _intercept, _threshold, _horizon)
+       when slope <= 0.0, do: nil
 
-  defp exhaustion_at(_first_at, _last_x, _slope, _intercept, threshold)
+  defp exhaustion_at(_first_at, _last_x, _slope, _intercept, threshold, _horizon)
        when not is_number(threshold), do: nil
 
-  defp exhaustion_at(first_at, last_x, slope, intercept, threshold) do
+  defp exhaustion_at(first_at, last_x, slope, intercept, threshold, horizon_seconds) do
     cross_x = (threshold - intercept) / slope
+    max_cross_x = last_x + horizon_seconds * @exhaustion_horizon_multiplier
 
     cond do
-      cross_x < 0 ->
+      # Already crossed within the observed window: "already exhausted", not a future
+      # forecast. Emit no ETA rather than a past-dated (last-sample) timestamp.
+      cross_x <= last_x ->
         nil
 
-      cross_x <= last_x ->
-        DateTime.add(first_at, round(last_x), :second)
+      # Crossing lands absurdly far out (near-zero slope → year 5256). Not a forecast.
+      cross_x > max_cross_x ->
+        nil
 
       true ->
         DateTime.add(first_at, round(cross_x), :second)

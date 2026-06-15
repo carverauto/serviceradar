@@ -122,6 +122,23 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 		return true
 	}
 
+	// The control stream pushes a fresh (not_modified:false) config on every dependency
+	// write on the gateway side, even when the agent's compiled config is unchanged. The
+	// config version hash is deterministic, so a version equal to the one we already
+	// applied means an identical config: skip the full re-apply pipeline (sweep clear,
+	// sysmon, plugin assignments, netprobe re-attach) to avoid a control-stream apply
+	// storm. The caller still ACKs on a true return. getConfigVersion() is only set after a
+	// fully-successful apply, so a deferred/partial apply (which leaves the old version)
+	// will not be short-circuited and is still retried.
+	if v := configResp.ConfigVersion; v != "" && v == p.getConfigVersion() {
+		p.logger.Debug().
+			Str("version", v).
+			Str("source", source).
+			Msg("Config version unchanged; skipping redundant re-apply")
+
+		return true
+	}
+
 	// Update intervals from config response
 	if configResp.HeartbeatIntervalSec > 0 {
 		newInterval := time.Duration(configResp.HeartbeatIntervalSec) * time.Second

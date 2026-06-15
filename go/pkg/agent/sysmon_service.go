@@ -157,6 +157,9 @@ func (s *SysmonService) Start(ctx context.Context) error {
 
 	// Check if sysmon is enabled
 	if !config.Enabled {
+		s.rawConfig = config
+		s.configHash = computeConfigHash(config)
+		s.configSource = source
 		s.logger.Info().Msg("Sysmon is disabled in configuration")
 		return nil
 	}
@@ -172,18 +175,8 @@ func (s *SysmonService) Start(ctx context.Context) error {
 	s.configHash = computeConfigHash(config)
 	s.configSource = source
 
-	// Create collector options
-	opts := []sysmon.CollectorOption{
-		sysmon.WithLogger(s.logger),
-		sysmon.WithAgentID(s.agentID),
-	}
-
-	if s.partition != "" {
-		opts = append(opts, sysmon.WithPartition(s.partition))
-	}
-
 	// Create the collector
-	collector, err := sysmon.NewCollector(parsed, opts...)
+	collector, err := sysmon.NewCollector(parsed, s.collectorOptions()...)
 	if err != nil {
 		return fmt.Errorf("failed to create sysmon collector: %w", err)
 	}
@@ -558,8 +551,45 @@ func (s *SysmonService) ApplyRemoteConfig(config sysmon.Config) error {
 
 	s.mu.Lock()
 	if s.collector == nil {
+		if !parsed.Enabled {
+			s.config = parsed
+			s.rawConfig = config
+			s.configHash = newHash
+			s.configSource = configSourceRemote
+			s.mu.Unlock()
+
+			if err := s.cacheConfig(config); err != nil {
+				s.logger.Warn().Err(err).Msg("Failed to cache sysmon config")
+			}
+
+			return nil
+		}
+
+		collector, err := sysmon.NewCollector(parsed, s.collectorOptions()...)
+		if err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("failed to create sysmon collector: %w", err)
+		}
+
+		if err := collector.Start(context.Background()); err != nil {
+			s.mu.Unlock()
+			return fmt.Errorf("failed to start sysmon collector: %w", err)
+		}
+
+		s.collector = collector
+		s.config = parsed
+		s.rawConfig = config
+		s.configHash = newHash
+		s.configSource = configSourceRemote
+		s.started = true
 		s.mu.Unlock()
-		return ErrCollectorNotInitialized
+
+		if err := s.cacheConfig(config); err != nil {
+			s.logger.Warn().Err(err).Msg("Failed to cache sysmon config")
+		}
+
+		s.logger.Info().Msg("Sysmon service started from remote config")
+		return nil
 	}
 
 	if s.configSource == configSourceRemote && s.configHash == newHash {
@@ -584,6 +614,19 @@ func (s *SysmonService) ApplyRemoteConfig(config sysmon.Config) error {
 
 	s.logger.Info().Msg("Sysmon service reconfigured")
 	return nil
+}
+
+func (s *SysmonService) collectorOptions() []sysmon.CollectorOption {
+	opts := []sysmon.CollectorOption{
+		sysmon.WithLogger(s.logger),
+		sysmon.WithAgentID(s.agentID),
+	}
+
+	if s.partition != "" {
+		opts = append(opts, sysmon.WithPartition(s.partition))
+	}
+
+	return opts
 }
 
 // IsEnabled returns whether sysmon collection is enabled.

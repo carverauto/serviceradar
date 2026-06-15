@@ -388,13 +388,18 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     sources = Source.defaults()
     queries = Enum.map(sources, & &1.query)
 
-    assert Enum.any?(queries, &String.contains?(&1, "in:cpu_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:memory_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:disk_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:process_metrics"))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
     assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))
+
+    cpu_source = Enum.find(sources, &(&1.name == "cpu_usage"))
+    assert cpu_source.value_field == "value"
+    assert cpu_source.bucket_field == "timestamp"
+    assert cpu_source.key_fields == ["series"]
 
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"
@@ -444,6 +449,40 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.metadata["capacity_bps"] == 10_000_000
     assert attrs.metadata["forecast_value_unit"] == "percent"
     assert attrs.metadata["raw_value_unit"] == "bytes_per_second"
+  end
+
+  test "interface forecasts drop SNMP counter-wrap spikes instead of projecting impossible utilization" do
+    source = interface_source()
+
+    resolver = fn _row, _opts ->
+      {:ok, %{speed_bps: 10_000_000, source: "discovered_interfaces", timestamp: @forecasted_at}}
+    end
+
+    upsert_fun = fn attrs, _actor ->
+      send(self(), {:capacity_forecast_interface, attrs})
+      {:ok, attrs}
+    end
+
+    job = %Oban.Job{args: %{"forecasted_at" => DateTime.to_iso8601(@forecasted_at)}}
+
+    assert :ok =
+             Worker.run(job,
+               sources: [source],
+               runner: __MODULE__.InterfaceWrapRunner,
+               interface_capacity_resolver: resolver,
+               upsert_fun: upsert_fun,
+               emit_verdicts?: false,
+               horizon_seconds: 24 * 3_600,
+               min_points: 24
+             )
+
+    assert_received {:capacity_forecast_interface, attrs}
+
+    # With the wrap sample dropped, the projection stays in the real ~10% range — never an
+    # 8e8% value, and no millennia-out / past-dated exhaustion.
+    assert attrs.status == "projected"
+    assert attrs.projected_value < 100.0
+    assert attrs.current_value < 100.0
   end
 
   test "interface forecasts are skipped when live speed is missing" do
@@ -793,6 +832,32 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
             "metric_name" => "ifHCInUcastPkts",
             "series_key" => "snmp:device-a:7:ifHCInUcastPkts",
             "avg_rate_per_second" => 100_000.0 + hour * 1_000.0
+          }
+        end
+
+      {:ok, rows}
+    end
+  end
+
+  defmodule InterfaceWrapRunner do
+    @moduledoc false
+    @start ~U[2026-06-01 00:00:00Z]
+
+    # Clean ~8-12% utilization at 10 Mbps, except one bucket carrying a counter-wrap spike
+    # (1.728e14 B/s) — the exact artifact that poisoned Holt-Winters in production.
+    def query(_query, _opts) do
+      rows =
+        for hour <- 0..47 do
+          rate = if hour == 24, do: 1.728e14, else: 100_000.0 + hour * 1_000.0
+
+          %{
+            "bucket" => DateTime.add(@start, hour * 3_600, :second),
+            "device_id" => "device-a",
+            "target_device_ip" => "10.0.0.10",
+            "if_index" => 7,
+            "metric_name" => "ifHCInOctets",
+            "series_key" => "snmp:device-a:7:ifHCInOctets",
+            "avg_rate_per_second" => rate
           }
         end
 
