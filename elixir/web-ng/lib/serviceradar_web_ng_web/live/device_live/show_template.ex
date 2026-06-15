@@ -467,7 +467,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp device_has_agent?(_row), do: false
 
   defp software_tab_visible?(device_row, assigns) do
-    is_map(device_row) or Map.get(assigns, :has_software_inventory, false) or device_has_agent?(device_row) or
+    # Show the agent-only Software tab when the device actually hosts an agent (the
+    # ocsf_agents linkage flag, same signal as the bolt badge) or when there is real
+    # software-inventory data / an inventory error for it — never just because a device
+    # row loaded (the old `is_map(device_row)` clause made this true for every device,
+    # so routers like farm01/tonka01 wrongly showed the tab).
+    DeviceStateData.agent?(device_row) or
+      Map.get(assigns, :has_software_inventory, false) or
       is_binary(Map.get(assigns, :endpoint_inventory_error))
   end
 

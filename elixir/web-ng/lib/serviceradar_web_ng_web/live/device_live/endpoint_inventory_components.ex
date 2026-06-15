@@ -69,7 +69,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
       <div
         :if={inventory_row_mismatch?(@scan, @package_count)}
-        class="mx-4 mt-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-content"
+        class="mx-4 mt-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
       >
         The latest scan reported {inventory_count(@scan, @package_count)} packages, but only {@package_count} current package rows are loaded. Check ingest, row retention, and source diagnostics before treating this inventory as complete.
       </div>
@@ -878,7 +878,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp normalized_state(_value), do: nil
 
   defp software_state_class(:error), do: "border-error/40 bg-error/10 text-error"
-  defp software_state_class(:warning), do: "border-warning/40 bg-warning/10 text-warning-content"
+  defp software_state_class(:warning), do: "border-warning/40 bg-warning/10 text-warning"
   defp software_state_class(:info), do: "border-info/40 bg-info/10 text-info"
   defp software_state_class(_tone), do: "border-success/40 bg-success/10 text-success"
 
