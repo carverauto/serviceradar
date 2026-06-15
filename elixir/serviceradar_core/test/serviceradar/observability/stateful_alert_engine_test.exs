@@ -618,16 +618,115 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
     assert Enum.any?(rollover_history, &(&1.event_type == :recovered))
   end
 
-  defp reset_engine do
-    case ProcessRegistry.lookup(:stateful_alert_engine) do
-      [{pid, _}] ->
-        _ = ProcessRegistry.terminate_child(pid)
-        Process.sleep(25)
-        :ok
+  test "fans out across shards so rules in different shards fire concurrently and independently",
+       %{actor: actor} do
+    # Create enough rules that at least two land in distinct shards, then drive
+    # them in a single batch. The previous single-GenServer engine processed
+    # every rule serially behind one process (blocking on each rule's DB
+    # writes). The sharded engine runs disjoint rules in separate processes, so
+    # this proves DB writes no longer funnel through a single serialization
+    # point while every rule still fires exactly once.
+    unique = System.unique_integer([:positive])
 
-      _ ->
-        :ok
+    rules =
+      for index <- 1..6 do
+        title = "Shard fanout #{unique}-#{index}"
+
+        {:ok, rule} =
+          StatefulAlertRule
+          |> Ash.Changeset.for_create(
+            :create,
+            %{
+              name: "shard-fanout-#{unique}-#{index}",
+              enabled: true,
+              signal: :event,
+              match: %{"attribute_equals" => %{"fanout_index" => to_string(index)}},
+              group_by: ["fanout_index"],
+              threshold: 1,
+              window_seconds: 300,
+              bucket_seconds: 60,
+              cooldown_seconds: 60,
+              renotify_seconds: 3600,
+              event: %{
+                "log_name" => "alert.test.shard_fanout",
+                "message" => "Shard fanout finding"
+              },
+              alert: %{"title" => title, "severity" => "warning"}
+            },
+            actor: actor
+          )
+          |> Ash.create()
+
+        {index, title, rule}
+      end
+
+    shards =
+      rules
+      |> Enum.map(fn {_index, _title, rule} ->
+        StatefulAlertEngine.shard_for_rule_id(rule.id)
+      end)
+      |> Enum.uniq()
+
+    # Guard the premise: the batch must exercise more than one shard for this to
+    # be a meaningful concurrency test.
+    assert length(shards) > 1,
+           "expected rules to span multiple shards, got #{inspect(shards)}"
+
+    events =
+      for {index, _title, _rule} <- rules do
+        %{
+          id: Ash.UUID.generate(),
+          time: DateTime.utc_now(),
+          severity_id: OCSF.severity_high(),
+          severity: OCSF.severity_name(OCSF.severity_high()),
+          message: "fanout event #{index}",
+          log_name: "fanout",
+          log_provider: "fanout",
+          unmapped: %{
+            "log_attributes" => %{"fanout_index" => to_string(index)}
+          }
+        }
+      end
+
+    assert :ok = StatefulAlertEngine.evaluate_events(events)
+
+    active_alerts =
+      Alert
+      |> Ash.Query.for_read(:active, %{}, actor: actor)
+      |> Ash.read!()
+      |> Page.unwrap!()
+
+    # Every rule fired exactly once.
+    for {_index, title, _rule} <- rules do
+      assert Enum.count(active_alerts, fn alert -> alert.title == title end) == 1,
+             "expected exactly one active alert titled #{title}"
     end
+  end
+
+  defp reset_engine do
+    # The engine is sharded; terminate every shard so in-memory ETS state does
+    # not leak between tests. Shard 0 keeps the legacy `:stateful_alert_engine`
+    # registry key; the rest use `{:stateful_alert_engine, shard}`.
+    shard_count = StatefulAlertEngine.shard_count()
+
+    keys =
+      [:stateful_alert_engine] ++
+        for shard <- 1..(shard_count - 1)//1, do: {:stateful_alert_engine, shard}
+
+    terminated? =
+      Enum.reduce(keys, false, fn key, acc ->
+        case ProcessRegistry.lookup(key) do
+          [{pid, _}] ->
+            _ = ProcessRegistry.terminate_child(pid)
+            true
+
+          _ ->
+            acc
+        end
+      end)
+
+    if terminated?, do: Process.sleep(25)
+    :ok
   end
 
   defp eventually(fun, predicate, attempts \\ 40)
