@@ -180,19 +180,27 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	p.applySweepConfig(ctx, configResp.ConfigJson)
 	p.applyMapperConfig(configResp.ConfigJson)
+	// Apply every config section independently. A section that cannot apply yet (e.g. a
+	// not-yet-installed add-on, a transiently-unavailable updater) only DEFERS the config
+	// version update so the gateway resends it — it must NOT short-circuit and block the
+	// unrelated sections that follow. Previously a Bumblebee deferral returned early and
+	// silently prevented endpoint-inventory, add-on assignments, sysmon, plugins, and
+	// visibility from EVER applying, which (e.g.) left endpoint inventory disabled fleet-wide.
+	deferred := false
+
 	if !p.applyBumblebeeConfig(ctx, configResp.BumblebeeConfig, configResp.ConfigJson) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
 			Msg("Deferring config version update because Bumblebee config did not apply")
-		return false
+		deferred = true
 	}
 	if !p.applyEndpointInventoryConfig(ctx, configResp.EndpointInventoryConfig, configResp.ConfigJson) {
 		p.logger.Warn().
 			Str("version", configResp.ConfigVersion).
 			Str("source", source).
 			Msg("Deferring config version update because endpoint inventory config did not apply")
-		return false
+		deferred = true
 	}
 	if p.syncRuntime != nil {
 		p.syncRuntime.ApplyConfig(configResp.ConfigJson)
@@ -239,6 +247,12 @@ func (p *PushLoop) applyConfigResponse(ctx context.Context, configResp *proto.Ag
 
 	// Apply check configs (icmp checks supported)
 	p.applyCheckConfigs(configResp.Checks)
+
+	// Defer the version update if any section could not apply yet, so the gateway resends and
+	// the agent retries the still-pending sections — the sections that DID apply stay applied.
+	if deferred {
+		return false
+	}
 
 	// Update version
 	p.setConfigVersion(configResp.ConfigVersion)
