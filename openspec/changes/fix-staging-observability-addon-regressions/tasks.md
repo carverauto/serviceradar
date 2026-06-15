@@ -10,11 +10,11 @@ Each `## N.` is one small, independently reviewable stacked PR. Build/test with 
 - [x] 1.5 tests: counter-wrap spike must not project > threshold (`worker_test` `InterfaceWrapRunner`); near-zero slope → `nil`; already-crossed in-window → `nil` (`model_test`)
 - [ ] 1.6 verify live: local `mix test` ✅ (30 pass); after deploy, `SELECT count(*) FROM platform.capacity_forecasts WHERE status='projected' AND (projected_value>10*exhaustion_threshold OR projected_exhaustion_at<=forecasted_at OR projected_exhaustion_at>forecasted_at+(horizon_seconds||' seconds')::interval)` = 0 — **PENDING DEPLOY**
 
-## 2. PR2 — device-detail UI gating + contrast (`fix(web-ng): gate Software tab to agent hosts; fix warning banner contrast`)
-- [ ] 2.1 `show_template.ex`: replace `is_map(device_row)` in `software_tab_visible?/2` (and the `:268` render guard) with `device_has_agent?/DeviceStateData.agent?` OR real inventory/error signal
-- [ ] 2.2 `endpoint_inventory_components.ex`: `text-warning-content` → `text-warning` in `software_state_class(:warning)` (`:881`) and the inline row-mismatch banner (`:72`)
-- [ ] 2.3 `device_live_test.exs`: non-agent router (farm01 fixture) renders neither bolt badge nor Software tab; agent host does
-- [ ] 2.4 verify: `cd elixir/web-ng && sfw mix test test/phoenix/live/device_live_test.exs`; live screenshots of farm01 (no Software tab) and an agent host
+## 2. PR2 — device-detail UI gating + contrast (`fix(web-ng): gate Software tab to agent hosts; fix warning banner contrast`) — **IMPLEMENTED** (jj `fix-device-detail-ui`, compiles + formatted)
+- [x] 2.1 `show_template.ex`: `software_tab_visible?/2` now gates on `DeviceStateData.agent?(device_row)` (ocsf_agents flag, same as the bolt badge) + real inventory/error fallbacks; dropped the always-true `is_map` and the wrong `agent_id`-based `device_has_agent?` clauses. Render guard `:268` already reuses `@software_tab_visible`.
+- [x] 2.2 `endpoint_inventory_components.ex`: `text-warning-content` → `text-warning` in `software_state_class(:warning)` (`:881`) and the inline row-mismatch banner (`:72`)
+- [ ] 2.3 `device_live_test.exs`: non-agent router omits the Software tab — **FOLLOW-UP** (DB-gated `SERVICERADAR_REQUIRE_DB_TESTS=1`; the `agent?` predicate is already covered by the existing "marks only registered agent devices with bolt" case)
+- [ ] 2.4 verify: web-ng compiles ✅ + `mix format` ✅; live screenshots of farm01 (no Software tab) + an agent host — **PENDING DEPLOY**
 
 ## 3. PR3 — anomaly sysmon subject + durable recreation (`fix(anomaly): terminal metrics.sysmon.> wildcard + recreate stale durable`)
 - [ ] 3.1 confirm `config.ex` default stream + `values-demo.yaml` enabledSubjects use `metrics.sysmon.>` (done by `jj poslmosr` — own/verify)
