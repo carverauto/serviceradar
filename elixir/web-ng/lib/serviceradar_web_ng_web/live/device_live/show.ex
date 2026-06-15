@@ -896,6 +896,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, assign(socket, :process_metrics_page, socket.assigns.process_metrics_page + 1)}
   end
 
+  def handle_event("endpoint_inventory_open_package", %{"ref" => ref}, socket) do
+    {:noreply, EndpointInventoryRuntime.open_package_detail(socket, ref)}
+  end
+
+  def handle_event("endpoint_inventory_close_package", _params, socket) do
+    {:noreply, EndpointInventoryRuntime.close_package_detail(socket)}
+  end
+
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
     case MtrRuntime.get_trace_detail(socket.assigns.current_scope, trace_id) do
       {:ok, trace, hops} ->
