@@ -224,6 +224,23 @@ func TestDecodePluginTelemetryRejectsJSONMetricPayload(t *testing.T) {
 	}
 }
 
+func TestTelemetryPayloadKindAcceptsServiceRadarMetricAliases(t *testing.T) {
+	for _, value := range []string{
+		"serviceradar_metrics",
+		"serviceradar_metric",
+		"serviceradar.metric.v1",
+		"telemetry_payload_kind_serviceradar_metrics",
+	} {
+		got, err := telemetryPayloadKind(value)
+		if err != nil {
+			t.Fatalf("telemetryPayloadKind(%q) error = %v", value, err)
+		}
+		if got != addonpb.TelemetryPayloadKind_TELEMETRY_PAYLOAD_KIND_SERVICERADAR_METRICS {
+			t.Fatalf("telemetryPayloadKind(%q) = %v, want SERVICERADAR_METRICS", value, got)
+		}
+	}
+}
+
 func TestBuildPluginSignalGatewayStatusWrapsTelemetryBatch(t *testing.T) {
 	signal := PluginSignalTelemetry{
 		AssignmentID: "assign-1",
