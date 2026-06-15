@@ -933,7 +933,20 @@ if config_env() == :prod do
       "SERVICERADAR_TOPOLOGY_LINK_RETENTION_DAYS" |> parse_int_env.(30) |> max(1)
 
   config :serviceradar_core, RefreshTraceSummariesWorker,
-    retention_days: trace_summary_retention_days
+    retention_days: trace_summary_retention_days,
+    cleanup_batch_size:
+      "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE" |> parse_int_env.(5_000) |> max(1),
+    cleanup_time_budget_ms:
+      "TRACE_SUMMARIES_CLEANUP_TIME_BUDGET_MS" |> parse_int_env.(10_000) |> max(1),
+    probe_timeout_ms: "TRACE_SUMMARIES_PROBE_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1),
+    upsert_timeout_ms:
+      "TRACE_SUMMARIES_UPSERT_TIMEOUT_MS" |> parse_int_env.(120_000) |> max(1),
+    watermark_timeout_ms:
+      "TRACE_SUMMARIES_WATERMARK_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1),
+    cleanup_timeout_ms:
+      "TRACE_SUMMARIES_CLEANUP_TIMEOUT_MS" |> parse_int_env.(60_000) |> max(1),
+    remaining_estimate_timeout_ms:
+      "TRACE_SUMMARIES_REMAINING_ESTIMATE_TIMEOUT_MS" |> parse_int_env.(30_000) |> max(1)
 
   config :serviceradar_core, RootSpanRatioWorker,
     threshold: root_span_ratio_threshold,
@@ -1120,8 +1133,7 @@ if config_env() == :prod do
       sweeps: String.to_integer(System.get_env("OBAN_QUEUE_SWEEPS") || "20"),
       edge: String.to_integer(System.get_env("OBAN_QUEUE_EDGE") || "10"),
       integrations: String.to_integer(System.get_env("OBAN_QUEUE_INTEGRATIONS") || "5"),
-      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3"),
-      maintenance: String.to_integer(System.get_env("OBAN_QUEUE_MAINTENANCE") || "5")
+      nats_accounts: String.to_integer(System.get_env("OBAN_QUEUE_NATS_ACCOUNTS") || "3")
     ],
     plugins: [
       Oban.Plugins.Pruner,
