@@ -14,6 +14,7 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Identity.DeviceAliasState
+  alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
@@ -37,7 +38,8 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
         handler_id,
         [
           [:serviceradar, :identity_reconciler, :merge, :guard_blocked],
-          [:serviceradar, :identity_reconciler, :alias, :invalidated]
+          [:serviceradar, :identity_reconciler, :alias, :invalidated],
+          [:serviceradar, :identity_reconciler, :agent_link, :reassign_blocked]
         ],
         fn event, measurements, metadata, pid ->
           send(pid, {:telemetry_event, event, measurements, metadata})
@@ -164,6 +166,73 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
                Device.get_by_uid(alias_owner.uid, false, actor: actor)
 
       assert {:ok, %DeviceAliasState{state: :stale}} = Ash.get(DeviceAliasState, alias_state.id)
+    end
+  end
+
+  describe "agent-link anchor guard (prevent-at-source)" do
+    test "a merge does not repoint an agent onto a survivor owned by a different agent",
+         %{actor: actor} do
+      agent_uid = unique("agent-anchor")
+      other_agent_uid = unique("agent-other")
+
+      # The agent's stable behavioral anchor: a device reciprocally owned by
+      # it (ocsf_devices.agent_id == agent uid).
+      {:ok, anchor_device} = create_device_owned_by(actor, "anchor-host", agent_uid)
+
+      # The device the agent currently links to, about to be merged away. It
+      # carries no agent identity, so the merge guard itself does not fire —
+      # only the reassignment anchor guard is exercised.
+      {:ok, from_device} = create_device(actor, "anchor-from")
+
+      # The merge survivor, reciprocally owned by a DIFFERENT agent.
+      {:ok, to_device} = create_device_owned_by(actor, "anchor-to", other_agent_uid)
+
+      {:ok, _agent} = create_agent(actor, agent_uid, from_device.uid)
+
+      # Manual reason bypasses the merge guard; the merge proceeds and would
+      # normally drag every agent on `from` over to `to`.
+      assert :ok =
+               IdentityReconciler.merge_devices(from_device.uid, to_device.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      # The agent was NOT welded onto the foreign-owned survivor.
+      {:ok, agent} = Agent.get_by_uid(agent_uid, actor: actor)
+      refute agent.device_uid == to_device.uid
+
+      assert_received {:telemetry_event,
+                       [:serviceradar, :identity_reconciler, :agent_link, :reassign_blocked],
+                       %{count: 1}, %{agent_uid: ^agent_uid, to_device_id: to_uid}}
+
+      assert to_uid == to_device.uid
+
+      # The anchor device remains live and reciprocally owned.
+      assert {:ok, %Device{deleted_at: nil}} =
+               Device.get_by_uid(anchor_device.uid, false, actor: actor)
+    end
+
+    test "a merge still repoints an agent with no conflicting anchor", %{actor: actor} do
+      agent_uid = unique("agent-clean")
+
+      {:ok, from_device} = create_device(actor, "clean-from")
+      {:ok, to_device} = create_device(actor, "clean-to")
+
+      {:ok, _agent} = create_agent(actor, agent_uid, from_device.uid)
+
+      assert :ok =
+               IdentityReconciler.merge_devices(from_device.uid, to_device.uid,
+                 actor: actor,
+                 reason: "manual_merge"
+               )
+
+      # No conflicting anchor -> default reassignment behavior is preserved.
+      {:ok, agent} = Agent.get_by_uid(agent_uid, actor: actor)
+      assert agent.device_uid == to_device.uid
+
+      refute_received {:telemetry_event,
+                       [:serviceradar, :identity_reconciler, :agent_link, :reassign_blocked], _,
+                       _}
     end
   end
 
@@ -314,6 +383,33 @@ defmodule ServiceRadar.Inventory.IdentityReconcilerMergeGuardTest do
     Device
     |> Ash.Changeset.for_create(:create, attrs)
     |> Ash.create(actor: actor)
+  end
+
+  defp create_device_owned_by(actor, hostname, agent_uid) do
+    Device
+    |> Ash.Changeset.for_create(:create, %{
+      uid: "sr:" <> Ecto.UUID.generate(),
+      hostname: unique(hostname),
+      ip: nil,
+      agent_id: agent_uid
+    })
+    |> Ash.create(actor: actor)
+  end
+
+  defp create_agent(actor, agent_uid, device_uid) do
+    Agent
+    |> Ash.Changeset.for_create(
+      :register_connected,
+      %{
+        uid: agent_uid,
+        name: "Anchor Guard Test #{agent_uid}",
+        host: "127.0.0.1",
+        port: 50_051,
+        device_uid: device_uid
+      },
+      actor: actor
+    )
+    |> Ash.create()
   end
 
   defp register_identifier(actor, device_id, type, value) do

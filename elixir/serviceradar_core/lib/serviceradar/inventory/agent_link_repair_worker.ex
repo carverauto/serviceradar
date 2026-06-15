@@ -6,14 +6,27 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
   merges, tombstones, and manual remediation can leave
   `ocsf_agents.device_uid` pointing at a tombstoned device, or leave the
   `agent_id` device identifier on a different device than the agent row.
-  This worker re-verifies every connected/available agent on a fixed
-  cadence (default 15 minutes):
+  This worker re-verifies agents on a fixed cadence (default 15 minutes).
+  It checks active agents AND `unavailable`/`disconnected` agents, because a
+  stale mislink (an agent welded to the wrong live device by a bad merge)
+  often coincides with the agent dropping offline, so the previously
+  active-only scope never re-examined exactly the rows that needed it.
 
   1. If `device_uid` points at a tombstoned device, it follows the merge
      audit trail (`IdentityReconciler.follow_canonical_device_id/2`) and
      repoints the agent at the surviving canonical device via the audited
      `:reassign_device` action.
-  2. If the `agent_id` device identifier does not point at the same device
+  2. If `device_uid` points at a LIVE device that is NOT the agent's host —
+     detected behaviorally: the linked device is reciprocally owned by a
+     DIFFERENT agent (`AgentAnchor.conflicts_with_anchor?/3`, built on the
+     #3577 `AliasGuard` agent-identity comparison) — the agent is repointed
+     onto its own unambiguous anchor device when one exists, via the audited
+     `:reassign_device` action. When the anchor is ambiguous (no anchor, or
+     several candidate anchors) the row is LEFT UNTOUCHED and
+     `[:serviceradar, :agent_link_repair, :mislink_unresolved]` is emitted —
+     a wrong auto-repoint corrupts identity worse than the existing cruft, so
+     the worker only acts on an unambiguous behavioral anchor.
+  3. If the `agent_id` device identifier does not point at the same device
      as `ocsf_agents.device_uid`, the identifier is repointed via the
      audited `DeviceIdentifier` `:reassign_device` action. A missing
      `agent_id` identifier is re-registered.
@@ -35,6 +48,7 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.AgentAnchor
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -44,11 +58,17 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
 
   @default_reschedule_seconds 900
   @default_batch_size 100
-  @repair_statuses [:connected, :connecting, :degraded]
+  # Active states plus the offline states a stale mislink tends to land in.
+  # `unavailable`/`disconnected` agents are still re-verified so a row welded
+  # to the wrong live device by a bad merge gets repaired even after the agent
+  # drops offline.
+  @repair_statuses [:connected, :connecting, :degraded, :unavailable, :disconnected]
 
   @empty_stats %{
     agents_checked: 0,
     device_links_repaired: 0,
+    mislinks_repointed: 0,
+    mislinks_unresolved: 0,
     identifiers_repaired: 0,
     identifiers_registered: 0,
     unrepairable: 0,
@@ -109,8 +129,12 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
         repair_agent(agent, actor, stats)
       end)
 
-    if stats.device_links_repaired + stats.identifiers_repaired + stats.identifiers_registered >
-         0 or stats.unrepairable > 0 or stats.errors > 0 do
+    repaired =
+      stats.device_links_repaired + stats.mislinks_repointed + stats.identifiers_repaired +
+        stats.identifiers_registered
+
+    if repaired > 0 or stats.mislinks_unresolved > 0 or stats.unrepairable > 0 or
+         stats.errors > 0 do
       Logger.info("AgentLinkRepairWorker: run completed", Map.to_list(stats))
     end
 
@@ -122,21 +146,19 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
 
     case resolve_canonical_device(agent.device_uid, actor) do
       {:live, device_uid} ->
-        repair_identifier(agent, device_uid, actor, stats)
+        repair_live_link(agent, device_uid, actor, stats)
 
       {:repoint, canonical_uid} ->
-        case repoint_agent(agent, canonical_uid, actor) do
-          {:ok, updated_agent} ->
-            stats = %{stats | device_links_repaired: stats.device_links_repaired + 1}
-            repair_identifier(updated_agent, canonical_uid, actor, stats)
-
-          {:error, reason} ->
-            Logger.warning(
-              "AgentLinkRepairWorker: failed to repoint agent #{agent.uid} " <>
-                "from #{agent.device_uid} to #{canonical_uid}: #{inspect(reason)}"
-            )
-
-            %{stats | errors: stats.errors + 1}
+        # The agent points at a tombstone whose canonical survivor is
+        # `canonical_uid`. Normally we follow it — but if that survivor
+        # contradicts the agent's behavioral anchor (a bad merge whose
+        # reassignment the prevent-at-source guard refused), following it would
+        # re-create the mislink. Treat it as a mislink instead: repoint to the
+        # agent's own anchor when unambiguous, else leave + log.
+        if AgentAnchor.conflicts_with_anchor?(agent.uid, canonical_uid, actor) do
+          repair_live_link(agent, canonical_uid, actor, stats)
+        else
+          follow_canonical_repoint(agent, canonical_uid, actor, stats)
         end
 
       {:unrepairable, reason} ->
@@ -155,6 +177,89 @@ defmodule ServiceRadar.Inventory.AgentLinkRepairWorker do
       )
 
       %{stats | errors: stats.errors + 1}
+  end
+
+  defp follow_canonical_repoint(agent, canonical_uid, actor, stats) do
+    case repoint_agent(agent, canonical_uid, actor) do
+      {:ok, updated_agent} ->
+        stats = %{stats | device_links_repaired: stats.device_links_repaired + 1}
+        repair_identifier(updated_agent, canonical_uid, actor, stats)
+
+      {:error, reason} ->
+        Logger.warning(
+          "AgentLinkRepairWorker: failed to repoint agent #{agent.uid} " <>
+            "from #{agent.device_uid} to #{canonical_uid}: #{inspect(reason)}"
+        )
+
+        %{stats | errors: stats.errors + 1}
+    end
+  end
+
+  # The agent's `device_uid` points at a LIVE device. Most of the time that is
+  # the agent's own host and we only verify the agent_id identifier. But a bad
+  # merge can leave the agent welded to a LIVE-but-wrong device whose own
+  # `agent_id` belongs to a DIFFERENT agent (the dusk -> tonka pathology). When
+  # that mislink is detected behaviorally AND the agent has a single
+  # unambiguous anchor device of its own, repoint to it; otherwise leave the
+  # row untouched and emit telemetry (do no harm on ambiguity).
+  defp repair_live_link(agent, device_uid, actor, stats) do
+    if AgentAnchor.conflicts_with_anchor?(agent.uid, device_uid, actor) do
+      case AgentAnchor.sole_anchor_device_uid(agent.uid, actor) do
+        anchor_uid when is_binary(anchor_uid) and anchor_uid != device_uid ->
+          repoint_mislinked_agent(agent, device_uid, anchor_uid, actor, stats)
+
+        _ ->
+          leave_unresolved_mislink(agent, device_uid, stats)
+      end
+    else
+      repair_identifier(agent, device_uid, actor, stats)
+    end
+  end
+
+  defp repoint_mislinked_agent(agent, from_uid, anchor_uid, actor, stats) do
+    result =
+      agent
+      |> Ash.Changeset.for_update(:reassign_device, %{device_uid: anchor_uid})
+      |> Ash.update(actor: actor)
+
+    case result do
+      {:ok, updated} ->
+        Logger.info(
+          "AgentLinkRepairWorker: repointed mislinked agent #{agent.uid} device link " <>
+            "#{from_uid} -> #{anchor_uid} (linked device reciprocally owned by another agent)"
+        )
+
+        emit_repair_telemetry(agent.uid, :mislink, from_uid, anchor_uid)
+        stats = %{stats | mislinks_repointed: stats.mislinks_repointed + 1}
+        repair_identifier(updated, anchor_uid, actor, stats)
+
+      {:error, reason} ->
+        Logger.warning(
+          "AgentLinkRepairWorker: failed to repoint mislinked agent #{agent.uid} " <>
+            "from #{from_uid} to #{anchor_uid}: #{inspect(reason)}"
+        )
+
+        %{stats | errors: stats.errors + 1}
+    end
+  end
+
+  # Behavioral mislink detected but no single unambiguous anchor to move to.
+  # Leaving the row alone is the safe default — a wrong auto-repoint corrupts
+  # identity worse than the existing cruft. Surface it for operator review.
+  defp leave_unresolved_mislink(agent, device_uid, stats) do
+    Logger.warning(
+      "AgentLinkRepairWorker: agent #{agent.uid} is mislinked to live device " <>
+        "#{device_uid} (owned by another agent) but has no unambiguous anchor " <>
+        "device; leaving link untouched"
+    )
+
+    :telemetry.execute(
+      [:serviceradar, :agent_link_repair, :mislink_unresolved],
+      %{count: 1},
+      %{agent_uid: agent.uid, device_uid: device_uid}
+    )
+
+    %{stats | mislinks_unresolved: stats.mislinks_unresolved + 1}
   end
 
   defp resolve_canonical_device(device_uid, actor) do

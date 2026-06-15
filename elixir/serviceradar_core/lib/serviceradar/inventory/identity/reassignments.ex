@@ -9,6 +9,7 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.DeviceAgentAvailability
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.AgentAnchor
   alias ServiceRadar.Inventory.Interface
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.ServiceCheck
@@ -42,8 +43,52 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
     bulk_reassign(Alert, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
   end
 
+  @doc """
+  Repoint agent rows from a merged-away device onto the survivor — but never
+  move an agent onto a survivor that contradicts its stable behavioral anchor
+  (DIRE prevent-at-source).
+
+  A merge that slipped past the alias/merge guards must not be allowed to weld
+  an agent to a foreign host: if the survivor is reciprocally owned by a
+  DIFFERENT agent while this agent has its own distinct anchor device, the move
+  is refused (the agent is left on its anchored device) and
+  `[:serviceradar, :identity_reconciler, :agent_link, :reassign_blocked]` is
+  emitted. Default behavior is unchanged — agents without a conflicting anchor
+  are reassigned exactly as before.
+  """
   def reassign_agents(from_id, to_id, actor) do
-    bulk_reassign(Agent, :reassign_device, :device_uid, from_id, %{device_uid: to_id}, actor)
+    base_query = Ash.Query.for_read(Agent, :read, %{}, actor: actor)
+    query = Ash.Query.filter(base_query, device_uid == ^from_id)
+
+    case Ash.read(query, actor: actor) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, agents} ->
+        {to_move, blocked} =
+          Enum.split_with(agents, fn agent ->
+            not AgentAnchor.conflicts_with_anchor?(agent.uid, to_id, actor)
+          end)
+
+        Enum.each(blocked, fn agent ->
+          Logger.warning(
+            "Reassignments: refusing to repoint agent #{agent.uid} onto #{to_id} " <>
+              "during merge of #{from_id} -> #{to_id}: survivor conflicts with the " <>
+              "agent's behavioral anchor"
+          )
+
+          :telemetry.execute(
+            [:serviceradar, :identity_reconciler, :agent_link, :reassign_blocked],
+            %{count: 1},
+            %{agent_uid: agent.uid, from_device_id: from_id, to_device_id: to_id}
+          )
+        end)
+
+        reassign_records(to_move, %{device_uid: to_id}, actor)
+
+      {:error, _} = error ->
+        error
+    end
   end
 
   @doc """
@@ -179,6 +224,16 @@ defmodule ServiceRadar.Inventory.Identity.Reassignments do
       {:error, _} = error ->
         error
     end
+  end
+
+  # Bulk-reassign an already-loaded list of records (used by the anchor-aware
+  # agent reassignment, which must filter records before updating).
+  defp reassign_records([], _attrs, _actor), do: :ok
+
+  defp reassign_records(records, attrs, actor) do
+    records
+    |> Ash.bulk_update(:reassign_device, attrs, actor: actor)
+    |> normalize_bulk_result()
   end
 
   defp normalize_bulk_result(result) do
