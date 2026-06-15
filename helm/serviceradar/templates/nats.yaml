@@ -208,7 +208,7 @@ spec:
                 user: "CN=serviceradar-agent-gateway,OU=Kubernetes,O=ServiceRadar,L=San Francisco,ST=CA,C=US"
                 permissions: {
                   publish: {
-                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "metrics.timeseries.>", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
+                    allow: ["metrics.sysmon.>", "metrics.snmp.>", "metrics.icmp.>", "metrics.mtr.>", "metrics.rperf.>", "metrics.sweep.>", "metrics.timeseries.>", "otel.traces.raw", "otel.metrics.raw", "otel.metrics.derived", "logs.otel", "\$JS.API.>"]
                     deny: ["\$SYS.>", "flow.attributed.>", "events.>", "logs.syslog", "logs.syslog.>", "logs.snmp", "logs.snmp.>"]
                   }
                   subscribe: {
