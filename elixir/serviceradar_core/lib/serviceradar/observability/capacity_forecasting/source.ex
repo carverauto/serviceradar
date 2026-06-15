@@ -44,10 +44,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "cpu",
         metric_name: "usage_percent",
         query:
-          "in:cpu_metrics time:#{time_range} bucket:1h stats:avg(usage_percent) as avg_usage_percent by bucket,device_id,host_id sort:bucket:desc limit:#{limit}",
-        value_field: "avg_usage_percent",
-        key_fields: ["device_id", "host_id"],
-        label_fields: ["host_id", "device_id"],
+          ~s|in:timeseries_metrics metric_type:"sysmon.cpu" metric_name:"cpu.usage_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+        value_field: "value",
+        bucket_field: "timestamp",
+        key_fields: ["series"],
+        label_fields: ["series"],
         threshold: 100.0
       },
       %__MODULE__{
@@ -56,10 +57,11 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "memory",
         metric_name: "usage_percent",
         query:
-          "in:memory_metrics time:#{time_range} bucket:1h stats:avg(usage_percent) as avg_usage_percent by bucket,device_id,host_id sort:bucket:desc limit:#{limit}",
-        value_field: "avg_usage_percent",
-        key_fields: ["device_id", "host_id"],
-        label_fields: ["host_id", "device_id"],
+          ~s|in:timeseries_metrics metric_type:"sysmon.memory" metric_name:"memory.used_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+        value_field: "value",
+        bucket_field: "timestamp",
+        key_fields: ["series"],
+        label_fields: ["series"],
         threshold: 100.0
       },
       %__MODULE__{
@@ -68,35 +70,24 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         metric_class: "disk",
         metric_name: "usage_percent",
         query:
-          "in:disk_metrics time:#{time_range} bucket:1h stats:avg(usage_percent) as avg_usage_percent by bucket,device_id,host_id,mount_point sort:bucket:desc limit:#{limit}",
-        value_field: "avg_usage_percent",
-        key_fields: ["device_id", "host_id", "mount_point"],
-        label_fields: ["host_id", "mount_point", "device_id"],
+          ~s|in:timeseries_metrics metric_type:"sysmon.disk" metric_name:"disk.used_percent" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+        value_field: "value",
+        bucket_field: "timestamp",
+        key_fields: ["series"],
+        label_fields: ["series"],
         threshold: 100.0
       },
       %__MODULE__{
-        name: "process_cpu_usage",
+        name: "process_count",
         resource_type: "process",
         metric_class: "process",
-        metric_name: "cpu_usage",
+        metric_name: "count",
         query:
-          "in:process_metrics time:#{time_range} bucket:1h stats:avg(cpu_usage) as avg_cpu_usage by bucket,device_id,host_id,name sort:bucket:desc limit:#{limit}",
-        value_field: "avg_cpu_usage",
-        key_fields: ["device_id", "host_id", "name"],
-        label_fields: ["host_id", "name", "device_id"],
-        threshold: 100.0
-      },
-      %__MODULE__{
-        name: "process_memory_usage",
-        resource_type: "process",
-        metric_class: "process",
-        metric_name: "memory_usage",
-        query:
-          "in:process_metrics time:#{time_range} bucket:1h stats:avg(memory_usage) as avg_memory_usage by bucket,device_id,host_id,name sort:bucket:desc limit:#{limit}",
-        value_field: "avg_memory_usage",
-        key_fields: ["device_id", "host_id", "name"],
-        label_fields: ["host_id", "name", "device_id"],
-        threshold: 100.0
+          ~s|in:timeseries_metrics metric_type:"sysmon.process" metric_name:"process.count" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
+        value_field: "value",
+        bucket_field: "timestamp",
+        key_fields: ["series"],
+        label_fields: ["series"]
       },
       %__MODULE__{
         name: "interface_rate",
