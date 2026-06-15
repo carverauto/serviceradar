@@ -37,6 +37,9 @@
 {{- $anomalyAnalysis := default (dict) $coreVals.anomalyAnalysis -}}
 {{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
 {{- $capacityForecasting := default (dict) $coreVals.capacityForecasting -}}
+{{- $coreResources := default (dict) $coreVals.resources -}}
+{{- $coreResourceLimits := default (dict) $coreResources.limits -}}
+{{- $coreResourceRequests := default (dict) $coreResources.requests -}}
 {{- $capacityForecastConfig := default (dict) $coreVals.capacityForecastConfig -}}
 {{- $deviceEnrichment := default (dict) $coreVals.deviceEnrichment -}}
 {{- $deviceEnrichmentRulesDir := default "/var/lib/serviceradar/rules/device-enrichment" $deviceEnrichment.rulesDir -}}
@@ -570,11 +573,11 @@ spec:
         {{- end }}
         resources:
           limits:
-            cpu: "4"
-            memory: "4Gi"
+            cpu: {{ default "4" $coreResourceLimits.cpu | quote }}
+            memory: {{ default "4Gi" $coreResourceLimits.memory | quote }}
           requests:
-            cpu: "500m"
-            memory: "1Gi"
+            cpu: {{ default "500m" $coreResourceRequests.cpu | quote }}
+            memory: {{ default "1Gi" $coreResourceRequests.memory | quote }}
         livenessProbe:
           exec:
             command:

@@ -128,6 +128,14 @@ agentGateway:
   enabled: true
   replicas: 3
   publicHostname: "demo-gw.serviceradar.cloud"
+  # Persist the live kubectl-set memory limits (argo would otherwise revert to
+  # the chart default 1Gi, which OOMKills under reconnect-storm spikes; the
+  # gateway sits at ~800Mi steady-state). cpu left at template defaults.
+  resources:
+    requests:
+      memory: "1Gi"
+    limits:
+      memory: "3Gi"
   service:
     type: LoadBalancer
     port: 50052
@@ -431,6 +439,14 @@ gobgp:
 
 core:
   replicas: 3
+  # Persist the live kubectl-set memory limit (argo would otherwise revert to
+  # the chart default 4Gi, which OOMKills core-elx under load; live core runs
+  # at 16Gi). cpu left at template defaults.
+  resources:
+    requests:
+      memory: "2Gi"
+    limits:
+      memory: "16Gi"
   clusterWebDnsQuery: "serviceradar-web-ng-headless.demo.svc.cluster.local"
   clusterGatewayDnsQuery: "serviceradar-agent-gateway-headless.demo.svc.cluster.local"
   database:
