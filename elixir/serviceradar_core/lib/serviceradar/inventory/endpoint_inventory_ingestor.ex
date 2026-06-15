@@ -25,6 +25,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
   @hash_algorithm "sha256-v1"
   @upload_reason_changed "changed"
   @upload_reason_unchanged "unchanged"
+  @coverage_state_unchanged "unchanged"
   @default_reconcile_floor_scan_count 24
   @default_reconcile_floor_max_age_days 7
   @successful_states ["scanned", "complete", "success", "unchanged"]
@@ -45,7 +46,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
       case Repo.transaction(fn ->
              current = current_scan_snapshot(context.agent_id)
-             context = apply_hash_freshness(context, current)
+             current_row_count = current_package_row_count(context.agent_id)
+             context = apply_hash_freshness(context, current, current_row_count)
              previous_packages = current_package_rows(context)
              scan_ref = upsert_scan(context, artifact)
              insert_scan_activity_event(scan_ref, context)
@@ -153,6 +155,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        server_package_set_hash: server_hash,
        package_set_hash_mismatch?: false,
        package_replacement_noop?: false,
+       degraded_empty_upload?: false,
+       reported_package_count: Payload.integer_value(payload, :package_count, length(packages)),
        unchanged_scan_count: 0,
        last_changed_scan_at: nil,
        reconcile_floor_due?: false,
@@ -548,6 +552,16 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     )
   end
 
+  defp current_package_row_count(agent_id) do
+    Repo.one(
+      from(p in "endpoint_inventory_packages",
+        where: p.agent_id == ^agent_id and p.current == true,
+        select: count(p.id)
+      ),
+      prefix: "platform"
+    ) || 0
+  end
+
   defp current_package_rows(%{package_replacement_noop?: true}), do: []
 
   defp current_package_rows(context) do
@@ -578,8 +592,17 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     end
   end
 
-  defp apply_hash_freshness(context, current) do
-    package_replacement_noop? = package_replacement_noop?(context, current)
+  defp apply_hash_freshness(context, current, current_row_count) do
+    hash_matched_noop? = hash_matched_unchanged_noop?(context, current)
+
+    # A degraded/empty upload carries no packages and is *not* a hash-matched
+    # unchanged noop. Replacing or promoting on it would wipe a non-empty current
+    # inventory (e.g. an `unchanged` upload that omits the SBOM, a partial scan, or
+    # a hash drift). When there is something to protect, treat it like the noop path
+    # so the existing current rows are preserved and re-stamped to the new scan.
+    degraded_empty? = degraded_empty_upload?(context, hash_matched_noop?, current_row_count)
+    package_replacement_noop? = hash_matched_noop? or degraded_empty?
+
     server_hash = effective_server_package_set_hash(context, current, package_replacement_noop?)
     mismatch? = package_set_hash_mismatch?(context.reported_package_set_hash, server_hash)
 
@@ -590,9 +613,18 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
     last_changed_at = last_changed_scan_at(context, current, package_replacement_noop?)
     reconcile_floor_due? = reconcile_floor_due?(context, last_changed_at, unchanged_count)
 
+    package_count =
+      reconciled_package_count(context, package_replacement_noop?, current_row_count)
+
     if mismatch? do
       Logger.warning(
         "Endpoint inventory package_set_hash mismatch: agent_id=#{context.agent_id} scan_id=#{context.scan_id} reported=#{context.reported_package_set_hash} server=#{server_hash}"
+      )
+    end
+
+    if degraded_empty? do
+      Logger.warning(
+        "Endpoint inventory empty/SBOM-less upload would have wiped #{current_row_count} current packages; preserving inventory: agent_id=#{context.agent_id} scan_id=#{context.scan_id} upload_reason=#{context.upload_reason} reported_package_count=#{context.reported_package_count}"
       )
     end
 
@@ -602,18 +634,42 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
         server_package_set_hash: server_hash,
         package_set_hash_mismatch?: mismatch?,
         package_replacement_noop?: package_replacement_noop?,
+        degraded_empty_upload?: degraded_empty?,
+        package_count: package_count,
+        coverage_state: effective_coverage_state(context, degraded_empty?),
         unchanged_scan_count: unchanged_count,
         last_changed_scan_at: last_changed_at,
         reconcile_floor_due?: reconcile_floor_due?
     }
   end
 
-  defp package_replacement_noop?(context, current) do
+  defp hash_matched_unchanged_noop?(context, current) do
     successful_scan?(context) and not is_nil(current) and
       reported_package_set_hash(context) not in [nil, ""] and
       reported_package_set_hash(context) == current.package_set_hash and
       context.upload_reason == @upload_reason_unchanged
   end
+
+  # True when the upload carries no packages, isn't a hash-matched unchanged noop,
+  # and there is a non-empty current inventory that a wholesale replace would destroy.
+  defp degraded_empty_upload?(context, hash_matched_noop?, current_row_count) do
+    not hash_matched_noop? and context.packages == [] and current_row_count > 0
+  end
+
+  # Make the scan's surfaced package_count reflect the rows it can actually back:
+  # for replacing scans that's the exploded package list. For a noop/degraded upload
+  # the count is the preserved current inventory *only when this scan becomes current*
+  # (promotion re-stamps those rows to it); an unsuccessful degraded upload backs no
+  # rows of its own, so it reports 0. The reported (collector) count is preserved
+  # separately under metadata `raw_package_count`/`reported_package_count`.
+  defp reconciled_package_count(context, true, current_row_count) do
+    if successful_scan?(context), do: current_row_count, else: 0
+  end
+
+  defp reconciled_package_count(context, false, _current_row_count), do: length(context.packages)
+
+  defp effective_coverage_state(_context, true), do: @coverage_state_unchanged
+  defp effective_coverage_state(context, false), do: context.coverage_state
 
   defp reported_package_set_hash(context) do
     context.reported_package_set_hash || context.package_set_hash
@@ -717,7 +773,10 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "unchanged_scan_count" => context.unchanged_scan_count,
       "last_changed_scan_at" => Payload.iso8601(context.last_changed_scan_at),
       "reconcile_floor_due" => context.reconcile_floor_due?,
-      "raw_package_count" => Payload.integer_value(context.payload, :package_count, nil)
+      "raw_package_count" => Payload.integer_value(context.payload, :package_count, nil),
+      "reported_package_count" => context.reported_package_count,
+      "loaded_package_count" => context.package_count,
+      "degraded_empty_upload" => context.degraded_empty_upload?
     })
     |> Payload.compact_map()
   end

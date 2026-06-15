@@ -76,6 +76,8 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
     assert current_scan(agent_id).scan_id == "scan-#{unique}"
     assert [%{name: "nginx"}] = current_packages(agent_id)
 
+    # An empty/SBOM-less scan must NOT wipe a non-empty current inventory. It is
+    # promoted as the current scan but preserves and re-stamps the prior rows.
     assert {:ok, empty_success} =
              EndpointInventoryIngestor.ingest_report(
                scan_payload(agent_id, "scan-empty-#{unique}", components: []),
@@ -84,8 +86,13 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
              )
 
     assert empty_success.current? == true
-    assert current_scan(agent_id).scan_id == "scan-empty-#{unique}"
-    assert current_packages(agent_id) == []
+    assert empty_success.package_rows_replaced? == false
+    assert empty_success.package_count == 1
+    empty_scan = current_scan(agent_id)
+    assert empty_scan.scan_id == "scan-empty-#{unique}"
+    assert empty_scan.package_count == 1
+    assert [%{name: "nginx", scan_ref: nginx_scan_ref}] = current_packages(agent_id)
+    assert nginx_scan_ref == empty_scan.id
   end
 
   test "nulls non-canonical endpoint inventory device uid payloads", %{actor: actor} do
@@ -675,6 +682,151 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestorTest do
 
     assert [%{name: "nginx", scan_ref: scan_ref_after_retention}] = current_packages(agent_id)
     assert scan_ref_after_retention == refreshed_scan.id
+  end
+
+  test "SBOM-less unchanged upload without a matching prior hash preserves current packages",
+       %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-degraded-device-#{unique}")
+    agent_id = "endpoint-inventory-degraded-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-full-#{unique}",
+                 components: [
+                   package_component("nginx", "1.24.0-2ubuntu7"),
+                   package_component("curl", "8.5.0-2ubuntu1")
+                 ]
+               ),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert first.package_count == 2
+    assert package_row_count(agent_id) == 2
+
+    # An `unchanged` upload that carries NO SBOM/packages and whose hash does not
+    # match the stored current scan (hash drift) must NOT fall through to a 0-row
+    # wipe, and must NOT stamp a package_count it cannot back.
+    degraded_payload =
+      agent_id
+      |> scan_payload("scan-degraded-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "unchanged",
+        "coverage_state" => "complete",
+        "package_count" => 487,
+        "package_set_hash" => "deadbeef-drifted-hash",
+        "upload_reason" => "unchanged"
+      })
+
+    assert {:ok, degraded} =
+             EndpointInventoryIngestor.ingest_report(degraded_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert degraded.current? == true
+    assert degraded.package_rows_replaced? == false
+    # package_count is reconciled to the actually-loaded current rows, not 487.
+    assert degraded.package_count == 2
+
+    degraded_scan = current_scan(agent_id)
+    assert degraded_scan.scan_id == "scan-degraded-#{unique}"
+    assert degraded_scan.package_count == 2
+    assert degraded_scan.metadata["reported_package_count"] == 487
+    assert degraded_scan.metadata["loaded_package_count"] == 2
+    assert degraded_scan.metadata["degraded_empty_upload"] == true
+
+    assert names = agent_id |> current_packages() |> Enum.map(& &1.name) |> Enum.sort()
+    assert names == ["curl", "nginx"]
+    assert package_row_count(agent_id) == 2
+  end
+
+  test "failed empty upload does not wipe a prior full current inventory", %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-partial-device-#{unique}")
+    agent_id = "endpoint-inventory-partial-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    assert {:ok, first} =
+             EndpointInventoryIngestor.ingest_report(
+               scan_payload(agent_id, "scan-full-#{unique}",
+                 components: [
+                   package_component("nginx", "1.24.0-2ubuntu7"),
+                   package_component("curl", "8.5.0-2ubuntu1")
+                 ]
+               ),
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert first.current? == true
+    assert package_row_count(agent_id) == 2
+
+    # A failed/partial scan that carries no packages must leave the prior current
+    # inventory intact (current scan unchanged, rows preserved).
+    failed_payload =
+      agent_id
+      |> scan_payload("scan-partial-#{unique}", components: [])
+      |> Map.delete("sbom")
+      |> Map.merge(%{
+        "state" => "scan_failed",
+        "coverage_state" => "failed",
+        "package_count" => 0,
+        "upload_reason" => "changed"
+      })
+
+    assert {:ok, failed} =
+             EndpointInventoryIngestor.ingest_report(failed_payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert failed.current? == false
+    assert failed.package_rows_replaced? == false
+
+    current = current_scan(agent_id)
+    assert current.scan_id == "scan-full-#{unique}"
+    names = agent_id |> current_packages() |> Enum.map(& &1.name) |> Enum.sort()
+    assert names == ["curl", "nginx"]
+    assert package_row_count(agent_id) == 2
+  end
+
+  test "changed scan reconciles package_count to actual loaded rows when reported count lies",
+       %{actor: actor} do
+    unique = System.unique_integer([:positive])
+    device = create_device!(actor, "endpoint-inventory-count-device-#{unique}")
+    agent_id = "endpoint-inventory-count-agent-#{unique}"
+    create_agent!(actor, agent_id, device.uid)
+
+    # Reported package_count (487) intentionally diverges from the two SBOM
+    # components that actually explode into current rows.
+    payload =
+      agent_id
+      |> scan_payload("scan-count-#{unique}",
+        components: [
+          package_component("nginx", "1.24.0-2ubuntu7"),
+          package_component("curl", "8.5.0-2ubuntu1")
+        ]
+      )
+      |> Map.put("package_count", 487)
+
+    assert {:ok, result} =
+             EndpointInventoryIngestor.ingest_report(payload,
+               actor: actor,
+               upload_object: successful_upload()
+             )
+
+    assert result.current? == true
+    assert result.package_count == 2
+
+    scan = current_scan(agent_id)
+    assert scan.package_count == 2
+    assert scan.metadata["reported_package_count"] == 487
+    assert scan.metadata["loaded_package_count"] == 2
+    assert package_row_count(agent_id) == 2
   end
 
   test "emits endpoint inventory cost and volume telemetry", %{actor: actor} do
