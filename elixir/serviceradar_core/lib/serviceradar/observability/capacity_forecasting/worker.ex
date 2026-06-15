@@ -25,6 +25,17 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   @default_seasonal_period 24
   @interface_octet_metrics ~w(ifInOctets ifOutOctets ifHCInOctets ifHCOutOctets)
 
+  # SNMP octet counters wrap/reset; the hourly rollup then reports astronomically high
+  # per-second "rates" for the affected bucket. Converted to utilization these become
+  # physically impossible (>>100% of link capacity) and poison the trend fit. Drop any
+  # converted interface utilization above this ceiling as a counter artifact.
+  @max_interface_utilization_percent 1000.0
+
+  # Safety net: even after dropping contaminated samples, refuse to persist an absurd
+  # projection for a bounded-threshold metric (e.g. utilization_percent). A projected
+  # value beyond this multiple of the threshold is recorded as a skip, not rendered.
+  @implausible_projection_factor 10.0
+
   @impl Oban.Worker
   def perform(%Oban.Job{} = job) do
     run(job)
@@ -231,28 +242,42 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
            seasonal_period: seasonal_period
          ) do
       {:ok, forecast} ->
-        Map.merge(common, %{
-          window_started_at: forecast.window_started_at,
-          window_ended_at: forecast.window_ended_at,
-          sample_count: forecast.sample_count,
-          model: forecast.model,
-          status: "projected",
-          skip_reason: nil,
-          current_value: forecast.current_value,
-          slope_per_second: forecast.slope_per_second,
-          intercept: forecast.intercept,
-          projected_value: forecast.projected_value,
-          projected_exhaustion_at: forecast.projected_exhaustion_at,
-          confidence: forecast.confidence,
-          lower_bound: forecast.lower_bound,
-          upper_bound: forecast.upper_bound,
-          metadata: Map.put(common.metadata, "diagnostics", forecast.diagnostics)
-        })
+        if implausible_projection?(forecast, common.exhaustion_threshold) do
+          skipped_attrs(source, points, common, "implausible_projection", forecast.diagnostics)
+        else
+          Map.merge(common, %{
+            window_started_at: forecast.window_started_at,
+            window_ended_at: forecast.window_ended_at,
+            sample_count: forecast.sample_count,
+            model: forecast.model,
+            status: "projected",
+            skip_reason: nil,
+            current_value: forecast.current_value,
+            slope_per_second: forecast.slope_per_second,
+            intercept: forecast.intercept,
+            projected_value: forecast.projected_value,
+            projected_exhaustion_at: forecast.projected_exhaustion_at,
+            confidence: forecast.confidence,
+            lower_bound: forecast.lower_bound,
+            upper_bound: forecast.upper_bound,
+            metadata: Map.put(common.metadata, "diagnostics", forecast.diagnostics)
+          })
+        end
 
       {:skip, reason, diagnostics} ->
         skipped_attrs(source, points, common, reason, diagnostics)
     end
   end
+
+  # A bounded-threshold metric (e.g. utilization_percent) that projects far beyond its
+  # threshold is contaminated input, not a real forecast — skip it rather than render an
+  # impossible value. Unbounded metrics (no threshold) are never clamped.
+  defp implausible_projection?(%{projected_value: projected_value}, threshold)
+       when is_number(projected_value) and is_number(threshold) and threshold > 0 do
+    projected_value > @implausible_projection_factor * threshold
+  end
+
+  defp implausible_projection?(_forecast, _threshold), do: false
 
   defp skipped_attrs(source, points, common, reason, diagnostics \\ %{}) do
     Map.merge(common, %{
@@ -402,8 +427,15 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   end
 
   defp source_value(row, %Source{resource_type: "interface"} = source, %{speed_bps: speed_bps}) do
-    with value when is_number(value) <- number_value(row, source.value_field) do
-      InterfaceCapacity.utilization_percent(value, speed_bps)
+    case number_value(row, source.value_field) do
+      value when is_number(value) ->
+        utilization = InterfaceCapacity.utilization_percent(value, speed_bps)
+
+        # Drop counter-wrap/reset artifacts so they never reach the model.
+        if utilization > @max_interface_utilization_percent, do: nil, else: utilization
+
+      _ ->
+        nil
     end
   end
 

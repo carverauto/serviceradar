@@ -16,8 +16,12 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
      remain or a bounded time budget expires.
 
   Root spans are detected via `parent_span_id IS NULL` (the canonical id
-  contract maps `''`/all-zero parents to NULL at ingest); error counting uses
-  OTLP STATUS_ERROR (`status_code = 2`) only.
+  contract maps `''`/all-zero parents to NULL at ingest). When a trace has no
+  such span — common for "orphan" traces whose real root was never exported —
+  the earliest span (min `start_time_unix_nano`) stands in as the
+  representative root, so `root_service_name`/`root_span_name` are populated
+  rather than NULL. Error counting uses OTLP STATUS_ERROR (`status_code = 2`)
+  only.
   """
 
   use Oban.Worker,
@@ -34,7 +38,39 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # Upsert traces whose spans were ingested within (`$1`, `$2`].
   # For each matching trace_id, aggregates ALL its spans inside the configured
   # retention window.
+  #
+  # Root naming uses the trace's true root span (`parent_span_id IS NULL`) when
+  # present. Many traces in practice are "orphans": every exported span points
+  # at a parent that was never exported (the real root belongs to an
+  # un-instrumented or sampled-out caller), so no span has a NULL parent. For
+  # those traces we fall back to the earliest span (min start_time_unix_nano,
+  # tie-broken by span_id) as the representative root so the summary — and the
+  # traces list/detail UI that reads it — still shows a service + operation
+  # name instead of blanks. The chosen-root attributes are computed once per
+  # trace in `roots` via DISTINCT ON and joined to the per-trace aggregate.
   @upsert_sql """
+  WITH candidates AS (
+    SELECT t.trace_id, t.span_id, t.parent_span_id, t.name, t.service_name,
+           t.service_namespace, t.deployment_environment, t.kind,
+           t.status_code, t.status_message, t.start_time_unix_nano,
+           (t.parent_span_id IS NULL) AS is_root
+    FROM otel_traces t
+    WHERE t.trace_id IN (
+      SELECT DISTINCT trace_id FROM otel_traces
+      WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
+    )
+    AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
+    AND t.trace_id IS NOT NULL
+  ),
+  roots AS (
+    SELECT DISTINCT ON (trace_id)
+      trace_id, span_id, name, service_name, service_namespace,
+      deployment_environment, kind, status_code, status_message
+    FROM candidates
+    -- Prefer a true root span; otherwise the earliest span stands in as root.
+    ORDER BY trace_id, is_root DESC,
+             start_time_unix_nano ASC NULLS LAST, span_id ASC
+  )
   INSERT INTO otel_trace_summaries (
     trace_id, timestamp, root_span_id, root_span_name, root_service_name,
     root_service_namespace, deployment_environment,
@@ -44,29 +80,31 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   SELECT
     t.trace_id,
     max(t.timestamp),
-    max(t.span_id) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.name) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.service_name) FILTER (WHERE t.parent_span_id IS NULL),
-    COALESCE(max(t.service_namespace) FILTER (WHERE t.parent_span_id IS NULL), ''),
-    COALESCE(max(t.deployment_environment) FILTER (WHERE t.parent_span_id IS NULL), ''),
-    max(t.kind) FILTER (WHERE t.parent_span_id IS NULL),
+    r.span_id,
+    r.name,
+    r.service_name,
+    COALESCE(r.service_namespace, ''),
+    COALESCE(r.deployment_environment, ''),
+    r.kind,
     min(t.start_time_unix_nano),
     max(t.end_time_unix_nano),
     (max(t.end_time_unix_nano) - min(t.start_time_unix_nano))::float8 / 1000000.0,
-    max(t.status_code) FILTER (WHERE t.parent_span_id IS NULL),
-    max(t.status_message) FILTER (WHERE t.parent_span_id IS NULL),
+    r.status_code,
+    r.status_message,
     array_agg(DISTINCT t.service_name) FILTER (WHERE t.service_name IS NOT NULL),
     count(*),
     count(*) FILTER (WHERE t.status_code = 2),
     NOW()
   FROM otel_traces t
+  JOIN roots r ON r.trace_id = t.trace_id
   WHERE t.trace_id IN (
     SELECT DISTINCT trace_id FROM otel_traces
     WHERE created_at > $1 AND created_at <= $2 AND trace_id IS NOT NULL
   )
   AND t.timestamp >= NOW() - ($3::int * INTERVAL '1 day')
   AND t.trace_id IS NOT NULL
-  GROUP BY t.trace_id
+  GROUP BY t.trace_id, r.span_id, r.name, r.service_name, r.service_namespace,
+           r.deployment_environment, r.kind, r.status_code, r.status_message
   ON CONFLICT (trace_id) DO UPDATE SET
     timestamp = EXCLUDED.timestamp,
     root_span_id = EXCLUDED.root_span_id,
@@ -151,13 +189,28 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   # First run: initialize the watermark one hour back.
   @initial_lookback_seconds 3600
   @default_cleanup_batch_size 5_000
-  @cleanup_time_budget_ms 10_000
+  @default_cleanup_time_budget_ms 10_000
   @default_retention_days 3
+  @default_probe_timeout_ms 30_000
+  @default_upsert_timeout_ms 120_000
+  @default_watermark_timeout_ms 30_000
+  @default_cleanup_timeout_ms 60_000
+  @default_remaining_estimate_timeout_ms 30_000
 
   def upsert_sql, do: @upsert_sql
   def cleanup_batch_sql, do: @cleanup_batch_sql
   def watermark_key, do: @watermark_key
   def ingest_chunk_seconds, do: @ingest_chunk_seconds
+  def probe_timeout_ms, do: config_positive_integer(:probe_timeout_ms, @default_probe_timeout_ms)
+
+  def upsert_timeout_ms,
+    do: config_positive_integer(:upsert_timeout_ms, @default_upsert_timeout_ms)
+
+  def watermark_timeout_ms,
+    do: config_positive_integer(:watermark_timeout_ms, @default_watermark_timeout_ms)
+
+  def cleanup_timeout_ms,
+    do: config_positive_integer(:cleanup_timeout_ms, @default_cleanup_timeout_ms)
 
   @impl Oban.Worker
   def perform(_job) do
@@ -183,7 +236,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp read_watermark(now) do
-    case SQL.query(ServiceRadar.Repo, @read_watermark_sql, [@watermark_key], timeout: 10_000) do
+    case SQL.query(ServiceRadar.Repo, @read_watermark_sql, [@watermark_key],
+           timeout: watermark_timeout_ms()
+         ) do
       {:ok, %{rows: [[%DateTime{} = watermark]]}} ->
         watermark
 
@@ -226,7 +281,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              ServiceRadar.Repo,
              @upsert_sql,
              [window_start, window_end, retention_days()],
-             timeout: 60_000
+             timeout: upsert_timeout_ms()
            ) do
         {:ok, _result} ->
           :ok
@@ -256,7 +311,9 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
     )
     """
 
-    case SQL.query(ServiceRadar.Repo, sql, [window_start, window_end], timeout: 5_000) do
+    case SQL.query(ServiceRadar.Repo, sql, [window_start, window_end],
+           timeout: probe_timeout_ms()
+         ) do
       {:ok, %{rows: [[true]]}} -> true
       {:ok, _result} -> false
       {:error, %Postgrex.Error{postgres: %{code: :undefined_table}}} -> false
@@ -272,7 +329,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
              ServiceRadar.Repo,
              @max_ingested_at_sql,
              [window_start, window_end],
-             timeout: 10_000
+             timeout: watermark_timeout_ms()
            ) do
         {:ok, %{rows: [[%DateTime{} = max_created_at]]}} ->
           max_created_at
@@ -288,7 +345,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
            ServiceRadar.Repo,
            @write_watermark_sql,
            [@watermark_key, new_watermark],
-           timeout: 10_000
+           timeout: watermark_timeout_ms()
          ) do
       {:ok, _result} ->
         :ok
@@ -308,14 +365,14 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   defp cleanup_old_summaries do
     batch_size = cleanup_batch_size()
     retention_days = retention_days()
-    deadline = System.monotonic_time(:millisecond) + @cleanup_time_budget_ms
+    deadline = System.monotonic_time(:millisecond) + cleanup_time_budget_ms()
 
     drain_cleanup(batch_size, retention_days, deadline, 0)
   end
 
   defp drain_cleanup(batch_size, retention_days, deadline, total_deleted) do
     case SQL.query(ServiceRadar.Repo, @cleanup_batch_sql, [batch_size, retention_days],
-           timeout: 30_000
+           timeout: cleanup_timeout_ms()
          ) do
       {:ok, %{num_rows: deleted_rows}} ->
         total_deleted = total_deleted + deleted_rows
@@ -360,7 +417,7 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
            ServiceRadar.Repo,
            @remaining_estimate_sql,
            [retention_days, 50_000],
-           timeout: 10_000
+           timeout: remaining_estimate_timeout_ms()
          ) do
       {:ok, %{rows: [[count]]}} when is_integer(count) -> count
       _ -> nil
@@ -368,25 +425,29 @@ defmodule ServiceRadar.Jobs.RefreshTraceSummariesWorker do
   end
 
   defp retention_days do
-    :serviceradar_core
-    |> Application.get_env(__MODULE__, [])
-    |> Keyword.get(:retention_days, @default_retention_days)
-    |> positive_integer(@default_retention_days)
+    config_positive_integer(:retention_days, @default_retention_days)
   end
 
   defp cleanup_batch_size do
-    "TRACE_SUMMARIES_CLEANUP_BATCH_SIZE"
-    |> System.get_env()
-    |> parse_positive_integer(@default_cleanup_batch_size)
+    config_positive_integer(:cleanup_batch_size, @default_cleanup_batch_size)
   end
 
-  defp parse_positive_integer(nil, default), do: default
+  defp cleanup_time_budget_ms do
+    config_positive_integer(:cleanup_time_budget_ms, @default_cleanup_time_budget_ms)
+  end
 
-  defp parse_positive_integer(value, default) do
-    case Integer.parse(value) do
-      {int, ""} when int > 0 -> int
-      _ -> default
-    end
+  defp remaining_estimate_timeout_ms do
+    config_positive_integer(
+      :remaining_estimate_timeout_ms,
+      @default_remaining_estimate_timeout_ms
+    )
+  end
+
+  defp config_positive_integer(key, default) do
+    :serviceradar_core
+    |> Application.get_env(__MODULE__, [])
+    |> Keyword.get(key, default)
+    |> positive_integer(default)
   end
 
   defp positive_integer(value, _default) when is_integer(value) and value > 0, do: value

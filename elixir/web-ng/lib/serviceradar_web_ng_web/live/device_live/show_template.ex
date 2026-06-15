@@ -243,6 +243,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               <.process_metrics_section
                 :if={@sysmon_metrics_visible and is_list(@process_metrics)}
                 metrics={@process_metrics}
+                search={@process_metrics_search}
+                page={@process_metrics_page}
               />
 
               <.anomaly_capacity_section
@@ -370,7 +372,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
           </div>
 
           <div :if={@active_tab == "process-listeners"}>
-            <.process_listeners_tab_content device_row={@device_row} />
+            <.process_listeners_tab_content
+              device_row={@device_row}
+              search={@process_listeners_search}
+              page={@process_listeners_page}
+            />
           </div>
 
           <.mtr_tab_content
@@ -471,8 +477,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp device_has_agent?(_row), do: false
 
   defp software_tab_visible?(device_row, assigns) do
-    is_map(device_row) or Map.get(assigns, :has_software_inventory, false) or
-      device_has_agent?(device_row) or
+    # Show the agent-only Software tab when the device actually hosts an agent (the
+    # ocsf_agents linkage flag, same signal as the bolt badge) or when there is real
+    # software-inventory data / an inventory error for it — never just because a device
+    # row loaded (the old `is_map(device_row)` clause made this true for every device,
+    # so routers like farm01/tonka01 wrongly showed the tab).
+    DeviceStateData.agent?(device_row) or
+      Map.get(assigns, :has_software_inventory, false) or
       is_binary(Map.get(assigns, :endpoint_inventory_error))
   end
 

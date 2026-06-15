@@ -6,6 +6,7 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
   use GenServer
 
   alias ServiceRadar.Credentials.ProxmoxCredentialRuleReconcileWorker
+  alias ServiceRadar.Plugins.AddonProfileReconcileWorker
   alias ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
@@ -32,7 +33,11 @@ defmodule ServiceRadar.Plugins.PluginTargetPolicyScheduler do
   defp ensure_jobs do
     if oban_jobs_ready?() do
       Enum.each(
-        [PluginTargetPolicyReconcileWorker, ProxmoxCredentialRuleReconcileWorker],
+        [
+          PluginTargetPolicyReconcileWorker,
+          ProxmoxCredentialRuleReconcileWorker,
+          AddonProfileReconcileWorker
+        ],
         &ensure_worker_scheduled/1
       )
     else

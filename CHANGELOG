@@ -1,3 +1,47 @@
+# ServiceRadar v1.3.3
+
+Release hotfix for the v1.3.2 demo migration blocker.
+
+## Whats New
+
+**1.3.3**
+- Fixed the OTel trace lookup index migration for Timescale hypertables by
+  avoiding concurrent index creation, allowing demo and fresh deployments to
+  run the v1.3.x migration set successfully.
+
+# ServiceRadar v1.3.2
+
+Causal anomaly detection, protobuf metric ingestion, and observability
+performance hardening.
+
+## Whats New
+
+**1.3.2**
+- Added the causal anomaly and capacity forecasting spine: JetStream-backed
+  metric ingestion, DeepCausality-backed anomaly evaluation, checkpointed
+  context recovery, per-series configuration, clearing signals, capacity
+  forecast rows, and the observability health/capacity UI surfaces.
+- Cut metric producers and consumers over to the canonical
+  `serviceradar.metric.v1` protobuf envelope, including sysmon, SNMP, OTEL,
+  plugin, Wasm, and native add-on publishing paths, with hard rejection for
+  stale JSON metric payloads and mis-bucketed OCSF/metric events.
+- Hardened metric semantics for SNMP/plugin counters with raw cumulative
+  counter preservation, reset-default delta normalization, configurable SNMP
+  interface metric allow-lists, inferred metric-type telemetry, and
+  NATS-Msg-Id de-duplication on the metrics stream.
+- Improved anomaly engine performance and safety with shard-ready native
+  batches, compact event input, reduced wrapper churn, bounded event-token
+  pruning, checkpoint restore, eviction protection for open anomalies, and
+  production benchmark instrumentation.
+- Fixed observability and security dashboard load pressure by making health,
+  attributed-flow, and security-finding views load asynchronously, trimming
+  large security payloads, preserving dashboard frames on refresh errors, and
+  reducing service-state query pressure.
+- Tightened demo/runtime reliability with managed-CNPG network policy access,
+  Falco sidekick ingress, stale DIRE device cleanup, Proxmox NIC identity
+  preservation, causal anomaly demo enablement, and trace summary refresh
+  worker timeout/index hardening.
+
 # ServiceRadar v1.3.1
 
 Release-build fix and flow-attribution stability. Supersedes the v1.3.0 tag,

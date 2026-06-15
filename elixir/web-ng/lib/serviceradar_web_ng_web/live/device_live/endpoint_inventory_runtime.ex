@@ -136,8 +136,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     end
   end
 
-  def apply_command_update(socket, kind, msg)
-      when kind in [:ack, :progress, :result] and is_map(msg) do
+  def apply_command_update(socket, kind, msg) when kind in [:ack, :progress, :result] and is_map(msg) do
     command_type = map_get(msg, :command_type)
 
     if endpoint_inventory_command_type?(command_type) and relevant_command_update?(socket, msg) do
@@ -323,8 +322,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> maybe_assign_result_error(success?, msg)
   end
 
-  defp maybe_assign_result_error(socket, true, _msg),
-    do: assign(socket, :endpoint_inventory_command_error, nil)
+  defp maybe_assign_result_error(socket, true, _msg), do: assign(socket, :endpoint_inventory_command_error, nil)
 
   defp maybe_assign_result_error(socket, false, msg) do
     assign(
@@ -478,8 +476,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     }
   end
 
-  defp partition_id(socket),
-    do: device_field(socket.assigns[:device_row], "partition_id") || "default"
+  defp partition_id(socket), do: device_field(socket.assigns[:device_row], "partition_id") || "default"
 
   defp actor(socket), do: socket.assigns.current_scope.user
 

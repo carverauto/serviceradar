@@ -252,6 +252,90 @@ func TestEndpointInventorySpoolServiceOverridesExistingAgentID(t *testing.T) {
 	}
 }
 
+func TestEndpointInventorySpoolServiceStabilizesAcknowledgedUnchangedStatus(t *testing.T) {
+	tmpDir := t.TempDir()
+	spoolDir := filepath.Join(tmpDir, "spool")
+	cacheDir := filepath.Join(tmpDir, "cache")
+	cfg := endpointinventory.DefaultConfig()
+	cfg.AgentID = endpointInventorySpoolTestAgentID
+	cfg.SpoolDir = spoolDir
+	cfg.CacheDir = cacheDir
+	cfg.TmpDir = filepath.Join(tmpDir, "tmp")
+
+	manifest := &endpointinventory.InventoryCacheManifest{
+		SchemaVersion:              endpointinventory.CacheVersion,
+		AgentID:                    endpointInventorySpoolTestAgentID,
+		PackageSetHash:             "package-hash",
+		ArtifactHash:               "artifact-hash",
+		LastUploadedPackageSetHash: "package-hash",
+		LastUploadedArtifactHash:   "artifact-hash",
+		HashAlgorithm:              endpointinventory.HashAlgorithm,
+		SourceMTimes:               map[string]endpointinventory.SourceMTime{},
+		Packages:                   []endpointinventory.Package{},
+		SourceSummaries:            []endpointinventory.SourceSummary{},
+	}
+	if err := endpointinventory.WriteCacheManifest(cfg, manifest); err != nil {
+		t.Fatal(err)
+	}
+
+	service := NewEndpointInventorySpoolService(
+		endpointInventorySpoolTestAgentID,
+		&EndpointInventoryStatusConfig{
+			SpoolPath: endpointinventory.LatestPath(spoolDir),
+			CacheDir:  cacheDir,
+			TmpDir:    cfg.TmpDir,
+		},
+	)
+
+	// Two successive unchanged scans (distinct scan_id + timestamps) must yield
+	// byte-identical status messages so the push-loop signature dedup suppresses
+	// the second push.
+	firstScanAt := time.Unix(1_000, 0).UTC()
+	firstPayload := endpointInventoryFullUploadPayload(firstScanAt)
+	firstPayload.ScanID = "scan-first"
+	firstPayload.SBOM = nil
+	firstPayload.UploadReason = endpointinventory.UploadReasonUnchanged
+	if err := endpointinventory.WriteSpool(cfg, firstPayload); err != nil {
+		t.Fatal(err)
+	}
+	firstStatus, err := service.GetStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	secondScanAt := time.Unix(9_999, 0).UTC()
+	secondPayload := endpointInventoryFullUploadPayload(secondScanAt)
+	secondPayload.ScanID = "scan-second"
+	secondPayload.SBOM = nil
+	secondPayload.UploadReason = endpointinventory.UploadReasonUnchanged
+	if err := endpointinventory.WriteSpool(cfg, secondPayload); err != nil {
+		t.Fatal(err)
+	}
+	secondStatus, err := service.GetStatus(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if string(firstStatus.Message) != string(secondStatus.Message) {
+		t.Fatalf("expected stable unchanged status across scans:\nfirst=%s\nsecond=%s",
+			firstStatus.Message, secondStatus.Message)
+	}
+
+	var got endpointinventory.ScanPayload
+	if err := json.Unmarshal(secondStatus.Message, &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ScanID != endpointinventory.StableUnchangedScanID("package-hash") {
+		t.Fatalf("scan_id = %q, want deterministic id", got.ScanID)
+	}
+	if got.UploadReason != endpointinventory.UploadReasonUnchanged || got.SBOM != nil {
+		t.Fatalf("unexpected payload: reason=%q sbom=%v", got.UploadReason, got.SBOM)
+	}
+	if !got.LastScanAt.IsZero() || got.LastSuccessfulScanAt != nil {
+		t.Fatalf("volatile timestamps must be cleared: %#v", got)
+	}
+}
+
 func endpointInventoryFullUploadPayload(scannedAt time.Time) *endpointinventory.ScanPayload {
 	return &endpointinventory.ScanPayload{
 		SchemaVersion:        endpointinventory.SchemaVersion,

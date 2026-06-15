@@ -285,6 +285,7 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
     # tags["host"] to the polled IP and tags["target"] to the logical name, so
     # tags["target"] must be the LAST fallback or it shadows the real IP.
     non_empty(resource.target_device_ip) ||
+      non_empty(resource.host_ip) ||
       non_empty(Map.get(tags, "host")) ||
       non_empty(Map.get(metadata, "target_device_ip")) ||
       non_empty(Map.get(tags, "target"))

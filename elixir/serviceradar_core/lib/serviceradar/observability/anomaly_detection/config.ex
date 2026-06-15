@@ -169,7 +169,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
   @spec default_streams() :: [EventWriterConfig.stream_config()]
   def default_streams do
     [
-      analysis_stream("ANALYSIS_METRICS_SYSMON", "metrics", "metrics.sysmon.*", 500, 500),
+      analysis_stream("ANALYSIS_METRICS_SYSMON", "metrics", "metrics.sysmon.>", 500, 500),
       analysis_stream("ANALYSIS_METRICS_SNMP", "metrics", "metrics.snmp.>", 500, 500),
       analysis_stream("ANALYSIS_METRICS_ICMP", "metrics", "metrics.icmp.>", 500, 500),
       analysis_stream("ANALYSIS_METRICS_TIMESERIES", "metrics", "metrics.timeseries.>", 500, 500),

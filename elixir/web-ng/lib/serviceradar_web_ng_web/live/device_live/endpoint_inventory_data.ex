@@ -63,16 +63,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   """
   def load_packages(scope, device_uid, package_opts \\ [])
 
-  def load_packages(scope, device_uid, package_opts)
-      when is_binary(device_uid) and device_uid != "" do
+  def load_packages(scope, device_uid, package_opts) when is_binary(device_uid) and device_uid != "" do
     case read_current_packages(scope, device_uid, package_opts) do
       {:ok, page} ->
         {:ok, Map.put(page, :stored_package_count, read_stored_package_count(scope, device_uid))}
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load endpoint inventory packages for #{device_uid}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load endpoint inventory packages for #{device_uid}: #{inspect(reason)}")
 
         :error
     end
@@ -196,9 +193,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         matches
 
       {:error, reason} ->
-        Logger.warning(
-          "Failed to load endpoint vulnerability matches for #{device_uid}: #{inspect(reason)}"
-        )
+        Logger.warning("Failed to load endpoint vulnerability matches for #{device_uid}: #{inspect(reason)}")
 
         []
     end

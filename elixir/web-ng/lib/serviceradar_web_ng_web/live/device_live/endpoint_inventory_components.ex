@@ -721,10 +721,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       tone: :warning,
       label: "No agent",
       title: "No enrolled endpoint inventory agent",
-      detail:
-        "Endpoint inventory cannot run until this device is associated with an enrolled agent.",
-      empty_message:
-        "No enrolled endpoint inventory agent or package inventory is available for this device."
+      detail: "Endpoint inventory cannot run until this device is associated with an enrolled agent.",
+      empty_message: "No enrolled endpoint inventory agent or package inventory is available for this device."
     }
   end
 
@@ -736,8 +734,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       title: "No endpoint inventory scan yet",
       detail:
         "This device has an agent identity, but no endpoint inventory scan has been ingested. Reconcile the endpoint inventory profile or refresh after the add-on checks in.",
-      empty_message:
-        "Endpoint inventory is available for this device, but no scan has reported yet."
+      empty_message: "Endpoint inventory is available for this device, but no scan has reported yet."
     }
   end
 
@@ -768,8 +765,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Failed",
           title: "Latest endpoint inventory scan failed",
           detail: reason,
-          empty_message:
-            "The latest endpoint inventory scan failed before package rows were accepted."
+          empty_message: "The latest endpoint inventory scan failed before package rows were accepted."
         }
 
       coverage == "partial" ->
@@ -785,10 +781,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           detail: reason,
           empty_message:
             if(loaded_count == 0,
-              do:
-                "The latest endpoint inventory scan is partial and produced no current package rows.",
-              else:
-                "The latest endpoint inventory scan is partial; loaded rows may be incomplete."
+              do: "The latest endpoint inventory scan is partial and produced no current package rows.",
+              else: "The latest endpoint inventory scan is partial; loaded rows may be incomplete."
             )
         }
 
@@ -802,8 +796,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           detail:
             diagnostic_reason(scan) ||
               "The scanner did not report a supported package source for this device.",
-          empty_message:
-            "Endpoint inventory has not found a supported package source on this device."
+          empty_message: "Endpoint inventory has not found a supported package source on this device."
         }
 
       coverage == "unknown" ->
@@ -824,8 +817,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Stale",
           title: "Latest successful scan is stale",
           detail: "The latest successful endpoint inventory scan is older than 24 hours.",
-          empty_message:
-            "No current package rows are available and the latest successful scan is stale."
+          empty_message: "No current package rows are available and the latest successful scan is stale."
         }
 
       loaded_count == 0 and coverage == "complete" ->
@@ -834,10 +826,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           tone: :info,
           label: "Empty",
           title: "Scan completed with no package rows",
-          detail:
-            "The scanner reported complete coverage, but no current package rows were loaded for this device.",
-          empty_message:
-            "The latest endpoint inventory scan completed, but it did not report current package rows."
+          detail: "The scanner reported complete coverage, but no current package rows were loaded for this device.",
+          empty_message: "The latest endpoint inventory scan completed, but it did not report current package rows."
         }
 
       true ->
@@ -847,8 +837,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
           label: "Complete",
           title: "Endpoint inventory is current",
           detail: "The latest endpoint inventory scan completed successfully.",
-          empty_message:
-            "No current package rows are available for the latest endpoint inventory scan."
+          empty_message: "No current package rows are available for the latest endpoint inventory scan."
         }
     end
   end
@@ -881,13 +870,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     |> String.downcase()
   end
 
-  defp normalized_state(value) when is_atom(value),
-    do: value |> Atom.to_string() |> normalized_state()
+  defp normalized_state(value) when is_atom(value), do: value |> Atom.to_string() |> normalized_state()
 
   defp normalized_state(_value), do: nil
 
   defp software_state_class(:error), do: "border-error/40 bg-error/10 text-error"
-  defp software_state_class(:warning), do: "border-warning/40 bg-warning/10 text-warning-content"
+  defp software_state_class(:warning), do: "border-warning/40 bg-warning/10 text-warning"
   defp software_state_class(:info), do: "border-info/40 bg-info/10 text-info"
   defp software_state_class(_tone), do: "border-success/40 bg-success/10 text-success"
 
@@ -910,11 +898,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp device_value(nil, _key), do: nil
 
-  defp device_value(%{} = row, "risk_score"),
-    do: Map.get(row, "risk_score") || Map.get(row, :risk_score)
+  defp device_value(%{} = row, "risk_score"), do: Map.get(row, "risk_score") || Map.get(row, :risk_score)
 
-  defp device_value(%{} = row, "risk_level"),
-    do: Map.get(row, "risk_level") || Map.get(row, :risk_level)
+  defp device_value(%{} = row, "risk_level"), do: Map.get(row, "risk_level") || Map.get(row, :risk_level)
 
   defp device_value(%{} = row, key), do: Map.get(row, key)
   defp device_value(_row, _key), do: nil
@@ -1077,8 +1063,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp truncate_hash(nil), do: nil
 
-  defp truncate_hash(value) when is_binary(value) and byte_size(value) > 18,
-    do: String.slice(value, 0, 18) <> "..."
+  defp truncate_hash(value) when is_binary(value) and byte_size(value) > 18, do: String.slice(value, 0, 18) <> "..."
 
   defp truncate_hash(value), do: value
 
@@ -1107,11 +1092,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_073_741_824,
     do: "#{Float.round(bytes / 1_073_741_824, 1)} GiB"
 
-  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576,
-    do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1_048_576, do: "#{Float.round(bytes / 1_048_576, 1)} MiB"
 
-  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1024,
-    do: "#{Float.round(bytes / 1024, 1)} KiB"
+  defp format_bytes(bytes) when is_integer(bytes) and bytes >= 1024, do: "#{Float.round(bytes / 1024, 1)} KiB"
 
   defp format_bytes(bytes) when is_integer(bytes), do: "#{bytes} B"
   defp format_bytes(_bytes), do: "-"

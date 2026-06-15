@@ -121,6 +121,10 @@ func (p *PushLoop) handleEndpointInventoryForceFreshScan(
 		cfg.Sources = append([]string(nil), payload.Sources...)
 	}
 
+	// An explicit operator force-fresh must bypass the cadence floor and
+	// source-mtime skip so it always performs a full collection.
+	cfg.ForceFreshScan = true
+
 	runTimeout := commandRemainingTimeout(cmd, endpointinventory.ScanTimeout(cfg))
 	if runTimeout <= 0 {
 		sendEndpointInventoryCommandResult(sender, cmd, false, "command expired", map[string]any{

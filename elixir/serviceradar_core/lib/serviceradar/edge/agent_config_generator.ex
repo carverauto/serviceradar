@@ -2030,13 +2030,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         |> Map.put_new("collect_file_hashes", false)
 
       {:error, :no_config_found} ->
+        # No explicit per-agent config: default to enabled with standard collection
+        # settings rather than hard-disabled. Endpoint inventory only actually runs on
+        # agents that have the collector add-on staged/assigned (the in-cluster "k8s-agent"
+        # pod and agents without the add-on never write the runtime profile / start the
+        # scanner), so add-on assignment is the real opt-in gate. A missing config row must
+        # not silently keep an assigned collector disabled forever.
         Logger.debug(
-          "No endpoint inventory config found for agent #{agent_id}, using disabled config"
+          "No stored endpoint inventory config for agent #{agent_id}; using enabled defaults"
         )
 
-        disabled_endpoint_inventory_config()
+        default_endpoint_inventory_config(agent_id)
 
       {:error, reason} ->
+        # On an actual load error (not a missing config) fail safe to disabled.
         Logger.warning(
           "Failed to load endpoint inventory config for agent #{agent_id}: #{inspect(reason)}"
         )
@@ -2046,6 +2053,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   end
 
   defp disabled_endpoint_inventory_config, do: %{"enabled" => false}
+
+  defp default_endpoint_inventory_config(agent_id) do
+    %{
+      "enabled" => true,
+      "agent_id" => agent_id,
+      "sources" => ["dpkg", "rpm", "apk"],
+      "scan_timeout" => "5m",
+      "max_packages" => 100_000,
+      "max_output_bytes" => 33_554_432,
+      "cadence" => "12h",
+      "collect_paths" => false,
+      "collect_file_hashes" => false
+    }
+  end
 
   defp build_endpoint_inventory_proto_config(config) when is_map(config) do
     %Monitoring.EndpointInventoryConfig{

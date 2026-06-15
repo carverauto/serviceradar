@@ -175,6 +175,16 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
     refute has_element?(lv, "#trace-not-found")
   end
 
+  test "orphan trace header falls back to service_set when root service is unknown", %{conn: conn} do
+    :persistent_term.put({__MODULE__, :scenario}, :orphan)
+
+    {:ok, _lv, html} = live(conn, ~p"/observability/traces/#{@trace_id}")
+
+    # Header renders the service from service_set rather than a blank "—".
+    assert html =~ "core-elx"
+    refute html =~ "Trace not found or expired."
+  end
+
   test "shows not-found state when neither summary nor spans exist", %{conn: conn} do
     :persistent_term.put({__MODULE__, :scenario}, :missing)
 
@@ -248,6 +258,25 @@ defmodule ServiceRadarWebNGWeb.TraceLive.ShowTest do
           "error_count" => 1,
           "status_code" => 2,
           "service_set" => ["web-ng", "core-elx"]
+        }
+      ]
+    end
+
+    # Orphan trace: the summary has no root span name/service (the true root was
+    # never exported) but service_set still records the services seen. Spans are
+    # expired, so the header must fall back to service_set for the service name.
+    defp results("in:otel_trace_summaries" <> _rest, :orphan) do
+      [
+        %{
+          "trace_id" => @trace_id,
+          "timestamp" => "2026-06-10T12:00:00Z",
+          "root_span_name" => nil,
+          "root_service_name" => nil,
+          "duration_ms" => 50.0,
+          "span_count" => 3,
+          "error_count" => 0,
+          "status_code" => nil,
+          "service_set" => ["core-elx"]
         }
       ]
     end

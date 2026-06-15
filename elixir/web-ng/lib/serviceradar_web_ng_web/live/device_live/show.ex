@@ -138,8 +138,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_info({:mtr_trace_ingested, event}, socket) do
-    {:noreply,
-     MtrRuntime.refresh_if_relevant(socket, event, get_device_ip(socket.assigns.results))}
+    {:noreply, MtrRuntime.refresh_if_relevant(socket, event, get_device_ip(socket.assigns.results))}
   end
 
   def handle_info({:flow_stats_loaded, device_uid, request_ref, stats_bundle}, socket) do
@@ -152,10 +151,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_info(
-        {:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map},
-        socket
-      ) do
+  def handle_info({:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map}, socket) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -217,8 +213,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_details_request_ref do
-      {:noreply,
-       socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
+      {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -239,8 +234,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_metrics_request_ref do
-      {:noreply,
-       socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
+      {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -267,11 +261,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_async(
-        {:flow_ip_enrichment, device_uid, request_ref},
-        {:ok, {rdns_map, geo_iso2_map}},
-        socket
-      ) do
+  def handle_async({:flow_ip_enrichment, device_uid, request_ref}, {:ok, {rdns_map, geo_iso2_map}}, socket) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -286,11 +276,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
-  def handle_async(
-        {:device_logs, device_uid, request_ref},
-        {:ok, {logs, pagination, logs_error}},
-        socket
-      ) do
+  def handle_async({:device_logs, device_uid, request_ref}, {:ok, {logs, pagination, logs_error}}, socket) do
     if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
       {:noreply,
        socket
@@ -355,8 +341,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
-     top_destinations_json, top_ports_json, top_protocols_json, facets} = stats_bundle
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
+     top_ports_json, top_protocols_json, facets} = stats_bundle
 
     socket
     |> assign(:flow_stats, flow_stats)
@@ -596,6 +582,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:sysmon_profile_info, nil)
        |> assign(:available_profiles, [])
        |> assign(:process_metrics, nil)
+       |> assign(:process_metrics_search, "")
+       |> assign(:process_metrics_page, 1)
+       |> assign(:process_listeners_search, "")
+       |> assign(:process_listeners_page, 1)
        |> assign(:camera_sources, camera_sources)
        |> assign(:camera_inventory_error, camera_inventory_error)
        |> assign(:active_camera_relay_session, active_camera_relay_session)
@@ -772,12 +762,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event(
         "open_camera_relay",
-        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} =
-          params,
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
         socket
       ) do
-    {:noreply,
-     DeviceActionRuntime.open_camera_relay(socket, camera_source_id, stream_profile_id, params)}
+    {:noreply, DeviceActionRuntime.open_camera_relay(socket, camera_source_id, stream_profile_id, params)}
   end
 
   def handle_event("close_camera_relay", _params, socket) do
@@ -852,11 +840,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_event(
-        "endpoint_inventory_query",
-        %{"endpoint_inventory_query" => params} = event,
-        socket
-      ) do
+  def handle_event("endpoint_inventory_query", %{"endpoint_inventory_query" => params} = event, socket) do
     socket =
       case Map.get(event, "action") do
         "force_refresh" -> EndpointInventoryRuntime.dispatch_force_refresh(socket, params)
@@ -866,32 +850,50 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
-  def handle_event(
-        "endpoint_inventory_force_refresh",
-        %{"endpoint_inventory_query" => params},
-        socket
-      ) do
+  def handle_event("endpoint_inventory_force_refresh", %{"endpoint_inventory_query" => params}, socket) do
     {:noreply, EndpointInventoryRuntime.dispatch_force_refresh(socket, params)}
   end
 
-  def handle_event(
-        "endpoint_inventory_cohort_query",
-        %{"endpoint_inventory_cohort_query" => params},
-        socket
-      ) do
+  def handle_event("endpoint_inventory_cohort_query", %{"endpoint_inventory_cohort_query" => params}, socket) do
     {:noreply, EndpointInventoryRuntime.dispatch_cohort_query(socket, params)}
   end
 
-  def handle_event(
-        "endpoint_inventory_package_filter",
-        %{"endpoint_inventory_filter" => params},
-        socket
-      ) do
+  def handle_event("endpoint_inventory_package_filter", %{"endpoint_inventory_filter" => params}, socket) do
     {:noreply, EndpointInventoryRuntime.apply_package_filter(socket, params)}
   end
 
   def handle_event("endpoint_inventory_package_page", %{"page" => page}, socket) do
     {:noreply, EndpointInventoryRuntime.change_package_page(socket, page)}
+  end
+
+  def handle_event("process_listeners_search", %{"search" => search}, socket) do
+    {:noreply,
+     socket
+     |> assign(:process_listeners_search, to_string(search))
+     |> assign(:process_listeners_page, 1)}
+  end
+
+  def handle_event("process_listeners_prev_page", _params, socket) do
+    {:noreply, assign(socket, :process_listeners_page, max(socket.assigns.process_listeners_page - 1, 1))}
+  end
+
+  def handle_event("process_listeners_next_page", _params, socket) do
+    {:noreply, assign(socket, :process_listeners_page, socket.assigns.process_listeners_page + 1)}
+  end
+
+  def handle_event("process_metrics_search", %{"search" => search}, socket) do
+    {:noreply,
+     socket
+     |> assign(:process_metrics_search, to_string(search))
+     |> assign(:process_metrics_page, 1)}
+  end
+
+  def handle_event("process_metrics_prev_page", _params, socket) do
+    {:noreply, assign(socket, :process_metrics_page, max(socket.assigns.process_metrics_page - 1, 1))}
+  end
+
+  def handle_event("process_metrics_next_page", _params, socket) do
+    {:noreply, assign(socket, :process_metrics_page, socket.assigns.process_metrics_page + 1)}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do

@@ -3,8 +3,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
 
   use ServiceRadarWebNGWeb, :html
 
+  import ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination, only: [search_bar: 1, paginator: 1]
+
   alias ServiceRadarWebNG.RBAC
   alias ServiceRadarWebNGWeb.DeviceLive.DeviceStateData
+  alias ServiceRadarWebNGWeb.DeviceLive.ProcessTablePagination
 
   @dpi_protocols [
     {"http1", "HTTP/1"},
@@ -287,16 +290,22 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
   end
 
   attr(:device_row, :map, required: true)
+  attr(:search, :string, default: "")
+  attr(:page, :integer, default: 1)
 
   def process_listeners_tab_content(assigns) do
     snapshot = process_listener_snapshot(assigns.device_row)
     rows = Map.get(snapshot, :entries, [])
 
+    pagination =
+      ProcessTablePagination.paginate(rows, assigns.search, assigns.page, fields: &process_listener_search_fields/1)
+
     assigns =
       assigns
       |> assign(:snapshot, snapshot)
-      |> assign(:rows, rows)
-      |> assign(:row_count, length(rows))
+      |> assign(:rows, pagination.rows)
+      |> assign(:pagination, pagination)
+      |> assign(:row_count, pagination.total)
       |> assign(:agent_host, agent_device?(assigns.device_row))
 
     ~H"""
@@ -322,6 +331,19 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
             </span>
           </div>
         </div>
+
+        <div :if={@row_count > 0} class="mt-3">
+          <.search_bar
+            id="process-listeners-search"
+            event="process_listeners_search"
+            search={@search}
+            placeholder="Search by process, PID, protocol…"
+            total={@pagination.total}
+            filtered_total={@pagination.filtered_total}
+            filtered?={@pagination.filtered?}
+            unit="sockets"
+          />
+        </div>
       </div>
 
       <div :if={not @agent_host and @row_count == 0} class="px-4 py-8 text-sm text-base-content/70">
@@ -332,7 +354,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
         No local process listener snapshot has been reported for this agent host yet.
       </div>
 
-      <div :if={@row_count > 0} class="overflow-x-auto">
+      <div
+        :if={@row_count > 0 and @pagination.filtered_total == 0}
+        class="px-4 py-8 text-sm text-base-content/70"
+      >
+        No process listeners match the current search.
+      </div>
+
+      <div :if={@pagination.filtered_total > 0} class="overflow-x-auto">
         <table class="table table-sm">
           <thead>
             <tr>
@@ -369,9 +398,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.VisibilityComponents do
           </tbody>
         </table>
       </div>
+
+      <.paginator
+        page={@pagination.page}
+        page_count={@pagination.page_count}
+        range_start={@pagination.range_start}
+        range_end={@pagination.range_end}
+        filtered_total={@pagination.filtered_total}
+        prev_event="process_listeners_prev_page"
+        next_event="process_listeners_next_page"
+        unit="sockets"
+      />
     </div>
     """
   end
+
+  defp process_listener_search_fields(row) when is_map(row) do
+    [
+      row.comm,
+      row.pid,
+      row.tgid,
+      row.transport_protocol,
+      row.local_ip,
+      row.local_port,
+      row.container_id,
+      process_listener_cmdline(row.redacted_cmdline)
+    ]
+  end
+
+  defp process_listener_search_fields(_row), do: []
 
   defp metadata_summary_groups(row) do
     metadata = row_metadata(row)
