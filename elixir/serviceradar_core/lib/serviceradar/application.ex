@@ -119,6 +119,10 @@ defmodule ServiceRadar.Application do
         stateful_alert_evaluation_task_supervisor_child(),
         stateful_alert_evaluation_queue_child(),
 
+        # Short-TTL ETS cache for event-writer device correlation (one DB
+        # lookup per device instead of per event under load)
+        device_correlation_cache_child(),
+
         # Horde registries (always started for registration support)
         registry_children(),
 
@@ -289,6 +293,12 @@ defmodule ServiceRadar.Application do
   defp stateful_alert_evaluation_queue_child do
     if repo_enabled?() do
       ServiceRadar.Observability.StatefulAlertEvaluationQueue
+    end
+  end
+
+  defp device_correlation_cache_child do
+    if repo_enabled?() do
+      ServiceRadar.EventWriter.DeviceCorrelationCache
     end
   end
 

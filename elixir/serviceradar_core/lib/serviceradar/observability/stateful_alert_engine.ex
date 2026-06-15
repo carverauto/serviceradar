@@ -36,37 +36,108 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
   @diagnostic_sample_limit 5
   @diagnostic_source_limit 10
 
+  # The engine was historically a single Horde singleton GenServer that every
+  # event/metric/log batch from every EventWriter processor funnelled through.
+  # Because each fired rule performs synchronous `Ash.create`/`Ash.update`
+  # writes over TLS *inside* the GenServer's reduction loop, all processors
+  # serialized behind one process during DB round-trips, collapsing throughput
+  # under modest agent fan-out.
+  #
+  # The engine is now sharded by `rule_id`. Each shard owns a disjoint subset of
+  # rules; a rule's entire state machine and all of its DB writes live in exactly
+  # one shard process, serialized exactly as before (so per-rule/per-group
+  # ordering and fire-once semantics are byte-for-byte preserved). Different
+  # shards run concurrently, so unrelated rules no longer contend on a single
+  # process and DB writes parallelize across shards.
+  @default_shard_count 8
+
   @spec evaluate_logs([map()]) :: :ok | {:error, term()}
   def evaluate_logs(rows) when is_list(rows) do
-    with {:ok, _} <- ensure_started() do
-      call({:evaluate_logs, rows})
-    end
+    fan_out(:evaluate_logs, rows)
   end
 
   @spec evaluate_events([map()]) :: :ok | {:error, term()}
   def evaluate_events(events) when is_list(events) do
-    with {:ok, _} <- ensure_started() do
-      call({:evaluate_events, events})
-    end
+    fan_out(:evaluate_events, events)
   end
 
   @spec evaluate_metrics([map()]) :: :ok | {:error, term()}
   def evaluate_metrics(rows) when is_list(rows) do
-    with {:ok, _} <- ensure_started() do
-      call({:evaluate_metrics, rows})
+    fan_out(:evaluate_metrics, rows)
+  end
+
+  @doc "Number of engine shards (configurable, defaults to #{@default_shard_count})."
+  @spec shard_count() :: pos_integer()
+  def shard_count do
+    case Application.get_env(:serviceradar_core, :stateful_alert_engine_shards) do
+      count when is_integer(count) and count > 0 -> count
+      _ -> @default_shard_count
     end
   end
 
-  def start_link(_opts \\ []) do
-    GenServer.start_link(__MODULE__, %{}, name: via_tuple())
+  @doc "Returns the shard index that owns a given rule id."
+  @spec shard_for_rule_id(term()) :: non_neg_integer()
+  def shard_for_rule_id(rule_id) do
+    :erlang.phash2(rule_id, shard_count())
+  end
+
+  def start_link(opts) when is_list(opts) do
+    shard = Keyword.fetch!(opts, :shard)
+    GenServer.start_link(__MODULE__, %{shard: shard}, name: via_tuple(shard))
+  end
+
+  # The batch is sent to every shard. Each shard only evaluates the rules it
+  # owns, so records that match no rule in a shard cost just the (in-memory)
+  # match check. Shards run concurrently; the call aggregates their replies and
+  # surfaces the first error, preserving the previous `:ok | {:error, _}`
+  # contract and the "effects are visible when the call returns" guarantee that
+  # the integration tests rely on.
+  defp fan_out(_message_tag, []), do: :ok
+
+  defp fan_out(message_tag, records) do
+    case shard_count() do
+      1 ->
+        # Sharding disabled: call the single shard directly, no task overhead.
+        dispatch_shard(0, message_tag, records)
+
+      shard_count ->
+        0..(shard_count - 1)
+        |> Task.async_stream(
+          fn shard -> dispatch_shard(shard, message_tag, records) end,
+          timeout: to_timeout(second: 20),
+          on_timeout: :kill_task,
+          ordered: false
+        )
+        |> Enum.reduce(:ok, fn
+          {:ok, :ok}, acc -> acc
+          {:ok, {:error, reason}}, :ok -> {:error, reason}
+          {:ok, {:error, _reason}}, acc -> acc
+          {:exit, reason}, :ok -> {:error, {:shard_exit, reason}}
+          {:exit, _reason}, acc -> acc
+        end)
+    end
+  end
+
+  defp dispatch_shard(shard, message_tag, records) do
+    with {:ok, _pid} <- ensure_started(shard) do
+      call(shard, {message_tag, records})
+    end
   end
 
   @impl true
-  def init(state) do
+  def init(%{shard: shard} = state) do
     table = :ets.new(:stateful_alert_rule_state, [:set, :private])
     # Simple actor - DB connection's search_path determines the schema
     ash_opts = [actor: SystemActor.system(:alert_engine)]
-    state = Map.merge(state, %{table: table, rules: [], rules_loaded_at: nil, ash_opts: ash_opts})
+
+    state =
+      Map.merge(state, %{
+        shard: shard,
+        table: table,
+        rules: [],
+        rules_loaded_at: nil,
+        ash_opts: ash_opts
+      })
 
     load_state_snapshots(state)
 
@@ -112,8 +183,8 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {:reply, {:error, error}, state}
   end
 
-  defp call(message) do
-    GenServer.call(via_tuple(), message, to_timeout(second: 15))
+  defp call(shard, message) do
+    GenServer.call(via_tuple(shard), message, to_timeout(second: 15))
   catch
     :exit, {:noproc, _} ->
       {:error, :engine_not_running}
@@ -125,12 +196,12 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
       {:error, reason}
   end
 
-  defp ensure_started do
-    case lookup_engine() do
+  defp ensure_started(shard) do
+    case lookup_engine(shard) do
       nil ->
         child_spec = %{
-          id: :stateful_alert_engine,
-          start: {__MODULE__, :start_link, [[]]},
+          id: {:stateful_alert_engine, shard},
+          start: {__MODULE__, :start_link, [[shard: shard]]},
           restart: :permanent,
           type: :worker
         }
@@ -146,16 +217,22 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
     end
   end
 
-  defp lookup_engine do
-    case ProcessRegistry.lookup(:stateful_alert_engine) do
+  defp lookup_engine(shard) do
+    case ProcessRegistry.lookup(registry_key(shard)) do
       [{pid, _}] -> pid
       _ -> nil
     end
   end
 
-  defp via_tuple do
-    ProcessRegistry.via(:stateful_alert_engine)
+  defp via_tuple(shard) do
+    ProcessRegistry.via(registry_key(shard))
   end
+
+  # Shard 0 keeps the legacy `:stateful_alert_engine` registry key so existing
+  # discovery/health tooling and tests that look up the singleton key continue
+  # to find a live engine. Additional shards use a tagged key.
+  defp registry_key(0), do: :stateful_alert_engine
+  defp registry_key(shard), do: {:stateful_alert_engine, shard}
 
   defp load_rules_if_needed(%{rules_loaded_at: nil} = state) do
     load_rules(state)
@@ -178,6 +255,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         |> Ash.Query.for_read(:active, %{})
         |> Ash.read(state.ash_opts)
         |> unwrap_page()
+        |> Enum.filter(fn rule -> shard_for_rule_id(rule.id) == state.shard end)
 
       updated = %{state | rules: rules, rules_loaded_at: System.monotonic_time(:millisecond)}
       {updated, rules}
@@ -204,6 +282,7 @@ defmodule ServiceRadar.Observability.StatefulAlertEngine do
         {:ok, results} when is_list(results) -> results
         _ -> []
       end
+      |> Enum.filter(fn snapshot -> shard_for_rule_id(snapshot.rule_id) == state.shard end)
       |> Enum.each(fn snapshot ->
         key = {snapshot.rule_id, snapshot.group_key}
         :ets.insert(state.table, {key, normalize_snapshot(snapshot)})
