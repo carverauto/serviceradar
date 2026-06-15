@@ -1,3 +1,53 @@
+# ServiceRadar v1.3.4
+
+Ingestion-pipeline scale and reliability hardening: a complete EventWriter
+flow-control overhaul, vulnerability advisory feeds moved into core, endpoint
+software inventory deltas, and a broad sweep of observability, capacity,
+identity, and add-on regression fixes.
+
+## Whats New
+
+**1.3.4**
+- Fixed the EventWriter ingestion pipeline that could exhaust core memory under
+  even a small fleet: bounded JetStream consumer flow control (server-enforced
+  max-ack-pending plus a producer overflow NAK), a rule-sharded stateful alert
+  engine so disjoint alert rules evaluate in parallel instead of serializing
+  through a single GenServer, and a per-device correlation cache so events
+  resolve their device once per device instead of a synchronous DB query per
+  event — eliminating an unbounded refc-binary leak and the resulting OOM/crash
+  cascade.
+- Moved vulnerability advisory feed ingestion (CISA KEV, VulnCheck KEV, VulnCheck
+  nist-nvd2, NVD CVE 2.0) out of the agent add-on and into core-elx as
+  disk-staged, AshOban-scheduled workers with hybrid JSONB plus indexed
+  coordinate storage and a CPE-component, version-range endpoint matcher; retired
+  the advisory-producer add-on.
+- Hardened endpoint software inventory: change-gated (~hourly) uploads with
+  package-set deltas, fixed the osv-scalibr nil-panic, corrected inventory
+  directory ownership so periodic scans keep uploading, enabled scans for
+  assigned agents, and stopped partial or unchanged uploads from wiping a full
+  inventory.
+- Fixed capacity forecasting regressions: bounded exhaustion projections (no more
+  far-future or past-dated exhaustion), SNMP counter-reset contamination
+  rejection, and empty-series persistence.
+- web-ng: add-on fleet reporting (agent x add-on x version/hash/state), paginated
+  and searchable endpoint package and device process tables, a package detail
+  modal with vulnerability matches, restored sysmon process-metrics visibility,
+  software-tab gating, and pre-populated vulnerability-feed URLs.
+- Fixed add-on profile reconciliation (a return-type crash and a create-only
+  agent_uid update error) and added a periodic auto-reconcile job so profile
+  target queries (e.g. in:devices) materialize add-on assignments automatically.
+- Observability: resolved traces that rendered without a service or operation
+  name via an orphan-trace root fallback, and recreate JetStream durables on
+  filter-subject drift.
+- Device identity (DIRE): reciprocal agent_id anchoring and stale agent-device
+  mislink repair with a distinct-hardware merge guard.
+- Agent config delivery: one deferred config section no longer blocks the rest of
+  the apply, redundant re-applies on an unchanged config version are skipped,
+  add-on systemd units that go missing self-heal, and the version ldflag is
+  corrected so released agents report their real version.
+- Demo reliability: persisted agent-gateway (3Gi) and core-elx (16Gi) memory
+  limits in the chart to stop OOM restarts.
+
 # ServiceRadar v1.3.3
 
 Release hotfix for the v1.3.2 demo migration blocker.
