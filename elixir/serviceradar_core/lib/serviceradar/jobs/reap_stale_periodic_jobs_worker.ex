@@ -43,6 +43,7 @@ defmodule ServiceRadar.Jobs.ReapStalePeriodicJobsWorker do
     "ServiceRadar.Observability.NetflowSecurityRefreshWorker",
     "ServiceRadar.Observability.StatefulAlertCleanupWorker",
     "ServiceRadar.Observability.ThreatIntelFeedRefreshWorker",
+    "ServiceRadar.Plugins.AddonProfileReconcileWorker",
     "ServiceRadar.Plugins.PluginTargetPolicyReconcileWorker",
     "ServiceRadar.SweepJobs.SweepDataCleanupWorker",
     "ServiceRadar.SweepJobs.SweepMonitorWorker",
