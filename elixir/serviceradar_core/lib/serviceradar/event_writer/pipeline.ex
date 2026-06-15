@@ -50,11 +50,20 @@ defmodule ServiceRadar.EventWriter.Pipeline do
         concurrency: 1
       ],
       processors: [
-        default: [concurrency: 4]
+        default: [concurrency: processor_concurrency(config)]
       ],
       batchers: build_batchers(config)
     )
   end
+
+  # Processor concurrency was 4 in the Go->Elixir migration, which under-utilized
+  # the pipeline. Raised to a configurable default (Config.processor_concurrency,
+  # default 10) so DB writes parallelize. The producer's bounded in-flight keeps
+  # this from translating into unbounded memory.
+  defp processor_concurrency(%Config{processor_concurrency: concurrency})
+       when is_integer(concurrency) and concurrency > 0, do: concurrency
+
+  defp processor_concurrency(%Config{}), do: Config.default_processor_concurrency()
 
   @doc """
   Transforms messages from the producer into Broadway messages.

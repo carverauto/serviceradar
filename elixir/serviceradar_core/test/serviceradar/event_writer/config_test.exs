@@ -186,4 +186,83 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert config.consumer_name == "custom-consumer"
     end
   end
+
+  describe "flow-control configuration" do
+    test "defaults bound in-flight tightly, not at the old 5000" do
+      config = Config.load()
+
+      assert config.max_ack_pending == 256
+      assert config.max_ack_pending < 5_000
+      assert config.processor_concurrency == 10
+      assert config.ack_wait_ns == 120_000_000_000
+      assert config.max_deliver == 5
+    end
+
+    test "exposes the documented defaults" do
+      assert Config.default_max_ack_pending() == 256
+      assert Config.default_processor_concurrency() == 10
+      assert Config.default_ack_wait_ns() == 120_000_000_000
+      assert Config.default_max_deliver() == 5
+    end
+
+    test "max_ack_pending is tunable from the environment without a rebuild" do
+      System.put_env("EVENT_WRITER_MAX_ACK_PENDING", "512")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_MAX_ACK_PENDING") end)
+
+      assert Config.load().max_ack_pending == 512
+    end
+
+    test "processor concurrency is tunable from the environment" do
+      System.put_env("EVENT_WRITER_PROCESSOR_CONCURRENCY", "20")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_PROCESSOR_CONCURRENCY") end)
+
+      assert Config.load().processor_concurrency == 20
+    end
+
+    test "ack_wait is configured in seconds and stored as nanoseconds" do
+      System.put_env("EVENT_WRITER_ACK_WAIT_SECONDS", "90")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_ACK_WAIT_SECONDS") end)
+
+      assert Config.load().ack_wait_ns == 90_000_000_000
+    end
+
+    test "max_deliver is tunable from the environment" do
+      System.put_env("EVENT_WRITER_MAX_DELIVER", "3")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_MAX_DELIVER") end)
+
+      assert Config.load().max_deliver == 3
+    end
+
+    test "invalid or non-positive env values fall back to safe defaults" do
+      System.put_env("EVENT_WRITER_MAX_ACK_PENDING", "0")
+      System.put_env("EVENT_WRITER_PROCESSOR_CONCURRENCY", "not-a-number")
+
+      on_exit(fn ->
+        System.delete_env("EVENT_WRITER_MAX_ACK_PENDING")
+        System.delete_env("EVENT_WRITER_PROCESSOR_CONCURRENCY")
+      end)
+
+      config = Config.load()
+      assert config.max_ack_pending == 256
+      assert config.processor_concurrency == 10
+    end
+  end
+
+  describe "stream retention guard" do
+    test "the shared events stream has a bounded discard-old retention policy" do
+      events = Enum.find(Config.default_streams(), &(&1.name == "EVENTS"))
+
+      assert events.stream_retention == "limits"
+      assert events.stream_discard == "old"
+      assert is_integer(events.stream_max_bytes) and events.stream_max_bytes > 0
+      assert is_integer(events.stream_max_age) and events.stream_max_age > 0
+    end
+
+    test "ARANCINI_CAUSAL retention is left untouched" do
+      arancini = Enum.find(Config.default_streams(), &(&1.name == "ARANCINI_CAUSAL"))
+
+      refute Map.has_key?(arancini, :stream_max_bytes)
+      refute Map.has_key?(arancini, :stream_discard)
+    end
+  end
 end
