@@ -575,7 +575,12 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
       end
 
     socket
-    |> assign(:root_service, non_empty(Map.get(summary, "root_service_name")) || (first_root && first_root.service))
+    |> assign(
+      :root_service,
+      non_empty(Map.get(summary, "root_service_name")) ||
+        (first_root && first_root.service) ||
+        first_service(Map.get(summary, "service_set"))
+    )
     |> assign(:root_operation, non_empty(Map.get(summary, "root_span_name")) || (first_root && first_root.name))
     |> assign(:duration_ms, to_number(Map.get(summary, "duration_ms")) || computed_duration)
     |> assign(:span_count, span_count)
@@ -939,6 +944,14 @@ defmodule ServiceRadarWebNGWeb.TraceLive.Show do
   end
 
   defp non_empty(_value), do: nil
+
+  # Orphan traces have a NULL root_service_name in the summary but still record
+  # the services seen on the trace in service_set; use the first as a fallback.
+  defp first_service(services) when is_list(services) do
+    Enum.find_value(services, &non_empty/1)
+  end
+
+  defp first_service(_value), do: nil
 
   defp to_int(value) when is_integer(value), do: value
   defp to_int(value) when is_float(value), do: trunc(value)

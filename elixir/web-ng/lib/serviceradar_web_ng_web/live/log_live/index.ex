@@ -9050,8 +9050,18 @@ defmodule ServiceRadarWebNGWeb.LogLive.Index do
 
   defp trace_service_name(trace) do
     normalize_string(Map.get(trace, "root_service_name")) ||
-      normalize_string(Map.get(trace, "service_name"))
+      normalize_string(Map.get(trace, "service_name")) ||
+      first_service(Map.get(trace, "service_set"))
   end
+
+  # Orphan traces (no exported root span) can have a NULL root_service_name in
+  # the summary, but service_set still records the services seen on the trace.
+  # Fall back to the first known service so the list never renders a blank.
+  defp first_service(services) when is_list(services) do
+    Enum.find_value(services, fn svc -> normalize_string(svc) end)
+  end
+
+  defp first_service(_), do: nil
 
   defp trace_operation_name(trace) do
     normalize_string(Map.get(trace, "root_span_name")) ||
