@@ -574,6 +574,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:sysmon_profile_info, nil)
        |> assign(:available_profiles, [])
        |> assign(:process_metrics, nil)
+       |> assign(:process_metrics_search, "")
+       |> assign(:process_metrics_page, 1)
+       |> assign(:process_listeners_search, "")
+       |> assign(:process_listeners_page, 1)
        |> assign(:camera_sources, camera_sources)
        |> assign(:camera_inventory_error, camera_inventory_error)
        |> assign(:active_camera_relay_session, active_camera_relay_session)
@@ -836,6 +840,36 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("endpoint_inventory_package_filter", %{"endpoint_inventory_filter" => params}, socket) do
     {:noreply, EndpointInventoryRuntime.apply_package_filter(socket, params)}
+  end
+
+  def handle_event("process_listeners_search", %{"search" => search}, socket) do
+    {:noreply,
+     socket
+     |> assign(:process_listeners_search, to_string(search))
+     |> assign(:process_listeners_page, 1)}
+  end
+
+  def handle_event("process_listeners_prev_page", _params, socket) do
+    {:noreply, assign(socket, :process_listeners_page, max(socket.assigns.process_listeners_page - 1, 1))}
+  end
+
+  def handle_event("process_listeners_next_page", _params, socket) do
+    {:noreply, assign(socket, :process_listeners_page, socket.assigns.process_listeners_page + 1)}
+  end
+
+  def handle_event("process_metrics_search", %{"search" => search}, socket) do
+    {:noreply,
+     socket
+     |> assign(:process_metrics_search, to_string(search))
+     |> assign(:process_metrics_page, 1)}
+  end
+
+  def handle_event("process_metrics_prev_page", _params, socket) do
+    {:noreply, assign(socket, :process_metrics_page, max(socket.assigns.process_metrics_page - 1, 1))}
+  end
+
+  def handle_event("process_metrics_next_page", _params, socket) do
+    {:noreply, assign(socket, :process_metrics_page, socket.assigns.process_metrics_page + 1)}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
