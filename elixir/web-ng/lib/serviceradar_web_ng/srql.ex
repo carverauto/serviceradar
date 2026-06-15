@@ -14,10 +14,14 @@ defmodule ServiceRadarWebNG.SRQL do
 
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.Native
+  alias Ecto.Adapters.SQL
 
   require Logger
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
+
+  @default_query_timeout_ms 15_000
+  @db_timeout_margin_ms 1_000
 
   @impl true
   def query(query, opts \\ %{}) when is_binary(query) do
@@ -177,9 +181,51 @@ defmodule ServiceRadarWebNG.SRQL do
   @sobelow_skip ["SQL.Query"]
   defp run_sql(sql, params) do
     with :ok <- ensure_read_only_sql(sql) do
-      Ecto.Adapters.SQL.query(Repo, sql, params)
+      timeout_ms = srql_query_timeout_ms()
+
+      Repo.transaction(
+        fn ->
+          statement_timeout = "#{timeout_ms}ms"
+          db_timeout_ms = timeout_ms + @db_timeout_margin_ms
+
+          with {:ok, _} <-
+                 SQL.query(
+                   Repo,
+                   "SELECT set_config('statement_timeout', $1, true)",
+                   [statement_timeout],
+                   timeout: db_timeout_ms
+                 ),
+               {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
+            result
+          else
+            {:error, reason} -> Repo.rollback(reason)
+          end
+        end,
+        timeout: timeout_ms + @db_timeout_margin_ms
+      )
+      |> case do
+        {:ok, result} -> {:ok, result}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
+
+  defp srql_query_timeout_ms do
+    :serviceradar_web_ng
+    |> Application.get_env(:srql_query_timeout_ms, @default_query_timeout_ms)
+    |> normalize_positive_integer(@default_query_timeout_ms)
+  end
+
+  defp normalize_positive_integer(value, _default) when is_integer(value) and value > 0, do: value
+
+  defp normalize_positive_integer(value, default) when is_binary(value) do
+    case Integer.parse(value) do
+      {int, ""} when int > 0 -> int
+      _ -> default
+    end
+  end
+
+  defp normalize_positive_integer(_value, default), do: default
 
   defp ensure_read_only_sql(sql) when is_binary(sql) do
     normalized =
