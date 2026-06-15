@@ -730,3 +730,28 @@ func TestBuildResultsStatusChunksForAgentFramesEachStatusStream(t *testing.T) {
 		}
 	}
 }
+
+func TestApplyConfigResponse_SkipsRedundantReapplyOnUnchangedVersion(t *testing.T) {
+	t.Parallel()
+
+	pl := &PushLoop{
+		logger: logger.NewTestLogger(),
+		server: &Server{config: &ServerConfig{AgentID: "agent-test"}},
+	}
+	pl.setConfigVersion("cfg-v1")
+
+	// The control stream re-pushes a fresh (not_modified:false) config on every gateway
+	// dependency write. A config whose version equals the one already applied must be a
+	// no-op that still returns true (so the caller ACKs) without re-running the apply
+	// pipeline; the matching version short-circuits before any sub-config is touched.
+	resp := &proto.AgentConfigResponse{
+		ConfigVersion: "cfg-v1",
+	}
+
+	if !pl.applyConfigResponse(context.Background(), resp, "control") {
+		t.Fatal("applyConfigResponse(unchanged version) = false, want true (ack without re-apply)")
+	}
+	if got := pl.getConfigVersion(); got != "cfg-v1" {
+		t.Fatalf("getConfigVersion() = %q, want unchanged %q", got, "cfg-v1")
+	}
+}
