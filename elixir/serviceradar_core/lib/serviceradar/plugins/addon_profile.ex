@@ -80,6 +80,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
     action :preview do
       argument :id, :uuid, allow_nil?: false
       argument :sample_limit, :integer, allow_nil?: true, default: 10
+      returns :map
 
       run fn input, context ->
         AddonProfileOps.preview_by_id(input.arguments.id,
@@ -91,6 +92,7 @@ defmodule ServiceRadar.Plugins.AddonProfile do
 
     action :reconcile_now do
       argument :id, :uuid, allow_nil?: false
+      returns :map
 
       run fn input, context ->
         AddonProfileOps.reconcile_by_id(input.arguments.id, actor: action_actor(context))

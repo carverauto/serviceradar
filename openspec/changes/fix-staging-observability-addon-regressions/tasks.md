@@ -63,6 +63,20 @@ Each `## N.` is one small, independently reviewable stacked PR. Build/test with 
 - [ ] 10.1 `agent_link_repair_worker.ex`: widen repair to re-verify `unavailable`/`stale` agents (or one-shot remediation) and repoint/tombstone `device_uid` mislinks
 - [ ] 10.2 test + live: `ocsf_agents` JOIN for tonka01 returns 0 rows after remediation (badge gone); coordinate with DIRE owners
 
+## Live progress (2026-06-15, autonomous run)
+- PR1 capacity — **IMPLEMENTED+PUSHED** PR #3835 (30 tests pass)
+- PR2 device-detail UI — **IMPLEMENTED+PUSHED** PR #3836 (compiles/formatted)
+- PR3 anomaly durable recreate — **IMPLEMENTED+PUSHED** PR #3837 (5 tests pass)
+- PR4 agent config re-apply storm — **IMPLEMENTED+PUSHED** PR #3838 (go test pass)
+- PR5 addon systemd self-heal — **IMPLEMENTED+PUSHED** PR #3839 (full agent suite pass)
+- PR6 endpoint enablement — **IMPLEMENTED+PUSHED** PR #3840 (compiles; DB tests gated)
+- PR7 endpoint ingest hardening — **DELEGATED** (background agent, branch fix-endpoint-inventory-ingest)
+- PR8 add-on fleet reporting — TODO (data exists in addon_packages/assignments/statuses)
+- PR9 SNMP interface UX — TODO (low priority; charts are technically correct)
+- PR10 stale agent-link repair — **DEFERRED to DIRE**: the repair worker only follows tombstoned-device merges; a live-but-wrong link (tonka01) needs behavioral host-matching (DIRE domain, avoid hostname band-aids). PR2 already hides tonka01's Software tab; badge persists until the DIRE data fix.
+- DEPLOY: core-elx + web-ng image build **IN PROGRESS** (background) from fix-endpoint-inventory-enablement tip → covers capacity/anomaly/endpoint/UI. Node-agent fixes (churn/sysmon/listeners) are release-gated (apt-upgrade), not deployable via image roll tonight.
+- Stack (jj, off update/plugin): fix-sysmon-process-metrics-visibility(peer) ← fix-capacity-forecast-math ← fix-device-detail-ui ← fix-jetstream-durable-recreate ← fix-agent-config-reapply-storm ← fix-addon-systemd-self-heal ← fix-endpoint-inventory-enablement
+
 ## 11. Proposal hygiene
 - [ ] 11.1 `openspec validate fix-staging-observability-addon-regressions --strict`
 - [ ] 11.2 keep `tasks.md` checkboxes in sync as PRs land
