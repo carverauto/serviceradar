@@ -119,6 +119,58 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     assert socket.assigns.endpoint_inventory_package_page == 1
   end
 
+  test "opens the package detail modal for a loaded row" do
+    package = %{
+      id: "pkg-1",
+      name: "nginx",
+      version: "1.18.0",
+      package_manager: "dpkg",
+      endpoint_package_ref: "epr-1"
+    }
+
+    socket =
+      socket()
+      # device_uid nil makes the vulnerability load a no-op (empty list).
+      |> Map.update!(:assigns, &Map.put(&1, :device_uid, nil))
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(:assigns, &Map.put(&1, :endpoint_inventory_packages, [package]))
+      |> EndpointInventoryRuntime.open_package_detail("pkg-1")
+
+    assert socket.assigns.show_endpoint_inventory_package_modal == true
+    assert socket.assigns.endpoint_inventory_selected_package.id == "pkg-1"
+    assert socket.assigns.endpoint_inventory_selected_package_matches == []
+  end
+
+  test "ignores open request for an unknown package id" do
+    socket =
+      socket()
+      |> Map.update!(:assigns, &Map.put(&1, :device_uid, nil))
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(:assigns, &Map.put(&1, :endpoint_inventory_packages, [%{id: "pkg-1"}]))
+      |> EndpointInventoryRuntime.open_package_detail("missing")
+
+    assert socket.assigns.show_endpoint_inventory_package_modal == false
+    assert socket.assigns.endpoint_inventory_selected_package == nil
+  end
+
+  test "closes the package detail modal and clears the selection" do
+    socket =
+      socket()
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(
+        :assigns,
+        &(&1
+          |> Map.put(:show_endpoint_inventory_package_modal, true)
+          |> Map.put(:endpoint_inventory_selected_package, %{id: "pkg-1"})
+          |> Map.put(:endpoint_inventory_selected_package_matches, [%{id: "match-1"}]))
+      )
+      |> EndpointInventoryRuntime.close_package_detail()
+
+    assert socket.assigns.show_endpoint_inventory_package_modal == false
+    assert socket.assigns.endpoint_inventory_selected_package == nil
+    assert socket.assigns.endpoint_inventory_selected_package_matches == []
+  end
+
   test "applies relevant command result with freshness payload" do
     socket =
       socket()
