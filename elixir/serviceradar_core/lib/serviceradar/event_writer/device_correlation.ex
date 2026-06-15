@@ -11,6 +11,7 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
   import Ash.Expr
 
   alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.EventWriter.DeviceCorrelationCache
   alias ServiceRadar.Identity.DeviceLookup
   alias ServiceRadar.Infrastructure.Agent
   alias ServiceRadar.Inventory.Device
@@ -36,6 +37,18 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
 
   @spec resolve(candidate()) :: String.t() | nil
   def resolve(candidate) when is_map(candidate) do
+    # Cache the full resolution keyed by the correlation inputs so a burst of
+    # events for the same device costs one DB lookup per device (cache miss)
+    # rather than one set of DB round-trips per event. The cache is fail-open:
+    # on any cache error it runs `resolve_uncached/1` directly.
+    DeviceCorrelationCache.fetch(candidate, fn -> resolve_uncached(candidate) end)
+  end
+
+  def resolve(_), do: nil
+
+  @doc false
+  @spec resolve_uncached(candidate()) :: String.t() | nil
+  def resolve_uncached(candidate) when is_map(candidate) do
     actor = SystemActor.system(:event_writer_device_correlation)
 
     with nil <- explicit_device_uid(candidate, actor),
@@ -50,8 +63,6 @@ defmodule ServiceRadar.EventWriter.DeviceCorrelation do
       Logger.debug("Device correlation lookup failed: #{Exception.message(error)}")
       nil
   end
-
-  def resolve(_), do: nil
 
   defp explicit_device_uid(candidate, actor) do
     case normalize(candidate[:device_uid] || candidate["device_uid"]) do
