@@ -2,13 +2,13 @@
 
 Each `## N.` is one small, independently reviewable stacked PR. Build/test with `.agents/skills` codex skills (no release). Verify live on demo (cnpg-21 psql, ssh `192.168.1.62`/`10.0.2.8`). Order = dependency/value; PR1–PR3 are independent and land first.
 
-## 1. PR1 — capacity-forecast math (`fix(capacity): cap exhaustion to horizon, reject SNMP counter-reset contamination`)
-- [ ] 1.1 `model.ex`: cap `exhaustion_at`/`seasonal_exhaustion_at` to `[forecasted_at, forecasted_at+horizon]`; return `nil` outside (kills past dates + year-5256)
-- [ ] 1.2 `model.ex`: reject/winsorize counter-reset samples before Holt-Winters/linear fit (bounded-% metric: drop util samples > sane ceiling); clamp implausible `projected_value`
-- [ ] 1.3 `source.ex`: add `metric_name` filter to the interface source query (only supported octet metrics) → eliminate 699 `unsupported_interface_metric` rows
-- [ ] 1.4 `worker.ex`: keep `speed_bps=0` → clear skip reason; ensure projected/slope/rmse reported in the same `percent` unit as threshold
-- [ ] 1.5 tests: contaminated-series (leading 1.7e14 spike) must not project > threshold; near-zero slope → `projected_exhaustion_at=nil`; in-window crossing → `nil` not a past date
-- [ ] 1.6 verify live: `mix test test/serviceradar/observability/capacity_forecasting/`; after deploy, `SELECT count(*) FROM platform.capacity_forecasts WHERE status='projected' AND (projected_value>10*exhaustion_threshold OR projected_exhaustion_at<=forecasted_at OR projected_exhaustion_at>forecasted_at+(horizon_seconds||' seconds')::interval)` = 0
+## 1. PR1 — capacity-forecast math (`fix(capacity): bound exhaustion projections and reject SNMP counter-reset contamination`) — **IMPLEMENTED** (jj `fix-capacity-forecast-math`, 30 tests pass)
+- [x] 1.1 `model.ex`: `exhaustion_at` already-crossed-in-window → `nil` (no past date); crossing beyond a generous multiple (10×) of the horizon → `nil` (kills year-5256), preserving plausible beyond-horizon crossings the worker's warning-horizon logic needs
+- [x] 1.2 `worker.ex`: drop converted interface utilization above a sane ceiling (counter-wrap artifacts) before the model sees them; clamp implausible `projected_value` (>10× threshold) → skip `implausible_projection`
+- [ ] 1.3 `source.ex`: add `metric_name` filter to the interface source query → eliminate 699 `unsupported_interface_metric` rows — **DEFERRED** (kept PR1 surgical; SRQL IN/OR predicate needs verifying; the 699 are harmless skipped rows, not user-facing garbage)
+- [ ] 1.4 `worker.ex`: clearer `speed_bps=0` skip reason / unit metadata — **DEFERRED** (already skipped as `missing_interface_capacity`; cosmetic)
+- [x] 1.5 tests: counter-wrap spike must not project > threshold (`worker_test` `InterfaceWrapRunner`); near-zero slope → `nil`; already-crossed in-window → `nil` (`model_test`)
+- [ ] 1.6 verify live: local `mix test` ✅ (30 pass); after deploy, `SELECT count(*) FROM platform.capacity_forecasts WHERE status='projected' AND (projected_value>10*exhaustion_threshold OR projected_exhaustion_at<=forecasted_at OR projected_exhaustion_at>forecasted_at+(horizon_seconds||' seconds')::interval)` = 0 — **PENDING DEPLOY**
 
 ## 2. PR2 — device-detail UI gating + contrast (`fix(web-ng): gate Software tab to agent hosts; fix warning banner contrast`)
 - [ ] 2.1 `show_template.ex`: replace `is_map(device_row)` in `software_tab_visible?/2` (and the `:268` render guard) with `device_has_agent?/DeviceStateData.agent?` OR real inventory/error signal
