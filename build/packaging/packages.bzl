@@ -171,11 +171,15 @@ PACKAGES = {
             },
         ],
         "directories": [
-            {"path": "/var/lib/serviceradar/endpoint-inventory", "mode": "0770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/profile", "mode": "0770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/spool", "mode": "0750", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/spool/runs", "mode": "0750", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/tmp", "mode": "0770", "owner": "root", "group": "serviceradar"},
+            # setgid (2) + group-write so the root scanner and the non-root
+            # serviceradar agent can both write spool entries, cache manifests,
+            # runtime profiles, and upload markers into the shared dirs.
+            {"path": "/var/lib/serviceradar/endpoint-inventory", "mode": "2770", "owner": "root", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/endpoint-inventory/profile", "mode": "2770", "owner": "root", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/endpoint-inventory/cache", "mode": "2770", "owner": "root", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/endpoint-inventory/spool", "mode": "2770", "owner": "root", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/endpoint-inventory/spool/runs", "mode": "2770", "owner": "root", "group": "serviceradar"},
+            {"path": "/var/lib/serviceradar/endpoint-inventory/tmp", "mode": "2770", "owner": "root", "group": "serviceradar"},
         ],
         "postinst": "scripts/postinstall.sh",
         "prerm": "scripts/preremove.sh",

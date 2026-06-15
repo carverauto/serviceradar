@@ -5,7 +5,7 @@
 # from /var/lib/serviceradar/endpoint-inventory/spool/latest.json.
 id: endpoint-inventory
 name: Endpoint Software Inventory
-version: 0.1.1
+version: 0.1.2
 description: >-
   Opt-in local software inventory collector that emits CycloneDX JSON package
   SBOM data for ServiceRadar agent ingest.
