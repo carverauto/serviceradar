@@ -7,9 +7,23 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   ## Implementation Notes
 
-  This producer uses the `jetstream` library's pull consumer pattern to fetch
-  messages from JetStream. It maintains a connection and periodically pulls
-  batches of messages to satisfy Broadway's demand.
+  This producer subscribes to the `deliver_subject` of one durable PUSH consumer
+  per configured stream. JetStream pushes messages into this process's mailbox up
+  to each consumer's `max_ack_pending` ceiling, then stops until messages are
+  acknowledged. Flow control therefore has two enforcement points:
+
+    1. **Server-side**: a tight per-consumer `max_ack_pending`
+       (`Config.max_ack_pending`, default 256) caps how many unacked messages the
+       server will push before pausing. This is the primary bound -- it is what
+       stops the unbounded mailbox growth that previously OOM-killed core.
+    2. **Producer-side**: `@max_buffered_messages` caps the in-process buffer of
+       messages waiting on Broadway demand. Anything beyond the cap is NAK'd back
+       to the server (which holds it and respects `max_ack_pending`) instead of
+       being retained in this process's heap.
+
+  Broadway demand drains the buffer; messages are acked only after the pipeline
+  finishes processing them, which is what releases the server's `max_ack_pending`
+  budget and pulls the next batch.
 
   ## Message Format
 
@@ -35,9 +49,15 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   @fetch_interval 100
   @reconnect_delay 5_000
-  @ack_wait_ns 30_000_000_000
-  @max_ack_pending 5_000
-  @max_deliver 10
+
+  # Hard cap on the number of fully-formed Broadway events buffered in this
+  # process while waiting for downstream demand. Sized off the configured
+  # per-consumer max_ack_pending so the in-process buffer never exceeds what the
+  # server is allowed to push, with a small multiplier for the (few) consumers
+  # that share this producer. Messages beyond the cap are NAK'd so the server
+  # retains them rather than this process growing its heap.
+  @buffer_multiplier 2
+  @min_buffer 64
 
   defstruct [
     :config,
@@ -46,7 +66,10 @@ defmodule ServiceRadar.EventWriter.Producer do
     :demand,
     :connected,
     :streams,
-    :pending_messages
+    :pending_messages,
+    :pending_count,
+    :max_buffered,
+    :dropped_overflow
   ]
 
   # Client API
@@ -59,14 +82,23 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   @impl true
   def init(%Config{} = config) do
-    Logger.info("Starting EventWriter producer", nats_host: config.nats.host)
+    max_buffered = max_buffered(config)
+
+    Logger.info("Starting EventWriter producer",
+      nats_host: config.nats.host,
+      max_ack_pending: config.max_ack_pending,
+      max_buffered: max_buffered
+    )
 
     state = %__MODULE__{
       config: config,
       demand: 0,
       connected: false,
       streams: config.streams,
-      pending_messages: []
+      pending_messages: [],
+      pending_count: 0,
+      max_buffered: max_buffered,
+      dropped_overflow: 0
     }
 
     # Start connection asynchronously
@@ -74,6 +106,18 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     {:producer, state}
   end
+
+  @doc false
+  # Producer-side buffer ceiling. Derived from the per-consumer server-side
+  # max_ack_pending so the in-process buffer can never exceed what the server is
+  # allowed to push.
+  @spec max_buffered(Config.t()) :: pos_integer()
+  def max_buffered(%Config{max_ack_pending: max_ack_pending})
+      when is_integer(max_ack_pending) and max_ack_pending > 0 do
+    max(@min_buffer, max_ack_pending * @buffer_multiplier)
+  end
+
+  def max_buffered(%Config{}), do: max(@min_buffer, Config.default_max_ack_pending())
 
   @impl true
   def handle_demand(incoming_demand, %{demand: demand} = state) do
@@ -138,6 +182,27 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   # Handle incoming NATS messages from JetStream durable consumer delivery subjects.
   def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to} = msg}, state) do
+    if state.pending_count >= state.max_buffered do
+      # Producer-side overflow guard: the in-process buffer is full. NAK the
+      # message so the server retains it (and respects max_ack_pending) rather
+      # than letting this process's heap grow unbounded -- the OOM regression.
+      nak_overflow(state.conn, reply_to)
+      {:noreply, [], maybe_warn_overflow(state)}
+    else
+      buffer_message(body, subject, reply_to, msg, state)
+    end
+  end
+
+  def handle_info(_msg, state) do
+    {:noreply, [], state}
+  end
+
+  # Private functions
+
+  # Buffers a freshly received JetStream message. `pending_messages` is kept in
+  # reverse arrival order (newest first) so appends are O(1); it is reversed when
+  # drained in fetch_messages/1.
+  defp buffer_message(body, subject, reply_to, msg, state) do
     headers = Map.get(msg, :headers, %{})
     original_subject = extract_original_subject(subject, headers)
 
@@ -156,21 +221,49 @@ defmodule ServiceRadar.EventWriter.Producer do
       }
     }
 
-    new_pending = state.pending_messages ++ [broadway_event]
+    state = %{
+      state
+      | pending_messages: [broadway_event | state.pending_messages],
+        pending_count: state.pending_count + 1
+    }
 
     if state.demand > 0 do
-      {messages, state} = fetch_messages(%{state | pending_messages: new_pending})
+      {messages, state} = fetch_messages(state)
       {:noreply, messages, state}
     else
-      {:noreply, [], %{state | pending_messages: new_pending}}
+      {:noreply, [], state}
     end
   end
 
-  def handle_info(_msg, state) do
-    {:noreply, [], state}
+  # NAK an overflow message so the JetStream server holds it (within
+  # max_ack_pending) instead of this process buffering it. Falls back silently
+  # when there is no reply_to (core NATS).
+  defp nak_overflow(conn, reply_to) when is_binary(reply_to) and reply_to != "" do
+    safe_ack_publish(conn, reply_to, "-NAK")
   end
 
-  # Private functions
+  defp nak_overflow(_conn, _reply_to), do: :ok
+
+  # Emits an overflow telemetry signal, rate-limited to one log line per 1000
+  # drops so a sustained backlog cannot itself flood the logs.
+  defp maybe_warn_overflow(state) do
+    dropped = state.dropped_overflow + 1
+
+    :telemetry.execute(
+      [:serviceradar, :event_writer, :producer, :overflow],
+      %{count: 1},
+      %{max_buffered: state.max_buffered}
+    )
+
+    if rem(dropped, 1_000) == 1 do
+      Logger.warning("EventWriter producer buffer full; NAKing overflow to the server",
+        max_buffered: state.max_buffered,
+        dropped_total: dropped
+      )
+    end
+
+    %{state | dropped_overflow: dropped}
+  end
 
   defp connect(%Config{} = config) do
     connection_settings = build_connection_settings(config.nats)
@@ -269,6 +362,12 @@ defmodule ServiceRadar.EventWriter.Producer do
   defp normalize(value), do: value
 
   defp setup_jetstream_consumers(conn, config) do
+    # Resolve flow-control values with defaults so a Config built directly (e.g.
+    # in tests) without going through Config.load/0 still gets a bounded consumer.
+    max_ack_pending = config.max_ack_pending || Config.default_max_ack_pending()
+    ack_wait_ns = config.ack_wait_ns || Config.default_ack_wait_ns()
+    max_deliver = config.max_deliver || Config.default_max_deliver()
+
     consumers =
       config.streams
       |> Enum.map(fn stream ->
@@ -283,10 +382,10 @@ defmodule ServiceRadar.EventWriter.Producer do
                  deliver_subject: deliver_subject,
                  description: "EventWriter consumer for #{stream.name}",
                  ack_policy: :explicit,
-                 ack_wait: @ack_wait_ns,
+                 ack_wait: ack_wait_ns,
                  deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
-                 max_ack_pending: @max_ack_pending,
-                 max_deliver: Map.get(stream, :consumer_max_deliver, @max_deliver),
+                 max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
+                 max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
                  inactive_threshold: Map.get(stream, :consumer_inactive_threshold),
                  stream_retention: Map.get(stream, :stream_retention),
                  stream_storage: Map.get(stream, :stream_storage),
@@ -326,15 +425,31 @@ defmodule ServiceRadar.EventWriter.Producer do
     end
   end
 
+  # Drains up to `demand` buffered messages, preserving FIFO order.
+  # `pending_messages` is stored newest-first, so it is reversed to arrival order
+  # before splitting. `pending_count` is kept in sync so the overflow guard never
+  # needs an O(n) length/1.
+  defp fetch_messages(%{demand: demand, pending_count: pending_count} = state)
+       when demand <= 0 or pending_count == 0 do
+    {[], state}
+  end
+
   defp fetch_messages(state) do
-    # In this simplified implementation, messages come via handle_info
-    # from the Gnat subscriptions. Here we just return any pending messages.
+    take = min(state.demand, state.pending_count)
 
-    messages_to_send = Enum.take(state.pending_messages, state.demand)
-    remaining = Enum.drop(state.pending_messages, state.demand)
-    new_demand = max(0, state.demand - length(messages_to_send))
+    {to_send, remaining} =
+      state.pending_messages
+      |> Enum.reverse()
+      |> Enum.split(take)
 
-    {messages_to_send, %{state | pending_messages: remaining, demand: new_demand}}
+    {to_send,
+     %{
+       state
+       | # keep the reverse-order invariant for the leftover (still newest-first)
+         pending_messages: Enum.reverse(remaining),
+         pending_count: state.pending_count - take,
+         demand: state.demand - take
+     }}
   end
 
   defp schedule_fetch do

@@ -54,6 +54,21 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_batch_timeout 1_000
   @default_consumer_name "serviceradar-event-writer"
 
+  # Flow-control defaults. The single Broadway producer receives JetStream
+  # messages PUSHED from every consumer's deliver_subject. Each consumer's
+  # max_ack_pending is the server-enforced ceiling on how many unacked messages
+  # the server will push before it stops. Bounding it to roughly the pipeline's
+  # in-flight capacity (processors x batch_size) keeps the producer mailbox from
+  # growing unbounded -- the regression that OOM-killed core (273k mailbox, 9.6GB
+  # refc binary). 256 is deliberately small: with N consumers the aggregate
+  # server-side ceiling is N x max_ack_pending, so per-consumer must stay tight.
+  @default_max_ack_pending 256
+  @default_processor_concurrency 10
+  # 120s (in ns) gives a slow batch room before the server redelivers, avoiding
+  # the redelivery storm a 30s ack_wait caused once a backlog formed.
+  @default_ack_wait_ns 120_000_000_000
+  @default_max_deliver 5
+
   defstruct [
     :enabled,
     :nats,
@@ -61,7 +76,11 @@ defmodule ServiceRadar.EventWriter.Config do
     :batch_timeout,
     :consumer_name,
     :producer_name,
-    :streams
+    :streams,
+    :max_ack_pending,
+    :processor_concurrency,
+    :ack_wait_ns,
+    :max_deliver
   ]
 
   @type t :: %__MODULE__{
@@ -71,7 +90,11 @@ defmodule ServiceRadar.EventWriter.Config do
           batch_timeout: pos_integer(),
           consumer_name: String.t(),
           producer_name: atom() | nil,
-          streams: [stream_config()]
+          streams: [stream_config()],
+          max_ack_pending: pos_integer(),
+          processor_concurrency: pos_integer(),
+          ack_wait_ns: pos_integer(),
+          max_deliver: pos_integer()
         }
 
   @type nats_config :: %{
@@ -100,6 +123,7 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_max_age) => pos_integer() | nil,
           optional(:stream_duplicate_window) => pos_integer() | nil,
           optional(:consumer_max_deliver) => integer() | nil,
+          optional(:consumer_max_ack_pending) => pos_integer() | nil,
           optional(:consumer_deliver_policy) => atom() | nil,
           optional(:consumer_inactive_threshold) => non_neg_integer() | nil
         }
@@ -118,9 +142,37 @@ defmodule ServiceRadar.EventWriter.Config do
       batch_timeout: load_batch_timeout(config),
       consumer_name: load_consumer_name(config),
       producer_name: Keyword.get(config, :producer_name),
-      streams: load_streams(config)
+      streams: load_streams(config),
+      max_ack_pending: load_max_ack_pending(config),
+      processor_concurrency: load_processor_concurrency(config),
+      ack_wait_ns: load_ack_wait_ns(config),
+      max_deliver: load_max_deliver(config)
     }
   end
+
+  @doc """
+  Returns the default per-consumer `max_ack_pending` flow-control bound.
+  """
+  @spec default_max_ack_pending() :: pos_integer()
+  def default_max_ack_pending, do: @default_max_ack_pending
+
+  @doc """
+  Returns the default Broadway processor concurrency.
+  """
+  @spec default_processor_concurrency() :: pos_integer()
+  def default_processor_concurrency, do: @default_processor_concurrency
+
+  @doc """
+  Returns the default consumer `ack_wait` in nanoseconds.
+  """
+  @spec default_ack_wait_ns() :: pos_integer()
+  def default_ack_wait_ns, do: @default_ack_wait_ns
+
+  @doc """
+  Returns the default consumer `max_deliver`.
+  """
+  @spec default_max_deliver() :: pos_integer()
+  def default_max_deliver, do: @default_max_deliver
 
   @doc """
   Checks if the EventWriter is enabled.
@@ -154,7 +206,15 @@ defmodule ServiceRadar.EventWriter.Config do
         subject: "events.>",
         processor: Events,
         batch_size: 100,
-        batch_timeout: 1_000
+        batch_timeout: 1_000,
+        # Retention guard: if the consumer ever falls behind, the shared `events`
+        # stream must degrade gracefully (drop oldest) instead of growing until
+        # core OOMs. 8 GiB / 24h, discard old.
+        stream_retention: "limits",
+        stream_storage: "file",
+        stream_discard: "old",
+        stream_max_bytes: 8_589_934_592,
+        stream_max_age: 86_400_000_000_000
       },
       %{
         name: "PDNS_OCSF",
@@ -340,6 +400,63 @@ defmodule ServiceRadar.EventWriter.Config do
       value -> value
     end
   end
+
+  defp load_max_ack_pending(config) do
+    load_positive_int(
+      "EVENT_WRITER_MAX_ACK_PENDING",
+      Keyword.get(config, :max_ack_pending, @default_max_ack_pending),
+      @default_max_ack_pending
+    )
+  end
+
+  defp load_processor_concurrency(config) do
+    load_positive_int(
+      "EVENT_WRITER_PROCESSOR_CONCURRENCY",
+      Keyword.get(config, :processor_concurrency, @default_processor_concurrency),
+      @default_processor_concurrency
+    )
+  end
+
+  defp load_ack_wait_ns(config) do
+    # Accept seconds via env for ergonomics; store nanoseconds internally.
+    case System.get_env("EVENT_WRITER_ACK_WAIT_SECONDS") do
+      nil ->
+        sanitize_positive_int(
+          Keyword.get(config, :ack_wait_ns, @default_ack_wait_ns),
+          @default_ack_wait_ns
+        )
+
+      value ->
+        case Integer.parse(value) do
+          {seconds, _} when seconds > 0 -> seconds * 1_000_000_000
+          _ -> @default_ack_wait_ns
+        end
+    end
+  end
+
+  defp load_max_deliver(config) do
+    load_positive_int(
+      "EVENT_WRITER_MAX_DELIVER",
+      Keyword.get(config, :max_deliver, @default_max_deliver),
+      @default_max_deliver
+    )
+  end
+
+  defp load_positive_int(env_name, configured, default) do
+    case System.get_env(env_name) do
+      nil ->
+        sanitize_positive_int(configured, default)
+
+      value ->
+        case Integer.parse(value) do
+          {parsed, _} when parsed > 0 -> parsed
+          _ -> default
+        end
+    end
+  end
+
+  defp sanitize_positive_int(value, _default) when is_integer(value) and value > 0, do: value
+  defp sanitize_positive_int(_value, default), do: default
 
   defp load_streams(config) do
     case Keyword.get(config, :streams) do
