@@ -77,6 +77,45 @@ defmodule ServiceRadar.Observability.CapacityForecasting.ModelTest do
     assert forecast.projected_exhaustion_at == nil
   end
 
+  test "linear forecast yields no exhaustion when the crossing lands beyond the horizon" do
+    # A near-zero positive slope would cross the threshold millennia out; the old code
+    # rendered that as a year-5256 date. It must now collapse to nil (no projected exhaustion).
+    points =
+      for hour <- 0..47 do
+        %{at: DateTime.add(@start, hour * 3_600, :second), value: 10.0 + hour * 0.0001}
+      end
+
+    assert {:ok, forecast} =
+             Model.forecast(points,
+               min_points: 24,
+               horizon_seconds: 24 * 3_600,
+               exhaustion_threshold: 100.0,
+               model: :linear
+             )
+
+    assert forecast.slope_per_second > 0.0
+    assert forecast.projected_exhaustion_at == nil
+  end
+
+  test "linear forecast yields no exhaustion when the threshold was already crossed in-window" do
+    # Series is already above the threshold across the whole window; this is "already
+    # exhausted", not a future forecast, so no (past-dated) exhaustion ETA is emitted.
+    points =
+      for hour <- 0..47 do
+        %{at: DateTime.add(@start, hour * 3_600, :second), value: 150.0 + hour}
+      end
+
+    assert {:ok, forecast} =
+             Model.forecast(points,
+               min_points: 24,
+               horizon_seconds: 24 * 3_600,
+               exhaustion_threshold: 100.0,
+               model: :linear
+             )
+
+    assert forecast.projected_exhaustion_at == nil
+  end
+
   test "skips resources that do not have enough aggregate history" do
     points = [
       %{at: @start, value: 10.0},
