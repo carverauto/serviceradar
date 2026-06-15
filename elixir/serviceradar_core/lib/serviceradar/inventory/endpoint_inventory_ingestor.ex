@@ -45,8 +45,9 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
 
       case Repo.transaction(fn ->
              current = current_scan_snapshot(context.agent_id)
-             context = apply_hash_freshness(context, current)
              previous_packages = current_package_rows(context)
+             context = maybe_apply_package_delta(context, current, previous_packages)
+             context = apply_hash_freshness(context, current)
              scan_ref = upsert_scan(context, artifact)
              insert_scan_activity_event(scan_ref, context)
              EndpointInventoryArtifactPersistence.replace(scan_ref, context, artifact)
@@ -153,6 +154,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        server_package_set_hash: server_hash,
        package_set_hash_mismatch?: false,
        package_replacement_noop?: false,
+       package_set_applied_via: "full",
        unchanged_scan_count: 0,
        last_changed_scan_at: nil,
        reconcile_floor_due?: false,
@@ -169,6 +171,67 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
        now: now,
        metadata: Payload.metadata(payload)
      }}
+  end
+
+  # Applies a change-only package delta to the device's current package set when
+  # the agent supplied one AND it is safe to do so. "Safe" means: the scan is a
+  # changed upload, the device already has a current package set, the delta's
+  # declared base hash matches core's current package_set_hash (the delta is
+  # against the exact state core holds), and reconstructing the target set from
+  # current_rows + delta yields a server hash equal to the delta's declared
+  # target hash. Any mismatch falls back to the full anchor (the payload already
+  # carries the full SBOM/package set), so a missed or stale delta can never
+  # corrupt the package set — it just costs a full replace.
+  defp maybe_apply_package_delta(context, current, current_packages) do
+    with true <- changed_upload?(context),
+         delta when is_map(delta) <- extract_package_delta(context.payload),
+         base_hash when is_binary(base_hash) and base_hash != "" <-
+           Payload.string_value(delta, :base_package_set_hash),
+         target_hash when is_binary(target_hash) and target_hash != "" <-
+           Payload.string_value(delta, :target_package_set_hash),
+         current_hash when current_hash == base_hash <-
+           current_package_set_hash(current),
+         reconstructed = reconstruct_packages_from_delta(current_packages, delta),
+         ^target_hash <- EndpointInventoryPackageSet.server_package_set_hash(reconstructed) do
+      apply_reconstructed_packages(context, reconstructed, target_hash)
+    else
+      _ -> context
+    end
+  end
+
+  defp extract_package_delta(payload) do
+    case Payload.map_value(payload, :package_delta) do
+      delta when is_map(delta) and map_size(delta) > 0 -> delta
+      _ -> nil
+    end
+  end
+
+  defp current_package_set_hash(nil), do: nil
+
+  defp current_package_set_hash(current) do
+    Map.get(current, :server_package_set_hash) || Map.get(current, :package_set_hash)
+  end
+
+  defp reconstruct_packages_from_delta(current_packages, delta) do
+    EndpointInventoryPackageSet.apply_delta(current_packages, %{
+      added:
+        EndpointInventoryPackageSet.normalize_delta_packages(Payload.list_value(delta, :added)),
+      removed:
+        EndpointInventoryPackageSet.normalize_delta_packages(Payload.list_value(delta, :removed)),
+      changed:
+        EndpointInventoryPackageSet.normalize_delta_packages(Payload.list_value(delta, :changed))
+    })
+  end
+
+  defp apply_reconstructed_packages(context, packages, target_hash) do
+    %{
+      context
+      | packages: packages,
+        package_count: length(packages),
+        manager_counts: EndpointInventoryPackageSet.manager_counts(packages),
+        server_package_set_hash: target_hash,
+        package_set_applied_via: "delta"
+    }
   end
 
   defp allocate_device_fleet_ordinal(context, opts) do
@@ -717,6 +780,7 @@ defmodule ServiceRadar.Inventory.EndpointInventoryIngestor do
       "unchanged_scan_count" => context.unchanged_scan_count,
       "last_changed_scan_at" => Payload.iso8601(context.last_changed_scan_at),
       "reconcile_floor_due" => context.reconcile_floor_due?,
+      "package_set_applied_via" => context.package_set_applied_via,
       "raw_package_count" => Payload.integer_value(context.payload, :package_count, nil)
     })
     |> Payload.compact_map()

@@ -66,6 +66,11 @@ type Config struct {
 	CacheStaleThreshold    string   `json:"cache_stale_threshold"`
 	MaxPackages            int      `json:"max_packages"`
 	MaxOutputBytes         int64    `json:"max_output_bytes"`
+
+	// ForceFreshScan, when true, bypasses the cadence floor and source-mtime
+	// skip so an explicit operator-triggered force-fresh scan always performs a
+	// full collection. It is a runtime-only flag and is never persisted.
+	ForceFreshScan bool `json:"-"`
 }
 
 type RuntimeProfile struct {
@@ -110,7 +115,14 @@ type ScanPayload struct {
 	Truncated                    bool                          `json:"truncated,omitempty"`
 	StandingQuestionResultCounts []StandingQuestionResultCount `json:"standing_question_result_counts,omitempty"`
 	SBOM                         *CycloneDXBOM                 `json:"sbom,omitempty"`
-	Metadata                     map[string]any                `json:"metadata,omitempty"`
+	// PackageDelta carries the change-only representation of this scan relative
+	// to the previously uploaded package set. It is present only on changed
+	// uploads that have a known prior state to diff against; core applies it
+	// when its current hash matches PackageDelta.BasePackageSetHash and falls
+	// back to the full SBOM anchor otherwise. Backward compatible: older cores
+	// ignore the field and consume the SBOM anchor.
+	PackageDelta *PackageSetDelta `json:"package_delta,omitempty"`
+	Metadata     map[string]any   `json:"metadata,omitempty"`
 }
 
 type InventoryCacheManifest struct {

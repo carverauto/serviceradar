@@ -115,7 +115,17 @@ func (s *EndpointInventorySpoolService) statusPayload() ([]byte, error) {
 		return nil, err
 	}
 
-	return attachEndpointInventoryStandingQuestionCounts(suppressEndpointInventoryUploadedSBOM(data), manifest), nil
+	// No pending upload means the current package set has already been
+	// acknowledged upstream (or the scan was unchanged). Re-emitting the raw
+	// spool here re-ships the payload on every heartbeat: the scanner mints a
+	// fresh scan_id and timestamps on each run, so the push-loop status
+	// signature changes every scan even when the package set is byte-identical,
+	// and core ingests a new scan row each time. Stabilize the unchanged status
+	// so the signature is identical across runs and the heartbeat dedup
+	// suppresses re-pushes until the package set actually changes.
+	stabilized := stabilizeEndpointInventoryUnchangedStatus(suppressEndpointInventoryUploadedSBOM(data), manifest)
+
+	return attachEndpointInventoryStandingQuestionCounts(stabilized, manifest), nil
 }
 
 func (s *EndpointInventorySpoolService) notScannedStatus() *proto.StatusResponse {
@@ -210,6 +220,34 @@ func suppressEndpointInventoryUploadedSBOM(data []byte) []byte {
 	payload.Metadata["reason"] = "upload_already_acknowledged"
 
 	updated, err := json.Marshal(payload)
+	if err != nil {
+		return data
+	}
+
+	return updated
+}
+
+// stabilizeEndpointInventoryUnchangedStatus rewrites an already-acknowledged
+// unchanged scan status into a deterministic form so repeated heartbeats that
+// re-read freshly-written spool files (new scan_id + timestamps every scan)
+// produce an identical push-loop status signature. Only statuses the manifest
+// confirms are already uploaded-and-unchanged are rewritten; changed scans,
+// pending uploads, and failure states are left untouched so they still upload.
+func stabilizeEndpointInventoryUnchangedStatus(
+	data []byte,
+	manifest *endpointinventory.InventoryCacheManifest,
+) []byte {
+	var payload endpointinventory.ScanPayload
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return data
+	}
+	if !endpointinventory.IsUploadedUnchangedScan(&payload, manifest) {
+		return data
+	}
+
+	endpointinventory.StabilizeUnchangedScanPayload(&payload)
+
+	updated, err := json.Marshal(&payload)
 	if err != nil {
 		return data
 	}

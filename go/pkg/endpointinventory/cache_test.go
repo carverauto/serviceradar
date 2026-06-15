@@ -44,6 +44,63 @@ func TestCacheCanSkipFullScanRespectsForceFullScanInterval(t *testing.T) {
 	}
 }
 
+func TestCacheCanSkipFullScanRespectsCadenceFloor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Sources = []string{PackageSourceDpkg}
+	cfg.Cadence = "1h"
+	// Disable the older interval gate so we isolate the cadence floor.
+	cfg.ForceFullScanInterval = 1
+	current := map[string]SourceMTime{
+		PackageSourceDpkg: {Source: PackageSourceDpkg, Path: "/var/lib/dpkg/status", Exists: true, MTimeUnixNano: 10, Size: 20},
+	}
+	manifest := &InventoryCacheManifest{
+		PackageSetHash: "package-hash",
+		ArtifactHash:   "artifact-hash",
+		SourceMTimes:   copySourceMTimes(current),
+		LastScanAt:     time.Now().Add(-5 * time.Minute),
+	}
+
+	// Scanned 5 minutes ago, cadence is 1h, sources unchanged: skip.
+	if !cacheCanSkipFullScan(cfg, manifest, current) {
+		t.Fatal("cache should skip when within the cadence floor and sources unchanged")
+	}
+
+	// A source mtime change must defeat the cadence floor even within the window.
+	changed := map[string]SourceMTime{
+		PackageSourceDpkg: {Source: PackageSourceDpkg, Path: "/var/lib/dpkg/status", Exists: true, MTimeUnixNano: 99, Size: 21},
+	}
+	if cacheCanSkipFullScan(cfg, manifest, changed) {
+		t.Fatal("cache must not skip within cadence when a source mtime changed")
+	}
+
+	// Outside the cadence window the floor no longer applies (and the interval
+	// gate is disabled), so a fresh scan is required.
+	manifest.LastScanAt = time.Now().Add(-2 * time.Hour)
+	if cacheCanSkipFullScan(cfg, manifest, current) {
+		t.Fatal("cache must not skip once the cadence window has elapsed")
+	}
+}
+
+func TestCacheCanSkipFullScanForceFreshBypassesCadenceFloor(t *testing.T) {
+	cfg := DefaultConfig()
+	cfg.Sources = []string{PackageSourceDpkg}
+	cfg.Cadence = "1h"
+	cfg.ForceFreshScan = true
+	current := map[string]SourceMTime{
+		PackageSourceDpkg: {Source: PackageSourceDpkg, Path: "/var/lib/dpkg/status", Exists: true, MTimeUnixNano: 10, Size: 20},
+	}
+	manifest := &InventoryCacheManifest{
+		PackageSetHash: "package-hash",
+		ArtifactHash:   "artifact-hash",
+		SourceMTimes:   copySourceMTimes(current),
+		LastScanAt:     time.Now().Add(-1 * time.Minute),
+	}
+
+	if cacheCanSkipFullScan(cfg, manifest, current) {
+		t.Fatal("force-fresh scan must never skip the full collection")
+	}
+}
+
 func TestCacheCanSkipFullScanRespectsServerReconcileRequest(t *testing.T) {
 	cfg := DefaultConfig()
 	cfg.Sources = []string{PackageSourceDpkg}

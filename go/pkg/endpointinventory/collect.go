@@ -142,6 +142,7 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 	if uploadReason == UploadReasonChanged {
 		payload.SBOM = &sbom
+		payload.PackageDelta = changedScanDelta(cache, packages, packageSetHash, serverReconcileRequested)
 		if serverReconcileRequested {
 			payload.Metadata["reason"] = metadataReasonServerReconcileFloor
 			payload.Metadata["server_reconcile_requested_at"] = cache.ServerReconcileRequestedAt
@@ -158,6 +159,37 @@ func (r *Runner) Run(ctx context.Context) (*ScanPayload, error) {
 	}
 
 	return payload, nil
+}
+
+// changedScanDelta computes the change-only delta for a changed upload relative
+// to the previously uploaded package set. It returns nil (forcing core to
+// consume the full SBOM anchor) when there is no trustworthy prior state to diff
+// against: a first-ever upload, a server-requested reconcile (which must resync
+// from a full anchor), or a missing/empty last-uploaded hash. The delta's base
+// hash is the previously uploaded hash so core can verify it still holds that
+// exact state before applying.
+func changedScanDelta(
+	cache *InventoryCacheManifest,
+	packages []Package,
+	targetHash string,
+	serverReconcileRequested bool,
+) *PackageSetDelta {
+	if cache == nil || serverReconcileRequested {
+		return nil
+	}
+	baseHash := strings.TrimSpace(cache.LastUploadedPackageSetHash)
+	if baseHash == "" {
+		return nil
+	}
+	// Guard: the stored package set must actually correspond to the last
+	// uploaded hash. fullScanManifest persists the current packages on every
+	// full scan, and MarkUploadSucceeded records the hash that was uploaded;
+	// they align when the last full scan was the one that got uploaded.
+	if strings.TrimSpace(cache.PackageSetHash) != baseHash {
+		return nil
+	}
+
+	return ComputePackageSetDelta(cache.Packages, packages, baseHash, targetHash)
 }
 
 func disabledPayload(cfg Config, scannedAt time.Time, configHash string) *ScanPayload {
