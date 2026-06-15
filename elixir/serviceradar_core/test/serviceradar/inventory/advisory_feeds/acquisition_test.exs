@@ -1,0 +1,121 @@
+defmodule ServiceRadar.Inventory.AdvisoryFeeds.AcquisitionTest do
+  use ExUnit.Case, async: true
+
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Acquisition
+
+  setup do
+    root = Path.join(System.tmp_dir!(), "advisory-acq-#{System.unique_integer([:positive])}")
+    System.put_env("SERVICERADAR_ADVISORY_STAGING_DIR", root)
+
+    on_exit(fn ->
+      System.delete_env("SERVICERADAR_ADVISORY_STAGING_DIR")
+      File.rm_rf(root)
+    end)
+
+    {:ok, root: root}
+  end
+
+  describe "extract/2 classification" do
+    test "classifies a zip of *.json.gz shards as :json_gz_shards", %{root: root} do
+      extracted = Path.join(root, "extract-shards")
+      File.mkdir_p!(extracted)
+
+      zip =
+        build_zip(root, [{~c"nvdcve-2.0-001.json.gz", :zlib.gzip(~s({"vulnerabilities":[]}))}])
+
+      assert {:ok, :json_gz_shards} = Acquisition.extract(zip, extracted)
+      assert File.exists?(Path.join(extracted, "nvdcve-2.0-001.json.gz"))
+    end
+
+    test "classifies a zip of a single .json as :json", %{root: root} do
+      extracted = Path.join(root, "extract-json")
+      File.mkdir_p!(extracted)
+
+      zip = build_zip(root, [{~c"vulncheck_known_exploited_vulnerabilities.json", "[]"}])
+
+      assert {:ok, :json} = Acquisition.extract(zip, extracted)
+    end
+  end
+
+  describe "resolve_backup_index/3 (two-step backup, Bearer)" do
+    test "returns the first data[] entry and sends a Bearer header" do
+      test_pid = self()
+
+      http_get_json = fn url, headers ->
+        send(test_pid, {:index_request, url, headers})
+        {:ok, %{"data" => [%{"url" => "https://s3.example/presigned.zip", "sha256" => "abc"}]}}
+      end
+
+      assert {:ok, %{"url" => "https://s3.example/presigned.zip"}} =
+               Acquisition.resolve_backup_index("nist-nvd2", "tok-123",
+                 http_get_json: http_get_json
+               )
+
+      assert_received {:index_request, url, headers}
+      assert url =~ "/v3/backup/nist-nvd2"
+      assert {"authorization", "Bearer tok-123"} in headers
+    end
+
+    test "errors on an empty backup index" do
+      http_get_json = fn _url, _headers -> {:ok, %{"data" => []}} end
+
+      assert {:error, :empty_backup_index} =
+               Acquisition.resolve_backup_index("vulncheck-kev", "tok",
+                 http_get_json: http_get_json
+               )
+    end
+  end
+
+  describe "acquire_vulncheck/4 (full two-step, mocked HTTP)" do
+    test "streams the presigned URL to disk with NO auth header, then extracts", %{root: _root} do
+      test_pid = self()
+
+      json = ~s([{"cveID":"CVE-2024-9999","vendorProject":"acme","product":"thing"}])
+      zip_bytes = zip_bytes([{~c"vulncheck_known_exploited_vulnerabilities.json", json}])
+
+      http_get_json = fn _url, _headers ->
+        {:ok, %{"data" => [%{"url" => "https://s3.example/presigned.zip"}]}}
+      end
+
+      http_get = fn url, opts ->
+        # The presigned S3 GET must carry no Authorization header.
+        send(test_pid, {:download, url, opts})
+        File.write!(opts[:into].path, zip_bytes)
+        :ok
+      end
+
+      assert {:ok, acquired} =
+               Acquisition.acquire_vulncheck("vulncheck-kev", "tok", "run-acq",
+                 http_get_json: http_get_json,
+                 http_get: http_get
+               )
+
+      assert acquired.format == :json
+
+      assert File.exists?(
+               Path.join(acquired.extracted_dir, "vulncheck_known_exploited_vulnerabilities.json")
+             )
+
+      assert_received {:download, "https://s3.example/presigned.zip", opts}
+      refute Keyword.has_key?(opts, :headers)
+    end
+  end
+
+  defp build_zip(root, entries) do
+    zip_path = Path.join(root, "download-#{System.unique_integer([:positive])}.zip")
+    File.mkdir_p!(Path.dirname(zip_path))
+    {:ok, _} = :zip.create(String.to_charlist(zip_path), zip_entries(entries))
+    zip_path
+  end
+
+  defp zip_bytes(entries) do
+    {:ok, {_name, bytes}} = :zip.create(~c"in-memory.zip", zip_entries(entries), [:memory])
+    bytes
+  end
+
+  defp zip_entries(entries) do
+    Enum.map(entries, fn {name, content} -> {name, to_binary(content)} end)
+  end
+
+  defp to_binary(content) when is_binary(content), do: content
+end

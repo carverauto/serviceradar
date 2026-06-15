@@ -402,6 +402,15 @@ services:
       - PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED=${PLUGIN_TARGET_POLICY_SCHEDULER_ENABLED:-true}
       - TOPOLOGY_STATE_SCHEDULER_ENABLED=${TOPOLOGY_STATE_SCHEDULER_ENABLED:-true}
       - DEVICE_ENRICHMENT_RULES_DIR=/var/lib/serviceradar/rules/device-enrichment
+      # Core-owned advisory vulnerability feed ingestion (disk-staged on a named
+      # volume). Off by default in the single-node Compose stack; set
+      # SERVICERADAR_ADVISORY_FEEDS_ENABLED=true (and a VULNCHECK_API_TOKEN) to
+      # run CISA/VulnCheck KEV enrichment. nist-nvd2 stays sub-gated.
+      - SERVICERADAR_ADVISORY_FEEDS_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
+      - ADVISORY_FEED_SCHEDULER_ENABLED=${SERVICERADAR_ADVISORY_FEEDS_ENABLED:-false}
+      - SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED=${SERVICERADAR_ADVISORY_NIST_NVD2_ENABLED:-false}
+      - SERVICERADAR_ADVISORY_STAGING_DIR=/var/lib/serviceradar/advisory-feeds
+      - VULNCHECK_API_TOKEN=${VULNCHECK_API_TOKEN:-}
       - PLUGIN_STORAGE_PUBLIC_URL=${PLUGIN_STORAGE_PUBLIC_URL:-http://web-ng:4000}
       - PLUGIN_STORAGE_SIGNING_SECRET_FILE=/etc/serviceradar/admin/plugin-storage-signing-secret
       - PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS=${PLUGIN_STORAGE_DOWNLOAD_TTL_SECONDS:-86400}
@@ -442,6 +451,7 @@ services:
       - cnpg-credentials:/etc/serviceradar/cnpg:ro
       - ${NATS_CREDS_DIR:-nats-creds}:/etc/serviceradar/creds:ro
       - migrations-data:/var/lib/serviceradar/migrations
+      - serviceradar-advisory-feeds:/var/lib/serviceradar/advisory-feeds
       - ${DEVICE_ENRICHMENT_RULES_DIR_HOST:-./docker/compose/rules/device-enrichment}:/var/lib/serviceradar/rules/device-enrichment:ro
     depends_on:
       config-updater:
@@ -954,6 +964,8 @@ volumes:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_admin-creds"
   migrations-data:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_migrations-data"
+  serviceradar-advisory-feeds:
+    name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_advisory-feeds"
   plugin-packages:
     name: "${SERVICERADAR_VOLUME_PREFIX:-serviceradar}_plugin-packages"
   logs:

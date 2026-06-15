@@ -243,6 +243,24 @@ core:
   kubernetesNodeBasename: "serviceradar_core"
   ashObanSchedulerEnabled: true
   logPromotionConsumerEnabled: true
+  # Core-owned advisory vulnerability feed ingestion (CISA KEV, VulnCheck KEV,
+  # VulnCheck nist-nvd2, NVD CVE 2.0). Feeds are AshOban-scheduled in core,
+  # disk-staged on a PVC, and bulk-loaded into CNPG — no agent involvement.
+  # See openspec/changes/refactor-advisory-feeds-into-core.
+  advisoryFeeds:
+    # Master switch: mounts the staging PVC and enables the feed scheduler.
+    # Off by default until the PVC exists; on in demo (see values-demo.yaml).
+    enabled: false
+    # Sub-gate for the large nist-nvd2 (full NVD CPE) load; KEV enrichment runs
+    # independently when this is false.
+    nistNvd2Enabled: false
+    # Persistent staging volume (download.zip + extracted *.json.gz shards).
+    stagingDir: "/var/lib/serviceradar/advisory-feeds"
+    size: "5Gi"
+    accessModes:
+      - ReadWriteOnce
+    storageClassName: ""
+    existingClaim: ""
   mtrAutomation:
     enabled: false
     baselineEnabled: false
@@ -1677,6 +1695,20 @@ networkPolicy:
     # in-cluster secret providers such as OpenBao/Vault.
     allowedNamespaces: []
     allowedCIDRs: []
+    # Core advisory feed ingestion needs egress to the following external
+    # endpoints (refactor-advisory-feeds-into-core). The base NetworkPolicy here
+    # is CIDR-only; when core.advisoryFeeds.enabled is true and a default-deny
+    # egress policy is in place, allow these FQDNs via your FQDN-aware egress
+    # layer (Cilium/Calico DNS policy) or pin their resolved CIDRs above:
+    #   - www.cisa.gov                 (CISA KEV JSON)
+    #   - api.vulncheck.com            (VulnCheck backup index, Bearer)
+    #   - *.amazonaws.com              (VulnCheck presigned S3 archive download)
+    #   - services.nvd.nist.gov        (NVD CVE 2.0 API fallback)
+    advisoryFeedsFQDNs:
+      - www.cisa.gov
+      - api.vulncheck.com
+      - "*.amazonaws.com"
+      - services.nvd.nist.gov
   calicoLogDenied:
     enabled: false
     selector: "app.kubernetes.io/part-of == 'serviceradar'"
