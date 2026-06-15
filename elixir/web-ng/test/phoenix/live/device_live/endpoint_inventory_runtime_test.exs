@@ -50,7 +50,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     assert payload.limit == 25
     assert opts[:context].device_uid == "sr:test-device"
     assert socket.assigns.endpoint_inventory_query_running == true
-    assert MapSet.member?(socket.assigns.endpoint_inventory_pending_command_ids, "cache-command-1")
+
+    assert MapSet.member?(
+             socket.assigns.endpoint_inventory_pending_command_ids,
+             "cache-command-1"
+           )
   end
 
   test "dispatches force fresh scan through guarded command path" do
@@ -86,11 +90,43 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntimeTest do
     assert socket.assigns.endpoint_inventory_cohort_query_result.coverage.offline == 1
   end
 
+  test "package filter form change resets to first page" do
+    socket =
+      socket()
+      |> Map.update!(:assigns, &Map.put(&1, :device_uid, nil))
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(:assigns, &Map.put(&1, :endpoint_inventory_package_page, 4))
+      |> EndpointInventoryRuntime.apply_package_filter(%{"q" => "nginx"})
+
+    assert socket.assigns.endpoint_inventory_package_filter_form.params["q"] == "nginx"
+    # device_uid is nil here so the reload is a no-op, but the page must reset.
+    assert socket.assigns.endpoint_inventory_package_page == 1
+  end
+
+  test "package page navigation is clamped to at least page 1" do
+    socket =
+      socket()
+      |> Map.update!(:assigns, &Map.put(&1, :device_uid, nil))
+      |> EndpointInventoryRuntime.assign_defaults()
+      |> Map.update!(
+        :assigns,
+        &(&1
+          |> Map.put(:endpoint_inventory_package_total, 250)
+          |> Map.put(:endpoint_inventory_package_page_size, 100))
+      )
+      |> EndpointInventoryRuntime.change_package_page("0")
+
+    assert socket.assigns.endpoint_inventory_package_page == 1
+  end
+
   test "applies relevant command result with freshness payload" do
     socket =
       socket()
       |> EndpointInventoryRuntime.assign_defaults()
-      |> Map.update!(:assigns, &Map.put(&1, :endpoint_inventory_pending_command_ids, MapSet.new(["cmd-1"])))
+      |> Map.update!(
+        :assigns,
+        &Map.put(&1, :endpoint_inventory_pending_command_ids, MapSet.new(["cmd-1"]))
+      )
       |> EndpointInventoryRuntime.apply_command_update(:result, %{
         command_id: "cmd-1",
         command_type: "endpoint_inventory.cache_query",

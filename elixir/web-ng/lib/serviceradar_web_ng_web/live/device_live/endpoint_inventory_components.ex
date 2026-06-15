@@ -8,6 +8,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:scan, :any, default: nil)
   attr(:scans, :list, default: [])
   attr(:packages, :list, default: [])
+  attr(:package_total, :integer, default: 0)
+  attr(:package_page, :integer, default: 1)
+  attr(:package_page_size, :integer, default: 100)
+  attr(:stored_package_count, :integer, default: 0)
   attr(:artifacts, :list, default: [])
   attr(:vulnerability_matches, :list, default: [])
   attr(:error, :string, default: nil)
@@ -26,21 +30,33 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   attr(:cohort_running, :boolean, default: false)
 
   def endpoint_inventory_section(assigns) do
+    page_packages = assigns.packages || []
+    page_size = max(assigns.package_page_size || 100, 1)
+    total = assigns.package_total || length(page_packages)
+    stored_total = assigns.stored_package_count || total
+    page = max(assigns.package_page || 1, 1)
+    total_pages = max(1, ceil(total / page_size))
+    page = min(page, total_pages)
+    first_row = if total == 0, do: 0, else: (page - 1) * page_size + 1
+    last_row = min(page * page_size, total)
+
     assigns =
       assigns
       |> assign(:package_filter_params, form_params(assigns.package_filter_form))
-      |> assign(:filtered_packages, filter_packages(assigns.packages || [], form_params(assigns.package_filter_form)))
-      |> assign(:package_count, length(assigns.packages || []))
-      |> assign(
-        :filtered_package_count,
-        length(filter_packages(assigns.packages || [], form_params(assigns.package_filter_form)))
-      )
+      # `@packages` is already the server-side filtered + paginated page.
+      |> assign(:page_packages, page_packages)
+      |> assign(:package_total, total)
+      |> assign(:stored_package_count, stored_total)
+      |> assign(:current_page, page)
+      |> assign(:total_pages, total_pages)
+      |> assign(:first_row, first_row)
+      |> assign(:last_row, last_row)
       |> assign(:scan_count, length(assigns.scans || []))
       |> assign(:risk_score, device_value(assigns.device_row, "risk_score"))
       |> assign(:risk_level, device_value(assigns.device_row, "risk_level"))
       |> assign(
         :software_state,
-        software_state(assigns.scan, assigns.packages || [], assigns.has_inventory, assigns.show_controls)
+        software_state(assigns.scan, stored_total, assigns.has_inventory, assigns.show_controls)
       )
 
     ~H"""
@@ -52,7 +68,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         <div>
           <h2 class="text-sm font-semibold text-base-content">Endpoint Software</h2>
           <p class="text-xs text-base-content/60">
-            {@package_count} current package rows | {@scan_count} scans
+            {@stored_package_count} current package rows | {@scan_count} scans
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
@@ -68,16 +84,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
       <.software_state_notice state={@software_state} />
 
       <div
-        :if={inventory_row_mismatch?(@scan, @package_count)}
-        class="mx-4 mt-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning"
+        :if={inventory_row_mismatch?(@scan, @stored_package_count)}
+        class="mx-4 mt-4 rounded border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning-content"
       >
-        The latest scan reported {inventory_count(@scan, @package_count)} packages, but only {@package_count} current package rows are loaded. Check ingest, row retention, and source diagnostics before treating this inventory as complete.
+        The latest scan reported {inventory_count(@scan, @stored_package_count)} packages, but only {@stored_package_count} current package rows are stored. Check ingest, row retention, and source diagnostics before treating this inventory as complete.
       </div>
 
       <div class="grid gap-4 p-4 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
         <div class="space-y-4">
           <div class="grid grid-cols-2 gap-3">
-            <.summary_stat label="Packages" value={inventory_count(@scan, @package_count)} />
+            <.summary_stat label="Packages" value={inventory_count(@scan, @stored_package_count)} />
             <.summary_stat label="Scans" value={@scan_count} />
             <.summary_stat label="Risk Score" value={risk_score_display(@risk_score)} />
             <.summary_stat label="Risk Level" value={risk_level_display(@risk_level)} />
@@ -323,7 +339,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                     Current Packages
                   </h3>
                   <p class="text-xs text-base-content/60">
-                    Showing {@filtered_package_count} of {@package_count} loaded rows
+                    {package_range_label(@first_row, @last_row, @package_total)}
+                    <span :if={package_filters_active?(@package_filter_params)}>
+                      (of {@stored_package_count} total)
+                    </span>
                   </p>
                 </div>
                 <span
@@ -380,17 +399,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 </tr>
               </thead>
               <tbody>
-                <tr :if={@package_count == 0}>
+                <tr :if={@package_total == 0 and @stored_package_count == 0}>
                   <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
                     {field(@software_state, :empty_message)}
                   </td>
                 </tr>
-                <tr :if={@package_count > 0 and @filtered_packages == []}>
+                <tr :if={@package_total == 0 and @stored_package_count > 0}>
                   <td colspan="4" class="py-6 text-center text-sm text-base-content/60">
                     No package rows match the current filters.
                   </td>
                 </tr>
-                <tr :for={package <- @filtered_packages}>
+                <tr :for={package <- @page_packages}>
                   <td class="font-medium">{field(package, :name)}</td>
                   <td class="font-mono text-xs">{empty_dash(field(package, :version))}</td>
                   <td>
@@ -405,6 +424,35 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
                 </tr>
               </tbody>
             </table>
+
+            <div
+              :if={@total_pages > 1}
+              class="flex items-center justify-between gap-2 border-t border-base-300 bg-base-200/30 px-3 py-2"
+            >
+              <span class="text-xs text-base-content/60">
+                Page {@current_page} of {@total_pages}
+              </span>
+              <div class="join">
+                <button
+                  type="button"
+                  class="btn btn-xs join-item"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page - 1}
+                  disabled={@current_page <= 1}
+                >
+                  <.icon name="hero-chevron-left" class="h-3 w-3" /> Prev
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-xs join-item"
+                  phx-click="endpoint_inventory_package_page"
+                  phx-value-page={@current_page + 1}
+                  disabled={@current_page >= @total_pages}
+                >
+                  Next <.icon name="hero-chevron-right" class="h-3 w-3" />
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -661,66 +709,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
 
   defp package_filters_active?(_params), do: false
 
-  defp filter_packages(packages, params) do
-    filters = %{
-      q: normalized_filter(Map.get(params, "q")),
-      package_manager: normalized_filter(Map.get(params, "package_manager")),
-      version: normalized_filter(Map.get(params, "version")),
-      purl: normalized_filter(Map.get(params, "purl")),
-      cpe: normalized_filter(Map.get(params, "cpe"))
-    }
+  defp package_range_label(_first, _last, 0), do: "No packages"
 
-    Enum.filter(packages, &package_matches?(&1, filters))
+  defp package_range_label(first, last, total) do
+    "Showing #{first}-#{last} of #{total}"
   end
-
-  defp package_matches?(package, filters) do
-    matches_query?(package, filters.q) and
-      matches_field?(field(package, :package_manager), filters.package_manager) and
-      matches_field?(field(package, :version), filters.version) and
-      matches_any?([field(package, :purl_canonical), field(package, :purl)], filters.purl) and
-      matches_any?(field(package, :cpes) || [], filters.cpe)
-  end
-
-  defp matches_query?(_package, nil), do: true
-
-  defp matches_query?(package, query) do
-    values = [
-      field(package, :name),
-      field(package, :version),
-      field(package, :package_manager),
-      field(package, :architecture),
-      field(package, :purl_canonical),
-      field(package, :purl)
-    ]
-
-    matches_any?(values ++ (field(package, :cpes) || []), query)
-  end
-
-  defp matches_field?(_value, nil), do: true
-  defp matches_field?(value, filter), do: value |> normalized_filter() |> contains_filter?(filter)
-
-  defp matches_any?(_values, nil), do: true
-
-  defp matches_any?(values, filter) do
-    values
-    |> List.wrap()
-    |> Enum.any?(&(&1 |> normalized_filter() |> contains_filter?(filter)))
-  end
-
-  defp contains_filter?(nil, _filter), do: false
-  defp contains_filter?(value, filter), do: String.contains?(value, filter)
-
-  defp normalized_filter(value) when is_binary(value) do
-    value =
-      value
-      |> String.trim()
-      |> String.downcase()
-
-    if value == "", do: nil, else: value
-  end
-
-  defp normalized_filter(nil), do: nil
-  defp normalized_filter(value), do: value |> to_string() |> normalized_filter()
 
   defp software_state(nil, _packages, false, false) do
     %{
@@ -745,10 +738,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
     }
   end
 
-  defp software_state(scan, packages, _has_inventory, _show_controls) do
+  defp software_state(scan, stored_count, _has_inventory, _show_controls) do
     state = scan |> field(:state) |> normalized_state()
     coverage = scan |> field(:coverage_state) |> normalized_state()
-    loaded_count = length(packages || [])
+    loaded_count = stored_count || 0
 
     cond do
       state == "disabled" or coverage == "disabled" ->
@@ -762,7 +755,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
         }
 
       state in ["scan_failed", "failed"] or coverage == "failed" ->
-        reason = diagnostic_reason(scan) || "Check source diagnostics and collector logs for the failure reason."
+        reason =
+          diagnostic_reason(scan) ||
+            "Check source diagnostics and collector logs for the failure reason."
 
         %{
           show: true,
@@ -791,7 +786,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
             )
         }
 
-      state in ["not_scanned", "not_supported"] or coverage in ["not_scanned", "no_supported_package_source"] ->
+      state in ["not_scanned", "not_supported"] or
+          coverage in ["not_scanned", "no_supported_package_source"] ->
         %{
           show: true,
           tone: :warning,
@@ -875,6 +871,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryComponents do
   end
 
   defp normalized_state(value) when is_atom(value), do: value |> Atom.to_string() |> normalized_state()
+
   defp normalized_state(_value), do: nil
 
   defp software_state_class(:error), do: "border-error/40 bg-error/10 text-error"

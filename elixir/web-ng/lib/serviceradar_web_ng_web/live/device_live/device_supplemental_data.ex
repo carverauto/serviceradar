@@ -165,6 +165,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceSupplementalData do
       endpoint_inventory_scan: Map.get(endpoint_inventory, :scan),
       endpoint_inventory_scans: Map.get(endpoint_inventory, :scans, []),
       endpoint_inventory_packages: Map.get(endpoint_inventory, :packages, []),
+      endpoint_inventory_package_total: Map.get(endpoint_inventory, :package_total, 0),
+      endpoint_inventory_package_page: Map.get(endpoint_inventory, :package_page, 1),
+      endpoint_inventory_package_page_size:
+        Map.get(endpoint_inventory, :package_page_size, EndpointInventoryData.default_page_size()),
+      endpoint_inventory_stored_package_count: Map.get(endpoint_inventory, :stored_package_count, 0),
       endpoint_inventory_artifacts: Map.get(endpoint_inventory, :artifacts, []),
       endpoint_inventory_vulnerability_matches: Map.get(endpoint_inventory, :vulnerability_matches, []),
       endpoint_inventory_error: Map.get(endpoint_inventory, :error),
