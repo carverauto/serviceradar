@@ -509,7 +509,7 @@ core:
     natsUrl: "tls://serviceradar-nats:4222"
     natsCredsFile: "/etc/serviceradar/creds/platform.creds"
     natsTls: true
-    enabledSubjects: "otel.metrics.>,metrics.sysmon.>,metrics.snmp.>,metrics.timeseries.>"
+    enabledSubjects: "otel.metrics.>,metrics.sysmon.>,metrics.snmp.>,metrics.icmp.>,metrics.mtr.>,metrics.rperf.>,metrics.sweep.>,metrics.timeseries.>"
   capacityForecasting:
     enabled: true
     emitVerdicts: true
