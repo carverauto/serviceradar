@@ -388,13 +388,18 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     sources = Source.defaults()
     queries = Enum.map(sources, & &1.query)
 
-    assert Enum.any?(queries, &String.contains?(&1, "in:cpu_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:memory_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:disk_metrics"))
-    assert Enum.any?(queries, &String.contains?(&1, "in:process_metrics"))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
+    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
     assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))
+
+    cpu_source = Enum.find(sources, &(&1.name == "cpu_usage"))
+    assert cpu_source.value_field == "value"
+    assert cpu_source.bucket_field == "timestamp"
+    assert cpu_source.key_fields == ["series"]
 
     interface_source = Enum.find(sources, &(&1.resource_type == "interface"))
     assert interface_source.metric_name == "utilization_percent"

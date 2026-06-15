@@ -1313,54 +1313,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
       }
     ])
 
-    Repo.insert_all("cpu_metrics", [
-      %{
-        timestamp: now,
-        gateway_id: "test-gw",
-        core_id: 0,
-        usage_percent: 42.4,
-        device_id: uid,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("memory_metrics", [
-      %{
-        timestamp: now,
-        gateway_id: "test-gw",
-        used_bytes: 1_073_741_824,
-        available_bytes: 2_147_483_648,
-        total_bytes: 3_221_225_472,
-        device_id: uid,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("disk_metrics", [
-      %{
-        timestamp: now,
-        gateway_id: "test-gw",
-        mount_point: "/",
-        device_name: "/dev/sda1",
-        used_bytes: 10_737_418_240,
-        total_bytes: 21_474_836_480,
-        device_id: uid,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("process_metrics", [
-      %{
-        timestamp: now,
-        gateway_id: "test-gw",
-        pid: 4242,
-        name: "nginx",
-        cpu_usage: 12.3,
-        memory_usage: 1_048_576,
-        status: "Running",
-        device_id: uid,
-        created_at: now
-      }
+    Repo.insert_all("timeseries_metrics", [
+      timeseries_metric_row(now, uid, "cpu.usage_percent", "sysmon.cpu", 42.4, "%"),
+      timeseries_metric_row(now, uid, "memory.used_percent", "sysmon.memory", 33.3, "%"),
+      timeseries_metric_row(now, uid, "disk.used_percent", "sysmon.disk", 50.0, "%"),
+      timeseries_metric_row(now, uid, "process.count", "sysmon.process", 1.0, "{process}"),
+      timeseries_metric_row(now, uid, "process.cpu_usage", "sysmon.process", 12.3, "%",
+        tags: %{"pid" => "4242", "name" => "nginx", "status" => "Running"}
+      ),
+      timeseries_metric_row(now, uid, "process.memory_usage", "sysmon.process", 1_048_576, "By",
+        tags: %{"pid" => "4242", "name" => "nginx", "status" => "Running"}
+      )
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
@@ -1387,64 +1350,40 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         uid: uid,
         type_id: 0,
         hostname: host_id,
+        agent_id: host_id,
         is_available: true,
         first_seen_time: ~U[2100-01-01 00:00:00Z],
         last_seen_time: ~U[2100-01-01 00:00:00Z]
       }
     ])
 
-    Repo.insert_all("cpu_metrics", [
-      %{
-        timestamp: now,
+    Repo.insert_all("timeseries_metrics", [
+      timeseries_metric_row(now, skewed_device_id, "cpu.usage_percent", "sysmon.cpu", 57.8, "%",
         gateway_id: gateway_id,
-        core_id: 0,
-        usage_percent: 57.8,
-        device_id: skewed_device_id,
-        host_id: host_id,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("memory_metrics", [
-      %{
-        timestamp: now,
+        agent_id: host_id
+      ),
+      timeseries_metric_row(now, skewed_device_id, "memory.used_percent", "sysmon.memory", 33.3, "%",
         gateway_id: gateway_id,
-        used_bytes: 2_147_483_648,
-        available_bytes: 4_294_967_296,
-        total_bytes: 6_442_450_944,
-        device_id: skewed_device_id,
-        host_id: host_id,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("disk_metrics", [
-      %{
-        timestamp: now,
+        agent_id: host_id
+      ),
+      timeseries_metric_row(now, skewed_device_id, "disk.used_percent", "sysmon.disk", 50.0, "%",
         gateway_id: gateway_id,
-        mount_point: "/",
-        device_name: "/dev/vda1",
-        used_bytes: 21_474_836_480,
-        total_bytes: 42_949_672_960,
-        device_id: skewed_device_id,
-        host_id: host_id,
-        created_at: now
-      }
-    ])
-
-    Repo.insert_all("process_metrics", [
-      %{
-        timestamp: now,
+        agent_id: host_id
+      ),
+      timeseries_metric_row(now, skewed_device_id, "process.count", "sysmon.process", 1.0, "{process}",
         gateway_id: gateway_id,
-        pid: 5252,
-        name: "beam.smp",
-        cpu_usage: 19.6,
-        memory_usage: 2_097_152,
-        status: "Running",
-        device_id: skewed_device_id,
-        host_id: host_id,
-        created_at: now
-      }
+        agent_id: host_id
+      ),
+      timeseries_metric_row(now, skewed_device_id, "process.cpu_usage", "sysmon.process", 19.6, "%",
+        gateway_id: gateway_id,
+        agent_id: host_id,
+        tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
+      ),
+      timeseries_metric_row(now, skewed_device_id, "process.memory_usage", "sysmon.process", 2_097_152, "By",
+        gateway_id: gateway_id,
+        agent_id: host_id,
+        tags: %{"pid" => "5252", "name" => "beam.smp", "status" => "Running"}
+      )
     ])
 
     {:ok, view, _html} = live(conn, ~p"/devices/#{uid}")
@@ -1597,7 +1536,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
 
   test "logs sysmon process metric SRQL failures" do
     Application.put_env(:serviceradar_web_ng, :device_live_srql_responder, fn query, _opts ->
-      assert query =~ "in:process_metrics"
+      assert query =~ "in:timeseries_metrics"
+      assert query =~ ~s|metric_type:"sysmon.process"|
       {:error, :boom}
     end)
 
@@ -1615,7 +1555,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                  )
       end)
 
-    assert log =~ "Failed to load sysmon process_metrics"
+    assert log =~ "Failed to load sysmon process timeseries"
     assert log =~ ":boom"
   end
 
@@ -1639,7 +1579,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
                  )
       end)
 
-    assert log =~ "Failed sysmon cpu_metrics presence probe"
+    assert log =~ "Failed sysmon sysmon.cpu/cpu.usage_percent presence probe"
     assert log =~ ":boom"
   end
 
@@ -3738,6 +3678,30 @@ defmodule ServiceRadarWebNGWeb.DeviceLiveTest do
         Process.sleep(50)
         render_until(view, expected, deadline, html)
     end
+  end
+
+  defp timeseries_metric_row(timestamp, device_id, metric_name, metric_type, value, unit, opts \\ []) do
+    gateway_id = Keyword.get(opts, :gateway_id, "test-gw")
+    agent_id = Keyword.get(opts, :agent_id, "test-agent")
+    tags = Keyword.get(opts, :tags, %{})
+    series_key = "#{device_id}:#{metric_type}:#{metric_name}:#{Map.get(tags, "pid", "host")}"
+
+    %{
+      timestamp: timestamp,
+      gateway_id: gateway_id,
+      agent_id: agent_id,
+      metric_name: metric_name,
+      metric_type: metric_type,
+      series_key: series_key,
+      device_id: device_id,
+      value: value,
+      unit: unit,
+      tags: tags,
+      partition: "default",
+      is_delta: false,
+      metadata: %{"kind" => "gauge"},
+      created_at: timestamp
+    }
   end
 
   defmodule RecordingSRQLStub do

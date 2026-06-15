@@ -29,6 +29,16 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 		Network: []sysmon.NetworkMetric{
 			{Interface: "eth0", BytesSent: 1000, BytesRecv: 2000, PacketsSent: 10, PacketsRecv: 20},
 		},
+		Processes: []sysmon.ProcessMetric{
+			{
+				PID:         1234,
+				Name:        "nginx",
+				CPUUsage:    2.5,
+				MemoryUsage: 104857600,
+				Status:      "Running",
+				StartTime:   "2026-06-11T23:00:00Z",
+			},
+		},
 	}, metricEnvelopeContext{AgentID: "agent-fallback", GatewayID: "gateway-1", Partition: "fallback"})
 	require.NoError(t, err)
 
@@ -45,6 +55,20 @@ func TestMarshalSysmonMetricEnvelope(t *testing.T) {
 	require.Equal(t, metricpb.MetricTemporality_METRIC_TEMPORALITY_CUMULATIVE, metrics["network.bytes_sent"].Temporality)
 	require.True(t, metrics["network.bytes_sent"].IsMonotonic)
 	require.Equal(t, uint32(64), metrics["network.bytes_sent"].CounterWidth)
+	require.InDelta(t, 1.0, metrics["process.count"].Points[0].Value, 1e-9)
+
+	processCPU := metrics["process.cpu_usage"]
+	require.NotNil(t, processCPU)
+	require.Equal(t, "sysmon.process", processCPU.MetricType)
+	require.InDelta(t, 2.5, processCPU.Points[0].Value, 1e-9)
+	require.Equal(t, "1234", entry(processCPU.Points[0].Attributes, "pid"))
+	require.Equal(t, "nginx", entry(processCPU.Points[0].Attributes, "name"))
+	require.Equal(t, "Running", entry(processCPU.Points[0].Attributes, "status"))
+
+	processMemory := metrics["process.memory_usage"]
+	require.NotNil(t, processMemory)
+	require.Equal(t, metricpb.MetricValueType_METRIC_VALUE_TYPE_UINT64, processMemory.Points[0].RawValueType)
+	require.Equal(t, "104857600", processMemory.Points[0].RawValue)
 }
 
 func TestMarshalSysmonMetricEnvelopeBatchIncludesMultipleSamples(t *testing.T) {
