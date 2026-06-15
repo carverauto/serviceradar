@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
   alias ServiceRadar.Edge.AgentCommandBus
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
 
   @cache_query_type "endpoint_inventory.cache_query"
   @force_fresh_type "endpoint_inventory.force_fresh_scan"
@@ -11,8 +12,14 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
 
   def assign_defaults(socket) do
     socket
-    |> assign(:endpoint_inventory_query_form, to_form(default_query_params(), as: :endpoint_inventory_query))
-    |> assign(:endpoint_inventory_cohort_form, to_form(default_cohort_params(), as: :endpoint_inventory_cohort_query))
+    |> assign(
+      :endpoint_inventory_query_form,
+      to_form(default_query_params(), as: :endpoint_inventory_query)
+    )
+    |> assign(
+      :endpoint_inventory_cohort_form,
+      to_form(default_cohort_params(), as: :endpoint_inventory_cohort_query)
+    )
     |> assign(
       :endpoint_inventory_package_filter_form,
       to_form(default_package_filter_params(), as: :endpoint_inventory_filter)
@@ -39,15 +46,24 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
            ) do
         {:ok, command_id} ->
           socket
-          |> assign(:endpoint_inventory_query_form, to_form(params, as: :endpoint_inventory_query))
+          |> assign(
+            :endpoint_inventory_query_form,
+            to_form(params, as: :endpoint_inventory_query)
+          )
           |> assign(:endpoint_inventory_query_running, true)
           |> assign(:endpoint_inventory_live_query_result, nil)
           |> assign(:endpoint_inventory_command_error, nil)
-          |> assign(:endpoint_inventory_command_notice, "Inventory query dispatched to #{agent_id}")
+          |> assign(
+            :endpoint_inventory_command_notice,
+            "Inventory query dispatched to #{agent_id}"
+          )
           |> track_pending_command(command_id)
 
         {:error, reason} ->
-          put_command_error(socket, "Failed to dispatch inventory query: #{format_reason(reason)}")
+          put_command_error(
+            socket,
+            "Failed to dispatch inventory query: #{format_reason(reason)}"
+          )
       end
     else
       {:error, reason} -> put_command_error(socket, format_reason(reason))
@@ -68,7 +84,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
           socket
           |> assign(:endpoint_inventory_force_refresh_running, true)
           |> assign(:endpoint_inventory_command_error, nil)
-          |> assign(:endpoint_inventory_command_notice, "Fresh inventory scan dispatched to #{agent_id}")
+          |> assign(
+            :endpoint_inventory_command_notice,
+            "Fresh inventory scan dispatched to #{agent_id}"
+          )
           |> track_pending_command(command_id)
 
         {:error, reason} ->
@@ -100,7 +119,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
       case command_bus(opts).dispatch_endpoint_inventory_cohort_cache_query(payload, bus_opts) do
         {:ok, result} ->
           socket
-          |> assign(:endpoint_inventory_cohort_form, to_form(params, as: :endpoint_inventory_cohort_query))
+          |> assign(
+            :endpoint_inventory_cohort_form,
+            to_form(params, as: :endpoint_inventory_cohort_query)
+          )
           |> assign(:endpoint_inventory_cohort_running, false)
           |> assign(:endpoint_inventory_cohort_query_result, normalize_cohort_result(result))
           |> assign(:endpoint_inventory_command_error, nil)
@@ -114,7 +136,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     end
   end
 
-  def apply_command_update(socket, kind, msg) when kind in [:ack, :progress, :result] and is_map(msg) do
+  def apply_command_update(socket, kind, msg)
+      when kind in [:ack, :progress, :result] and is_map(msg) do
     command_type = map_get(msg, :command_type)
 
     if endpoint_inventory_command_type?(command_type) and relevant_command_update?(socket, msg) do
@@ -168,18 +191,118 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     }
   end
 
+  @doc """
+  Applies the package search/filter form. Filtering and pagination are handled
+  server-side, so changing a filter re-queries the database and resets to the
+  first page.
+  """
   def apply_package_filter(socket, params) when is_map(params) do
-    params = Map.merge(default_package_filter_params(), normalize_params(params))
+    filter_params = Map.merge(default_package_filter_params(), package_filter_params(params))
 
-    assign(socket, :endpoint_inventory_package_filter_form, to_form(params, as: :endpoint_inventory_filter))
+    socket
+    |> assign(
+      :endpoint_inventory_package_filter_form,
+      to_form(filter_params, as: :endpoint_inventory_filter)
+    )
+    |> assign(:endpoint_inventory_package_page, 1)
+    |> reload_packages()
   end
 
+  @doc """
+  Moves the package list to the requested 1-based page and re-queries.
+  """
+  def change_package_page(socket, page) do
+    socket
+    |> assign(:endpoint_inventory_package_page, clamp_page(page, total_pages(socket)))
+    |> reload_packages()
+  end
+
+  defp reload_packages(socket) do
+    scope = Map.get(socket.assigns, :current_scope)
+    device_uid = socket.assigns[:device_uid]
+
+    opts = [
+      filters: package_filter_map(socket),
+      page: socket.assigns[:endpoint_inventory_package_page] || 1,
+      page_size:
+        socket.assigns[:endpoint_inventory_package_page_size] ||
+          EndpointInventoryData.default_page_size()
+    ]
+
+    case EndpointInventoryData.load_packages(scope, device_uid, opts) do
+      {:ok, page} ->
+        socket
+        |> assign(:endpoint_inventory_packages, page.packages)
+        |> assign(:endpoint_inventory_package_total, page.total)
+        |> assign(:endpoint_inventory_package_page, page.page)
+        |> assign(:endpoint_inventory_package_page_size, page.page_size)
+        |> assign(:endpoint_inventory_stored_package_count, page.stored_package_count)
+
+      :error ->
+        socket
+    end
+  end
+
+  defp package_filter_params(params) do
+    params
+    |> normalize_string_map()
+    |> Map.take(["q", "package_manager", "version", "purl", "cpe"])
+  end
+
+  defp package_filter_map(socket) do
+    form = socket.assigns[:endpoint_inventory_package_filter_form]
+    params = if is_struct(form, Phoenix.HTML.Form), do: form.params || %{}, else: %{}
+
+    %{
+      q: Map.get(params, "q"),
+      package_manager: Map.get(params, "package_manager"),
+      version: Map.get(params, "version"),
+      purl: Map.get(params, "purl"),
+      cpe: Map.get(params, "cpe")
+    }
+  end
+
+  defp total_pages(socket) do
+    total = socket.assigns[:endpoint_inventory_package_total] || 0
+
+    page_size =
+      socket.assigns[:endpoint_inventory_package_page_size] ||
+        EndpointInventoryData.default_page_size()
+
+    max(1, ceil(total / max(page_size, 1)))
+  end
+
+  defp clamp_page(page, total_pages) when is_integer(page) do
+    page |> max(1) |> min(total_pages)
+  end
+
+  defp clamp_page(page, total_pages) do
+    case Integer.parse(to_string(page)) do
+      {value, _} -> clamp_page(value, total_pages)
+      :error -> 1
+    end
+  end
+
+  defp normalize_string_map(params) when is_map(params) do
+    Map.new(params, fn {key, value} -> {to_string(key), value} end)
+  end
+
+  defp normalize_string_map(_params), do: %{}
+
   defp apply_command_kind(socket, :ack, msg) do
-    assign(socket, :endpoint_inventory_command_notice, command_message(msg, "Inventory command acknowledged"))
+    assign(
+      socket,
+      :endpoint_inventory_command_notice,
+      command_message(msg, "Inventory command acknowledged")
+    )
   end
 
   defp apply_command_kind(socket, :progress, msg) do
-    assign(socket, :endpoint_inventory_command_notice, command_message(msg, "Inventory command running"))
+    assign(
+      socket,
+      :endpoint_inventory_command_notice,
+      command_message(msg, "Inventory command running")
+    )
   end
 
   defp apply_command_kind(socket, :result, msg) do
@@ -192,12 +315,16 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     |> assign(:endpoint_inventory_live_query_result, payload)
     |> assign(
       :endpoint_inventory_command_notice,
-      command_message(msg, if(success?, do: "Inventory command completed", else: "Inventory command failed"))
+      command_message(
+        msg,
+        if(success?, do: "Inventory command completed", else: "Inventory command failed")
+      )
     )
     |> maybe_assign_result_error(success?, msg)
   end
 
-  defp maybe_assign_result_error(socket, true, _msg), do: assign(socket, :endpoint_inventory_command_error, nil)
+  defp maybe_assign_result_error(socket, true, _msg),
+    do: assign(socket, :endpoint_inventory_command_error, nil)
 
   defp maybe_assign_result_error(socket, false, msg) do
     assign(
@@ -287,7 +414,9 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
       |> Enum.reject(&(&1 == ""))
       |> Enum.uniq()
 
-    if ids == [], do: {:error, "Choose at least one agent for the custom cohort"}, else: {:ok, ids}
+    if ids == [],
+      do: {:error, "Choose at least one agent for the custom cohort"},
+      else: {:ok, ids}
   end
 
   defp cohort_agent_ids(_params), do: {:ok, :all}
@@ -309,7 +438,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
 
   defp track_pending_command(socket, command_id) do
     pending = Map.get(socket.assigns, :endpoint_inventory_pending_command_ids, MapSet.new())
-    assign(socket, :endpoint_inventory_pending_command_ids, MapSet.put(pending, to_string(command_id)))
+
+    assign(
+      socket,
+      :endpoint_inventory_pending_command_ids,
+      MapSet.put(pending, to_string(command_id))
+    )
   end
 
   defp relevant_command_update?(socket, msg) do
@@ -344,7 +478,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime do
     }
   end
 
-  defp partition_id(socket), do: device_field(socket.assigns[:device_row], "partition_id") || "default"
+  defp partition_id(socket),
+    do: device_field(socket.assigns[:device_row], "partition_id") || "default"
 
   defp actor(socket), do: socket.assigns.current_scope.user
 

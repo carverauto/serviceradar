@@ -270,6 +270,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
               scan={@endpoint_inventory_scan}
               scans={@endpoint_inventory_scans}
               packages={@endpoint_inventory_packages}
+              package_total={@endpoint_inventory_package_total}
+              package_page={@endpoint_inventory_package_page}
+              package_page_size={@endpoint_inventory_package_page_size}
+              stored_package_count={@endpoint_inventory_stored_package_count}
               artifacts={@endpoint_inventory_artifacts}
               vulnerability_matches={@endpoint_inventory_vulnerability_matches}
               error={@endpoint_inventory_error}
@@ -467,7 +471,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
   defp device_has_agent?(_row), do: false
 
   defp software_tab_visible?(device_row, assigns) do
-    is_map(device_row) or Map.get(assigns, :has_software_inventory, false) or device_has_agent?(device_row) or
+    is_map(device_row) or Map.get(assigns, :has_software_inventory, false) or
+      device_has_agent?(device_row) or
       is_binary(Map.get(assigns, :endpoint_inventory_error))
   end
 

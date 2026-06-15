@@ -4,6 +4,7 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
   import Phoenix.Component, only: [assign: 3, to_form: 2]
 
   alias ServiceRadarWebNGWeb.DeviceLive.AnomalyCapacityData
+  alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData
   alias ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryRuntime
   alias ServiceRadarWebNGWeb.DeviceLive.MtrRuntime
 
@@ -25,6 +26,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.DeviceMountAssigns do
     |> assign(:endpoint_inventory_scan, nil)
     |> assign(:endpoint_inventory_scans, [])
     |> assign(:endpoint_inventory_packages, [])
+    |> assign(:endpoint_inventory_package_total, 0)
+    |> assign(:endpoint_inventory_package_page, 1)
+    |> assign(:endpoint_inventory_package_page_size, EndpointInventoryData.default_page_size())
+    |> assign(:endpoint_inventory_stored_package_count, 0)
     |> assign(:endpoint_inventory_artifacts, [])
     |> assign(:endpoint_inventory_vulnerability_matches, [])
     |> assign(:endpoint_inventory_error, nil)

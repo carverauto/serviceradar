@@ -2,7 +2,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   @moduledoc false
   use ServiceRadarWebNGWeb, :live_view
 
-  import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents, only: [virtualization_guests?: 1]
+  import ServiceRadarWebNGWeb.DeviceLive.VirtualizationComponents,
+    only: [virtualization_guests?: 1]
 
   alias ServiceRadar.Inventory.DevicePubSub
   alias ServiceRadar.Observability.MtrPubSub
@@ -137,7 +138,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   def handle_info({:mtr_trace_ingested, event}, socket) do
-    {:noreply, MtrRuntime.refresh_if_relevant(socket, event, get_device_ip(socket.assigns.results))}
+    {:noreply,
+     MtrRuntime.refresh_if_relevant(socket, event, get_device_ip(socket.assigns.results))}
   end
 
   def handle_info({:flow_stats_loaded, device_uid, request_ref, stats_bundle}, socket) do
@@ -150,7 +152,10 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_info({:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map}, socket) do
+  def handle_info(
+        {:flow_ip_enrichment_loaded, device_uid, request_ref, rdns_map, geo_iso2_map},
+        socket
+      ) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -212,7 +217,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_details_request_ref do
-      {:noreply, socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
+      {:noreply,
+       socket |> assign(:details_loading, false) |> assign(:device_details_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -233,7 +239,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
     if device_uid == socket.assigns.device_uid and
          request_ref == socket.assigns.device_metrics_request_ref do
-      {:noreply, socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
+      {:noreply,
+       socket |> assign(:metrics_loading, false) |> assign(:device_metrics_request_ref, nil)}
     else
       {:noreply, socket}
     end
@@ -260,7 +267,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_async({:flow_ip_enrichment, device_uid, request_ref}, {:ok, {rdns_map, geo_iso2_map}}, socket) do
+  def handle_async(
+        {:flow_ip_enrichment, device_uid, request_ref},
+        {:ok, {rdns_map, geo_iso2_map}},
+        socket
+      ) do
     current_ref = Map.get(socket.assigns, :flow_ip_request_ref)
 
     if device_uid == socket.assigns.device_uid and request_ref == current_ref do
@@ -275,7 +286,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
-  def handle_async({:device_logs, device_uid, request_ref}, {:ok, {logs, pagination, logs_error}}, socket) do
+  def handle_async(
+        {:device_logs, device_uid, request_ref},
+        {:ok, {logs, pagination, logs_error}},
+        socket
+      ) do
     if device_uid == socket.assigns.device_uid and request_ref == socket.assigns.logs_request_ref do
       {:noreply,
        socket
@@ -340,8 +355,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   end
 
   defp apply_flow_stats_bundle(socket, stats_bundle) do
-    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json, top_destinations_json,
-     top_ports_json, top_protocols_json, facets} = stats_bundle
+    {flow_stats, sparkline_json, proto_json, chart_keys, chart_points, top_talkers_json,
+     top_destinations_json, top_ports_json, top_protocols_json, facets} = stats_bundle
 
     socket
     |> assign(:flow_stats, flow_stats)
@@ -398,7 +413,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
       uri = Map.get(socket.assigns, :last_uri, "/devices/#{uid}")
       limit = QueryData.parse_limit(Map.get(params, "limit"), socket.assigns.limit, @max_limit)
-      requested_tab = DeviceTabRuntime.normalize_requested_tab(Map.get(params, "tab"), socket.assigns.active_tab)
+
+      requested_tab =
+        DeviceTabRuntime.normalize_requested_tab(
+          Map.get(params, "tab"),
+          socket.assigns.active_tab
+        )
 
       load_device_data(socket, uid, limit, requested_tab, params, uri)
     else
@@ -413,7 +433,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     can_view_anomaly_capacity? = RBAC.can?(scope, "observability.alerts.view")
 
     if Application.get_env(:serviceradar_web_ng, :env) == :test do
-      sysmon_filters = SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+      sysmon_filters =
+        SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
       assigns = %{
         metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope),
@@ -438,7 +459,8 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
       |> assign(:device_metrics_request_ref, request_ref)
       |> assign(:metrics_loading, true)
       |> start_async({:device_metrics, uid, request_ref}, fn ->
-        sysmon_filters = SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
+        sysmon_filters =
+          SysmonMetrics.resolve_sysmon_filter_tokens(srql_module, sysmon_identity, scope)
 
         %{
           metric_sections: SysmonMetrics.load_metric_sections(srql_module, sysmon_filters, scope),
@@ -586,9 +608,15 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
        |> assign(:device_snmp_credential, socket.assigns.device_snmp_credential)
        |> assign(:srql, base_srql)
        |> assign(supplemental_assigns)
-       |> begin_device_metrics_refresh(uid, srql_module, SysmonMetrics.sysmon_identity(device_row, uid), scope)}
+       |> begin_device_metrics_refresh(
+         uid,
+         srql_module,
+         SysmonMetrics.sysmon_identity(device_row, uid),
+         scope
+       )}
     else
-      supplemental_assigns = DeviceSupplementalData.load(supplemental_context, supplemental_load_opts())
+      supplemental_assigns =
+        DeviceSupplementalData.load(supplemental_context, supplemental_load_opts())
 
       has_ifaces = Map.get(supplemental_assigns, :has_ifaces, false)
       has_flows = Map.get(supplemental_assigns, :has_flows, false)
@@ -744,10 +772,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event(
         "open_camera_relay",
-        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} = params,
+        %{"camera_source_id" => camera_source_id, "stream_profile_id" => stream_profile_id} =
+          params,
         socket
       ) do
-    {:noreply, DeviceActionRuntime.open_camera_relay(socket, camera_source_id, stream_profile_id, params)}
+    {:noreply,
+     DeviceActionRuntime.open_camera_relay(socket, camera_source_id, stream_profile_id, params)}
   end
 
   def handle_event("close_camera_relay", _params, socket) do
@@ -777,7 +807,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
   def handle_event("switch_tab", %{"tab" => tab}, socket) do
     tab = DeviceTabRuntime.resolve_active_tab(socket, tab)
 
-    srql = QueryData.srql_for_tab(tab, socket.assigns.device_uid, socket.assigns.limit, socket.assigns.srql)
+    srql =
+      QueryData.srql_for_tab(
+        tab,
+        socket.assigns.device_uid,
+        socket.assigns.limit,
+        socket.assigns.srql
+      )
 
     # Update URL with tab parameter for shareable/bookmarkable links
     path =
@@ -816,7 +852,11 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     end
   end
 
-  def handle_event("endpoint_inventory_query", %{"endpoint_inventory_query" => params} = event, socket) do
+  def handle_event(
+        "endpoint_inventory_query",
+        %{"endpoint_inventory_query" => params} = event,
+        socket
+      ) do
     socket =
       case Map.get(event, "action") do
         "force_refresh" -> EndpointInventoryRuntime.dispatch_force_refresh(socket, params)
@@ -826,16 +866,32 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
     {:noreply, socket}
   end
 
-  def handle_event("endpoint_inventory_force_refresh", %{"endpoint_inventory_query" => params}, socket) do
+  def handle_event(
+        "endpoint_inventory_force_refresh",
+        %{"endpoint_inventory_query" => params},
+        socket
+      ) do
     {:noreply, EndpointInventoryRuntime.dispatch_force_refresh(socket, params)}
   end
 
-  def handle_event("endpoint_inventory_cohort_query", %{"endpoint_inventory_cohort_query" => params}, socket) do
+  def handle_event(
+        "endpoint_inventory_cohort_query",
+        %{"endpoint_inventory_cohort_query" => params},
+        socket
+      ) do
     {:noreply, EndpointInventoryRuntime.dispatch_cohort_query(socket, params)}
   end
 
-  def handle_event("endpoint_inventory_package_filter", %{"endpoint_inventory_filter" => params}, socket) do
+  def handle_event(
+        "endpoint_inventory_package_filter",
+        %{"endpoint_inventory_filter" => params},
+        socket
+      ) do
     {:noreply, EndpointInventoryRuntime.apply_package_filter(socket, params)}
+  end
+
+  def handle_event("endpoint_inventory_package_page", %{"page" => page}, socket) do
+    {:noreply, EndpointInventoryRuntime.change_package_page(socket, page)}
   end
 
   def handle_event("view_mtr_trace", %{"id" => trace_id}, socket) do
@@ -923,7 +979,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("topn_filter", %{"field" => field, "value" => value}, socket)
       when field in @allowed_flow_filter_fields do
-    {:noreply, FlowRuntime.apply_topn_filter(socket, %{"field" => field, "value" => value}, srql_module(), @flows_limit)}
+    {:noreply,
+     FlowRuntime.apply_topn_filter(
+       socket,
+       %{"field" => field, "value" => value},
+       srql_module(),
+       @flows_limit
+     )}
   end
 
   def handle_event("topn_filter", _params, socket), do: {:noreply, socket}
@@ -934,7 +996,13 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.Show do
 
   def handle_event("facet_toggle", %{"field" => field, "value" => value}, socket)
       when field in @allowed_flow_filter_fields do
-    {:noreply, FlowRuntime.toggle_facet(socket, %{"field" => field, "value" => value}, srql_module(), @flows_limit)}
+    {:noreply,
+     FlowRuntime.toggle_facet(
+       socket,
+       %{"field" => field, "value" => value},
+       srql_module(),
+       @flows_limit
+     )}
   end
 
   def handle_event("facet_toggle", _params, socket), do: {:noreply, socket}
