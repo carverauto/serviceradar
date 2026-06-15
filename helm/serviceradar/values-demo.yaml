@@ -510,6 +510,12 @@ core:
     natsCredsFile: "/etc/serviceradar/creds/platform.creds"
     natsTls: true
     enabledSubjects: "otel.metrics.>,metrics.sysmon.>,metrics.snmp.>,metrics.icmp.>,metrics.mtr.>,metrics.rperf.>,metrics.sweep.>,metrics.timeseries.>"
+    # Per-series Horde ContextEngine (the code default) spawns one Horde
+    # DynamicSupervisor child per metric series — at demo scale (~12.7k series)
+    # the DeltaCRDT death-spirals (multi-GB CRDT, OOM). ShardedContextEngine owns
+    # many series per shard in a fixed set of local GenServers (no Horde child
+    # per series). See ANOMALY_ANALYSIS_CONTEXT_ENGINE in core-elx Config.
+    contextEngine: "sharded"
   capacityForecasting:
     enabled: true
     emitVerdicts: true
