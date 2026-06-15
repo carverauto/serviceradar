@@ -856,6 +856,7 @@ defmodule ServiceRadarWebNGWeb.Router do
       live("/settings/agents/plugins/new", Admin.PluginPackageLive.Index, :new)
       live("/settings/agents/plugins/:id", Admin.PluginPackageLive.Index, :show)
       live("/settings/agents/addons", Admin.AddonPackageLive.Index, :index)
+      live("/settings/agents/addons/fleet", Admin.AddonFleetLive.Index, :index)
       live("/settings/agents/addons/:id", Admin.AddonPackageLive.Index, :show)
       live("/settings/dashboards/packages", Admin.DashboardPackageLive.Index, :index)
       live("/settings/dashboards/packages/new", Admin.DashboardPackageLive.Index, :new)

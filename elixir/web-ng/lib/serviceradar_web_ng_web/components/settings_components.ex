@@ -744,8 +744,15 @@ defmodule ServiceRadarWebNGWeb.SettingsComponents do
           label: "Add-ons",
           href: ~p"/settings/agents/addons",
           active:
-            String.starts_with?(path, "/settings/agents/addons") or
+            (String.starts_with?(path, "/settings/agents/addons") and
+               not String.starts_with?(path, "/settings/agents/addons/fleet")) or
               String.starts_with?(path, "/admin/addons"),
+          show: can_plugins
+        },
+        %{
+          label: "Add-on Fleet",
+          href: ~p"/settings/agents/addons/fleet",
+          active: String.starts_with?(path, "/settings/agents/addons/fleet"),
           show: can_plugins
         }
       ],
