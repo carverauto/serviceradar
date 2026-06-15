@@ -401,6 +401,12 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.ShowTemplate do
         hops={@selected_mtr_hops}
       />
 
+      <.endpoint_inventory_package_modal
+        show={@show_endpoint_inventory_package_modal}
+        package={@endpoint_inventory_selected_package}
+        matches={@endpoint_inventory_selected_package_matches}
+      />
+
       <%!-- Interfaces Bulk Edit Modal --%>
       <.interfaces_bulk_edit_modal
         :if={@show_interfaces_bulk_edit}
