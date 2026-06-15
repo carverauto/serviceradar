@@ -285,6 +285,7 @@ config :serviceradar_web_ng, :session,
   secure: false
 
 config :serviceradar_web_ng, :srql_module, ServiceRadarWebNG.SRQL
+config :serviceradar_web_ng, :srql_query_timeout_ms, 15_000
 
 # Ash Framework Configuration
 config :serviceradar_web_ng,
