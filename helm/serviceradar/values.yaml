@@ -323,6 +323,7 @@ core:
     natsCredsFile: "/etc/serviceradar/creds/platform.creds"
     natsTls: true
     enabledSubjects: ""
+    contextEngine: "sharded"
   anomalyDetectionConfig:
     nSigma: 3.0
     windowSize: 300

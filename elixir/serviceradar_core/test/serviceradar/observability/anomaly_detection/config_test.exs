@@ -81,13 +81,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
   test "defaults processing to otel metrics only" do
     config = Config.load()
 
-    assert config.context_engine == ContextEngine
+    assert config.context_engine == ShardedContextEngine
     assert config.enabled_subjects == ["otel.metrics.>"]
     assert Config.subject_enabled?(config, "otel.metrics.raw")
     refute Config.subject_enabled?(config, "metrics.sysmon.cpu")
   end
 
-  test "context engine is opt-in from env" do
+  test "context engine is selected from env" do
     System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "sharded")
 
     assert Config.load().context_engine ==
@@ -99,6 +99,10 @@ defmodule ServiceRadar.Observability.AnomalyDetection.ConfigTest do
              NativeContextEngine
 
     System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "bogus")
+
+    assert Config.load().context_engine == ShardedContextEngine
+
+    System.put_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE", "legacy")
 
     assert Config.load().context_engine == ContextEngine
   end

@@ -264,7 +264,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
     case System.get_env("ANOMALY_ANALYSIS_CONTEXT_ENGINE") ||
            Keyword.get(app_config, :context_engine) do
       nil ->
-        ContextEngine
+        ShardedContextEngine
 
       value when is_atom(value) ->
         value
@@ -284,7 +284,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
       "native" -> NativeContextEngine
       "native_direct" -> NativeContextEngine
       "native_context" -> NativeContextEngine
-      _ -> ContextEngine
+      _ -> ShardedContextEngine
     end
   end
 
