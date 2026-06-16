@@ -123,6 +123,12 @@ enum LogFormat {
     Json,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum VisibilityStartupMode {
+    Disabled,
+    Ebpf,
+}
+
 #[allow(dead_code)]
 enum VisibilityRuntime {
     Disabled,
@@ -158,48 +164,52 @@ async fn main() -> Result<()> {
     let _dpi_gate = Arc::new(DpiEventGate::new(runtime_config.clone()));
     let metrics = Metrics::new()?;
     let mut startup_ops = SystemStartupOps;
-    let _visibility_runtime = if args.ebpf_object.is_some() {
-        #[cfg(not(target_os = "linux"))]
-        {
-            anyhow::bail!("--ebpf-object is only supported on Linux");
+    let _visibility_runtime = match select_visibility_startup(&config, args.ebpf_object.is_some())?
+    {
+        VisibilityStartupMode::Disabled => {
+            startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
+            VisibilityRuntime::Disabled
         }
+        VisibilityStartupMode::Ebpf => {
+            #[cfg(not(target_os = "linux"))]
+            {
+                anyhow::bail!("--ebpf-object is only supported on Linux");
+            }
 
-        #[cfg(target_os = "linux")]
-        {
-            let ebpf_object = args
-                .ebpf_object
-                .as_deref()
-                .expect("checked ebpf_object is present");
-            prepare_ebpf_privileged_resources(&mut startup_ops, &config, args.skip_cap_check)?;
-            let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
-                ebpf_object,
-                &config,
-                metrics.clone(),
-                _fingerprint_event_tx.clone(),
-                _dpi_event_tx.clone(),
-                config
-                    .emit_raw_flow_attribution_events
-                    .then(|| flow_attribution_event_tx.clone()),
-                process_snapshot_tx.clone(),
-                external_flow_matcher.clone(),
-                Arc::clone(&_fingerprint_gate),
-                Arc::clone(&_dpi_gate),
-            )
-            .context("failed to start eBPF/AF_XDP visibility runtime")?;
-            drop_runtime_privileges(&mut startup_ops, args.drop_user.as_deref(), args.allow_root)?;
-            log::info!(
-                "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
-                config.capture_interfaces.len()
-            );
-            VisibilityRuntime::Ebpf(runtime)
+            #[cfg(target_os = "linux")]
+            {
+                let ebpf_object = args
+                    .ebpf_object
+                    .as_deref()
+                    .expect("checked ebpf_object is present");
+                prepare_ebpf_privileged_resources(&mut startup_ops, &config, args.skip_cap_check)?;
+                let runtime = ebpf_runtime::NetprobeEbpfRuntime::start(
+                    ebpf_object,
+                    &config,
+                    metrics.clone(),
+                    _fingerprint_event_tx.clone(),
+                    _dpi_event_tx.clone(),
+                    config
+                        .emit_raw_flow_attribution_events
+                        .then(|| flow_attribution_event_tx.clone()),
+                    process_snapshot_tx.clone(),
+                    external_flow_matcher.clone(),
+                    Arc::clone(&_fingerprint_gate),
+                    Arc::clone(&_dpi_gate),
+                )
+                .context("failed to start eBPF/AF_XDP visibility runtime")?;
+                drop_runtime_privileges(
+                    &mut startup_ops,
+                    args.drop_user.as_deref(),
+                    args.allow_root,
+                )?;
+                log::info!(
+                    "started eBPF/AF_XDP visibility runtime for {} capture interface(s)",
+                    config.capture_interfaces.len()
+                );
+                VisibilityRuntime::Ebpf(runtime)
+            }
         }
-    } else if config.enabled {
-        anyhow::bail!(
-            "netprobe continuous capture requires --ebpf-object after Phase 3 eBPF cutover"
-        );
-    } else {
-        startup_ops.drop_privileges(args.drop_user.as_deref(), args.allow_root)?;
-        VisibilityRuntime::Disabled
     };
     let mut metrics_task = tokio::spawn(serve_metrics(
         args.health_port,
@@ -298,6 +308,21 @@ fn load_config(path: Option<&PathBuf>) -> Result<Config> {
     Ok(config)
 }
 
+fn select_visibility_startup(
+    config: &Config,
+    ebpf_object_present: bool,
+) -> Result<VisibilityStartupMode> {
+    if !config.enabled {
+        return Ok(VisibilityStartupMode::Disabled);
+    }
+
+    if ebpf_object_present {
+        return Ok(VisibilityStartupMode::Ebpf);
+    }
+
+    anyhow::bail!("netprobe continuous capture requires --ebpf-object after Phase 3 eBPF cutover")
+}
+
 async fn wait_for_shutdown() {
     #[cfg(unix)]
     {
@@ -312,5 +337,49 @@ async fn wait_for_shutdown() {
     #[cfg(not(unix))]
     {
         let _ = tokio::signal::ctrl_c().await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{select_visibility_startup, VisibilityStartupMode};
+    use crate::config::Config;
+
+    #[test]
+    fn disabled_config_does_not_start_ebpf_when_object_is_present() {
+        let config = Config {
+            enabled: false,
+            ..Config::default()
+        };
+
+        let mode = select_visibility_startup(&config, true).expect("startup mode");
+
+        assert_eq!(mode, VisibilityStartupMode::Disabled);
+    }
+
+    #[test]
+    fn enabled_config_starts_ebpf_when_object_is_present() {
+        let config = Config {
+            enabled: true,
+            ..Config::default()
+        };
+
+        let mode = select_visibility_startup(&config, true).expect("startup mode");
+
+        assert_eq!(mode, VisibilityStartupMode::Ebpf);
+    }
+
+    #[test]
+    fn enabled_config_requires_ebpf_object() {
+        let config = Config {
+            enabled: true,
+            ..Config::default()
+        };
+
+        let err = select_visibility_startup(&config, false).expect_err("missing object must fail");
+
+        assert!(err
+            .to_string()
+            .contains("netprobe continuous capture requires --ebpf-object"));
     }
 }
