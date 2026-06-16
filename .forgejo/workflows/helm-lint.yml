@@ -49,3 +49,6 @@ jobs:
           ./scripts/run-helm.sh template serviceradar helm/serviceradar \
             --set global.imageTag="v1.0.0" \
             --debug > /dev/null
+
+      - name: Verify core analytics defaults
+        run: ./scripts/check-core-analytics-helm-defaults.sh

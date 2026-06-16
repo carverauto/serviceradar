@@ -83,7 +83,17 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
   link out to references. Returns a list (empty when no matches or on failure).
   """
   def load_package_vulnerabilities(scope, device_uid, endpoint_package_ref)
-      when is_binary(device_uid) and device_uid != "" and is_binary(endpoint_package_ref) and endpoint_package_ref != "" do
+      when is_binary(device_uid) and is_binary(endpoint_package_ref) do
+    if device_uid == "" or endpoint_package_ref == "" do
+      []
+    else
+      read_package_vulnerabilities(scope, device_uid, endpoint_package_ref)
+    end
+  end
+
+  def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: []
+
+  defp read_package_vulnerabilities(scope, device_uid, endpoint_package_ref) do
     EndpointVulnerabilityMatch
     |> Ash.Query.for_read(
       :current_by_device_and_package,
@@ -104,8 +114,6 @@ defmodule ServiceRadarWebNGWeb.DeviceLive.EndpointInventoryData do
         []
     end
   end
-
-  def load_package_vulnerabilities(_scope, _device_uid, _endpoint_package_ref), do: []
 
   defp empty do
     %{

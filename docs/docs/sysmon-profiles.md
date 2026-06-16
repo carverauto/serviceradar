@@ -16,6 +16,12 @@ The System Monitoring (sysmon) feature collects host metrics from your agents:
 - **Network**: Interface statistics, bytes in/out
 - **Processes**: Top processes by CPU/memory usage
 
+Process telemetry is diagnostic by default. It is published through the normal
+JetStream/CNPG metric path so troubleshooting views and SRQL can use it, but
+`sysmon.process` metrics are not default inputs for anomaly detection or
+capacity planning. Those engines use lower-cardinality host, filesystem/disk,
+interface, service health, and flow signals by default.
+
 Sysmon Profiles let you control:
 - Which metrics are collected
 - How frequently samples are taken
@@ -128,6 +134,7 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 | `collect_disk` | Collect disk metrics | `true` |
 | `collect_network` | Collect network interface metrics | `false` |
 | `collect_processes` | Collect process list | `false` |
+| `process_limit` | Maximum processes retained per sample; `0` means all processes | `25` |
 | `disk_paths` | Mount points to monitor | `["/", "/var", "/data"]` |
 | `thresholds.cpu_warning` | CPU warning threshold (%) | `"75"` |
 | `thresholds.cpu_critical` | CPU critical threshold (%) | `"90"` |
@@ -150,6 +157,8 @@ When an agent requests its sysmon configuration, ServiceRadar resolves it in thi
 
 4. **Monitor only what you need** - Disable unnecessary collectors:
    - Disable process collection if you don't need it (reduces payload size)
+   - Keep `process_limit` bounded unless you are intentionally debugging every process
+   - Do not use process collection as a capacity-planning signal; it is meant for diagnostics
    - Disable network metrics if you're using dedicated network monitoring
 
 5. **Use local override sparingly** - Local config files:

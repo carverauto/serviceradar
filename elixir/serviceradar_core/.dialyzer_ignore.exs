@@ -1,4 +1,5 @@
 [
+  {"lib/serviceradar/observability/anomaly_detection/counter_normalizer.ex", :pattern_match},
   {"lib/mix/tasks/serviceradar.dire_remediation.ex",
    "The pattern pattern {'error', _error@1} can never match the type, because it is covered by previous clauses."},
   {"lib/serviceradar/actors/device.ex",

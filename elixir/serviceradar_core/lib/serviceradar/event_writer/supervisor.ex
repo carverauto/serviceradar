@@ -40,6 +40,7 @@ defmodule ServiceRadar.EventWriter.Supervisor do
     children =
       [
         {ServiceRadar.EventWriter.Pipeline, config},
+        {ServiceRadar.EventWriter.ConsumerLagReporter, config},
         ServiceRadar.FlowAttribution.Correlator
       ]
 

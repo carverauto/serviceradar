@@ -305,8 +305,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Pipeline do
     state in ["normal", "ok", "healthy", "resolved", "inactive", "closed", "cleared", "clean"]
   end
 
-  defp normal_state?(_verdict), do: false
-
   defp context_engine(%Config{context_engine: configured_engine}) do
     Application.get_env(
       :serviceradar_core,

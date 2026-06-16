@@ -12,9 +12,9 @@ defmodule ServiceRadarWebNG.SRQL do
     deps: [ServiceRadarWebNG],
     exports: :all
 
+  alias Ecto.Adapters.SQL
   alias ServiceRadar.Repo
   alias ServiceRadarWebNG.SRQL.Native
-  alias Ecto.Adapters.SQL
 
   require Logger
 
@@ -183,26 +183,24 @@ defmodule ServiceRadarWebNG.SRQL do
     with :ok <- ensure_read_only_sql(sql) do
       timeout_ms = srql_query_timeout_ms()
 
-      Repo.transaction(
-        fn ->
-          statement_timeout = "#{timeout_ms}ms"
-          db_timeout_ms = timeout_ms + @db_timeout_margin_ms
+      fn ->
+        statement_timeout = "#{timeout_ms}ms"
+        db_timeout_ms = timeout_ms + @db_timeout_margin_ms
 
-          with {:ok, _} <-
-                 SQL.query(
-                   Repo,
-                   "SELECT set_config('statement_timeout', $1, true)",
-                   [statement_timeout],
-                   timeout: db_timeout_ms
-                 ),
-               {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
-            result
-          else
-            {:error, reason} -> Repo.rollback(reason)
-          end
-        end,
-        timeout: timeout_ms + @db_timeout_margin_ms
-      )
+        with {:ok, _} <-
+               SQL.query(
+                 Repo,
+                 "SELECT set_config('statement_timeout', $1, true)",
+                 [statement_timeout],
+                 timeout: db_timeout_ms
+               ),
+             {:ok, result} <- SQL.query(Repo, sql, params, timeout: db_timeout_ms) do
+          result
+        else
+          {:error, reason} -> Repo.rollback(reason)
+        end
+      end
+      |> Repo.transaction(timeout: timeout_ms + @db_timeout_margin_ms)
       |> case do
         {:ok, result} -> {:ok, result}
         {:error, reason} -> {:error, reason}

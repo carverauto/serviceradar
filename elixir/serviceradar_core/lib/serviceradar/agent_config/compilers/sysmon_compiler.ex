@@ -49,6 +49,8 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
   require Ash.Query
   require Logger
 
+  @default_process_limit 25
+
   @impl true
   def config_type, do: :sysmon
 
@@ -124,7 +126,7 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompiler do
       "collect_disk" => profile.collect_disk,
       "collect_network" => profile.collect_network,
       "collect_processes" => profile.collect_processes,
-      "process_limit" => profile.process_limit || 0,
+      "process_limit" => profile.process_limit || @default_process_limit,
       "disk_paths" => profile.disk_paths,
       "disk_exclude_paths" => profile.disk_exclude_paths,
       "thresholds" => profile.thresholds || %{},

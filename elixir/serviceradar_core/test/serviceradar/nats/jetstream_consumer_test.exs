@@ -108,4 +108,27 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload.config.max_deliver == 5
     assert payload.config.deliver_subject == "_INBOX.causal_predictions"
   end
+
+  test "consumer payload omits deliver_subject for pull durable consumers" do
+    payload =
+      JetstreamConsumer.consumer_payload(
+        "metrics",
+        "serviceradar-event-writer-metrics",
+        "metrics.>",
+        description: "metrics pull consumer",
+        deliver_policy: :all,
+        ack_wait: 120_000_000_000,
+        max_ack_pending: 256,
+        max_deliver: 5
+      )
+
+    assert payload.stream_name == "metrics"
+    assert payload.config.durable_name == "serviceradar-event-writer-metrics"
+    assert payload.config.filter_subject == "metrics.>"
+    assert payload.config.description == "metrics pull consumer"
+    assert payload.config.ack_wait == 120_000_000_000
+    assert payload.config.max_ack_pending == 256
+    assert payload.config.max_deliver == 5
+    refute Map.has_key?(payload.config, :deliver_subject)
+  end
 end

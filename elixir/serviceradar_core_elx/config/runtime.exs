@@ -1040,6 +1040,7 @@ if config_env() == :prod do
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
+      consumer_pull_batch_size: String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
       streams: [
         %{
           name: "EVENTS",
@@ -1093,6 +1094,7 @@ if config_env() == :prod do
           stream_discard: "old",
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
+          consumer_pull_batch_size: 4,
           consumer_max_deliver: -1
         },
         %{

@@ -57,7 +57,11 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
           raw: Map.put(entry, "_cve_ids", cve_ids)
         }
 
-        {:ok, %{advisory: advisory, coordinates: vendor_product_coordinates(provider, feed_key, vendor, product)}}
+        {:ok,
+         %{
+           advisory: advisory,
+           coordinates: vendor_product_coordinates(provider, feed_key, vendor, product)
+         }}
 
       _ ->
         :skip
@@ -78,7 +82,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
 
   defp vendor_product_coordinates(_provider, _feed_key, _vendor, nil), do: []
 
-  defp vendor_product_coordinates(_provider, _feed_key, vendor, product) when is_binary(product) do
+  defp vendor_product_coordinates(_provider, _feed_key, vendor, product)
+       when is_binary(product) do
     if String.trim(product) == "" do
       []
     else
@@ -99,8 +104,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
       ]
     end
   end
-
-  defp vendor_product_coordinates(_provider, _feed_key, _vendor, _product), do: []
 
   defp references(entry) do
     refs =
@@ -127,8 +130,6 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Kev do
       trimmed -> String.downcase(trimmed)
     end
   end
-
-  defp normalize(_), do: nil
 
   defp get(_entry, []), do: nil
 

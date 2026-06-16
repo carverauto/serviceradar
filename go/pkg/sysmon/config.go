@@ -37,8 +37,8 @@ const (
 	// DefaultConfigRefreshInterval is how often agents check for config updates.
 	DefaultConfigRefreshInterval = 5 * time.Minute
 
-	// DefaultProcessLimit keeps process telemetry unlimited unless explicitly capped.
-	DefaultProcessLimit = 0
+	// DefaultProcessLimit bounds process telemetry unless explicitly capped or set to 0.
+	DefaultProcessLimit = 25
 )
 
 // Config controls the sysmon collector runtime behavior.

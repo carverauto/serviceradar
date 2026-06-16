@@ -6,6 +6,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   alias ServiceRadar.EventWriter.Processors.Flows
   alias ServiceRadar.EventWriter.Processors.OtelMetrics
   alias Serviceradar.Metric.V1.MetricBatch
+  alias ServiceRadar.Observability.SeriesHintDrift
 
   require Logger
 
@@ -72,21 +73,28 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     ingest_identity = batch.ingest_identity || %{}
     batch_ingress_metadata = batch_ingress_metadata(batch, ingress_metadata)
 
-    batch.metrics
-    |> list_or_empty()
-    |> Enum.reduce([], fn metric, samples ->
-      context = metric_context(batch, resource, ingest_identity, metric, batch_ingress_metadata)
-
-      metric.points
+    {samples, telemetry} =
+      batch.metrics
       |> list_or_empty()
-      |> Enum.reduce(samples, fn point, samples ->
-        case metric_point_sample(context, point, subject) do
-          nil -> samples
-          sample -> [sample | samples]
-        end
+      |> Enum.reduce({[], empty_extract_telemetry()}, fn metric, {samples, telemetry} ->
+        context = metric_context(batch, resource, ingest_identity, metric, batch_ingress_metadata)
+
+        metric.points
+        |> list_or_empty()
+        |> Enum.reduce({samples, telemetry}, fn point, {samples, telemetry} ->
+          case metric_point_sample(context, point, subject) do
+            {:drop, reason} ->
+              {samples, record_extract_drop(telemetry, reason)}
+
+            sample ->
+              {[sample | samples], record_extract_accept(telemetry, context.metric_class)}
+          end
+        end)
       end)
-    end)
-    |> Enum.reverse()
+
+    emit_extract_telemetry(subject, telemetry)
+
+    Enum.reverse(samples)
   end
 
   defp metric_context(batch, resource, ingest_identity, metric, ingress_metadata) do
@@ -149,52 +157,57 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
 
     nested_metadata = merge_entries(metric_metadata, point.metadata)
 
-    if unidentified_sysmon_sample?(metric_class, resource, point) do
-      nil
-    else
-      timestamp = timestamp_nano(point.observed_at_unix_nano)
+    cond do
+      process_metric_sample?(metric_class, common_base.metric_name) ->
+        {:drop, :process_metric}
 
-      base =
-        common_base
-        |> point_base(point, timestamp, tags, nested_metadata, resource)
-        |> maybe_put_metadata(:raw_value, non_empty(point.raw_value))
-        |> maybe_put_metadata(:raw_value_type, metric_value_type(point.raw_value_type))
-        |> maybe_put_metadata(:start_time_unix_nano, positive_int(point.start_time_unix_nano))
-        |> maybe_put_metadata(:reset_anchor, non_empty(point.reset_anchor))
+      unidentified_sysmon_sample?(metric_class, resource, point) ->
+        {:drop, :unidentified_sysmon}
 
-      # Derive the anomaly series key from gateway-attested typed fields ONLY,
-      # rendered HUMAN-READABLE so verdict titles and the event_live "Series"
-      # field show meaning, not an md5. (The CNPG timeseries_metrics row path in
-      # MetricEnvelope keeps the md5 TimeseriesSeriesKey.build/1 — dashboards
-      # depend on that and it is intentionally left unchanged.)
-      #
-      # point.series_identity_hint is producer-set (proto field 9) and never
-      # attested, so it must never become the canonical key. Keep the hint as
-      # debug-only metadata and log a mismatch so producer drift is observable
-      # without trusting the hint on the anomaly hot path.
-      {identity, unstable?} = resource_series_identity(resource)
-      readable_identity = readable_series_identity(metric_class, base, identity, tags, point)
-      series_key = prefix_series_key(metric_class, readable_identity)
+      true ->
+        timestamp = timestamp_nano(point.observed_at_unix_nano)
 
-      nested_metadata =
-        nested_metadata
-        |> maybe_record_series_hint(point.series_identity_hint, series_key)
-        |> maybe_tag_instability(unstable?)
+        base =
+          common_base
+          |> point_base(point, timestamp, tags, nested_metadata, resource)
+          |> maybe_put_metadata(:raw_value, non_empty(point.raw_value))
+          |> maybe_put_metadata(:raw_value_type, metric_value_type(point.raw_value_type))
+          |> maybe_put_metadata(:start_time_unix_nano, positive_int(point.start_time_unix_nano))
+          |> maybe_put_metadata(:reset_anchor, non_empty(point.reset_anchor))
 
-      metadata = sample_metadata(nested_metadata, base, ingress_metadata)
-      event_identity = typed_metric_event_identity(ingress_metadata, nested_metadata)
-      order_timestamp = typed_metric_order_timestamp(timestamp, ingress_metadata)
+        # Derive the anomaly series key from gateway-attested typed fields ONLY,
+        # rendered HUMAN-READABLE so verdict titles and the event_live "Series"
+        # field show meaning, not an md5. (The CNPG timeseries_metrics row path in
+        # MetricEnvelope keeps the md5 TimeseriesSeriesKey.build/1 — dashboards
+        # depend on that and it is intentionally left unchanged.)
+        #
+        # point.series_identity_hint is producer-set (proto field 9) and never
+        # attested, so it must never become the canonical key. Keep the hint as
+        # debug-only metadata and log a mismatch so producer drift is observable
+        # without trusting the hint on the anomaly hot path.
+        {identity, unstable?} = resource_series_identity(resource)
+        readable_identity = readable_series_identity(metric_class, base, identity, tags, point)
+        series_key = prefix_series_key(metric_class, readable_identity)
 
-      build_sample(
-        series_key,
-        point.value,
-        timestamp,
-        subject,
-        metric_class,
-        metadata,
-        event_identity,
-        order_timestamp
-      )
+        nested_metadata =
+          nested_metadata
+          |> maybe_record_series_hint(point.series_identity_hint, series_key)
+          |> maybe_tag_instability(unstable?)
+
+        metadata = sample_metadata(nested_metadata, base, ingress_metadata)
+        event_identity = typed_metric_event_identity(ingress_metadata, nested_metadata)
+        order_timestamp = typed_metric_order_timestamp(timestamp, ingress_metadata)
+
+        build_sample(
+          series_key,
+          point.value,
+          timestamp,
+          subject,
+          metric_class,
+          metadata,
+          event_identity,
+          order_timestamp
+        )
     end
   end
 
@@ -303,14 +316,14 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
         value -> [Integer.to_string(value)]
       end
 
-    used = MapSet.new(["core_id", "mount_point"])
+    used = ["core_id", "mount_point"]
 
     extra =
       tags
       |> Enum.reject(fn {key, value} ->
         key = to_string(key)
 
-        MapSet.member?(used, key) or MapSet.member?(@series_dimension_excluded_keys, key) or
+        key in used or MapSet.member?(@series_dimension_excluded_keys, key) or
           non_empty(value) == nil
       end)
       |> Enum.sort_by(&to_string(elem(&1, 0)))
@@ -390,15 +403,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     end)
     |> Enum.reverse()
   end
-
-  defp otel_samples(row, subject, ingress_metadata) when is_map(row) do
-    case otel_sample(row, subject, ingress_metadata) do
-      nil -> []
-      sample -> [sample]
-    end
-  end
-
-  defp otel_samples(_row, _subject, _ingress_metadata), do: []
 
   defp extract_flow(message, subject, ingress_metadata) do
     case Flows.parse_message(message) do
@@ -551,8 +555,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     |> ingress_metadata_from_headers()
   end
 
-  defp ingress_metadata(_message), do: %{}
-
   defp ingress_metadata_from_headers(headers) do
     %{}
     |> maybe_put_metadata("ingress_id", header_value(headers, "sr-ingress-id"))
@@ -644,6 +646,76 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
       is_nil(non_empty(resource.host_id)) and is_nil(non_empty(resource.host_ip))
   end
 
+  # Process telemetry is diagnostic by default. Keep it on the JetStream/CNPG
+  # path, but do not feed the real-time anomaly engine with high-cardinality
+  # process rows unless a future explicit opt-in path is added.
+  defp process_metric_sample?(metric_class, _metric_name)
+       when is_binary(metric_class) and metric_class == "sysmon.process", do: true
+
+  defp process_metric_sample?(metric_class, metric_name)
+       when is_binary(metric_class) and is_binary(metric_name),
+       do: metric_class == "sysmon" and String.starts_with?(metric_name, "process.")
+
+  defp process_metric_sample?(_metric_class, _metric_name), do: false
+
+  defp empty_extract_telemetry do
+    %{
+      accepted_samples: 0,
+      dropped_process_samples: 0,
+      dropped_unidentified_samples: 0,
+      accepted_metric_classes: MapSet.new()
+    }
+  end
+
+  defp record_extract_accept(telemetry, metric_class) do
+    %{
+      telemetry
+      | accepted_samples: telemetry.accepted_samples + 1,
+        accepted_metric_classes:
+          if(is_binary(metric_class),
+            do: MapSet.put(telemetry.accepted_metric_classes, metric_class),
+            else: telemetry.accepted_metric_classes
+          )
+    }
+  end
+
+  defp record_extract_drop(telemetry, :process_metric) do
+    %{telemetry | dropped_process_samples: telemetry.dropped_process_samples + 1}
+  end
+
+  defp record_extract_drop(telemetry, :unidentified_sysmon) do
+    %{telemetry | dropped_unidentified_samples: telemetry.dropped_unidentified_samples + 1}
+  end
+
+  defp emit_extract_telemetry(subject, telemetry) do
+    dropped_samples = telemetry.dropped_process_samples + telemetry.dropped_unidentified_samples
+
+    :telemetry.execute(
+      [:serviceradar, :observability, :anomaly_detection, :sample_extractor, :batch],
+      %{
+        accepted_samples: telemetry.accepted_samples,
+        dropped_samples: dropped_samples,
+        dropped_process_samples: telemetry.dropped_process_samples,
+        dropped_unidentified_samples: telemetry.dropped_unidentified_samples,
+        metric_class_count: MapSet.size(telemetry.accepted_metric_classes)
+      },
+      %{subject_class: subject_class(subject)}
+    )
+
+    :ok
+  end
+
+  defp subject_class(subject) when is_binary(subject) do
+    cond do
+      String.starts_with?(subject, "metrics.sysmon.") -> "metrics_sysmon"
+      String.starts_with?(subject, "metrics.snmp.") -> "metrics_snmp"
+      String.starts_with?(subject, "metrics.") -> "metrics"
+      String.starts_with?(subject, "otel.metrics.") -> "otel_metrics"
+      String.starts_with?(subject, "flows.") or String.starts_with?(subject, "flow.") -> "flows"
+      true -> "other"
+    end
+  end
+
   # Keep the producer-set hint only as debug metadata; never trust it as the
   # canonical key. Log when it disagrees with the attested-field-derived key so
   # producer drift is observable.
@@ -653,11 +725,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
         metadata
 
       hint when hint != series_key ->
-        Logger.debug("sample extractor series_identity_hint disagrees with derived key",
-          hint: hint,
-          series_key: series_key
-        )
-
+        SeriesHintDrift.record(:sample_extractor, hint, series_key)
         Map.put_new(metadata, "series_identity_hint", hint)
 
       hint ->
@@ -736,8 +804,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
         nil
     end
   end
-
-  defp explicit_event_identity(_metadata), do: nil
 
   defp non_empty_binary_value(metadata, aliases) do
     Enum.find_value(aliases, fn key ->
@@ -830,8 +896,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
   end
 
   defp non_empty_string(_value), do: nil
-
-  defp parse_non_negative_integer(value) when is_integer(value) and value >= 0, do: value
 
   defp parse_non_negative_integer(value) when is_binary(value) do
     case Integer.parse(String.trim(value)) do

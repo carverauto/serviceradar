@@ -6085,7 +6085,7 @@ CREATE TABLE platform.sysmon_profiles (
     collect_disk boolean DEFAULT true NOT NULL,
     collect_network boolean DEFAULT false NOT NULL,
     collect_processes boolean DEFAULT false NOT NULL,
-    process_limit integer DEFAULT 0 NOT NULL,
+    process_limit integer DEFAULT 25 NOT NULL,
     disk_paths text[] DEFAULT ARRAY[]::text[] NOT NULL,
     disk_exclude_paths text[] DEFAULT ARRAY[]::text[] NOT NULL,
     thresholds jsonb DEFAULT '{}'::jsonb NOT NULL,

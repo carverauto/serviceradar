@@ -8,7 +8,7 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizer do
   """
 
   @default_table __MODULE__.State
-  @default_max_gap_ns to_timeout(hour: 2) * 1_000_000
+  @default_max_gap_ns 2 * 60 * 60 * 1_000_000_000
   @counter32_modulus 4_294_967_296
   @max_rate_key :max_counter_rate_per_second
 
@@ -316,8 +316,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.CounterNormalizer do
       _ -> %{}
     end
   end
-
-  defp nested_metadata(_metadata), do: %{}
 
   defp truthy?(true), do: true
   defp truthy?("true"), do: true

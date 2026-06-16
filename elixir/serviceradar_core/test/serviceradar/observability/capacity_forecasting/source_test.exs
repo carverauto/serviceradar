@@ -29,7 +29,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.SourceTest do
     assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_type:"sysmon.cpu"|))
     assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"memory.used_percent"|))
     assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"disk.used_percent"|))
-    assert Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"process.count"|))
+    refute Enum.any?(sources, &String.contains?(&1.query, ~s|metric_type:"sysmon.process"|))
+    refute Enum.any?(sources, &String.contains?(&1.query, ~s|metric_name:"process.count"|))
 
     assert Enum.all?(
              Enum.filter(sources, &String.contains?(&1.query, "in:timeseries_metrics")),

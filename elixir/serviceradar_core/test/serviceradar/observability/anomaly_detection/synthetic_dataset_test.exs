@@ -90,6 +90,45 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SyntheticDatasetTest do
     Enum.each(@datasets, &assert_dataset_detects_sustained_anomaly/1)
   end
 
+  test "encoded sysmon CPU fixture extracts and produces a confirmed anomaly" do
+    values = [40.0, 40.4, 39.7, 40.2, 39.9, 40.1, 39.8, 40.3, 39.6, 40.0, 40.2, 39.9]
+    anomalies = [88.0, 89.0, 90.0]
+    series_key = "sysmon.cpu:sysmon:cpu:host-fixture:all"
+
+    {:ok, owner} =
+      ContextOwner.start_link(Keyword.put(@detector_opts, :series_key, series_key))
+
+    try do
+      values
+      |> Enum.with_index(1)
+      |> Enum.each(fn {value, index} ->
+        [sample] = extract_cpu_fixture_sample(value, index)
+        assert sample.series_key == series_key
+
+        assert {:ok, verdict} = ContextOwner.evaluate(owner, sample)
+        refute verdict.anomalous
+        assert verdict.include_in_baseline
+      end)
+
+      verdicts =
+        anomalies
+        |> Enum.with_index(length(values) + 1)
+        |> Enum.map(fn {value, index} ->
+          [sample] = extract_cpu_fixture_sample(value, index)
+          assert {:ok, verdict} = ContextOwner.evaluate(owner, sample)
+          verdict
+        end)
+
+      assert [%{state: "pending_anomaly"}, %{state: "pending_anomaly"}, confirmed] = verdicts
+      assert confirmed.state == "anomalous"
+      assert confirmed.anomalous
+      assert confirmed.breached
+      assert confirmed.next_consecutive_anomalous == 3
+    after
+      stop_owner(owner)
+    end
+  end
+
   defp assert_dataset_detects_sustained_anomaly(dataset) do
     {:ok, owner} =
       ContextOwner.start_link(Keyword.put(@detector_opts, :series_key, dataset.series_key))
@@ -240,6 +279,15 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SyntheticDatasetTest do
 
   defp sysmon_cpu_message(identity, cpus) do
     sysmon_message("cpu", Map.put(identity, "cpus", cpus))
+  end
+
+  defp extract_cpu_fixture_sample(value, index) do
+    SampleExtractor.extract(
+      sysmon_cpu_message(
+        %{"host_id" => "host-fixture", "timestamp" => 1_700_000_000_000_000_000 + index},
+        [%{"core_id" => "all", "usage_percent" => value}]
+      )
+    )
   end
 
   defp sysmon_memory_message(identity, memory) do

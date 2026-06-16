@@ -192,7 +192,13 @@ defmodule ServiceRadar.Observability.AnomalyDetection.Config do
       batch_timeout: config.batch_timeout,
       consumer_name: config.consumer_name,
       producer_name: config.producer_name,
-      streams: config.streams
+      streams: config.streams,
+      consumer_pull_batch_size: EventWriterConfig.default_consumer_pull_batch_size(),
+      max_ack_pending: EventWriterConfig.default_max_ack_pending(),
+      processor_concurrency: EventWriterConfig.default_processor_concurrency(),
+      ack_wait_ns: EventWriterConfig.default_ack_wait_ns(),
+      max_deliver: EventWriterConfig.default_max_deliver(),
+      consumer_lag_poll_interval_ms: EventWriterConfig.default_consumer_lag_poll_interval_ms()
     }
   end
 

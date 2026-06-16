@@ -123,9 +123,6 @@ defmodule ServiceRadar.EventWriter.Processors.OtelMetrics do
     messages
     |> Enum.reduce({[], [], 0}, fn message, acc ->
       case parse_message(message) do
-        row when is_map(row) ->
-          append_row(row, acc)
-
         rows when is_list(rows) ->
           Enum.reduce(rows, acc, &append_row/2)
 

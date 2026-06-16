@@ -30,6 +30,7 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   alias ServiceRadar.EventWriter.Processors.Metrics
   alias ServiceRadar.EventWriter.Processors.PowerDNS
   alias ServiceRadar.EventWriter.Processors.Telemetry
+  alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.Otel
   alias ServiceRadar.Otel.Propagation
 
@@ -210,29 +211,40 @@ defmodule ServiceRadar.EventWriter.Pipeline do
 
   defp run_batch(batcher, messages, batch_info) do
     processor = get_processor(batcher)
-    start_time = System.monotonic_time(:millisecond)
+    start_time = System.monotonic_time()
 
     result = processor.process_batch(messages)
 
-    duration = System.monotonic_time(:millisecond) - start_time
+    duration = System.monotonic_time() - start_time
+    duration_ms = System.convert_time_unit(duration, :native, :millisecond)
 
     case result do
       {:ok, count} ->
+        EventWriterTelemetry.emit_batch(:ok, messages, count, duration, %{
+          stream: batcher,
+          processor: processor
+        })
+
         :telemetry.execute(
           [:serviceradar, :event_writer, :batch_processed],
-          %{count: count, duration: duration, batch_size: length(messages)},
+          %{count: count, duration: duration_ms, batch_size: length(messages)},
           %{stream: batcher, processor: processor, batch_key: batch_info.batch_key}
         )
 
         Logger.debug("Processed batch",
           batcher: batcher,
           count: count,
-          duration_ms: duration
+          duration_ms: duration_ms
         )
 
         messages
 
       {:error, reason} ->
+        EventWriterTelemetry.emit_batch(:error, messages, length(messages), duration, %{
+          stream: batcher,
+          processor: processor
+        })
+
         :telemetry.execute(
           [:serviceradar, :event_writer, :batch_failed],
           %{count: length(messages)},
@@ -299,11 +311,27 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   defp ack_message(%{acknowledger: {_, _, ack_data}} = message, action) do
     case ack_data[:ack_fun] do
       ack_fun when is_function(ack_fun, 1) ->
+        ack_started = System.monotonic_time()
+
         case safe_invoke_ack(ack_fun, action) do
           :ok ->
+            EventWriterTelemetry.emit_ack(
+              action,
+              :ok,
+              ack_latency(message, ack_started),
+              message.metadata[:subject]
+            )
+
             :ok
 
           {:error, reason} ->
+            EventWriterTelemetry.emit_ack(
+              action,
+              :error,
+              ack_latency(message, ack_started),
+              message.metadata[:subject]
+            )
+
             Logger.debug("Failed to publish EventWriter ack",
               action: action,
               reason: inspect(reason),
@@ -318,6 +346,13 @@ defmodule ServiceRadar.EventWriter.Pipeline do
   end
 
   defp ack_message(_message, _action), do: :ok
+
+  defp ack_latency(%{metadata: %{received_monotonic: received_at}}, _ack_started)
+       when is_integer(received_at) do
+    max(System.monotonic_time() - received_at, 0)
+  end
+
+  defp ack_latency(_message, ack_started), do: max(System.monotonic_time() - ack_started, 0)
 
   defp safe_invoke_ack(ack_fun, action) when is_function(ack_fun, 1) do
     case ack_fun.(action) do

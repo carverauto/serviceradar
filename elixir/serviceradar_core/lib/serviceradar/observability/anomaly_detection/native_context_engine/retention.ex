@@ -95,9 +95,8 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine.Retent
              [{{:"$1", :"$2", :"$3"}, [], [{{:"$1", :"$2", :"$3"}}]}],
              scan_limit
            ) do
-        {rows, _cont} -> rows
         :"$end_of_table" -> []
-        rows when is_list(rows) -> rows
+        {rows, _cont} -> rows
       end
 
     candidates
