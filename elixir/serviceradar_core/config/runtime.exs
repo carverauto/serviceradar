@@ -1392,9 +1392,10 @@ if config_env() == :prod do
       batch_size: String.to_integer(System.get_env("EVENT_WRITER_BATCH_SIZE") || "100"),
       batch_timeout: String.to_integer(System.get_env("EVENT_WRITER_BATCH_TIMEOUT") || "1000"),
       consumer_name: System.get_env("EVENT_WRITER_CONSUMER_NAME", "serviceradar-event-writer"),
-      # Flow control: bound per-consumer in-flight (max_ack_pending) so up to ~9
-      # PUSH consumers cannot flood the single producer mailbox (the OOM
-      # regression). All tunable without a rebuild via env.
+      # Flow control: pull consumers request bounded work only when Broadway has
+      # demand. All tunable without a rebuild via env.
+      consumer_pull_batch_size:
+        String.to_integer(System.get_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") || "16"),
       max_ack_pending: String.to_integer(System.get_env("EVENT_WRITER_MAX_ACK_PENDING") || "256"),
       processor_concurrency:
         String.to_integer(System.get_env("EVENT_WRITER_PROCESSOR_CONCURRENCY") || "10"),
@@ -1475,6 +1476,7 @@ if config_env() == :prod do
           stream_discard: "old",
           stream_max_bytes: 1_073_741_824,
           stream_max_age: 1_800_000_000_000,
+          consumer_pull_batch_size: 4,
           consumer_max_deliver: 5
         },
         %{

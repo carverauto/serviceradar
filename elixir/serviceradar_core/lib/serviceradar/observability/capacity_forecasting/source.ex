@@ -78,18 +78,6 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Source do
         threshold: 100.0
       },
       %__MODULE__{
-        name: "process_count",
-        resource_type: "process",
-        metric_class: "process",
-        metric_name: "count",
-        query:
-          ~s|in:timeseries_metrics metric_type:"sysmon.process" metric_name:"process.count" time:#{time_range} bucket:1h agg:avg series:uid sort:timestamp:desc limit:#{limit}|,
-        value_field: "value",
-        bucket_field: "timestamp",
-        key_fields: ["series"],
-        label_fields: ["series"]
-      },
-      %__MODULE__{
         name: "interface_rate",
         resource_type: "interface",
         metric_class: "interface",

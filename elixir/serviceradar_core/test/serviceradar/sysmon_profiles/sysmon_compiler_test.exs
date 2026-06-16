@@ -190,5 +190,26 @@ defmodule ServiceRadar.AgentConfig.Compilers.SysmonCompilerTest do
       assert config["profile_name"] == "Production Monitoring"
       assert config["config_source"] == "remote"
     end
+
+    test "defaults nil process limit to top 25" do
+      profile = %SysmonProfile{
+        id: "test-uuid",
+        name: "Bounded Process Monitoring",
+        enabled: true,
+        sample_interval: "30s",
+        collect_cpu: true,
+        collect_memory: true,
+        collect_disk: true,
+        collect_network: false,
+        collect_processes: true,
+        process_limit: nil,
+        disk_paths: [],
+        disk_exclude_paths: [],
+        thresholds: %{},
+        target_query: "in:devices"
+      }
+
+      assert %{"process_limit" => 25} = SysmonCompiler.compile_profile(profile)
+    end
   end
 end

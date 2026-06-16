@@ -107,6 +107,19 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
   end
 
   test "worker reads aggregate history through SRQL and upserts projected forecasts" do
+    event = [:serviceradar, :observability, :capacity_forecasting, :source]
+    handler_id = {:capacity_source_projected, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
     source = %Source{
       name: "cpu_usage",
       resource_type: "cpu",
@@ -132,15 +145,21 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
       scheduled_at: @forecasted_at
     }
 
-    assert :ok =
-             Worker.run(job,
-               sources: [source],
-               runner: Runner,
-               upsert_fun: upsert_fun,
-               emit_verdicts?: false,
-               horizon_seconds: 24 * 3_600,
-               min_points: 24
-             )
+    result =
+      try do
+        Worker.run(job,
+          sources: [source],
+          runner: Runner,
+          upsert_fun: upsert_fun,
+          emit_verdicts?: false,
+          horizon_seconds: 24 * 3_600,
+          min_points: 24
+        )
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert result == :ok
 
     assert_received {:capacity_forecast_query, query}
     assert query =~ "in:cpu_metrics"
@@ -158,6 +177,16 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert attrs.projected_value > attrs.current_value
     assert attrs.projected_exhaustion_at
     assert attrs.metadata["query"] == source.query
+
+    assert_receive {^handler_id, %{count: 1, rows: 48, sample_count: 48},
+                    %{
+                      source: "cpu_usage",
+                      metric_class: "cpu",
+                      metric_name: "usage_percent",
+                      status: "projected",
+                      skip_reason: "none",
+                      result: :ok
+                    }}
   end
 
   test "worker pages capacity history instead of truncating at the first SRQL limit page" do
@@ -391,7 +420,8 @@ defmodule ServiceRadar.Observability.CapacityForecasting.WorkerTest do
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.cpu"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.memory"|))
     assert Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.disk"|))
-    assert Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_type:"sysmon.process"|))
+    refute Enum.any?(queries, &String.contains?(&1, ~s|metric_name:"process.count"|))
     assert Enum.any?(queries, &String.contains?(&1, "in:timeseries_metric_interface_hourly"))
     assert Enum.any?(queries, &String.contains?(&1, "in:flows"))
     refute Enum.any?(sources, &(&1.name == "timeseries_value"))

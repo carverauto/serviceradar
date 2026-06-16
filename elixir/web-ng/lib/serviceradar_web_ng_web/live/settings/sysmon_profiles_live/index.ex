@@ -819,7 +819,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
           <div class="max-w-xs">
             <label class="label">
               <span class="label-text">Process sample limit</span>
-              <span class="label-text-alt text-base-content/50">0 = unlimited</span>
+              <span class="label-text-alt text-base-content/50">Default 25, 0 = unlimited</span>
             </label>
             <.input
               type="number"
@@ -1271,7 +1271,7 @@ defmodule ServiceRadarWebNGWeb.Settings.SysmonProfilesLive.Index do
 
   defp normalize_process_limit(params) do
     case Map.get(params, "process_limit") do
-      "" -> Map.put(params, "process_limit", "0")
+      "" -> Map.put(params, "process_limit", "25")
       value when is_integer(value) and value < 0 -> Map.put(params, "process_limit", 0)
       _ -> params
     end

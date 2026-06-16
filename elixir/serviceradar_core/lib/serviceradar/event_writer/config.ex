@@ -41,6 +41,8 @@ defmodule ServiceRadar.EventWriter.Config do
   - `EVENT_WRITER_NATS_CREDS_FILE` - Path to NATS .creds file (JWT auth)
   - `EVENT_WRITER_BATCH_SIZE` - Batch size for inserts (default: 100)
   - `EVENT_WRITER_BATCH_TIMEOUT` - Batch timeout in ms (default: 1000)
+  - `EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE` - Max JetStream messages requested per pull (default: 16)
+  - `EVENT_WRITER_CONSUMER_LAG_POLL_INTERVAL_MS` - JetStream consumer lag poll interval (default: 30000)
   """
 
   alias ServiceRadar.EventWriter.Processors.CausalSignals
@@ -54,14 +56,15 @@ defmodule ServiceRadar.EventWriter.Config do
   @default_batch_timeout 1_000
   @default_consumer_name "serviceradar-event-writer"
 
-  # Flow-control defaults. The single Broadway producer receives JetStream
-  # messages PUSHED from every consumer's deliver_subject. Each consumer's
-  # max_ack_pending is the server-enforced ceiling on how many unacked messages
-  # the server will push before it stops. Bounding it to roughly the pipeline's
-  # in-flight capacity (processors x batch_size) keeps the producer mailbox from
-  # growing unbounded -- the regression that OOM-killed core (273k mailbox, 9.6GB
-  # refc binary). 256 is deliberately small: with N consumers the aggregate
-  # server-side ceiling is N x max_ack_pending, so per-consumer must stay tight.
+  # Flow-control defaults. The Broadway producer uses JetStream pull consumers
+  # and requests at most this many NATS messages per pull request. These are
+  # messages, not expanded metric rows; high-payload streams should stay small.
+  @default_consumer_pull_batch_size 16
+  @default_consumer_lag_poll_interval_ms 30_000
+
+  # `max_ack_pending` is still the server-side delivered-but-unacked ceiling for
+  # each durable, but pull mode means it is a safety bound rather than a push
+  # prefetch target.
   @default_max_ack_pending 256
   @default_processor_concurrency 10
   # 120s (in ns) gives a slow batch room before the server redelivers, avoiding
@@ -77,10 +80,12 @@ defmodule ServiceRadar.EventWriter.Config do
     :consumer_name,
     :producer_name,
     :streams,
+    :consumer_pull_batch_size,
     :max_ack_pending,
     :processor_concurrency,
     :ack_wait_ns,
-    :max_deliver
+    :max_deliver,
+    :consumer_lag_poll_interval_ms
   ]
 
   @type t :: %__MODULE__{
@@ -91,10 +96,12 @@ defmodule ServiceRadar.EventWriter.Config do
           consumer_name: String.t(),
           producer_name: atom() | nil,
           streams: [stream_config()],
+          consumer_pull_batch_size: pos_integer(),
           max_ack_pending: pos_integer(),
           processor_concurrency: pos_integer(),
           ack_wait_ns: pos_integer(),
-          max_deliver: pos_integer()
+          max_deliver: pos_integer(),
+          consumer_lag_poll_interval_ms: pos_integer()
         }
 
   @type nats_config :: %{
@@ -124,6 +131,8 @@ defmodule ServiceRadar.EventWriter.Config do
           optional(:stream_duplicate_window) => pos_integer() | nil,
           optional(:consumer_max_deliver) => integer() | nil,
           optional(:consumer_max_ack_pending) => pos_integer() | nil,
+          optional(:consumer_ack_wait_ns) => pos_integer() | nil,
+          optional(:consumer_pull_batch_size) => pos_integer() | nil,
           optional(:consumer_deliver_policy) => atom() | nil,
           optional(:consumer_inactive_threshold) => non_neg_integer() | nil
         }
@@ -143,10 +152,12 @@ defmodule ServiceRadar.EventWriter.Config do
       consumer_name: load_consumer_name(config),
       producer_name: Keyword.get(config, :producer_name),
       streams: load_streams(config),
+      consumer_pull_batch_size: load_consumer_pull_batch_size(config),
       max_ack_pending: load_max_ack_pending(config),
       processor_concurrency: load_processor_concurrency(config),
       ack_wait_ns: load_ack_wait_ns(config),
-      max_deliver: load_max_deliver(config)
+      max_deliver: load_max_deliver(config),
+      consumer_lag_poll_interval_ms: load_consumer_lag_poll_interval_ms(config)
     }
   end
 
@@ -155,6 +166,32 @@ defmodule ServiceRadar.EventWriter.Config do
   """
   @spec default_max_ack_pending() :: pos_integer()
   def default_max_ack_pending, do: @default_max_ack_pending
+
+  @doc """
+  Returns the default JetStream pull batch size in messages.
+  """
+  @spec default_consumer_pull_batch_size() :: pos_integer()
+  def default_consumer_pull_batch_size, do: @default_consumer_pull_batch_size
+
+  @doc """
+  Returns the default JetStream consumer lag poll interval in milliseconds.
+  """
+  @spec default_consumer_lag_poll_interval_ms() :: pos_integer()
+  def default_consumer_lag_poll_interval_ms, do: @default_consumer_lag_poll_interval_ms
+
+  @doc """
+  Builds the durable consumer name used for a configured EventWriter stream.
+  """
+  @spec durable_name(String.t(), String.t()) :: String.t()
+  def durable_name(base, stream_name) when is_binary(base) and is_binary(stream_name) do
+    suffix =
+      stream_name
+      |> String.downcase()
+      |> String.replace(~r/[^a-z0-9]+/, "-")
+      |> String.trim("-")
+
+    "#{base}-#{suffix}"
+  end
 
   @doc """
   Returns the default Broadway processor concurrency.
@@ -279,6 +316,7 @@ defmodule ServiceRadar.EventWriter.Config do
         # fj #3788 REC4: dedup exact redeliveries (consumer_max_deliver: 5) within a
         # 2-minute window, keyed on the Nats-Msg-Id (= ingress_id) the gateway stamps.
         stream_duplicate_window: 120_000_000_000,
+        consumer_pull_batch_size: 4,
         consumer_max_deliver: 5
       },
       %{
@@ -406,6 +444,26 @@ defmodule ServiceRadar.EventWriter.Config do
       "EVENT_WRITER_MAX_ACK_PENDING",
       Keyword.get(config, :max_ack_pending, @default_max_ack_pending),
       @default_max_ack_pending
+    )
+  end
+
+  defp load_consumer_pull_batch_size(config) do
+    load_positive_int(
+      "EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE",
+      Keyword.get(config, :consumer_pull_batch_size, @default_consumer_pull_batch_size),
+      @default_consumer_pull_batch_size
+    )
+  end
+
+  defp load_consumer_lag_poll_interval_ms(config) do
+    load_positive_int(
+      "EVENT_WRITER_CONSUMER_LAG_POLL_INTERVAL_MS",
+      Keyword.get(
+        config,
+        :consumer_lag_poll_interval_ms,
+        @default_consumer_lag_poll_interval_ms
+      ),
+      @default_consumer_lag_poll_interval_ms
     )
   end
 

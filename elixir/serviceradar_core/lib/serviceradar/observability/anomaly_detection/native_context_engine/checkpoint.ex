@@ -228,8 +228,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.NativeContextEngine.Checkp
     ArgumentError -> :error
   end
 
-  defp decode_term(_value), do: :error
-
   defp checkpoint_value(map, key, default \\ nil) when is_map(map) do
     Map.get(map, key, Map.get(map, Atom.to_string(key), default))
   end

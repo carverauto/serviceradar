@@ -112,11 +112,17 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
               attrs
               |> persist_and_emit(opts)
               |> case do
-                :ok -> {:cont, :ok}
-                {:error, reason} -> {:halt, {:error, reason}}
+                :ok ->
+                  emit_source_telemetry(source, attrs, length(rows), :ok)
+                  {:cont, :ok}
+
+                {:error, reason} ->
+                  emit_source_error_telemetry(source, :persist, reason)
+                  {:halt, {:error, reason}}
               end
 
             {:error, reason} ->
+              emit_source_error_telemetry(source, :forecast, reason)
               {:halt, {:error, reason}}
           end
         end)
@@ -127,6 +133,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
           reason: inspect(reason)
         )
 
+        emit_source_error_telemetry(source, :query, reason)
         {:error, reason}
     end
   end
@@ -344,6 +351,55 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
       :ok
     end
   end
+
+  defp emit_source_telemetry(%Source{} = source, attrs, row_count, result) do
+    :telemetry.execute(
+      [:serviceradar, :observability, :capacity_forecasting, :source],
+      %{
+        count: 1,
+        rows: non_negative(row_count),
+        sample_count: non_negative(Map.get(attrs, :sample_count))
+      },
+      %{
+        source: source.name,
+        metric_class: source.metric_class,
+        metric_name: source.metric_name,
+        status: Map.get(attrs, :status) || "unknown",
+        skip_reason: Map.get(attrs, :skip_reason) || "none",
+        result: result
+      }
+    )
+
+    :ok
+  end
+
+  defp emit_source_error_telemetry(%Source{} = source, phase, reason) do
+    :telemetry.execute(
+      [:serviceradar, :observability, :capacity_forecasting, :source],
+      %{count: 1, rows: 0, sample_count: 0},
+      %{
+        source: source.name,
+        metric_class: source.metric_class,
+        metric_name: source.metric_name,
+        status: "error",
+        skip_reason: "none",
+        phase: phase,
+        result: :error,
+        reason_class: reason_class(reason)
+      }
+    )
+
+    :ok
+  end
+
+  defp non_negative(value) when is_integer(value) and value >= 0, do: value
+  defp non_negative(value) when is_float(value) and value >= 0, do: value
+  defp non_negative(_value), do: 0
+
+  defp reason_class(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_class({reason, _}) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_class(%_{}), do: "exception"
+  defp reason_class(_reason), do: "error"
 
   defp emit_verdicts?(opts), do: Keyword.get(opts, :emit_verdicts?, true)
 

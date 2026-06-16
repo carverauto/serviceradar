@@ -48,6 +48,36 @@ defmodule ServiceRadar.Observability.MetricEnvelopeTest do
   end
 
   describe "series_key trust boundary (finding 2a)" do
+    test "emits telemetry for mismatched producer hints without trusting them" do
+      event = [:serviceradar, :observability, :series_identity_hint, :mismatch]
+      handler_id = {:metric_envelope_series_hint_mismatch, make_ref()}
+      test_pid = self()
+
+      :telemetry.attach(
+        handler_id,
+        event,
+        fn ^event, measurements, metadata, _config ->
+          send(test_pid, {handler_id, measurements, metadata})
+        end,
+        nil
+      )
+
+      try do
+        [row] =
+          decode_one(
+            gauge_metric("memory.used_percent", "sysmon.memory", 50.0,
+              tags: %{"host_id" => "host-1"},
+              series_identity_hint: "spoofed-key"
+            )
+          )
+
+        assert row.metadata["series_identity_hint"] == "spoofed-key"
+        assert_receive {^handler_id, %{count: 1}, %{source: :metric_envelope}}
+      after
+        :telemetry.detach(handler_id)
+      end
+    end
+
     test "derives series_key from attested fields even when a different hint is present" do
       [row] =
         decode_one(

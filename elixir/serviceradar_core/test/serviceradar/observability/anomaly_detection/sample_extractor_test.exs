@@ -62,6 +62,47 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.metadata["ingress_timestamp_unix_nano"] == @ingress_time
   end
 
+  test "drops sysmon process metrics from anomaly analysis by default" do
+    event = [:serviceradar, :observability, :anomaly_detection, :sample_extractor, :batch]
+    handler_id = {:sample_extractor_process_drop, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
+    result =
+      try do
+        SampleExtractor.extract(%{
+          data: sysmon_process_batch("process.count"),
+          metadata: %{subject: "metrics.sysmon.process"}
+        })
+      after
+        :telemetry.detach(handler_id)
+      end
+
+    assert result == []
+
+    assert [] =
+             SampleExtractor.extract(%{
+               data: sysmon_process_batch("process.cpu_usage"),
+               metadata: %{subject: "metrics.sysmon.process"}
+             })
+
+    assert_receive {^handler_id,
+                    %{
+                      accepted_samples: 0,
+                      dropped_samples: 1,
+                      dropped_process_samples: 1,
+                      dropped_unidentified_samples: 0
+                    }, %{subject_class: "metrics_sysmon"}}
+  end
+
   test "extracts snmp scalar samples" do
     [sample] =
       SampleExtractor.extract(%{
@@ -88,16 +129,34 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   end
 
   test "derives series_key from attested fields even when a different hint is present (finding 2a)" do
+    event = [:serviceradar, :observability, :series_identity_hint, :mismatch]
+    handler_id = {:sample_extractor_series_hint_mismatch, make_ref()}
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      event,
+      fn ^event, measurements, metadata, _config ->
+        send(test_pid, {handler_id, measurements, metadata})
+      end,
+      nil
+    )
+
     [sample] =
-      SampleExtractor.extract(%{
-        data: sysmon_memory_batch(series_identity_hint: "spoofed-canonical-key"),
-        metadata: %{subject: "metrics.sysmon.memory"}
-      })
+      try do
+        SampleExtractor.extract(%{
+          data: sysmon_memory_batch(series_identity_hint: "spoofed-canonical-key"),
+          metadata: %{subject: "metrics.sysmon.memory"}
+        })
+      after
+        :telemetry.detach(handler_id)
+      end
 
     # The hint must never become the canonical key; it is debug metadata only.
     refute sample.series_key == "sysmon.memory:spoofed-canonical-key"
     assert String.starts_with?(sample.series_key, "sysmon.memory:")
     assert sample.metadata["series_identity_hint"] == "spoofed-canonical-key"
+    assert_receive {^handler_id, %{count: 1}, %{source: :sample_extractor}}
   end
 
   test "drops an identity-less sysmon sample WITH a hint (hint cannot rescue identity) (finding 2b)" do
@@ -347,6 +406,32 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
       service_type: "sysmon",
       ingress_id: Keyword.get(opts, :ingress_id, ""),
       ingress_timestamp: Keyword.get(opts, :ingress_timestamp, 0)
+    )
+  end
+
+  defp sysmon_process_batch(metric_name) do
+    metric_batch(
+      [
+        %SrMetric{
+          name: metric_name,
+          metric_type: "sysmon.process",
+          kind: :METRIC_KIND_GAUGE,
+          unit: "count",
+          tags: entries(%{"host_id" => "host-1", "process_name" => "postgres"}),
+          points: [
+            %MetricPoint{
+              value: 12.0,
+              raw_value: "12.0",
+              raw_value_type: :METRIC_VALUE_TYPE_DOUBLE,
+              observed_at_unix_nano: @point_time_a,
+              series_identity_hint: "sysmon:process:host-1:postgres"
+            }
+          ]
+        }
+      ],
+      source: "sysmon-metrics",
+      service_name: "sysmon",
+      service_type: "sysmon"
     )
   end
 

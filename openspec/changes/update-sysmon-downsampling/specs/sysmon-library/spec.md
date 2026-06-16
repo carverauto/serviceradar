@@ -30,3 +30,30 @@ The library SHALL include window metadata on downsampled samples so consumers ca
 - **WHEN** it is serialized
 - **THEN** it includes the window start and end timestamps
 - **AND** it includes the aggregation mode used per metric group
+
+### Requirement: Process Rollup And Detail Modes
+The `pkg/sysmon` library SHALL support a fleet-safe process rollup mode and an explicit raw detail mode.
+
+#### Scenario: Rollup mode suppresses raw per-process rows
+- **GIVEN** process collection is enabled with `process_mode: rollup`
+- **WHEN** the collector emits an upload sample
+- **THEN** the sample includes process count and configured top-N summary fields
+- **AND** it does not emit one raw CPU and memory metric row per process
+
+#### Scenario: Detail mode emits bounded per-process rows
+- **GIVEN** process collection is enabled with `process_mode: detail` and a process limit
+- **WHEN** the collector emits an upload sample
+- **THEN** it emits raw per-process CPU and memory rows only up to the configured process limit
+- **AND** the sample includes metadata that identifies the detail collection window
+
+#### Scenario: Top-N mode remains bounded
+- **GIVEN** process collection is enabled with `process_mode: top_n` and `process_top_n: 10`
+- **WHEN** the collector emits an upload sample
+- **THEN** no more than 10 process identities contribute raw detail rows per metric family
+- **AND** process count rollup remains present for fleet-wide trend analysis
+
+#### Scenario: Process telemetry is diagnostic by default
+- **GIVEN** sysmon process metrics are published to JetStream and persisted to CNPG
+- **WHEN** default anomaly detection and capacity planning consumers evaluate their input streams
+- **THEN** they ignore `sysmon.process` metrics
+- **AND** process telemetry remains available for diagnostic views and explicit future opt-in policies

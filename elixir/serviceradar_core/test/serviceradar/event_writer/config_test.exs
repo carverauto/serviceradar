@@ -96,6 +96,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       assert metrics.stream_discard == "old"
       assert metrics.stream_max_bytes == 1_073_741_824
       assert metrics.stream_max_age == 1_800_000_000_000
+      assert metrics.consumer_pull_batch_size == 4
       assert metrics.consumer_max_deliver == 5
       refute metrics.stream_retention == "workqueue"
     end
@@ -137,6 +138,14 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
       assert config.nats.host == "localhost"
       assert config.nats.port == 4222
+    end
+
+    test "builds stable durable names for stream configs" do
+      assert Config.durable_name("serviceradar-event-writer", "OTEL_METRICS") ==
+               "serviceradar-event-writer-otel-metrics"
+
+      assert Config.durable_name("serviceradar-event-writer", "ARANCINI_CAUSAL") ==
+               "serviceradar-event-writer-arancini-causal"
     end
 
     test "uses default batch settings" do
@@ -192,6 +201,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       config = Config.load()
 
       assert config.max_ack_pending == 256
+      assert config.consumer_pull_batch_size == 16
       assert config.max_ack_pending < 5_000
       assert config.processor_concurrency == 10
       assert config.ack_wait_ns == 120_000_000_000
@@ -200,6 +210,7 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
 
     test "exposes the documented defaults" do
       assert Config.default_max_ack_pending() == 256
+      assert Config.default_consumer_pull_batch_size() == 16
       assert Config.default_processor_concurrency() == 10
       assert Config.default_ack_wait_ns() == 120_000_000_000
       assert Config.default_max_deliver() == 5
@@ -210,6 +221,13 @@ defmodule ServiceRadar.EventWriter.ConfigTest do
       on_exit(fn -> System.delete_env("EVENT_WRITER_MAX_ACK_PENDING") end)
 
       assert Config.load().max_ack_pending == 512
+    end
+
+    test "pull batch size is tunable from the environment without a rebuild" do
+      System.put_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE", "32")
+      on_exit(fn -> System.delete_env("EVENT_WRITER_CONSUMER_PULL_BATCH_SIZE") end)
+
+      assert Config.load().consumer_pull_batch_size == 32
     end
 
     test "processor concurrency is tunable from the environment" do

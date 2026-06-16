@@ -86,9 +86,6 @@ defmodule ServiceRadar.EventWriter.Processors.Telemetry do
     messages
     |> Enum.reduce([], fn message, rows ->
       case parse_message(message) do
-        row when is_map(row) ->
-          [row | rows]
-
         decoded_rows when is_list(decoded_rows) ->
           Enum.reverse(decoded_rows, rows)
 

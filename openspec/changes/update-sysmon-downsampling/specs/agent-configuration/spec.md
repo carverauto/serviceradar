@@ -52,6 +52,7 @@ The sysmon configuration MUST follow a defined JSON schema.
   "collect_network": false,
   "collect_processes": false,
   "disk_paths": ["/", "/data"],
+  "process_mode": "rollup",
   "process_top_n": 10,
   "thresholds": {
     "cpu_warning": "80",
@@ -73,3 +74,24 @@ The sysmon configuration MUST follow a defined JSON schema.
 - **GIVEN** sample_interval values
 - **THEN** the following formats are valid: "10s", "1m", "500ms", "2m30s"
 - **AND** invalid formats cause a validation error
+
+### Requirement: Process Telemetry Detail Mode
+The sysmon configuration MUST distinguish fleet-safe process rollups from raw per-process detail so large deployments can bound raw row volume.
+
+#### Scenario: Default process mode is rollup
+- **GIVEN** a sysmon profile enables process collection without specifying `process_mode`
+- **WHEN** the profile is compiled for an agent
+- **THEN** the compiled config uses `process_mode: rollup`
+- **AND** raw per-process CPU and memory rows are not enabled by default
+
+#### Scenario: Detail mode requires explicit configuration
+- **GIVEN** an operator configures `process_mode: detail`
+- **WHEN** the profile is compiled
+- **THEN** per-process raw CPU and memory rows may be emitted
+- **AND** the config MUST include bounded targeting or a bounded detail window
+
+#### Scenario: Process metrics are excluded from default analytic engines
+- **GIVEN** a sysmon profile emits process telemetry
+- **WHEN** ServiceRadar builds default anomaly-detection and capacity-planning inputs
+- **THEN** `sysmon.process` metrics are excluded
+- **AND** CPU, memory, filesystem/disk, interface, service health, and flow aggregates remain eligible by default

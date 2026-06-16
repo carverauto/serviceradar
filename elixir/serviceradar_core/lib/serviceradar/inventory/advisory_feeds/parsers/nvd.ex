@@ -11,7 +11,8 @@ defmodule ServiceRadar.Inventory.AdvisoryFeeds.Parsers.Nvd do
   one record at a time off disk and handing it here.
   """
 
-  alias ServiceRadar.Inventory.AdvisoryFeeds.{Cpe, VersionRange}
+  alias ServiceRadar.Inventory.AdvisoryFeeds.Cpe
+  alias ServiceRadar.Inventory.AdvisoryFeeds.VersionRange
 
   @provider "nvd"
 

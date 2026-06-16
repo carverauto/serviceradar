@@ -7,19 +7,17 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   ## Implementation Notes
 
-  This producer subscribes to the `deliver_subject` of one durable PUSH consumer
-  per configured stream. JetStream pushes messages into this process's mailbox up
-  to each consumer's `max_ack_pending` ceiling, then stops until messages are
-  acknowledged. Flow control therefore has two enforcement points:
+  This producer creates one durable PULL consumer per configured stream. It asks
+  JetStream for messages only when Broadway has downstream demand and local
+  in-flight capacity. Flow control therefore has two enforcement points:
 
-    1. **Server-side**: a tight per-consumer `max_ack_pending`
-       (`Config.max_ack_pending`, default 256) caps how many unacked messages the
-       server will push before pausing. This is the primary bound -- it is what
-       stops the unbounded mailbox growth that previously OOM-killed core.
+    1. **Server-side**: `max_ack_pending` caps delivered-but-unacked messages for
+       each durable. In pull mode this is a safety ceiling, not a push prefetch
+       target.
     2. **Producer-side**: `@max_buffered_messages` caps the in-process buffer of
-       messages waiting on Broadway demand. Anything beyond the cap is NAK'd back
-       to the server (which holds it and respects `max_ack_pending`) instead of
-       being retained in this process's heap.
+       messages already fetched and waiting on Broadway demand. Anything beyond
+       the cap is NAK'd back to the server instead of being retained in this
+       process's heap.
 
   Broadway demand drains the buffer; messages are acked only after the pipeline
   finishes processing them, which is what releases the server's `max_ack_pending`
@@ -42,7 +40,9 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   use GenStage
 
+  alias Jetstream.API.Consumer, as: JetstreamConsumerApi
   alias ServiceRadar.EventWriter.Config
+  alias ServiceRadar.EventWriter.Telemetry, as: EventWriterTelemetry
   alias ServiceRadar.NATS.JetstreamConsumer
 
   require Logger
@@ -68,8 +68,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     :streams,
     :pending_messages,
     :pending_count,
+    :pull_inflight,
+    :pull_inflight_by_subject,
     :max_buffered,
-    :dropped_overflow
+    :dropped_overflow,
+    :pull_subjects
   ]
 
   # Client API
@@ -95,10 +98,13 @@ defmodule ServiceRadar.EventWriter.Producer do
       demand: 0,
       connected: false,
       streams: config.streams,
-      pending_messages: [],
+      pending_messages: :queue.new(),
       pending_count: 0,
+      pull_inflight: 0,
+      pull_inflight_by_subject: %{},
       max_buffered: max_buffered,
-      dropped_overflow: 0
+      dropped_overflow: 0,
+      pull_subjects: MapSet.new()
     }
 
     # Start connection asynchronously
@@ -125,7 +131,11 @@ defmodule ServiceRadar.EventWriter.Producer do
     state = %{state | demand: new_demand}
 
     if state.connected and new_demand > 0 do
-      {messages, state} = fetch_messages(state)
+      {messages, state} =
+        state
+        |> drain_pending_messages()
+        |> maybe_request_pull_messages()
+
       {:noreply, messages, state}
     else
       {:noreply, [], state}
@@ -165,7 +175,11 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   def handle_info(:fetch, state) do
     if state.connected and state.demand > 0 do
-      {messages, state} = fetch_messages(state)
+      {messages, state} =
+        state
+        |> drain_pending_messages()
+        |> maybe_request_pull_messages()
+
       schedule_fetch()
       {:noreply, messages, state}
     else
@@ -177,19 +191,44 @@ defmodule ServiceRadar.EventWriter.Producer do
   def handle_info({:DOWN, _ref, :process, pid, reason}, %{conn: conn} = state) when pid == conn do
     Logger.warning("NATS connection process died: #{inspect(reason)}")
     send(self(), :connect)
-    {:noreply, [], %{state | connected: false, conn: nil, consumer_context: nil}}
+
+    {:noreply, [],
+     %{
+       state
+       | connected: false,
+         conn: nil,
+         consumer_context: nil,
+         pull_inflight: 0,
+         pull_inflight_by_subject: %{}
+     }}
   end
 
-  # Handle incoming NATS messages from JetStream durable consumer delivery subjects.
+  # Handle incoming NATS messages from JetStream pull reply subjects.
   def handle_info({:msg, %{body: body, topic: subject, reply_to: reply_to} = msg}, state) do
-    if state.pending_count >= state.max_buffered do
-      # Producer-side overflow guard: the in-process buffer is full. NAK the
-      # message so the server retains it (and respects max_ack_pending) rather
-      # than letting this process's heap grow unbounded -- the OOM regression.
-      nak_overflow(state.conn, reply_to)
-      {:noreply, [], maybe_warn_overflow(state)}
-    else
-      buffer_message(body, subject, reply_to, msg, state)
+    cond do
+      pull_status_message?(msg, state) ->
+        state = clear_pull_inflight(state, subject)
+        EventWriterTelemetry.emit_queue(state, :pull_status, subject)
+        {:noreply, [], state}
+
+      state.pending_count >= state.max_buffered ->
+        # Producer-side overflow guard: the in-process buffer is full. NAK the
+        # message so the server retains it (and respects max_ack_pending) rather
+        # than letting this process's heap grow unbounded -- the OOM regression.
+        nak_overflow(state.conn, reply_to)
+
+        state =
+          state
+          |> decrement_pull_inflight()
+          |> maybe_warn_overflow()
+
+        EventWriterTelemetry.emit_queue(state, :overflow, subject)
+        {:noreply, [], state}
+
+      true ->
+        state
+        |> decrement_pull_inflight()
+        |> buffer_message(body, subject, reply_to, msg)
     end
   end
 
@@ -199,10 +238,9 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   # Private functions
 
-  # Buffers a freshly received JetStream message. `pending_messages` is kept in
-  # reverse arrival order (newest first) so appends are O(1); it is reversed when
-  # drained in fetch_messages/1.
-  defp buffer_message(body, subject, reply_to, msg, state) do
+  # Buffers a freshly received JetStream message. `pending_messages` is an
+  # Erlang queue so enqueue and drain are O(1) per message without list reversal.
+  defp buffer_message(state, body, subject, reply_to, msg) do
     headers = Map.get(msg, :headers, %{})
     original_subject = extract_original_subject(subject, headers)
 
@@ -212,7 +250,8 @@ defmodule ServiceRadar.EventWriter.Producer do
         subject: original_subject,
         reply_to: reply_to,
         headers: headers,
-        received_at: DateTime.utc_now()
+        received_at: DateTime.utc_now(),
+        received_monotonic: System.monotonic_time()
       },
       ack_data: %{
         conn: state.conn,
@@ -223,12 +262,18 @@ defmodule ServiceRadar.EventWriter.Producer do
 
     state = %{
       state
-      | pending_messages: [broadway_event | state.pending_messages],
+      | pending_messages: :queue.in(broadway_event, state.pending_messages),
         pending_count: state.pending_count + 1
     }
 
+    EventWriterTelemetry.emit_queue(state, :enqueue, original_subject)
+
     if state.demand > 0 do
-      {messages, state} = fetch_messages(state)
+      {messages, state} =
+        state
+        |> drain_pending_messages()
+        |> maybe_request_pull_messages()
+
       {:noreply, messages, state}
     else
       {:noreply, [], state}
@@ -368,21 +413,24 @@ defmodule ServiceRadar.EventWriter.Producer do
     ack_wait_ns = config.ack_wait_ns || Config.default_ack_wait_ns()
     max_deliver = config.max_deliver || Config.default_max_deliver()
 
+    default_pull_batch_size =
+      config.consumer_pull_batch_size || Config.default_consumer_pull_batch_size()
+
     consumers =
       config.streams
       |> Enum.map(fn stream ->
-        durable_name = durable_name(config.consumer_name, stream.name)
-        deliver_subject = deliver_subject(config.consumer_name, stream.name)
+        durable_name = Config.durable_name(config.consumer_name, stream.name)
+        pull_subject = pull_subject(config.consumer_name, stream.name)
+        pull_batch_size = Map.get(stream, :consumer_pull_batch_size, default_pull_batch_size)
 
         with {:ok, ensured} <-
                JetstreamConsumer.ensure_durable(conn,
                  stream_name: Map.get(stream, :stream_name) || stream.name,
                  consumer_name: durable_name,
                  filter_subject: stream.subject,
-                 deliver_subject: deliver_subject,
                  description: "EventWriter consumer for #{stream.name}",
                  ack_policy: :explicit,
-                 ack_wait: ack_wait_ns,
+                 ack_wait: Map.get(stream, :consumer_ack_wait_ns, ack_wait_ns),
                  deliver_policy: Map.get(stream, :consumer_deliver_policy, :all),
                  max_ack_pending: Map.get(stream, :consumer_max_ack_pending, max_ack_pending),
                  max_deliver: Map.get(stream, :consumer_max_deliver, max_deliver),
@@ -395,16 +443,24 @@ defmodule ServiceRadar.EventWriter.Producer do
                  stream_max_age: Map.get(stream, :stream_max_age),
                  stream_duplicate_window: Map.get(stream, :stream_duplicate_window)
                ),
-             {:ok, sid} <- Gnat.sub(conn, self(), deliver_subject) do
+             {:ok, sid} <- Gnat.sub(conn, self(), pull_subject) do
           Logger.info("EventWriter JetStream consumer ready",
             stream: ensured.stream_name,
             durable: durable_name,
             filter_subject: stream.subject,
-            deliver_subject: deliver_subject,
+            pull_subject: pull_subject,
+            pull_batch_size: pull_batch_size,
             sid: sid
           )
 
-          %{stream: ensured.stream_name, durable: durable_name, sid: sid, subject: stream.subject}
+          %{
+            stream: ensured.stream_name,
+            durable: durable_name,
+            sid: sid,
+            subject: stream.subject,
+            pull_subject: pull_subject,
+            pull_batch_size: pull_batch_size
+          }
         else
           {:error, reason} ->
             Logger.error("Failed to initialize EventWriter durable consumer",
@@ -421,39 +477,163 @@ defmodule ServiceRadar.EventWriter.Producer do
     if consumers == [] do
       {:error, :no_consumers_initialized}
     else
-      {:ok, %{conn: conn, consumer_name: config.consumer_name, consumers: consumers}}
+      pull_subjects = MapSet.new(consumers, & &1.pull_subject)
+
+      {:ok,
+       %{
+         conn: conn,
+         consumer_name: config.consumer_name,
+         consumers: consumers,
+         pull_subjects: pull_subjects
+       }}
     end
   end
 
   # Drains up to `demand` buffered messages, preserving FIFO order.
-  # `pending_messages` is stored newest-first, so it is reversed to arrival order
-  # before splitting. `pending_count` is kept in sync so the overflow guard never
-  # needs an O(n) length/1.
-  defp fetch_messages(%{demand: demand, pending_count: pending_count} = state)
+  # `pending_count` is kept in sync so the overflow guard never needs an O(n)
+  # length/1.
+  defp drain_pending_messages(%{demand: demand, pending_count: pending_count} = state)
        when demand <= 0 or pending_count == 0 do
     {[], state}
   end
 
-  defp fetch_messages(state) do
+  defp drain_pending_messages(state) do
     take = min(state.demand, state.pending_count)
-
-    {to_send, remaining} =
-      state.pending_messages
-      |> Enum.reverse()
-      |> Enum.split(take)
+    {to_send, remaining_queue} = queue_take(state.pending_messages, take, [])
 
     {to_send,
      %{
        state
-       | # keep the reverse-order invariant for the leftover (still newest-first)
-         pending_messages: Enum.reverse(remaining),
+       | pending_messages: remaining_queue,
          pending_count: state.pending_count - take,
          demand: state.demand - take
      }}
   end
 
+  defp maybe_request_pull_messages({messages, state}) do
+    {messages, request_pull_messages(state)}
+  end
+
+  defp request_pull_messages(%{connected: false} = state), do: state
+  defp request_pull_messages(%{demand: demand} = state) when demand <= 0, do: state
+
+  defp request_pull_messages(%{consumer_context: %{consumers: consumers}} = state) do
+    budget =
+      state.demand
+      |> min(state.max_buffered - state.pending_count - state.pull_inflight)
+      |> max(0)
+
+    per_consumer_budget = fair_consumer_budget(budget, length(consumers))
+
+    {requested, requested_by_subject, _remaining_budget} =
+      Enum.reduce_while(consumers, {0, [], budget}, fn consumer,
+                                                       {requested, requested_by_subject,
+                                                        remaining} ->
+        batch_size =
+          remaining
+          |> min(per_consumer_budget)
+          |> pull_request_batch_size(consumer.pull_batch_size)
+
+        if batch_size <= 0 do
+          {:halt, {requested, requested_by_subject, remaining}}
+        else
+          request_next_messages(state.conn, consumer, batch_size)
+
+          {:cont,
+           {requested + batch_size, [{consumer.pull_subject, batch_size} | requested_by_subject],
+            remaining - batch_size}}
+        end
+      end)
+
+    if requested > 0 do
+      EventWriterTelemetry.emit_pull_request(requested, state, %{
+        consumer_count: length(consumers)
+      })
+    end
+
+    record_pull_inflight(
+      %{state | pull_inflight: state.pull_inflight + requested},
+      requested_by_subject
+    )
+  end
+
+  defp request_pull_messages(state), do: state
+
+  @doc false
+  @spec pull_request_batch_size(non_neg_integer(), pos_integer() | nil) :: non_neg_integer()
+  def pull_request_batch_size(available, _pull_batch_size) when available <= 0, do: 0
+
+  def pull_request_batch_size(available, pull_batch_size)
+      when is_integer(pull_batch_size) and pull_batch_size > 0 do
+    min(available, pull_batch_size)
+  end
+
+  def pull_request_batch_size(available, _pull_batch_size) do
+    min(available, Config.default_consumer_pull_batch_size())
+  end
+
+  defp fair_consumer_budget(_budget, consumer_count) when consumer_count <= 0, do: 0
+  defp fair_consumer_budget(budget, _consumer_count) when budget <= 0, do: 0
+  defp fair_consumer_budget(budget, consumer_count), do: max(1, ceil(budget / consumer_count))
+
+  defp queue_take(queue, 0, acc), do: {Enum.reverse(acc), queue}
+
+  defp queue_take(queue, remaining, acc) do
+    case :queue.out(queue) do
+      {{:value, value}, queue} -> queue_take(queue, remaining - 1, [value | acc])
+      {:empty, queue} -> {Enum.reverse(acc), queue}
+    end
+  end
+
   defp schedule_fetch do
     Process.send_after(self(), :fetch, @fetch_interval)
+  end
+
+  defp pull_status_message?(%{body: body, topic: topic}, state) do
+    body == "" and MapSet.member?(pull_subjects(state), topic)
+  end
+
+  defp pull_subjects(%{consumer_context: %{pull_subjects: pull_subjects}}), do: pull_subjects
+  defp pull_subjects(%{pull_subjects: pull_subjects}), do: pull_subjects
+  defp pull_subjects(_state), do: MapSet.new()
+
+  defp request_next_messages(conn, consumer, batch_size) do
+    JetstreamConsumerApi.request_next_message(
+      conn,
+      consumer.stream,
+      consumer.durable,
+      consumer.pull_subject,
+      nil,
+      batch: batch_size,
+      no_wait: true
+    )
+  end
+
+  defp record_pull_inflight(state, []), do: state
+
+  defp record_pull_inflight(state, requested_by_subject) do
+    by_subject =
+      Enum.reduce(requested_by_subject, state.pull_inflight_by_subject, fn {pull_subject,
+                                                                            batch_size},
+                                                                           acc ->
+        Map.update(acc, pull_subject, batch_size, &(&1 + batch_size))
+      end)
+
+    %{state | pull_inflight_by_subject: by_subject}
+  end
+
+  defp decrement_pull_inflight(state) do
+    %{state | pull_inflight: max(state.pull_inflight - 1, 0)}
+  end
+
+  defp clear_pull_inflight(state, pull_subject) do
+    {cleared, by_subject} = Map.pop(state.pull_inflight_by_subject, pull_subject, 0)
+
+    %{
+      state
+      | pull_inflight: max(state.pull_inflight - cleared, 0),
+        pull_inflight_by_subject: by_subject
+    }
   end
 
   defp build_ack_fun(conn, reply_to) when is_binary(reply_to) and reply_to != "" do
@@ -509,24 +689,14 @@ defmodule ServiceRadar.EventWriter.Producer do
 
   defp resolve_conn_ref(conn), do: conn
 
-  defp durable_name(base, stream_name) do
-    suffix =
-      stream_name
-      |> String.downcase()
-      |> String.replace(~r/[^a-z0-9]+/, "-")
-      |> String.trim("-")
-
-    "#{base}-#{suffix}"
-  end
-
-  defp deliver_subject(base, stream_name) do
+  defp pull_subject(base, stream_name) do
     suffix =
       stream_name
       |> String.downcase()
       |> String.replace(~r/[^a-z0-9]+/, "_")
       |> String.trim("_")
 
-    "_INBOX.serviceradar.event_writer.#{base}.#{suffix}"
+    "_INBOX.serviceradar.event_writer.pull.#{base}.#{suffix}"
   end
 
   defp extract_original_subject(topic, headers) do

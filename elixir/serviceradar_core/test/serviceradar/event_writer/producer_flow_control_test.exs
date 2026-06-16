@@ -24,6 +24,7 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       consumer_name: "test-consumer",
       producer_name: nil,
       streams: [],
+      consumer_pull_batch_size: 16,
       max_ack_pending: 8,
       processor_concurrency: 4,
       ack_wait_ns: 120_000_000_000,
@@ -64,6 +65,22 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
     end
   end
 
+  defp attach_telemetry(events) do
+    handler_id = "producer-flow-control-test-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach_many(
+      handler_id,
+      events,
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
   describe "max_buffered/1" do
     test "derives the producer buffer ceiling from per-consumer max_ack_pending" do
       assert Producer.max_buffered(build_config(max_ack_pending: 256)) == 512
@@ -81,6 +98,11 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
 
   describe "in-flight buffer is capped at the configured bound" do
     test "buffer never exceeds max_buffered no matter how many messages are pushed" do
+      attach_telemetry([
+        [:serviceradar, :event_writer, :producer, :queue],
+        [:serviceradar, :event_writer, :producer, :overflow]
+      ])
+
       # max_ack_pending: 8 -> max_buffered = max(64, 16) = 64
       config = build_config(max_ack_pending: 8)
       state = init_state(config)
@@ -92,9 +114,19 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
 
       assert emitted == []
       assert state.pending_count == bound
-      assert length(state.pending_messages) == bound
+      assert :queue.len(state.pending_messages) == bound
       # Everything beyond the bound was NAK'd back to the server, not retained.
       assert state.dropped_overflow == bound * 10 - bound
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :producer, :queue],
+                      %{queue_depth: ^bound, demand: 0, pull_inflight: 0},
+                      %{operation: :enqueue, subject_class: "events"}}
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :producer, :overflow],
+                      %{count: 1}, %{max_buffered: ^bound}}
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :producer, :queue],
+                      %{queue_depth: ^bound}, %{operation: :overflow, subject_class: "events"}}
     end
 
     test "demand drains the buffer and re-opens capacity for new pushes" do
@@ -140,6 +172,41 @@ defmodule ServiceRadar.EventWriter.ProducerFlowControlTest do
       assert Enum.map(emitted, & &1.data) == ["live"]
       assert state.pending_count == 0
       assert state.demand == 2
+    end
+
+    test "pull request sizing is bounded by available demand and configured batch size" do
+      assert Producer.pull_request_batch_size(0, 16) == 0
+      assert Producer.pull_request_batch_size(3, 16) == 3
+      assert Producer.pull_request_batch_size(100, 16) == 16
+
+      assert Producer.pull_request_batch_size(100, nil) ==
+               Config.default_consumer_pull_batch_size()
+    end
+
+    test "empty pull status clears in-flight accounting without emitting" do
+      attach_telemetry([[:serviceradar, :event_writer, :producer, :queue]])
+
+      config = build_config(max_ack_pending: 8)
+      state = init_state(config)
+
+      pull_subject = "_INBOX.serviceradar.event_writer.pull.test.metrics"
+
+      state = %{
+        state
+        | pull_inflight: 8,
+          pull_inflight_by_subject: %{pull_subject => 8},
+          pull_subjects: MapSet.new([pull_subject])
+      }
+
+      {:noreply, emitted, state} =
+        Producer.handle_info({:msg, %{body: "", topic: pull_subject, reply_to: nil}}, state)
+
+      assert emitted == []
+      assert state.pull_inflight == 0
+
+      assert_receive {:telemetry, [:serviceradar, :event_writer, :producer, :queue],
+                      %{queue_depth: 0, pull_inflight: 0},
+                      %{operation: :pull_status, subject_class: "other"}}
     end
   end
 end

@@ -244,20 +244,27 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts) do
     domain = Keyword.get(opts, :domain)
 
-    case consumer_filter_subject(connection_ref, stream_name, consumer_name, domain) do
-      {:ok, ^subject} ->
-        update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+    case consumer_config(connection_ref, stream_name, consumer_name, domain) do
+      {:ok, config} ->
+        existing_filter = Map.get(config, "filter_subject", "")
+        existing_deliver_subject = Map.get(config, "deliver_subject")
+        desired_deliver_subject = Keyword.get(opts, :deliver_subject)
 
-      {:ok, existing} ->
-        Logger.info("Recreating JetStream durable due to filter_subject drift",
-          stream: stream_name,
-          consumer: consumer_name,
-          existing_filter: existing,
-          desired_filter: subject
-        )
+        if existing_filter == subject and existing_deliver_subject == desired_deliver_subject do
+          update_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+        else
+          Logger.info("Recreating JetStream durable due to immutable consumer config drift",
+            stream: stream_name,
+            consumer: consumer_name,
+            existing_filter: existing_filter,
+            desired_filter: subject,
+            existing_deliver_subject: existing_deliver_subject,
+            desired_deliver_subject: desired_deliver_subject
+          )
 
-        with :ok <- delete_consumer(connection_ref, stream_name, consumer_name, domain) do
-          create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          with :ok <- delete_consumer(connection_ref, stream_name, consumer_name, domain) do
+            create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+          end
         end
 
       {:error, _reason} ->
@@ -266,12 +273,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
-  defp consumer_filter_subject(connection_ref, stream_name, consumer_name, domain) do
+  defp consumer_config(connection_ref, stream_name, consumer_name, domain) do
     topic = "#{js_api(domain)}.CONSUMER.INFO.#{stream_name}.#{consumer_name}"
 
     case Util.request(connection_ref, topic, "") do
       {:ok, %{"config" => config}} when is_map(config) ->
-        {:ok, Map.get(config, "filter_subject", "")}
+        {:ok, config}
 
       {:ok, %{"error" => error}} ->
         {:error, error}

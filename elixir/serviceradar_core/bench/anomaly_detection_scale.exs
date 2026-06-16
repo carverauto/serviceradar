@@ -17,11 +17,19 @@
 #   ANOMALY_BENCH_METRIC_SOURCE=generic|sysmon|snmp|icmp|mtr|sweep|rperf|plugin|addon|otel_derived
 #   ANOMALY_BENCH_RUN_ID=<optional unique suffix for persistence runs>
 #   ANOMALY_BENCH_PROFILE=true
+#   ANOMALY_BENCH_METRIC_FIXTURE_DIR=<optional directory of raw .pb/.bin MetricBatch payloads>
+#   ANOMALY_BENCH_METRIC_FIXTURE_LIMIT=<optional max fixture files to load>
+#   ANOMALY_BENCH_METRIC_FIXTURE_REPEAT=<optional repeat count for loaded fixtures>
+#   ANOMALY_BENCH_METRIC_FIXTURE_STRIP_RAW_CLI_NEWLINE=true|false
 #
 # `owner` mode exercises the stateful ContextOwner + real CausalReasoner path.
 # `legacy_list` mode exercises the old list-shaped NIF context. `reasoner`
 # exercises the compact NIF state. `reasoner_batch*` modes amortize Rustler
 # overhead across independent series while preserving per-series sample order.
+# When `ANOMALY_BENCH_METRIC_FIXTURE_DIR` is set, the metric envelope decode,
+# EventWriter row-build, and anomaly sample-extract modes replay captured real
+# protobuf payloads instead of synthetic batches. Persistence/pipeline modes stay
+# synthetic so real demo payloads are not duplicated into live tables.
 
 defmodule ServiceRadar.Bench.AnomalyDetectionScale do
   @moduledoc false
@@ -68,6 +76,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     batch_size = env_int("ANOMALY_BENCH_BATCH_SIZE", 1_000)
     profile? = env_bool("ANOMALY_BENCH_PROFILE", false)
     metric_source = metric_benchmark_source()
+    metric_fixture_dir = metric_fixture_dir()
 
     IO.puts("""
     ServiceRadar anomaly detection synthetic scale benchmark
@@ -80,6 +89,7 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     concurrency=#{concurrency}
     batch_size=#{batch_size}
     metric_source=#{metric_source}
+    metric_fixture_dir=#{metric_fixture_dir || ""}
     profile=#{profile?}
     reason_batch_scheduler=DirtyCpu
     """)
@@ -89,16 +99,20 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     started_at = System.monotonic_time()
 
     result =
-      run_benchmark(
-        mode,
-        series_count,
-        baseline_count,
-        window_size,
-        anomaly_count,
-        rollup_samples_per_eval,
-        concurrency,
-        batch_size
-      )
+      if metric_fixture_dir do
+        run_fixture_benchmark(mode, concurrency)
+      else
+        run_benchmark(
+          mode,
+          series_count,
+          baseline_count,
+          window_size,
+          anomaly_count,
+          rollup_samples_per_eval,
+          concurrency,
+          batch_size
+        )
+      end
 
     validate_result!(mode, result, series_count, anomaly_count)
 
@@ -135,6 +149,111 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
     """)
 
     print_profile(result, result.evaluations)
+  end
+
+  defp run_fixture_benchmark(mode, concurrency) do
+    if !fixture_benchmark_mode?(mode) do
+      raise "ANOMALY_BENCH_METRIC_FIXTURE_DIR only supports metric_envelope_decode, metric_envelope_eventwriter_rows, and metric_envelope_extract; got #{inspect(mode)}"
+    end
+
+    payloads = metric_fixture_payloads!()
+    max_concurrency = min(max(concurrency, 1), max(length(payloads), 1))
+
+    payloads
+    |> Task.async_stream(
+      fn payload ->
+        run_fixture_payload(mode, payload)
+      end,
+      max_concurrency: max_concurrency,
+      timeout: :infinity,
+      ordered: false
+    )
+    |> reduce_task_results()
+  end
+
+  defp fixture_benchmark_mode?(mode) do
+    mode in [
+      "metric_envelope_decode",
+      "metric_envelope_eventwriter_rows",
+      "metric_envelope_extract"
+    ]
+  end
+
+  defp run_fixture_payload("metric_envelope_decode", payload) do
+    started_at = System.monotonic_time(:nanosecond)
+
+    case MetricEnvelope.decode_rows(payload) do
+      {:ok, rows} ->
+        decode_ns = System.monotonic_time(:nanosecond) - started_at
+        decoded = length(rows)
+
+        decoded
+        |> fixture_metrics()
+        |> update_profile(:decode_ns, decode_ns)
+        |> update_profile(:total_ns, decode_ns)
+        |> update_fixture_payload_profile(payload, decoded)
+
+      {:error, reason} ->
+        IO.puts("fixture metric envelope decode failed: #{inspect(reason)}")
+        failed_fixture_metrics()
+    end
+  end
+
+  defp run_fixture_payload("metric_envelope_eventwriter_rows", payload) do
+    started_at = System.monotonic_time(:nanosecond)
+    rows = parse_metric_benchmark_rows(payload)
+    eventwriter_ns = System.monotonic_time(:nanosecond) - started_at
+
+    case rows do
+      nil ->
+        failed_fixture_metrics()
+
+      rows ->
+        decoded = length(List.wrap(rows))
+
+        decoded
+        |> fixture_metrics()
+        |> update_profile(:eventwriter_rows_ns, eventwriter_ns)
+        |> update_profile(:total_ns, eventwriter_ns)
+        |> update_fixture_payload_profile(payload, decoded)
+    end
+  end
+
+  defp run_fixture_payload("metric_envelope_extract", payload) do
+    started_at = System.monotonic_time(:nanosecond)
+
+    samples =
+      SampleExtractor.extract(%{
+        data: payload,
+        metadata: %{
+          subject: metric_benchmark_subject(),
+          source: metric_benchmark_source()
+        }
+      })
+
+    extract_ns = System.monotonic_time(:nanosecond) - started_at
+    extracted = length(samples)
+
+    extracted
+    |> fixture_metrics()
+    |> update_profile(:extract_ns, extract_ns)
+    |> update_profile(:total_ns, extract_ns)
+    |> update_fixture_payload_profile(payload, extracted)
+  end
+
+  defp fixture_metrics(decoded) do
+    %{evaluations: decoded, raw_samples: decoded, confirmed: 0, failed: 0, profile: %{}}
+  end
+
+  defp failed_fixture_metrics do
+    %{evaluations: 0, raw_samples: 0, confirmed: 0, failed: 1, profile: %{}}
+  end
+
+  defp update_fixture_payload_profile(metrics, payload, decoded) do
+    metrics
+    |> update_profile(:payload_bytes, byte_size(payload))
+    |> update_profile(:decoded_messages, 1)
+    |> update_profile(:decoded_rows, decoded)
   end
 
   defp run_benchmark(
@@ -2660,6 +2779,75 @@ defmodule ServiceRadar.Bench.AnomalyDetectionScale do
       value -> String.downcase(String.trim(value)) in ["1", "true", "yes", "on"]
     end
   end
+
+  defp metric_fixture_dir do
+    case System.get_env("ANOMALY_BENCH_METRIC_FIXTURE_DIR") do
+      value when is_binary(value) ->
+        value
+        |> String.trim()
+        |> case do
+          "" -> nil
+          dir -> dir
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp metric_fixture_payloads! do
+    dir = metric_fixture_dir() || raise "ANOMALY_BENCH_METRIC_FIXTURE_DIR is not set"
+
+    if !File.dir?(dir) do
+      raise "metric fixture directory does not exist: #{dir}"
+    end
+
+    limit = env_int("ANOMALY_BENCH_METRIC_FIXTURE_LIMIT", 0)
+    repeat = env_int("ANOMALY_BENCH_METRIC_FIXTURE_REPEAT", 1)
+
+    files =
+      dir
+      |> File.ls!()
+      |> Enum.filter(&metric_fixture_file?/1)
+      |> Enum.sort()
+      |> maybe_take_positive(limit)
+      |> Enum.map(&Path.join(dir, &1))
+
+    if files == [] do
+      raise "metric fixture directory #{dir} did not contain .pb or .bin payload files"
+    end
+
+    payloads = Enum.map(files, &read_metric_fixture_payload!/1)
+
+    Enum.flat_map(1..repeat, fn _ -> payloads end)
+  end
+
+  defp read_metric_fixture_payload!(path) do
+    path
+    |> File.read!()
+    |> maybe_strip_raw_cli_newline()
+  end
+
+  defp maybe_strip_raw_cli_newline(data) when is_binary(data) do
+    strip? = env_bool("ANOMALY_BENCH_METRIC_FIXTURE_STRIP_RAW_CLI_NEWLINE", true)
+
+    if strip? and byte_size(data) > 0 and binary_part(data, byte_size(data) - 1, 1) == "\n" do
+      binary_part(data, 0, byte_size(data) - 1)
+    else
+      data
+    end
+  end
+
+  defp metric_fixture_file?(file) do
+    file = String.downcase(file)
+    String.ends_with?(file, ".pb") or String.ends_with?(file, ".bin")
+  end
+
+  defp maybe_take_positive(values, limit) when is_integer(limit) and limit > 0 do
+    Enum.take(values, limit)
+  end
+
+  defp maybe_take_positive(values, _limit), do: values
 
   defp metric_benchmark_source do
     case "ANOMALY_BENCH_METRIC_SOURCE" |> System.get_env("generic") |> String.downcase() do

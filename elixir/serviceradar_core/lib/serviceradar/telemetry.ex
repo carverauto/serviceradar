@@ -320,7 +320,113 @@ defmodule ServiceRadar.Telemetry do
       )
     ] ++
       endpoint_inventory_metrics() ++
-      camera_relay_metrics() ++ observability_signal_metrics() ++ anomaly_detection_metrics()
+      camera_relay_metrics() ++
+      observability_signal_metrics() ++
+      event_writer_metrics() ++ anomaly_detection_metrics() ++ capacity_forecasting_metrics()
+  end
+
+  @doc """
+  Returns EventWriter pipeline, producer, and ack health metrics.
+  """
+  @spec event_writer_metrics() :: list()
+  def event_writer_metrics do
+    import Telemetry.Metrics
+
+    [
+      counter("serviceradar.event_writer.producer.pull_request.count",
+        event_name: [:serviceradar, :event_writer, :producer, :pull_request],
+        measurement: :messages,
+        tags: [:consumer_count],
+        description: "JetStream messages requested by EventWriter pull consumers"
+      ),
+      last_value("serviceradar.event_writer.producer.queue_depth.value",
+        event_name: [:serviceradar, :event_writer, :producer, :queue],
+        measurement: :queue_depth,
+        tags: [:operation, :subject_class],
+        description: "EventWriter producer in-process queue depth"
+      ),
+      last_value("serviceradar.event_writer.producer.pull_inflight.value",
+        event_name: [:serviceradar, :event_writer, :producer, :queue],
+        measurement: :pull_inflight,
+        tags: [:operation, :subject_class],
+        description: "EventWriter producer requested-but-not-yet-received pull messages"
+      ),
+      counter("serviceradar.event_writer.producer.overflow.count",
+        event_name: [:serviceradar, :event_writer, :producer, :overflow],
+        measurement: :count,
+        description: "EventWriter producer messages NAKed because the local buffer was full"
+      ),
+      counter("serviceradar.event_writer.ack.count",
+        event_name: [:serviceradar, :event_writer, :ack],
+        measurement: :count,
+        tags: [:action, :result, :subject_class],
+        description: "EventWriter JetStream ack/nack publish attempts"
+      ),
+      distribution("serviceradar.event_writer.ack.duration",
+        event_name: [:serviceradar, :event_writer, :ack],
+        measurement: :duration,
+        tags: [:action, :result, :subject_class],
+        unit: {:native, :millisecond},
+        reporter_options: [
+          buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000]
+        ],
+        description: "Time from EventWriter message receipt to ack/nack completion"
+      ),
+      counter("serviceradar.event_writer.batch.count",
+        event_name: [:serviceradar, :event_writer, :batch, :completed],
+        measurement: :batch_size,
+        tags: [:stream, :result, :subject_class],
+        description: "EventWriter messages processed by batch result"
+      ),
+      distribution("serviceradar.event_writer.batch.duration",
+        event_name: [:serviceradar, :event_writer, :batch, :completed],
+        measurement: :duration,
+        tags: [:stream, :result, :subject_class],
+        unit: {:native, :millisecond},
+        reporter_options: [
+          buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000, 10_000]
+        ],
+        description: "EventWriter batch processing duration"
+      ),
+      last_value("serviceradar.event_writer.consumer.pending_messages.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :pending_messages,
+        tags: [:stream, :durable, :subject_class],
+        description: "JetStream messages pending delivery for an EventWriter durable"
+      ),
+      last_value("serviceradar.event_writer.consumer.ack_pending_messages.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :ack_pending_messages,
+        tags: [:stream, :durable, :subject_class],
+        description: "JetStream messages delivered but not yet acked by an EventWriter durable"
+      ),
+      last_value("serviceradar.event_writer.consumer.redelivered_messages.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :redelivered_messages,
+        tags: [:stream, :durable, :subject_class],
+        description: "JetStream messages currently marked redelivered for an EventWriter durable"
+      ),
+      last_value("serviceradar.event_writer.consumer.lag_messages.value",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :lag_messages,
+        tags: [:stream, :durable, :subject_class],
+        description:
+          "EventWriter durable lag: pending plus delivered-but-unacked JetStream messages"
+      ),
+      last_value("serviceradar.event_writer.consumer.retention_risk.level",
+        event_name: [:serviceradar, :event_writer, :consumer, :state],
+        measurement: :retention_risk_level,
+        tags: [:stream, :durable, :subject_class],
+        description:
+          "EventWriter durable retention risk level: 0 clear, 1 backlog, 2 redelivery backlog"
+      ),
+      counter("serviceradar.event_writer.consumer.poll_error.count",
+        event_name: [:serviceradar, :event_writer, :consumer, :poll_error],
+        measurement: :count,
+        tags: [:stream, :durable, :subject_class, :reason_class],
+        description: "EventWriter JetStream consumer state poll failures"
+      )
+    ]
   end
 
   @doc """
@@ -414,6 +520,98 @@ defmodule ServiceRadar.Telemetry do
         tags: consumer_tags,
         tag_values: &anomaly_consumer_tag_values/1,
         description: "Messages failed by the live anomaly detection consumer"
+      ),
+      sum("serviceradar.anomaly_detection.sample_extractor.accepted_samples.count",
+        event_name: [
+          :serviceradar,
+          :observability,
+          :anomaly_detection,
+          :sample_extractor,
+          :batch
+        ],
+        measurement: :accepted_samples,
+        tags: [:subject_class],
+        description: "Metric samples accepted by the anomaly sample extractor"
+      ),
+      sum("serviceradar.anomaly_detection.sample_extractor.dropped_samples.count",
+        event_name: [
+          :serviceradar,
+          :observability,
+          :anomaly_detection,
+          :sample_extractor,
+          :batch
+        ],
+        measurement: :dropped_samples,
+        tags: [:subject_class],
+        description: "Metric samples dropped by the anomaly sample extractor"
+      ),
+      sum("serviceradar.anomaly_detection.sample_extractor.dropped_process_samples.count",
+        event_name: [
+          :serviceradar,
+          :observability,
+          :anomaly_detection,
+          :sample_extractor,
+          :batch
+        ],
+        measurement: :dropped_process_samples,
+        tags: [:subject_class],
+        description: "Process metric samples intentionally ignored by anomaly detection"
+      ),
+      sum("serviceradar.anomaly_detection.sample_extractor.dropped_unidentified_samples.count",
+        event_name: [
+          :serviceradar,
+          :observability,
+          :anomaly_detection,
+          :sample_extractor,
+          :batch
+        ],
+        measurement: :dropped_unidentified_samples,
+        tags: [:subject_class],
+        description: "Sysmon samples dropped because they lack stable attested identity"
+      ),
+      last_value("serviceradar.anomaly_detection.sample_extractor.metric_class_count.value",
+        event_name: [
+          :serviceradar,
+          :observability,
+          :anomaly_detection,
+          :sample_extractor,
+          :batch
+        ],
+        measurement: :metric_class_count,
+        tags: [:subject_class],
+        description: "Distinct accepted metric classes in the latest anomaly extraction batch"
+      )
+    ]
+  end
+
+  @doc """
+  Returns capacity forecast source result metric definitions.
+  """
+  @spec capacity_forecasting_metrics() :: list()
+  def capacity_forecasting_metrics do
+    import Telemetry.Metrics
+
+    event = [:serviceradar, :observability, :capacity_forecasting, :source]
+    tags = [:source, :metric_class, :metric_name, :status, :skip_reason, :result]
+
+    [
+      counter("serviceradar.capacity_forecasting.source.count",
+        event_name: event,
+        measurement: :count,
+        tags: tags,
+        description: "Capacity forecasting source evaluations by status and result"
+      ),
+      sum("serviceradar.capacity_forecasting.source.rows.count",
+        event_name: event,
+        measurement: :rows,
+        tags: tags,
+        description: "Rows considered by capacity forecasting source evaluations"
+      ),
+      sum("serviceradar.capacity_forecasting.source.sample_count.count",
+        event_name: event,
+        measurement: :sample_count,
+        tags: tags,
+        description: "Usable history samples fitted by capacity forecasting source evaluations"
       )
     ]
   end

@@ -7,9 +7,8 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
   """
 
   alias Serviceradar.Metric.V1.MetricBatch
+  alias ServiceRadar.Observability.SeriesHintDrift
   alias ServiceRadar.Observability.TimeseriesSeriesKey
-
-  require Logger
 
   @schema_version "serviceradar.metric.v1"
 
@@ -232,11 +231,7 @@ defmodule ServiceRadar.Observability.MetricEnvelope do
         metadata
 
       hint when hint != series_key ->
-        Logger.debug("metric envelope series_identity_hint disagrees with derived key",
-          hint: hint,
-          series_key: series_key
-        )
-
+        SeriesHintDrift.record(:metric_envelope, hint, series_key)
         Map.put_new(metadata, "series_identity_hint", hint)
 
       hint ->

@@ -114,9 +114,6 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
     messages
     |> Enum.reduce({[], 0}, fn message, {timeseries, rejected} ->
       case parse_message(message) do
-        row when is_map(row) ->
-          {[row | timeseries], rejected}
-
         rows when is_list(rows) ->
           {Enum.reverse(rows, timeseries), rejected}
 
@@ -186,5 +183,4 @@ defmodule ServiceRadar.EventWriter.Processors.Metrics do
 
   defp reason_tag(reason) when is_atom(reason), do: reason
   defp reason_tag(%module{}), do: module
-  defp reason_tag(_reason), do: :decode_error
 end

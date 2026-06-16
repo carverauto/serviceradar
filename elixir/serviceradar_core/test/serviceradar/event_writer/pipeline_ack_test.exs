@@ -5,12 +5,32 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
   alias ServiceRadar.EventWriter.Config
   alias ServiceRadar.EventWriter.Pipeline
 
+  setup do
+    handler_id = "pipeline-ack-test-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    :telemetry.attach(
+      handler_id,
+      [:serviceradar, :event_writer, :ack],
+      fn event, measurements, metadata, _config ->
+        send(test_pid, {:telemetry, event, measurements, metadata})
+      end,
+      nil
+    )
+
+    on_exit(fn -> :telemetry.detach(handler_id) end)
+  end
+
   test "ack/3 invokes ack and nack callbacks" do
     parent = self()
 
     ack_message = %Message{
       data: "",
-      metadata: %{subject: "events.test", reply_to: "$JS.ACK.test"},
+      metadata: %{
+        subject: "events.test",
+        reply_to: "$JS.ACK.test",
+        received_monotonic: System.monotonic_time()
+      },
       acknowledger:
         {Pipeline, :ack_ref,
          %{
@@ -29,6 +49,18 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     assert :ok == Pipeline.ack(:ack_ref, [ack_message], [ack_message])
     assert_receive :acked
     assert_receive :nacked
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :ack],
+                    %{count: 1, duration: duration},
+                    %{action: :ack, result: :ok, subject_class: "events"}}
+
+    assert is_integer(duration) and duration >= 0
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :ack],
+                    %{count: 1, duration: duration},
+                    %{action: :nack, result: :ok, subject_class: "events"}}
+
+    assert is_integer(duration) and duration >= 0
   end
 
   test "ack/3 does not crash when ack callback exits" do
@@ -45,6 +77,12 @@ defmodule ServiceRadar.EventWriter.PipelineAckTest do
     }
 
     assert :ok == Pipeline.ack(:ack_ref, [message], [message])
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
+                    %{action: :ack, result: :error, subject_class: "falco"}}
+
+    assert_receive {:telemetry, [:serviceradar, :event_writer, :ack], %{count: 1},
+                    %{action: :nack, result: :error, subject_class: "falco"}}
   end
 
   test "routes metrics subjects to the declared metrics batcher" do
