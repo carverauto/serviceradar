@@ -6,6 +6,7 @@ alias ServiceRadar.EventWriter.Processors.CausalSignals
 alias ServiceRadar.EventWriter.Processors.Flows
 alias ServiceRadar.Jobs.AlertsRetentionWorker
 alias ServiceRadar.Jobs.RefreshTraceSummariesWorker
+alias ServiceRadar.Observability.CapacityForecasting.Worker, as: CapacityForecastingWorker
 alias ServiceRadar.Observability.DataRetentionWorker
 
 parse_int_env = fn env_name, default ->
@@ -639,6 +640,40 @@ if config_env() == :prod do
   ash_oban_scheduler_enabled =
     System.get_env("SERVICERADAR_ASH_OBAN_SCHEDULER_ENABLED", "true") in ~w(true 1 yes)
 
+  capacity_forecasting_enabled =
+    "SERVICERADAR_CAPACITY_FORECASTING_ENABLED"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  capacity_forecasting_cron =
+    System.get_env("SERVICERADAR_CAPACITY_FORECASTING_CRON", "41 * * * *")
+
+  capacity_forecasting_horizon_seconds =
+    "SERVICERADAR_CAPACITY_FORECASTING_HORIZON_SECONDS"
+    |> System.get_env("7776000")
+    |> String.to_integer()
+
+  capacity_forecasting_warning_horizon_seconds =
+    "SERVICERADAR_CAPACITY_FORECASTING_WARNING_HORIZON_SECONDS"
+    |> System.get_env(Integer.to_string(capacity_forecasting_horizon_seconds))
+    |> String.to_integer()
+
+  capacity_forecasting_emit_verdicts =
+    "SERVICERADAR_CAPACITY_FORECASTING_EMIT_VERDICTS"
+    |> System.get_env("true")
+    |> String.downcase()
+    |> Kernel.in(["1", "true", "yes", "on"])
+
+  capacity_forecasting_crontab =
+    if capacity_forecasting_enabled do
+      [
+        {capacity_forecasting_cron, CapacityForecastingWorker, args: %{"trigger" => "cron"}, queue: :maintenance}
+      ]
+    else
+      []
+    end
+
   oban_config = [
     engine: Oban.Engines.Basic,
     repo: ServiceRadar.Repo,
@@ -680,14 +715,15 @@ if config_env() == :prod do
       oban_config
     end
 
-  extra_cron_entries = [
-    {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
-    {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
-    {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
-    {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
-     queue: :maintenance},
-    {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
-  ]
+  extra_cron_entries =
+    [
+      {"*/2 * * * *", ServiceRadar.Jobs.ReapStalePeriodicJobsWorker, queue: :maintenance},
+      {System.get_env("TRACE_SUMMARIES_REFRESH_CRON") || "*/2 * * * *", RefreshTraceSummariesWorker, queue: :maintenance},
+      {"*/2 * * * *", ServiceRadar.Jobs.RefreshLogsSeverityStatsWorker, queue: :maintenance},
+      {System.get_env("SERVICERADAR_OBSERVABILITY_RETENTION_CRON") || "17 3 * * *", DataRetentionWorker,
+       queue: :maintenance},
+      {System.get_env("ALERT_RETENTION_CRON") || "15 * * * *", AlertsRetentionWorker, queue: :maintenance}
+    ] ++ capacity_forecasting_crontab
 
   add_cron_entries = fn config, entries ->
     plugins =
@@ -719,6 +755,14 @@ if config_env() == :prod do
     retention_days: alerts_retention_days,
     batch_size: alerts_retention_batch_size,
     max_batches: alerts_retention_max_batches
+
+  config :serviceradar_core, CapacityForecastingWorker,
+    enabled: capacity_forecasting_enabled,
+    horizon_seconds: capacity_forecasting_horizon_seconds,
+    warning_horizon_seconds: capacity_forecasting_warning_horizon_seconds,
+    emit_verdicts?: capacity_forecasting_emit_verdicts,
+    min_points: "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" |> parse_int_env.(24) |> max(1),
+    seasonal_period: "SERVICERADAR_CAPACITY_FORECASTING_SEASONAL_PERIOD" |> parse_int_env.(24) |> max(1)
 
   config :serviceradar_core, DataRetentionWorker,
     batch_size: observability_retention_batch_size,
@@ -807,6 +851,152 @@ if config_env() == :prod do
 
   # EventWriter configuration (NATS JetStream → CNPG consumer)
   event_writer_enabled = System.get_env("EVENT_WRITER_ENABLED", "false") in ~w(true 1 yes)
+
+  anomaly_analysis_enabled =
+    System.get_env("ANOMALY_ANALYSIS_CONSUMER_ENABLED", "false") in ~w(true 1 yes)
+
+  anomaly_context_checkpoint_enabled =
+    System.get_env(
+      "ANOMALY_CONTEXT_CHECKPOINT_ENABLED",
+      if(anomaly_analysis_enabled, do: "true", else: "false")
+    ) in ~w(true 1 yes)
+
+  anomaly_context_checkpoint_max_bucket_size =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_MAX_BUCKET_BYTES") do
+      nil -> nil
+      value -> String.to_integer(value)
+    end
+
+  anomaly_context_checkpoint_max_value_size =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_MAX_VALUE_BYTES") do
+      nil -> nil
+      value -> String.to_integer(value)
+    end
+
+  anomaly_context_checkpoint_storage =
+    case System.get_env("ANOMALY_CONTEXT_CHECKPOINT_STORAGE", "file") do
+      "memory" -> :memory
+      _ -> :file
+    end
+
+  anomaly_context_checkpoint_flush_interval_ms =
+    String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_FLUSH_INTERVAL_MS") || "1000")
+
+  anomaly_baseline_srql_queries =
+    case System.get_env("ANOMALY_BASELINE_SRQL_QUERIES_JSON") do
+      nil ->
+        %{}
+
+      "" ->
+        %{}
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, %{} = queries} ->
+            queries
+
+          _ ->
+            raise "ANOMALY_BASELINE_SRQL_QUERIES_JSON must be a JSON object"
+        end
+    end
+
+  anomaly_baseline_seed_enabled =
+    System.get_env(
+      "ANOMALY_BASELINE_SEEDER_ENABLED",
+      if(map_size(anomaly_baseline_srql_queries) > 0, do: "true", else: "false")
+    ) in ~w(true 1 yes)
+
+  anomaly_series_config =
+    case System.get_env("ANOMALY_DETECTION_SERIES_CONFIG_JSON") do
+      nil ->
+        %{}
+
+      "" ->
+        %{}
+
+      encoded ->
+        case Jason.decode(encoded) do
+          {:ok, %{} = config} ->
+            config
+
+          _ ->
+            raise "ANOMALY_DETECTION_SERIES_CONFIG_JSON must be a JSON object"
+        end
+    end
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.BaselineSeeder,
+    enabled: anomaly_baseline_seed_enabled,
+    query_templates: anomaly_baseline_srql_queries
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.ContextCheckpoint,
+    enabled: anomaly_context_checkpoint_enabled,
+    bucket: System.get_env("ANOMALY_CONTEXT_CHECKPOINT_BUCKET", "serviceradar_anomaly_context"),
+    ttl_seconds: String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_TTL_SECONDS") || "0"),
+    max_bucket_size: anomaly_context_checkpoint_max_bucket_size,
+    max_value_size: anomaly_context_checkpoint_max_value_size,
+    replicas: String.to_integer(System.get_env("ANOMALY_CONTEXT_CHECKPOINT_REPLICAS") || "1"),
+    storage: anomaly_context_checkpoint_storage
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.ContextOwner,
+    checkpoint_flush_interval_ms: anomaly_context_checkpoint_flush_interval_ms
+
+  config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection.SeriesConfig,
+    runtime_config: anomaly_series_config
+
+  config :serviceradar_core, :anomaly_analysis_consumer_enabled, anomaly_analysis_enabled
+
+  if anomaly_analysis_enabled do
+    anomaly_analysis_creds =
+      System.get_env("ANOMALY_ANALYSIS_NATS_CREDS_FILE") ||
+        System.get_env("EVENT_WRITER_NATS_CREDS_FILE")
+
+    if anomaly_analysis_creds in [nil, ""] do
+      raise """
+      ANOMALY_ANALYSIS_NATS_CREDS_FILE or EVENT_WRITER_NATS_CREDS_FILE is required when ANOMALY_ANALYSIS_CONSUMER_ENABLED=true.
+      Generate or provision JWT credentials and set one of those environment variables.
+      """
+    end
+
+    anomaly_nats_url =
+      System.get_env("ANOMALY_ANALYSIS_NATS_URL") ||
+        System.get_env("EVENT_WRITER_NATS_URL", "nats://localhost:4222")
+
+    anomaly_nats_uri = URI.parse(anomaly_nats_url)
+
+    anomaly_nats_tls_enabled =
+      System.get_env(
+        "ANOMALY_ANALYSIS_NATS_TLS",
+        System.get_env("EVENT_WRITER_NATS_TLS", "false")
+      ) in ~w(true 1 yes)
+
+    cert_dir = System.get_env("SPIFFE_CERT_DIR", "/etc/serviceradar/certs")
+
+    anomaly_nats_tls_config =
+      if anomaly_nats_tls_enabled do
+        [
+          verify: :verify_peer,
+          cacertfile: Path.join(cert_dir, "root.pem"),
+          certfile: Path.join(cert_dir, "core.pem"),
+          keyfile: Path.join(cert_dir, "core-key.pem"),
+          server_name_indication: ~c"nats.serviceradar"
+        ]
+      else
+        false
+      end
+
+    config :serviceradar_core, ServiceRadar.Observability.AnomalyDetection,
+      nats: [
+        host: anomaly_nats_uri.host || "localhost",
+        port: anomaly_nats_uri.port || 4222,
+        user: System.get_env("ANOMALY_ANALYSIS_NATS_USER") || System.get_env("EVENT_WRITER_NATS_USER"),
+        password:
+          System.get_env("ANOMALY_ANALYSIS_NATS_PASSWORD") ||
+            {:system, "EVENT_WRITER_NATS_PASSWORD"},
+        creds_file: anomaly_analysis_creds,
+        tls: anomaly_nats_tls_config
+      ],
+      consumer_name: System.get_env("ANOMALY_ANALYSIS_CONSUMER_NAME", "serviceradar-anomaly-analysis")
+  end
 
   host_slice_subscriber_enabled =
     System.get_env("EVENT_WRITER_HOST_SLICE_SUBSCRIBER_ENABLED", "false") in ~w(true 1 yes)
