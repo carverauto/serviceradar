@@ -66,6 +66,25 @@ service AddonService {
   // acked watermark with the original relay_ids.
   rpc RelayOtlp(stream OtlpRelayAck) returns (stream OtlpRelayFrame);
 
+  // StreamMetricFeed is the agent-to-add-on local metric feed. The agent only
+  // calls this RPC for add-ons that advertise the metric-feed:v1 capability in
+  // InfoResponse.capabilities. It is the data-direction inverse of the upstream
+  // streams: the add-on is the gRPC server, but the AGENT is the RPC client and
+  // the DATA PRODUCER. The agent writes MetricFeedFrame messages on the request
+  // stream BEFORE those samples are published to agent-gateway, and reads
+  // MetricFeedAck watermarks on the response stream for flow control.
+  //
+  // The feed lets a co-located compute add-on (for example per-series anomaly
+  // detection) analyze the agent's locally collected samples at the edge so the
+  // platform can ship verdicts/rollups instead of every raw point. Acks are
+  // cumulative and back-pressure the agent: the agent bounds the number of
+  // unacked in-flight frames per add-on so a slow add-on can never stall the
+  // agent's own collection or its gateway publishing path. The feed is lossy by
+  // contract (it is analysis input, not a durable delivery path): if an add-on
+  // falls past the agent's in-flight bound, the agent drops feed frames for that
+  // add-on and records the drop rather than blocking.
+  rpc StreamMetricFeed(stream MetricFeedFrame) returns (stream MetricFeedAck);
+
   // RunCommand executes a bounded, platform-scheduled command against a local
   // add-on instance. The control plane records an addon.run_command command,
   // agent-gateway streams it to the agent, and the agent invokes this RPC on the
@@ -226,4 +245,29 @@ message OtlpRelayFrame {
 // cumulative, so the agent may coalesce them.
 message OtlpRelayAck {
   uint64 acked_relay_id = 1;
+}
+
+// MetricFeedFrame is one unit of the agent-to-add-on local metric feed
+// (StreamMetricFeed / metric-feed:v1). The agent writes frames on the request
+// stream. feed_id is a per-stream, strictly increasing sequence the agent
+// assigns for acknowledgement and drop accounting; unlike RelayOtlp's relay_id
+// it resets when the stream is re-opened (the feed is lossy, not a durable
+// spool). source identifies which local collector produced the samples (for
+// example sysmon, snmp, icmp, timeseries) so an add-on can route or subscribe to
+// a subset. payload is exactly one encoded serviceradar.metric.v1.MetricBatch,
+// matching the SERVICERADAR_METRICS telemetry payload kind, so edge and central
+// analysis decode identical bytes.
+message MetricFeedFrame {
+  uint64 feed_id = 1;
+  TelemetrySource source = 2;
+  bytes payload = 3;
+}
+
+// MetricFeedAck is the add-on-to-agent flow-control watermark on the
+// StreamMetricFeed response stream. acked_feed_id confirms the add-on has
+// accepted every frame with feed_id <= acked_feed_id; the agent uses it to bound
+// in-flight frames and to detect a stalled add-on. Acks are cumulative, so the
+// add-on may coalesce them.
+message MetricFeedAck {
+  uint64 acked_feed_id = 1;
 }

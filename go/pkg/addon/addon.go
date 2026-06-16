@@ -63,6 +63,13 @@ const (
 	// spool until the agent acks them after gateway acceptance, giving
 	// at-least-once delivery.
 	CapabilityOtlpRelayV1 = "otlp-relay:v1"
+
+	// CapabilityMetricFeedV1 marks add-ons that consume the agent's local metric
+	// feed over AddonService.StreamMetricFeed to analyze samples at the edge
+	// (e.g. per-series anomaly detection) before they are published to the
+	// gateway. The agent never opens the feed for an add-on that does not
+	// advertise this capability.
+	CapabilityMetricFeedV1 = "metric-feed:v1"
 )
 
 // Handshake is the go-plugin handshake shared by the agent and every add-on.
@@ -149,6 +156,18 @@ type OtlpRelayClient interface {
 	RelayOtlp(ctx context.Context) (frames <-chan *addonpb.OtlpRelayFrame, acks chan<- uint64, err error)
 }
 
+// MetricFeedClient is implemented by client-side adapters that can drive a
+// remote add-on's local metric feed (AddonService.StreamMetricFeed). It is the
+// data-direction inverse of OtlpRelayClient: the caller (agent) SENDS
+// MetricFeedFrame frames (each an encoded MetricBatch) on the returned frames
+// channel and reads cumulative ack watermarks on acks for flow control. The
+// caller closes frames to half-close the send direction; acks is closed when
+// the stream ends. The feed is lossy by contract — the caller should drop
+// frames rather than block when an add-on falls behind.
+type MetricFeedClient interface {
+	StreamMetricFeed(ctx context.Context) (frames chan<- *addonpb.MetricFeedFrame, acks <-chan uint64, err error)
+}
+
 type TelemetryBatch = addonpb.TelemetryBatch
 type TelemetryRecord = addonpb.TelemetryRecord
 type TelemetrySourceInfo = addonpb.TelemetrySource
@@ -160,6 +179,8 @@ type RunCommandRequest = addonpb.RunCommandRequest
 type RunCommandResponse = addonpb.RunCommandResponse
 type OtlpRelayFrame = addonpb.OtlpRelayFrame
 type OtlpRelayAck = addonpb.OtlpRelayAck
+type MetricFeedFrame = addonpb.MetricFeedFrame
+type MetricFeedAck = addonpb.MetricFeedAck
 
 // Info describes a running add-on.
 type Info struct {

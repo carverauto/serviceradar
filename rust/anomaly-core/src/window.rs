@@ -1,37 +1,39 @@
+// Copyright 2026 Carver Automation Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License").
+// SPDX-License-Identifier: Apache-2.0
+
+//! Sliding-window helpers for baseline reconstruction.
+
 use crate::WINDOW_CAPACITY_MULTIPLE;
 use crate::stats::WelfordAcc;
 use crate::types::ReasonContext;
 use deep_causality_data_structures::{SlidingWindow, VectorStorage, window_type};
 
-pub(crate) type BaselineWindow = SlidingWindow<VectorStorage<f64>, f64>;
+pub type BaselineWindow = SlidingWindow<VectorStorage<f64>, f64>;
 
-pub(crate) fn compact_rolling_state(
-    context: &ReasonContext,
-    window_size: usize,
-) -> (Vec<f64>, WelfordAcc) {
+pub fn compact_rolling_state(context: &ReasonContext, window_size: usize) -> (Vec<f64>, WelfordAcc) {
     let source = context.window_tail.as_ref().unwrap_or(&context.baseline);
     let clean_values = clean_window_values(source, window_size);
 
-    // Fix (finding 1): this is the STATELESS path (reason / reason_batch and
-    // checkpoint restore). The caller-supplied `rolling_acc` is transported
-    // across the BEAM/NIF boundary with no provenance guarantee, and
-    // `valid_for_count` only checks count + finiteness — NOT that mean/m2 are
-    // consistent with `clean_values`. A count-matching-but-stale acc would
-    // therefore install a wrong baseline, and unlike runtime.rs there is no
-    // eviction-driven recompute guard to heal it here. Since `clean_values` is
-    // already bounded to `window_size` (so recompute is O(window)), we always
-    // rebuild the acc from the window itself instead of trusting the transported
-    // one. The transported-acc fast path is retained only in runtime.rs's
-    // `reason_state_*` flow where provenance is guaranteed.
+    // This is the STATELESS path (reason / reason_batch and checkpoint restore).
+    // The caller-supplied `rolling_acc` is transported across the BEAM/NIF
+    // boundary with no provenance guarantee, and `valid_for_count` only checks
+    // count + finiteness — NOT that mean/m2 are consistent with `clean_values`.
+    // A count-matching-but-stale acc would therefore install a wrong baseline,
+    // and unlike the stateful runtime there is no eviction-driven recompute
+    // guard to heal it here. Since `clean_values` is already bounded to
+    // `window_size` (so recompute is O(window)), we always rebuild the acc from
+    // the window itself instead of trusting the transported one. The
+    // transported-acc fast path is retained only in the stateful `reason_state_*`
+    // flow where provenance is guaranteed.
     let acc = WelfordAcc::from_values(&clean_values);
 
     (clean_values, acc)
 }
 
-pub(crate) fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
-    baseline_window(values, window_size)
-        .vec()
-        .unwrap_or_default()
+pub fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
+    baseline_window(values, window_size).vec().unwrap_or_default()
 }
 
 fn baseline_window(values: &[f64], window_size: usize) -> BaselineWindow {
@@ -66,10 +68,7 @@ mod tests {
     use super::*;
     use crate::types::ReasonContext;
 
-    fn context_with_window(
-        window_tail: Vec<f64>,
-        rolling_acc: Option<WelfordAcc>,
-    ) -> ReasonContext {
+    fn context_with_window(window_tail: Vec<f64>, rolling_acc: Option<WelfordAcc>) -> ReasonContext {
         ReasonContext {
             baseline: Vec::new(),
             rolling_acc,
@@ -91,15 +90,9 @@ mod tests {
         }
     }
 
-    // Finding 1: on the stateless path a count-matching-but-stale transported acc
-    // must NOT be trusted; the acc must be recomputed from `window_tail` so the
-    // baseline reflects the actual window rather than the (wrong) transported one.
     #[test]
     fn stale_count_matching_acc_is_recomputed_from_window() {
         let window_tail = vec![100.0, 101.0, 99.0, 100.0];
-        // A maliciously/accidentally wrong acc that nonetheless passes
-        // `valid_for_count` (correct count, finite mean/m2 >= 0) but encodes a
-        // completely different baseline than `window_tail`.
         let stale = WelfordAcc {
             count: window_tail.len(),
             mean: 0.0,
@@ -118,8 +111,6 @@ mod tests {
             acc, expected,
             "stateless path must recompute the acc from window_tail, not trust the stale acc"
         );
-        // Concretely: the recomputed mean tracks the real window (~100), not the
-        // stale acc's fabricated mean of 0.0.
         assert!(
             (acc.mean - 100.0).abs() < 1.0,
             "recomputed mean {} should reflect the real window, not the stale 0.0",
@@ -128,8 +119,6 @@ mod tests {
         assert!(acc.mean != stale.mean || acc.m2 != stale.m2);
     }
 
-    // Finding 1: a correct transported acc still yields the right baseline after
-    // recompute (recompute is value-equivalent, so provenance no longer matters).
     #[test]
     fn correct_acc_still_yields_consistent_baseline() {
         let window_tail = vec![10.0, 12.0, 11.0, 13.0];
@@ -141,8 +130,6 @@ mod tests {
         assert_eq!(acc, correct);
     }
 
-    // Finding 1: with no transported acc the path already recomputed; confirm the
-    // behavior is unchanged (still derives the acc from the window).
     #[test]
     fn missing_acc_recomputes_from_window() {
         let window_tail = vec![1.0, 2.0, 3.0];

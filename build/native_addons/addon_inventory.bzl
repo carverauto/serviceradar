@@ -203,4 +203,25 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # Edge anomaly detection add-on (move-anomaly-detection-to-edge). Consumes
+        # the agent's local metric feed (metric-feed:v1) and emits OCSF Detection
+        # Finding verdicts (native-telemetry:v1) with a signal schema for display.
+        "name": "anomaly_addon_bundle",
+        "addon_id": "anomaly",
+        "repository_name": "serviceradar-addon-anomaly",
+        "language": "rust",
+        "binary": "//rust/anomaly-addon:serviceradar-anomaly-addon",
+        "binary_name": "serviceradar-anomaly-addon",
+        "platforms": [
+            ("linux", "amd64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/anomaly-addon:addon.yaml"),
+            ("config.schema.json", "//addons/anomaly-addon:config.schema.json"),
+            ("schemas/detection_finding.schema.json", "//addons/anomaly-addon:schemas/detection_finding.schema.json"),
+            ("display/detection_finding.display.json", "//addons/anomaly-addon:display/detection_finding.display.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

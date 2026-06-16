@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://serviceradar.carverauto.dev/schemas/addons/anomaly/config.schema.json",
+  "title": "Anomaly Detection Add-on Configuration",
+  "description": "Operator-tunable detector thresholds and the per-host series cap for the edge anomaly add-on. All fields optional; omitted fields keep the detector defaults (window 300, min_samples 30, n_sigma 3.0, confirm_slots 5).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "window_size": {
+      "type": "integer",
+      "title": "Rolling window size (samples)",
+      "minimum": 1,
+      "default": 300
+    },
+    "min_samples": {
+      "type": "integer",
+      "title": "Minimum samples before a baseline is ready",
+      "minimum": 1,
+      "default": 30
+    },
+    "n_sigma": {
+      "type": "number",
+      "title": "Z-score breach threshold (sigma)",
+      "exclusiveMinimum": 0,
+      "default": 3.0
+    },
+    "confirm_slots": {
+      "type": "integer",
+      "title": "Consecutive breaches required to confirm an anomaly",
+      "minimum": 1,
+      "default": 5
+    },
+    "max_series": {
+      "type": "integer",
+      "title": "Maximum tracked series per host (memory bound)",
+      "minimum": 1,
+      "default": 50000
+    },
+    "checkpoint_path": {
+      "type": "string",
+      "title": "Restart checkpoint file path",
+      "description": "Local path the add-on atomically persists its per-series baselines + counter state to, so a restart re-warms instead of cold-starting (which would storm false positives while windows refill). Unset disables checkpointing.",
+      "minLength": 1
+    },
+    "checkpoint_max_age_secs": {
+      "type": "integer",
+      "title": "Checkpoint staleness bound (seconds)",
+      "description": "On restart, a series whose last reading is older than this is not reseeded (a stale baseline would mis-score current traffic). Default 21600 (6h).",
+      "minimum": 1,
+      "default": 21600
+    }
+  }
+}

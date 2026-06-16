@@ -10,7 +10,7 @@ The EventWriter metrics pipeline SHALL expose enough stream lag and processing-r
 
 The metrics ingestion architecture SHALL document its expected capacity model, including producer count, metric sample frequency, protobuf message size, row expansion, durable consumer fanout, database write throughput, and anomaly/capacity processing cost.
 
-The metrics anomaly and capacity architecture SHALL remain distributed through BEAM/ERTS for this change, with Rust/DeepCausality NIFs used for measured CPU hot paths. Moving the whole engine into a standalone non-BEAM service SHALL require a separate distributed-state proposal.
+For the scope of this change (the backpressure fix), the metrics anomaly and capacity architecture SHALL remain distributed through BEAM/ERTS, with Rust/DeepCausality NIFs used for measured CPU hot paths. The longer-term execution location of anomaly and capacity — including moving per-series anomaly to the edge and tiering raw storage — SHALL be decided by the `move-anomaly-detection-to-edge` and `add-delta-metrics-lakehouse` changes, and is not foreclosed here.
 
 The metrics ingestion development workflow SHALL support local replay and benchmark runs against representative metric payloads without requiring a full demo namespace rollout for every code change.
 

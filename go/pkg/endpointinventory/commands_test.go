@@ -26,7 +26,7 @@ func TestEvaluateManifestQuerySupportsExistsCountAndDetail(t *testing.T) {
 	scannedAt := time.Unix(100, 0).UTC()
 	manifest := endpointInventoryQueryManifest(scannedAt)
 	cfg := DefaultConfig()
-	cfg.AgentID = "agent-1"
+	cfg.AgentID = configTestAgentID
 	cfg.CacheStaleThreshold = "10m"
 	now := scannedAt.Add(2 * time.Minute)
 
@@ -112,7 +112,7 @@ func TestEvaluateManifestQueryReportsStaleAndRejectsUnsafeInput(t *testing.T) {
 func endpointInventoryQueryManifest(scannedAt time.Time) *InventoryCacheManifest {
 	return &InventoryCacheManifest{
 		SchemaVersion:        CacheVersion,
-		AgentID:              "agent-1",
+		AgentID:              configTestAgentID,
 		PackageSetHash:       "package-hash",
 		ArtifactHash:         "artifact-hash",
 		HashAlgorithm:        HashAlgorithm,

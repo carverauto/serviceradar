@@ -10,14 +10,14 @@ The real question is whether the new protobuf metrics pipeline can process produ
 - Keep bounded in-process buffering as a safety guard, not as the primary backpressure mechanism.
 - Add per-stream EventWriter consumer controls for pull batch size, `ack_wait`, and `max_ack_pending`, with conservative defaults for high-payload metric streams.
 - Ensure the metrics stream cannot deliver thousands of large unacked protobuf batches into one BEAM process.
-- Keep the production architecture distributed through BEAM/ERTS, with Rust/DeepCausality used for NIF-backed hot-path computation, unless a separate distributed-state design is approved.
+- For the scope of this change, keep the production architecture distributed through BEAM/ERTS, with Rust/DeepCausality used for NIF-backed hot-path computation. The longer-term execution location of anomaly/capacity (edge vs central) is decided by the `move-anomaly-detection-to-edge` and `add-delta-metrics-lakehouse` changes and is intentionally not foreclosed here.
 - Add focused tests for producer buffering, consumer config payloads, and runtime stream settings.
 - Add reproducible local benchmarks that break down metric protobuf processing into decode, row construction, device enrichment, and insert phases.
 - Investigate producer-side metric batch sizes so oversized protobuf batches can be fixed at the source if persistence benchmarks show message size is the bottleneck.
 - Bound sysmon process telemetry defaults so a catch-all profile cannot accidentally publish every process on every host into the raw metrics stream.
 - Add JetStream durable-consumer lag telemetry for EventWriter pending, ack-pending, redelivery, and retention-risk state.
 - Define and test a steady-state throughput target: EventWriter processing rate must exceed observed producer rate with headroom, or the system must apply an explicit overload policy instead of silently accumulating backlog.
-- Define a path to a 50k-agent metrics ingestion architecture, including sharding, edge aggregation/coalescing, and durable consumer fanout limits.
+- Size the 50k-agent target and record the corrected projection (the original projection scaled a payload that was ~94% per-process rows; with the process cap that target drops by ~10x). The full ingestion architecture — sharding, edge aggregation/coalescing, durable consumer fanout limits, and the raw-storage tier — is carried by the `move-anomaly-detection-to-edge` and `add-delta-metrics-lakehouse` changes, not this one.
 - Add a local development and benchmark loop that connects to demo NATS/CNPG without rolling the demo namespace for every iteration.
 
 ## Impact

@@ -1,13 +1,18 @@
-mod detector;
 mod runtime;
-mod signal;
-mod stats;
 #[cfg(test)]
 mod tests;
 mod types;
-mod window;
 
-use detector::reason_impl;
+// The pure detector core lives in the shared `serviceradar-anomaly-core` crate so
+// the edge anomaly add-on and this NIF compute identical verdicts. Re-export its
+// modules under `crate::` so `runtime`/`tests` keep referencing `crate::stats`,
+// `crate::window`, and `crate::detector` unchanged. This NIF keeps only the
+// rustler boundary: the entrypoints below, `runtime`'s ResourceArc shard state,
+// and the batch I/O wrappers in `types`.
+pub(crate) use serviceradar_anomaly_core::DEFAULT_WINDOW_SIZE;
+pub(crate) use serviceradar_anomaly_core::{detector, stats, window};
+
+use crate::detector::reason_impl;
 use runtime::{
     ReasonIndexedEventResult, ReasonIndexedSeriesInput, ReasonIndexedValueInput,
     ReasonIndexedValueTupleInput, ReasonSeriesInput, RuntimeSeriesSnapshot, RuntimeShardState,
@@ -22,11 +27,6 @@ use types::{
     ReasonVerdict,
 };
 
-const DEFAULT_MIN_SAMPLES: usize = 30;
-const DEFAULT_WINDOW_SIZE: usize = 300;
-const DEFAULT_N_SIGMA: f64 = 3.0;
-const DEFAULT_CONFIRM_SLOTS: usize = 5;
-const WINDOW_CAPACITY_MULTIPLE: usize = 2;
 
 // reason/2 evaluates a single sample (microseconds of Welford work), so it does
 // not belong on a dirty scheduler; route it to a normal scheduler. Only the

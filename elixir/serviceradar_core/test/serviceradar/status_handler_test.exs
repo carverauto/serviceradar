@@ -311,6 +311,166 @@ defmodule ServiceRadar.StatusHandlerTest do
       refute_receive {:published, "pdns.ocsf", _payload}
     end
 
+    test "routes an edge anomaly verdict onto the causal-prediction spine, not the generic OCSF path" do
+      verdict_event =
+        Jason.encode!(%{
+          "id" => "anomaly:sysmon:cpu:host-a:0:1812456000000000000:anomalous",
+          "event_id" => "anomaly:sysmon:cpu:host-a:0:1812456000000000000:anomalous",
+          "time" => 1_812_456_000_000,
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "class_uid" => 2004,
+          "category_uid" => 2,
+          "type_uid" => 200_401,
+          "activity_id" => 1,
+          "severity_id" => 4,
+          "provider" => "anomaly_detection",
+          "verdict_source" => "edge-spike",
+          "device_uid" => "host-a",
+          "anomaly" => %{
+            "series_key" => "sysmon:cpu:host-a:0",
+            "metric_class" => "cpu",
+            "state" => "anomalous",
+            "score" => 5.2,
+            "reason" => "rolling z-score 5.200 breached 3.000"
+          }
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "anomaly", source_instance: "host-a"},
+          records: [
+            %TelemetryRecord{
+              event_id: "anomaly-verdict-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: verdict_event,
+              metadata: %{
+                "serviceradar.signal_schema.schema_id" =>
+                  "com.carverauto.anomaly.detection_finding",
+                "serviceradar.signal_schema.signal_type" => "event",
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:anomaly",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "host-a",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      # Routed onto the causal-prediction spine so the EventWriter CausalSignals
+      # processor persists + alert-enqueues it identically to a central verdict —
+      # NOT the generic add-on OCSF subject.
+      assert_receive {:published, subject, payload}
+      assert String.starts_with?(subject, "signals.causal.predictions.")
+      refute_receive {:published, "pdns.ocsf", _payload}
+
+      assert {:ok, decoded} = Jason.decode(payload)
+      assert decoded["signal_type"] == "causal"
+      assert decoded["event_type"] == "anomaly"
+      assert decoded["class_uid"] == 2004
+      assert decoded["verdict_source"] == "edge-spike"
+      assert get_in(decoded, ["anomaly", "series_key"]) == "sysmon:cpu:host-a:0"
+    end
+
+    test "re-keys an edge verdict to the canonical series_key from source_identity (§3.4b)" do
+      source_identity = %{
+        "series_key" => "edge-hint-provisional",
+        "metric_class" => "sysmon.cpu",
+        "metric_name" => "cpu.usage_percent",
+        "agent_id" => "host-a",
+        "host_id" => "",
+        "tags" => %{"core_id" => "0"}
+      }
+
+      # The canonical key central derives differs from the producer hint, so a
+      # passing assertion proves the re-key actually happened (not a pass-through).
+      canonical =
+        ServiceRadar.Observability.AnomalyDetection.SampleExtractor.series_key_from_source_identity(
+          source_identity
+        )
+
+      refute canonical == "edge-hint-provisional"
+
+      verdict_event =
+        Jason.encode!(%{
+          "id" => "anomaly:edge-hint-provisional:1812456000000000000:anomalous",
+          "event_id" => "anomaly:edge-hint-provisional:1812456000000000000:anomalous",
+          "time" => 1_812_456_000_000,
+          "signal_type" => "causal",
+          "event_type" => "anomaly",
+          "class_uid" => 2004,
+          "category_uid" => 2,
+          "type_uid" => 200_401,
+          "activity_id" => 1,
+          "severity_id" => 4,
+          "provider" => "anomaly_detection",
+          "verdict_source" => "edge-spike",
+          "device_uid" => "host-a",
+          "source_identity" => source_identity,
+          "anomaly" => %{
+            "series_key" => "edge-hint-provisional",
+            "metric_class" => "sysmon.cpu",
+            "state" => "anomalous",
+            "score" => 5.2,
+            "reason" => "rolling z-score 5.200 breached 3.000"
+          }
+        })
+
+      batch =
+        TelemetryBatch.encode(%TelemetryBatch{
+          source: %TelemetrySource{source_type: "anomaly", source_instance: "host-a"},
+          records: [
+            %TelemetryRecord{
+              event_id: "anomaly-verdict-rekey-1",
+              observed_time_unix_nano: 1_812_456_000_000_000_000,
+              event_time_unix_nano: 1_812_456_000_000_000_000,
+              payload_kind: :TELEMETRY_PAYLOAD_KIND_OCSF_EVENT,
+              payload: verdict_event,
+              metadata: %{
+                "serviceradar.signal_schema.schema_id" =>
+                  "com.carverauto.anomaly.detection_finding",
+                "serviceradar.signal_schema.signal_type" => "event",
+                "serviceradar.signal_schema.payload_kind" => "ocsf_event"
+              }
+            }
+          ]
+        })
+
+      status = %{
+        source: "addon:anomaly",
+        service_type: "native-addon",
+        service_name: "addon-telemetry",
+        agent_id: "host-a",
+        gateway_id: "gateway-a",
+        partition: "prod-east",
+        source_ip: "192.0.2.55",
+        message: batch
+      }
+
+      assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
+
+      assert_receive {:published, subject, payload}
+      assert String.starts_with?(subject, "signals.causal.predictions.")
+
+      assert {:ok, decoded} = Jason.decode(payload)
+      # Persisted under the canonical key (both the anomaly block and the carried
+      # source_identity), not the provisional producer hint.
+      assert get_in(decoded, ["anomaly", "series_key"]) == canonical
+      assert get_in(decoded, ["source_identity", "series_key"]) == canonical
+    end
+
     test "drops a metric body mislabeled as an OCSF event instead of publishing it to the events plane" do
       # A plugin/addon that tags a metric payload as payload_kind=OCSF_EVENT would
       # otherwise be published verbatim onto the events stream (fj #3788 REC10).

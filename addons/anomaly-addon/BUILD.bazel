@@ -1,0 +1,17 @@
+exports_files([
+    "addon.yaml",
+    "config.schema.json",
+    "display/detection_finding.display.json",
+    "schemas/detection_finding.schema.json",
+])
+
+filegroup(
+    name = "anomaly_manifest",
+    srcs = [
+        "addon.yaml",
+        "config.schema.json",
+        "display/detection_finding.display.json",
+        "schemas/detection_finding.schema.json",
+    ],
+    visibility = ["//visibility:public"],
+)

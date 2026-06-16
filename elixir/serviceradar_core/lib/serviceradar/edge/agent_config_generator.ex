@@ -579,6 +579,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       params: normalize_map(params),
       capabilities: effective_addon_capabilities(package),
       os_capabilities: addon_os_capabilities(package),
+      resources: normalize_map(package.resources),
       delivery: package.delivery,
       supervision: package.supervision,
       artifact_object_key: artifact[:object_key],
@@ -1618,12 +1619,63 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
         target_os: assignment_string(addon[:target_os]),
         target_arch: assignment_string(addon[:target_arch]),
         download_url: assignment_string(addon[:download_url]),
-        download_token: assignment_string(addon[:download_token])
+        download_token: assignment_string(addon[:download_token]),
+        resources: to_proto_addon_resources(addon[:resources])
       }
     end)
   end
 
   defp to_proto_addons(_), do: []
+
+  # Manifest `resources` (addon.yaml) → the proto AddonResources the agent
+  # supervisor enforces. The package attribute is JSONB (string keys); a missing
+  # or empty block delivers no message (nil), which the agent reads as "unbounded".
+  defp to_proto_addon_resources(resources) when is_map(resources) do
+    if map_present?(resources) do
+      %Monitoring.AddonResources{
+        cpu_max_percent: resource_number(resources, "cpu_max_percent"),
+        memory_max_bytes: resource_integer(resources, "memory_max_bytes"),
+        memory_high_bytes: resource_integer(resources, "memory_high_bytes"),
+        tasks_max: resource_integer(resources, "tasks_max"),
+        slice: resource_string(resources, "slice")
+      }
+    end
+  end
+
+  defp to_proto_addon_resources(_), do: nil
+
+  # Resource sub-map accessors: tolerate string (JSONB) or atom (test) keys and
+  # coerce to the proto field's numeric type, defaulting unset/invalid to 0/"".
+  defp resource_value(resources, key) do
+    case Map.get(resources, key) do
+      nil -> Map.get(resources, String.to_existing_atom(key))
+      value -> value
+    end
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp resource_number(resources, key) do
+    case resource_value(resources, key) do
+      value when is_number(value) -> value / 1
+      _ -> 0.0
+    end
+  end
+
+  defp resource_integer(resources, key) do
+    case resource_value(resources, key) do
+      value when is_integer(value) -> value
+      value when is_float(value) -> trunc(value)
+      _ -> 0
+    end
+  end
+
+  defp resource_string(resources, key) do
+    case resource_value(resources, key) do
+      value when is_binary(value) -> value
+      _ -> ""
+    end
+  end
 
   # Add-on delivery/supervision are Ash atoms (e.g. :pushed_artifact); the proto
   # field is a string, so stringify (and tolerate a pre-stringified value).

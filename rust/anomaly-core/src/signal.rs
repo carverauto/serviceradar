@@ -1,3 +1,10 @@
+// Copyright 2026 Carver Automation Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License").
+// SPDX-License-Identifier: Apache-2.0
+
+//! Rolling / seasonal / trend signal evaluation.
+
 use crate::stats::{BaselineStats, WelfordAcc, sample_stats, z_score};
 use crate::types::SignalVerdict;
 use crate::window::window_values;
@@ -18,12 +25,7 @@ impl SignalVerdict {
         }
     }
 
-    pub(crate) fn not_ready(
-        name: &str,
-        threshold: f64,
-        sample_count: usize,
-        reason: String,
-    ) -> Self {
+    pub(crate) fn not_ready(name: &str, threshold: f64, sample_count: usize, reason: String) -> Self {
         Self {
             name: name.to_string(),
             enabled: true,
@@ -62,7 +64,7 @@ impl SignalVerdict {
     }
 }
 
-pub(crate) fn evaluate_signal(
+pub fn evaluate_signal(
     name: &str,
     baseline: &[f64],
     enabled: bool,
@@ -79,7 +81,7 @@ pub(crate) fn evaluate_signal(
     evaluate_signal_window(name, window, enabled, min_samples, threshold, sample_value)
 }
 
-pub(crate) fn evaluate_rolling_signal(
+pub fn evaluate_rolling_signal(
     name: &str,
     acc: WelfordAcc,
     enabled: bool,
@@ -124,7 +126,7 @@ pub(crate) fn evaluate_rolling_signal(
     SignalVerdict::ready(name, breached, score, threshold, acc.count, stats, reason)
 }
 
-pub(crate) fn reason_for_state(
+pub fn reason_for_state(
     state: &str,
     signals: &[SignalVerdict],
     confirm_slots: usize,
@@ -189,13 +191,5 @@ fn evaluate_signal_window(
         format!("{name} z-score {score:.3} is below {threshold:.3}")
     };
 
-    SignalVerdict::ready(
-        name,
-        breached,
-        score,
-        threshold,
-        window.len(),
-        stats,
-        reason,
-    )
+    SignalVerdict::ready(name, breached, score, threshold, window.len(), stats, reason)
 }

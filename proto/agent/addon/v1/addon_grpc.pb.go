@@ -34,13 +34,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	AddonService_Info_FullMethodName            = "/serviceradar.agent.addon.v1.AddonService/Info"
-	AddonService_Configure_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/Configure"
-	AddonService_Health_FullMethodName          = "/serviceradar.agent.addon.v1.AddonService/Health"
-	AddonService_StreamTelemetry_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamTelemetry"
-	AddonService_StreamArtifacts_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamArtifacts"
-	AddonService_RelayOtlp_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/RelayOtlp"
-	AddonService_RunCommand_FullMethodName      = "/serviceradar.agent.addon.v1.AddonService/RunCommand"
+	AddonService_Info_FullMethodName             = "/serviceradar.agent.addon.v1.AddonService/Info"
+	AddonService_Configure_FullMethodName        = "/serviceradar.agent.addon.v1.AddonService/Configure"
+	AddonService_Health_FullMethodName           = "/serviceradar.agent.addon.v1.AddonService/Health"
+	AddonService_StreamTelemetry_FullMethodName  = "/serviceradar.agent.addon.v1.AddonService/StreamTelemetry"
+	AddonService_StreamArtifacts_FullMethodName  = "/serviceradar.agent.addon.v1.AddonService/StreamArtifacts"
+	AddonService_RelayOtlp_FullMethodName        = "/serviceradar.agent.addon.v1.AddonService/RelayOtlp"
+	AddonService_StreamMetricFeed_FullMethodName = "/serviceradar.agent.addon.v1.AddonService/StreamMetricFeed"
+	AddonService_RunCommand_FullMethodName       = "/serviceradar.agent.addon.v1.AddonService/RunCommand"
 )
 
 // AddonServiceClient is the client API for AddonService service.
@@ -93,6 +94,24 @@ type AddonServiceClient interface {
 	// reconnect the add-on re-sends every unacked frame, resuming from its last
 	// acked watermark with the original relay_ids.
 	RelayOtlp(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[OtlpRelayAck, OtlpRelayFrame], error)
+	// StreamMetricFeed is the agent-to-add-on local metric feed. The agent only
+	// calls this RPC for add-ons that advertise the metric-feed:v1 capability in
+	// InfoResponse.capabilities. It is the data-direction inverse of the upstream
+	// streams: the add-on is the gRPC server, but the AGENT is the RPC client and
+	// the DATA PRODUCER. The agent writes MetricFeedFrame messages on the request
+	// stream BEFORE those samples are published to agent-gateway, and reads
+	// MetricFeedAck watermarks on the response stream for flow control.
+	//
+	// The feed lets a co-located compute add-on (for example per-series anomaly
+	// detection) analyze the agent's locally collected samples at the edge so the
+	// platform can ship verdicts/rollups instead of every raw point. Acks are
+	// cumulative and back-pressure the agent: the agent bounds the number of
+	// unacked in-flight frames per add-on so a slow add-on can never stall the
+	// agent's own collection or its gateway publishing path. The feed is lossy by
+	// contract (it is analysis input, not a durable delivery path): if an add-on
+	// falls past the agent's in-flight bound, the agent drops feed frames for that
+	// add-on and records the drop rather than blocking.
+	StreamMetricFeed(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MetricFeedFrame, MetricFeedAck], error)
 	// RunCommand executes a bounded, platform-scheduled command against a local
 	// add-on instance. The control plane records an addon.run_command command,
 	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
@@ -190,6 +209,19 @@ func (c *addonServiceClient) RelayOtlp(ctx context.Context, opts ...grpc.CallOpt
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_RelayOtlpClient = grpc.BidiStreamingClient[OtlpRelayAck, OtlpRelayFrame]
 
+func (c *addonServiceClient) StreamMetricFeed(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[MetricFeedFrame, MetricFeedAck], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &AddonService_ServiceDesc.Streams[3], AddonService_StreamMetricFeed_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[MetricFeedFrame, MetricFeedAck]{ClientStream: stream}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamMetricFeedClient = grpc.BidiStreamingClient[MetricFeedFrame, MetricFeedAck]
+
 func (c *addonServiceClient) RunCommand(ctx context.Context, in *RunCommandRequest, opts ...grpc.CallOption) (*RunCommandResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(RunCommandResponse)
@@ -250,6 +282,24 @@ type AddonServiceServer interface {
 	// reconnect the add-on re-sends every unacked frame, resuming from its last
 	// acked watermark with the original relay_ids.
 	RelayOtlp(grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]) error
+	// StreamMetricFeed is the agent-to-add-on local metric feed. The agent only
+	// calls this RPC for add-ons that advertise the metric-feed:v1 capability in
+	// InfoResponse.capabilities. It is the data-direction inverse of the upstream
+	// streams: the add-on is the gRPC server, but the AGENT is the RPC client and
+	// the DATA PRODUCER. The agent writes MetricFeedFrame messages on the request
+	// stream BEFORE those samples are published to agent-gateway, and reads
+	// MetricFeedAck watermarks on the response stream for flow control.
+	//
+	// The feed lets a co-located compute add-on (for example per-series anomaly
+	// detection) analyze the agent's locally collected samples at the edge so the
+	// platform can ship verdicts/rollups instead of every raw point. Acks are
+	// cumulative and back-pressure the agent: the agent bounds the number of
+	// unacked in-flight frames per add-on so a slow add-on can never stall the
+	// agent's own collection or its gateway publishing path. The feed is lossy by
+	// contract (it is analysis input, not a durable delivery path): if an add-on
+	// falls past the agent's in-flight bound, the agent drops feed frames for that
+	// add-on and records the drop rather than blocking.
+	StreamMetricFeed(grpc.BidiStreamingServer[MetricFeedFrame, MetricFeedAck]) error
 	// RunCommand executes a bounded, platform-scheduled command against a local
 	// add-on instance. The control plane records an addon.run_command command,
 	// agent-gateway streams it to the agent, and the agent invokes this RPC on the
@@ -283,6 +333,9 @@ func (UnimplementedAddonServiceServer) StreamArtifacts(*StreamArtifactsRequest, 
 }
 func (UnimplementedAddonServiceServer) RelayOtlp(grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]) error {
 	return status.Errorf(codes.Unimplemented, "method RelayOtlp not implemented")
+}
+func (UnimplementedAddonServiceServer) StreamMetricFeed(grpc.BidiStreamingServer[MetricFeedFrame, MetricFeedAck]) error {
+	return status.Errorf(codes.Unimplemented, "method StreamMetricFeed not implemented")
 }
 func (UnimplementedAddonServiceServer) RunCommand(context.Context, *RunCommandRequest) (*RunCommandResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RunCommand not implemented")
@@ -391,6 +444,13 @@ func _AddonService_RelayOtlp_Handler(srv interface{}, stream grpc.ServerStream) 
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type AddonService_RelayOtlpServer = grpc.BidiStreamingServer[OtlpRelayAck, OtlpRelayFrame]
 
+func _AddonService_StreamMetricFeed_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(AddonServiceServer).StreamMetricFeed(&grpc.GenericServerStream[MetricFeedFrame, MetricFeedAck]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type AddonService_StreamMetricFeedServer = grpc.BidiStreamingServer[MetricFeedFrame, MetricFeedAck]
+
 func _AddonService_RunCommand_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(RunCommandRequest)
 	if err := dec(in); err != nil {
@@ -447,6 +507,12 @@ var AddonService_ServiceDesc = grpc.ServiceDesc{
 		{
 			StreamName:    "RelayOtlp",
 			Handler:       _AddonService_RelayOtlp_Handler,
+			ServerStreams: true,
+			ClientStreams: true,
+		},
+		{
+			StreamName:    "StreamMetricFeed",
+			Handler:       _AddonService_StreamMetricFeed_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
 		},

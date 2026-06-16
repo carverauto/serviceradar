@@ -90,6 +90,7 @@ bumblebee
 endpoint-inventory
 scalibr-endpoint-inventory
 rdp
+anomaly
 EOF
 }
 
@@ -104,6 +105,7 @@ manifest_path() {
     endpoint-inventory) echo "addons/endpoint-inventory/addon.yaml" ;;
     scalibr-endpoint-inventory) echo "addons/scalibr-endpoint-inventory/addon.yaml" ;;
     rdp) echo "addons/rdp-adapter/addon.yaml" ;;
+    anomaly) echo "addons/anomaly-addon/addon.yaml" ;;
     *) return 1 ;;
   esac
 }
@@ -115,6 +117,7 @@ cargo_version_path() {
     powerdns) echo "rust/powerdns/Cargo.toml" ;;
     workload-identity) echo "rust/workload-identity/Cargo.toml" ;;
     rdp) echo "rust/rdp-adapter/Cargo.toml" ;;
+    anomaly) echo "rust/anomaly-addon/Cargo.toml" ;;
     *) return 1 ;;
   esac
 }
@@ -180,6 +183,11 @@ path_belongs_to_addon() {
     rdp)
       case "${path}" in
         addons/rdp-adapter/*|rust/rdp-adapter/*) return 0 ;;
+      esac
+      ;;
+    anomaly)
+      case "${path}" in
+        addons/anomaly-addon/*|rust/anomaly-addon/*) return 0 ;;
       esac
       ;;
   esac
