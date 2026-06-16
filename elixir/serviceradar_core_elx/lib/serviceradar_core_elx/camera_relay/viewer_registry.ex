@@ -234,6 +234,4 @@ defmodule ServiceRadarCoreElx.CameraRelay.ViewerRegistry do
     |> inspect()
     |> String.trim_leading("Elixir.")
   end
-
-  defp format_close_error(error), do: Exception.message(error)
 end
