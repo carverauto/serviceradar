@@ -135,6 +135,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 
 	for key, want := range map[string]string{
 		"integration_type": "armis",
+		"armis_device_id":  "42",
 		"source_device_id": "42",
 		"integration_id":   "42",
 		"type":             "PLC",
@@ -162,7 +163,6 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	}
 
 	for _, key := range []string{
-		"armis_device_id",
 		"armis_type",
 		"armis_category",
 		"armis_risk_level",

@@ -22,8 +22,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
 
     * `--execute` — apply changes (default: dry run)
     * `--step <name>` — run a single step (repeatable). One of:
-      `blob-purge`, `test-debris`, `agent-links`, `proxmox-dups`, `all`
-      (default `all`)
+      `blob-purge`, `test-debris`, `agent-links`, `proxmox-dups`,
+      `armis-dups`, `all` (default `all`)
     * `--manifest <path>` — rollback manifest path (execute mode)
     * `--batch-size <n>` — blob purge delete/extract batch size (default 50000)
     * `--debris-date <yyyy-mm-dd>` — test debris creation date (default 2026-04-25)
@@ -49,6 +49,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     * `--proxmox-source <name>` — discovery source for proxmox-dups (default proxmox)
     * `--skip-hostname <hostname>` — hostname denylist for proxmox-dups
       (repeatable; defaults: localhost, unknown)
+    * `--armis-plan-sample-limit <n>` — number of planned Armis merges printed
+      in dry-run/execute reports (default 50)
 
   ## Examples
 
@@ -84,7 +86,8 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     agent_status: :keep,
     ip_literal: :string,
     proxmox_source: :string,
-    skip_hostname: :keep
+    skip_hostname: :keep,
+    armis_plan_sample_limit: :integer
   ]
 
   @impl true
@@ -141,6 +144,7 @@ defmodule Mix.Tasks.Serviceradar.DireRemediation do
     |> put_if(:ip_literal, opts[:ip_literal])
     |> put_if(:proxmox_source, opts[:proxmox_source])
     |> put_if_nonempty(:hostname_denylist, Keyword.get_values(opts, :skip_hostname))
+    |> put_if(:armis_plan_sample_limit, opts[:armis_plan_sample_limit])
   end
 
   defp values_or(opts, key, default) do

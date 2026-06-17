@@ -13,11 +13,14 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
   use ExUnit.Case, async: false
 
+  import Ecto.Query
+
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.SyncIngestor
+  alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
   require Ash.Query
@@ -56,6 +59,20 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       Ash.Query.for_read(DeviceIdentifier, :lookup, %{
         identifier_type: :integration_id,
         identifier_value: integration_id,
+        partition: "default"
+      })
+
+    case Ash.read(query, actor: actor) do
+      {:ok, [identifier | _]} -> identifier.device_id
+      _ -> nil
+    end
+  end
+
+  defp device_for_armis_id(armis_id, actor) do
+    query =
+      Ash.Query.for_read(DeviceIdentifier, :lookup, %{
+        identifier_type: :armis_device_id,
+        identifier_value: armis_id,
         partition: "default"
       })
 
@@ -211,5 +228,67 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
 
     # The identifier must land on the survivor, not resurrect the tombstone.
     assert device_for_integration_id(integration_id, actor) == to_device.uid
+  end
+
+  test "legacy Armis source_device_id resolves to existing armis_device_id owner", %{actor: actor} do
+    armis_id = "armis-legacy-#{System.unique_integer([:positive])}"
+
+    canonical_update = %{
+      device_id: nil,
+      ip: nil,
+      mac: nil,
+      hostname: "armis-canonical",
+      partition: "default",
+      metadata: %{"integration_type" => "armis", "armis_device_id" => armis_id}
+    }
+
+    assert {:ok, canonical_uid} =
+             IdentityReconciler.resolve_device_id(canonical_update, actor: actor)
+
+    legacy_update = %{
+      "hostname" => "armis-legacy",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "source_device_id" => armis_id,
+        "integration_id" => armis_id
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([legacy_update], actor: actor)
+
+    assert device_for_armis_id(armis_id, actor) == canonical_uid
+
+    assert {:ok, %Device{uid: ^canonical_uid}} =
+             Device.get_by_uid(canonical_uid, false, actor: actor)
+
+    assert 1 ==
+             Repo.one(
+               from(d in Device,
+                 where:
+                   is_nil(d.deleted_at) and
+                     fragment("?->>'source_device_id' = ?", d.metadata, ^armis_id),
+                 select: count(d.uid)
+               )
+             )
+  end
+
+  test "cold legacy Armis ingest registers armis_device_id identifier", %{actor: actor} do
+    armis_id = "armis-cold-#{System.unique_integer([:positive])}"
+
+    update = %{
+      "hostname" => "armis-cold",
+      "source" => "armis",
+      "metadata" => %{
+        "integration_type" => "armis",
+        "source_device_id" => armis_id,
+        "integration_id" => armis_id
+      }
+    }
+
+    assert :ok = SyncIngestor.ingest_updates([update], actor: actor)
+
+    assert device_uid = device_for_armis_id(armis_id, actor)
+    assert {:ok, %Device{uid: ^device_uid}} = Device.get_by_uid(device_uid, false, actor: actor)
   end
 end

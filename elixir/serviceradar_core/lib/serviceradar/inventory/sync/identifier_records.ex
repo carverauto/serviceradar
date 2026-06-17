@@ -34,6 +34,13 @@ defmodule ServiceRadar.Inventory.Sync.IdentifierRecords do
       |> maybe_add_identifier_record(
         update,
         device_id,
+        :armis_device_id,
+        ids.armis_id,
+        partition
+      )
+      |> maybe_add_identifier_record(
+        update,
+        device_id,
         :integration_id,
         ids.integration_id,
         partition

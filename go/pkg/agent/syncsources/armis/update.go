@@ -61,6 +61,7 @@ func buildMetadata(item device, queryLabel string) map[string]string {
 	}
 	if id := item.effectiveID(); id > 0 {
 		deviceID := strconv.Itoa(id)
+		metadata["armis_device_id"] = deviceID
 		metadata["source_device_id"] = deviceID
 		metadata["integration_id"] = deviceID
 	}
