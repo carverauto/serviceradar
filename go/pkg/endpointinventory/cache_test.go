@@ -125,7 +125,7 @@ func TestCacheCanSkipFullScanRespectsServerReconcileRequest(t *testing.T) {
 
 func TestFullScanManifestClearsServerReconcileRequestOnChangedUpload(t *testing.T) {
 	cfg := DefaultConfig()
-	cfg.AgentID = "agent-1"
+	cfg.AgentID = endpointInventoryTestAgentID
 	requestedAt := time.Unix(100, 0).UTC()
 	scannedAt := time.Unix(120, 0).UTC()
 	previous := &InventoryCacheManifest{

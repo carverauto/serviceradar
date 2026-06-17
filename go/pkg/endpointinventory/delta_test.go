@@ -22,6 +22,8 @@ import (
 	"time"
 )
 
+const deltaTestCurlPackage = "curl"
+
 func pkg(name, version string) Package {
 	return Package{Name: name, Version: version, Arch: "amd64", Manager: PackageSourceDpkg}
 }
@@ -29,13 +31,13 @@ func pkg(name, version string) Package {
 func TestComputePackageSetDeltaAddRemoveChange(t *testing.T) {
 	previous := []Package{
 		pkg("bash", "5.1"),
-		pkg("curl", "7.80"),
+		pkg(deltaTestCurlPackage, "7.80"),
 		pkg("openssl", "3.0"),
 	}
 	current := []Package{
-		pkg("bash", "5.1"),   // unchanged
-		pkg("curl", "7.81"),  // changed (version bump)
-		pkg("nginx", "1.24"), // added
+		pkg("bash", "5.1"),                // unchanged
+		pkg(deltaTestCurlPackage, "7.81"), // changed (version bump)
+		pkg("nginx", "1.24"),              // added
 		// openssl removed
 	}
 
@@ -50,7 +52,7 @@ func TestComputePackageSetDeltaAddRemoveChange(t *testing.T) {
 	if len(delta.Removed) != 1 || delta.Removed[0].Name != "openssl" {
 		t.Fatalf("removed = %#v, want [openssl]", delta.Removed)
 	}
-	if len(delta.Changed) != 1 || delta.Changed[0].Name != "curl" {
+	if len(delta.Changed) != 1 || delta.Changed[0].Name != deltaTestCurlPackage {
 		t.Fatalf("changed = %#v, want [curl]", delta.Changed)
 	}
 	if delta.Changed[0].PreviousVersion != "7.80" || delta.Changed[0].Version != "7.81" {
@@ -59,7 +61,7 @@ func TestComputePackageSetDeltaAddRemoveChange(t *testing.T) {
 }
 
 func TestComputePackageSetDeltaNoChange(t *testing.T) {
-	set := []Package{pkg("bash", "5.1"), pkg("curl", "7.80")}
+	set := []Package{pkg("bash", "5.1"), pkg(deltaTestCurlPackage, "7.80")}
 	delta := ComputePackageSetDelta(set, set, "h", "h")
 	if !delta.IsEmpty() {
 		t.Fatalf("expected empty delta for identical sets, got %#v", delta)
@@ -103,7 +105,7 @@ func TestRunAttachesDeltaOnChangedScanWithPriorUploadedState(t *testing.T) {
 	// Seed a prior uploaded manifest whose package set differs from the current
 	// dpkg fixture (nginx) so the next scan registers as a change with a delta.
 	priorPackages := []Package{
-		{Name: "curl", Version: "7.80", Arch: "amd64", Manager: PackageSourceDpkg},
+		{Name: deltaTestCurlPackage, Version: "7.80", Arch: "amd64", Manager: PackageSourceDpkg},
 	}
 	priorHash := ComputePackageSetHash(priorPackages)
 	if err := WriteCacheManifest(cfg, &InventoryCacheManifest{
@@ -139,7 +141,7 @@ func TestRunAttachesDeltaOnChangedScanWithPriorUploadedState(t *testing.T) {
 			payload.PackageDelta.TargetPackageSetHash, payload.PackageSetHash)
 	}
 	// curl removed, nginx added.
-	if len(payload.PackageDelta.Removed) != 1 || payload.PackageDelta.Removed[0].Name != "curl" {
+	if len(payload.PackageDelta.Removed) != 1 || payload.PackageDelta.Removed[0].Name != deltaTestCurlPackage {
 		t.Fatalf("removed = %#v, want [curl]", payload.PackageDelta.Removed)
 	}
 	if len(payload.PackageDelta.Added) != 1 || payload.PackageDelta.Added[0].Name != "nginx" {
