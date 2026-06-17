@@ -452,16 +452,24 @@ func (c *grpcClient) RelayOtlp(ctx context.Context) (<-chan *addonpb.OtlpRelayFr
 	return frames, acks, nil
 }
 
-// StreamMetricFeed opens the agent-local metric feed against the remote add-on.
-// The returned frames channel accepts feed frames produced by the agent; the
-// returned acks channel yields cumulative add-on accept watermarks.
+// metricFeedSendBuffer bounds the in-flight MetricFeedFrames buffered toward a
+// slow add-on before the agent's non-blocking feed starts dropping.
+const metricFeedSendBuffer = 256
+
+// StreamMetricFeed opens the local metric feed against the remote add-on. The
+// caller sends MetricFeedFrame messages on the returned frames channel (closing
+// it half-closes the send direction) and reads cumulative ack watermarks on the
+// returned acks channel for flow control. The data direction is the inverse of
+// RelayOtlp: here the agent is the producer.
 func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
 	stream, err := c.client.StreamMetricFeed(ctx)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	frames := make(chan *addonpb.MetricFeedFrame)
+	// Buffered so the caller's non-blocking sends can absorb a burst while a
+	// slow stream.Send drains; this buffer is the in-flight bound for the feed.
+	frames := make(chan *addonpb.MetricFeedFrame, metricFeedSendBuffer)
 	go func() {
 		for {
 			select {

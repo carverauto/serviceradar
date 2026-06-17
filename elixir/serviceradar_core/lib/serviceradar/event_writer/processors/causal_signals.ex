@@ -1086,10 +1086,15 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignals do
       "device_uid" => anomaly_detection_device_uid(payload),
       "series_key" => get_in(payload, ["anomaly", "series_key"]),
       "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
+      # verdict_source distinguishes an edge spike verdict ("edge-spike") from a
+      # central one (default "central", later "central-seasonal"). SRQL/alerts
+      # can filter/group on metadata.service_radar.verdict_source.
+      "verdict_source" => Map.get(payload, "verdict_source", "central"),
       "ocsf_class" => "detection_finding"
     })
     |> Map.put("detection_finding", %{
       "type" => "anomaly",
+      "source" => Map.get(payload, "verdict_source", "central"),
       "series_key" => get_in(payload, ["anomaly", "series_key"]),
       "metric_class" => get_in(payload, ["anomaly", "metric_class"]),
       "state" => get_in(payload, ["anomaly", "state"]),

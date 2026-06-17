@@ -240,6 +240,14 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       description "Manifest requirements: base_agent floor, platforms, os_capabilities, run_as"
     end
 
+    attribute :resources, :map do
+      allow_nil? false
+      public? true
+      default %{}
+
+      description "Manifest resource limits: cpu_max_percent, memory_max_bytes, memory_high_bytes, tasks_max, slice"
+    end
+
     attribute :source_type, :atom do
       allow_nil? false
       public? true

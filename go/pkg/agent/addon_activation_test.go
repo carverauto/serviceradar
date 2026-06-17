@@ -994,3 +994,29 @@ func TestStageAddonArtifactGatewayNon200(t *testing.T) {
 		t.Fatalf("want ErrAddonArtifactDownloadFailed, got %v", err)
 	}
 }
+
+func TestAddonResourcesFromProto(t *testing.T) {
+	if got := addonResourcesFromProto(nil); !got.IsZero() {
+		t.Fatalf("nil proto resources should map to the zero value, got %+v", got)
+	}
+
+	got := addonResourcesFromProto(&proto.AddonResources{
+		CpuMaxPercent:   50,
+		MemoryMaxBytes:  268435456,
+		MemoryHighBytes: 201326592,
+		TasksMax:        32,
+		Slice:           "serviceradar-addons.slice",
+	})
+
+	want := agentaddon.Resources{
+		CPUMaxPercent:   50,
+		MemoryMaxBytes:  268435456,
+		MemoryHighBytes: 201326592,
+		TasksMax:        32,
+		Slice:           "serviceradar-addons.slice",
+	}
+
+	if got != want {
+		t.Fatalf("addonResourcesFromProto = %+v, want %+v", got, want)
+	}
+}

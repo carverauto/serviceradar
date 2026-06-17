@@ -322,7 +322,7 @@ defmodule ServiceRadar.Telemetry do
       endpoint_inventory_metrics() ++
       camera_relay_metrics() ++
       observability_signal_metrics() ++
-      event_writer_metrics() ++ anomaly_detection_metrics() ++ capacity_forecasting_metrics()
+      event_writer_metrics() ++ capacity_forecasting_metrics()
   end
 
   @doc """
@@ -425,161 +425,6 @@ defmodule ServiceRadar.Telemetry do
         measurement: :count,
         tags: [:stream, :durable, :subject_class, :reason_class],
         description: "EventWriter JetStream consumer state poll failures"
-      )
-    ]
-  end
-
-  @doc """
-  Returns anomaly detection throughput, latency, and drop metric definitions.
-  """
-  @spec anomaly_detection_metrics() :: list()
-  def anomaly_detection_metrics do
-    import Telemetry.Metrics
-
-    batch_event = [:serviceradar, :anomaly_detection, :batch, :completed]
-    batch_tags = [:engine, :path]
-    consumer_tags = [:subject_class, :reason]
-
-    [
-      counter("serviceradar.anomaly_detection.batch.count",
-        event_name: batch_event,
-        measurement: :count,
-        tags: batch_tags,
-        description: "Anomaly detection batches completed by engine/path"
-      ),
-      distribution("serviceradar.anomaly_detection.batch.duration",
-        event_name: batch_event,
-        measurement: :duration,
-        tags: batch_tags,
-        unit: {:native, :millisecond},
-        reporter_options: [
-          buckets: [1, 5, 10, 25, 50, 100, 250, 500, 1_000, 2_500, 5_000]
-        ],
-        description: "End-to-end anomaly detection batch duration"
-      ),
-      sum("serviceradar.anomaly_detection.input_samples.count",
-        event_name: batch_event,
-        measurement: :input_samples,
-        tags: batch_tags,
-        description: "Input samples received by anomaly detection"
-      ),
-      sum("serviceradar.anomaly_detection.evaluations.count",
-        event_name: batch_event,
-        measurement: :evaluations,
-        tags: batch_tags,
-        description: "Samples evaluated after idempotency and validation drops"
-      ),
-      sum("serviceradar.anomaly_detection.emitted_events.count",
-        event_name: batch_event,
-        measurement: :emitted_events,
-        tags: batch_tags,
-        description: "Sparse anomaly open/clear events emitted"
-      ),
-      sum("serviceradar.anomaly_detection.duplicate_drops.count",
-        event_name: batch_event,
-        measurement: :duplicate_drops,
-        tags: batch_tags,
-        description: "Samples dropped because their event_id was already committed"
-      ),
-      sum("serviceradar.anomaly_detection.dropped_samples.count",
-        event_name: batch_event,
-        measurement: :dropped_samples,
-        tags: batch_tags,
-        description: "Samples dropped for non-duplicate validation or preparation reasons"
-      ),
-      sum("serviceradar.anomaly_detection.failed_samples.count",
-        event_name: batch_event,
-        measurement: :failed_samples,
-        tags: batch_tags,
-        description: "Samples that failed during shard/native evaluation"
-      ),
-      counter("serviceradar.anomaly_detection.consumer.analyzed.count",
-        event_name: [:serviceradar, :anomaly_detection, :consumer, :analyzed],
-        measurement: :count,
-        tags: consumer_tags,
-        tag_values: &anomaly_consumer_tag_values/1,
-        description: "Metric samples analyzed by the live anomaly detection JetStream consumer"
-      ),
-      counter("serviceradar.anomaly_detection.consumer.disabled.count",
-        event_name: [:serviceradar, :anomaly_detection, :consumer, :disabled],
-        measurement: :count,
-        tags: consumer_tags,
-        tag_values: &anomaly_consumer_tag_values/1,
-        description: "Messages skipped because the anomaly consumer subject filter disabled them"
-      ),
-      counter("serviceradar.anomaly_detection.consumer.dropped.count",
-        event_name: [:serviceradar, :anomaly_detection, :consumer, :dropped],
-        measurement: :count,
-        tags: consumer_tags,
-        tag_values: &anomaly_consumer_tag_values/1,
-        description: "Messages or samples dropped by the live anomaly detection consumer"
-      ),
-      counter("serviceradar.anomaly_detection.consumer.failed.count",
-        event_name: [:serviceradar, :anomaly_detection, :consumer, :failed],
-        measurement: :count,
-        tags: consumer_tags,
-        tag_values: &anomaly_consumer_tag_values/1,
-        description: "Messages failed by the live anomaly detection consumer"
-      ),
-      sum("serviceradar.anomaly_detection.sample_extractor.accepted_samples.count",
-        event_name: [
-          :serviceradar,
-          :observability,
-          :anomaly_detection,
-          :sample_extractor,
-          :batch
-        ],
-        measurement: :accepted_samples,
-        tags: [:subject_class],
-        description: "Metric samples accepted by the anomaly sample extractor"
-      ),
-      sum("serviceradar.anomaly_detection.sample_extractor.dropped_samples.count",
-        event_name: [
-          :serviceradar,
-          :observability,
-          :anomaly_detection,
-          :sample_extractor,
-          :batch
-        ],
-        measurement: :dropped_samples,
-        tags: [:subject_class],
-        description: "Metric samples dropped by the anomaly sample extractor"
-      ),
-      sum("serviceradar.anomaly_detection.sample_extractor.dropped_process_samples.count",
-        event_name: [
-          :serviceradar,
-          :observability,
-          :anomaly_detection,
-          :sample_extractor,
-          :batch
-        ],
-        measurement: :dropped_process_samples,
-        tags: [:subject_class],
-        description: "Process metric samples intentionally ignored by anomaly detection"
-      ),
-      sum("serviceradar.anomaly_detection.sample_extractor.dropped_unidentified_samples.count",
-        event_name: [
-          :serviceradar,
-          :observability,
-          :anomaly_detection,
-          :sample_extractor,
-          :batch
-        ],
-        measurement: :dropped_unidentified_samples,
-        tags: [:subject_class],
-        description: "Sysmon samples dropped because they lack stable attested identity"
-      ),
-      last_value("serviceradar.anomaly_detection.sample_extractor.metric_class_count.value",
-        event_name: [
-          :serviceradar,
-          :observability,
-          :anomaly_detection,
-          :sample_extractor,
-          :batch
-        ],
-        measurement: :metric_class_count,
-        tags: [:subject_class],
-        description: "Distinct accepted metric classes in the latest anomaly extraction batch"
       )
     ]
   end
@@ -1079,29 +924,6 @@ defmodule ServiceRadar.Telemetry do
       reason: stringify(metadata[:reason], "unknown")
     }
   end
-
-  defp anomaly_consumer_tag_values(metadata) do
-    %{
-      subject_class: subject_class(metadata[:subject]),
-      reason: stringify(metadata[:reason], "none")
-    }
-  end
-
-  defp subject_class(subject) when is_binary(subject) do
-    cond do
-      subject == "" -> "unknown"
-      String.starts_with?(subject, "metrics.sysmon.") -> "metrics.sysmon"
-      String.starts_with?(subject, "metrics.snmp.") -> "metrics.snmp"
-      String.starts_with?(subject, "metrics.icmp.") -> "metrics.icmp"
-      String.starts_with?(subject, "metrics.timeseries.") -> "metrics.timeseries"
-      String.starts_with?(subject, "otel.metrics.") -> "otel.metrics"
-      String.starts_with?(subject, "metrics.") -> "metrics.other"
-      true -> "other"
-    end
-  end
-
-  defp subject_class(nil), do: "unknown"
-  defp subject_class(subject), do: subject |> to_string() |> subject_class()
 
   defp stringify(nil, default), do: default
   defp stringify("", default), do: default

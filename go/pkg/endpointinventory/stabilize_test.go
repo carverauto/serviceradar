@@ -121,13 +121,14 @@ func TestStabilizeUnchangedScanPayloadIsDeterministic(t *testing.T) {
 }
 
 func TestStableUnchangedScanIDStableAndDistinct(t *testing.T) {
+	// Two separate calls with the same input must agree (kept in vars so the
+	// determinism check isn't a syntactically-identical comparison).
 	first := StableUnchangedScanID("a")
-	second := StableUnchangedScanID("a")
-
-	if first != second {
+	again := StableUnchangedScanID("a")
+	if first != again {
 		t.Fatal("same hash must produce same scan id")
 	}
-	if first == StableUnchangedScanID("b") {
+	if StableUnchangedScanID("a") == StableUnchangedScanID("b") {
 		t.Fatal("different hashes must produce different scan ids")
 	}
 	if got := StableUnchangedScanID(""); got != stableUnchangedScanIDPrefix+"unknown" {

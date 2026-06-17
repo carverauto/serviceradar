@@ -424,6 +424,7 @@ func (p *PushLoop) buildSidecarAddonSpec(
 		ConfigJSON:   a.GetConfigJson(),
 		Capabilities: a.GetCapabilities(),
 		DownloadURL:  a.GetDownloadUrl(),
+		Resources:    addonResourcesFromProto(a.GetResources()),
 	}
 
 	// Cache the fully verified, freshly staged spec as last-known-good so a later
@@ -433,6 +434,24 @@ func (p *PushLoop) buildSidecarAddonSpec(
 	}
 
 	return spec, true, addonDeliverySucceeded
+}
+
+// addonResourcesFromProto maps the manifest-declared resource limits delivered on
+// the proto assignment to the supervisor's Resources struct. A nil message (no
+// limits in the manifest) yields the zero value, which the supervisor treats as
+// unbounded.
+func addonResourcesFromProto(r *proto.AddonResources) agentaddon.Resources {
+	if r == nil {
+		return agentaddon.Resources{}
+	}
+
+	return agentaddon.Resources{
+		CPUMaxPercent:   r.GetCpuMaxPercent(),
+		MemoryMaxBytes:  r.GetMemoryMaxBytes(),
+		MemoryHighBytes: r.GetMemoryHighBytes(),
+		TasksMax:        int(r.GetTasksMax()),
+		Slice:           r.GetSlice(),
+	}
 }
 
 // logSidecarDeliveryFailure logs an add-on delivery failure at a severity matching its
@@ -598,7 +617,7 @@ func systemdUnitActive(ctx context.Context, unit string) bool {
 // installUnitsFn installs + enables an add-on's staged systemd units via the root-owned
 // agent-updater. Indirected so reconcileStagedSystemdUnits's rollback paths are testable
 // without the updater.
-type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string) error
+type installUnitsFn func(ctx context.Context, addonID string, units []string, enable string, resources agentaddon.Resources) error
 
 // reconcileStagedSystemdUnits installs + enables the freshly staged add-on's systemd units
 // and, on any discovery/selection/install failure, rolls `current` back to priorTarget so a
@@ -637,7 +656,7 @@ func (p *PushLoop) reconcileStagedSystemdUnits(
 		return false
 	}
 
-	if err := install(ctx, a.GetAddonId(), units, enable); err != nil {
+	if err := install(ctx, a.GetAddonId(), units, enable, addonResourcesFromProto(a.GetResources())); err != nil {
 		rollback("failed to install systemd add-on units; rolled back", err)
 		return false
 	}

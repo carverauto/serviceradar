@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
@@ -32,6 +33,15 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/rs/zerolog"
 )
+
+// MetricFeeder fans locally collected metric batches out to running add-ons
+// that opened the local metric feed (metric-feed:v1). payload is one encoded
+// serviceradar.metric.v1.MetricBatch (the agent already has it encoded for the
+// gateway push, so no re-marshal). The call is non-blocking and lossy by
+// contract.
+type MetricFeeder interface {
+	FeedMetrics(payload []byte)
+}
 
 const (
 	defaultRuntimeDir            = "/run/serviceradar/addons"
@@ -77,7 +87,11 @@ type Config struct {
 	// host service). The endpoint derived from the otel-collector add-on's
 	// delivered config always wins.
 	LocalOtlpEndpoint string
-	Logger            zerolog.Logger
+	// AddonCgroupRoot is a cgroup v2 directory the agent may write to (a delegated
+	// sub-tree) under which add-on subprocesses are placed with their manifest
+	// resource limits. Empty disables cgroup enforcement.
+	AddonCgroupRoot string
+	Logger          zerolog.Logger
 }
 
 func applyDefaults(cfg Config) Config {
@@ -261,35 +275,6 @@ func (m *Manager) RunCommand(ctx context.Context, invocation CommandInvocation) 
 	return r.runCommand(ctx, invocation)
 }
 
-// PublishMetricFeed offers one encoded MetricBatch to all running add-ons that
-// explicitly subscribed to the source in config_json and have an active
-// metric-feed:v1 stream. It never blocks collection or gateway publishing.
-func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
-	if m == nil || len(payload) == 0 {
-		return 0
-	}
-
-	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		return 0
-	}
-	runners := make([]*runner, 0, len(m.runners))
-	for _, r := range m.runners {
-		runners = append(runners, r)
-	}
-	m.mu.Unlock()
-
-	accepted := 0
-	for _, r := range runners {
-		if r.publishMetricFeed(source, payload) {
-			accepted++
-		}
-	}
-
-	return accepted
-}
-
 func (m *Manager) commandRunner(invocation CommandInvocation) (*runner, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -364,7 +349,12 @@ type runner struct {
 	status        Status
 	restartWindow []time.Time
 	commandClient coreaddon.CommandClient
-	metricFeed    *metricFeedLifecycle
+	// feedFrames is the send side of an open metric feed (metric-feed:v1), or
+	// nil when no feed is open. Guarded by mu.
+	feedFrames chan<- *coreaddon.MetricFeedFrame
+
+	feedSeq     atomic.Uint64
+	feedDropped atomic.Uint64
 }
 
 func newRunner(spec Spec, cfg Config) *runner {
@@ -515,6 +505,16 @@ func (r *runner) runOnce(ctx context.Context) error {
 	}
 	cmd.Env = addonProcessEnv(os.Environ(), r.id, localEndpoint)
 
+	// Enforce the manifest resource limits on the add-on subprocess (cgroup v2 on
+	// Linux; no-op elsewhere). Best-effort: a failure to enforce logs and launches
+	// without limits rather than blocking the add-on.
+	if cleanup, err := applyResourceLimits(cmd, r.id, r.spec.Resources, r.cfg.AddonCgroupRoot, r.cfg.Logger); err != nil {
+		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).
+			Msg("addon resource limits not enforced; launching without limits")
+	} else {
+		defer cleanup()
+	}
+
 	client := goplugin.NewClient(&goplugin.ClientConfig{
 		HandshakeConfig:  coreaddon.Handshake,
 		Plugins:          coreaddon.ClientPluginSet(),
@@ -590,23 +590,13 @@ func (r *runner) runOnce(ctx context.Context) error {
 		}
 	}
 
-	var metricFeed *metricFeedLifecycle
 	if hasCapability(capabilities, coreaddon.CapabilityMetricFeedV1) {
-		sources := metricFeedSourcesFromConfig(spec.ConfigJSON)
-		if len(sources) > 0 {
-			if feedClient, ok := ac.(coreaddon.MetricFeedClient); ok {
-				metricFeed = newMetricFeedLifecycle(ctx, r.id, feedClient, sources, r.cfg.Logger)
-				r.setMetricFeed(metricFeed)
-				metricFeed.start()
-				defer func() {
-					metricFeed.stop()
-					r.clearMetricFeed(metricFeed)
-				}()
-			}
+		if feedClient, ok := ac.(coreaddon.MetricFeedClient); ok {
+			r.startMetricFeed(telemetryCtx, feedClient)
 		}
 	}
 
-	return r.supervise(ctx, client, ac, pid, relay, metricFeed)
+	return r.supervise(ctx, client, ac, pid, relay)
 }
 
 // relayLifecycle ties the OTLP relay runner goroutine to the add-on's health
@@ -747,6 +737,76 @@ func hasCapability(capabilities []string, capability string) bool {
 	return false
 }
 
+// startMetricFeed opens the local metric feed against a metric-feed:v1 add-on and
+// records the send side so FeedMetrics can push batches to it.
+func (r *runner) startMetricFeed(ctx context.Context, client coreaddon.MetricFeedClient) {
+	frames, acks, err := client.StreamMetricFeed(ctx)
+	if err != nil {
+		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon metric feed failed to open")
+		return
+	}
+
+	r.mu.Lock()
+	r.feedFrames = frames
+	r.mu.Unlock()
+
+	// Drain ack watermarks (the buffered send channel bounds in-flight frames,
+	// so acks are advisory here). When the stream ends the acks channel closes;
+	// clear the sink so FeedMetrics stops sending into a dead feed.
+	go func() {
+		for range acks {
+		}
+		r.mu.Lock()
+		r.feedFrames = nil
+		r.mu.Unlock()
+	}()
+}
+
+// feed pushes one batch to this runner's open metric feed, if any. Non-blocking
+// and lossy: drops (and counts) when the in-flight buffer is full so the agent's
+// metric path is never stalled by a slow add-on.
+func (r *runner) feed(payload []byte) {
+	r.mu.Lock()
+	frames := r.feedFrames
+	r.mu.Unlock()
+	if frames == nil || len(payload) == 0 {
+		return
+	}
+
+	frame := &coreaddon.MetricFeedFrame{
+		FeedId:  r.feedSeq.Add(1),
+		Payload: payload,
+	}
+
+	select {
+	case frames <- frame:
+	default:
+		r.feedDropped.Add(1)
+	}
+}
+
+var _ MetricFeeder = (*Manager)(nil)
+
+// FeedMetrics fans a locally collected MetricBatch out to every running add-on
+// that opened a metric feed (metric-feed:v1). Non-blocking and lossy: a slow
+// add-on drops frames rather than stalling the agent's collection path.
+func (m *Manager) FeedMetrics(payload []byte) {
+	if len(payload) == 0 {
+		return
+	}
+
+	m.mu.Lock()
+	runners := make([]*runner, 0, len(m.runners))
+	for _, r := range m.runners {
+		runners = append(runners, r)
+	}
+	m.mu.Unlock()
+
+	for _, r := range runners {
+		r.feed(payload)
+	}
+}
+
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {
 	batches, err := telemetryClient.StreamTelemetry(ctx)
 	if err != nil {
@@ -775,14 +835,7 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 // supervise polls health and applies reconfiguration until the add-on exits or
 // the context is cancelled. relay (which may be nil) is stopped while the
 // add-on is degraded/unhealthy and restarted when it recovers.
-func (r *runner) supervise(
-	ctx context.Context,
-	client *goplugin.Client,
-	ac coreaddon.Addon,
-	pid int,
-	relay *relayLifecycle,
-	metricFeed *metricFeedLifecycle,
-) error {
+func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac coreaddon.Addon, pid int, relay *relayLifecycle) error {
 	ticker := time.NewTicker(r.cfg.HealthInterval)
 	defer ticker.Stop()
 
@@ -807,7 +860,6 @@ func (r *runner) supervise(
 				if failures >= r.cfg.UnhealthyThreshold {
 					r.setUnhealthy(pid, errString(err))
 					relay.stop()
-					metricFeed.stop()
 				}
 				if client.Exited() {
 					r.setExited(errString(err))
@@ -820,35 +872,11 @@ func (r *runner) supervise(
 			r.setHealthy(pid, h)
 			if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
 				relay.stop()
-				metricFeed.stop()
 			} else {
 				relay.start()
-				metricFeed.start()
 			}
 		}
 	}
-}
-
-func (r *runner) setMetricFeed(feed *metricFeedLifecycle) {
-	r.mu.Lock()
-	r.metricFeed = feed
-	r.mu.Unlock()
-}
-
-func (r *runner) clearMetricFeed(feed *metricFeedLifecycle) {
-	r.mu.Lock()
-	if r.metricFeed == feed {
-		r.metricFeed = nil
-	}
-	r.mu.Unlock()
-}
-
-func (r *runner) publishMetricFeed(source string, payload []byte) bool {
-	r.mu.Lock()
-	feed := r.metricFeed
-	r.mu.Unlock()
-
-	return feed.publish(source, payload)
 }
 
 func (r *runner) probeHealth(parent context.Context, ac coreaddon.Addon) (coreaddon.Health, error) {

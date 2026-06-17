@@ -78,6 +78,11 @@ pub const CAPABILITY_NATIVE_TELEMETRY_V1: &str = "native-telemetry:v1";
 /// them after gateway acceptance, giving at-least-once delivery.
 pub const CAPABILITY_OTLP_RELAY_V1: &str = "otlp-relay:v1";
 
+/// Capability advertised by add-ons that consume the agent's local metric feed
+/// (`AddonService.StreamMetricFeed`) to analyze samples at the edge before they
+/// are shipped upstream — e.g. per-series anomaly detection.
+pub const CAPABILITY_METRIC_FEED_V1: &str = "metric-feed:v1";
+
 pub const SIGNAL_SCHEMA_METADATA_PRODUCER_ID: &str = "serviceradar.signal_schema.producer_id";
 pub const SIGNAL_SCHEMA_METADATA_PRODUCER_VERSION: &str =
     "serviceradar.signal_schema.producer_version";
@@ -106,6 +111,17 @@ pub type OtlpRelayStream =
 /// this alias so implementations (and tests) are not tied to a transport.
 pub type OtlpRelayAckStream =
     Pin<Box<dyn Stream<Item = Result<pb::OtlpRelayAck, tonic::Status>> + Send + 'static>>;
+
+/// Inbound metric-feed frame stream (agent -> add-on) passed to
+/// [`Addon::stream_metric_feed`]. Each frame carries an encoded
+/// `serviceradar.metric.v1.MetricBatch` the add-on analyzes locally.
+pub type MetricFeedStream =
+    Pin<Box<dyn Stream<Item = Result<pb::MetricFeedFrame, tonic::Status>> + Send + 'static>>;
+
+/// Outbound ack-watermark stream returned by [`Addon::stream_metric_feed`]
+/// (add-on -> agent) for cumulative flow control over the metric feed.
+pub type MetricFeedAckStream =
+    Pin<Box<dyn Stream<Item = Result<pb::MetricFeedAck, tonic::Status>> + Send + 'static>>;
 
 /// Coarse health of an add-on, mirroring `HealthResponse.Status` in the proto
 /// and the Go `addon.HealthStatus` enum.
@@ -426,6 +442,23 @@ pub trait Addon: Send + Sync + 'static {
     fn relay_otlp(&self, _acks: OtlpRelayAckStream) -> Result<OtlpRelayStream, tonic::Status> {
         Err(tonic::Status::unimplemented(
             "add-on does not implement otlp-relay:v1",
+        ))
+    }
+
+    /// Optional local metric feed (`AddonService.StreamMetricFeed`). Add-ons that
+    /// advertise [`CAPABILITY_METRIC_FEED_V1`] should override this: consume the
+    /// agent's locally collected `MetricFeedFrame`s (each an encoded
+    /// `serviceradar.metric.v1.MetricBatch`), analyze them at the edge, and
+    /// return a stream of cumulative [`pb::MetricFeedAck`] watermarks so the
+    /// agent can bound in-flight frames. The default rejects the call with
+    /// UNIMPLEMENTED so add-ons without the capability fail loudly.
+    #[allow(clippy::result_large_err)]
+    fn stream_metric_feed(
+        &self,
+        _frames: MetricFeedStream,
+    ) -> Result<MetricFeedAckStream, tonic::Status> {
+        Err(tonic::Status::unimplemented(
+            "add-on does not implement metric-feed:v1",
         ))
     }
 }

@@ -347,6 +347,75 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractor do
     end
   end
 
+  @doc """
+  Compute the canonical anomaly `series_key` from an edge add-on's
+  `source_identity` map (the raw attested resource/metric fields it forwards on
+  each verdict), reusing the exact identity + dimension logic the extractor
+  applies to live batches. Edge verdicts are re-keyed through this so they land
+  on the same `series_key` central would assign — the basis for the edge<->central
+  verdict join during rollout and the seasonal-worker join
+  (move-anomaly-detection-to-edge §3.4b).
+
+  `source_identity` carries string keys (it arrives as decoded JSON):
+  `metric_class`, `metric_name`, `host_id`/`agent_id`/`device_id`/`host_ip`,
+  `target_device_ip`, `if_index`, and a nested `tags` map of attested
+  distinguishing dimensions (`core_id`/`mount_point`/...). Returns `nil` when no
+  usable `metric_class` is present so the caller can fall back to the provisional
+  producer hint.
+  """
+  @spec series_key_from_source_identity(map()) :: String.t() | nil
+  def series_key_from_source_identity(source_identity) when is_map(source_identity) do
+    case si_string(source_identity, "metric_class") do
+      nil ->
+        nil
+
+      metric_class ->
+        base = %{
+          metric_name: si_string(source_identity, "metric_name"),
+          target_device_ip: si_string(source_identity, "target_device_ip"),
+          host_id: si_string(source_identity, "host_id"),
+          agent_id: si_string(source_identity, "agent_id"),
+          device_id: si_string(source_identity, "device_id"),
+          host_ip: si_string(source_identity, "host_ip")
+        }
+
+        {identity, _unstable?} = resource_series_identity(base)
+        tags = si_tags(source_identity)
+        point = %{if_index: si_int(source_identity, "if_index")}
+
+        metric_class
+        |> readable_series_identity(base, identity, tags, point)
+        |> then(&prefix_series_key(metric_class, &1))
+    end
+  end
+
+  def series_key_from_source_identity(_source_identity), do: nil
+
+  defp si_string(map, key) do
+    case Map.get(map, key) do
+      value when is_binary(value) -> non_empty(String.trim(value))
+      _ -> nil
+    end
+  end
+
+  # The attested distinguishing tags travel under a nested "tags" map (string
+  # keys); tolerate its absence so a verdict carrying only identity fields still
+  # produces a well-formed key (it just omits the per-core/per-mount dimension).
+  defp si_tags(source_identity) do
+    case Map.get(source_identity, "tags") do
+      %{} = tags -> tags
+      _ -> %{}
+    end
+  end
+
+  defp si_int(map, key) do
+    case Map.get(map, key) do
+      value when is_integer(value) -> value
+      value when is_float(value) -> trunc(value)
+      _ -> nil
+    end
+  end
+
   # Record a host_ip-derived (unstable) identity so downstream consumers can
   # warn that a DHCP lease change may re-key the series. Stored as a string to
   # match the producer-emitted "host_identity_unstable" metadata.

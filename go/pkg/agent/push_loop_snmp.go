@@ -22,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	snmpchecker "github.com/carverauto/serviceradar/go/pkg/agent/snmp"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -106,6 +107,16 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		Partition:    partition,
 		Source:       "snmp-metrics",
 		KvStoreId:    kvStoreID,
+	}
+
+	// Tap: feed the encoded SNMP batch to edge add-ons on the local metric feed
+	// (metric-feed:v1). Lossy, non-blocking. The add-on skips cumulative counters
+	// it cannot rate-normalize and detects on the gauge series.
+	p.server.mu.RLock()
+	feeder, _ := p.server.addonManager.(agentaddon.MetricFeeder)
+	p.server.mu.RUnlock()
+	if feeder != nil {
+		feeder.FeedMetrics(status.Message)
 	}
 
 	chunk := &proto.GatewayStatusChunk{

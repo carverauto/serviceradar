@@ -31,14 +31,30 @@ budget.
 - Move *cross-entity causal analysis* to the edge. The DeepCausality graph over
   the CONNECTS_TO fabric is inherently cross-host and stays central in
   `rust/causal-engine`.
-- Remove central anomaly analysis. Central remains the fallback for uncovered
-  sources and during rollout.
+- Run per-series anomaly on OTel / non-agent metric sources. OTel application
+  metrics are explicitly out of scope for statistical anomaly detection (they
+  keep storage, dashboards, threshold alerts, and the causal engine). Because
+  sysmon, SNMP, and ICMP are all agent-collected, dropping OTel makes *every*
+  anomaly input agent-sourced and therefore fully edge-resident — which is what
+  allows the central pipeline to be retired entirely (see Decisions).
 - Change the verdict/signal schema or the alerting path.
 
 ## Decisions
-- **Reuse one detector.** The edge add-on calls the same per-series Welford
-  detector code used centrally (the Rustler NIF / `causal-engine` detector),
-  compiled into the add-on. A parity test gates byte-identical verdicts.
+- **Split anomaly by timescale; retire the central raw-stream pipeline.** The
+  edge does fast per-series **spike** detection (rolling z-score); central does
+  **seasonal/contextual** detection over CAGGs (the "busy Tuesday" question —
+  specified in `add-seasonal-anomaly-detection`, an aggregate-based Oban worker,
+  not a raw-stream consumer). What is **removed** is the central raw-stream
+  per-sample pipeline — the `causal_reasoner_nif` and the `ANALYSIS_METRICS_*`
+  durables, the sharded/native context engine, Horde ownership, and the KV
+  checkpoints — **once the edge add-on is rolled out across the fleet** (a
+  deprecation sequence, not an immediate deletion, so detection never goes dark
+  in the gap). Central anomaly does NOT disappear; only the per-sample raw-stream
+  path does. `serviceradar-anomaly-core` survives as the edge detector and as the
+  basis for a small batch backfill/backtesting CLI (the NIF's only non-live role).
+- **One detector crate.** Both the edge add-on and — until it is retired — the
+  central NIF call the shared `serviceradar-anomaly-core` crate, so verdicts are
+  identical by construction. A parity test guards it.
 - **New agent→add-on metric-feed RPC**, not a side channel. The
   `AddonService` contract gains a streaming agent→add-on metric feed with the
   same flow-control discipline as the gateway path; an add-on subscribes only to

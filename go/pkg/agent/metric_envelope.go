@@ -995,7 +995,9 @@ func sysmonNetworkMetrics(sample *sysmon.MetricSample, observedAt uint64) []*met
 
 func sysmonProcessMetrics(sample *sysmon.MetricSample, observedAt uint64) []*metricpb.Metric {
 	metrics := make([]*metricpb.Metric, 0, 3)
-	metrics = append(metrics, gaugeMetric("process.count", "sysmon.process", "{process}", float64(len(sample.Processes)), observedAt, nil))
+	metrics = append(metrics,
+		gaugeMetric("process.count", "sysmon.process", "{process}", float64(len(sample.Processes)), observedAt, nil),
+	)
 
 	if len(sample.Processes) == 0 {
 		return metrics

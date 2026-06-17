@@ -127,6 +127,13 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
           "platforms" => ["linux"],
           "os_capabilities" => ["CAP_NET_RAW", "CAP_NET_ADMIN", "CAP_BPF", "CAP_PERFMON"]
         },
+        "resources" => %{
+          "cpu_max_percent" => 50,
+          "memory_max_bytes" => 268_435_456,
+          "memory_high_bytes" => 201_326_592,
+          "tasks_max" => 32,
+          "slice" => "serviceradar-addons.slice"
+        },
         "exec" => %{
           "binary" => "serviceradar-netprobe",
           "install_path" => "/usr/local/lib/serviceradar/bin"
@@ -180,11 +187,21 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
                "CAP_PERFMON"
              ]
 
+      assert attrs.resources["cpu_max_percent"] == 50
+      assert attrs.resources["memory_max_bytes"] == 268_435_456
+      assert attrs.resources["slice"] == "serviceradar-addons.slice"
+
       assert attrs.source_oci_ref =~ "serviceradar-addon-netprobe"
       assert attrs.source_oci_digest == "sha256:deadbeef"
       assert attrs.source_release_tag == "sha-abc"
       assert attrs.source_type == :first_party
       assert attrs.verification_status == "verified"
+    end
+
+    test "defaults resources to an empty map when the manifest omits it" do
+      m = Map.delete(manifest(), "resources")
+      assert {:ok, attrs} = Importer.package_attrs(m, %{}, %{})
+      assert attrs.resources == %{}
     end
 
     test "fails closed on an unknown delivery model" do

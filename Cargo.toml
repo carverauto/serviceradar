@@ -26,6 +26,8 @@ members = [
     "rust/addon-sdk",
     "rust/otel-addon",
     "rust/metrics-delta-writer",
+    "rust/anomaly-core",
+    "rust/anomaly-addon",
 ]
 exclude = [
     "elixir/serviceradar_core_elx/deps/ex_sctp/native/ex_sctp",

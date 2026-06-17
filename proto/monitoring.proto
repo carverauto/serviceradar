@@ -385,6 +385,23 @@ message AddonAssignmentConfig {
   // still verifies artifact_sha256 + artifact_signature after download.
   string download_url = 16;
   string download_token = 17;
+
+  // Manifest-declared CPU/memory/task limits (addon.yaml `resources`) the agent
+  // supervisor enforces on the add-on subprocess (cgroup v2 for agent-sidecar,
+  // systemd unit directives for systemd-service). Absent/zero means unbounded,
+  // which is only acceptable for trivial control-only add-ons.
+  AddonResources resources = 18;
+}
+
+// AddonResources are the per-add-on resource limits the agent supervisor applies
+// when launching the add-on. Mirrors addon.yaml `resources` and the manifest
+// schema; a zero value (all fields unset) means no limit is enforced.
+message AddonResources {
+  double cpu_max_percent = 1;   // Max CPU as percent of one core (100 = one full core); cgroup cpu.max / systemd CPUQuota
+  int64 memory_max_bytes = 2;   // Hard memory ceiling (bytes); cgroup memory.max / systemd MemoryMax
+  int64 memory_high_bytes = 3;  // Soft memory pressure threshold (bytes); cgroup memory.high / systemd MemoryHigh
+  int64 tasks_max = 4;          // Max threads/tasks; cgroup pids.max / systemd TasksMax
+  string slice = 5;             // Optional systemd slice / cgroup parent the add-on is placed under
 }
 
 // AgentConfigChunk carries one chunk of a protobuf-encoded AgentConfigResponse.

@@ -64,10 +64,12 @@ const (
 	// at-least-once delivery.
 	CapabilityOtlpRelayV1 = "otlp-relay:v1"
 
-	// CapabilityMetricFeedV1 marks add-ons that consume the agent-local metric
-	// feed over AddonService.StreamMetricFeed. This stream is lossy analysis
-	// input: the agent bounds in-flight frames per add-on and drops feed frames
-	// for slow add-ons rather than blocking collection or gateway publishing.
+	// CapabilityMetricFeedV1 marks add-ons that consume the agent's local metric
+	// feed over AddonService.StreamMetricFeed to analyze samples at the edge
+	// (e.g. per-series anomaly detection) before they are published to the
+	// gateway. The agent never opens the feed for an add-on that does not
+	// advertise this capability, and the stream is lossy by contract so slow
+	// add-ons cannot block collection or gateway publishing.
 	CapabilityMetricFeedV1 = "metric-feed:v1"
 )
 
@@ -164,9 +166,13 @@ type MetricFeedSink interface {
 }
 
 // MetricFeedClient is implemented by client-side adapters that can drive a
-// remote add-on's agent-local metric feed. The caller sends feed frames on
-// frames and observes cumulative ack watermarks from acks. Closing frames
-// half-closes the send direction.
+// remote add-on's local metric feed (AddonService.StreamMetricFeed). It is the
+// data-direction inverse of OtlpRelayClient: the caller (agent) SENDS
+// MetricFeedFrame frames (each an encoded MetricBatch) on the returned frames
+// channel and reads cumulative ack watermarks on acks for flow control. The
+// caller closes frames to half-close the send direction; acks is closed when
+// the stream ends. The feed is lossy by contract — the caller should drop
+// frames rather than block when an add-on falls behind.
 type MetricFeedClient interface {
 	StreamMetricFeed(ctx context.Context) (frames chan<- *addonpb.MetricFeedFrame, acks <-chan uint64, err error)
 }

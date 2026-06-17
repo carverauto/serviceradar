@@ -31,10 +31,13 @@ use crate::handshake::{self, HandshakeError};
 use crate::pb::addon_service_server::{AddonService, AddonServiceServer};
 use crate::pb::{
     ConfigureRequest, ConfigureResponse, HealthRequest, HealthResponse, InfoRequest, InfoResponse,
-    OtlpRelayAck, RunCommandRequest, RunCommandResponse, StreamTelemetryRequest,
+    MetricFeedFrame, OtlpRelayAck, RunCommandRequest, RunCommandResponse, StreamTelemetryRequest,
 };
 use crate::tls::{self, MtlsError};
-use crate::{Addon, CommandRequest, OtlpRelayAckStream, OtlpRelayStream, TelemetryStream};
+use crate::{
+    Addon, CommandRequest, MetricFeedAckStream, MetricFeedStream, OtlpRelayAckStream,
+    OtlpRelayStream, TelemetryStream,
+};
 
 /// The gRPC health-check service name the go-plugin client probes
 /// (`go-plugin`'s `GRPCServiceName`). The agent calls `Health/Check` for this
@@ -284,5 +287,18 @@ impl AddonService for AddonGrpc {
         // with UNIMPLEMENTED for add-ons without otlp-relay:v1.
         let acks: OtlpRelayAckStream = Box::pin(request.into_inner());
         Ok(Response::new(self.inner.relay_otlp(acks)?))
+    }
+
+    type StreamMetricFeedStream = MetricFeedAckStream;
+
+    async fn stream_metric_feed(
+        &self,
+        request: Request<Streaming<MetricFeedFrame>>,
+    ) -> Result<Response<Self::StreamMetricFeedStream>, Status> {
+        // Box tonic's inbound frame stream into the transport-agnostic alias the
+        // Addon trait consumes; the default implementation rejects the call with
+        // UNIMPLEMENTED for add-ons without metric-feed:v1.
+        let frames: MetricFeedStream = Box::pin(request.into_inner());
+        Ok(Response::new(self.inner.stream_metric_feed(frames)?))
     }
 }

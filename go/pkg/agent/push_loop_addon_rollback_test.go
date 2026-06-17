@@ -24,6 +24,7 @@ import (
 	"testing"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 	"github.com/carverauto/serviceradar/proto"
 )
@@ -93,7 +94,7 @@ func TestReconcileStagedSystemdUnitsRollsBackOnInstallFailure(t *testing.T) {
 
 	pl := newSystemdAddonPushLoop(t)
 	installAttempted := false
-	failingInstall := func(_ context.Context, _ string, _ []string, _ string) error {
+	failingInstall := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
 		installAttempted = true
 		return errAgentUpdaterUnavailable
 	}
@@ -130,7 +131,7 @@ func TestReconcileStagedSystemdUnitsRollsBackWhenNoUnits(t *testing.T) {
 	})
 
 	pl := newSystemdAddonPushLoop(t)
-	install := func(_ context.Context, _ string, _ []string, _ string) error {
+	install := func(_ context.Context, _ string, _ []string, _ string, _ agentaddon.Resources) error {
 		t.Error("install must not run when the staged bundle has no units")
 		return nil
 	}
@@ -163,7 +164,7 @@ func TestReconcileStagedSystemdUnitsSuccess(t *testing.T) {
 	pl := newSystemdAddonPushLoop(t)
 	var gotUnits []string
 	var gotEnable string
-	okInstall := func(_ context.Context, _ string, units []string, enable string) error {
+	okInstall := func(_ context.Context, _ string, units []string, enable string, _ agentaddon.Resources) error {
 		gotUnits = units
 		gotEnable = enable
 		return nil
