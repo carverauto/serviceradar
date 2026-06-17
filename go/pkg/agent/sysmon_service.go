@@ -62,6 +62,7 @@ const (
 
 // ErrCollectorNotInitialized is returned when attempting to reconfigure before starting.
 var ErrCollectorNotInitialized = fmt.Errorf("collector not initialized")
+var errSyntheticSpikeUnsupported = fmt.Errorf("collector does not support synthetic spike injection")
 
 type sysmonStatusSummary struct {
 	Available    bool   `json:"available"`
@@ -339,7 +340,7 @@ func (s *SysmonService) InjectSyntheticSpike(metric string, value float64, sampl
 
 	injector, ok := collector.(*sysmon.DefaultCollector)
 	if !ok {
-		return 0, fmt.Errorf("collector does not support synthetic spike injection")
+		return 0, errSyntheticSpikeUnsupported
 	}
 
 	return injector.InjectSpike(metric, value, samples)
