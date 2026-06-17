@@ -24,7 +24,6 @@ defmodule ServiceRadar.FlowAttributionTest do
         partition
       ])
 
-      query!("DELETE FROM platform.flow_process_attributions WHERE partition = $1", [partition])
       query!("DELETE FROM platform.workload_identity_current WHERE partition = $1", [partition])
       query!("DELETE FROM platform.ocsf_agents WHERE uid = $1", [agent_id])
     end)
@@ -144,19 +143,6 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert count == 1
     assert DateTime.compare(observed_at, DateTime.add(now, 5, :second)) in [:eq, :gt]
     assert cmdline == "redis-server --protected-mode yes"
-
-    %{rows: [[history_count, history_cmdline]]} =
-      query!(
-        """
-        SELECT count(*), max(cmdline)
-        FROM platform.flow_process_attributions
-        WHERE partition = $1
-        """,
-        [partition]
-      )
-
-    assert history_count == 1
-    assert history_cmdline == "redis-server --protected-mode yes"
   end
 
   test "current attribution upsert is idempotent for repeated rows", %{
@@ -454,7 +440,7 @@ defmodule ServiceRadar.FlowAttributionTest do
     assert workload["image"] == "quay.io/metallb/speaker:v0.15.2"
   end
 
-  test "correlates delayed TCP flow from historical attribution only", %{
+  test "correlates delayed TCP flow from current-state attribution", %{
     partition: partition,
     agent_id: agent_id
   } do
@@ -470,7 +456,7 @@ defmodule ServiceRadar.FlowAttributionTest do
       dst_port: 443
     })
 
-    seed_legacy_attribution(%{
+    seed_attribution(%{
       partition: partition,
       agent_id: agent_id,
       observed_at: DateTime.add(flow_time, -2, :second),
@@ -1109,44 +1095,6 @@ defmodule ServiceRadar.FlowAttributionTest do
         params.observed_at,
         params.partition,
         attribution_key(params),
-        params.agent_id,
-        Map.get(params, :proto, 6),
-        params.local_ip,
-        params.local_port,
-        params.remote_ip,
-        params.remote_port,
-        params.pid,
-        params.comm,
-        Map.get(params, :container_id),
-        json_param(Map.get(params, :workload_identity))
-      ]
-    )
-  end
-
-  defp seed_legacy_attribution(params) do
-    query!(
-      """
-      INSERT INTO platform.flow_process_attributions (
-        observed_at,
-        partition,
-        agent_id,
-        proto,
-        local_ip,
-        local_port,
-        remote_ip,
-        remote_port,
-        pid,
-        comm,
-        cmdline,
-        uid,
-        container_id,
-        workload_identity
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'curl https://example.com', 1000, $11, ($12::text)::jsonb)
-      """,
-      [
-        params.observed_at,
-        params.partition,
         params.agent_id,
         Map.get(params, :proto, 6),
         params.local_ip,

@@ -27,7 +27,6 @@ defmodule ServiceRadar.FlowAttribution do
       |> Enum.reject(&is_nil/1)
 
     if rows != [] do
-      Persistence.insert_legacy_rows(rows)
       Persistence.insert_current_rows(rows)
     end
 

@@ -5,7 +5,6 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
 
   @schema "platform"
   @table "flow_process_attribution_current"
-  @legacy_table "flow_process_attributions"
   @workload_identity_table "workload_identity_current"
   @correlation_window_minutes 15
   @correlation_skew_seconds 900
@@ -62,26 +61,6 @@ defmodule ServiceRadar.FlowAttribution.Correlation do
         container_id,
         workload_identity
       FROM #{@schema}.#{@table}
-      WHERE observed_at > now() - interval '#{@correlation_window_minutes * 60 + @correlation_skew_seconds} seconds'
-
-      UNION ALL
-
-      SELECT
-        observed_at,
-        partition,
-        agent_id,
-        proto,
-        local_ip,
-        local_port,
-        remote_ip,
-        remote_port,
-        pid,
-        comm,
-        cmdline,
-        uid,
-        container_id,
-        workload_identity
-      FROM #{@schema}.#{@legacy_table}
       WHERE observed_at > now() - interval '#{@correlation_window_minutes * 60 + @correlation_skew_seconds} seconds'
     ),
     candidates AS (
