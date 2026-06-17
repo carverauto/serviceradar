@@ -78,6 +78,44 @@ func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
 	}
 }
 
+func TestManagerPublishMetricFeedFiltersSources(t *testing.T) {
+	client := &recordingMetricFeedClient{received: make(chan *addonpb.MetricFeedFrame, 2)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	lifecycle := newMetricFeedLifecycle(
+		ctx,
+		"anomaly",
+		client,
+		[]string{testMetricFeedSourceSysmon},
+		zerolog.Nop(),
+	)
+	lifecycle.start()
+	t.Cleanup(lifecycle.stop)
+
+	manager := NewManager(Config{})
+	manager.runners["anomaly"] = &runner{metricFeed: lifecycle}
+
+	if got := manager.PublishMetricFeed("snmp", []byte("snmp-batch")); got != 0 {
+		t.Fatalf("unsubscribed publish accepted by %d add-ons, want 0", got)
+	}
+	if got := manager.PublishMetricFeed("sysmon-metrics", []byte("sysmon-batch")); got != 1 {
+		t.Fatalf("subscribed publish accepted by %d add-ons, want 1", got)
+	}
+
+	select {
+	case got := <-client.received:
+		if got.GetSource().GetSourceType() != testMetricFeedSourceSysmon {
+			t.Fatalf("source = %q, want %s", got.GetSource().GetSourceType(), testMetricFeedSourceSysmon)
+		}
+		if string(got.GetPayload()) != "sysmon-batch" {
+			t.Fatalf("payload = %q, want sysmon-batch", got.GetPayload())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for manager-published metric feed frame")
+	}
+}
+
 type recordingMetricFeedClient struct {
 	received chan *addonpb.MetricFeedFrame
 }

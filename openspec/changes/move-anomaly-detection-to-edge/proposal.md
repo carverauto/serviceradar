@@ -33,9 +33,10 @@ Two primitives are missing today:
   hard resource bound is unacceptable given edge nodes must not be impacted.
 
 ## What Changes
-- Add an **agent→add-on metric-feed RPC** to `AddonService` so the agent can
-  stream its locally collected `MetricBatch` samples (sysmon CPU/mem/disk, SNMP,
-  ICMP, timeseries) into a co-located add-on before they leave the host.
+- Add an **agent->add-on metric-feed RPC** to `AddonService` so the agent can
+  stream selected locally collected `MetricBatch` samples into a co-located
+  add-on before they leave the host. The anomaly add-on defaults to sysmon and
+  SNMP feeds; ICMP and generic timeseries feeds are explicit opt-ins.
 - Add a **native Rust anomaly add-on** that consumes the local metric feed and
   runs the existing per-series Welford z-score detector. Reuse the existing
   anomaly math (the Rustler NIF / `causal-engine` detector code) rather than
@@ -43,13 +44,13 @@ Two primitives are missing today:
 - Add **CPU/memory/cgroup resource limits** to the native add-on manifest schema
   and to the add-on supervisor/systemd generator, with conservative defaults and
   a bounded per-host series count.
-- The edge add-on **emits anomaly verdicts** (and optional pre-rollups) upstream
-  via `StreamTelemetry` → gateway → the existing signal path; central no longer
-  needs to run the four `ANALYSIS_METRICS_*` durables for series covered by an
-  edge add-on.
-- Keep a **central fallback**: series from sources without an edge anomaly
-  add-on (or during rollout) are still analyzed centrally exactly as today.
-  Edge vs central coverage is explicit and observable.
+- The edge add-on **emits anomaly verdicts** upstream via `StreamTelemetry` ->
+  gateway -> the existing signal path. Core persists and alerts on those
+  verdicts as OCSF Detection Findings. The old central raw-stream analyzer and
+  its `ANALYSIS_METRICS_*` durables are retired on this branch; they are not a
+  fallback after an add-on assignment is removed.
+- Keep coverage explicit and observable through add-on assignment/status,
+  `verdict_source=edge-spike`, and capacity-shed operational events.
 - **Own per-series state locally** at the edge — no Horde ownership and no
   NATS-KV lease (which has a dual-writer handoff window centrally). On agent
   restart, baselines re-warm from the live stream or reseed from a small local
@@ -63,8 +64,7 @@ Two primitives are missing today:
   math), `addons/native-addon-manifest.schema.json` and the add-on
   supervisor/systemd generator (resource limits),
   `elixir/serviceradar_core/lib/serviceradar/observability/anomaly_detection/*`
-  (central becomes a verdict consumer for edge-covered series; coverage
-  telemetry)
+  (central raw-stream analyzer deleted; core remains the verdict consumer)
 - Related changes: `add-native-addon-edge-ops` (targeting/reconciliation UI for
   add-ons), `add-cgroup-v2-tenant-metrics` (cgroup signal precedent),
   `add-delta-metrics-lakehouse` (edge rollups feed the tiered store)

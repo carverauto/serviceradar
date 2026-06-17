@@ -32,9 +32,13 @@ use std::path::{Path, PathBuf};
 use crate::engine::{DetectorEngine, EngineCheckpoint, EngineConfig};
 
 const ADDON_ID: &str = "anomaly";
-const ADDON_VERSION: &str = "0.1.0";
+const ADDON_VERSION: &str = "0.1.1";
 const VERDICT_CHANNEL_DEPTH: usize = 256;
 const ACK_CHANNEL_DEPTH: usize = 64;
+const OCSF_CLASS_EVENT_LOG_ACTIVITY: i64 = 1008;
+const OCSF_CATEGORY_SYSTEM_ACTIVITY: i64 = 1;
+const OCSF_ACTIVITY_CREATE: i64 = 1;
+const OCSF_VERSION: &str = "1.7.0";
 
 /// Default restart-checkpoint staleness bound (6h): a baseline whose last reading
 /// is older than this is not reseeded on restart.
@@ -263,8 +267,10 @@ async fn process_frame(
 
     // Lock the engine only to score; never hold the std Mutex across an await.
     let mut records: Vec<TelemetryRecord> = Vec::new();
+    let mut shed_report: Option<ShedReport> = None;
     {
         let mut engine = engine.lock().expect("engine mutex poisoned");
+        let dropped_before = engine.dropped_at_capacity;
         for metric in &batch.metrics {
             if is_process_metric(metric) {
                 // Process/PID series are excluded from anomaly centrally
@@ -310,6 +316,20 @@ async fn process_frame(
                 }
             }
         }
+
+        let dropped_after = engine.dropped_at_capacity;
+        if dropped_after > dropped_before {
+            shed_report = Some(ShedReport {
+                dropped_delta: dropped_after - dropped_before,
+                dropped_total: dropped_after,
+                tracked_series: engine.series_count(),
+                max_series: engine.max_series(),
+            });
+        }
+    }
+
+    if let Some(report) = shed_report {
+        records.push(shed_record(&resource, frame.feed_id, report));
     }
 
     if records.is_empty() {
@@ -598,6 +618,101 @@ fn anomaly_signal_schema_ref() -> SignalSchemaRef {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ShedReport {
+    dropped_delta: u64,
+    dropped_total: u64,
+    tracked_series: usize,
+    max_series: usize,
+}
+
+/// Build a non-causal operational OCSF Event Log Activity for capacity shedding.
+/// This is intentionally not an anomaly finding: it reports add-on pressure so
+/// operators can tune `max_series` or targeting without polluting anomaly counts.
+fn shed_record(resource: &MetricResource, feed_id: u64, report: ShedReport) -> TelemetryRecord {
+    let ts_nano = now_unix_nano();
+    let event_id = format!(
+        "anomaly:shed:{}:{feed_id}:{}",
+        first_non_empty(&[
+            resource.agent_id.as_str(),
+            resource.host_id.as_str(),
+            resource.device_id.as_str(),
+            "unknown",
+        ]),
+        report.dropped_total
+    );
+
+    let body = serde_json::json!({
+        "id": &event_id,
+        "time": ts_nano as i64,
+        "class_uid": OCSF_CLASS_EVENT_LOG_ACTIVITY,
+        "category_uid": OCSF_CATEGORY_SYSTEM_ACTIVITY,
+        "type_uid": OCSF_CLASS_EVENT_LOG_ACTIVITY * 100 + OCSF_ACTIVITY_CREATE,
+        "activity_id": OCSF_ACTIVITY_CREATE,
+        "activity_name": "Create",
+        "severity_id": 3,
+        "severity": "Medium",
+        "status_id": 1,
+        "status": "Success",
+        "status_code": "anomaly_capacity_shed",
+        "message": format!(
+            "Anomaly add-on shed {} new series at capacity ({} tracked of max {})",
+            report.dropped_delta, report.tracked_series, report.max_series
+        ),
+        "log_name": "anomaly.capacity",
+        "log_provider": ADDON_ID,
+        "actor": { "app_name": "serviceradar-anomaly-addon" },
+        "device": {
+            "uid": first_non_empty(&[
+                resource.device_id.as_str(),
+                resource.host_id.as_str(),
+                resource.agent_id.as_str(),
+                resource.host_ip.as_str(),
+            ])
+        },
+        "observables": [],
+        "metadata": {
+            "version": OCSF_VERSION,
+            "product": {
+                "name": "ServiceRadar Anomaly Add-on",
+                "vendor_name": "Carver Automation"
+            }
+        },
+        "unmapped": {
+            "addon_id": ADDON_ID,
+            "event_kind": "capacity_shed",
+            "feed_id": feed_id,
+            "agent_id": &resource.agent_id,
+            "host_id": &resource.host_id,
+            "device_id": &resource.device_id,
+            "host_ip": &resource.host_ip,
+            "partition": &resource.partition,
+            "dropped_series_delta": report.dropped_delta,
+            "dropped_series_total": report.dropped_total,
+            "tracked_series": report.tracked_series,
+            "max_series": report.max_series
+        }
+    });
+
+    let payload = serde_json::to_vec(&body).unwrap_or_default();
+    let record = ocsf_event_record(event_id, ts_nano as i64, ts_nano as i64, payload);
+    attach_signal_schema_ref(record, &shed_signal_schema_ref())
+}
+
+fn shed_signal_schema_ref() -> SignalSchemaRef {
+    SignalSchemaRef {
+        producer_id: ADDON_ID.to_string(),
+        producer_version: ADDON_VERSION.to_string(),
+        schema_id: "com.carverauto.anomaly.capacity_shed".to_string(),
+        schema_version: "1.0.0".to_string(),
+        display_contract_id: "com.carverauto.anomaly.capacity_shed.display".to_string(),
+        display_contract_version: "1.0.0".to_string(),
+        display_contract: "display/capacity_shed.display.json".to_string(),
+        signal_type: "event".to_string(),
+        payload_kind: "ocsf_event".to_string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -643,6 +758,107 @@ mod tests {
             ..Default::default()
         };
         assert!(attested_tags(&metric, &MetricPoint::default()).is_empty());
+    }
+
+    #[test]
+    fn shed_record_is_operational_ocsf_event_not_an_anomaly() {
+        let resource = MetricResource {
+            agent_id: "agent-a".to_string(),
+            host_id: "host-a".to_string(),
+            partition: "demo".to_string(),
+            ..Default::default()
+        };
+        let record = shed_record(
+            &resource,
+            42,
+            ShedReport {
+                dropped_delta: 3,
+                dropped_total: 10,
+                tracked_series: 1,
+                max_series: 1,
+            },
+        );
+
+        assert_eq!(
+            record.payload_kind,
+            addon_sdk::pb::TelemetryPayloadKind::OcsfEvent as i32
+        );
+        let event: serde_json::Value = serde_json::from_slice(&record.payload).unwrap();
+        assert_eq!(event["class_uid"], OCSF_CLASS_EVENT_LOG_ACTIVITY);
+        assert_eq!(event["status_code"], "anomaly_capacity_shed");
+        assert_eq!(event["unmapped"]["dropped_series_delta"], 3);
+        assert_eq!(event["unmapped"]["dropped_series_total"], 10);
+        assert!(event.get("anomaly").is_none());
+        assert_ne!(
+            event.get("event_type").and_then(|v| v.as_str()),
+            Some("anomaly")
+        );
+        assert_eq!(
+            record
+                .metadata
+                .get(addon_sdk::SIGNAL_SCHEMA_METADATA_SCHEMA_ID)
+                .map(String::as_str),
+            Some("com.carverauto.anomaly.capacity_shed")
+        );
+    }
+
+    #[tokio::test]
+    async fn process_frame_reports_capacity_shed_once_per_frame() {
+        let engine = Arc::new(Mutex::new(DetectorEngine::new(EngineConfig {
+            max_series: 1,
+            min_samples: 1,
+            confirm_slots: 1,
+            ..EngineConfig::default()
+        })));
+        let (tx, mut rx) = mpsc::channel(1);
+        let batch = MetricBatch {
+            resource: Some(MetricResource {
+                agent_id: "agent-a".to_string(),
+                host_id: "host-a".to_string(),
+                ..Default::default()
+            }),
+            metrics: vec![Metric {
+                name: "cpu.usage_percent".to_string(),
+                metric_type: "sysmon.cpu".to_string(),
+                points: vec![
+                    MetricPoint {
+                        value: 10.0,
+                        observed_at_unix_nano: 1,
+                        series_identity_hint: "series-a".to_string(),
+                        ..Default::default()
+                    },
+                    MetricPoint {
+                        value: 20.0,
+                        observed_at_unix_nano: 2,
+                        series_identity_hint: "series-b".to_string(),
+                        ..Default::default()
+                    },
+                    MetricPoint {
+                        value: 30.0,
+                        observed_at_unix_nano: 3,
+                        series_identity_hint: "series-c".to_string(),
+                        ..Default::default()
+                    },
+                ],
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        let frame = MetricFeedFrame {
+            feed_id: 7,
+            source: None,
+            payload: batch.encode_to_vec(),
+        };
+
+        process_frame(&engine, &tx, &frame).await;
+
+        let sent = rx.recv().await.expect("telemetry batch").expect("batch ok");
+        assert_eq!(sent.records.len(), 1);
+        let event: serde_json::Value = serde_json::from_slice(&sent.records[0].payload).unwrap();
+        assert_eq!(event["status_code"], "anomaly_capacity_shed");
+        assert_eq!(event["unmapped"]["dropped_series_delta"], 2);
+        assert_eq!(event["unmapped"]["feed_id"], 7);
+        assert_eq!(engine.lock().unwrap().dropped_at_capacity, 2);
     }
 
     #[test]

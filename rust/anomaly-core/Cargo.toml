@@ -3,20 +3,16 @@ name = "serviceradar-anomaly-core"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.90"
-description = "Shared per-series anomaly detector (Welford z-score + DeepCausality rolling/seasonal/trend signals) used by the causal_reasoner NIF and the edge anomaly add-on (OpenSpec: move-anomaly-detection-to-edge), so edge and central verdicts use identical math."
+description = "Shared per-series anomaly detector (Welford z-score + DeepCausality rolling/seasonal/trend signals) used by the edge anomaly add-on (OpenSpec: move-anomaly-detection-to-edge)."
 license = "Apache-2.0"
 
 [lib]
 name = "serviceradar_anomaly_core"
 path = "src/lib.rs"
 
-[features]
-# Derive `rustler::NifMap` on the boundary types so the causal_reasoner NIF can
-# pass them across the BEAM/NIF boundary. Off by default so non-NIF consumers
-# (the edge anomaly add-on) stay free of the rustler dependency.
-rustler = ["dep:rustler"]
-
 [dependencies]
+clap = { version = "4", features = ["derive"] }
 deep_causality_core = "0.10.0"
 deep_causality_data_structures = "0.10.14"
-rustler = { version = "0.37", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

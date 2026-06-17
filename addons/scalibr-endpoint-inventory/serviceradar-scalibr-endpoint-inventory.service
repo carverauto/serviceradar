@@ -16,6 +16,9 @@ Environment="HOME=/var/lib/serviceradar/endpoint-inventory"
 ExecStart=/var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/serviceradar-scalibr-endpoint-inventory -config /var/lib/serviceradar/agent/addons/scalibr-endpoint-inventory/current/scalibr-endpoint-inventory.json
 # Group-writable umask so the non-root agent can write into the shared dirs.
 UMask=0007
+# Share cgroup accounting with the host agent while preserving independent
+# systemd supervision, privileges, and hardening.
+Slice=serviceradar.slice
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict

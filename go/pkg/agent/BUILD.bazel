@@ -210,8 +210,8 @@ go_test(
     ],
     data = [
         "//addons/bumblebee-scan:bumblebee_scan_systemd_units",
-        "//addons/endpoint-inventory:endpoint_inventory_systemd_units",
         "//addons/netprobe:netprobe_systemd_unit",
+        "//addons/scalibr-endpoint-inventory:scalibr_endpoint_inventory_systemd_units",
         "//build/packaging/agent:systemd/serviceradar-agent.service",
         "testdata/camera_stream_plugin.wasm",
     ],

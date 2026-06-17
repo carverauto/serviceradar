@@ -24,7 +24,6 @@ import (
 	"os/exec"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	coreaddon "github.com/carverauto/serviceradar/go/pkg/addon"
@@ -33,15 +32,6 @@ import (
 	goplugin "github.com/hashicorp/go-plugin"
 	"github.com/rs/zerolog"
 )
-
-// MetricFeeder fans locally collected metric batches out to running add-ons
-// that opened the local metric feed (metric-feed:v1). payload is one encoded
-// serviceradar.metric.v1.MetricBatch (the agent already has it encoded for the
-// gateway push, so no re-marshal). The call is non-blocking and lossy by
-// contract.
-type MetricFeeder interface {
-	FeedMetrics(payload []byte)
-}
 
 const (
 	defaultRuntimeDir            = "/run/serviceradar/addons"
@@ -349,12 +339,9 @@ type runner struct {
 	status        Status
 	restartWindow []time.Time
 	commandClient coreaddon.CommandClient
-	// feedFrames is the send side of an open metric feed (metric-feed:v1), or
-	// nil when no feed is open. Guarded by mu.
-	feedFrames chan<- *coreaddon.MetricFeedFrame
-
-	feedSeq     atomic.Uint64
-	feedDropped atomic.Uint64
+	// metricFeed is the source-aware local metric feed opened by a metric-feed:v1
+	// add-on, or nil when no subscribed feed is active. Guarded by mu.
+	metricFeed *metricFeedLifecycle
 }
 
 func newRunner(spec Spec, cfg Config) *runner {
@@ -417,7 +404,10 @@ func (r *runner) finished() bool {
 func (r *runner) needsRestart(spec Spec) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.spec.Version != spec.Version || r.spec.BinaryPath != spec.BinaryPath || !equalStrings(r.spec.Args, spec.Args)
+	return r.spec.Version != spec.Version ||
+		r.spec.BinaryPath != spec.BinaryPath ||
+		!equalStrings(r.spec.Args, spec.Args) ||
+		!equalStrings(metricFeedSourcesFromConfig(r.spec.ConfigJSON), metricFeedSourcesFromConfig(spec.ConfigJSON))
 }
 
 func equalStrings(a, b []string) bool {
@@ -592,7 +582,12 @@ func (r *runner) runOnce(ctx context.Context) error {
 
 	if hasCapability(capabilities, coreaddon.CapabilityMetricFeedV1) {
 		if feedClient, ok := ac.(coreaddon.MetricFeedClient); ok {
-			r.startMetricFeed(telemetryCtx, feedClient)
+			if lifecycle := r.startMetricFeed(telemetryCtx, feedClient); lifecycle != nil {
+				defer func() {
+					lifecycle.stop()
+					r.clearMetricFeed(lifecycle)
+				}()
+			}
 		}
 	}
 
@@ -737,62 +732,51 @@ func hasCapability(capabilities []string, capability string) bool {
 	return false
 }
 
-// startMetricFeed opens the local metric feed against a metric-feed:v1 add-on and
-// records the send side so FeedMetrics can push batches to it.
-func (r *runner) startMetricFeed(ctx context.Context, client coreaddon.MetricFeedClient) {
-	frames, acks, err := client.StreamMetricFeed(ctx)
-	if err != nil {
-		r.cfg.Logger.Warn().Err(err).Str("addon", r.id).Msg("addon metric feed failed to open")
-		return
+// startMetricFeed opens the local metric feed against a metric-feed:v1 add-on
+// when its delivered config explicitly subscribes to at least one source.
+func (r *runner) startMetricFeed(ctx context.Context, client coreaddon.MetricFeedClient) *metricFeedLifecycle {
+	spec := r.currentSpec()
+	sources := metricFeedSourcesFromConfig(spec.ConfigJSON)
+	if len(sources) == 0 {
+		r.cfg.Logger.Debug().Str("addon", r.id).Msg("metric-feed add-on has no subscribed sources")
+		return nil
 	}
+
+	lifecycle := newMetricFeedLifecycle(ctx, r.id, client, sources, r.cfg.Logger)
+	lifecycle.start()
 
 	r.mu.Lock()
-	r.feedFrames = frames
+	r.metricFeed = lifecycle
 	r.mu.Unlock()
 
-	// Drain ack watermarks (the buffered send channel bounds in-flight frames,
-	// so acks are advisory here). When the stream ends the acks channel closes;
-	// clear the sink so FeedMetrics stops sending into a dead feed.
-	go func() {
-		for range acks {
-		}
-		r.mu.Lock()
-		r.feedFrames = nil
-		r.mu.Unlock()
-	}()
+	return lifecycle
 }
 
-// feed pushes one batch to this runner's open metric feed, if any. Non-blocking
-// and lossy: drops (and counts) when the in-flight buffer is full so the agent's
-// metric path is never stalled by a slow add-on.
-func (r *runner) feed(payload []byte) {
+func (r *runner) clearMetricFeed(lifecycle *metricFeedLifecycle) {
 	r.mu.Lock()
-	frames := r.feedFrames
+	if r.metricFeed == lifecycle {
+		r.metricFeed = nil
+	}
 	r.mu.Unlock()
-	if frames == nil || len(payload) == 0 {
-		return
-	}
-
-	frame := &coreaddon.MetricFeedFrame{
-		FeedId:  r.feedSeq.Add(1),
-		Payload: payload,
-	}
-
-	select {
-	case frames <- frame:
-	default:
-		r.feedDropped.Add(1)
-	}
 }
 
-var _ MetricFeeder = (*Manager)(nil)
+func (r *runner) publishMetricFeed(source string, payload []byte) bool {
+	r.mu.Lock()
+	lifecycle := r.metricFeed
+	r.mu.Unlock()
+	if lifecycle == nil {
+		return false
+	}
 
-// FeedMetrics fans a locally collected MetricBatch out to every running add-on
-// that opened a metric feed (metric-feed:v1). Non-blocking and lossy: a slow
-// add-on drops frames rather than stalling the agent's collection path.
-func (m *Manager) FeedMetrics(payload []byte) {
-	if len(payload) == 0 {
-		return
+	return lifecycle.publish(source, payload)
+}
+
+// PublishMetricFeed fans a locally collected MetricBatch out only to running
+// add-ons that explicitly subscribed to source. The call is non-blocking and
+// lossy by contract.
+func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
+	if m == nil || len(payload) == 0 || canonicalMetricFeedSource(source) == "" {
+		return 0
 	}
 
 	m.mu.Lock()
@@ -802,9 +786,13 @@ func (m *Manager) FeedMetrics(payload []byte) {
 	}
 	m.mu.Unlock()
 
+	accepted := 0
 	for _, r := range runners {
-		r.feed(payload)
+		if r.publishMetricFeed(source, payload) {
+			accepted++
+		}
 	}
+	return accepted
 }
 
 func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.TelemetryClient) {

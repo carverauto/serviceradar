@@ -19,10 +19,11 @@ budget.
 - Run per-series anomaly detection on the agent so verdicts (and optional
   rollups) are emitted instead of every raw point being shipped and re-analyzed
   centrally.
-- Keep edge and central verdicts identical by reusing one detector
-  implementation.
+- Keep verdict math stable by reusing the detector implementation extracted from
+  the former central path.
 - Make edge add-on resource usage hard-bounded so edge nodes are not impacted.
-- Make edge-vs-central coverage explicit, observable, and reversible.
+- Make edge coverage explicit, observable, and reversible through add-on
+  assignment state.
 
 ## Non-Goals
 - Move *capacity forecasting* to the edge. Capacity is per-resource but reads
@@ -47,14 +48,13 @@ budget.
   not a raw-stream consumer). What is **removed** is the central raw-stream
   per-sample pipeline — the `causal_reasoner_nif` and the `ANALYSIS_METRICS_*`
   durables, the sharded/native context engine, Horde ownership, and the KV
-  checkpoints — **once the edge add-on is rolled out across the fleet** (a
-  deprecation sequence, not an immediate deletion, so detection never goes dark
-  in the gap). Central anomaly does NOT disappear; only the per-sample raw-stream
-  path does. `serviceradar-anomaly-core` survives as the edge detector and as the
-  basis for a small batch backfill/backtesting CLI (the NIF's only non-live role).
-- **One detector crate.** Both the edge add-on and — until it is retired — the
-  central NIF call the shared `serviceradar-anomaly-core` crate, so verdicts are
-  identical by construction. A parity test guards it.
+  checkpoints. The user-approved retirement was pulled into this change, so the
+  old central raw-stream path is not retained as a rollout fallback.
+  `serviceradar-anomaly-core` survives as the edge detector and as the basis for
+  a small batch backfill/backtesting CLI.
+- **One detector crate.** The edge add-on calls the shared
+  `serviceradar-anomaly-core` crate extracted from the former central NIF path. A
+  parity test guards the extracted math.
 - **New agent→add-on metric-feed RPC**, not a side channel. The
   `AddonService` contract gains a streaming agent→add-on metric feed with the
   same flow-control discipline as the gateway path; an add-on subscribes only to
@@ -66,10 +66,11 @@ budget.
 - **Edge owns its state.** Per-series sliding windows live in the add-on, bounded
   by a capped series count and a fixed window size. A small local checkpoint
   enables fast re-warm; no Horde/KV at the edge.
-- **Explicit coverage + fallback.** Central skips edge-covered series and keeps
-  analyzing everything else. A verdict-source label (edge|central) and per-source
-  coverage counters make the boundary observable. Disabling the add-on returns
-  series to central analysis with no gap.
+- **Explicit edge coverage.** Add-on assignment/status is the coverage boundary.
+  Edge verdicts carry `verdict_source=edge-spike`, and shed pressure is emitted
+  as a non-anomaly operational event. Disabling the add-on stops edge spike
+  verdicts for that cohort; raw metrics still flow for storage, graphs, capacity
+  forecasting, and any aggregate-based future detectors.
 
 ## Edge resource budget
 - Per-series Welford is O(1) per sample; the cost driver is `series_count x
@@ -85,8 +86,9 @@ budget.
   detector implementation + parity test in CI.
 - **Cold-start false positives** after restart before baselines re-warm.
   Mitigation: local checkpoint + a warm-up suppression window.
-- **Heterogeneous fleet** — older agents without the add-on. Mitigation: central
-  fallback is permanent for uncovered series; rollout is per cohort.
+- **Heterogeneous fleet** — older agents without the add-on. Mitigation: rollout
+  is per cohort and observable through add-on status; old central raw-stream
+  scoring is available only by rolling back to a release that still carries it.
 - **Edge nodes are resource-constrained.** Mitigation: hard manifest limits +
   self-shed + a pre-rollout resource benchmark gate.
 - **Loss of central raw stream for re-analysis** of edge-covered series. Raw

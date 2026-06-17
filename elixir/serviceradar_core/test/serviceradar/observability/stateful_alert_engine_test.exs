@@ -12,7 +12,6 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
   alias ServiceRadar.EventWriter.Processors.CausalSignals
   alias ServiceRadar.Monitoring.Alert
   alias ServiceRadar.Monitoring.OcsfEvent
-  alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
   alias ServiceRadar.Observability.StatefulAlertEngine
   alias ServiceRadar.Observability.StatefulAlertRule
   alias ServiceRadar.Observability.StatefulAlertRuleHistory
@@ -353,33 +352,53 @@ defmodule ServiceRadar.Observability.StatefulAlertEngineTest do
 
     observed_at = DateTime.to_unix(DateTime.utc_now(), :nanosecond)
 
-    sample = %{
-      series_key: "sysmon:memory:#{device_uid}",
-      event_id: "sample-#{unique}",
-      order_key: "sample-#{unique}",
-      value: 97.5,
-      observed_at_unix_nano: observed_at,
-      subject: "metrics.sysmon.memory",
-      metric_class: "sysmon.memory",
-      metadata: %{"device_uid" => device_uid, "host_id" => "host-#{unique}"}
-    }
+    series_key = "sysmon:memory:#{device_uid}"
+    subject = "signals.causal.predictions.#{series_key}"
 
-    verdict = %{
-      state: "anomalous",
-      anomalous: true,
-      breached: true,
-      include_in_baseline: false,
-      next_consecutive_anomalous: 5,
-      score: 3.8,
-      reason: "rolling z-score breached",
-      baseline_count: 48,
-      sample_value: 97.5,
-      observed_at_unix_nano: observed_at,
-      signals: []
+    payload = %{
+      "event_id" => "anomaly:sample-#{unique}:anomalous",
+      "signal_type" => "causal",
+      "event_type" => "anomaly",
+      "status" => "open",
+      "finding_type" => "detection",
+      "class_uid" => 2004,
+      "type_uid" => 200_401,
+      "signal_domain" => "health",
+      "signal_domains" => ["health"],
+      "timestamp" => DateTime.to_iso8601(DateTime.utc_now()),
+      "severity_id" => 4,
+      "provider" => "anomaly_detection",
+      "source" => "serviceradar",
+      "collector" => "anomaly_addon",
+      "device_uid" => device_uid,
+      "message" => "Anomaly detected: sysmon.memory #{series_key}",
+      "finding_info" => %{
+        "uid" => "anomaly:#{unique}",
+        "group_uid" => "anomaly:#{unique}",
+        "title" => "Anomaly detection: sysmon.memory #{series_key}",
+        "type" => "ServiceRadar Anomaly",
+        "type_id" => 99,
+        "source" => "anomaly_detection"
+      },
+      "anomaly" => %{
+        "series_key" => series_key,
+        "event_id" => "sample-#{unique}",
+        "metric_class" => "sysmon.memory",
+        "observed_at_unix_nano" => observed_at,
+        "value" => 97.5,
+        "state" => "anomalous",
+        "reason" => "rolling z-score breached",
+        "score" => 3.8,
+        "baseline_count" => 48
+      },
+      "source_identity" => %{
+        "entity_uid" => device_uid,
+        "series_key" => series_key,
+        "metric_class" => "sysmon.memory",
+        "host_id" => "host-#{unique}"
+      },
+      "source_subject" => subject
     }
-
-    subject = VerdictEmitter.subject(sample)
-    payload = VerdictEmitter.payload(sample, verdict, subject)
 
     broadway_message =
       Pipeline.transform(

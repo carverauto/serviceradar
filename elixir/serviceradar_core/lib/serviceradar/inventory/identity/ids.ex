@@ -158,6 +158,9 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   defp get_integration_id(metadata) do
     case metadata["integration_type"] do
+      "armis" ->
+        nil
+
       "netbox" ->
         get_trimmed(metadata, "integration_id")
 
@@ -166,20 +169,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
     end
   end
 
-  defp get_armis_id(metadata) when is_map(metadata) do
-    explicit = get_trimmed(metadata, "armis_device_id")
-
-    cond do
-      explicit != nil ->
-        explicit
-
-      metadata["integration_type"] == "armis" ->
-        get_trimmed(metadata, "source_device_id") || get_trimmed(metadata, "integration_id")
-
-      true ->
-        nil
-    end
-  end
+  defp get_armis_id(metadata) when is_map(metadata), do: get_trimmed(metadata, "armis_device_id")
 
   defp get_armis_id(_metadata), do: nil
 

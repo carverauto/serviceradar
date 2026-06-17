@@ -288,6 +288,7 @@ hard runtime dependency of the other:
 
 | Need | Add-on | Notes |
 | --- | --- | --- |
+| Detect short-term sysmon or SNMP metric spikes on the host that collects them | `anomaly` | Consumes local `metric-feed:v1`; default assignment params subscribe to `sysmon` and `snmp` only. |
 | Attribute NetFlow rows to local host processes | `netprobe` | Uses eBPF socket/process attribution and optional AF_XDP packet capture. |
 | Show pod, namespace, container name, image, and Compose labels | `workload-identity` | Uses node-local CRI or Docker metadata. |
 | Enrich attributed flows with workload context | Both | Core joins NetFlow, process attribution, and workload identity upstream. |
@@ -302,6 +303,7 @@ reviewing follow-up changes:
 
 | Capability | Current add-on contract | Coordination notes |
 | --- | --- | --- |
+| Edge anomaly detection | `pushed-artifact` with `agent-sidecar` supervision and `metric-feed:v1` input | Assign only to agents that collect sysmon or SNMP. The add-on defaults to `metric_feed.sources=["sysmon","snmp"]`; ICMP/timeseries feeds are opt-in. Capacity shed is reported as OCSF Event Log Activity with `status_code=anomaly_capacity_shed`, not as an anomaly verdict. |
 | Bumblebee exposure scanning | `pushed-artifact` or `os-package` with `systemd-timer` supervision | Keep the timer and spool model. The scanner should remain root-owned and dormant until assigned; the non-root agent should ingest bounded spool output only when an approved `AddonAssignment` enables the package. |
 | Host Network Visibility / netprobe | `pushed-artifact` with `systemd-service` supervision | Keep netprobe out of the base agent package. Its manifest declares Linux platform support, required file capabilities, systemd unit metadata, and eBPF/runtime files. The agent should activate the staged artifact, apply capabilities through the updater, install the unit, and report drift through `addon_statuses`. |
 | Remote access | `compiled-in` with `config-toggle`; RDP adapter is the separate `rdp` `pushed-artifact` / `ephemeral-helper` add-on | Remote access stays compiled in because the control-stream, HMAC, and session-recorder paths remain tightly coupled to the base agent. The per-session RDP helper ships through the native add-on pipeline, keeping the base-agent package boundary explicit. |
@@ -500,6 +502,10 @@ For large deployments:
 
 - Use cohort assignment in **Settings > Agents > Add-ons** for broad rollout.
 - Keep host capability and platform compatibility in the package manifest.
+- For the `anomaly` add-on, start with the default broad profile only when most
+  matched agents collect sysmon or SNMP. Otherwise narrow the SRQL target to the
+  metric-owning host agents and keep `metric_feed.sources` to `sysmon` and `snmp`
+  unless ICMP/timeseries anomaly detection is intentionally enabled.
 - Let the control plane compile desired add-on state into the agent config pushed
   through the gateway command/config path.
 - Treat Helm values as deployment defaults and bootstrap configuration, not as the

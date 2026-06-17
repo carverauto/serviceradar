@@ -3,14 +3,11 @@
 // Licensed under the Apache License, Version 2.0 (the "License").
 // SPDX-License-Identifier: Apache-2.0
 
-//! Detector input/output types shared across the BEAM/NIF boundary and the edge
-//! add-on. The `rustler` feature adds the `NifMap` derive so the NIF can pass
-//! them to/from Elixir; without it these are plain structs.
+//! Detector input/output types shared by the anomaly-core crate and edge add-on.
 
 use crate::stats::WelfordAcc;
 
 /// Per-series detector input: the baseline state plus configuration thresholds.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Clone, Debug)]
 pub struct ReasonContext {
     pub baseline: Vec<f64>,
@@ -33,7 +30,6 @@ pub struct ReasonContext {
 }
 
 /// A single observed sample.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Clone, Copy, Debug)]
 pub struct ReasonSample {
     pub value: f64,
@@ -41,7 +37,6 @@ pub struct ReasonSample {
 }
 
 /// The full per-sample verdict, including the next baseline state to persist.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Debug, PartialEq)]
 pub struct ReasonVerdict {
     pub state: String,
@@ -61,7 +56,6 @@ pub struct ReasonVerdict {
 
 /// A reduced verdict for the event-batch path: omits the next-state fields a
 /// stateful caller does not need to persist.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Debug, PartialEq)]
 pub struct ReasonEventVerdict {
     pub state: String,
@@ -102,7 +96,6 @@ impl ReasonEventVerdict {
 }
 
 /// The per-signal (rolling / seasonal / trend) evaluation detail.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Clone, Debug, PartialEq)]
 pub struct SignalVerdict {
     pub name: String,

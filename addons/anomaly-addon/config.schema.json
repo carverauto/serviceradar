@@ -36,6 +36,55 @@
       "minimum": 1,
       "default": 50000
     },
+    "metric_feed": {
+      "type": "object",
+      "title": "Local metric feed subscription",
+      "description": "Controls which local agent metric sources are streamed into the add-on. The default subscribes only to sysmon and SNMP metrics; ICMP and generic timeseries batches must be opted in explicitly.",
+      "additionalProperties": false,
+      "properties": {
+        "sources": {
+          "type": "array",
+          "title": "Metric sources",
+          "items": {
+            "type": "string",
+            "enum": [
+              "sysmon",
+              "sysmon-metrics",
+              "snmp",
+              "snmp-metrics",
+              "icmp",
+              "icmp-metrics",
+              "timeseries",
+              "timeseries-metrics"
+            ]
+          },
+          "uniqueItems": true,
+          "default": ["sysmon", "snmp"]
+        }
+      },
+      "default": {
+        "sources": ["sysmon", "snmp"]
+      }
+    },
+    "metric_feed_sources": {
+      "type": "array",
+      "title": "Legacy metric feed source list",
+      "description": "Deprecated compatibility form for metric_feed.sources.",
+      "items": {
+        "type": "string",
+        "enum": [
+          "sysmon",
+          "sysmon-metrics",
+          "snmp",
+          "snmp-metrics",
+          "icmp",
+          "icmp-metrics",
+          "timeseries",
+          "timeseries-metrics"
+        ]
+      },
+      "uniqueItems": true
+    },
     "checkpoint_path": {
       "type": "string",
       "title": "Restart checkpoint file path",

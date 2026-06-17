@@ -27,7 +27,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
   test "sync ingestor persists sync_service_id on integration devices and identifiers", %{
     actor: actor
   } do
-    integration_id = "armis-#{System.unique_integer([:positive])}"
+    armis_id = "armis-#{System.unique_integer([:positive])}"
     sync_service_id = Ash.UUID.generate()
     ip = "10.11.0.#{unique_octet()}"
 
@@ -37,7 +37,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
       "hostname" => "armis-source-linked-device",
       "source" => "armis",
       "metadata" => %{
-        "integration_id" => integration_id,
+        "armis_device_id" => armis_id,
+        "integration_id" => armis_id,
         "integration_type" => "armis"
       },
       "sync_meta" => %{
@@ -55,13 +56,13 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
 
     assert device.metadata["sync_service_id"] == sync_service_id
     assert device.metadata["integration_type"] == "armis"
-    assert device.metadata["integration_id"] == integration_id
+    assert device.metadata["armis_device_id"] == armis_id
 
     {:ok, identifiers} =
       DeviceIdentifier
       |> Ash.Query.filter(
-        device_id == ^device.uid and identifier_type == :integration_id and
-          identifier_value == ^integration_id
+        device_id == ^device.uid and identifier_type == :armis_device_id and
+          identifier_value == ^armis_id
       )
       |> Ash.read(actor: actor)
 
@@ -71,7 +72,7 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
   end
 
   test "sync ingestor backfills metadata on existing integration identifiers", %{actor: actor} do
-    integration_id = "armis-#{System.unique_integer([:positive])}"
+    armis_id = "armis-#{System.unique_integer([:positive])}"
     sync_service_id = Ash.UUID.generate()
     ip = "10.12.0.#{unique_octet()}"
     mac = unique_mac()
@@ -82,7 +83,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
       "hostname" => "armis-existing-identifier",
       "source" => "armis",
       "metadata" => %{
-        "integration_id" => integration_id,
+        "armis_device_id" => armis_id,
+        "integration_id" => armis_id,
         "integration_type" => "armis"
       }
     }
@@ -93,7 +95,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
       "hostname" => "armis-existing-identifier",
       "source" => "armis",
       "metadata" => %{
-        "integration_id" => integration_id,
+        "armis_device_id" => armis_id,
+        "integration_id" => armis_id,
         "integration_type" => "armis"
       },
       "sync_meta" => %{
@@ -113,8 +116,8 @@ defmodule ServiceRadar.Inventory.SyncIngestorSourceLinkageTest do
     {:ok, identifiers} =
       DeviceIdentifier
       |> Ash.Query.filter(
-        device_id == ^device.uid and identifier_type == :integration_id and
-          identifier_value == ^integration_id
+        device_id == ^device.uid and identifier_type == :armis_device_id and
+          identifier_value == ^armis_id
       )
       |> Ash.read(actor: actor)
 

@@ -230,8 +230,11 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
     assert device_for_integration_id(integration_id, actor) == to_device.uid
   end
 
-  test "legacy Armis source_device_id resolves to existing armis_device_id owner", %{actor: actor} do
+  test "explicit Armis device ID resolves to existing owner when source ID differs", %{
+    actor: actor
+  } do
     armis_id = "armis-legacy-#{System.unique_integer([:positive])}"
+    source_id = "legacy-source-#{System.unique_integer([:positive])}"
 
     canonical_update = %{
       device_id: nil,
@@ -250,7 +253,8 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       "source" => "armis",
       "metadata" => %{
         "integration_type" => "armis",
-        "source_device_id" => armis_id,
+        "armis_device_id" => armis_id,
+        "source_device_id" => source_id,
         "integration_id" => armis_id
       }
     }
@@ -267,13 +271,13 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
                from(d in Device,
                  where:
                    is_nil(d.deleted_at) and
-                     fragment("?->>'source_device_id' = ?", d.metadata, ^armis_id),
+                     fragment("?->>'source_device_id' = ?", d.metadata, ^source_id),
                  select: count(d.uid)
                )
              )
   end
 
-  test "cold legacy Armis ingest registers armis_device_id identifier", %{actor: actor} do
+  test "cold explicit Armis ingest registers armis_device_id identifier", %{actor: actor} do
     armis_id = "armis-cold-#{System.unique_integer([:positive])}"
 
     update = %{
@@ -281,7 +285,8 @@ defmodule ServiceRadar.Inventory.SyncBatchResolutionTest do
       "source" => "armis",
       "metadata" => %{
         "integration_type" => "armis",
-        "source_device_id" => armis_id,
+        "armis_device_id" => armis_id,
+        "source_device_id" => "legacy-source-#{System.unique_integer([:positive])}",
         "integration_id" => armis_id
       }
     }

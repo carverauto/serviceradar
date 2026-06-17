@@ -20,11 +20,22 @@ permission. Users without that permission can still view events and alerts if
 their role grants the normal observability read permissions, but they cannot
 change detector or forecast tuning.
 
-## Streaming Detector Tuning
+## Edge Spike Detector Tuning
 
-The streaming detector compares a series against its rolling baseline. A single
-outlier is not enough to create a finding; the detector waits until enough
-consecutive evaluation slots are anomalous.
+Short-term spike detection runs in the native `anomaly-addon` next to the
+ServiceRadar agent. The add-on consumes the local `metric-feed:v1` stream before
+the agent publishes those samples upstream, compares each series against its
+rolling baseline, and emits OCSF Detection Finding events for confirmed
+anomalies.
+
+By default the add-on subscribes only to local `sysmon` and `snmp` metric
+sources. ICMP and generic timeseries feeds are opt-in in the add-on assignment
+params. This keeps the default profile focused on agents that actually collect
+host or network-device metrics, rather than every add-on-capable agent in the
+fleet.
+
+A single outlier is not enough to create a finding; the detector waits until
+enough consecutive evaluation slots are anomalous.
 
 Key settings:
 
@@ -55,7 +66,6 @@ that behave differently without changing the whole deployment.
 Supported detector classes include:
 
 - `interface`: SNMP interface and flow-derived utilization series
-- `red`: request/error/duration style OpenTelemetry metrics
 - `cpu`: sysmon CPU series
 - `memory`: sysmon memory series
 - `disk`: sysmon disk series
@@ -140,6 +150,9 @@ When reviewing a finding:
   enough history and whether the interface is normally bursty.
 - For CPU, memory, and disk findings, compare against sysmon profile changes
   and agent sampling cadence.
+- For edge spike findings, check
+  `metadata.service_radar.verdict_source`. The native add-on sets it to
+  `edge-spike`.
 - If a class emits too many short-lived findings, raise `confirm_slots` or
   `min_samples` before raising the global threshold.
 
@@ -152,17 +165,38 @@ Metrics must enter ServiceRadar through NATS JetStream before they are written
 to CNPG. This keeps anomaly detection and the causal engine subscribed to the
 same stream as the persistence consumer.
 
+For spike detection, assign the native `anomaly` add-on to the agents that own
+sysmon or SNMP collection. The default profile uses the broad SRQL target
+`in:devices`, with add-on params restricting the consumed feed sources to
+`["sysmon", "snmp"]`. Narrow the SRQL target when a deployment has agents that
+should never run host add-ons. Do not assign the native anomaly add-on to the
+in-cluster `k8s-agent` unless that pod is deliberately acting as the owner of a
+host metric feed; in normal deployments, Kubernetes SNMP or sysmon collection
+belongs on host agents.
+
 During rollout:
 
-1. Start with the always-live OpenTelemetry metric subjects.
-2. Enable the SNMP and sysmon metric publishers
+1. Import and approve the signed `anomaly` add-on package.
+2. Assign it to one canary agent or a small cohort that collects sysmon or SNMP.
+3. Enable the SNMP and sysmon metric publishers
    (`AGENT_GATEWAY_SNMP_METRICS_ENABLED` / `AGENT_GATEWAY_SYSMON_METRICS_ENABLED`,
    or the `gateway.snmpMetricsEnabled` / `gateway.sysmonMetricsEnabled` Helm
    values) only after the metrics stream and database sync path are healthy.
-3. Check Events for anomaly and capacity findings before wiring new rules to
-   paging destinations.
-4. Keep remediation workflows manual until a separate guarded-remediation
+4. Check add-on status and drift for the canary, then search Events for
+   `verdict_source:edge-spike` and for operational
+   `status_code:anomaly_capacity_shed` records.
+5. Broaden the add-on assignment by cohort after canary status, CPU, memory, and
+   shed records are clean.
+6. Keep remediation workflows manual until a separate guarded-remediation
    proposal is approved and implemented.
+
+Runback is also assignment based. Disable the add-on assignment or retarget the
+previous approved package version, wait for the agent to receive the next
+compiled config, and verify `in:addon_statuses`. Raw metrics continue flowing to
+JetStream and CNPG for graphs, rollups, and capacity forecasts. The retired
+central raw-stream anomaly analyzer is not a fallback path on this branch; if a
+deployment needs short-term spike verdicts, keep the edge add-on assigned or
+roll back to a release that still carries the old central analyzer.
 
 ## Guarded Remediation Is Future Work
 
@@ -185,10 +219,14 @@ phase exists.
 
 ## Troubleshooting
 
-- **No findings**: confirm the relevant metric subject is enabled for analysis,
-  the stream has recent messages, and the series has at least `min_samples`.
+- **No findings**: confirm the `anomaly` add-on package is approved and assigned,
+  the target agent is active, the assignment params include the relevant
+  `metric_feed.sources` entry, and the series has at least `min_samples`.
 - **Too many findings**: increase `confirm_slots` for bursty classes, then
   consider increasing `n_sigma`.
+- **Capacity shed records**: reduce the assignment scope, narrow
+  `metric_feed.sources`, or raise `max_series` only after confirming the host has
+  enough add-on CPU and memory headroom.
 - **Forecasts missing**: verify rollups are current and the series has at least
   `minimum_history_points`.
 - **Forecasts look too aggressive**: increase `minimum_history_points`, shorten

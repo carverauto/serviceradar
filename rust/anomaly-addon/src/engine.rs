@@ -4,8 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 //! Per-series detector state, driven by the shared `serviceradar-anomaly-core`
-//! stateless reason path (the same path the central NIF uses), so edge verdicts
-//! are identical to central verdicts for the same input.
+//! stateless reason path. This keeps scoring in Rust/DeepCausality at the edge.
 
 use std::collections::HashMap;
 
@@ -96,6 +95,10 @@ impl DetectorEngine {
 
     pub fn series_count(&self) -> usize {
         self.series.len()
+    }
+
+    pub fn max_series(&self) -> usize {
+        self.config.max_series
     }
 
     /// Rate-normalize one cumulative-monotonic counter reading against this

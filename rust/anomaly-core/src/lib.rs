@@ -18,15 +18,9 @@
 //! anomaly detection: the O(1) Welford rolling accumulator ([`stats`]), the
 //! sliding-window helpers ([`window`]), the rolling/seasonal/trend signal
 //! evaluation ([`signal`]), and the DeepCausality detector flow ([`detector`]).
-//! It is shared by the in-BEAM `causal_reasoner_nif` (which enables the
-//! `rustler` feature to re-export the boundary types) and the edge anomaly
-//! add-on (OpenSpec: `move-anomaly-detection-to-edge`), so edge and central
-//! verdicts are computed by identical math.
-//!
-//! Extracted from `causal_reasoner_nif/src/{stats,window,signal,detector,types}.rs`.
-//! The NIF re-exports these modules and keeps only the rustler boundary
-//! (`#[rustler::nif]` entrypoints, `ResourceArc` shard state, and the batch I/O
-//! wrapper structs).
+//! It is consumed by the edge anomaly add-on (OpenSpec:
+//! `move-anomaly-detection-to-edge`) so per-series scoring does not run in
+//! core-elx.
 
 pub mod detector;
 pub mod signal;

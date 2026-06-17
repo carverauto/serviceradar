@@ -8,7 +8,6 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
   alias Serviceradar.Metric.V1.StringMapEntry
-  alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
   alias ServiceRadar.Observability.MetricEnvelope
   alias ServiceRadar.Observability.TimeseriesSeriesKey
 
@@ -251,13 +250,6 @@ defmodule ServiceRadar.EventWriter.Processors.MetricsTest do
 
     assert Enum.map(protobuf_rows, &canonical_row/1) ==
              Enum.map(legacy_rows, &canonical_row/1)
-
-    assert %{
-             data: protobuf_payload,
-             metadata: %{subject: "metrics.shadow"}
-           }
-           |> SampleExtractor.extract()
-           |> length() == length(legacy_rows)
   end
 
   test "emits decode telemetry for protobuf metric envelopes" do

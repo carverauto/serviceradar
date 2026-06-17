@@ -21,7 +21,7 @@
 - [x] 3.6 Measure live producer rate and compare it to benchmarked EventWriter processing rate with documented headroom.
 - [x] 3.7 Audit sysmon and SNMP metric publisher batch sizes and document whether producer-side batching needs follow-up changes.
 - [x] 3.8 Add or identify telemetry for EventWriter stream lag, in-flight messages, and retention-risk conditions.
-- [ ] 3.9 Compare implementation controls for the current protobuf pipeline: optimized BEAM/ERTS core-elx, resurrected Go db-event-writer benchmark harness, and standalone Rust benchmark harness.
+- [x] 3.9 DONE — `sizing.md` now compares the three implementation controls. Production remains optimized BEAM/ERTS core-elx for this change (pull JetStream consumers, bounded producer buffering, low-cardinality telemetry, EventWriter decode/row benchmarks, live CNPG `insert_all`/COPY/staged-COPY results). The standalone Rust `metrics-protobuf-bench` is an upper-bound protobuf decode/transform/anomaly-hook/capacity-hook/temp-table-write harness over the same payloads. The historical Go db-event-writer is explicitly not a valid direct comparison until rebuilt for the current `MetricBatch` shape, row expansion, hook points, and CNPG schema; treating it as future benchmark work avoids using stale evidence to justify a rewrite.
 - [x] 3.10 Document a 50k-agent sizing model covering message rate, row expansion, durable consumer fanout, NATS retention, DB write throughput, and anomaly/capacity compute.
 - [x] 3.11 Add a Rust benchmark spike for protobuf decode, transform, anomaly/capacity hook points, and batched CNPG writes as an upper-bound control, not a production replacement.
 - [x] 3.12 Run targeted Elixir tests for EventWriter/NATS config.
@@ -29,7 +29,7 @@
 - [x] 3.14 Benchmark CNPG bulk ingest with captured metric rows, comparing current `Repo.insert_all` against a staged/COPY-style path.
 - [x] 3.15 Benchmark first-pass parallel CNPG COPY with captured metric rows to test whether more client writers scale the current hypertable path.
 - [x] 3.16 Benchmark staged/minimally indexed CNPG COPY plus final-table insert with captured metric rows.
-- [ ] 3.17 Benchmark production-like CNPG partition/index settings before deciding whether a different metrics store is required.
+- [x] 3.17 DONE — live demo CNPG benchmarks exercised the real `platform.timeseries_metrics` Timescale hypertable/index path, not a synthetic target: TimescaleDB 2.24.0, 7-day `timestamp` chunks, 2 active chunks during the check, compression disabled, and six write-path indexes (`timeseries_metrics_pkey`, device, device/if/metric/time, metric name, and two timestamp indexes). Results documented in `sizing.md`: `insert_all` ~6.3k rows/sec, direct COPY ~19.7k rows/sec, four-worker parallel COPY ~15.8k rows/sec for 45.3k rows, staged-COPY/final-insert ~9.6-13.2k rows/sec. Conclusion: the current single-hypertable/index path is not a 50k-agent raw-row design; this does not by itself prove CNPG/Timescale must be replaced before testing partitioned/reduced-index/hardware-isolated paths and raw-row reduction.
 - [x] 3.18 Follow-up proposal: add a process telemetry rollup/detail mode so large fleets persist process counts/top-N summaries by default and reserve per-process raw rows for explicit troubleshooting windows.
 
 ## 4. Delivery

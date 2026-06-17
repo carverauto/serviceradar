@@ -6,7 +6,7 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
   alias ServiceRadar.Inventory.Sync.Lookups
   alias ServiceRadar.Inventory.Sync.Normalize
 
-  test "legacy Armis source_device_id is promoted to armis_device_id identity" do
+  test "legacy Armis source_device_id is not promoted to strong identity" do
     update =
       Normalize.normalize_update(%{
         "hostname" => "armis-legacy",
@@ -20,9 +20,9 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
 
     ids = Ids.extract_strong_identifiers(update)
 
-    assert ids.armis_id == "39491"
-    assert ids.integration_id == "39491"
-    assert Ids.highest_priority_identifier(ids) == {:armis_device_id, "39491"}
+    assert ids.armis_id == nil
+    assert ids.integration_id == nil
+    assert Ids.highest_priority_identifier(ids) == {nil, nil}
   end
 
   test "bulk sync lookup and identifier records include Armis device IDs" do
@@ -32,19 +32,25 @@ defmodule ServiceRadar.Inventory.ArmisIdentityMetadataTest do
         "source" => "armis",
         "metadata" => %{
           "integration_type" => "armis",
+          "armis_device_id" => "18497",
           "source_device_id" => "50000",
-          "integration_id" => "50000"
+          "integration_id" => "18497"
         }
       })
 
-    assert {:armis_device_id, "50000", "default"} in Lookups.extract_all_identifiers([update])
+    assert {:armis_device_id, "18497", "default"} in Lookups.extract_all_identifiers([update])
+    refute {:integration_id, "50000", "default"} in Lookups.extract_all_identifiers([update])
 
     records = IdentifierRecords.build_identifier_records([{update, "sr:test-device"}])
 
     assert Enum.any?(records, fn record ->
              record.identifier_type == :armis_device_id and
-               record.identifier_value == "50000" and
+               record.identifier_value == "18497" and
                record.device_id == "sr:test-device"
+           end)
+
+    refute Enum.any?(records, fn record ->
+             record.identifier_type == :integration_id
            end)
   end
 end

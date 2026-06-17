@@ -87,7 +87,6 @@ netprobe
 powerdns
 workload-identity
 bumblebee
-endpoint-inventory
 scalibr-endpoint-inventory
 rdp
 anomaly
@@ -102,7 +101,6 @@ manifest_path() {
     powerdns) echo "addons/powerdns/addon.yaml" ;;
     workload-identity) echo "addons/workload-identity/addon.yaml" ;;
     bumblebee) echo "addons/bumblebee-scan/addon.yaml" ;;
-    endpoint-inventory) echo "addons/endpoint-inventory/addon.yaml" ;;
     scalibr-endpoint-inventory) echo "addons/scalibr-endpoint-inventory/addon.yaml" ;;
     rdp) echo "addons/rdp-adapter/addon.yaml" ;;
     anomaly) echo "addons/anomaly-addon/addon.yaml" ;;
@@ -168,11 +166,6 @@ path_belongs_to_addon() {
     bumblebee)
       case "${path}" in
         addons/bumblebee-scan/*|go/cmd/bumblebee-scan/*) return 0 ;;
-      esac
-      ;;
-    endpoint-inventory)
-      case "${path}" in
-        addons/endpoint-inventory/*|go/cmd/endpoint-inventory/*) return 0 ;;
       esac
       ;;
     scalibr-endpoint-inventory)

@@ -138,55 +138,6 @@ PACKAGES = {
             "/etc/serviceradar/bumblebee-scan.json",
         ],
     },
-    "endpoint-inventory": {
-        "package_name": "serviceradar-endpoint-inventory",
-        "description": "Optional ServiceRadar endpoint software inventory add-on",
-        "maintainer": "Michael Freeman <mfreeman@carverauto.dev>",
-        "architecture": "amd64",
-        "section": "utils",
-        "priority": "optional",
-        "deb_depends": ["systemd", "serviceradar-agent"],
-        "rpm_requires": ["systemd", "serviceradar-agent"],
-        "files": [
-            {
-                "src": "//go/cmd/endpoint-inventory:endpoint_inventory",
-                "dest": "/usr/local/lib/serviceradar/bin/serviceradar-endpoint-inventory",
-                "mode": "0755",
-            },
-            {
-                "src": "config/endpoint-inventory.json",
-                "dest": "/etc/serviceradar/endpoint-inventory.json",
-                "mode": "0640",
-                "rpm_filetag": "config(noreplace)",
-            },
-            {
-                "src": "systemd/serviceradar-endpoint-inventory.service",
-                "dest": "/lib/systemd/system/serviceradar-endpoint-inventory.service",
-                "mode": "0644",
-            },
-            {
-                "src": "systemd/serviceradar-endpoint-inventory.timer",
-                "dest": "/lib/systemd/system/serviceradar-endpoint-inventory.timer",
-                "mode": "0644",
-            },
-        ],
-        "directories": [
-            # setgid (2) + group-write so the root scanner and the non-root
-            # serviceradar agent can both write spool entries, cache manifests,
-            # runtime profiles, and upload markers into the shared dirs.
-            {"path": "/var/lib/serviceradar/endpoint-inventory", "mode": "2770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/profile", "mode": "2770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/cache", "mode": "2770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/spool", "mode": "2770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/spool/runs", "mode": "2770", "owner": "root", "group": "serviceradar"},
-            {"path": "/var/lib/serviceradar/endpoint-inventory/tmp", "mode": "2770", "owner": "root", "group": "serviceradar"},
-        ],
-        "postinst": "scripts/postinstall.sh",
-        "prerm": "scripts/preremove.sh",
-        "conffiles": [
-            "/etc/serviceradar/endpoint-inventory.json",
-        ],
-    },
     "core-elx": {
         "package_name": "serviceradar-core-elx",
         "description": "ServiceRadar Core Elixir service (core-elx)",

@@ -15,7 +15,6 @@ pub struct BaselineStats {
 /// Online Welford accumulator supporting O(1) add and remove, so a rolling
 /// window's mean/variance can be maintained incrementally as samples enter and
 /// leave the window.
-#[cfg_attr(feature = "rustler", derive(rustler::NifMap))]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct WelfordAcc {
     pub count: usize,
@@ -214,7 +213,10 @@ mod tests {
     fn remove_tolerates_rounding_scale_negative_m2() {
         let mut acc = WelfordAcc::from_values(&[5.0, 5.0, 5.0, 5.0]);
         acc.remove(5.0);
-        assert!(acc.m2.is_finite(), "benign drift must not invalidate the acc");
+        assert!(
+            acc.m2.is_finite(),
+            "benign drift must not invalidate the acc"
+        );
         assert!(acc.valid_for_count(acc.count));
     }
 
@@ -224,7 +226,10 @@ mod tests {
         acc.m2 = 1.0e-9;
         acc.remove(5.0);
 
-        assert!(!acc.m2.is_finite(), "drift past tolerance must invalidate m2");
+        assert!(
+            !acc.m2.is_finite(),
+            "drift past tolerance must invalidate m2"
+        );
         assert!(
             !acc.valid_for_count(acc.count),
             "an invalidated acc must fail validation so the caller recomputes"

@@ -36,7 +36,8 @@ const collectorName = "serviceradar-endpoint-inventory"
 // collectorVersion identifies the legacy endpoint-inventory collector build. It
 // is surfaced on every ScanPayload so the core ingest path and UI can attribute
 // a scan to a concrete collector revision instead of showing an empty/"None"
-// version. Keep this in sync with addons/endpoint-inventory/addon.yaml.
+// version. ScaLibr now supersedes the retired native endpoint-inventory add-on,
+// but this shared package still emits the generic endpoint inventory payload.
 const collectorVersion = "0.1.1"
 
 const (

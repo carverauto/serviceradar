@@ -1,20 +1,18 @@
 defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
   @moduledoc """
   Collapses Armis duplicate device rows created when sync batches carried
-  legacy Armis identity metadata (`source_device_id` / generic
-  `integration_id`) but the bulk ingest path did not resolve through
-  `armis_device_id`.
+  the same real Armis identity (`metadata.armis_device_id` or an
+  `armis_device_id` row in `device_identifiers`).
 
-  The source of truth for this cleanup is the Armis source-device group:
-  every active Armis row with the same `metadata.source_device_id` represents
-  one Armis device. The step first repairs the `armis_device_id` identifier
-  owner to the selected group canonical row, then merges duplicate rows within
-  that same group. This avoids preserving older bad identifier ownership that
-  may already point several Armis IDs at one unrelated device.
+  Legacy Armis rows that only carry `source_device_id` / generic
+  `integration_id` are intentionally reported but not merged here. Live data has
+  shown `source_device_id` is not a one-to-one Armis object key, so using it as a
+  merge key can collapse unrelated devices.
   """
 
   import Ecto.Query
 
+  alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Remediation.Manifest
@@ -29,14 +27,20 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
   @doc false
   def run(mode, opts, manifest, actor) do
     sample_limit = Keyword.get(opts, :armis_plan_sample_limit, @sample_limit)
+    soft_delete_batch_size = Keyword.get(opts, :armis_soft_delete_batch_size, 5_000)
     plan = build_plan()
 
     base = %{
-      source_device_groups: map_size(plan.canonical_by_source_id),
+      armis_device_groups: map_size(plan.canonical_by_armis_id),
       duplicate_rows: length(plan.duplicates),
       planned_merges: length(plan.duplicates),
       identifier_repairs: length(plan.identifier_repairs),
+      legacy_unkeyed_rows: plan.legacy_unkeyed_rows,
+      legacy_orphan_rows: length(plan.legacy_orphans),
+      planned_soft_deletes: length(plan.legacy_orphans),
       merge_plan: Enum.take(Enum.map(plan.duplicates, &merge_plan_entry/1), sample_limit),
+      soft_delete_plan:
+        Enum.take(Enum.map(plan.legacy_orphans, &legacy_orphan_plan_entry/1), sample_limit),
       identifier_repair_plan:
         Enum.take(
           Enum.map(plan.identifier_repairs, &identifier_repair_plan_entry/1),
@@ -53,31 +57,43 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
         {repaired, repair_failed} = execute_identifier_repairs(plan.identifier_repairs, manifest)
         {merged, merge_failed} = execute_merges(plan.duplicates, manifest, actor)
 
+        {soft_deleted, soft_delete_failed} =
+          soft_delete_legacy_orphans(
+            plan.legacy_orphans,
+            soft_delete_batch_size,
+            manifest,
+            actor
+          )
+
         Map.merge(base, %{
           repaired_identifiers: repaired,
           identifier_repair_failures: repair_failed,
           merged: merged,
-          merge_failures: merge_failed
+          merge_failures: merge_failed,
+          soft_deleted_legacy_orphans: soft_deleted,
+          soft_delete_failures: soft_delete_failed
         })
     end
   end
 
   defp build_plan do
     ranked_rows = ranked_armis_rows()
-    canonical_by_source_id = canonical_by_source_id(ranked_rows)
+    canonical_by_armis_id = canonical_by_armis_id(ranked_rows)
 
     duplicates =
       ranked_rows
       |> Enum.reject(&(&1.rank == 1))
       |> Enum.map(fn row ->
-        Map.put(row, :canonical_uid, canonical_by_source_id[row.armis_device_id])
+        Map.put(row, :canonical_uid, canonical_by_armis_id[row.armis_device_id])
       end)
       |> Enum.reject(&is_nil(&1.canonical_uid))
 
     %{
-      canonical_by_source_id: canonical_by_source_id,
+      canonical_by_armis_id: canonical_by_armis_id,
       duplicates: duplicates,
-      identifier_repairs: identifier_repairs(canonical_by_source_id)
+      identifier_repairs: identifier_repairs(canonical_by_armis_id),
+      legacy_unkeyed_rows: legacy_unkeyed_rows(),
+      legacy_orphans: legacy_orphan_rows()
     }
   end
 
@@ -90,29 +106,45 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
           FROM platform.ocsf_agents
           WHERE device_uid IS NOT NULL
             AND status IN ('connected', 'connecting', 'degraded')
+        ),
+        armis_rows AS (
+          SELECT DISTINCT ON (d.uid, COALESCE(NULLIF(d.metadata->>'armis_device_id', ''), di.identifier_value))
+            d.uid,
+            COALESCE(NULLIF(d.metadata->>'armis_device_id', ''), di.identifier_value) AS armis_device_id,
+            d.hostname,
+            d.ip,
+            d.created_time,
+            d.last_seen_time
+          FROM platform.ocsf_devices d
+          LEFT JOIN platform.device_identifiers di
+            ON di.device_id = d.uid
+           AND di.identifier_type = 'armis_device_id'
+          WHERE d.deleted_at IS NULL
+            AND (
+              'armis' = ANY(d.discovery_sources)
+              OR COALESCE(d.metadata->>'integration_type', '') = 'armis'
+            )
+            AND COALESCE(NULLIF(d.metadata->>'armis_device_id', ''), di.identifier_value) IS NOT NULL
         )
         SELECT
-          d.uid,
-          d.metadata->>'source_device_id' AS armis_device_id,
-          d.hostname,
-          d.ip,
-          d.created_time,
-          d.last_seen_time,
+          r.uid,
+          r.armis_device_id,
+          r.hostname,
+          r.ip,
+          r.created_time,
+          r.last_seen_time,
           ROW_NUMBER() OVER (
-            PARTITION BY d.metadata->>'source_device_id'
+            PARTITION BY r.armis_device_id
             ORDER BY
               CASE WHEN p.device_uid IS NOT NULL THEN 0 ELSE 1 END,
-              CASE WHEN NULLIF(d.ip, '') IS NOT NULL THEN 0 ELSE 1 END,
-              d.last_seen_time DESC NULLS LAST,
-              d.created_time ASC NULLS LAST,
-              d.uid ASC
+              CASE WHEN NULLIF(r.ip, '') IS NOT NULL THEN 0 ELSE 1 END,
+              r.last_seen_time DESC NULLS LAST,
+              r.created_time ASC NULLS LAST,
+              r.uid ASC
           ) AS rank
-        FROM platform.ocsf_devices d
-        LEFT JOIN protected p ON p.device_uid = d.uid
-        WHERE d.deleted_at IS NULL
-          AND 'armis' = ANY(d.discovery_sources)
-          AND NULLIF(d.metadata->>'source_device_id', '') IS NOT NULL
-        ORDER BY d.metadata->>'source_device_id', rank
+        FROM armis_rows r
+        LEFT JOIN protected p ON p.device_uid = r.uid
+        ORDER BY r.armis_device_id, rank
         """,
         []
       )
@@ -130,16 +162,16 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
     end)
   end
 
-  defp canonical_by_source_id(rows) do
+  defp canonical_by_armis_id(rows) do
     rows
     |> Enum.filter(&(&1.rank == 1))
     |> Map.new(fn row -> {row.armis_device_id, row.uid} end)
   end
 
-  defp identifier_repairs(canonical_by_source_id) do
-    source_ids = Map.keys(canonical_by_source_id)
+  defp identifier_repairs(canonical_by_armis_id) do
+    armis_ids = Map.keys(canonical_by_armis_id)
 
-    source_ids
+    armis_ids
     |> Enum.chunk_every(5_000)
     |> Enum.flat_map(fn chunk ->
       %{rows: rows} =
@@ -155,7 +187,7 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
         )
 
       Enum.flat_map(rows, fn [id, source_id, current_owner] ->
-        desired_owner = canonical_by_source_id[source_id]
+        desired_owner = canonical_by_armis_id[source_id]
 
         if desired_owner in [nil, current_owner] do
           []
@@ -170,6 +202,62 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
           ]
         end
       end)
+    end)
+  end
+
+  defp legacy_unkeyed_rows do
+    %{rows: [[count]]} =
+      query!(
+        """
+        SELECT count(*)
+        FROM platform.ocsf_devices d
+        WHERE d.deleted_at IS NULL
+          AND (
+            'armis' = ANY(d.discovery_sources)
+            OR COALESCE(d.metadata->>'integration_type', '') = 'armis'
+          )
+          AND NULLIF(d.metadata->>'armis_device_id', '') IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM platform.device_identifiers di
+            WHERE di.device_id = d.uid
+              AND di.identifier_type = 'armis_device_id'
+          )
+        """,
+        []
+      )
+
+    count
+  end
+
+  defp legacy_orphan_rows do
+    %{rows: rows} =
+      query!(
+        """
+        SELECT d.uid, d.hostname, d.ip, d.metadata->>'source_device_id'
+        FROM platform.ocsf_devices d
+        WHERE d.deleted_at IS NULL
+          AND d.discovery_sources = ARRAY['armis']::text[]
+          AND NULLIF(d.metadata->>'armis_device_id', '') IS NULL
+          AND NOT EXISTS (
+            SELECT 1
+            FROM platform.device_identifiers di
+            WHERE di.device_id = d.uid
+              AND di.identifier_type = 'armis_device_id'
+          )
+          AND NOT EXISTS (
+            SELECT 1
+            FROM platform.ocsf_agents a
+            WHERE a.device_uid = d.uid
+              AND a.status IN ('connected', 'connecting', 'degraded')
+          )
+        ORDER BY d.uid
+        """,
+        []
+      )
+
+    Enum.map(rows, fn [uid, hostname, ip, source_device_id] ->
+      %{uid: uid, hostname: hostname, ip: ip, source_device_id: source_device_id}
     end)
   end
 
@@ -258,6 +346,48 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
     end)
   end
 
+  defp soft_delete_legacy_orphans([], _batch_size, _manifest, _actor), do: {0, 0}
+
+  defp soft_delete_legacy_orphans(orphan_rows, batch_size, manifest, actor) do
+    orphan_rows
+    |> Enum.map(& &1.uid)
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce({0, 0}, fn batch, {deleted, failed} ->
+      case Device.bulk_soft_delete(batch, "dire_remediation_armis_legacy_unkeyed", actor: actor) do
+        :ok ->
+          Manifest.record(
+            manifest,
+            @step,
+            :soft_delete_legacy_unkeyed_devices,
+            "platform.ocsf_devices",
+            batch,
+            %{reason: "dire_remediation_armis_legacy_unkeyed"}
+          )
+
+          {deleted + length(batch), failed}
+
+        {:ok, :ok} ->
+          Manifest.record(
+            manifest,
+            @step,
+            :soft_delete_legacy_unkeyed_devices,
+            "platform.ocsf_devices",
+            batch,
+            %{reason: "dire_remediation_armis_legacy_unkeyed"}
+          )
+
+          {deleted + length(batch), failed}
+
+        error ->
+          Logger.warning(
+            "ArmisDups: failed to soft-delete legacy unkeyed batch: #{inspect(error)}"
+          )
+
+          {deleted, failed + length(batch)}
+      end
+    end)
+  end
+
   defp merge_plan_entry(duplicate) do
     %{
       from: duplicate.uid,
@@ -265,6 +395,15 @@ defmodule ServiceRadar.Inventory.Remediation.ArmisDups do
       armis_device_id: duplicate.armis_device_id,
       hostname: duplicate.hostname,
       ip: duplicate.ip
+    }
+  end
+
+  defp legacy_orphan_plan_entry(orphan) do
+    %{
+      uid: orphan.uid,
+      hostname: orphan.hostname,
+      ip: orphan.ip,
+      source_device_id: orphan.source_device_id
     }
   end
 

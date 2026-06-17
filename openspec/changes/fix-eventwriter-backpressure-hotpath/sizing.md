@@ -296,6 +296,33 @@ That keeps CNPG as a bottleneck candidate and makes the remaining database proof
 gap narrower: only real database partitioning, schema/index reduction, hardware
 changes, or raw row reduction can plausibly close the several-hundred-times gap.
 
+Production-like schema check against `demo` CNPG on 2026-06-17:
+
+- Database extensions: TimescaleDB 2.24.0 and PostGIS 3.6.2.
+- `platform.timeseries_metrics` is a Timescale hypertable owned by
+  `serviceradar`, with one time dimension on `timestamp`.
+- Chunk interval: 7 days; active chunk count during the check: 2, covering
+  2026-06-04 through 2026-06-18 UTC.
+- Compression was disabled for the active hypertable.
+- Write-path indexes present during the benchmark:
+  - `timeseries_metrics_pkey` unique btree on
+    `(timestamp, gateway_id, series_key)`
+  - `idx_timeseries_metrics_device` partial btree on `device_id`
+  - `idx_timeseries_metrics_device_if_metric_time` btree on
+    `(device_id, if_index, metric_name, metric_type, timestamp DESC)`
+  - `idx_timeseries_metrics_name` btree on `metric_name`
+  - `idx_timeseries_metrics_timestamp` btree on `timestamp DESC`
+  - `timeseries_metrics_timestamp_idx` btree on `timestamp DESC`
+
+So the live `insert_all`, direct COPY, parallel COPY, and staged-COPY controls
+above did exercise the real demo hypertable and current production-like index
+shape, not a synthetic minimally indexed target. That is enough to reject the
+current single-hypertable/index path as a 50k-agent raw-row design. It is not
+enough to reject CNPG/Timescale as a product storage component: actual database
+partitioning, reduced indexes, compression/rollups, hardware isolation, and raw
+row reduction still need a separate sizing pass before selecting a different
+metrics store.
+
 ## CNPG Decision Gate
 
 Current evidence says CNPG is a bottleneck candidate, not the only bottleneck
@@ -431,7 +458,8 @@ Evidence still required before claiming the current architecture works:
 - Repeat/saturation CNPG rows/sec for current `Repo.insert_all` using larger
   captured-row repeats and controlled database load.
 - Repeat/saturation CNPG rows/sec for COPY/staged ingest on production-like
-  hardware, controlled database load, and realistic partition/index settings.
+  hardware and controlled database load. The current demo pass used the real
+  production-like hypertable/index shape, but not production hardware isolation.
 - Parallel COPY/write-path scaling across database partitions, not only
   concurrent clients writing the current hypertable/index path.
 - Alternative metrics-store control benchmark, if staged CNPG cannot meet the
@@ -439,4 +467,6 @@ Evidence still required before claiming the current architecture works:
 - Live stream lag telemetry for anomaly and capacity consumers independent of
   EventWriter persistence lag.
 - Anomaly/capacity partition ownership tests, including crash/restart replay.
-- A Rust/Go control benchmark for decode/transform/write upper bounds.
+- A rebuilt Go control benchmark for decode/transform/write upper bounds if a
+  future proposal needs to compare a non-BEAM production rewrite. The Rust
+  control exists in `metrics-protobuf-bench`.

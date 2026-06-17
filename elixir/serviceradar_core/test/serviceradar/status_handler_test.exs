@@ -370,8 +370,8 @@ defmodule ServiceRadar.StatusHandlerTest do
       assert {:noreply, %{}} = StatusHandler.handle_cast({:status_update, status}, %{})
 
       # Routed onto the causal-prediction spine so the EventWriter CausalSignals
-      # processor persists + alert-enqueues it identically to a central verdict —
-      # NOT the generic add-on OCSF subject.
+      # processor persists + alert-enqueues it through the anomaly finding path,
+      # not the generic add-on OCSF subject.
       assert_receive {:published, subject, payload}
       assert String.starts_with?(subject, "signals.causal.predictions.")
       refute_receive {:published, "pdns.ocsf", _payload}
@@ -394,10 +394,10 @@ defmodule ServiceRadar.StatusHandlerTest do
         "tags" => %{"core_id" => "0"}
       }
 
-      # The canonical key central derives differs from the producer hint, so a
+      # The canonical key derived from attested identity differs from the producer hint, so a
       # passing assertion proves the re-key actually happened (not a pass-through).
       canonical =
-        ServiceRadar.Observability.AnomalyDetection.SampleExtractor.series_key_from_source_identity(
+        ServiceRadar.Observability.AnomalyDetection.SeriesKey.from_source_identity(
           source_identity
         )
 

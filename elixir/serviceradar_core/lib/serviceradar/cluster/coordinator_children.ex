@@ -44,7 +44,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         bumblebee_addon_package_seeder_child(),
         netprobe_addon_package_seeder_child(),
         workload_identity_addon_package_seeder_child(),
-        endpoint_inventory_addon_package_seeder_child(),
+        anomaly_addon_profile_seeder_child(),
         advisory_feed_scheduler_child(),
         sweep_schedule_reconciler_child(),
         ip_enrichment_scheduler_child(),
@@ -193,9 +193,9 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
     end
   end
 
-  defp endpoint_inventory_addon_package_seeder_child do
+  defp anomaly_addon_profile_seeder_child do
     if enabled?(:seeders_enabled, true) do
-      ServiceRadar.Plugins.EndpointInventoryAddonPackageSeeder
+      ServiceRadar.Plugins.AnomalyAddonProfileSeeder
     end
   end
 

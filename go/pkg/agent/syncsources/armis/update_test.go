@@ -82,6 +82,7 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 	lastSeen := time.Date(2026, 5, 14, 4, 5, 6, 987654321, time.UTC)
 
 	update := buildNormalizedUpdate(device{
+		ID:                18497,
 		DeviceID:          42,
 		Display:           "PLC-01",
 		Type:              "PLC",
@@ -135,9 +136,9 @@ func TestBuildUpdateMapsSdkAttributesToInventoryFields(t *testing.T) {
 
 	for key, want := range map[string]string{
 		"integration_type": "armis",
-		"armis_device_id":  "42",
+		"armis_device_id":  "18497",
 		"source_device_id": "42",
-		"integration_id":   "42",
+		"integration_id":   "18497",
 		"type":             "PLC",
 		"device_type":      "PLC",
 		"category":         "OT",
