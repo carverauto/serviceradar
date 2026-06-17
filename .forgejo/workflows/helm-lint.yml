@@ -51,4 +51,4 @@ jobs:
             --debug > /dev/null
 
       - name: Verify core analytics defaults
-        run: ./scripts/check-core-analytics-helm-defaults.sh
+        run: HELM_BIN=./scripts/run-helm.sh ./scripts/check-core-analytics-helm-defaults.sh
