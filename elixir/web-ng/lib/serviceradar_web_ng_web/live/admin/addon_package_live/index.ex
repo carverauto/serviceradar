@@ -16,6 +16,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   alias ServiceRadar.AgentRuntimeMetadata
   alias ServiceRadar.Infrastructure.Agent
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.AddonAssignments
   alias ServiceRadarWebNG.Plugins.AddonPackages
   alias ServiceRadarWebNG.Plugins.AddonProfiles
@@ -177,19 +178,23 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
       version: params["version"]
     }
 
-    case NativeAddonImporter.import(attrs) do
-      {:ok, package} ->
-        {:noreply,
-         socket
-         |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
-         |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
-         |> load_first_party_catalog()}
+    if RetiredNativeAddons.retired?(attrs.addon_id) do
+      {:noreply, put_flash(socket, :error, "This add-on is retired: #{RetiredNativeAddons.reason(attrs.addon_id)}")}
+    else
+      case NativeAddonImporter.import(attrs) do
+        {:ok, package} ->
+          {:noreply,
+           socket
+           |> put_flash(:info, "Imported first-party add-on #{package.name} #{package.version}")
+           |> assign(:packages, list_addon_packages(socket.assigns.current_scope))
+           |> load_first_party_catalog()}
 
-      {:error, reason} ->
-        {:noreply,
-         socket
-         |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
-         |> load_first_party_catalog()}
+        {:error, reason} ->
+          {:noreply,
+           socket
+           |> put_flash(:error, "First-party add-on import failed: #{format_error(reason)}")
+           |> load_first_party_catalog()}
+      end
     end
   end
 
@@ -264,7 +269,8 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     with {:ok, params} <- parse_profile_params(form),
          {:ok, priority} <- parse_positive_integer(Map.get(form, "priority"), 100),
          {:ok, max_targets} <- parse_positive_integer(Map.get(form, "max_targets"), 10_000),
-         {:ok, attrs} <- profile_attrs(form, package, params, priority, max_targets) do
+         {:ok, target_query} <- profile_target_query(Map.get(form, "target_query")),
+         {:ok, attrs} <- profile_attrs(form, package, params, priority, max_targets, target_query) do
       case AddonProfiles.create(attrs, scope: scope) do
         {:ok, _profile} ->
           {:noreply,
@@ -279,6 +285,9 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     else
       {:error, {:invalid_params, message}} ->
         {:noreply, put_flash(socket, :error, "Invalid profile configuration: #{message}")}
+
+      {:error, :missing_target_query} ->
+        {:noreply, put_flash(socket, :error, "Enter an SRQL target query before creating a profile.")}
 
       {:error, :invalid_integer} ->
         {:noreply, put_flash(socket, :error, "Priority and max targets must be positive integers.")}
@@ -911,9 +920,6 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       value={@profile_form["target_query"]}
                       placeholder="in:devices hostname:%ns% include_inactive:true"
                     />
-                    <p class="mt-1 text-xs text-base-content/60">
-                      Leave blank to target all devices with <span class="font-mono">in:devices</span>.
-                    </p>
                   </div>
                   <details class="rounded border border-base-200 bg-base-200/30">
                     <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-base-content/70">
@@ -1341,11 +1347,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp package_matches_release?(package, release_tag), do: package.source_release_tag == release_tag
 
   defp visible_first_party_addons(addons) do
-    Enum.reject(addons, &inert_sample_addon_id?(&1.addon_id))
+    Enum.reject(addons, &hidden_catalog_addon_id?(&1.addon_id))
   end
 
   defp visible_addon_packages(packages) do
-    Enum.reject(packages, &inert_sample_addon_id?(&1.addon_id))
+    Enum.reject(packages, &hidden_catalog_addon_id?(&1.addon_id))
+  end
+
+  defp hidden_catalog_addon_id?(addon_id) do
+    inert_sample_addon_id?(addon_id) or RetiredNativeAddons.retired?(addon_id)
   end
 
   defp inert_sample_addon_id?(addon_id) when is_binary(addon_id) do
@@ -1449,7 +1459,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
   defp default_profile_form(nil) do
     %{
       "name" => "",
-      "target_query" => "in:devices",
+      "target_query" => "",
       "priority" => "100",
       "max_targets" => "10000",
       "params" => "{}",
@@ -1587,12 +1597,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     end
   end
 
-  defp profile_attrs(form, package, params, priority, max_targets) do
+  defp profile_attrs(form, package, params, priority, max_targets, target_query) do
     {:ok,
      %{
        name: present_text(Map.get(form, "name")) || "#{package.name} profile",
        addon_package_id: package.id,
-       target_query: profile_target_query(Map.get(form, "target_query")),
+       target_query: target_query,
        params: params,
        args: parse_args(Map.get(form, "args")),
        priority: priority,
@@ -1603,12 +1613,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp profile_target_query(value) when is_binary(value) do
     case String.trim(value) do
-      "" -> "in:devices"
-      query -> query
+      "" -> {:error, :missing_target_query}
+      query -> {:ok, query}
     end
   end
 
-  defp profile_target_query(_value), do: "in:devices"
+  defp profile_target_query(_value), do: {:error, :missing_target_query}
 
   defp parse_positive_integer(value, default) do
     value = if is_nil(value) or value == "", do: Integer.to_string(default), else: to_string(value)

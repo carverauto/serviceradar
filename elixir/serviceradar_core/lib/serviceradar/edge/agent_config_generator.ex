@@ -45,6 +45,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
   alias ServiceRadar.Plugins.CredentialBrokerDelivery
   alias ServiceRadar.Plugins.PluginAssignment
   alias ServiceRadar.Plugins.PluginPackage
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadar.Plugins.SecretRefs
   alias ServiceRadar.Plugins.StorageToken
 
@@ -382,6 +383,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
       |> Ash.Query.load(:addon_package)
       |> Ash.read!()
       |> Enum.map(&ensure_addon_package_loaded(&1, actor))
+      |> Enum.reject(&retired_addon_assignment?/1)
       |> Enum.filter(&approved_addon_package?/1)
       |> Enum.sort_by(&addon_assignment_precedence/1)
       |> Enum.uniq_by(&logical_addon_id/1)
@@ -418,6 +420,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     |> List.wrap()
     |> Enum.map(&normalize_required_agent_addon_spec/1)
     |> Enum.reject(&is_nil/1)
+    |> Enum.reject(&RetiredNativeAddons.retired?(&1.addon_id))
     |> Enum.reject(&MapSet.member?(assigned_addon_ids, &1.addon_id))
     |> Enum.uniq_by(& &1.addon_id)
   end
@@ -489,6 +492,20 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
 
   defp logical_addon_id(%AddonAssignment{addon_id: addon_id}), do: addon_id
 
+  defp retired_addon_assignment?(%AddonAssignment{} = assignment) do
+    addon_id = logical_addon_id(assignment)
+
+    if RetiredNativeAddons.retired?(addon_id) do
+      Logger.debug(
+        "Skipping retired add-on assignment #{addon_id}: #{RetiredNativeAddons.reason(addon_id)}"
+      )
+
+      true
+    else
+      false
+    end
+  end
+
   defp addon_assignment_precedence(%AddonAssignment{source: :manual}), do: {0, 0}
 
   defp addon_assignment_precedence(%AddonAssignment{source: :profile, profile_metadata: metadata})
@@ -550,7 +567,7 @@ defmodule ServiceRadar.Edge.AgentConfigGenerator do
     end
     |> case do
       nil ->
-        Logger.warning("Skipping required add-on #{addon_id}: no approved package is available")
+        Logger.debug("Skipping required add-on #{addon_id}: no approved package is available")
         nil
 
       %AddonPackage{} = package ->

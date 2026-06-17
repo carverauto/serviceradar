@@ -20,6 +20,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.NativeAddonArtifactMirror
   alias ServiceRadar.Plugins.NativeAddonImporter, as: Core
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.ForgejoOciClient, as: Client
 
   @default_index_asset_name "serviceradar-native-addon-index.json"
@@ -64,6 +65,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
         {:ok, summary} ->
           {:ok,
            Map.merge(summary, %{
+             addons: Enum.reject(summary.addons, &RetiredNativeAddons.retired?(&1.addon_id)),
              scanned_releases: length(releases),
              index_asset_name: index_name,
              repo_url: repo.repo_url
@@ -88,6 +90,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
          {:ok, release} <- Client.fetch_release(repo, release_tag),
          {:ok, index} <- fetch_release_index(repo, release, attrs),
          {:ok, entry} <- find_entry(index, requested_addon_id, requested_version),
+         :ok <- ensure_not_retired_entry(entry),
          {:ok, fetched} <- fetch_artifact(repo, entry),
          {:ok, manifest, config_schema} <- extract_manifest(fetched.bundle) do
       Core.import_entry(manifest, entry, fetched.artifacts,
@@ -101,6 +104,16 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonImporter do
   end
 
   def import(_attrs), do: {:error, :invalid_attributes}
+
+  defp ensure_not_retired_entry(entry) do
+    addon_id = entry_string(entry, "addon_id")
+
+    if RetiredNativeAddons.retired?(addon_id) do
+      {:error, {:retired_native_addon, addon_id, RetiredNativeAddons.reason(addon_id)}}
+    else
+      :ok
+    end
+  end
 
   # --- repo + index -------------------------------------------------------------
 

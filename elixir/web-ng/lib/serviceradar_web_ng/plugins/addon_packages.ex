@@ -9,6 +9,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
   """
 
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
 
   require Ash.Query
@@ -53,6 +54,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonPackages do
       results =
         addons
         |> maybe_filter_release_tag(release_tag)
+        |> Enum.reject(&RetiredNativeAddons.retired?(&1.addon_id))
         |> Enum.filter(&Map.get(&1, :import_ready?))
         |> dedupe_first_party_addon_versions()
         |> Enum.map(fn addon ->

@@ -21,10 +21,11 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
   alias ServiceRadar.Plugins.AddonAssignment
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.AddonStatus
+  alias ServiceRadar.Plugins.RetiredNativeAddons
 
   require Ash.Query
 
-  @collector_addon_ids MapSet.new(["endpoint-inventory", "scalibr-endpoint-inventory"])
+  @collector_addon_ids MapSet.new(["scalibr-endpoint-inventory"])
 
   @max_rows 2000
 
@@ -64,8 +65,8 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     scope = Keyword.get(opts, :scope)
 
     packages = list_packages(scope)
-    assignments = list_assignments(scope)
-    statuses = list_statuses(scope)
+    assignments = scope |> list_assignments() |> reject_retired_addon_ids()
+    statuses = scope |> list_statuses() |> reject_retired_addon_ids()
     scans_by_agent = list_collector_scans(scope)
     agent_labels = agent_labels(scope)
     package_index = index_packages(packages)
@@ -292,6 +293,7 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
     |> Ash.Query.for_read(:read)
     |> Ash.Query.limit(@max_rows)
     |> read(scope)
+    |> reject_retired_addon_ids()
   end
 
   defp list_assignments(scope) do
@@ -373,6 +375,10 @@ defmodule ServiceRadarWebNG.Plugins.AddonFleet do
 
   defp package_approved?(%AddonPackage{status: :approved}), do: true
   defp package_approved?(_package), do: false
+
+  defp reject_retired_addon_ids(items) do
+    Enum.reject(items, &RetiredNativeAddons.retired?(&1.addon_id))
+  end
 
   defp package_name(%AddonPackage{name: name}, _addon_id) when is_binary(name) and name != "", do: name
   defp package_name(_package, addon_id), do: addon_id
