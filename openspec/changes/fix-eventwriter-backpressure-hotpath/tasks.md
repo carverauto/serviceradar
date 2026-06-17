@@ -33,5 +33,5 @@
 - [x] 3.18 Follow-up proposal: add a process telemetry rollup/detail mode so large fleets persist process counts/top-N summaries by default and reserve per-process raw rows for explicit troubleshooting windows.
 
 ## 4. Delivery
-- [ ] 4.1 Summarize benchmark results and expected demo impact in the PR.
-- [ ] 4.2 Open a Forgejo PR against `staging` from `fix/eventwriter-backpressure-hotpath`.
+- [x] 4.1 Summarize benchmark results and expected demo impact in the PR.
+- [x] 4.2 Open a Forgejo PR against `staging` from `fix/eventwriter-backpressure-hotpath`.
