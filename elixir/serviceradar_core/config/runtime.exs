@@ -949,6 +949,15 @@ if config_env() == :prod do
     threshold: root_span_ratio_threshold,
     min_spans: root_span_ratio_min_spans
 
+  # Agent-command history retention. The cleanup worker prunes terminal-state
+  # rows (completed/failed/expired/canceled/offline) older than the window using
+  # a batched, set-based DELETE. Default window is 2 days (short-term audit /
+  # troubleshooting table); the sweep self-reschedules hourly by default.
+  config :serviceradar_core, ServiceRadar.Edge.AgentCommandCleanupWorker,
+    retention_days: "AGENT_COMMAND_RETENTION_DAYS" |> parse_int_env.(2) |> max(1),
+    reschedule_seconds:
+      "AGENT_COMMAND_CLEANUP_INTERVAL_SECONDS" |> parse_int_env.(3_600) |> max(60)
+
   config :serviceradar_core, ServiceRadar.FlowAttribution,
     retention_minutes: flow_attribution_retention_minutes
 
