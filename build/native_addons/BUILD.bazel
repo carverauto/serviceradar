@@ -74,6 +74,7 @@ sh_test(
         "$(rootpath //addons/bumblebee-scan:addon.yaml)",
         "$(rootpath //addons/endpoint-inventory:addon.yaml)",
         "$(rootpath //addons/scalibr-endpoint-inventory:addon.yaml)",
+        "$(rootpath //addons/anomaly-addon:addon.yaml)",
     ],
     data = [
         "//addons/bumblebee-scan:addon.yaml",
@@ -87,6 +88,7 @@ sh_test(
         "//addons/rust-sample-addon:addon.yaml",
         "//addons/sample-addon:addon.yaml",
         "//addons/workload-identity:addon.yaml",
+        "//addons/anomaly-addon:addon.yaml",
         "//go/tools/addon-manifest-validator",
     ],
 )
