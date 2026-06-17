@@ -63,6 +63,10 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageControllerTest do
 
     assert conn.status == 404
     assert Jason.decode!(conn.resp_body) == %{"error" => "not_found"}
+
+    reloaded = Ash.get!(AddonPackage, package.id, actor: system_actor())
+    assert reloaded.verification_status == "blob_missing"
+    assert reloaded.verification_error == "native add-on artifact object missing: #{object_key}"
   end
 
   defp create_addon_package(object_key) do

@@ -32,7 +32,7 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
          true <- token_id == id,
          {:ok, package} <- fetch_package_for_blob(id),
          true <- known_artifact_object_key?(package, object_key),
-         {:ok, blob} <- fetch_addon_blob(conn, object_key) do
+         {:ok, blob} <- fetch_addon_blob(conn, package, object_key) do
       case blob do
         {:file, path} ->
           conn
@@ -78,14 +78,44 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
     end
   end
 
-  defp fetch_addon_blob(conn, object_key) do
+  defp fetch_addon_blob(conn, %AddonPackage{} = package, object_key) do
     opts =
       conn.private
       |> Map.get(:addon_package_controller_opts, [])
       |> Keyword.take([:download_object, :timeout])
 
-    with {:ok, data} <- NativeAddonArtifactMirror.fetch_blob(object_key, opts) do
-      {:ok, {:binary, data}}
+    case NativeAddonArtifactMirror.fetch_blob(object_key, opts) do
+      {:ok, data} ->
+        {:ok, {:binary, data}}
+
+      {:error, :not_found} = error ->
+        mark_package_blob_missing(package, object_key)
+        error
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp mark_package_blob_missing(%AddonPackage{} = package, object_key) do
+    message = "native add-on artifact object missing: #{object_key}"
+
+    package
+    |> Ash.Changeset.for_update(:update, %{
+      verification_status: "blob_missing",
+      verification_error: message
+    })
+    |> Ash.update(actor: SystemActor.system(:addon_blob))
+    |> case do
+      {:ok, _package} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning(
+          "Failed to mark native add-on package blob_missing package_id=#{package.id} object_key=#{object_key} reason=#{inspect(reason)}"
+        )
+
+        :ok
     end
   end
 

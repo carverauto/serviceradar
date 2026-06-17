@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   @impl true
   def handle_params(%{"event_id" => event_id}, _uri, socket) do
     query =
-      "in:events id:\"#{escape_value(event_id)}\" sort:time:desc limit:1"
+      "in:events id:\"#{escape_value(event_id)}\" time:last_24h sort:time:desc limit:1"
 
     {event, error} =
       case srql_module().query(query) do
