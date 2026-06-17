@@ -339,10 +339,12 @@ fn build_query_plan(
         .unwrap_or(0)
         .max(0);
     let max_time_range_days = max_time_range_days_for_ast(&ast);
+    let now = Utc::now();
     let time_range = ast
         .time_filter
-        .map(|spec| spec.resolve_with_max_days(Utc::now(), max_time_range_days))
+        .map(|spec| spec.resolve_with_max_days(now, max_time_range_days))
         .transpose()?;
+    let time_range = default_time_range_for_entity(&ast.entity, time_range, now);
 
     let (filters, order, downsample) =
         normalize_device_aliases(&ast.entity, ast.filters, ast.order, ast.downsample);
@@ -361,6 +363,20 @@ fn build_query_plan(
         rollup_stats: ast.rollup_stats,
         include_deleted,
     })
+}
+
+fn default_time_range_for_entity(
+    entity: &Entity,
+    time_range: Option<TimeRange>,
+    now: chrono::DateTime<Utc>,
+) -> Option<TimeRange> {
+    match (entity, time_range) {
+        (Entity::Logs, None) => Some(TimeRange {
+            start: now - ChronoDuration::hours(24),
+            end: now,
+        }),
+        (_, range) => range,
+    }
 }
 
 fn determine_limit(config: &AppConfig, candidate: Option<i64>) -> i64 {

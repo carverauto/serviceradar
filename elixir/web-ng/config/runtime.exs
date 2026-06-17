@@ -1467,8 +1467,6 @@ if config_env() == :prod do
         nil
     end
 
-  database_statement_timeout_ms = parse_int_env.("DATABASE_STATEMENT_TIMEOUT_MS", 30_000)
-
   # Configure ServiceRadar.Repo from serviceradar_core
   repo_config =
     [
@@ -1481,8 +1479,7 @@ if config_env() == :prod do
       pool_timeout: String.to_integer(System.get_env("DATABASE_POOL_TIMEOUT_MS") || "120000"),
       socket_options: maybe_ipv6,
       parameters: [
-        search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog"),
-        statement_timeout: "#{database_statement_timeout_ms}ms"
+        search_path: System.get_env("CNPG_SEARCH_PATH", "platform, public, ag_catalog")
       ],
       types: ServiceRadar.PostgresTypes
     ]
