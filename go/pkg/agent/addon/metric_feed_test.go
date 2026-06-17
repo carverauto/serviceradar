@@ -26,12 +26,14 @@ import (
 	"github.com/rs/zerolog"
 )
 
+const testMetricFeedSourceSysmon = "sysmon"
+
 func TestMetricFeedSourcesFromConfig(t *testing.T) {
 	got := metricFeedSourcesFromConfig([]byte(`{
 		"metric_feed": {"sources": ["sysmon-metrics", "snmp", "SNMP", "unknown"]},
 		"metric_feed_sources": ["icmp-metrics", "timeseries"]
 	}`))
-	want := []string{"sysmon", "snmp", "icmp", "timeseries"}
+	want := []string{testMetricFeedSourceSysmon, "snmp", "icmp", "timeseries"}
 
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("sources = %#v, want %#v", got, want)
@@ -47,7 +49,7 @@ func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
 		ctx,
 		"anomaly",
 		client,
-		[]string{"sysmon"},
+		[]string{testMetricFeedSourceSysmon},
 		zerolog.Nop(),
 	)
 	lifecycle.start()
@@ -65,8 +67,8 @@ func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
 		if got.GetFeedId() != 1 {
 			t.Fatalf("feed_id = %d, want 1", got.GetFeedId())
 		}
-		if got.GetSource().GetSourceType() != "sysmon" {
-			t.Fatalf("source = %q, want sysmon", got.GetSource().GetSourceType())
+		if got.GetSource().GetSourceType() != testMetricFeedSourceSysmon {
+			t.Fatalf("source = %q, want %s", got.GetSource().GetSourceType(), testMetricFeedSourceSysmon)
 		}
 		if string(got.GetPayload()) != "sysmon-batch" {
 			t.Fatalf("payload = %q, want sysmon-batch", got.GetPayload())
