@@ -90,6 +90,27 @@ type Spec struct {
 	// DownloadURL is the gateway artifact URL from the delivered assignment. It
 	// anchors the agent-gateway origin used for durable artifact upload.
 	DownloadURL string
+	// Resources are the manifest-declared CPU/memory/task limits enforced on the
+	// add-on subprocess (manifest `resources`). Zero means unbounded.
+	Resources Resources
+}
+
+// Resources are the CPU/memory/task limits the supervisor enforces on an add-on
+// subprocess so edge compute cannot impact the host or the base agent. Mirrors
+// the manifest `resources` block (cpu_max_percent / memory_max_bytes /
+// memory_high_bytes / tasks_max / slice).
+type Resources struct {
+	CPUMaxPercent   float64 `json:"cpu_max_percent,omitempty"`
+	MemoryMaxBytes  int64   `json:"memory_max_bytes,omitempty"`
+	MemoryHighBytes int64   `json:"memory_high_bytes,omitempty"`
+	TasksMax        int     `json:"tasks_max,omitempty"`
+	Slice           string  `json:"slice,omitempty"`
+}
+
+// IsZero reports whether no limits are declared.
+func (r Resources) IsZero() bool {
+	return r.CPUMaxPercent == 0 && r.MemoryMaxBytes == 0 && r.MemoryHighBytes == 0 &&
+		r.TasksMax == 0 && r.Slice == ""
 }
 
 // Status is a snapshot of one supervised add-on.

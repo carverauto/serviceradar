@@ -305,8 +305,10 @@ func (s *Server) initAddonManager() {
 	}
 
 	localOtlpEndpoint := ""
+	addonCgroupRoot := ""
 	if s.config != nil {
 		localOtlpEndpoint = strings.TrimSpace(s.config.LocalOtlpEndpoint)
+		addonCgroupRoot = strings.TrimSpace(s.config.AddonCgroupRoot)
 	}
 
 	s.addonManager = agentaddon.NewManager(agentaddon.Config{
@@ -318,7 +320,10 @@ func (s *Server) initAddonManager() {
 		// endpoint derived from a sidecar otel-collector add-on's delivered
 		// config wins inside the manager.
 		LocalOtlpEndpoint: localOtlpEndpoint,
-		Logger:            s.logger.WithComponent("agent.addon"),
+		// Delegated cgroup v2 sub-tree for agent-sidecar add-on resource limits;
+		// empty disables enforcement (best-effort at launch either way).
+		AddonCgroupRoot: addonCgroupRoot,
+		Logger:          s.logger.WithComponent("agent.addon"),
 	})
 }
 

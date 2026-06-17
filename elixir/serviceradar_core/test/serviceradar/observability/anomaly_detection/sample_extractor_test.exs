@@ -379,6 +379,66 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert sample.metric_class == "flow"
   end
 
+  describe "series_key_from_source_identity/1 (edge re-keying parity, §3.4b)" do
+    # An edge add-on forwards source_identity (the raw attested fields it saw on
+    # the same MetricBatch). Re-keying it must yield the IDENTICAL series_key the
+    # central extractor derives from that batch, so edge verdicts land on the same
+    # series during the edge<->central rollout join and the seasonal-worker join.
+
+    test "snmp interface verdict re-keys to the live extractor key (if_index dimension)" do
+      [live] =
+        SampleExtractor.extract(%{
+          data: snmp_batch(1234.5, @point_time_a),
+          metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
+        })
+
+      # Fields the edge add-on forwards from the same batch's resource/metric/point.
+      source_identity = %{
+        "series_key" => "agent-1|ifHCInOctets|ifindex:7",
+        "metric_class" => "snmp",
+        "metric_name" => "ifHCInOctets",
+        "agent_id" => "agent-1",
+        "host_id" => "",
+        "device_id" => "",
+        "host_ip" => "",
+        "partition" => "default",
+        "if_index" => 7,
+        "interface_uid" => "ifindex:7",
+        "tags" => %{"target" => "router-a", "host" => "10.0.0.20"}
+      }
+
+      assert SampleExtractor.series_key_from_source_identity(source_identity) == live.series_key
+    end
+
+    test "sysmon verdict re-keys to the live extractor key (excluded host_id tag dropped)" do
+      [live] =
+        SampleExtractor.extract(%{
+          data: sysmon_memory_batch(),
+          metadata: %{subject: "metrics.sysmon.memory"}
+        })
+
+      source_identity = %{
+        "series_key" => "sysmon:memory:host-1",
+        "metric_class" => "sysmon.memory",
+        "metric_name" => "memory.used_percent",
+        "agent_id" => "agent-1",
+        "host_id" => "",
+        "device_id" => "",
+        "host_ip" => "",
+        "partition" => "default",
+        "tags" => %{"host_id" => "host-1"}
+      }
+
+      assert SampleExtractor.series_key_from_source_identity(source_identity) == live.series_key
+    end
+
+    test "returns nil without a metric_class so the caller keeps the producer hint" do
+      assert SampleExtractor.series_key_from_source_identity(%{"agent_id" => "agent-1"}) == nil
+      assert SampleExtractor.series_key_from_source_identity(%{}) == nil
+      assert SampleExtractor.series_key_from_source_identity(nil) == nil
+    end
+  end
+
   defp sysmon_memory_batch(opts \\ []) do
     metric_batch(
       [

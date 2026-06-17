@@ -25,6 +25,7 @@ import (
 	"strings"
 	"time"
 
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/endpointinventory"
 	"github.com/carverauto/serviceradar/go/pkg/sysmon"
 	"github.com/carverauto/serviceradar/proto"
@@ -198,6 +199,10 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 	agentID := p.server.config.AgentID
 	partition := p.server.config.Partition
 	kvStoreID := p.server.config.KVAddress
+	// Tap: feed the encoded sysmon batches to any edge add-on that opened the
+	// local metric feed (metric-feed:v1, e.g. anomaly detection) so it analyzes
+	// samples on-host before the gateway push. Lossy and non-blocking.
+	feeder, _ := p.server.addonManager.(agentaddon.MetricFeeder)
 	p.server.mu.RUnlock()
 	gatewayID := p.gateway.GetGatewayID()
 
@@ -244,6 +249,12 @@ func (p *PushLoop) convertToSysmonGatewayStatusesFromSamples(samples []*sysmon.M
 
 	if len(currentPayload) > 0 {
 		statuses = append(statuses, p.sysmonGatewayStatusFromPayload(currentPayload, agentID, gatewayID, partition, kvStoreID))
+	}
+
+	if feeder != nil {
+		for _, st := range statuses {
+			feeder.FeedMetrics(st.Message)
+		}
 	}
 
 	return statuses

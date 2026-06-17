@@ -22,7 +22,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+
+	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 )
 
 func TestValidateAddonUnitName(t *testing.T) {
@@ -263,5 +266,38 @@ func TestDiscoverInstalledSystemdAddons(t *testing.T) {
 
 	if got := discoverInstalledSystemdAddons(filepath.Join(t.TempDir(), "absent")); got != nil {
 		t.Fatalf("expected nil for missing root, got %v", got)
+	}
+}
+
+func TestRenderSystemdResourceDropIn(t *testing.T) {
+	got := renderSystemdResourceDropIn(agentaddon.Resources{
+		CPUMaxPercent:   50,
+		MemoryMaxBytes:  268435456,
+		MemoryHighBytes: 201326592,
+		TasksMax:        32,
+		Slice:           "serviceradar-addons.slice",
+	})
+
+	for _, want := range []string{
+		"[Service]",
+		"CPUQuota=50%",
+		"MemoryHigh=201326592",
+		"MemoryMax=268435456",
+		"TasksMax=32",
+		"Slice=serviceradar-addons.slice",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("drop-in missing %q in:\n%s", want, got)
+		}
+	}
+
+	// Only declared (non-zero) limits are emitted.
+	partial := renderSystemdResourceDropIn(agentaddon.Resources{MemoryMaxBytes: 1024})
+	if strings.Contains(partial, "CPUQuota") || strings.Contains(partial, "TasksMax") ||
+		strings.Contains(partial, "Slice=") {
+		t.Errorf("unset limits must not appear:\n%s", partial)
+	}
+	if !strings.Contains(partial, "MemoryMax=1024") {
+		t.Errorf("MemoryMax should appear:\n%s", partial)
 	}
 }

@@ -558,6 +558,43 @@ defmodule ServiceRadar.EventWriter.Processors.CausalSignalsTest do
       assert alert_row.device == %{"uid" => "sr:anomaly-device"}
     end
 
+    test "carries the verdict_source label into service_radar metadata for the edge<->central join" do
+      edge = %{
+        "event_id" => "anomaly-edge-1",
+        "signal_type" => "causal",
+        "event_type" => "anomaly",
+        "class_uid" => 2004,
+        "timestamp" => "2026-06-12T12:00:00Z",
+        "severity_id" => 4,
+        "device_uid" => "sr:anomaly-device",
+        "verdict_source" => "edge-spike",
+        "anomaly" => %{
+          "series_key" => "sysmon:cpu:sr:anomaly-device",
+          "metric_class" => "sysmon.cpu",
+          "state" => "anomalous"
+        }
+      }
+
+      meta = %{
+        subject: "signals.causal.predictions.sysmon:cpu:sr:anomaly-device",
+        received_at: DateTime.utc_now()
+      }
+
+      row = CausalSignals.parse_message(%{data: Jason.encode!(edge), metadata: meta})
+
+      assert row.metadata["service_radar"]["verdict_source"] == "edge-spike"
+      assert row.metadata["detection_finding"]["source"] == "edge-spike"
+
+      # A central verdict (no label) defaults to "central".
+      central_row =
+        CausalSignals.parse_message(%{
+          data: Jason.encode!(Map.delete(edge, "verdict_source")),
+          metadata: meta
+        })
+
+      assert central_row.metadata["service_radar"]["verdict_source"] == "central"
+    end
+
     test "selects capacity causal prediction findings for stateful alert evaluation" do
       forecast = %{
         forecasted_at: ~U[2026-06-12 12:00:00Z],

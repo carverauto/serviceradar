@@ -19,6 +19,8 @@ defmodule ServiceRadar.StatusHandler do
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
+  alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
+  alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
   alias ServiceRadar.ResultsRouter
 
   require Logger
@@ -305,11 +307,12 @@ defmodule ServiceRadar.StatusHandler do
 
   defp publish_ocsf_telemetry_record(%TelemetryRecord{payload: payload} = record, batch, metadata) do
     with {:ok, event} <- decode_json_payload(payload),
-         :ok <- ensure_ocsf_shape(event, metadata),
-         {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
-         {:ok, json} <- Jason.encode(enriched),
-         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata), json) do
-      :ok
+         :ok <- ensure_ocsf_shape(event, metadata) do
+      if anomaly_verdict?(event) do
+        publish_edge_anomaly_verdict(event, metadata)
+      else
+        publish_generic_ocsf_event(event, record, batch, metadata)
+      end
     else
       # A mis-bucketed metric is dropped at the source, not republished. It is not
       # a transport failure, so ack it (:ok) rather than logging a publish error.
@@ -318,6 +321,75 @@ defmodule ServiceRadar.StatusHandler do
 
       {:error, reason} ->
         log_package_telemetry_publish_failure("OCSF", reason, metadata)
+    end
+  end
+
+  defp publish_generic_ocsf_event(event, record, batch, metadata) do
+    with {:ok, enriched} <- enrich_ocsf_event(event, record, batch, metadata),
+         {:ok, json} <- Jason.encode(enriched),
+         :ok <- publish(addon_telemetry_publisher(), ocsf_subject(metadata), json) do
+      :ok
+    else
+      {:error, reason} ->
+        log_package_telemetry_publish_failure("OCSF", reason, metadata)
+    end
+  end
+
+  # An edge anomaly add-on emits an OCSF Detection Finding shaped as a causal
+  # anomaly verdict (signal_type=causal, event_type=anomaly). Route it onto the
+  # causal-prediction spine (signals.causal.predictions.<series>) so the
+  # EventWriter CausalSignals processor persists + alert-enqueues it identically
+  # to a central verdict, instead of the generic OCSF add-on path. The
+  # verdict_source label (edge-spike) rides through in the body and is surfaced
+  # by CausalSignals.
+  defp anomaly_verdict?(event) when is_map(event) do
+    Map.get(event, "signal_type") == "causal" and Map.get(event, "event_type") == "anomaly"
+  end
+
+  defp anomaly_verdict?(_), do: false
+
+  defp publish_edge_anomaly_verdict(event, metadata) do
+    # The edge add-on routes on a provisional producer hint; re-key the verdict to
+    # the canonical series_key central derives from the attested source_identity so
+    # it lands on the same subject/series central would (the basis for the
+    # edge<->central + seasonal joins). Fall back to the hint only when no
+    # source_identity is present (move-anomaly-detection-to-edge §3.4b).
+    hint = get_in(event, ["anomaly", "series_key"])
+    series_key = canonical_series_key(Map.get(event, "source_identity")) || hint
+
+    event = rekey_anomaly_verdict(event, series_key)
+    subject = VerdictEmitter.subject(%{"series_key" => series_key})
+
+    with {:ok, json} <- Jason.encode(event),
+         :ok <- publish(addon_telemetry_publisher(), subject, json) do
+      :ok
+    else
+      {:error, reason} ->
+        log_package_telemetry_publish_failure("anomaly_verdict", reason, metadata)
+    end
+  end
+
+  defp canonical_series_key(source_identity) when is_map(source_identity) do
+    SampleExtractor.series_key_from_source_identity(source_identity)
+  end
+
+  defp canonical_series_key(_source_identity), do: nil
+
+  # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
+  # under the same series_key central uses (and the producer hint becomes dead
+  # debug metadata). Only rewrites blocks that already exist.
+  defp rekey_anomaly_verdict(event, series_key) when is_binary(series_key) do
+    event
+    |> put_nested_series_key("anomaly", series_key)
+    |> put_nested_series_key("source_identity", series_key)
+  end
+
+  defp rekey_anomaly_verdict(event, _series_key), do: event
+
+  defp put_nested_series_key(event, key, series_key) do
+    case Map.get(event, key) do
+      %{} = nested -> Map.put(event, key, Map.put(nested, "series_key", series_key))
+      _ -> event
     end
   end
 

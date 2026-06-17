@@ -250,6 +250,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          producer_schedules: List.wrap(Map.get(manifest, "producer_schedules", [])),
          artifacts: artifacts,
          requires: requires,
+         resources: Map.get(manifest, "resources", %{}),
          source_type: :first_party,
          source_oci_ref: string_value(entry, "oci_ref"),
          source_oci_digest: string_value(entry, "oci_digest"),

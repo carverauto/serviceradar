@@ -527,6 +527,22 @@ defmodule Monitoring.AddonAssignmentConfig do
   field :os_capabilities, 15, repeated: true, type: :string, json_name: "osCapabilities"
   field :download_url, 16, type: :string, json_name: "downloadUrl"
   field :download_token, 17, type: :string, json_name: "downloadToken"
+  field :resources, 18, type: Monitoring.AddonResources
+end
+
+defmodule Monitoring.AddonResources do
+  @moduledoc false
+
+  use Protobuf,
+    full_name: "monitoring.AddonResources",
+    protoc_gen_elixir_version: "0.16.0",
+    syntax: :proto3
+
+  field :cpu_max_percent, 1, type: :double, json_name: "cpuMaxPercent"
+  field :memory_max_bytes, 2, type: :int64, json_name: "memoryMaxBytes"
+  field :memory_high_bytes, 3, type: :int64, json_name: "memoryHighBytes"
+  field :tasks_max, 4, type: :int64, json_name: "tasksMax"
+  field :slice, 5, type: :string
 end
 
 defmodule Monitoring.AgentConfigChunk do

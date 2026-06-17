@@ -6,9 +6,8 @@ version = 4
 name = "causal_reasoner_nif"
 version = "0.1.0"
 dependencies = [
- "deep_causality_core",
- "deep_causality_data_structures",
  "rustler",
+ "serviceradar-anomaly-core",
 ]
 
 [[package]]
@@ -117,6 +116,15 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "serviceradar-anomaly-core"
+version = "0.1.0"
+dependencies = [
+ "deep_causality_core",
+ "deep_causality_data_structures",
+ "rustler",
+]
 
 [[package]]
 name = "syn"

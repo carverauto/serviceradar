@@ -8,8 +8,12 @@ name = "causal_reasoner_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
-deep_causality_core = "0.10.0"
-deep_causality_data_structures = "0.10.14"
 rustler = "0.37"
+# The detector core (Welford stats, sliding window, signal evaluation, and the
+# DeepCausality flow) lives in the shared crate so the edge anomaly add-on
+# computes identical verdicts. The `rustler` feature re-adds the NifMap derives
+# on the boundary types. deep_causality_core / deep_causality_data_structures are
+# now pulled in transitively through this crate.
+serviceradar-anomaly-core = { path = "../../../../rust/anomaly-core", features = ["rustler"] }
 
 [workspace]
