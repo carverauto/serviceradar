@@ -29,6 +29,7 @@ defmodule ServiceRadar.Plugins.AddonPackage do
     :binary,
     :install_path,
     :capabilities,
+    :default_profile_target_query,
     :config_schema,
     :signal_schemas,
     :producer_schedules,
@@ -201,6 +202,12 @@ defmodule ServiceRadar.Plugins.AddonPackage do
       public? true
       default []
       description "Capability identifiers the add-on advertises when active"
+    end
+
+    attribute :default_profile_target_query, :string do
+      allow_nil? true
+      public? true
+      description "SRQL query used as the default when creating profile assignments"
     end
 
     attribute :config_schema, :map do

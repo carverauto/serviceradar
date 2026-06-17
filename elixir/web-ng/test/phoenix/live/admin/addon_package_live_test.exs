@@ -271,6 +271,50 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLiveTest do
     assert render(lv) =~ "Profile assignment"
   end
 
+  test "profile creation uses package default SRQL target query when present", %{
+    conn: conn,
+    actor: actor
+  } do
+    default_query = "in:devices agent_capabilities:(sysmon,snmp)"
+
+    package =
+      create_addon_package!(actor, %{
+        addon_id: "anomaly-profile-default",
+        name: "Anomaly Profile Default",
+        status: :approved,
+        approved_capabilities: ["metric-feed:v1", "native-telemetry:v1"],
+        default_profile_target_query: default_query
+      })
+
+    {:ok, lv, html} = live(conn, ~p"/settings/agents/addons/#{package.id}")
+
+    assert html =~ default_query
+
+    html =
+      lv
+      |> form("#create-addon-profile-form", %{
+        "profile" => %{
+          "name" => "Anomaly on metric collectors",
+          "target_query" => "   ",
+          "priority" => "100",
+          "max_targets" => "10000",
+          "params" => "{}",
+          "args" => ""
+        }
+      })
+      |> render_submit()
+
+    assert html =~ "Add-on profile created."
+
+    [profile] =
+      AddonProfile
+      |> Ash.Query.for_read(:read)
+      |> Ash.Query.filter(addon_package_id == ^package.id)
+      |> Ash.read!(actor: system_actor())
+
+    assert profile.target_query == default_query
+  end
+
   test "assignment list shows profile provenance and reconcile state", %{
     conn: conn,
     actor: actor

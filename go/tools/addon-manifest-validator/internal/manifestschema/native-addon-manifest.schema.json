@@ -80,6 +80,12 @@
         "minLength": 1
       }
     },
+    "default_profile_target_query": {
+      "type": "string",
+      "title": "Default profile target query",
+      "description": "Optional SRQL query used as the default when operators create a profile assignment for this add-on.",
+      "minLength": 1
+    },
     "requires": {
       "type": "object",
       "title": "Runtime requirements",

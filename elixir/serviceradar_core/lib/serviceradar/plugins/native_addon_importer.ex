@@ -247,6 +247,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
          binary: string_value(exec, "binary"),
          install_path: string_value(exec, "install_path") || "/usr/local/lib/serviceradar/bin",
          capabilities: List.wrap(Map.get(manifest, "capabilities", [])),
+         default_profile_target_query: string_value(manifest, "default_profile_target_query"),
          config_schema: Keyword.get(opts, :config_schema, %{}),
          signal_schemas: List.wrap(Map.get(manifest, "signal_schemas", [])),
          producer_schedules: List.wrap(Map.get(manifest, "producer_schedules", [])),

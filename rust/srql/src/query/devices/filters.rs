@@ -77,6 +77,9 @@ pub(super) fn apply_filter<'a>(
         "unavailable_from_agent" => {
             query = apply_agent_availability_filter(query, filter, false)?;
         }
+        "agent_capabilities" | "availability_source_agent_capabilities" => {
+            query = apply_availability_source_agent_capabilities_filter(query, filter)?;
+        }
         "availability_source_fresh_within" => {
             query = apply_availability_source_freshness_filter(query, filter, true)?;
         }
@@ -373,6 +376,43 @@ fn apply_agent_availability_filter<'a>(
     Ok(query.filter(expr))
 }
 
+fn apply_availability_source_agent_capabilities_filter<'a>(
+    query: DeviceQuery<'a>,
+    filter: &Filter,
+) -> Result<DeviceQuery<'a>> {
+    let values = match &filter.value {
+        FilterValue::Scalar(value) => vec![value.clone()],
+        FilterValue::List(values) => values.clone(),
+    };
+
+    if values.is_empty() {
+        return Ok(query);
+    }
+
+    let expr = sql::<Bool>(
+        r#"
+        NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM ocsf_agents a
+          WHERE a.uid = ocsf_devices.availability_source_agent_id
+            AND COALESCE(a.capabilities, ARRAY[]::text[]) &&
+        "#,
+    )
+    .bind::<Array<Text>, _>(values)
+    .sql(")");
+
+    Ok(match filter.op {
+        FilterOp::Eq | FilterOp::In => query.filter(expr),
+        FilterOp::NotEq | FilterOp::NotIn => query.filter(not(expr)),
+        _ => {
+            return Err(ServiceError::InvalidRequest(
+                "agent_capabilities filter only supports equality/containment".into(),
+            ))
+        }
+    })
+}
+
 fn apply_availability_source_freshness_filter<'a>(
     query: DeviceQuery<'a>,
     filter: &Filter,
@@ -532,6 +572,16 @@ pub(super) fn collect_filter_params(params: &mut Vec<BindParam>, filter: &Filter
         | "model"
         | "risk_level" => {
             params.push(BindParam::Text(filter.value.as_scalar()?.to_string()));
+            Ok(())
+        }
+        "agent_capabilities" | "availability_source_agent_capabilities" => {
+            let values = match &filter.value {
+                FilterValue::Scalar(value) => vec![value.clone()],
+                FilterValue::List(values) => values.clone(),
+            };
+            if !values.is_empty() {
+                params.push(BindParam::TextArray(values));
+            }
             Ok(())
         }
         "availability_source_fresh_within" | "availability_source_stale_after" => {
