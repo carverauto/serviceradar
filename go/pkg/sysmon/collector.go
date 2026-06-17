@@ -18,6 +18,8 @@ package sysmon
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -254,6 +256,87 @@ func (c *DefaultCollector) Collect(ctx context.Context) (*MetricSample, error) {
 	c.mu.Unlock()
 
 	return sample, nil
+}
+
+// InjectSpike writes `count` synthetic spike samples for `metric` ("cpu" or
+// "memory") into the buffer, mirroring the shape of the last real sample so the
+// spike lands on the SAME series the engine has a baseline for. The next drain
+// ships them through the real path (gateway push + add-on metric feed), firing
+// the anomaly detector against the established baseline. This is a test/debug
+// affordance (triggered by a control-stream command); it does not stop or alter
+// normal collection. Returns the number of samples written.
+func (c *DefaultCollector) InjectSpike(metric string, value float64, count int) (int, error) {
+	if count <= 0 {
+		count = 6
+	}
+
+	c.mu.RLock()
+	base := c.latest
+	hostID, hostIP, agentID, partition := c.hostID, c.hostIP, c.agentID, c.partition
+	c.mu.RUnlock()
+
+	kind := strings.ToLower(strings.TrimSpace(metric))
+
+	now := time.Now().UTC()
+	written := 0
+
+	for i := 0; i < count; i++ {
+		sample := NewMetricSample(hostID, hostIP, agentID, partition)
+
+		switch kind {
+		case "cpu":
+			sample.CPUs = spikeCPUs(base, value)
+		case "memory", "mem":
+			sample.Memory = spikeMemory(base, value)
+		default:
+			return written, fmt.Errorf("unsupported spike metric %q (want \"cpu\" or \"memory\")", metric)
+		}
+
+		// Stagger timestamps so the engine sees distinct consecutive points
+		// (enough to confirm an anomaly past the confirm-slots hysteresis).
+		sample.Timestamp = now.Add(time.Duration(i) * time.Second).Format(time.RFC3339Nano)
+
+		c.mu.Lock()
+		c.latest = sample
+		c.buffer.Write(sample)
+		c.mu.Unlock()
+		written++
+	}
+
+	return written, nil
+}
+
+// spikeCPUs returns per-core CPU metrics at `usage`, copying the core ids of the
+// last real sample so the synthetic spike keys to the same per-core series; falls
+// back to a single core 0 when no baseline sample exists yet.
+func spikeCPUs(base *MetricSample, usage float64) []CPUMetric {
+	if base != nil && len(base.CPUs) > 0 {
+		cpus := make([]CPUMetric, len(base.CPUs))
+		copy(cpus, base.CPUs)
+		for i := range cpus {
+			cpus[i].UsagePercent = usage
+		}
+
+		return cpus
+	}
+
+	return []CPUMetric{{CoreID: 0, UsagePercent: usage}}
+}
+
+// spikeMemory returns a memory metric whose used/total ratio is `usagePercent`,
+// reusing the last real sample's total capacity when available.
+func spikeMemory(base *MetricSample, usagePercent float64) MemoryMetric {
+	total := uint64(16) << 30 // 16 GiB fallback
+	if base != nil && base.Memory.TotalBytes > 0 {
+		total = base.Memory.TotalBytes
+	}
+
+	used := uint64(float64(total) * usagePercent / 100.0)
+	if used > total {
+		used = total
+	}
+
+	return MemoryMetric{UsedBytes: used, TotalBytes: total}
 }
 
 // Reconfigure updates the collector with new configuration.

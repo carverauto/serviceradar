@@ -21,6 +21,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/url"
 	"os"
@@ -60,6 +61,7 @@ const (
 	commandTypeAgentUpdate                 = "agent.update_release"
 	commandTypeProxmoxTest                 = "proxmox.credential_test"
 	commandTypePluginSnapshot              = "plugin.debug_snapshot"
+	commandTypeSysmonDebugSpike            = "sysmon.debug_spike"
 	commandTypePluginRunAction             = "plugin.run_action"
 	commandTypeAddonRunCommand             = coreaddon.CommandTypeAddonRunCommand
 	commandTypeEndpointInventoryCacheQuery = "endpoint_inventory.cache_query"
@@ -508,6 +510,8 @@ func (p *PushLoop) handleCommand(ctx context.Context, cmd *proto.CommandRequest,
 			p.handleProxmoxCredentialTest(ctx, cmd, sender)
 		case commandTypePluginSnapshot:
 			p.handlePluginDebugSnapshot(cmd, sender)
+		case commandTypeSysmonDebugSpike:
+			p.handleSysmonDebugSpike(cmd, sender)
 		case commandTypePluginRunAction:
 			p.handlePluginRunAction(ctx, cmd, sender)
 		case commandTypeAddonRunCommand:
@@ -533,6 +537,44 @@ func (p *PushLoop) handlePluginDebugSnapshot(cmd *proto.CommandRequest, sender *
 	}
 
 	_ = sender.Send(commandResult(cmd, true, "plugin snapshot captured", pluginManager.DebugSnapshot()))
+}
+
+// sysmonDebugSpikePayload is the control-stream payload for sysmon.debug_spike.
+type sysmonDebugSpikePayload struct {
+	Metric  string  `json:"metric"`  // "cpu" or "memory"
+	Value   float64 `json:"value"`   // spiked value (CPU %, or memory used %)
+	Samples int     `json:"samples"` // consecutive spike samples to inject (0 -> default)
+}
+
+// handleSysmonDebugSpike injects a one-shot synthetic CPU/memory anomaly so the
+// edge->core->persist->surface chain can be validated on demand (test/debug).
+func (p *PushLoop) handleSysmonDebugSpike(cmd *proto.CommandRequest, sender *controlStreamSender) {
+	p.server.mu.RLock()
+	svc := p.server.sysmonService
+	p.server.mu.RUnlock()
+
+	if svc == nil {
+		_ = sender.Send(commandResult(cmd, false, "sysmon service unavailable", nil))
+		return
+	}
+
+	req := sysmonDebugSpikePayload{Metric: "cpu", Value: 95.0}
+	if len(cmd.PayloadJson) > 0 {
+		if err := json.Unmarshal(cmd.PayloadJson, &req); err != nil {
+			_ = sender.Send(commandResult(cmd, false, fmt.Sprintf("invalid sysmon.debug_spike payload: %v", err), nil))
+			return
+		}
+	}
+
+	written, err := svc.InjectSyntheticSpike(req.Metric, req.Value, req.Samples)
+	if err != nil {
+		_ = sender.Send(commandResult(cmd, false, err.Error(), nil))
+		return
+	}
+
+	_ = sender.Send(commandResult(cmd, true,
+		fmt.Sprintf("injected %d synthetic %s spike sample(s) at %.1f", written, req.Metric, req.Value),
+		map[string]any{"metric": req.Metric, "value": req.Value, "samples": written}))
 }
 
 func (p *PushLoop) handlePluginRunAction(ctx context.Context, cmd *proto.CommandRequest, sender *controlStreamSender) {

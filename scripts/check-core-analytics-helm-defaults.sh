@@ -10,7 +10,7 @@ trap 'rm -rf "${tmpdir}"' EXIT
 legacy_values="${tmpdir}/legacy-values.yaml"
 cat >"${legacy_values}" <<'YAML'
 core:
-  anomalyAnalysis: {}
+  eventWriter: {}
   anomalyDetectionConfig: {}
   capacityForecasting: {}
   capacityForecastConfig: {}
@@ -75,12 +75,8 @@ check_default_render() {
 
   render_env "${rendered}"
 
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONSUMER_ENABLED" "false"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONTEXT_ENGINE" "sharded"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_NATS_CREDS_FILE" "/etc/serviceradar/creds/platform.creds"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_NATS_URL" "tls://serviceradar-nats:4222"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_NATS_TLS" "true"
-  assert_env_absent "${rendered}" "ANOMALY_ANALYSIS_ENABLED_SUBJECTS"
+  assert_env "${rendered}" "EVENT_WRITER_ENABLED" "true"
+  assert_env_absent "${rendered}" "ANOMALY_ANALYSIS_CONSUMER_ENABLED"
   assert_env "${rendered}" "SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON" '{\"cpu\":{},\"disk\":{},\"interface\":{},\"memory\":{},\"red\":{}}'
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" "72"
@@ -92,8 +88,7 @@ check_legacy_missing_values_render() {
 
   render_env "${rendered}" -f "${legacy_values}"
 
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONSUMER_ENABLED" "false"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONTEXT_ENGINE" "sharded"
+  assert_env "${rendered}" "EVENT_WRITER_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" "72"
 }
@@ -103,8 +98,7 @@ check_demo_render() {
 
   render_env "${rendered}" -f "${CHART_DIR}/values-demo.yaml"
 
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONSUMER_ENABLED" "true"
-  assert_env "${rendered}" "ANOMALY_ANALYSIS_CONTEXT_ENGINE" "sharded"
+  assert_env "${rendered}" "EVENT_WRITER_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_ENABLED" "true"
   assert_env "${rendered}" "SERVICERADAR_CAPACITY_FORECASTING_MIN_POINTS" "72"
 }
