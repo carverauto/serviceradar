@@ -905,6 +905,14 @@ if config_env() == :prod do
           batch_timeout: 1_000
         },
         %{
+          name: "PDNS_OCSF",
+          stream_name: "events",
+          subject: "pdns.ocsf",
+          processor: ServiceRadar.EventWriter.Processors.PowerDNS,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
           name: "FALCO",
           stream_name: "falco_events",
           subject: "falco.>",
@@ -933,6 +941,14 @@ if config_env() == :prod do
           stream_name: "events",
           subject: "otel.traces.>",
           processor: ServiceRadar.EventWriter.Processors.OtelTraces,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "LOGS",
+          stream_name: "events",
+          subject: "logs.>",
+          processor: ServiceRadar.EventWriter.Processors.Logs,
           batch_size: 100,
           batch_timeout: 1_000
         },
@@ -971,6 +987,14 @@ if config_env() == :prod do
           name: "SIEM_CAUSAL",
           stream_name: "events",
           subject: "siem.events.>",
+          processor: CausalSignals,
+          batch_size: 100,
+          batch_timeout: 1_000
+        },
+        %{
+          name: "CAUSAL_PREDICTIONS",
+          stream_name: "events",
+          subject: "signals.causal.predictions.>",
           processor: CausalSignals,
           batch_size: 100,
           batch_timeout: 1_000
