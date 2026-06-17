@@ -17,6 +17,7 @@ defmodule ServiceRadarWebNGWeb.SRQLBuilderSortTest do
     query = Builder.build(state)
 
     assert query =~ "in:logs"
+    assert query =~ "time:last_24h"
     assert query =~ "sort:timestamp:desc"
     assert query =~ "limit:50"
   end

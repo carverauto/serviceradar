@@ -786,11 +786,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     Enum.join(tokens, " ")
   end
 
+  defp maybe_add_default_time(tokens, "logs"), do: tokens ++ ["time:last_24h"]
+
   defp maybe_add_default_time(tokens, entity) do
     if entity in [
          "events",
          "bmp_events",
-         "logs",
          "otel_metrics",
          "timeseries_metrics",
          "snmp_metrics",

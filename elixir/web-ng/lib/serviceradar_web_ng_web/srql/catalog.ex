@@ -696,7 +696,7 @@ defmodule ServiceRadarWebNGWeb.SRQL.Catalog do
       label: "Logs",
       route: "/observability",
       route_params: %{"tab" => "logs"},
-      default_time: "last_7d",
+      default_time: "last_24h",
       default_sort_field: "timestamp",
       default_sort_dir: "desc",
       default_filter_field: "message",

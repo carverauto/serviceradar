@@ -41,6 +41,14 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
     assert socket.assigns.limit == 50
   end
 
+  test "logs default query is bounded to the last 24 hours" do
+    socket = Page.init(%Socket{}, "logs", default_limit: 20)
+
+    assert socket.assigns.srql.query =~ "in:logs"
+    assert socket.assigns.srql.query =~ "time:last_24h"
+    assert socket.assigns.srql.query =~ "limit:20"
+  end
+
   test "route_target_for_query uses the catalog route and route params" do
     assert Page.route_target_for_query("in:bmp_events router_ip:192.0.2.1", "/devices") ==
              {"/observability/bmp", %{}}
