@@ -122,6 +122,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
         "delivery" => "pushed-artifact",
         "supervision" => "systemd-service",
         "capabilities" => ["host-network-visibility"],
+        "default_profile_target_query" => "in:devices agent_capabilities:(sysmon,snmp)",
         "requires" => %{
           "base_agent" => ">=1.2.0",
           "platforms" => ["linux"],
@@ -175,6 +176,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       assert attrs.binary == "serviceradar-netprobe"
       assert attrs.install_path == "/usr/local/lib/serviceradar/bin"
       assert attrs.capabilities == ["host-network-visibility"]
+      assert attrs.default_profile_target_query == "in:devices agent_capabilities:(sysmon,snmp)"
       assert [signal_schema] = attrs.signal_schemas
       assert signal_schema["id"] == "com.carverauto.netprobe.flow"
       assert signal_schema["display_contract"] == "display/flow.display.json"
@@ -202,6 +204,12 @@ defmodule ServiceRadar.Plugins.NativeAddonImporterTest do
       m = Map.delete(manifest(), "resources")
       assert {:ok, attrs} = Importer.package_attrs(m, %{}, %{})
       assert attrs.resources == %{}
+    end
+
+    test "defaults profile target query to nil when the manifest omits it" do
+      m = Map.delete(manifest(), "default_profile_target_query")
+      assert {:ok, attrs} = Importer.package_attrs(m, %{}, %{})
+      assert is_nil(attrs.default_profile_target_query)
     end
 
     test "fails closed on an unknown delivery model" do

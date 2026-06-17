@@ -402,6 +402,9 @@ fn build_grouped_stats_filter_clause(
         "unavailable_from_agent" => {
             build_grouped_agent_availability_clause(filter, false, &mut binds)?
         }
+        "agent_capabilities" | "availability_source_agent_capabilities" => {
+            build_grouped_availability_source_agent_capabilities_clause(filter, &mut binds)?
+        }
         "availability_source_fresh_within" => {
             build_grouped_availability_source_freshness_clause(filter, true, &mut binds)?
         }
@@ -677,6 +680,35 @@ fn build_grouped_agent_availability_clause(
     Ok(format!(
         "EXISTS (SELECT 1 FROM device_agent_availability daa WHERE daa.device_uid = ocsf_devices.uid AND daa.agent_id = ? AND daa.is_available = {available})"
     ))
+}
+
+fn build_grouped_availability_source_agent_capabilities_clause(
+    filter: &Filter,
+    binds: &mut Vec<DeviceSqlBindValue>,
+) -> Result<String> {
+    let values = match &filter.value {
+        FilterValue::Scalar(value) => vec![value.clone()],
+        FilterValue::List(values) => values.clone(),
+    };
+
+    if values.is_empty() {
+        return Ok("true".to_string());
+    }
+
+    binds.push(DeviceSqlBindValue::TextArray(values));
+
+    let exists = "NULLIF(BTRIM(ocsf_devices.availability_source_agent_id), '') IS NOT NULL \
+         AND EXISTS (SELECT 1 FROM ocsf_agents a \
+         WHERE a.uid = ocsf_devices.availability_source_agent_id \
+         AND COALESCE(a.capabilities, ARRAY[]::text[]) && ?)";
+
+    match filter.op {
+        FilterOp::Eq | FilterOp::In => Ok(exists.to_string()),
+        FilterOp::NotEq | FilterOp::NotIn => Ok(format!("NOT ({exists})")),
+        _ => Err(ServiceError::InvalidRequest(
+            "agent_capabilities filter only supports equality/containment".into(),
+        )),
+    }
 }
 
 fn build_grouped_availability_source_freshness_clause(

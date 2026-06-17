@@ -10200,6 +10200,27 @@ CREATE INDEX idx_logs_source ON platform.logs USING btree (source);
 
 
 --
+-- Name: idx_logs_resource_attributes_trgm; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_resource_attributes_trgm ON platform.logs USING gin (COALESCE(resource_attributes, ''::text) gin_trgm_ops);
+
+
+--
+-- Name: idx_logs_attributes_trgm; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_attributes_trgm ON platform.logs USING gin (COALESCE(attributes, ''::text) gin_trgm_ops);
+
+
+--
+-- Name: idx_logs_body_trgm; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_logs_body_trgm ON platform.logs USING gin (COALESCE(body, ''::text) gin_trgm_ops);
+
+
+--
 -- Name: idx_logs_timestamp; Type: INDEX; Schema: platform; Owner: -
 --
 
@@ -10211,6 +10232,48 @@ CREATE INDEX idx_logs_timestamp ON platform.logs USING btree ("timestamp" DESC);
 --
 
 CREATE INDEX idx_logs_trace_id ON platform.logs USING btree (trace_id) WHERE (trace_id IS NOT NULL);
+
+
+--
+-- Name: idx_mapper_topology_links_local_default_ip; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_local_default_ip ON platform.mapper_topology_links USING btree (split_part(local_device_id, 'default:'::text, 2)) WHERE (local_device_id ~~ 'default:%'::text);
+
+
+--
+-- Name: idx_mapper_topology_links_local_device_id; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_local_device_id ON platform.mapper_topology_links USING btree (local_device_id) WHERE (local_device_id IS NOT NULL);
+
+
+--
+-- Name: idx_mapper_topology_links_local_invalid_literal; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_local_invalid_literal ON platform.mapper_topology_links USING btree (lower(btrim(COALESCE(local_device_id, ''::text)))) WHERE (lower(btrim(COALESCE(local_device_id, ''::text))) = ANY (ARRAY['nil'::text, 'null'::text, 'undefined'::text]));
+
+
+--
+-- Name: idx_mapper_topology_links_neighbor_default_ip; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_neighbor_default_ip ON platform.mapper_topology_links USING btree (split_part(neighbor_device_id, 'default:'::text, 2)) WHERE (neighbor_device_id ~~ 'default:%'::text);
+
+
+--
+-- Name: idx_mapper_topology_links_neighbor_device_id; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_neighbor_device_id ON platform.mapper_topology_links USING btree (neighbor_device_id) WHERE (neighbor_device_id IS NOT NULL);
+
+
+--
+-- Name: idx_mapper_topology_links_neighbor_invalid_literal; Type: INDEX; Schema: platform; Owner: -
+--
+
+CREATE INDEX idx_mapper_topology_links_neighbor_invalid_literal ON platform.mapper_topology_links USING btree (lower(btrim(COALESCE(neighbor_device_id, ''::text)))) WHERE (lower(btrim(COALESCE(neighbor_device_id, ''::text))) = ANY (ARRAY['nil'::text, 'null'::text, 'undefined'::text]));
 
 
 --

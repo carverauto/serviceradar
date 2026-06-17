@@ -269,7 +269,7 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
     with {:ok, params} <- parse_profile_params(form),
          {:ok, priority} <- parse_positive_integer(Map.get(form, "priority"), 100),
          {:ok, max_targets} <- parse_positive_integer(Map.get(form, "max_targets"), 10_000),
-         {:ok, target_query} <- profile_target_query(Map.get(form, "target_query")),
+         {:ok, target_query} <- profile_target_query(Map.get(form, "target_query"), package),
          {:ok, attrs} <- profile_attrs(form, package, params, priority, max_targets, target_query) do
       case AddonProfiles.create(attrs, scope: scope) do
         {:ok, _profile} ->
@@ -918,8 +918,15 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
                       name="profile[target_query]"
                       class="input input-bordered w-full font-mono text-xs"
                       value={@profile_form["target_query"]}
-                      placeholder="in:devices hostname:%ns% include_inactive:true"
+                      placeholder={profile_target_query_placeholder(@selected_package)}
                     />
+                    <%= if profile_target_query_default(@selected_package) do %>
+                      <p class="mt-1 text-xs text-base-content/60">
+                        Leave blank to use <span class="font-mono">
+                          {profile_target_query_default(@selected_package)}
+                        </span>.
+                      </p>
+                    <% end %>
                   </div>
                   <details class="rounded border border-base-200 bg-base-200/30">
                     <summary class="cursor-pointer px-3 py-2 text-xs font-semibold uppercase text-base-content/70">
@@ -1469,7 +1476,12 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
 
   defp default_profile_form(package) do
     base = default_profile_form(nil)
-    %{base | "name" => "#{package.name} profile"}
+
+    %{
+      base
+      | "name" => "#{package.name} profile",
+        "target_query" => profile_target_query_default(package) || ""
+    }
   end
 
   defp fetch_agent_uid(form) do
@@ -1611,14 +1623,36 @@ defmodule ServiceRadarWebNGWeb.Admin.AddonPackageLive.Index do
      }}
   end
 
-  defp profile_target_query(value) when is_binary(value) do
+  defp profile_target_query(value, package) when is_binary(value) do
     case String.trim(value) do
-      "" -> {:error, :missing_target_query}
+      "" ->
+        case profile_target_query_default(package) do
+          nil -> {:error, :missing_target_query}
+          query -> {:ok, query}
+        end
+
+      query ->
+        {:ok, query}
+    end
+  end
+
+  defp profile_target_query(_value, package) do
+    case profile_target_query_default(package) do
+      nil -> {:error, :missing_target_query}
       query -> {:ok, query}
     end
   end
 
-  defp profile_target_query(_value), do: {:error, :missing_target_query}
+  defp profile_target_query_default(package) do
+    present_text(package && package.default_profile_target_query)
+  end
+
+  defp profile_target_query_placeholder(package) do
+    case present_text(package && package.default_profile_target_query) do
+      nil -> "in:devices hostname:%ns% include_inactive:true"
+      query -> query
+    end
+  end
 
   defp parse_positive_integer(value, default) do
     value = if is_nil(value) or value == "", do: Integer.to_string(default), else: to_string(value)

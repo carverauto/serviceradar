@@ -22,6 +22,8 @@ capabilities:
   - metric-feed:v1
   - native-telemetry:v1
 
+default_profile_target_query: in:devices agent_capabilities:(sysmon,snmp)
+
 requires:
   base_agent: ">=1.2.0"
   platforms: [linux]

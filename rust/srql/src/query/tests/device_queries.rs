@@ -148,6 +148,31 @@ fn devices_include_inactive_suppresses_default_active_filter() {
 }
 
 #[test]
+fn devices_agent_capabilities_filter_uses_availability_source_agent() {
+    let query = "in:devices agent_capabilities:(sysmon,snmp)";
+    let plan = plan_for(query);
+
+    let (sql, params) = devices::to_sql_and_params(&plan).expect("should build devices SQL");
+    let lower = sql.to_lowercase();
+
+    assert!(
+        lower.contains("from ocsf_agents a"),
+        "expected agent capability filter to query ocsf_agents, got: {sql}"
+    );
+    assert!(
+        lower.contains("a.uid = ocsf_devices.availability_source_agent_id"),
+        "expected filter to use availability_source_agent_id, got: {sql}"
+    );
+    assert!(
+        lower.contains("coalesce(a.capabilities, array[]::text[]) &&"),
+        "expected array overlap against agent capabilities, got: {sql}"
+    );
+    assert!(params.iter().any(|param| {
+        matches!(param, BindParam::TextArray(values) if values == &vec!["sysmon".to_string(), "snmp".to_string()])
+    }));
+}
+
+#[test]
 fn devices_ip_cidr_filter_generates_inet_clause() {
     let query = "in:devices ip:10.0.0.0/8";
     let plan = plan_for(query);
