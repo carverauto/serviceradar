@@ -25,8 +25,8 @@ accumulate.
 
 The two tiers come together when alerts are evaluated. Each tier writes the same
 kind of finding, stamped with which tier produced it and with the series and time
-it covers, so the two can be matched. If the seasonal profile already expects an
-edge spike, the alert is dropped. A spike that is also off the seasonal baseline is
+it covers, so the two can be matched. If the seasonal profile already expects the
+spike, such as the normal morning ramp, the alert is dropped. A spike that is also off the seasonal baseline is
 escalated instead. And the seasonal tier can raise an alert on its own for a slow
 drift that never tripped the edge. The edge is tuned for recall and the core for
 precision. We describe the seasonal tier only far enough to show how it fits with

@@ -28,6 +28,9 @@
 \usepackage[T1]{fontenc}
 \usepackage[margin=1in]{geometry}
 \setlength{\emergencystretch}{2em} % resolve minor justification overruns (no microtype on BasicTeX)
+\widowpenalty=10000   % never strand a paragraph's last line at the top of a page
+\clubpenalty=10000    % never strand a paragraph's first line at the bottom of a page
+\raggedbottom         % allow naturally short pages instead of stretching vertical glue
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -55,6 +58,12 @@
 }
 % scale a figure down to the text width only if it would otherwise overflow
 \newcommand{\fitw}[1]{\resizebox{\ifdim\width>\linewidth \linewidth\else\width\fi}{!}{#1}}
+
+% --- code listings ---
+\usepackage{listings}
+\lstset{basicstyle=\ttfamily\footnotesize, columns=fullflexible, keepspaces=true,
+        showstringspaces=false, frame=single, framerule=0pt, xleftmargin=3pt,
+        backgroundcolor=\color{black!4}, breaklines=true, aboveskip=4pt, belowskip=2pt}
 
 %------------------------------- metadata -------------------------------------
 \hypersetup{

@@ -42,6 +42,31 @@ branches on whether the sample breached, and finalizes a verdict. The pass is
 stateless. It takes a context and a sample and returns a verdict together with the
 next state to persist. Nothing about the reasoner is tied to where it runs, which
 is what lets the same code serve as the per-agent detector.
+\Cref{fig:causalflow} shows the pipeline. The arm that fires on a breach counts
+toward the confirmation run, and the clean arm resets the run and admits the sample
+to the window. That same \texttt{branch\_with} is where a future guarded
+intervention would hook in, alongside or in place of emitting a verdict.
+
+\begin{figure}[t]
+\begin{lstlisting}
+CausalFlow::process(state)          // seed the per-series state
+    .context(thresholds)            // attach the read-only config
+    .map(|_| EvaluateSample)
+    .update_value_state_context(evaluate_detector)   // z-score the sample
+    .branch_with(
+        |v, _, _| breached(v),
+        |breach| breach.update_state(|s| { s.consecutive += 1; s }),
+        |clean|  clean.update_state(|s| { s.consecutive = 0; s.admit(); s }),
+    )
+    .update_value_state_context(finalize_verdict)
+    .finish()
+\end{lstlisting}
+  \caption{The per-series detector as a \dc{} \texttt{CausalFlow} pipeline,
+  simplified from \texttt{reason\_impl}. Each step lowers to a causal-monad
+  operation; the breach branch confirms or resets, and the clean arm admits the
+  sample to the baseline.}
+  \label{fig:causalflow}
+\end{figure}
 
 \subsection{The per-series engine}
 \texttt{DetectorEngine} holds a bounded map from series key to a small per-series
@@ -51,7 +76,7 @@ a new series past the cap is dropped and counted, while series already tracked k
 evaluating. Process metrics are filtered out before they reach the map. For each
 incoming sample the engine rate-normalizes it if it is a counter, looks up or
 creates the series state, runs the reasoner, persists the returned state, and
-forwards a verdict when the sample breached.
+forwards a verdict when a sample breaches.
 
 \subsection{Engine boundaries}
 The engine's interface is narrow on purpose: a sample goes in, a verdict comes out.

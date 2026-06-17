@@ -31,8 +31,9 @@ A breaching, confirmed sample becomes an OCSF Detection Finding (class
 the native-telemetry capability under the signal contract
 \texttt{com.carverauto.anomaly.detection\_finding}. The finding is tagged with a
 \texttt{verdict\_source} of \texttt{edge-spike} and carries the raw resource
-identity of the series, so a stable, canonical series key can be assigned when the
-verdict is ingested. Emitting the platform's standard finding shape means an
+identity of the series. The edge key is provisional; the canonical series key is
+recomputed from that identity when the verdict is ingested, so an edge verdict and a
+central seasonal verdict for the same series land on the same key and can be joined. Emitting the platform's standard finding shape means an
 edge-produced verdict is stored, displayed, and alerted on through the same path as
 any other finding.
 

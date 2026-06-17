@@ -27,3 +27,10 @@ precedence between series~\citep{granger1969causality}. We use the
 computational-causality framing for its engineering properties, namely a small,
 composable, testable unit of inference evaluated over an explicit context. We make
 no causal-inference claim about the metrics themselves.
+
+\subsection{Detection and root-cause analysis}
+In operations, anomaly detection is the first step of root-cause analysis: it
+decides which signals are worth explaining. Pushing a cheap per-series detector onto
+every agent widens and speeds that input without adding central load, and the
+causaloid form leaves room to compose detection with the causal reasoning that does
+the explaining, which we leave to other work.

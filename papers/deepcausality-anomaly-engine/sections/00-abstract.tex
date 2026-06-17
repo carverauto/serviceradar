@@ -11,7 +11,10 @@ fleet, in real time, is the problem this paper addresses. We present an
 anomaly-detection engine that runs at the edge, on each agent, built on \dc{}, a
 high-performance computational-causality framework. Each metric series is watched
 by a \emph{causaloid}, and the detector's control flow is written as a \dc{}
-\texttt{CausalFlow} pipeline. The reasoner keeps only a bounded window of recent
+\texttt{CausalFlow} pipeline. Framing each series as a causaloid keeps the detector
+small and composable, lets the same core produce identical verdicts on the agent
+and in the core, and leaves open a path to causal interventions. The reasoner keeps
+only a bounded window of recent
 samples per series, computes the running mean and variance with Welford's method
 over that window, and raises a verdict when a sample's $z$-score stays past a
 threshold for several consecutive samples. Keeping just the window, rather than a

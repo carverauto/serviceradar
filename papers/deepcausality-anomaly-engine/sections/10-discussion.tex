@@ -34,9 +34,11 @@ example takes is deliberately left off.
 
 \subsection{Future work}
 The most valuable next step is a detection-quality study: inject labeled anomalies,
-measure precision and recall, and compare against at least an EWMA baseline and one
-seasonal method. A reasoner-only microbenchmark would separate the causaloid's cost
-from the per-series engine, and the reversible $O(1)$ accumulator in the core is the
-obvious lever if the recompute ever becomes the bottleneck. Beyond that, the
-framework's intervention step opens the door to guarded corrective actions on the
-host.
+synthetic or replayed from past incidents, measure precision and recall, and compare
+against at least an EWMA baseline and one seasonal method. If the window recompute
+ever becomes the bottleneck, the reversible $O(1)$ accumulator already in the core is
+the obvious lever. The larger opportunity is that the formulation that makes
+detection cheap also leaves room to grow without rewriting the engine. The
+intervention step that \dc{}'s own corrective examples use would let the detector
+take a guarded action on the host instead of only reporting, and because causaloids
+compose, the same per-series verdicts can feed larger causal models later.

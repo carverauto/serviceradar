@@ -8,14 +8,21 @@ the number of distinct metric series runs into the millions. Operators want to k
 quickly when any of those series misbehaves. The obvious way to find out, shipping
 every sample to a central service and analyzing it there, makes the central tier
 pay the full cost of detection and grow that cost with the fleet. We take the
-opposite approach and detect on the agent, as the data is produced.
+opposite approach: we detect on the agent, as the data is produced, with a detector
+framed in the language of computational causality.
 
-\paragraph{``Causal'' means computational causality.}
-We build the detector as a \emph{causal engine} in the sense of \dc: each series is
-watched by a \emph{causaloid} evaluated over its own recent window. A causaloid is
-a natural unit here. It is small, it is evaluated against an explicit context rather
-than global state, and it composes, so the per-series detector is assembled from
-parts that can be tested on their own.
+\paragraph{Why a causal engine.}
+We model each series as a \emph{causaloid} from \dc, a small unit of causal
+inference evaluated against an explicit context, here the series' own recent window.
+A rolling $z$-score with confirmation is not itself new. What the causal formulation
+buys us is the shape of the engine around it. The unit is small and tested on its
+own. Reasoning is stateless over a bounded context, which makes a series cheap to
+checkpoint and restart. The same reasoner produces identical verdicts whether it
+runs on the agent or in the core, so we write it once and trust it everywhere.
+Because the detector is already expressed in \dc, it also has a direct path to the
+framework's intervention step, which would let the same engine take guarded
+corrective action on the host instead of only reporting. We do not take that step
+here, but nothing in the design forecloses it.
 
 \paragraph{Thesis.}
 Detection can live on every agent if the reasoner is cheap enough to run on each
@@ -25,15 +32,19 @@ memory budget, without centralizing raw telemetry.
 
 \paragraph{Contributions.}
 \begin{itemize}
-  \item An edge-resident, real-time anomaly-detection engine that runs on each
-        monitoring agent and flags anomalous metrics across the fleet.
-  \item A causaloid-based formulation of per-series detection on \dc{}: a
-        \texttt{CausalFlow} pipeline over a bounded window, with baseline-integrity
-        admission and confirmation hysteresis, correct for both gauges and
-        rate-normalized counters.
+  \item A deployment model for anomaly detection: a real-time, per-series detector
+        cheap and self-contained enough to run on every monitoring agent, so the
+        central tier no longer pays for detection or grows that cost with the fleet.
+  \item A causaloid-based formulation of that detector on \dc{} (a
+        \texttt{CausalFlow} pipeline over a bounded-window context, with
+        baseline-integrity admission and confirmation hysteresis), and an account of
+        what the formulation buys: composability, stateless checkpointable state,
+        on-agent and in-core verdict parity, and an on-ramp to causal interventions.
   \item A shared Rust core that computes edge verdicts identically to the reference
-        implementation by construction, validated by a parity test.
-  \item Microbenchmarks of the reasoner on commodity hardware, showing it keeps up
-        with real-time detection well inside a fixed resource budget, and an honest
-        account of what we have not yet measured.
+        implementation by construction, checked by a parity test, with correct
+        handling of gauges and rate-normalized counters.
+  \item Microbenchmarks on commodity hardware that separate the reasoner's
+        arithmetic from the per-series engine, showing detection keeps up in real
+        time well inside a fixed resource budget, with an honest account of what we
+        have not yet measured.
 \end{itemize}
