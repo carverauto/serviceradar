@@ -37,6 +37,13 @@
 {{- $webHost := default .Values.ingress.host $webNg.host -}}
 {{- $webNgPublicUrl := default "" $webNg.publicUrl -}}
 {{- $pluginStorage := default (dict) $webNg.pluginStorage -}}
+{{- $gateway := default (dict) .Values.agentGateway -}}
+{{- $gatewayService := default (dict) $gateway.service -}}
+{{- $gatewayArtifactPublicUrl := "" -}}
+{{- if $gateway.publicHostname -}}
+{{- $gatewayArtifactPublicUrl = printf "https://%s:%v" $gateway.publicHostname (default 50053 $gatewayService.artifactPort) -}}
+{{- end -}}
+{{- $agentArtifactPublicUrl := default $webNgPublicUrl $gatewayArtifactPublicUrl -}}
 {{- $pluginStorageBackend := lower (default "file" $pluginStorage.backend) -}}
 {{- $pluginStorageFileBackend := and $pluginStorage.enabled (eq $pluginStorageBackend "file") -}}
 {{- $objectStoreRetention := default (dict) .Values.objectStoreRetention -}}
@@ -441,6 +448,10 @@ spec:
         {{- if $webNgPublicUrl }}
         - name: PLUGIN_STORAGE_PUBLIC_URL
           value: {{ $webNgPublicUrl | quote }}
+        {{- end }}
+        {{- if $agentArtifactPublicUrl }}
+        - name: AGENT_PLUGIN_STORAGE_PUBLIC_URL
+          value: {{ $agentArtifactPublicUrl | quote }}
         {{- end }}
         {{- end }}
         - name: OBJECT_STORE_RETENTION_ENABLED

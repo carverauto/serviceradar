@@ -25,6 +25,7 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
   alias ServiceRadar.Plugins.AddonPackage
   alias ServiceRadar.Plugins.ProducerScheduleCatalog
+  alias ServiceRadar.Plugins.RetiredNativeAddons
 
   require Ash.Query
 
@@ -86,7 +87,8 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
     mirror = Keyword.fetch!(opts, :mirror)
     actor = Keyword.fetch!(opts, :actor)
 
-    with {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
+    with :ok <- ensure_not_retired_native_addon(manifest, entry),
+         {:ok, mirrored} <- verify_and_mirror(artifacts, public_key, mirror),
          {:ok, attrs} <- package_attrs(manifest, entry, mirrored, opts) do
       upsert_package(attrs, actor)
     end
@@ -280,6 +282,16 @@ defmodule ServiceRadar.Plugins.NativeAddonImporter do
 
       _ ->
         nil
+    end
+  end
+
+  defp ensure_not_retired_native_addon(manifest, entry) do
+    addon_id = string_value(manifest, "id") || string_value(entry, "addon_id")
+
+    if RetiredNativeAddons.retired?(addon_id) do
+      {:error, {:retired_native_addon, addon_id, RetiredNativeAddons.reason(addon_id)}}
+    else
+      :ok
     end
   end
 end
