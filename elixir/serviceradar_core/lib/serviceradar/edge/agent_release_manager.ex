@@ -80,6 +80,7 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
          agent_ids =
            normalize_agent_ids(Map.get(attrs, :agent_ids) || Map.get(attrs, "agent_ids")),
          :ok <- validate_rollout_agent_ids(release, agent_ids, actor),
+         :ok <- cancel_overlapping_active_rollouts(agent_ids, actor),
          {:ok, rollout} <- create_rollout_record(release, attrs, agent_ids, actor),
          {:ok, _targets} <- create_targets(rollout, release, agent_ids, actor) do
       maybe_dispatch_rollout(rollout.id, actor: actor)
@@ -680,6 +681,42 @@ defmodule ServiceRadar.Edge.AgentReleaseManager do
         )
     end)
   end
+
+  defp cancel_overlapping_active_rollouts([], _actor), do: :ok
+
+  defp cancel_overlapping_active_rollouts(agent_ids, actor) do
+    requested_agent_ids = MapSet.new(agent_ids)
+
+    AgentReleaseRollout
+    |> Ash.Query.for_read(:active)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, rollouts} ->
+        rollouts
+        |> Enum.filter(&rollout_overlaps?(&1, requested_agent_ids))
+        |> Enum.each(fn rollout ->
+          _ = cancel_rollout(rollout.id, actor: actor)
+        end)
+
+        :ok
+
+      {:error, error} ->
+        {:error, error}
+    end
+  end
+
+  defp rollout_overlaps?(
+         %AgentReleaseRollout{cohort_agent_ids: cohort_agent_ids},
+         requested_agent_ids
+       )
+       when is_list(cohort_agent_ids) do
+    cohort_agent_ids
+    |> MapSet.new()
+    |> MapSet.disjoint?(requested_agent_ids)
+    |> Kernel.not()
+  end
+
+  defp rollout_overlaps?(_rollout, _requested_agent_ids), do: false
 
   defp dispatch_pending_targets(_rollout, _release, _actor, capacity) when capacity <= 0, do: :ok
 

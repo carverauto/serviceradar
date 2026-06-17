@@ -12,6 +12,7 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.RetiredNativeAddons
   alias ServiceRadar.Repo
   alias ServiceRadar.SweepJobs.ObanSupport
   alias ServiceRadarWebNG.Plugins.NativeAddonImporter
@@ -83,7 +84,10 @@ defmodule ServiceRadarWebNG.Plugins.NativeAddonSyncWorker do
         results =
           addons
           |> maybe_filter_release_tag(release_tag)
-          |> Enum.filter(&(Map.get(&1, :import_ready?) and selected_addon?(&1, addon_ids)))
+          |> Enum.filter(
+            &(Map.get(&1, :import_ready?) and selected_addon?(&1, addon_ids) and
+                not RetiredNativeAddons.retired?(&1.addon_id))
+          )
           |> dedupe_native_addon_versions()
           |> Enum.map(fn addon ->
             import_attrs = %{

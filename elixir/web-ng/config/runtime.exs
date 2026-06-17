@@ -186,6 +186,10 @@ plugin_storage_backend = System.get_env("PLUGIN_STORAGE_BACKEND")
 plugin_storage_path = System.get_env("PLUGIN_STORAGE_PATH")
 plugin_storage_bucket = System.get_env("PLUGIN_STORAGE_BUCKET")
 plugin_storage_public_url = System.get_env("PLUGIN_STORAGE_PUBLIC_URL")
+
+agent_plugin_storage_public_url =
+  System.get_env("AGENT_PLUGIN_STORAGE_PUBLIC_URL") || plugin_storage_public_url
+
 plugin_verification_defaults = Application.get_env(:serviceradar_web_ng, :plugin_verification, [])
 
 first_party_plugin_import_defaults =
@@ -449,6 +453,11 @@ plugin_storage_overrides =
   |> maybe_put_env_simple.(:public_url, plugin_storage_public_url)
   |> maybe_put_env_simple.(:signing_secret, plugin_storage_signing_secret)
 
+core_plugin_storage_overrides =
+  plugin_storage_overrides
+  |> Keyword.delete(:public_url)
+  |> maybe_put_env_simple.(:public_url, agent_plugin_storage_public_url)
+
 god_view_runtime_graph_refresh_ms =
   case to_int.(System.get_env("SERVICERADAR_GOD_VIEW_RUNTIME_GRAPH_REFRESH_MS", "30000")) do
     value when is_integer(value) and value > 0 -> value
@@ -663,11 +672,12 @@ if remote_access_ssh_ca_signer_enabled do
 end
 
 if plugin_storage_overrides != [] do
-  plugin_storage_config = Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  web_plugin_storage_config = Keyword.merge(plugin_storage_defaults, plugin_storage_overrides)
+  core_plugin_storage_config = Keyword.merge(plugin_storage_defaults, core_plugin_storage_overrides)
 
-  config :serviceradar_core, :plugin_storage, plugin_storage_config
+  config :serviceradar_core, :plugin_storage, core_plugin_storage_config
 
-  config :serviceradar_web_ng, :plugin_storage, plugin_storage_config
+  config :serviceradar_web_ng, :plugin_storage, web_plugin_storage_config
 end
 
 object_store_retention_defaults =
