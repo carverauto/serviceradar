@@ -10,6 +10,10 @@ license = "Apache-2.0"
 name = "metrics-delta-writer"
 path = "src/main.rs"
 
+[[bin]]
+name = "metrics-protobuf-bench"
+path = "src/bin/metrics_protobuf_bench.rs"
+
 [lib]
 name = "serviceradar_metrics_delta_writer"
 path = "src/lib.rs"
@@ -24,6 +28,7 @@ serde = { version = "1", features = ["derive"] }
 serviceradar-metric-proto = { path = "../metric-proto" }
 thiserror = "1"
 tokio = { version = "1", features = ["full"] }
+tokio-postgres = "0.7"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 

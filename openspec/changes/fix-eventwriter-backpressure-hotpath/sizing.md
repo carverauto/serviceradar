@@ -362,6 +362,68 @@ replay expectations. The product decision is not "which TSDB has the best
 published benchmark"; it is "which storage architecture can absorb this specific
 metrics stream while preserving the query and replay semantics users need."
 
+## Rust Protobuf Control Harness
+
+This branch adds a standalone Rust control binary for the current
+`serviceradar.metric.v1.MetricBatch` payload shape:
+
+```bash
+METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
+  sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
+```
+
+It deliberately lives under `rust/metrics-delta-writer` and reuses the same
+`serviceradar-metric-proto` bindings and `batch_to_rows/2` flattening path as
+the Delta writer skeleton. It reports separate phase timing for:
+
+- reading captured payload files;
+- protobuf decode plus row transform;
+- a deterministic Welford anomaly-hook loop over row series;
+- a deterministic capacity-hook aggregation loop;
+- optional batched PostgreSQL writes into a temporary table.
+
+PostgreSQL writes are off by default so the control can be run safely against
+captured fixtures. To include the DB write phase, point it at disposable local
+CNPG, a benchmark schema, or an explicit test window:
+
+```bash
+METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
+METRIC_BENCH_PG_DSN='postgres://serviceradar:...@localhost:5455/serviceradar' \
+METRIC_BENCH_BATCH_ROWS=5000 \
+  sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
+```
+
+The write phase creates and truncates a session-local temporary table named
+`sr_metric_bench_points`; it does not write `platform.timeseries_metrics` and
+therefore does not replace the Elixir CNPG benchmark that exercises the real
+hypertable/index path. Its purpose is an upper-bound control for Rust protobuf
+decode/transform/hook/write overhead, not a production replacement for
+EventWriter.
+
+## Implementation Control Comparison
+
+Current controls now cover three shapes:
+
+- **Optimized BEAM/ERTS core-elx**: implemented production path for this change.
+  It uses pull JetStream consumers, bounded producer buffering, low-cardinality
+  hot-path telemetry, EventWriter decode/row benchmarks, and live CNPG
+  `insert_all`/COPY/staged-COPY measurements against captured payload rows.
+- **Standalone Rust control**: `metrics-protobuf-bench` provides an upper-bound
+  decode/transform/anomaly-hook/capacity-hook/temp-table-write harness over the
+  same canonical protobuf payloads. It is benchmark evidence only; it carries no
+  distributed state ownership, replay, alerting, or rollout semantics.
+- **Go db-event-writer control**: the historical Go writer is not a valid direct
+  comparison until it is rebuilt against the current protobuf `MetricBatch`
+  shape, row expansion, anomaly/capacity hook points, and CNPG schema. Treat it
+  as future benchmark work, not proof that the present pipeline should move out
+  of BEAM.
+
+This comparison keeps the production decision with the BEAM/ERTS EventWriter
+repair in this change. If Rust or Go controls demonstrate an order-of-magnitude
+advantage that the BEAM path cannot close, the next step is a separate OpenSpec
+for partition ownership, failover, replay, and migration semantics rather than a
+silent rewrite of the live metrics consumer.
+
 ## Proof Gaps
 
 Evidence still required before claiming the current architecture works:

@@ -23,7 +23,7 @@
 - [x] 3.8 Add or identify telemetry for EventWriter stream lag, in-flight messages, and retention-risk conditions.
 - [ ] 3.9 Compare implementation controls for the current protobuf pipeline: optimized BEAM/ERTS core-elx, resurrected Go db-event-writer benchmark harness, and standalone Rust benchmark harness.
 - [x] 3.10 Document a 50k-agent sizing model covering message rate, row expansion, durable consumer fanout, NATS retention, DB write throughput, and anomaly/capacity compute.
-- [ ] 3.11 Add a Rust benchmark spike for protobuf decode, transform, anomaly/capacity hook points, and batched CNPG writes as an upper-bound control, not a production replacement.
+- [x] 3.11 Add a Rust benchmark spike for protobuf decode, transform, anomaly/capacity hook points, and batched CNPG writes as an upper-bound control, not a production replacement.
 - [x] 3.12 Run targeted Elixir tests for EventWriter/NATS config.
 - [x] 3.13 Run `./scripts/elixir_quality.sh --project elixir/serviceradar_core_elx`.
 - [x] 3.14 Benchmark CNPG bulk ingest with captured metric rows, comparing current `Repo.insert_all` against a staged/COPY-style path.
