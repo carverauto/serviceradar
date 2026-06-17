@@ -51,6 +51,7 @@ fn test_config() -> AppConfig {
         default_limit: 100,
         max_limit: 500,
         request_timeout: StdDuration::from_secs(30),
+        db_statement_timeout: StdDuration::from_secs(30),
         rate_limit_max_requests: 120,
         rate_limit_window: StdDuration::from_secs(60),
     }

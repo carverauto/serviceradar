@@ -134,6 +134,43 @@
         }
       }
     },
+    "resources": {
+      "type": "object",
+      "title": "Resource limits",
+      "description": "CPU and memory limits the agent supervisor (agent-sidecar) and the systemd unit generator (systemd-service) enforce for this add-on. Add-ons that perform on-host compute (for example per-series anomaly detection) MUST declare limits so they cannot impact the host or the base agent. Omitted means unbounded, which is only acceptable for trivial control-only add-ons.",
+      "additionalProperties": false,
+      "properties": {
+        "cpu_max_percent": {
+          "type": "number",
+          "title": "Max CPU percent",
+          "description": "Maximum CPU as a percentage of a single core (100 = one full core). Maps to systemd CPUQuota and cgroup cpu.max.",
+          "minimum": 1
+        },
+        "memory_max_bytes": {
+          "type": "integer",
+          "title": "Hard memory limit (bytes)",
+          "description": "Hard memory ceiling; the add-on is killed if it exceeds this. Maps to systemd MemoryMax and cgroup memory.max.",
+          "minimum": 1
+        },
+        "memory_high_bytes": {
+          "type": "integer",
+          "title": "Soft memory pressure threshold (bytes)",
+          "description": "Soft threshold above which the kernel reclaims aggressively before the hard limit. Maps to systemd MemoryHigh. Should be <= memory_max_bytes.",
+          "minimum": 1
+        },
+        "tasks_max": {
+          "type": "integer",
+          "title": "Max tasks/threads",
+          "description": "Maximum number of tasks (threads) the add-on may spawn. Maps to systemd TasksMax.",
+          "minimum": 1
+        },
+        "slice": {
+          "type": "string",
+          "title": "systemd slice",
+          "description": "Optional systemd slice to place the add-on under for shared accounting (for example \"serviceradar-addons.slice\")."
+        }
+      }
+    },
     "artifacts": {
       "type": "array",
       "title": "Signed per-architecture artifacts",

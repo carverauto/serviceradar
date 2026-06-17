@@ -162,6 +162,36 @@ producer_schedules:
 	}
 }
 
+func TestResourceLimitsValidate(t *testing.T) {
+	manifest := `
+id: anomaly
+name: Edge Anomaly Detector
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [metric-feed:v1]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: serviceradar-anomaly, install_path: /opt/serviceradar}
+config_schema: config.schema.json
+resources:
+  cpu_max_percent: 50
+  memory_high_bytes: 67108864
+  memory_max_bytes: 134217728
+  tasks_max: 16
+  slice: serviceradar-addons.slice
+`
+
+	res, err := manifestschema.ValidateYAML([]byte(manifest))
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if !res.OK() {
+		t.Fatalf("expected manifest with resource limits to pass, got %d errors: %v", len(res.Errors), res.Errors)
+	}
+}
+
 // TestEmbeddedSchemaMatchesCanonical guards against the embedded copy drifting
 // away from the canonical schema published under addons/.
 func TestEmbeddedSchemaMatchesCanonical(t *testing.T) {
@@ -368,6 +398,43 @@ signal_schemas:
     display_contract_version: 1.0.0
 `,
 			wantSubstrs: []string{"payload_schema", "not"},
+		},
+		{
+			name: "resource limit minimums",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+resources:
+  cpu_max_percent: 0
+  memory_max_bytes: 0
+`,
+			wantSubstrs: []string{"resources.cpu_max_percent", "minimum", "resources.memory_max_bytes"},
+		},
+		{
+			name: "resource limit unknown property",
+			manifest: `
+id: x
+name: X
+version: 0.1.0
+kind: native
+delivery: pushed-artifact
+supervision: agent-sidecar
+capabilities: [sample]
+requires: {base_agent: ">=1.0.0", platforms: [linux]}
+exec: {binary: b, install_path: /opt/b}
+config_schema: config.schema.json
+resources:
+  nice: 10
+`,
+			wantSubstrs: []string{"resources.nice", "unknown property"},
 		},
 	}
 

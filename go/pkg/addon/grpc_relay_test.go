@@ -100,6 +100,42 @@ func (a *relayAddon) RelayOtlp(ctx context.Context, acks <-chan uint64) (<-chan 
 	return frames, nil
 }
 
+type metricFeedAddon struct {
+	baseAddon
+	received chan *addonpb.MetricFeedFrame
+}
+
+func (a *metricFeedAddon) StreamMetricFeed(
+	ctx context.Context,
+	frames <-chan *addonpb.MetricFeedFrame,
+) (<-chan uint64, error) {
+	acks := make(chan uint64)
+	go func() {
+		defer close(acks)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-frames:
+				if !ok {
+					return
+				}
+				select {
+				case a.received <- frame:
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case acks <- frame.GetFeedId():
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+	return acks, nil
+}
+
 // dialRelayClient serves impl over an in-memory bufconn transport and returns
 // the SDK client adapter plus a cleanup func.
 func dialRelayClient(t *testing.T, impl Addon) *grpcClient {
@@ -123,6 +159,87 @@ func dialRelayClient(t *testing.T, impl Addon) *grpcClient {
 	t.Cleanup(func() { _ = conn.Close() })
 
 	return &grpcClient{client: addonpb.NewAddonServiceClient(conn)}
+}
+
+func TestStreamMetricFeedRoundTrip(t *testing.T) {
+	impl := &metricFeedAddon{received: make(chan *addonpb.MetricFeedFrame, 8)}
+	client := dialRelayClient(t, impl)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	frames, acks, err := client.StreamMetricFeed(ctx)
+	if err != nil {
+		t.Fatalf("StreamMetricFeed: %v", err)
+	}
+
+	wantFrames := []*addonpb.MetricFeedFrame{
+		{
+			FeedId: 1,
+			Source: &addonpb.TelemetrySource{
+				SourceType:     "sysmon",
+				SourceInstance: "agent-local",
+				Metadata: map[string]string{
+					"contract": CapabilityMetricFeedV1,
+				},
+			},
+			Payload: []byte("metric-batch-1"),
+		},
+		{
+			FeedId: 2,
+			Source: &addonpb.TelemetrySource{
+				SourceType:     "snmp",
+				SourceInstance: "agent-local",
+			},
+			Payload: []byte("metric-batch-2"),
+		},
+	}
+
+	for _, frame := range wantFrames {
+		frames <- frame
+		select {
+		case got := <-impl.received:
+			if got.GetFeedId() != frame.GetFeedId() || string(got.GetPayload()) != string(frame.GetPayload()) {
+				t.Fatalf("received frame = %+v, want %+v", got, frame)
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for add-on to receive metric feed frame")
+		}
+		select {
+		case got := <-acks:
+			if got != frame.GetFeedId() {
+				t.Fatalf("ack = %d, want %d", got, frame.GetFeedId())
+			}
+		case <-ctx.Done():
+			t.Fatal("timed out waiting for metric feed ack")
+		}
+	}
+	close(frames)
+}
+
+func TestStreamMetricFeedUnimplementedWithoutCapability(t *testing.T) {
+	client := dialRelayClient(t, baseAddon{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	frames, acks, err := client.StreamMetricFeed(ctx)
+	if err != nil {
+		t.Fatalf("StreamMetricFeed open: %v", err)
+	}
+	close(frames)
+	if ack, ok := <-acks; ok {
+		t.Fatalf("expected no acks from a feed-less add-on, got %d", ack)
+	}
+
+	stream, err := client.client.StreamMetricFeed(ctx)
+	if err != nil {
+		t.Fatalf("raw StreamMetricFeed open: %v", err)
+	}
+	_, err = stream.Recv()
+	if status.Code(err) != codes.Unimplemented {
+		t.Fatalf("expected UNIMPLEMENTED, got %v", err)
+	}
 }
 
 func TestRelayOtlpRoundTrip(t *testing.T) {

@@ -1,0 +1,38 @@
+[package]
+name = "serviceradar-metrics-delta-writer"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+description = "ServiceRadar metrics Delta lakehouse writer (OpenSpec: add-delta-metrics-lakehouse). Consumes the metrics JetStream durable, decodes MetricBatch protobuf, and batch-writes raw points to a Delta table on object storage."
+license = "Apache-2.0"
+
+[[bin]]
+name = "metrics-delta-writer"
+path = "src/main.rs"
+
+[lib]
+name = "serviceradar_metrics_delta_writer"
+path = "src/lib.rs"
+
+[dependencies]
+anyhow = "1"
+async-nats = "0.48"
+envy = "0.4"
+futures = "0.3"
+prost = { workspace = true }
+serde = { version = "1", features = ["derive"] }
+serviceradar-metric-proto = { path = "../metric-proto" }
+thiserror = "1"
+tokio = { version = "1", features = ["full"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+
+# TODO(add-delta-metrics-lakehouse task 3.1): wire the real Delta sink. The
+# `deltalake` crate pulls in arrow + object_store and must be added to the
+# workspace Cargo.lock and the bazel crate-universe (repin) before it builds.
+# Until then `sink::LoggingSink` is the placeholder so this crate compiles and
+# the NATS->decode->row pipeline can be exercised end to end.
+# deltalake = { version = "0.x", features = ["s3", "datafusion"] }
+
+[dev-dependencies]
+pretty_assertions = "1"

@@ -21,6 +21,7 @@ pub struct AppConfig {
     pub default_limit: i64,
     pub max_limit: i64,
     pub request_timeout: Duration,
+    pub db_statement_timeout: Duration,
     pub rate_limit_max_requests: u64,
     pub rate_limit_window: Duration,
 }
@@ -53,6 +54,8 @@ struct RawConfig {
     srql_max_limit: i64,
     #[serde(default = "default_timeout_secs")]
     srql_request_timeout_secs: u64,
+    #[serde(default = "default_db_statement_timeout_secs")]
+    srql_db_statement_timeout_secs: u64,
     #[serde(default = "default_rate_limit_requests")]
     srql_rate_limit_max: u64,
     #[serde(default = "default_rate_limit_window_secs")]
@@ -72,6 +75,10 @@ const fn default_max_limit() -> i64 {
 }
 
 const fn default_timeout_secs() -> u64 {
+    30
+}
+
+const fn default_db_statement_timeout_secs() -> u64 {
     30
 }
 
@@ -142,6 +149,7 @@ impl AppConfig {
                 raw.srql_max_limit.max(raw.srql_default_limit)
             },
             request_timeout: Duration::from_secs(raw.srql_request_timeout_secs.max(1)),
+            db_statement_timeout: Duration::from_secs(raw.srql_db_statement_timeout_secs.max(1)),
             rate_limit_max_requests: raw.srql_rate_limit_max.max(1),
             rate_limit_window: Duration::from_secs(raw.srql_rate_limit_window_secs.max(1)),
         })
@@ -162,6 +170,7 @@ impl AppConfig {
             default_limit: default_limit(),
             max_limit: default_max_limit(),
             request_timeout: Duration::from_secs(default_timeout_secs()),
+            db_statement_timeout: Duration::from_secs(default_db_statement_timeout_secs()),
             rate_limit_max_requests: default_rate_limit_requests(),
             rate_limit_window: Duration::from_secs(default_rate_limit_window_secs()),
         }

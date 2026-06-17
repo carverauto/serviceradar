@@ -63,6 +63,12 @@ const (
 	// spool until the agent acks them after gateway acceptance, giving
 	// at-least-once delivery.
 	CapabilityOtlpRelayV1 = "otlp-relay:v1"
+
+	// CapabilityMetricFeedV1 marks add-ons that consume the agent-local metric
+	// feed over AddonService.StreamMetricFeed. This stream is lossy analysis
+	// input: the agent bounds in-flight frames per add-on and drops feed frames
+	// for slow add-ons rather than blocking collection or gateway publishing.
+	CapabilityMetricFeedV1 = "metric-feed:v1"
 )
 
 // Handshake is the go-plugin handshake shared by the agent and every add-on.
@@ -149,6 +155,22 @@ type OtlpRelayClient interface {
 	RelayOtlp(ctx context.Context) (frames <-chan *addonpb.OtlpRelayFrame, acks chan<- uint64, err error)
 }
 
+// MetricFeedSink is implemented by add-ons that consume the local agent metric
+// feed. The add-on receives MetricFeedFrame messages from frames and returns
+// cumulative ack watermarks on the returned channel once it has accepted every
+// frame with feed_id <= watermark.
+type MetricFeedSink interface {
+	StreamMetricFeed(ctx context.Context, frames <-chan *addonpb.MetricFeedFrame) (<-chan uint64, error)
+}
+
+// MetricFeedClient is implemented by client-side adapters that can drive a
+// remote add-on's agent-local metric feed. The caller sends feed frames on
+// frames and observes cumulative ack watermarks from acks. Closing frames
+// half-closes the send direction.
+type MetricFeedClient interface {
+	StreamMetricFeed(ctx context.Context) (frames chan<- *addonpb.MetricFeedFrame, acks <-chan uint64, err error)
+}
+
 type TelemetryBatch = addonpb.TelemetryBatch
 type TelemetryRecord = addonpb.TelemetryRecord
 type TelemetrySourceInfo = addonpb.TelemetrySource
@@ -160,6 +182,8 @@ type RunCommandRequest = addonpb.RunCommandRequest
 type RunCommandResponse = addonpb.RunCommandResponse
 type OtlpRelayFrame = addonpb.OtlpRelayFrame
 type OtlpRelayAck = addonpb.OtlpRelayAck
+type MetricFeedFrame = addonpb.MetricFeedFrame
+type MetricFeedAck = addonpb.MetricFeedAck
 
 // Info describes a running add-on.
 type Info struct {
