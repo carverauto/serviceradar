@@ -1,0 +1,109 @@
+\section{Evaluation}
+\label{sec:eval}
+
+% SCOPE: the reasoner's own throughput and footprint. Numbers from a fresh
+% Apple M4 run of rust/anomaly-addon/examples/edge_bench. NO BEAM, no end-to-end
+% pipeline. Humanizer: plain voice, no em/en dashes.
+
+\paragraph{Scope.} We measure the reasoner in isolation: how many sample
+evaluations one core sustains, and how much memory the per-series state costs.
+End-to-end throughput is set by upstream sample extraction and downstream I/O,
+which this paper does not study.
+
+\subsection{Methodology}
+The harness is \texttt{rust/anomaly-addon/examples/edge\_bench.rs}. It builds a
+\texttt{DetectorEngine} with the default configuration (window 300, minimum 30
+samples, 3-sigma threshold, 5-slot confirmation), pre-builds the series keys so
+string allocation is not on the measured path, and drives a fixed number of
+samples per series with deterministic per-series noise around a baseline of 100
+and a rare injected spike once the window is warm. Each call to
+\texttt{engine.evaluate} runs the full per-series path: rebuild the rolling
+accumulator from the window, evaluate the signal, apply confirmation hysteresis,
+and produce a verdict. Decode and transport are not included.
+
+Measurements were taken on an Apple M4 (10 cores), \texttt{rustc} 1.93.1, release
+build, single thread, three million evaluations per run. Maximum resident set size
+is from \texttt{/usr/bin/time -l}. \NEEDCITE{re-measure throughput and RSS on the
+Linux x86 deployment target before submission; macOS over-reports RSS, and the
+cgroup budget is enforced on Linux.}
+
+\subsection{Throughput}
+\begin{table}[t]
+  \centering
+  \caption{Reasoner throughput on a single core (Apple M4), three million
+  evaluations per run. Throughput tracks how full the window is, not the series
+  count: the 50{,}000-series run completes only 60 rounds, so its windows never
+  fill and each evaluation rebuilds a shorter accumulator.}
+  \label{tab:reasoner-perf}
+  \begin{tabular}{rrlrr}
+    \toprule
+    Series & Rounds & Window state & Throughput (eval/s) & Max RSS \\
+    \midrule
+    2{,}000  & 1{,}500 & saturated (300) & 479{,}000   & 34.7 MiB \\
+    5{,}000  & 600     & mostly full     & 510{,}000   & 81.8 MiB \\
+    10{,}000 & 300     & filling         & 646{,}000   & 160 MiB  \\
+    50{,}000 & 60      & cold ($<$60)    & 1{,}365{,}000 & 160 MiB \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\Cref{tab:reasoner-perf} reports the sweep. The steady-state figure is the
+2{,}000-series run, whose windows stay saturated at 300 samples for most of the
+run: a single core sustains about 480{,}000 evaluations per second. Throughput
+rises as windows shorten because the shipped path rebuilds the Welford
+accumulator from the window on each evaluation, so per-sample cost grows with
+window length. An agent emits far fewer than 480{,}000 samples per second, so one
+core has ample headroom for real-time detection.
+
+\subsection{The cost of statelessness}
+The shipped engine persists only the bounded window tail per series, not a running
+accumulator, and rebuilds the accumulator from the window on each evaluation. This
+is an $O(\text{window})$ recompute rather than the $O(1)$ incremental update that a
+reversible Welford accumulator allows; the shared core implements both. A
+microbenchmark that isolates the reasoner from the per-series engine
+(\texttt{anomaly-core/examples/reasoner\_bench.rs}, same machine, $300$-sample
+window, five million iterations) puts numbers on the tradeoff
+(\cref{tab:reasoner-decomp}). The arithmetic kernel itself runs at about $116$
+million evaluations per second with the $O(1)$ reversible accumulator, the bare
+$O(\text{window})$ recompute at about $0.98$ million, and the full shipped
+\texttt{reason\_impl} (the \texttt{CausalFlow} pipeline, a fresh context, and the
+allocated verdict) at about $0.46$ million, which matches the full-engine figure of
+\cref{tab:reasoner-perf}. The stateless design gives up more than two orders of
+magnitude of raw kernel throughput, and the result is still far more than an agent
+produces.
+
+\begin{table}[t]
+  \centering
+  \caption{Reasoner microbenchmark on a single core (Apple M4), $300$-sample
+  window, five million iterations, isolating the reasoner from the per-series
+  engine.}
+  \label{tab:reasoner-decomp}
+  \begin{tabular}{lr}
+    \toprule
+    Path & Throughput (eval/s) \\
+    \midrule
+    Kernel, incremental $O(1)$ (reversible Welford)      & 116{,}000{,}000 \\
+    Kernel, recompute $O(W)$ (rebuild + score)           & 985{,}000 \\
+    \texttt{reason\_impl} (\texttt{CausalFlow}, shipped) & 464{,}000 \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The engine uses the stateless path on purpose: the per-series state stays tiny and
+trivially serializable for the restart checkpoint, and the reasoner never trusts an
+accumulator whose stored summary might disagree with the window it is paired with.
+
+\subsection{Memory footprint}
+Per-series state is one window of up to 300 \texttt{f64} values plus a small
+counter, so the working-set floor is about 2.6 KiB per series. \cref{tab:reasoner-perf}
+shows higher resident sizes on macOS because the system allocator over-reports.
+\NEEDCITE{the deployment target is Linux under a 256 MiB / 50\% CPU cgroup budget;
+re-measure RSS there.} \TODO{at 50{,}000 series with full windows, memory rather
+than CPU is the binding constraint; report where the series cap and the cgroup
+budget meet.}
+
+\subsection{Threats to validity}
+\dossier{no detection-accuracy (precision/recall) evaluation; synthetic workload,
+not production traces; single machine, single run, no variance reported; macOS is
+not the deployment platform; $z$-score assumes approximate local stationarity;
+point anomalies only at this timescale.} \TODO{}

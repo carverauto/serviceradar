@@ -1,0 +1,62 @@
+\section{Engine Architecture}
+\label{sec:architecture}
+
+The engine is two Rust crates. \texttt{anomaly-core} is the reasoner: the
+statistics, the windowing, the signal evaluation, the detector flow, and the
+shared types. \texttt{anomaly-addon} is the per-series engine and the add-on
+runtime that wraps it. The split matters because the same reasoner core computes a
+verdict wherever it runs, so two deployments of the core produce identical verdicts
+for identical input. A parity test pins this property.
+
+\begin{figure}[t]
+  \centering
+  \fitw{%
+  \begin{tikzpicture}[node distance=6mm and 8mm]
+    \node[io] (in) {metric\\sample};
+    \node[box, right=of in] (cn) {counter\\rate-normalize};
+    \node[box, right=of cn] (sm) {per-series\\state map};
+    \node[corebox, right=of sm, text width=27mm] (core)
+      {\textbf{anomaly-core}\\ stats $\cdot$ window\\ signal $\cdot$ detector\\ (\texttt{CausalFlow})};
+    \node[io, right=of core] (out) {OCSF\\verdict};
+    \node[box, below=9mm of sm] (ckpt) {checkpoint};
+    \begin{scope}[on background layer]
+      \node[draw, dashed, rounded corners, inner sep=6mm, fit=(cn)(sm)(core)(ckpt),
+            label={[font=\small\bfseries]above:anomaly-addon (per-agent sidecar)}] {};
+    \end{scope}
+    \draw[ar] (in) -- (cn);
+    \draw[ar] (cn) -- (sm);
+    \draw[ar] (sm) -- (core);
+    \draw[ar] (core) -- (out);
+    \draw[ar] (sm) -- (ckpt);
+  \end{tikzpicture}}
+  \caption{The engine: the reusable \texttt{anomaly-core} reasoner wrapped by the
+  per-series \texttt{anomaly-addon}. A sample enters; an OCSF verdict leaves.}
+  \label{fig:engine}
+\end{figure}
+
+\subsection{The causal formulation}
+Each series is watched by a causaloid evaluated over that series' recent window.
+The reasoner entry point, \texttt{reason\_impl}, is a \texttt{CausalFlow} pipeline:
+it hydrates the detector state from the supplied context, evaluates the signal,
+branches on whether the sample breached, and finalizes a verdict. The pass is
+stateless. It takes a context and a sample and returns a verdict together with the
+next state to persist. Nothing about the reasoner is tied to where it runs, which
+is what lets the same code serve as the per-agent detector.
+
+\subsection{The per-series engine}
+\texttt{DetectorEngine} holds a bounded map from series key to a small per-series
+state, plus a second map of the last counter reading per series for rate
+normalization. It enforces a hard cap on the number of tracked series: a sample for
+a new series past the cap is dropped and counted, while series already tracked keep
+evaluating. Process metrics are filtered out before they reach the map. For each
+incoming sample the engine rate-normalizes it if it is a counter, looks up or
+creates the series state, runs the reasoner, persists the returned state, and
+forwards a verdict when the sample breached.
+
+\subsection{Engine boundaries}
+The engine's interface is narrow on purpose: a sample goes in, a verdict comes out.
+Everything before the sample (how telemetry is collected and delivered to the
+add-on) and everything after the verdict (how findings are transported, stored,
+and alerted on) sits outside the engine and outside this paper. Holding that line
+is what keeps the per-series cost, and therefore the edge footprint, small and
+predictable.

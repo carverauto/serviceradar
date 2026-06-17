@@ -1,0 +1,110 @@
+\section{Detection Algorithm and Per-Series Reasoner}
+\label{sec:edge}
+
+\begin{figure}[t]
+  \centering
+  \fitw{%
+  \begin{tikzpicture}[node distance=5mm and 7mm]
+    \node[io] (s) {sample};
+    \node[box, right=of s] (cn) {counter?\\rate-normalize};
+    \node[box, right=of cn] (wb) {rebuild baseline\\over window\\(Welford)};
+    \node[box, right=of wb] (z) {$z=\dfrac{|x-\mu|}{\sigma}$};
+    \node[dec, right=of z] (br) {$z\ge\tau$?};
+    \node[box, above right=3mm and 9mm of br] (hold) {increment count;\\ anomalous if\\ count $\ge c$};
+    \node[box, below right=3mm and 9mm of br] (reset) {reset count;\\ admit sample\\ to window};
+    \node[io, right=22mm of br] (v) {verdict};
+    \draw[ar] (s) -- (cn);
+    \draw[ar] (cn) -- (wb);
+    \draw[ar] (wb) -- (z);
+    \draw[ar] (z) -- (br);
+    \draw[ar] (br) |- node[near start,right,font=\scriptsize]{breach} (hold);
+    \draw[ar] (br) |- node[near start,right,font=\scriptsize]{clean} (reset);
+    \draw[ar] (hold) -| (v);
+    \draw[ar] (reset) -| (v);
+  \end{tikzpicture}}
+  \caption{One detection pass. Counters are rate-normalized, the baseline is rebuilt
+  over the window, the sample is scored, and the breach branch either confirms (and
+  may emit \emph{anomalous}) or resets and admits the sample.}
+  \label{fig:edge-pipeline}
+\end{figure}
+
+\subsection{Baseline and breach test}
+For a series the reasoner keeps a window of the most recent clean samples, up to a
+size $W$ (default $300$). Over the window it computes the mean $\mu$ and standard
+deviation $\sigma$ with Welford's method~\citep{welford1962}. For an incoming
+sample $x$ the breach score is the absolute $z$-score,
+\begin{equation}
+  z = \frac{\lvert x - \mu \rvert}{\sigma},
+\end{equation}
+and the sample breaches when $z \ge \tau$, with $\tau$ the threshold in standard
+deviations (default $3$). The window must hold at least $m$ clean samples before
+the reasoner will score against it (default $m = 30$); until then the series is
+reported as \emph{insufficient baseline} rather than scored.
+
+A flat baseline needs care, because $\sigma = 0$ makes the $z$-score undefined.
+When the standard deviation is within floating-point noise of zero, the reasoner
+returns $0$ if the sample equals the mean and otherwise a magnitude-aware score
+that always clears $\tau$ and grows with the relative excursion, so any departure
+from a perfectly flat series is flagged and larger departures rank above smaller
+ones.
+
+\subsection{Baseline integrity}
+A breaching sample is not admitted to the window. Only clean samples update the
+baseline. This single rule, taken from \dc{}'s DDoS example, keeps a sustained
+anomaly from raising its own normal: a series that jumps and stays high keeps being
+measured against the pre-jump baseline rather than slowly accepting the jump as
+the new ordinary.
+
+\subsection{Confirmation hysteresis}
+A single breach is not yet an anomaly. The reasoner counts consecutive breaching
+samples and only reports \emph{anomalous} once that run reaches a confirmation
+length $c$ (default $5$). A breach before the run is long enough is reported as
+\emph{pending anomaly}, and any clean sample resets the run to zero and is admitted
+to the baseline. A pass therefore ends in one of four states: insufficient
+baseline, clean, pending anomaly, or anomalous. The whole sequence (hydrate,
+evaluate, branch on breach, finalize) is the \texttt{CausalFlow} pipeline of
+\cref{sec:background}.
+
+\begin{figure}[t]
+  \centering
+  \fitw{%
+  \begin{tikzpicture}[node distance=15mm and 15mm]
+    \node[sstate] (ib) {insufficient\\baseline};
+    \node[sstate, right=of ib] (cl) {clean};
+    \node[sstate, right=of cl] (pa) {pending\\anomaly};
+    \node[sstate, right=of pa] (an) {anomalous};
+    \draw[ar] (ib) -- node[above,font=\scriptsize]{$\ge m$ clean} (cl);
+    \draw[ar] (cl) -- node[above,font=\scriptsize]{breach} (pa);
+    \draw[ar] (pa) -- node[above,align=center,font=\scriptsize]{breach,\\count $\ge c$} (an);
+    \draw[ar] (pa) to[bend left=20] node[below,font=\scriptsize]{clean} (cl);
+    \draw[ar] (an) to[bend left=32] node[below,font=\scriptsize]{clean} (cl);
+  \end{tikzpicture}}
+  \caption{Verdict states. A series stays in \emph{insufficient baseline} until it
+  has $m$ clean samples, then sits at \emph{clean}. A breach moves it to
+  \emph{pending anomaly}, and once breaches reach the confirmation length $c$ it
+  becomes \emph{anomalous}. Any clean sample returns it to \emph{clean} and is
+  admitted to the baseline.}
+  \label{fig:states}
+\end{figure}
+
+\subsection{Counter rate-normalization}
+Cumulative monotonic counters are converted to a per-second rate before scoring, so
+the detector sees a rate series rather than an ever-climbing total. The reasoner
+keeps the last reading per series and derives the rate from the change in value
+over the change in time between two readings on the same reset lineage. It emits no
+rate on the first reading, on a reset (the lineage anchor changed), on
+non-monotonic time, or across a gap longer than two hours, since a rate across any
+of those is not meaningful. A decrease is salvaged as a 32-bit counter wrap when
+the implied rate is plausible and dropped otherwise. The rate then feeds the same
+$z$-score path as a gauge.
+
+\subsection{What the reasoner persists}
+The reasoner is stateless per call: it receives the window and returns a verdict
+plus the next window. The per-series engine persists only the bounded window tail
+and the confirmation counter, not a running accumulator, and rebuilds the mean and
+variance from the window on each pass. Keeping just the window makes a series
+trivial to checkpoint, and means the engine never has to trust an accumulator whose
+stored summary might disagree with the samples it is paired with. The cost is that
+each pass recomputes over the window, which is $O(W)$ rather than the $O(1)$ a
+reversible accumulator would give. The shared core implements the reversible
+accumulator too; \cref{sec:eval} measures what the recompute costs in practice.

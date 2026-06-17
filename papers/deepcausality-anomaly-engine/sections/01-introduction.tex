@@ -1,0 +1,39 @@
+\section{Introduction}
+\label{sec:intro}
+
+\sysname is an infrastructure-observability platform. Its agents run system and
+network monitoring on the hosts they watch, reporting CPU, memory, interface
+counters, link health, and service availability on a fixed cadence. Across a fleet
+the number of distinct metric series runs into the millions. Operators want to know
+quickly when any of those series misbehaves. The obvious way to find out, shipping
+every sample to a central service and analyzing it there, makes the central tier
+pay the full cost of detection and grow that cost with the fleet. We take the
+opposite approach and detect on the agent, as the data is produced.
+
+\paragraph{``Causal'' means computational causality.}
+We build the detector as a \emph{causal engine} in the sense of \dc: each series is
+watched by a \emph{causaloid} evaluated over its own recent window. A causaloid is
+a natural unit here. It is small, it is evaluated against an explicit context rather
+than global state, and it composes, so the per-series detector is assembled from
+parts that can be tested on their own.
+
+\paragraph{Thesis.}
+Detection can live on every agent if the reasoner is cheap enough to run on each
+sample as it arrives. \dc{} gives us that reasoner. The result is an engine that
+flags anomalous metrics across the fleet in real time, inside a small CPU and
+memory budget, without centralizing raw telemetry.
+
+\paragraph{Contributions.}
+\begin{itemize}
+  \item An edge-resident, real-time anomaly-detection engine that runs on each
+        monitoring agent and flags anomalous metrics across the fleet.
+  \item A causaloid-based formulation of per-series detection on \dc{}: a
+        \texttt{CausalFlow} pipeline over a bounded window, with baseline-integrity
+        admission and confirmation hysteresis, correct for both gauges and
+        rate-normalized counters.
+  \item A shared Rust core that computes edge verdicts identically to the reference
+        implementation by construction, validated by a parity test.
+  \item Microbenchmarks of the reasoner on commodity hardware, showing it keeps up
+        with real-time detection well inside a fixed resource budget, and an honest
+        account of what we have not yet measured.
+\end{itemize}

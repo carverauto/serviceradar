@@ -1,0 +1,123 @@
+%==============================================================================
+%  A High-Throughput Anomaly-Detection Engine in Rust with Computational Causality
+%
+%  SCOPE (per author direction): the Rust anomaly engine built on DeepCausality
+%  (rust/anomaly-core + rust/anomaly-addon), described on its own terms.
+%  Headline result: the REASONER's own eval/s. Keep the prose about the engine
+%  and its algorithm; leave host-runtime integration and the broader pipeline out.
+%
+%  Target: arXiv preprint / technical report (single-column article).
+%  Authors: joint -- ServiceRadar (Carver Automation) + DeepCausality (M. Hansen)
+%
+%  Build:  ./build.sh        (or: make)
+%  Toolchain: MacTeX / TeX Live 2026, pdflatex + bibtex + natbib
+%
+%  Candidate titles:
+%   - Computational Causality for Streaming Anomaly Detection:
+%     A High-Throughput Rust Engine
+%   - A Causaloid-Based Anomaly-Detection Engine: Designing for Millions of
+%     Evaluations per Second in Rust
+%   - Sliding-Window Causality at Speed: An $O(1)$ Streaming Anomaly Reasoner
+%==============================================================================
+\documentclass[11pt]{article}
+
+%------------------------------- packages -------------------------------------
+% Essentials only (works on BasicTeX). Heavier packages (tikz, listings,
+% microtype, subcaption) are added back when figures/code need them.
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[margin=1in]{geometry}
+\setlength{\emergencystretch}{2em} % resolve minor justification overruns (no microtype on BasicTeX)
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{xspace}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage{caption}
+\usepackage[hidelinks]{hyperref}
+% cleveref/enumitem are not assumed present (this machine runs BasicTeX).
+% Route \cref/\Cref through hyperref's built-in \autoref so the source compiles
+% on a minimal TeX install. (Restore cleveref later if richer refs are wanted.)
+\newcommand{\cref}[1]{\autoref{#1}}
+\newcommand{\Cref}[1]{\autoref{#1}}
+
+% --- figures (TikZ) ---
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc,shapes.geometric}
+\tikzset{
+  box/.style={draw, rounded corners=2pt, align=center, inner sep=4pt, font=\small},
+  corebox/.style={draw, rounded corners=2pt, align=center, inner sep=5pt, fill=black!5, font=\small},
+  io/.style={align=center, font=\small\itshape},
+  dec/.style={draw, diamond, aspect=2.2, align=center, inner sep=1pt, font=\footnotesize},
+  sstate/.style={draw, rounded corners=7pt, align=center, inner sep=3pt, font=\footnotesize},
+  ar/.style={-{Stealth[length=2mm]}, semithick},
+}
+% scale a figure down to the text width only if it would otherwise overflow
+\newcommand{\fitw}[1]{\resizebox{\ifdim\width>\linewidth \linewidth\else\width\fi}{!}{#1}}
+
+%------------------------------- metadata -------------------------------------
+\hypersetup{
+  pdftitle={Causal Anomaly Detection at the Edge},
+  pdfauthor={Michael Freeman and Marvin Hansen},
+  colorlinks=false,
+}
+
+%------------------------------- helper macros --------------------------------
+% Draft-only markers. Set \draftfalse before submission to hide them.
+\newif\ifdraft\drafttrue
+\ifdraft
+  \newcommand{\TODO}[1]{\textcolor{red}{\textbf{[TODO: #1]}}}
+  \newcommand{\NEEDCITE}[1]{\textcolor{orange}{\textbf{[cite: #1]}}}
+  \newcommand{\dossier}[1]{\textcolor{blue!70!black}{\textit{[dossier: #1]}}}
+\else
+  \newcommand{\TODO}[1]{}
+  \newcommand{\NEEDCITE}[1]{}
+  \newcommand{\dossier}[1]{}
+\fi
+
+\newcommand{\sysname}{ServiceRadar\xspace}
+\usepackage{xspace}
+\newcommand{\dc}{DeepCausality\xspace}
+\newcommand{\evalpersec}{evals/s\xspace}
+
+%------------------------------- title ----------------------------------------
+\title{\textbf{Causal Anomaly Detection at the Edge}\\[2pt]
+\large A Real-Time, Per-Agent Anomaly Engine Built on DeepCausality}
+
+\author{
+  Michael Freeman\\
+  \small Carver Automation\\
+  \small \texttt{mfreeman@carverauto.dev}
+  \and
+  Marvin Hansen\\
+  \small Carver Automation / \dc\\
+  \small \texttt{mhansen@carverauto.dev}
+}
+\date{\today\\[2pt]\small Working draft, arXiv technical report}
+
+%==============================================================================
+\begin{document}
+\maketitle
+
+\begin{abstract}
+\input{sections/00-abstract}
+\end{abstract}
+
+\input{sections/01-introduction}
+\input{sections/02-background}
+\input{sections/03-motivation}
+\input{sections/04-architecture}
+\input{sections/05-edge-detector}
+\input{sections/06-central-seasonal}
+\input{sections/07-implementation}
+\input{sections/08-evaluation}
+\input{sections/09-related-work}
+\input{sections/10-discussion}
+\input{sections/11-conclusion}
+
+%------------------------------- bibliography ---------------------------------
+\bibliographystyle{abbrvnat}
+\bibliography{references}
+
+\end{document}

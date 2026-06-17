@@ -1,0 +1,42 @@
+\section{Discussion and Limitations}
+\label{sec:discussion}
+
+\subsection{Design reflections}
+Three choices paid off. Making the causaloid the per-series unit kept the detector
+small and the control flow legible, since a detection reads as a pipeline rather
+than nested conditionals. Splitting a reusable core from the per-series engine gave
+verdict parity for free: the same code computes the score wherever it runs, so we
+test the core once and trust it everywhere. Persisting only the window, and
+rebuilding the statistics each pass, made per-series state trivial to checkpoint and
+removed any question of a stored summary disagreeing with the samples it
+represents. The price is a recompute over the window, and \cref{sec:eval} shows
+that price is small enough to ignore at the rates an agent produces.
+
+The deeper point is that a cheap reasoner changes where detection can live. When
+scoring a sample costs a fraction of a microsecond, detection is a rounding error in
+the host's budget, so it can run on every agent instead of in a central tier that
+grows with the fleet.
+
+\subsection{Limitations}
+The honest gap is accuracy. Every number in this paper is throughput or memory. We
+have not measured precision or recall, because we do not yet have labeled anomalies
+to measure against, so we cannot claim the detector catches the right things, only
+that it runs cheaply. The benchmark workload is synthetic, taken on a single
+machine in a single run, and the resident-size figures come from a platform that is
+not the deployment target. The method itself is modest by design: a $z$-score over a
+few hundred samples assumes the series is roughly stationary over that window and
+finds point and level shifts rather than slow seasonal structure. That is the
+intent of the split: the edge engine handles fast, short-window anomalies, while
+seasonal and longer-horizon detection is the job of the central tier in
+\cref{sec:seasonal}, which composes with the edge as recall and precision.
+Finally, the engine detects but does not act: the corrective step that \dc{}'s
+example takes is deliberately left off.
+
+\subsection{Future work}
+The most valuable next step is a detection-quality study: inject labeled anomalies,
+measure precision and recall, and compare against at least an EWMA baseline and one
+seasonal method. A reasoner-only microbenchmark would separate the causaloid's cost
+from the per-series engine, and the reversible $O(1)$ accumulator in the core is the
+obvious lever if the recompute ever becomes the bottleneck. Beyond that, the
+framework's intervention step opens the door to guarded corrective actions on the
+host.

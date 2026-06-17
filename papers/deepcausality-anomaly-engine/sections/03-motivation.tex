@@ -1,0 +1,69 @@
+\section{Problem and Requirements}
+\label{sec:motivation}
+
+\subsection{The detection task}
+A \sysname{} agent reports metrics on a fixed cadence: CPU and memory for a host,
+octet and error counters for an interface, latency and availability for a service.
+Each distinct stream is one time series. The task is to flag, in near real time,
+when a series departs from its own recent behavior. We target point and level
+anomalies, where a sample is far from the recent baseline, scored per series
+against that series' own history. Detection is independent across series: there is
+no cross-series correlation at this layer. This engine is the fast, high-recall
+tier of a two-tier design: it proposes candidate anomalies the moment a series
+jumps. A short window cannot tell a real problem from a normal busy Tuesday
+morning, when the recent window is full of overnight-quiet samples and the morning
+ramp reads as a breach. A complementary central tier answers that seasonal question
+by scoring each series against a profile of its own history at the same time of
+week, and disposes of the edge's candidates accordingly; we describe that tier in
+\cref{sec:seasonal}.
+
+\begin{figure}[t]
+  \centering
+  \fitw{%
+  \begin{tikzpicture}[font=\small]
+    \node[box, text width=32mm] (edge) at (0,1.7)
+      {\textbf{Edge} (per agent)\\ fast spike, \emph{high recall}\\ rolling $z$-score};
+    \node[box, text width=32mm] (cen) at (0,-1.7)
+      {\textbf{Central} (per tenant)\\ seasonal, \emph{precision}\\ hour-of-week profile};
+    \node[box, text width=20mm] (join) at (5.6,0) {verdict join\\(series, time)};
+    \node[box, text width=33mm, align=left] (out) at (9.9,0)
+      {suppress seasonal-expected;\\ escalate spike \& off-baseline;\\ surface seasonal-only};
+    \draw[ar] (edge.east) -- node[midway,above,font=\scriptsize]{candidates} (join.north west);
+    \draw[ar] (cen.east) -- node[midway,below,font=\scriptsize]{context} (join.south west);
+    \draw[ar] (join.east) -- (out.west);
+  \end{tikzpicture}}
+  \caption{The two tiers compose as recall and precision: the edge proposes spike
+  candidates, and the central seasonal tier disposes by joining on series and time
+  window. The central tier is outside this paper's scope.}
+  \label{fig:tiers}
+\end{figure}
+
+\subsection{Workload characteristics}
+Two properties of the workload shape the design. First, series are numerous and
+mostly independent, so per-series cost is what matters, and a fixed per-series
+budget multiplied by the series count must stay small. Second, metrics come in two
+shapes. Gauges (CPU percent, queue depth) can be scored directly. Cumulative
+monotonic counters (interface octets, packet counts) cannot: their raw value only
+ever climbs, so a $z$-score of the raw counter is meaningless. They have to be
+converted to a per-second rate first. We also exclude per-process metrics from
+detection, because their cardinality is unbounded and dominated by short-lived
+processes that produce no useful baseline.
+
+\subsection{Requirements}
+These lead to six requirements that the rest of the paper returns to.
+\begin{itemize}
+  \item \textbf{R1, per-series independence.} One detector state per series, with
+        no coupling between series.
+  \item \textbf{R2, stateless reasoning over an explicit context.} A pass takes a
+        context and a sample and returns a verdict plus the next state, so state is
+        easy to snapshot and restore.
+  \item \textbf{R3, bounded resources.} A fixed memory cost per series and a hard
+        cap on the number of series, so one busy host cannot grow the engine
+        without limit.
+  \item \textbf{R4, counter awareness.} Cumulative counters are rate-normalized
+        before scoring, with correct handling of resets, wraps, and gaps.
+  \item \textbf{R5, cheap per evaluation.} Each sample is cheap enough to score as
+        it arrives, so the engine keeps up in real time on a small CPU budget.
+  \item \textbf{R6, actionable verdicts.} A verdict is a structured finding, keyed
+        so it can be correlated and alerted on downstream.
+\end{itemize}

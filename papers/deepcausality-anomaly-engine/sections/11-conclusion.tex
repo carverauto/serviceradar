@@ -1,0 +1,13 @@
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented the anomaly-detection engine of \sysname: a per-series detector built
+on \dc{} that runs on each monitoring agent rather than in a central tier. A single
+shared Rust core expresses detection as a \texttt{CausalFlow} pipeline over a
+bounded window, scores each sample with a $z$-score under baseline-integrity and
+confirmation rules, and emits a standard finding. Because the core is stateless over
+the window and cheap to run, a single core sustains roughly half a million
+evaluations per second, far more than an agent produces, so detection fits inside a
+small CPU and memory budget on the host and runs in real time without shipping raw
+telemetry anywhere. The open question is detection accuracy, which we have not yet
+measured; closing that gap with a labeled study is the next step.

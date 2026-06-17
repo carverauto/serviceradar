@@ -1,0 +1,33 @@
+\section{The Central Seasonal Tier}
+\label{sec:seasonal}
+
+The edge engine is small and stateless. That is what makes it fast, and it is also
+what limits what it can detect. A window of a few hundred samples is too short to
+see seasonality. At nine in the morning that window still holds the overnight-quiet
+samples, so the normal morning ramp trips a breach even though it happens every
+weekday, and the window has no way to know the ramp is routine. Telling a real
+problem from an ordinary Tuesday morning takes weeks of history, and the agent does
+not keep weeks of history. The core does, in its aggregated metric store, so the
+seasonal check belongs there and not on the agent.
+
+The core compares each series against its own past at the same point in the week.
+For a series it reads the aggregated history from the last several weeks and
+computes, for each hour-of-week bucket, a mean and a standard deviation. It then
+takes the most recent completed bucket and measures its \emph{deseasonalized
+residual}: how far the value lands from that bucket's mean, in units of the
+bucket's standard deviation. Cross the threshold and the series is off its normal
+for this hour of the week, even when the raw value looks unremarkable to the edge's
+short window. The case the edge cannot catch is a host that sits at twice its usual
+load all Tuesday morning without ever spiking: nothing trips the rolling $z$-score,
+but the residual is large. When a bucket does not yet hold enough history to trust,
+the core marks it insufficient and leaves that series to the edge until the weeks
+accumulate.
+
+The two tiers come together when alerts are evaluated. Each tier writes the same
+kind of finding, stamped with which tier produced it and with the series and time
+it covers, so the two can be matched. If the seasonal profile already expects an
+edge spike, the alert is dropped. A spike that is also off the seasonal baseline is
+escalated instead. And the seasonal tier can raise an alert on its own for a slow
+drift that never tripped the edge. The edge is tuned for recall and the core for
+precision. We describe the seasonal tier only far enough to show how it fits with
+the edge engine, which is the subject of the rest of the paper.

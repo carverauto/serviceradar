@@ -1,0 +1,53 @@
+\section{Background: Computational Causality and \dc}
+\label{sec:background}
+
+\dc{} is the reference implementation of the Effect Propagation Process, a model
+of \emph{computational causality}~\citep{deepcausality}. The engine in this paper
+uses two parts of it: the Flow API, which expresses a reasoning pass as a pipeline,
+and the sliding-window data structure, which holds a bounded baseline. We describe
+both here, along with the framework's own example that our detector follows.
+
+\subsection{Computational causality}
+In \dc{}, a unit of inference is a \emph{causaloid}: a function that maps an
+incoming effect to an outgoing effect, evaluated against an explicit
+\emph{context}. Causaloids compose, so a larger judgment is built from smaller
+ones rather than learned as one opaque model. This is a different starting point
+from the two families a reader is likely to know. Statistical and machine-learning
+anomaly detectors learn correlations from data and carry no explicit notion of
+context or time. Pearl's structural causal models~\citep{pearl2009causality} and
+Granger causality~\citep{granger1969causality} reason about cause inside a fixed
+model: the first estimates effects given an assumed structure, the second tests
+whether one series helps predict another. We do not need that machinery here. We
+need a small, deterministic, testable unit of inference that runs on every sample,
+and a causaloid over a recent window is exactly that.
+
+\subsection{The Flow API}
+The Flow API (\texttt{CausalFlow}) expresses one reasoning pass as a fluent
+pipeline over a value, a mutable state, and a read-only context. A pass starts
+with \texttt{process} (seed the state) and \texttt{context} (attach the read-only
+inputs), transforms the value with \texttt{map} or
+\texttt{update\_value\_state\_context}, chooses a path with \texttt{branch\_with}
+(a predicate selects one of two arms), and ends with \texttt{finish}, which
+returns the final value. Our detector is one such pipeline, so the control flow of
+a detection is written in the framework's own vocabulary rather than as ad hoc
+branching.
+
+\subsection{Sliding windows and rolling statistics}
+\dc{}'s \texttt{SlidingWindow} keeps the most recent $k$ values in constant memory.
+A push is amortized $O(1)$: it writes the next slot and advances a cursor, with an
+occasional bounded compaction, and a read of the current contents is a zero-copy
+slice. We use it to materialize a series' baseline window. Over that window we
+compute the mean and variance with Welford's method~\citep{welford1962}, which
+needs a single pass and, in its reversible form, supports $O(1)$ insertion and
+removal as the window slides.
+
+\subsection{A reference pattern: corrective DDoS detection}
+\dc{} ships an example, \texttt{corrective\_\allowbreak ddos\_\allowbreak detector},
+that our edge detector follows closely. It scores each new throughput sample against a sliding-window
+baseline with a $z$-score, treats a sample as anomalous when the score clears a
+threshold, and crucially withholds anomalous samples from the baseline so a
+sustained flood cannot raise its own normal. After a run of consecutive anomalous
+samples it acts, throttling the offending traffic. Our detector borrows the first
+three ideas (window $z$-score, withhold breaching samples, confirm over a run) and
+stops at emitting a verdict. We do not yet take the corrective action, which we
+return to in \cref{sec:discussion}.

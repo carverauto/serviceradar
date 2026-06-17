@@ -1,0 +1,63 @@
+\section{Implementation}
+\label{sec:impl}
+
+\subsection{Crate organization}
+The reasoner lives in \texttt{anomaly-core}: the Welford statistics and $z$-score
+(\texttt{stats}), the window helpers (\texttt{window}), the rolling signal
+(\texttt{signal}), the \texttt{CausalFlow} detector (\texttt{detector}), and the
+shared types. Its only substantial dependencies are two \dc{} crates,
+\texttt{deep\_\allowbreak causality\_\allowbreak core} and
+\texttt{deep\_\allowbreak causality\_\allowbreak data\_\allowbreak structures}
+(the $0.10$ series). \texttt{anomaly-addon} wraps the core with the per-series
+\texttt{DetectorEngine}, counter normalization, the checkpoint, and the add-on
+runtime.
+
+\subsection{Deployment as an agent sidecar}
+The add-on ships as a native Rust binary that runs beside the agent as a gRPC
+sidecar on Linux. It advertises two capabilities: it consumes the agent's local
+metric feed and it emits verdicts as native telemetry. The agent streams its
+locally collected sysmon, SNMP, and ICMP metric batches to the add-on over a
+bidirectional gRPC call, \texttt{StreamMetricFeed}, and the add-on scores them
+on-host and ships verdicts instead of forwarding every raw point. The agent writes
+\texttt{MetricFeedFrame} messages, each carrying a per-stream strictly increasing
+\texttt{feed\_id}; the add-on replies with \texttt{MetricFeedAck} watermarks whose
+\texttt{acked\_feed\_id} confirms every frame up to that point. The feed is lossy on
+purpose: when the add-on falls behind, the agent uses the watermark to bound
+in-flight frames and drops rather than stalling metric collection.
+
+\subsection{Verdicts}
+A breaching, confirmed sample becomes an OCSF Detection Finding (class
+\texttt{2004}, type \texttt{200401}, OCSF schema $1.5.0$)~\citep{ocsf}, emitted over
+the native-telemetry capability under the signal contract
+\texttt{com.carverauto.anomaly.detection\_finding}. The finding is tagged with a
+\texttt{verdict\_source} of \texttt{edge-spike} and carries the raw resource
+identity of the series, so a stable, canonical series key can be assigned when the
+verdict is ingested. Emitting the platform's standard finding shape means an
+edge-produced verdict is stored, displayed, and alerted on through the same path as
+any other finding.
+
+\subsection{Restart checkpoint}
+Because a series' state is just its window tail and confirmation counter (plus the
+last counter reading for rate normalization), the engine can snapshot all of it
+cheaply. It writes the snapshot to a local checkpoint with an atomic
+write-and-rename, and on restart it reseeds each series whose last reading is recent
+enough to still be meaningful, skipping stale ones and honoring the series cap.
+Re-warming the baselines this way avoids the burst of false positives that a cold
+restart would produce while every window refilled from scratch.
+
+\subsection{Resource enforcement}
+The add-on runs under a fixed budget so on-host detection cannot disturb the host
+or the agent. The manifest declares a hard memory ceiling of $256$ MiB, a soft
+pressure threshold of $192$ MiB, a CPU quota of half of one core, and a task limit
+of $32$, all in a dedicated slice. The sidecar supervisor and a generated systemd
+unit apply these as cgroup limits.
+
+\subsection{Configuration and correctness tests}
+The defaults are a window of $300$ samples, a minimum of $30$ samples before
+scoring, a $3$-sigma threshold, a $5$-sample confirmation, and a cap of $50{,}000$
+series. Correctness rests on two kinds of test. Oracle tests check the reversible
+Welford accumulator against a straightforward two-pass computation, including the
+numerically awkward cases where removing a value would drive the variance slightly
+negative. A parity test checks that the per-series engine's score matches the
+core's $z$-score for the same input, which is what makes the shared-core guarantee
+real rather than aspirational.

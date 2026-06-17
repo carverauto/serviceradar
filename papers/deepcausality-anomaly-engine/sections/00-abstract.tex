@@ -1,0 +1,27 @@
+% ABSTRACT (draft v6). Pure Rust causal anomaly engine on DeepCausality.
+% MAIN RESULT = the SYSTEM: a real-time, edge-resident anomaly engine across a
+% fleet of system/network monitoring agents, enabled by the DeepCausality reasoner.
+% Accuracy fix: the shipped edge path is the STATELESS one (keep window, recompute
+% Welford each eval), not an O(1) running accumulator. Numbers from a fresh
+% Apple M4 run (~0.5M evals/s/core warm).
+% Humanizer: no em/en dashes; plain technical voice; simple copulas.
+\sysname runs system and network monitoring across a fleet of agents, and those
+agents emit millions of metric time series. Catching anomalous metrics across the
+fleet, in real time, is the problem this paper addresses. We present an
+anomaly-detection engine that runs at the edge, on each agent, built on \dc{}, a
+high-performance computational-causality framework. Each metric series is watched
+by a \emph{causaloid}, and the detector's control flow is written as a \dc{}
+\texttt{CausalFlow} pipeline. The reasoner keeps only a bounded window of recent
+samples per series, computes the running mean and variance with Welford's method
+over that window, and raises a verdict when a sample's $z$-score stays past a
+threshold for several consecutive samples. Keeping just the window, rather than a
+running accumulator, makes each series cheap to checkpoint and restart. Verdicts
+are emitted as Open Cybersecurity Schema Framework findings. The engine is written
+entirely in Rust and runs as a resource-capped add-on alongside each monitoring
+agent. On a single core it sustains roughly half a million sample evaluations per
+second, far more than an agent produces, so the engine fits inside a small CPU and
+memory budget next to the agent and flags anomalies as the data is produced rather
+than shipping every raw point to a central service. We describe the engine's
+design, its detection algorithm, and microbenchmarks of the reasoner, and we are
+explicit about what we have not yet measured, chiefly detection accuracy on
+labeled data.

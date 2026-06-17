@@ -1,0 +1,29 @@
+\section{Related Work}
+\label{sec:related}
+
+\subsection{Streaming and seasonal anomaly detection}
+Detecting departures in a running time series is well studied. Control charts based
+on exponentially weighted moving averages~\citep{roberts1959ewma} and rolling
+$z$-scores are the classic lightweight approach, and our breach test is in this
+family. Richer methods model seasonality and trend: Prophet decomposes a series
+into trend, seasonality, and holidays~\citep{taylor2018prophet}, RobustSTL gives a
+robust seasonal-trend decomposition for long series~\citep{wen2019robuststl}, and
+seasonal hybrid ESD detects anomalies on top of such a decomposition~%
+\citep{hochenbaum2017shesd}. Numenta's hierarchical temporal memory targets
+unsupervised real-time detection on streams~\citep{ahmad2017htm}. Our detector
+sits at the simple end of this spectrum on purpose. The contribution is not a new
+detector but where it runs and how cheaply: a per-series $z$-score with
+confirmation, expressed as a causaloid, light enough to run on every agent. We have
+not compared detection quality against these methods, which \cref{sec:discussion}
+names as the main open gap.
+
+\subsection{Computational versus classical causality}
+\dc{} implements the Effect Propagation Process, a computational model of
+causality~\citep{deepcausality}. This is a different tradition from the
+inference-focused causal models a reader may expect: Pearl's structural causal
+models reason about interventions and counterfactuals within an assumed
+structure~\citep{pearl2009causality}, and Granger causality tests predictive
+precedence between series~\citep{granger1969causality}. We use the
+computational-causality framing for its engineering properties, namely a small,
+composable, testable unit of inference evaluated over an explicit context. We make
+no causal-inference claim about the metrics themselves.
