@@ -1,5 +1,5 @@
 ## 1. Proposal
-- [ ] 1.1 Validate with `openspec validate move-anomaly-detection-to-edge --strict`.
+- [x] 1.1 Validate with `openspec validate move-anomaly-detection-to-edge --strict`.
 
 ## 2. Add-on input primitive (agent → add-on metric feed)
 - [x] 2.1 Add an agent→add-on metric-feed RPC to `proto/agent/addon/v1/addon.proto` (`StreamMetricFeed` + `MetricFeedFrame`/`MetricFeedAck`, cumulative-ack flow control). Synced into the addon-sdk proto copy; addon-sdk gains `Addon::stream_metric_feed` + server wiring + `metric-feed:v1` capability. (Go stubs + agent-side tap are 2.2.)
