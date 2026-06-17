@@ -37,7 +37,7 @@
 {{- $mtrAutomation := default (dict) $coreVals.mtrAutomation -}}
 {{- $observabilityRetention := default (dict) $coreVals.observabilityRetention -}}
 {{- $ansibleVals := default (dict) $coreVals.ansible -}}
-{{- $anomalyAnalysis := default (dict) $coreVals.anomalyAnalysis -}}
+{{- $eventWriter := default (dict) $coreVals.eventWriter -}}
 {{- $anomalyConfig := default (dict) $coreVals.anomalyDetectionConfig -}}
 {{- $capacityForecasting := default (dict) $coreVals.capacityForecasting -}}
 {{- $coreResources := default (dict) $coreVals.resources -}}
@@ -306,20 +306,11 @@ spec:
           value: {{ default 30 $anomalyConfig.minSamples | quote }}
         - name: SERVICERADAR_ANOMALY_METRIC_CLASS_OVERRIDES_JSON
           value: {{ default (dict) $anomalyConfig.metricClassOverrides | toJson | quote }}
-        - name: ANOMALY_ANALYSIS_CONSUMER_ENABLED
-          value: {{ default false $anomalyAnalysis.enabled | quote }}
-        - name: ANOMALY_ANALYSIS_NATS_CREDS_FILE
-          value: {{ default "/etc/serviceradar/creds/platform.creds" $anomalyAnalysis.natsCredsFile | quote }}
-        - name: ANOMALY_ANALYSIS_NATS_URL
-          value: {{ default "tls://serviceradar-nats:4222" $anomalyAnalysis.natsUrl | quote }}
-        - name: ANOMALY_ANALYSIS_NATS_TLS
-          value: {{ default true $anomalyAnalysis.natsTls | quote }}
-        {{- if $anomalyAnalysis.enabledSubjects }}
-        - name: ANOMALY_ANALYSIS_ENABLED_SUBJECTS
-          value: {{ $anomalyAnalysis.enabledSubjects | quote }}
-        {{- end }}
-        - name: ANOMALY_ANALYSIS_CONTEXT_ENGINE
-          value: {{ default "sharded" $anomalyAnalysis.contextEngine | quote }}
+        # EventWriter consumes NATS JetStream and persists records (incl. edge
+        # anomaly verdicts on signals.causal.predictions.*) into CNPG. Default on
+        # so anomaly findings/alerts surface without per-deployment extraEnv.
+        - name: EVENT_WRITER_ENABLED
+          value: {{ default true $eventWriter.enabled | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_HORIZON_SECONDS
           value: {{ default 7776000 $capacityForecastConfig.forecastHorizonSeconds | int64 | quote }}
         - name: SERVICERADAR_CAPACITY_FORECAST_CONFIG_WARNING_HORIZON_SECONDS

@@ -313,17 +313,13 @@ core:
     # Base directory for GitCatalogSyncWorker repo clones.
     # Mount a PVC at this path if you want survival across pod restarts.
     catalogBaseDir: "/var/lib/serviceradar/ansible_catalog"
-  # First-boot defaults for CNPG-backed anomaly detection settings. These seed
-  # the singleton config row when missing and do not overwrite operator edits.
-  # Runtime anomaly analysis is opt-in; set core.anomalyAnalysis.enabled=true
-  # when a deployment should consume metrics.* and emit causal verdicts.
-  anomalyAnalysis:
-    enabled: false
-    natsUrl: "tls://serviceradar-nats:4222"
-    natsCredsFile: "/etc/serviceradar/creds/platform.creds"
-    natsTls: true
-    enabledSubjects: ""
-    contextEngine: "sharded"
+  # EventWriter persists NATS JetStream records (incl. edge anomaly verdicts on
+  # signals.causal.predictions.*) into CNPG. On by default so anomaly findings
+  # and alerts surface; set enabled=false only to disable verdict persistence.
+  eventWriter:
+    enabled: true
+  # First-boot defaults for CNPG-backed anomaly detection settings (seed the
+  # singleton config row when missing; do not overwrite operator edits).
   anomalyDetectionConfig:
     nSigma: 3.0
     windowSize: 300

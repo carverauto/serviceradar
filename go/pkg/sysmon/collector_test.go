@@ -422,3 +422,60 @@ func TestMetricSampleJSONCompatibility(t *testing.T) {
 
 	t.Logf("JSON output:\n%s", string(data))
 }
+
+func TestInjectSpike(t *testing.T) {
+	cfg := DefaultConfig()
+	parsed, err := cfg.Parse()
+	if err != nil {
+		t.Fatalf("parse config: %v", err)
+	}
+	collector, err := NewCollector(parsed, WithAgentID("test-agent"))
+	if err != nil {
+		t.Fatalf("new collector: %v", err)
+	}
+
+	// CPU spike: 4 consecutive samples at 95%.
+	n, err := collector.InjectSpike("cpu", 95.0, 4)
+	if err != nil {
+		t.Fatalf("inject cpu: %v", err)
+	}
+	if n != 4 {
+		t.Fatalf("wrote %d cpu samples, want 4", n)
+	}
+	cpuSamples := collector.Drain()
+	if len(cpuSamples) != 4 {
+		t.Fatalf("drained %d cpu samples, want 4", len(cpuSamples))
+	}
+	for _, s := range cpuSamples {
+		if len(s.CPUs) == 0 || s.CPUs[0].UsagePercent != 95.0 {
+			t.Fatalf("cpu sample not spiked: %+v", s.CPUs)
+		}
+	}
+
+	// Memory spike: used/total ~= 90%.
+	if _, err := collector.InjectSpike("memory", 90.0, 2); err != nil {
+		t.Fatalf("inject memory: %v", err)
+	}
+	memSamples := collector.Drain()
+	if len(memSamples) != 2 {
+		t.Fatalf("drained %d mem samples, want 2", len(memSamples))
+	}
+	for _, s := range memSamples {
+		if s.Memory.TotalBytes == 0 {
+			t.Fatalf("memory total not set: %+v", s.Memory)
+		}
+		ratio := float64(s.Memory.UsedBytes) / float64(s.Memory.TotalBytes) * 100.0
+		if ratio < 89.9 || ratio > 90.1 {
+			t.Fatalf("memory used ratio = %.2f, want ~90", ratio)
+		}
+	}
+
+	// Default count (0 -> 6) and an unsupported metric.
+	if n, err := collector.InjectSpike("cpu", 80.0, 0); err != nil || n != 6 {
+		t.Fatalf("default count = %d, err=%v; want 6, nil", n, err)
+	}
+	_ = collector.Drain()
+	if _, err := collector.InjectSpike("disk", 99.0, 1); err == nil {
+		t.Fatal("expected error for unsupported spike metric")
+	}
+}

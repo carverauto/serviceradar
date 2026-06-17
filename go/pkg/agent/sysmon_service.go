@@ -322,6 +322,29 @@ func (s *SysmonService) GetStatus(ctx context.Context) (*proto.StatusResponse, e
 	}, nil
 }
 
+// InjectSyntheticSpike writes synthetic spike samples into the collector buffer
+// so the next push ships them through the real metric path and fires the anomaly
+// detector against the established baseline — a one-shot, on-demand way to
+// validate the edge->core->persist->surface chain without waiting for a real
+// anomaly. Test/debug affordance, triggered by the `sysmon.debug_spike`
+// control-stream command.
+func (s *SysmonService) InjectSyntheticSpike(metric string, value float64, samples int) (int, error) {
+	s.mu.RLock()
+	collector := s.collector
+	s.mu.RUnlock()
+
+	if collector == nil {
+		return 0, ErrCollectorNotInitialized
+	}
+
+	injector, ok := collector.(*sysmon.DefaultCollector)
+	if !ok {
+		return 0, fmt.Errorf("collector does not support synthetic spike injection")
+	}
+
+	return injector.InjectSpike(metric, value, samples)
+}
+
 // loadConfig loads the sysmon configuration from local file or defaults.
 // It also tracks the source of the config for logging/debugging.
 // The ctx parameter and error return are kept for future remote config fetching support.

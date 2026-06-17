@@ -16,7 +16,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
   alias Serviceradar.Metric.V1.MetricPoint
   alias Serviceradar.Metric.V1.MetricResource
   alias Serviceradar.Metric.V1.StringMapEntry
-  alias ServiceRadar.Observability.AnomalyDetection.CounterNormalizer
   alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
 
   @ingress_id "00000645-50de-8e80-8000-000000000001"
@@ -175,18 +174,12 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
              })
   end
 
-  test "extracts SNMP counter semantics for counter normalization" do
-    table = :ets.new(:sample_extractor_counter_normalizer_test, [:set, :private])
-
+  test "preserves SNMP cumulative-counter semantics in sample metadata" do
+    # Counter rate-normalization now happens at the edge (serviceradar-anomaly-addon);
+    # the extractor's job is to preserve the counter semantics the edge gate keys on.
     [first] =
       SampleExtractor.extract(%{
         data: snmp_batch(1_000, @point_time_a),
-        metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
-      })
-
-    [second] =
-      SampleExtractor.extract(%{
-        data: snmp_batch(1_600, @point_time_b),
         metadata: %{subject: "metrics.snmp.interface.ifHCInOctets"}
       })
 
@@ -195,14 +188,6 @@ defmodule ServiceRadar.Observability.AnomalyDetection.SampleExtractorTest do
     assert first.metadata[:temporality] == "cumulative"
     assert first.metadata[:is_monotonic] == true
     assert first.metadata[:counter_width] == 64
-
-    assert {:drop, :counter_warmup} = CounterNormalizer.normalize_sample(first, table)
-    assert {:ok, normalized} = CounterNormalizer.normalize_sample(second, table)
-
-    assert normalized.value == 10.0
-    assert normalized.metadata.counter_normalized == true
-    assert normalized.metadata.counter_delta == 600
-    assert normalized.metadata.counter_rate_unit == "By/s"
   end
 
   test "extracts generic scalar metric samples" do
