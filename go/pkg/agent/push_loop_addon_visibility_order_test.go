@@ -50,6 +50,10 @@ func (m *recordingAddonManager) RunCommand(context.Context, agentaddon.CommandIn
 	return coreaddon.CommandResult{}, agentaddon.ErrAddonCommandUnavailable
 }
 
+func (m *recordingAddonManager) PublishMetricFeed(string, []byte) int {
+	return 0
+}
+
 func (m *recordingAddonManager) Stop(context.Context) error {
 	return nil
 }

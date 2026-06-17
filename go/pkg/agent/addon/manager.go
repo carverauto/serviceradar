@@ -261,6 +261,35 @@ func (m *Manager) RunCommand(ctx context.Context, invocation CommandInvocation) 
 	return r.runCommand(ctx, invocation)
 }
 
+// PublishMetricFeed offers one encoded MetricBatch to all running add-ons that
+// explicitly subscribed to the source in config_json and have an active
+// metric-feed:v1 stream. It never blocks collection or gateway publishing.
+func (m *Manager) PublishMetricFeed(source string, payload []byte) int {
+	if m == nil || len(payload) == 0 {
+		return 0
+	}
+
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return 0
+	}
+	runners := make([]*runner, 0, len(m.runners))
+	for _, r := range m.runners {
+		runners = append(runners, r)
+	}
+	m.mu.Unlock()
+
+	accepted := 0
+	for _, r := range runners {
+		if r.publishMetricFeed(source, payload) {
+			accepted++
+		}
+	}
+
+	return accepted
+}
+
 func (m *Manager) commandRunner(invocation CommandInvocation) (*runner, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -335,6 +364,7 @@ type runner struct {
 	status        Status
 	restartWindow []time.Time
 	commandClient coreaddon.CommandClient
+	metricFeed    *metricFeedLifecycle
 }
 
 func newRunner(spec Spec, cfg Config) *runner {
@@ -560,7 +590,23 @@ func (r *runner) runOnce(ctx context.Context) error {
 		}
 	}
 
-	return r.supervise(ctx, client, ac, pid, relay)
+	var metricFeed *metricFeedLifecycle
+	if hasCapability(capabilities, coreaddon.CapabilityMetricFeedV1) {
+		sources := metricFeedSourcesFromConfig(spec.ConfigJSON)
+		if len(sources) > 0 {
+			if feedClient, ok := ac.(coreaddon.MetricFeedClient); ok {
+				metricFeed = newMetricFeedLifecycle(ctx, r.id, feedClient, sources, r.cfg.Logger)
+				r.setMetricFeed(metricFeed)
+				metricFeed.start()
+				defer func() {
+					metricFeed.stop()
+					r.clearMetricFeed(metricFeed)
+				}()
+			}
+		}
+	}
+
+	return r.supervise(ctx, client, ac, pid, relay, metricFeed)
 }
 
 // relayLifecycle ties the OTLP relay runner goroutine to the add-on's health
@@ -729,7 +775,14 @@ func (r *runner) drainTelemetry(ctx context.Context, telemetryClient coreaddon.T
 // supervise polls health and applies reconfiguration until the add-on exits or
 // the context is cancelled. relay (which may be nil) is stopped while the
 // add-on is degraded/unhealthy and restarted when it recovers.
-func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac coreaddon.Addon, pid int, relay *relayLifecycle) error {
+func (r *runner) supervise(
+	ctx context.Context,
+	client *goplugin.Client,
+	ac coreaddon.Addon,
+	pid int,
+	relay *relayLifecycle,
+	metricFeed *metricFeedLifecycle,
+) error {
 	ticker := time.NewTicker(r.cfg.HealthInterval)
 	defer ticker.Stop()
 
@@ -754,6 +807,7 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 				if failures >= r.cfg.UnhealthyThreshold {
 					r.setUnhealthy(pid, errString(err))
 					relay.stop()
+					metricFeed.stop()
 				}
 				if client.Exited() {
 					r.setExited(errString(err))
@@ -766,11 +820,35 @@ func (r *runner) supervise(ctx context.Context, client *goplugin.Client, ac core
 			r.setHealthy(pid, h)
 			if h.Status == coreaddon.HealthDegraded || h.Status == coreaddon.HealthUnhealthy {
 				relay.stop()
+				metricFeed.stop()
 			} else {
 				relay.start()
+				metricFeed.start()
 			}
 		}
 	}
+}
+
+func (r *runner) setMetricFeed(feed *metricFeedLifecycle) {
+	r.mu.Lock()
+	r.metricFeed = feed
+	r.mu.Unlock()
+}
+
+func (r *runner) clearMetricFeed(feed *metricFeedLifecycle) {
+	r.mu.Lock()
+	if r.metricFeed == feed {
+		r.metricFeed = nil
+	}
+	r.mu.Unlock()
+}
+
+func (r *runner) publishMetricFeed(source string, payload []byte) bool {
+	r.mu.Lock()
+	feed := r.metricFeed
+	r.mu.Unlock()
+
+	return feed.publish(source, payload)
 }
 
 func (r *runner) probeHealth(parent context.Context, ac coreaddon.Addon) (coreaddon.Health, error) {

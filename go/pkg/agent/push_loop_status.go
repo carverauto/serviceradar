@@ -147,6 +147,7 @@ func (p *PushLoop) pushSysmonStatus(ctx context.Context, _ *proto.GatewayService
 
 	chunks := make([]*proto.GatewayStatusChunk, 0, len(statuses))
 	for _, status := range statuses {
+		p.publishAddonMetricFeed("sysmon", status.Message)
 		chunks = append(chunks, &proto.GatewayStatusChunk{
 			Services:  []*proto.GatewayServiceStatus{status},
 			GatewayId: gatewayID,

@@ -1,0 +1,114 @@
+/*
+ * Copyright 2026 Carver Automation Corporation.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+package addon
+
+import (
+	"context"
+	"reflect"
+	"testing"
+	"time"
+
+	addonpb "github.com/carverauto/serviceradar/proto/agent/addon/v1"
+	"github.com/rs/zerolog"
+)
+
+func TestMetricFeedSourcesFromConfig(t *testing.T) {
+	got := metricFeedSourcesFromConfig([]byte(`{
+		"metric_feed": {"sources": ["sysmon-metrics", "snmp", "SNMP", "unknown"]},
+		"metric_feed_sources": ["icmp-metrics", "timeseries"]
+	}`))
+	want := []string{"sysmon", "snmp", "icmp", "timeseries"}
+
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("sources = %#v, want %#v", got, want)
+	}
+}
+
+func TestMetricFeedLifecycleFiltersSourcesAndPublishesFrames(t *testing.T) {
+	client := &recordingMetricFeedClient{received: make(chan *addonpb.MetricFeedFrame, 2)}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	lifecycle := newMetricFeedLifecycle(
+		ctx,
+		"anomaly",
+		client,
+		[]string{"sysmon"},
+		zerolog.Nop(),
+	)
+	lifecycle.start()
+	t.Cleanup(lifecycle.stop)
+
+	if lifecycle.publish("snmp", []byte("snmp-batch")) {
+		t.Fatal("unexpectedly accepted unsubscribed snmp source")
+	}
+	if !lifecycle.publish("sysmon-metrics", []byte("sysmon-batch")) {
+		t.Fatal("expected sysmon frame to be accepted")
+	}
+
+	select {
+	case got := <-client.received:
+		if got.GetFeedId() != 1 {
+			t.Fatalf("feed_id = %d, want 1", got.GetFeedId())
+		}
+		if got.GetSource().GetSourceType() != "sysmon" {
+			t.Fatalf("source = %q, want sysmon", got.GetSource().GetSourceType())
+		}
+		if string(got.GetPayload()) != "sysmon-batch" {
+			t.Fatalf("payload = %q, want sysmon-batch", got.GetPayload())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for metric feed frame")
+	}
+}
+
+type recordingMetricFeedClient struct {
+	received chan *addonpb.MetricFeedFrame
+}
+
+func (c *recordingMetricFeedClient) StreamMetricFeed(
+	ctx context.Context,
+) (chan<- *addonpb.MetricFeedFrame, <-chan uint64, error) {
+	frames := make(chan *addonpb.MetricFeedFrame)
+	acks := make(chan uint64)
+
+	go func() {
+		defer close(acks)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case frame, ok := <-frames:
+				if !ok {
+					return
+				}
+				select {
+				case c.received <- frame:
+				case <-ctx.Done():
+					return
+				}
+				select {
+				case acks <- frame.GetFeedId():
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}()
+
+	return frames, acks, nil
+}

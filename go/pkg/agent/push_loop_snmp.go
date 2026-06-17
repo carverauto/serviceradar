@@ -93,6 +93,7 @@ func (p *PushLoop) pushSNMPMetrics(ctx context.Context) bool {
 		p.logger.Warn().Err(err).Msg("Failed to marshal SNMP metric envelope")
 		return false
 	}
+	p.publishAddonMetricFeed("snmp", messageBytes)
 
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  "snmp",

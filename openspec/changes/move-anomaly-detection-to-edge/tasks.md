@@ -3,8 +3,8 @@
 
 ## 2. Add-on input primitive (agent → add-on metric feed)
 - [x] 2.1 Add an agent→add-on metric-feed RPC to `proto/agent/addon/v1/addon.proto` (stream of `MetricBatch` from agent to add-on, with backpressure/flow control mirroring the gateway path).
-- [ ] 2.2 Regenerate Go/Rust stubs and wire the agent to tap its local sample stream (`go/pkg/agent/metric_envelope.go`, `push_loop_status.go`, `go/pkg/sysmon/collector.go`) and fan it to subscribed add-ons before the gateway push.
-- [ ] 2.3 Make the feed opt-in per add-on capability and per metric source (sysmon/snmp/icmp/timeseries), so an add-on only receives the sources it declares.
+- [x] 2.2 Regenerate Go/Rust stubs and wire the agent to tap its local sample stream (`go/pkg/agent/metric_envelope.go`, `push_loop_status.go`, `go/pkg/sysmon/collector.go`) and fan it to subscribed add-ons before the gateway push.
+- [x] 2.3 Make the feed opt-in per add-on capability and per metric source (sysmon/snmp/icmp/timeseries), so an add-on only receives the sources it declares.
 
 ## 3. Native anomaly add-on
 - [ ] 3.1 Create `rust/anomaly-addon` using `rust/addon-sdk`; consume the local metric feed.

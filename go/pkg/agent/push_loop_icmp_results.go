@@ -49,6 +49,7 @@ func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 		p.logger.Error().Err(err).Msg("Failed to marshal ICMP metric envelope")
 		return false
 	}
+	p.publishAddonMetricFeed("icmp", message)
 
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  "icmp_checks",
