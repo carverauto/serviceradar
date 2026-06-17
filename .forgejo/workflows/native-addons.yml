@@ -241,6 +241,14 @@ jobs:
           release_id="$(echo "${release_json}" | jq -r 'select(type == "object") | .id // empty')"
 
           if [[ -z "${release_id}" ]]; then
+            # Create the release as a DRAFT. This workflow runs concurrently with
+            # release.yml and almost always reaches this step first (≈9m in, while
+            # release.yml is still building images and has not created the release
+            # yet). When immutable releases are enforced, assets can only be attached
+            # to a draft — a published release rejects the index upload with HTTP 403.
+            # So we must own the draft here; release.yml's publish_packages then
+            # updates this same release in place (it only overwrites same-named
+            # assets, so our index survives) and its Finalize step publishes it.
             release_json="$(
               jq -n \
                 --arg tag_name "${release_tag}" \
@@ -252,7 +260,7 @@ jobs:
                   target_commitish: $target_commitish,
                   name: $name,
                   body: $body,
-                  draft: false,
+                  draft: true,
                   prerelease: true
                 }' |
                 curl -sSf -X POST \
