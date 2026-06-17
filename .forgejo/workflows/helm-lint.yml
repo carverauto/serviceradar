@@ -24,12 +24,14 @@ on:
       - 'helm/**'
       - '.forgejo/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
+      - 'scripts/check-core-analytics-helm-defaults.sh'
   pull_request:
     branches: [ staging ]
     paths:
       - 'helm/**'
       - '.forgejo/workflows/helm-lint.yml'
       - 'scripts/run-helm.sh'
+      - 'scripts/check-core-analytics-helm-defaults.sh'
 
 jobs:
   lint:

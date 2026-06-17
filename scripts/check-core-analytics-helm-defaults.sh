@@ -12,8 +12,10 @@ else
   HELM_CMD=("${ROOT_DIR}/scripts/run-helm.sh")
 fi
 
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "${tmpdir}"' EXIT
+tmp_root="${ROOT_DIR}/.helm-defaults-check"
+mkdir -p "${tmp_root}"
+tmpdir="$(mktemp -d "${tmp_root}/run.XXXXXXXX")"
+trap 'rm -rf "${tmpdir}"; rmdir "${tmp_root}" 2>/dev/null || true' EXIT
 
 legacy_values="${tmpdir}/legacy-values.yaml"
 cat >"${legacy_values}" <<'YAML'
