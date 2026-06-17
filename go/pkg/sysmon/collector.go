@@ -27,6 +27,8 @@ import (
 	"github.com/carverauto/serviceradar/go/pkg/logger"
 )
 
+var errUnsupportedSpikeMetric = fmt.Errorf("unsupported spike metric")
+
 // Collector defines the interface for system metrics collection.
 type Collector interface {
 	// Start begins periodic metric collection in the background.
@@ -289,7 +291,7 @@ func (c *DefaultCollector) InjectSpike(metric string, value float64, count int) 
 		case "memory", "mem":
 			sample.Memory = spikeMemory(base, value)
 		default:
-			return written, fmt.Errorf("unsupported spike metric %q (want \"cpu\" or \"memory\")", metric)
+			return written, fmt.Errorf("%w %q (want \"cpu\" or \"memory\")", errUnsupportedSpikeMetric, metric)
 		}
 
 		// Stagger timestamps so the engine sees distinct consecutive points
