@@ -3,7 +3,6 @@ defmodule ServiceRadar.FlowAttribution.Retention do
 
   @schema "platform"
   @table "flow_process_attribution_current"
-  @legacy_table "flow_process_attributions"
   @correlation_skew_seconds 900
   @default_retention_minutes 60
   @minimum_retention_minutes div(@correlation_skew_seconds + 59, 60)
@@ -15,15 +14,9 @@ defmodule ServiceRadar.FlowAttribution.Retention do
       DELETE FROM #{@schema}.#{@table}
       WHERE observed_at < now() - ($1::integer * interval '1 minute')
       RETURNING 1
-    ),
-    deleted_legacy AS (
-      DELETE FROM #{@schema}.#{@legacy_table}
-      WHERE observed_at < now() - ($1::integer * interval '1 minute')
-      RETURNING 1
     )
     SELECT
-      (SELECT count(*) FROM deleted_current) +
-      (SELECT count(*) FROM deleted_legacy) AS deleted_count
+      (SELECT count(*) FROM deleted_current) AS deleted_count
     """
 
     case ServiceRadar.Repo.query(sql, [retention_minutes()]) do
