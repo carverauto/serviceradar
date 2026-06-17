@@ -196,12 +196,26 @@ fn security_findings_source_device_uid_matches_service_radar_metadata() {
     let (sql, _) =
         events::to_sql_and_params(&plan).expect("should build security findings device SQL");
     let lower = sql.to_lowercase();
+    // A canonical `sr:` uid leads with the anchored, index-served equality on the
+    // canonical device-key paths (the fast path) AND keeps the inventory-alias
+    // EXISTS so historical raw-keyed / alias-keyed findings still resolve. Only the
+    // leading-wildcard multi-column ::text ILIKE over the events table is dropped.
     assert!(
-        lower.contains("service\\_radar.device\\_uid")
-            && lower.contains("service\\_radar.device.uid")
-            && lower.contains("service\\_radar.device\\_id")
-            && lower.contains("from platform.ocsf_devices as d"),
-        "expected source_device_uid filter to include service_radar identity metadata, got: {sql}"
+        lower.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
+            && lower.contains("device ->> 'uid' = 'sr:device-1'"),
+        "expected source_device_uid filter to anchor on the canonical device key, got: {sql}"
+    );
+    assert!(
+        lower.contains("from platform.ocsf_devices as d"),
+        "canonical sr: lookup must keep the inventory-alias EXISTS so alias-keyed events resolve, got: {sql}"
+    );
+    // The dropped leading-wildcard multi-column ::text ILIKE bakes the lookup value
+    // directly into an `%"key"%"value"%` pattern; the kept alias-EXISTS instead
+    // interpolates `device_alias.alias_value`. So the value never appears inside an
+    // ILIKE pattern for a canonical uid.
+    assert!(
+        !lower.contains("sr:device-1\"%"),
+        "canonical sr: lookup should drop the leading-wildcard events ::text ILIKE, got: {sql}"
     );
 }
 
@@ -270,13 +284,20 @@ fn events_rollup_stats_anomaly_findings_scopes_severity_counts_to_anomalies() {
     let (sql, _) = events::to_sql_and_params(&plan).expect("should build events rollup SQL");
     let lower = sql.to_lowercase();
 
+    // The class_uid/category_uid gate is now hoisted to a leading top-level AND so
+    // the planner can use idx_ocsf_events_class_category_time; the severity FILTERs
+    // scope to the anomaly *source* clause over that already-narrowed partition.
     assert!(
-        lower.contains("'critical', coalesce(count(*) filter (where (\"class_uid\" = 2004")
+        lower.contains("where \"class_uid\" = 2004 and \"category_uid\" = 2 and (("),
+        "expected class/category gate hoisted to a leading WHERE term, got: {sql}"
+    );
+    assert!(
+        lower.contains("'critical', coalesce(count(*) filter (where (")
             && lower.contains("and coalesce(severity_id, 0) >= 5"),
         "expected critical severity count to be scoped to anomaly findings, got: {sql}"
     );
     assert!(
-        lower.contains("'high', coalesce(count(*) filter (where (\"class_uid\" = 2004")
+        lower.contains("'high', coalesce(count(*) filter (where (")
             && lower.contains("and coalesce(severity_id, 0) = 4"),
         "expected high severity count to be scoped to anomaly findings, got: {sql}"
     );
@@ -325,11 +346,23 @@ fn scan_activity_source_device_uid_matches_service_radar_metadata() {
     assert!(matches!(plan.entity, Entity::ScanActivity));
     let (sql, _) = events::to_sql_and_params(&plan).expect("should build scan activity device SQL");
     let lower = sql.to_lowercase();
+    // Canonical `sr:` uid: anchored, index-served equality on the canonical key,
+    // scoped to the scan-activity class, plus the inventory-alias EXISTS so
+    // alias-keyed / historical scan rows still resolve. Only the leading-wildcard
+    // multi-column events ::text ILIKE is dropped for canonical uids.
     assert!(
-        lower.contains("service\\_radar.device\\_uid")
-            && lower.contains("\"ocsf_events\".\"class_uid\" = 6007")
-            && lower.contains("from platform.ocsf_devices as d"),
-        "expected scan_activity device filter to include service_radar identity metadata, got: {sql}"
+        lower.contains("metadata #>> '{service_radar,device_uid}' = 'sr:device-1'")
+            && lower.contains("device ->> 'uid' = 'sr:device-1'")
+            && lower.contains("\"ocsf_events\".\"class_uid\" = 6007"),
+        "expected scan_activity device filter to anchor on the canonical device key, got: {sql}"
+    );
+    assert!(
+        lower.contains("from platform.ocsf_devices as d"),
+        "canonical sr: lookup must keep the inventory-alias EXISTS so alias-keyed events resolve, got: {sql}"
+    );
+    assert!(
+        !lower.contains("sr:device-1\"%"),
+        "canonical sr: lookup should drop the leading-wildcard events ::text ILIKE, got: {sql}"
     );
 }
 
