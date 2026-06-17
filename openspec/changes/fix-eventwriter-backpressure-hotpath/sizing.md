@@ -296,6 +296,33 @@ That keeps CNPG as a bottleneck candidate and makes the remaining database proof
 gap narrower: only real database partitioning, schema/index reduction, hardware
 changes, or raw row reduction can plausibly close the several-hundred-times gap.
 
+Production-like schema check against `demo` CNPG on 2026-06-17:
+
+- Database extensions: TimescaleDB 2.24.0 and PostGIS 3.6.2.
+- `platform.timeseries_metrics` is a Timescale hypertable owned by
+  `serviceradar`, with one time dimension on `timestamp`.
+- Chunk interval: 7 days; active chunk count during the check: 2, covering
+  2026-06-04 through 2026-06-18 UTC.
+- Compression was disabled for the active hypertable.
+- Write-path indexes present during the benchmark:
+  - `timeseries_metrics_pkey` unique btree on
+    `(timestamp, gateway_id, series_key)`
+  - `idx_timeseries_metrics_device` partial btree on `device_id`
+  - `idx_timeseries_metrics_device_if_metric_time` btree on
+    `(device_id, if_index, metric_name, metric_type, timestamp DESC)`
+  - `idx_timeseries_metrics_name` btree on `metric_name`
+  - `idx_timeseries_metrics_timestamp` btree on `timestamp DESC`
+  - `timeseries_metrics_timestamp_idx` btree on `timestamp DESC`
+
+So the live `insert_all`, direct COPY, parallel COPY, and staged-COPY controls
+above did exercise the real demo hypertable and current production-like index
+shape, not a synthetic minimally indexed target. That is enough to reject the
+current single-hypertable/index path as a 50k-agent raw-row design. It is not
+enough to reject CNPG/Timescale as a product storage component: actual database
+partitioning, reduced indexes, compression/rollups, hardware isolation, and raw
+row reduction still need a separate sizing pass before selecting a different
+metrics store.
+
 ## CNPG Decision Gate
 
 Current evidence says CNPG is a bottleneck candidate, not the only bottleneck
@@ -362,6 +389,68 @@ replay expectations. The product decision is not "which TSDB has the best
 published benchmark"; it is "which storage architecture can absorb this specific
 metrics stream while preserving the query and replay semantics users need."
 
+## Rust Protobuf Control Harness
+
+This branch adds a standalone Rust control binary for the current
+`serviceradar.metric.v1.MetricBatch` payload shape:
+
+```bash
+METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
+  sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
+```
+
+It deliberately lives under `rust/metrics-delta-writer` and reuses the same
+`serviceradar-metric-proto` bindings and `batch_to_rows/2` flattening path as
+the Delta writer skeleton. It reports separate phase timing for:
+
+- reading captured payload files;
+- protobuf decode plus row transform;
+- a deterministic Welford anomaly-hook loop over row series;
+- a deterministic capacity-hook aggregation loop;
+- optional batched PostgreSQL writes into a temporary table.
+
+PostgreSQL writes are off by default so the control can be run safely against
+captured fixtures. To include the DB write phase, point it at disposable local
+CNPG, a benchmark schema, or an explicit test window:
+
+```bash
+METRIC_BENCH_FIXTURE_DIR=tmp/metric-fixtures/demo-smoke-cli \
+METRIC_BENCH_PG_DSN='postgres://serviceradar:...@localhost:5455/serviceradar' \
+METRIC_BENCH_BATCH_ROWS=5000 \
+  sfw cargo run -p serviceradar-metrics-delta-writer --bin metrics-protobuf-bench
+```
+
+The write phase creates and truncates a session-local temporary table named
+`sr_metric_bench_points`; it does not write `platform.timeseries_metrics` and
+therefore does not replace the Elixir CNPG benchmark that exercises the real
+hypertable/index path. Its purpose is an upper-bound control for Rust protobuf
+decode/transform/hook/write overhead, not a production replacement for
+EventWriter.
+
+## Implementation Control Comparison
+
+Current controls now cover three shapes:
+
+- **Optimized BEAM/ERTS core-elx**: implemented production path for this change.
+  It uses pull JetStream consumers, bounded producer buffering, low-cardinality
+  hot-path telemetry, EventWriter decode/row benchmarks, and live CNPG
+  `insert_all`/COPY/staged-COPY measurements against captured payload rows.
+- **Standalone Rust control**: `metrics-protobuf-bench` provides an upper-bound
+  decode/transform/anomaly-hook/capacity-hook/temp-table-write harness over the
+  same canonical protobuf payloads. It is benchmark evidence only; it carries no
+  distributed state ownership, replay, alerting, or rollout semantics.
+- **Go db-event-writer control**: the historical Go writer is not a valid direct
+  comparison until it is rebuilt against the current protobuf `MetricBatch`
+  shape, row expansion, anomaly/capacity hook points, and CNPG schema. Treat it
+  as future benchmark work, not proof that the present pipeline should move out
+  of BEAM.
+
+This comparison keeps the production decision with the BEAM/ERTS EventWriter
+repair in this change. If Rust or Go controls demonstrate an order-of-magnitude
+advantage that the BEAM path cannot close, the next step is a separate OpenSpec
+for partition ownership, failover, replay, and migration semantics rather than a
+silent rewrite of the live metrics consumer.
+
 ## Proof Gaps
 
 Evidence still required before claiming the current architecture works:
@@ -369,7 +458,8 @@ Evidence still required before claiming the current architecture works:
 - Repeat/saturation CNPG rows/sec for current `Repo.insert_all` using larger
   captured-row repeats and controlled database load.
 - Repeat/saturation CNPG rows/sec for COPY/staged ingest on production-like
-  hardware, controlled database load, and realistic partition/index settings.
+  hardware and controlled database load. The current demo pass used the real
+  production-like hypertable/index shape, but not production hardware isolation.
 - Parallel COPY/write-path scaling across database partitions, not only
   concurrent clients writing the current hypertable/index path.
 - Alternative metrics-store control benchmark, if staged CNPG cannot meet the
@@ -377,4 +467,6 @@ Evidence still required before claiming the current architecture works:
 - Live stream lag telemetry for anomaly and capacity consumers independent of
   EventWriter persistence lag.
 - Anomaly/capacity partition ownership tests, including crash/restart replay.
-- A Rust/Go control benchmark for decode/transform/write upper bounds.
+- A rebuilt Go control benchmark for decode/transform/write upper bounds if a
+  future proposal needs to compare a non-BEAM production rewrite. The Rust
+  control exists in `metrics-protobuf-bench`.

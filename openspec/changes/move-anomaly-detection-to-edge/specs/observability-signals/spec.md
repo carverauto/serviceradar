@@ -1,30 +1,30 @@
 ## ADDED Requirements
 
-### Requirement: Edge-or-central anomaly execution
-Per-series metric anomaly detection SHALL be executable at either the edge
-(co-located with the agent) or centrally, with exactly one authoritative location
-per series at a time. The central engine SHALL remain the fallback for series not
-covered by an edge add-on and during rollout, so coverage changes never leave a
-series unanalyzed.
+### Requirement: Edge anomaly execution
+Per-series short-term spike anomaly detection SHALL run at the edge
+(co-located with the agent) for agents assigned the native anomaly add-on. Core
+SHALL consume and persist edge verdicts through the existing signal path, but it
+SHALL NOT run the retired raw-stream per-series anomaly analyzer as a fallback.
 
-#### Scenario: Edge-covered series is not re-analyzed centrally
+#### Scenario: Edge-covered series emits upstream verdicts
 - **GIVEN** a metric source is covered by an edge anomaly add-on
 - **WHEN** its samples are analyzed at the edge and verdicts are emitted upstream
-- **THEN** the central anomaly engine SHALL NOT re-run detection for those series
-- **AND** the central engine SHALL continue analyzing series not covered at the edge
+- **THEN** core SHALL route the verdicts onto the causal signal path
+- **AND** core SHALL persist and alert on those verdicts without re-running raw-stream detection
 
-#### Scenario: Disabling the edge add-on returns series to central analysis
+#### Scenario: Disabling the edge add-on stops spike verdicts
 - **GIVEN** a series currently covered by an edge anomaly add-on
 - **WHEN** the add-on is disabled or removed
-- **THEN** the central engine SHALL resume analyzing that series
-- **AND** there SHALL be no required verdict gap across the handover
+- **THEN** the agent SHALL stop sending that series to the add-on
+- **AND** raw metrics SHALL continue flowing to JetStream and CNPG for storage, graphs, capacity forecasts, and future aggregate detectors
 
-### Requirement: Anomaly verdict source is observable
-Anomaly verdicts SHALL carry their execution source (edge or central), and the
-system SHALL expose per-source counts of edge-covered versus centrally analyzed
-series, so operators can see coverage and detect gaps before they affect alerting.
+### Requirement: Edge anomaly coverage is observable
+Anomaly verdicts SHALL carry their execution source and the system SHALL expose
+add-on assignment/status plus shed-pressure events so operators can see edge
+coverage and detect gaps before they affect alerting.
 
 #### Scenario: Operator inspects anomaly coverage
 - **WHEN** an operator inspects anomaly coverage telemetry
-- **THEN** the system SHALL report, per metric source, how many series are analyzed at the edge versus centrally
-- **AND** each verdict SHALL be attributable to an edge or central source
+- **THEN** add-on assignment and status SHALL show which agents are covered
+- **AND** each edge spike verdict SHALL be attributable with `verdict_source=edge-spike`
+- **AND** add-on capacity shed SHALL be reported as an operational event rather than an anomaly verdict

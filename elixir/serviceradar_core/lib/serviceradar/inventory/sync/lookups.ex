@@ -9,11 +9,14 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   alias ServiceRadar.Identity.DeviceAliasState
   alias ServiceRadar.Inventory.Device
   alias ServiceRadar.Inventory.DeviceIdentifier
+  alias ServiceRadar.Inventory.Identity.Ids
   alias ServiceRadar.Inventory.IdentityReconciler
   alias ServiceRadar.Inventory.Sync.SourcePolicy
   alias ServiceRadar.Repo
 
   require Logger
+
+  @identifier_lookup_chunk_size 5_000
 
   # Extract all identifiers from all updates for bulk lookup
   def extract_all_identifiers(updates) do
@@ -26,11 +29,17 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
 
       mac_values = if include_mac?, do: IdentityReconciler.mac_lookup_values(ids), else: []
 
+      armis_values =
+        Ids.get_identifier_values(:armis_device_id, ids)
+
       integration_values =
-        ServiceRadar.Inventory.Identity.Ids.get_identifier_values(:integration_id, ids)
+        Ids.get_identifier_values(:integration_id, ids)
 
       []
       |> maybe_add_id_if(include_agent?, :agent_id, ids.agent_id, partition)
+      |> then(fn acc ->
+        Enum.reduce(armis_values, acc, &maybe_add_id(&2, :armis_device_id, &1, partition))
+      end)
       |> then(fn acc ->
         Enum.reduce(integration_values, acc, &maybe_add_id(&2, :integration_id, &1, partition))
       end)
@@ -43,17 +52,29 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
   end
 
   defp maybe_add_id(acc, _type, nil, _partition), do: acc
+  defp maybe_add_id(acc, _type, "", _partition), do: acc
   defp maybe_add_id(acc, type, value, partition), do: [{type, value, partition} | acc]
   defp maybe_add_id_if(acc, false, _type, _value, _partition), do: acc
 
   defp maybe_add_id_if(acc, true, type, value, partition),
     do: maybe_add_id(acc, type, value, partition)
 
-  # Bulk lookup device identifiers - single query for all identifiers
+  # Bulk lookup device identifiers.
   # DB connection's search_path determines the schema
   def bulk_lookup_identifiers([]), do: %{}
 
   def bulk_lookup_identifiers(identifiers) do
+    identifiers
+    |> Enum.chunk_every(@identifier_lookup_chunk_size)
+    |> Enum.flat_map(&lookup_identifier_chunk/1)
+    |> Enum.reduce(%{}, &identifier_row_to_map/2)
+  rescue
+    e ->
+      Logger.warning("Bulk identifier lookup failed: #{inspect(e)}")
+      %{}
+  end
+
+  defp lookup_identifier_chunk(identifiers) do
     # Build OR conditions for all identifiers
     conditions =
       Enum.map(identifiers, fn {type, value, partition} ->
@@ -76,27 +97,23 @@ defmodule ServiceRadar.Inventory.Sync.Lookups do
         select: {di.identifier_type, di.identifier_value, di.partition, di.device_id}
       )
 
-    query
-    |> Repo.all()
-    |> Enum.reduce(%{}, fn {type, value, partition, device_id}, acc ->
-      type_atom =
-        case type do
-          type when is_binary(type) -> String.to_atom(type)
-          type when is_atom(type) -> type
-          _ -> nil
-        end
+    Repo.all(query)
+  end
 
-      if type_atom == nil do
-        acc
-      else
-        key = {type_atom, value, partition}
-        Map.put(acc, key, device_id)
+  defp identifier_row_to_map({type, value, partition, device_id}, acc) do
+    type_atom =
+      case type do
+        type when is_binary(type) -> String.to_atom(type)
+        type when is_atom(type) -> type
+        _ -> nil
       end
-    end)
-  rescue
-    e ->
-      Logger.warning("Bulk identifier lookup failed: #{inspect(e)}")
-      %{}
+
+    if type_atom == nil do
+      acc
+    else
+      key = {type_atom, value, partition}
+      Map.put(acc, key, device_id)
+    end
   end
 
   # Bulk lookup devices by IP

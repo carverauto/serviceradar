@@ -55,6 +55,8 @@ type ScannerScanActivity = addon.ScannerScanActivity
 type ScannerFinding = addon.ScannerFinding
 type ArtifactMetadata = addon.ArtifactMetadata
 type ArtifactUploadChunk = addon.ArtifactUploadChunk
+type MetricFeedFrame = addon.MetricFeedFrame
+type MetricFeedAck = addon.MetricFeedAck
 type CredentialBrokerGrant = addon.CredentialBrokerGrant
 type CredentialBrokerMaterial = addon.CredentialBrokerMaterial
 type CredentialMaterial = addon.CredentialMaterial
@@ -65,6 +67,7 @@ const (
 	CapabilityProducerScheduleV1 = addon.CapabilityProducerScheduleV1
 	CapabilityScannerV1          = addon.CapabilityScannerV1
 	CapabilityArtifactStagingV1  = addon.CapabilityArtifactStagingV1
+	CapabilityMetricFeedV1       = addon.CapabilityMetricFeedV1
 
 	AdvisoryFeedContractVersion = addon.AdvisoryFeedContractVersion
 

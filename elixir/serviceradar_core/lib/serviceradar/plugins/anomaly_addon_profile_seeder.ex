@@ -1,0 +1,134 @@
+defmodule ServiceRadar.Plugins.AnomalyAddonProfileSeeder do
+  @moduledoc """
+  Seeds the default profile for the edge anomaly native add-on.
+
+  The add-on consumes the local metric-feed stream, so the default profile keeps
+  targeting broad (`in:devices`) while limiting feed sources to sysmon and SNMP
+  in assignment params. That avoids starting analysis for every possible local
+  add-on feed and keeps future SRQL targeting improvements independent from the
+  source subscription contract.
+  """
+
+  use ServiceRadar.DelayedSeeder, callback: :seed_defaults
+
+  alias ServiceRadar.Actors.SystemActor
+  alias ServiceRadar.Plugins.AddonPackage
+  alias ServiceRadar.Plugins.AddonProfile
+
+  require Ash.Query
+  require Logger
+
+  @addon_id "anomaly"
+  @profile_name "Default Edge Anomaly Detection"
+  @target_query "in:devices"
+  @seeded_by "ServiceRadar.Plugins.AnomalyAddonProfileSeeder"
+  @default_params %{"metric_feed" => %{"sources" => ["sysmon", "snmp"]}}
+
+  @spec seed_defaults(keyword()) :: :ok | {:error, term()}
+  def seed_defaults(opts \\ []) do
+    actor = Keyword.get(opts, :actor, SystemActor.system(:anomaly_addon_profile_seeder))
+
+    with {:ok, package} <- latest_approved_package(actor),
+         :ok <- ensure_schema_supports_metric_feed(package),
+         {:ok, profile} <- find_seeded_profile(actor),
+         {:ok, _profile} <- upsert_profile(profile, package, actor) do
+      :ok
+    else
+      {:ok, nil} ->
+        Logger.debug("Skipping anomaly add-on default profile seed; no approved package exists")
+        :ok
+
+      :unsupported_schema ->
+        Logger.debug(
+          "Skipping anomaly add-on default profile seed; package config schema lacks metric_feed"
+        )
+
+        :ok
+
+      {:error, reason} = error ->
+        Logger.warning("Failed to seed anomaly add-on default profile: #{inspect(reason)}")
+        error
+    end
+  end
+
+  defp latest_approved_package(actor) do
+    AddonPackage
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == @addon_id and status == :approved)
+    |> Ash.Query.sort(approved_at: :desc, imported_at: :desc, version: :desc)
+    |> Ash.read(actor: actor)
+    |> case do
+      {:ok, [package | _]} -> {:ok, package}
+      {:ok, []} -> {:ok, nil}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_schema_supports_metric_feed(%AddonPackage{config_schema: schema}) do
+    properties = Map.get(schema || %{}, "properties", %{})
+
+    if Map.has_key?(properties, "metric_feed") do
+      :ok
+    else
+      :unsupported_schema
+    end
+  end
+
+  defp find_seeded_profile(actor) do
+    AddonProfile
+    |> Ash.Query.for_read(:read, %{}, actor: actor)
+    |> Ash.Query.filter(addon_id == @addon_id and metadata["seeded_by"] == @seeded_by)
+    |> Ash.Query.sort(inserted_at: :asc)
+    |> Ash.read_one(actor: actor)
+  end
+
+  defp upsert_profile(nil, %AddonPackage{} = package, actor) do
+    AddonProfile
+    |> Ash.Changeset.for_create(:create, profile_attrs(package), actor: actor)
+    |> Ash.create(actor: actor)
+  end
+
+  defp upsert_profile(%AddonProfile{} = profile, %AddonPackage{} = package, actor) do
+    profile
+    |> Ash.Changeset.for_update(:update, update_attrs(profile, package), actor: actor)
+    |> Ash.update(actor: actor)
+  end
+
+  defp profile_attrs(%AddonPackage{} = package) do
+    %{
+      name: @profile_name,
+      description: "Default edge anomaly profile for agents with local sysmon or SNMP metrics.",
+      addon_package_id: package.id,
+      target_query: @target_query,
+      params: @default_params,
+      args: [],
+      priority: 100,
+      max_targets: 1_000_000,
+      metadata: %{
+        "seeded_by" => @seeded_by,
+        "default_metric_feed_sources" => ["sysmon", "snmp"],
+        "targeting_note" =>
+          "SRQL does not yet expose a first-class sysmon/SNMP collector predicate; feed sources are gated in assignment params."
+      },
+      enabled: true
+    }
+  end
+
+  defp update_attrs(%AddonProfile{} = profile, %AddonPackage{} = package) do
+    %{
+      addon_package_id: package.id,
+      params: ensure_metric_feed_params(profile.params || %{}),
+      metadata:
+        Map.merge(profile.metadata || %{}, %{
+          "seeded_by" => @seeded_by,
+          "default_metric_feed_sources" => ["sysmon", "snmp"]
+        })
+    }
+  end
+
+  defp ensure_metric_feed_params(params) when is_map(params) do
+    Map.put_new(params, "metric_feed", @default_params["metric_feed"])
+  end
+
+  defp ensure_metric_feed_params(_params), do: @default_params
+end

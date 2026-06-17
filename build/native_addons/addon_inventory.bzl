@@ -130,33 +130,6 @@ ADDON_BUNDLES = [
         "pushed_artifact_tarball": True,
     },
     {
-        # Endpoint software inventory add-on. Ships the root-owned package
-        # inventory collector plus a systemd timer; the non-root agent ingests
-        # only the sanitized CycloneDX spool payload.
-        "name": "endpoint_inventory_addon_bundle",
-        "addon_id": "endpoint-inventory",
-        "repository_name": "serviceradar-addon-endpoint-inventory",
-        "language": "go",
-        "binary": "//go/cmd/endpoint-inventory:endpoint_inventory",
-        "binary_name": "serviceradar-endpoint-inventory",
-        "platforms": [
-            ("linux", "amd64"),
-            ("linux", "arm64"),
-        ],
-        "manifest_entries": [
-            ("addon.yaml", "//addons/endpoint-inventory:addon.yaml"),
-            ("config.schema.json", "//addons/endpoint-inventory:config.schema.json"),
-        ],
-        "unit_entries": [
-            ("serviceradar-endpoint-inventory.service", "//addons/endpoint-inventory:serviceradar-endpoint-inventory.service"),
-            ("serviceradar-endpoint-inventory.timer", "//addons/endpoint-inventory:serviceradar-endpoint-inventory.timer"),
-        ],
-        "data_entries": [
-            ("endpoint-inventory.json", "//addons/endpoint-inventory:endpoint-inventory.json"),
-        ],
-        "pushed_artifact_tarball": True,
-    },
-    {
         # OSV ScaLibr-backed endpoint software inventory scanner add-on. This is
         # a scanner-specific package that still emits the generic endpoint
         # inventory spool and scanner:v1 metadata contracts; no agent/core
@@ -221,6 +194,8 @@ ADDON_BUNDLES = [
             ("config.schema.json", "//addons/anomaly-addon:config.schema.json"),
             ("schemas/detection_finding.schema.json", "//addons/anomaly-addon:schemas/detection_finding.schema.json"),
             ("display/detection_finding.display.json", "//addons/anomaly-addon:display/detection_finding.display.json"),
+            ("schemas/capacity_shed.schema.json", "//addons/anomaly-addon:schemas/capacity_shed.schema.json"),
+            ("display/capacity_shed.display.json", "//addons/anomaly-addon:display/capacity_shed.display.json"),
         ],
         "pushed_artifact_tarball": True,
     },

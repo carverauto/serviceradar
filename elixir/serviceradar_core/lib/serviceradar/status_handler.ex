@@ -19,8 +19,7 @@ defmodule ServiceRadar.StatusHandler do
   alias Serviceradar.Agent.Addon.V1.TelemetryRecord
   alias ServiceRadar.Inventory.SyncIngestorQueue
   alias ServiceRadar.NATS.Connection
-  alias ServiceRadar.Observability.AnomalyDetection.SampleExtractor
-  alias ServiceRadar.Observability.AnomalyDetection.VerdictEmitter
+  alias ServiceRadar.Observability.AnomalyDetection.SeriesKey
   alias ServiceRadar.ResultsRouter
 
   require Logger
@@ -338,8 +337,8 @@ defmodule ServiceRadar.StatusHandler do
   # An edge anomaly add-on emits an OCSF Detection Finding shaped as a causal
   # anomaly verdict (signal_type=causal, event_type=anomaly). Route it onto the
   # causal-prediction spine (signals.causal.predictions.<series>) so the
-  # EventWriter CausalSignals processor persists + alert-enqueues it identically
-  # to a central verdict, instead of the generic OCSF add-on path. The
+  # EventWriter CausalSignals processor persists + alert-enqueues it through the
+  # same OCSF finding path, instead of the generic OCSF add-on subject. The
   # verdict_source label (edge-spike) rides through in the body and is surfaced
   # by CausalSignals.
   defp anomaly_verdict?(event) when is_map(event) do
@@ -358,7 +357,7 @@ defmodule ServiceRadar.StatusHandler do
     series_key = canonical_series_key(Map.get(event, "source_identity")) || hint
 
     event = rekey_anomaly_verdict(event, series_key)
-    subject = VerdictEmitter.subject(%{"series_key" => series_key})
+    subject = causal_prediction_subject(series_key)
 
     with {:ok, json} <- Jason.encode(event),
          :ok <- publish(addon_telemetry_publisher(), subject, json) do
@@ -370,13 +369,19 @@ defmodule ServiceRadar.StatusHandler do
   end
 
   defp canonical_series_key(source_identity) when is_map(source_identity) do
-    SampleExtractor.series_key_from_source_identity(source_identity)
+    SeriesKey.from_source_identity(source_identity)
   end
 
   defp canonical_series_key(_source_identity), do: nil
 
+  defp causal_prediction_subject(series_key) when is_binary(series_key) and series_key != "" do
+    "signals.causal.predictions.#{series_key}"
+  end
+
+  defp causal_prediction_subject(_series_key), do: "signals.causal.predictions.anomaly"
+
   # Stamp the canonical key onto the persisted verdict so CausalSignals stores it
-  # under the same series_key central uses (and the producer hint becomes dead
+  # under the same series_key edge-derived consumers use (and the producer hint becomes dead
   # debug metadata). Only rewrites blocks that already exist.
   defp rekey_anomaly_verdict(event, series_key) when is_binary(series_key) do
     event

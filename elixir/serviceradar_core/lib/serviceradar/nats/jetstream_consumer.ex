@@ -201,10 +201,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
 
     case Util.request(connection_ref, topic, payload) do
       {:ok, %{"error" => %{"description" => description} = err}} when is_binary(description) ->
-        if consumer_exists_error?(description) do
-          reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-        else
-          {:error, err}
+        cond do
+          consumer_exists_error?(description) ->
+            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+
+          immutable_consumer_shape_error?(description) ->
+            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
+
+          true ->
+            {:error, err}
         end
 
       {:ok, %{"error" => error}} ->
@@ -214,10 +219,15 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
         :ok
 
       {:error, %{"description" => description} = err} when is_binary(description) ->
-        if consumer_exists_error?(description) do
-          reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-        else
-          {:error, err}
+        cond do
+          consumer_exists_error?(description) ->
+            reconcile_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+
+          immutable_consumer_shape_error?(description) ->
+            recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
+
+          true ->
+            {:error, err}
         end
 
       {:error, reason} ->
@@ -231,9 +241,22 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     payload = stream_name |> consumer_payload(consumer_name, subject, opts) |> Jason.encode!()
 
     case Util.request(connection_ref, topic, payload) do
-      {:ok, %{"error" => error}} -> {:error, error}
-      {:ok, _} -> :ok
-      {:error, reason} -> {:error, reason}
+      {:ok, %{"error" => %{"description" => description} = error}}
+      when is_binary(description) ->
+        if immutable_consumer_shape_error?(description) do
+          recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
+        else
+          {:error, error}
+        end
+
+      {:ok, %{"error" => error}} ->
+        {:error, error}
+
+      {:ok, _} ->
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -262,9 +285,7 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
             desired_deliver_subject: desired_deliver_subject
           )
 
-          with :ok <- delete_consumer(connection_ref, stream_name, consumer_name, domain) do
-            create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
-          end
+          recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain)
         end
 
       {:error, _reason} ->
@@ -301,6 +322,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
     end
   end
 
+  defp recreate_consumer(connection_ref, stream_name, consumer_name, subject, opts, domain) do
+    with :ok <- delete_consumer(connection_ref, stream_name, consumer_name, domain) do
+      create_consumer(connection_ref, stream_name, consumer_name, subject, opts)
+    end
+  end
+
   @doc false
   def consumer_payload(stream_name, consumer_name, subject, opts)
       when is_binary(stream_name) and is_binary(consumer_name) and is_binary(subject) do
@@ -326,6 +353,12 @@ defmodule ServiceRadar.NATS.JetstreamConsumer do
   defp consumer_exists_error?(description) when is_binary(description) do
     String.contains?(description, "consumer name already") or
       String.contains?(description, "consumer already exists")
+  end
+
+  @doc false
+  def immutable_consumer_shape_error?(description) when is_binary(description) do
+    String.contains?(description, "can not update push consumer to pull based") or
+      String.contains?(description, "can not update pull consumer to push based")
   end
 
   defp stream_exists_error?(description) when is_binary(description) do

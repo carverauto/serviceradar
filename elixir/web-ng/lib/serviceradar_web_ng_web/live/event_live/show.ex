@@ -26,7 +26,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   @impl true
   def handle_params(%{"event_id" => event_id}, _uri, socket) do
     query =
-      "in:events id:\"#{escape_value(event_id)}\" sort:time:desc limit:1"
+      "in:events id:\"#{escape_value(event_id)}\" time:last_24h sort:time:desc limit:1"
 
     {event, error} =
       case srql_module().query(query) do
@@ -1030,7 +1030,7 @@ defmodule ServiceRadarWebNGWeb.EventLive.Show do
   defp existing_log_id("", _scope), do: nil
 
   defp existing_log_id(log_id, scope) when is_binary(log_id) do
-    query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
+    query = "in:logs id:\"#{escape_value(log_id)}\" time:last_24h limit:1"
 
     case srql_module().query(query, %{scope: scope}) do
       {:ok, %{"results" => [_log | _]}} -> log_id

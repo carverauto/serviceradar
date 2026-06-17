@@ -20,7 +20,6 @@ import (
 	"context"
 	"time"
 
-	agentaddon "github.com/carverauto/serviceradar/go/pkg/agent/addon"
 	"github.com/carverauto/serviceradar/go/pkg/models"
 	"github.com/carverauto/serviceradar/go/pkg/scan"
 	"github.com/carverauto/serviceradar/proto"
@@ -50,6 +49,7 @@ func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 		p.logger.Error().Err(err).Msg("Failed to marshal ICMP metric envelope")
 		return false
 	}
+	p.publishAddonMetricFeed("icmp", message)
 
 	status := &proto.GatewayServiceStatus{
 		ServiceName:  "icmp_checks",
@@ -62,15 +62,6 @@ func (p *PushLoop) pushICMPResults(ctx context.Context) bool {
 		Partition:    partition,
 		Source:       "icmp-metrics",
 		KvStoreId:    kvStoreID,
-	}
-
-	// Tap: feed the encoded ICMP batch to edge add-ons on the local metric feed
-	// (metric-feed:v1). ICMP latency/loss are gauges, safe to z-score directly.
-	p.server.mu.RLock()
-	feeder, _ := p.server.addonManager.(agentaddon.MetricFeeder)
-	p.server.mu.RUnlock()
-	if feeder != nil {
-		feeder.FeedMetrics(status.Message)
 	}
 
 	chunk := &proto.GatewayStatusChunk{

@@ -216,6 +216,53 @@ func (s *grpcServer) RelayOtlp(stream addonpb.AddonService_RelayOtlpServer) erro
 	}
 }
 
+// StreamMetricFeed bridges the generated bidi stream to the optional
+// MetricFeedSink contract. Add-ons that do not advertise metric-feed:v1 (and so
+// do not implement MetricFeedSink) report UNIMPLEMENTED instead of silently
+// dropping analysis input.
+func (s *grpcServer) StreamMetricFeed(stream addonpb.AddonService_StreamMetricFeedServer) error {
+	sink, ok := s.impl.(MetricFeedSink)
+	if !ok {
+		return status.Error(codes.Unimplemented, "add-on does not implement metric-feed:v1")
+	}
+
+	ctx := stream.Context()
+	frames := make(chan *addonpb.MetricFeedFrame)
+	go func() {
+		defer close(frames)
+		for {
+			frame, err := stream.Recv()
+			if err != nil {
+				return
+			}
+			select {
+			case frames <- frame:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	acks, err := sink.StreamMetricFeed(ctx, frames)
+	if err != nil {
+		return err
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case ack, ok := <-acks:
+			if !ok {
+				return nil
+			}
+			if err := stream.Send(&addonpb.MetricFeedAck{AckedFeedId: ack}); err != nil {
+				return err
+			}
+		}
+	}
+}
+
 func (s *grpcServer) RunCommand(
 	ctx context.Context,
 	req *addonpb.RunCommandRequest,
@@ -259,6 +306,7 @@ var _ TelemetryClient = (*grpcClient)(nil)
 var _ ArtifactClient = (*grpcClient)(nil)
 var _ CommandClient = (*grpcClient)(nil)
 var _ OtlpRelayClient = (*grpcClient)(nil)
+var _ MetricFeedClient = (*grpcClient)(nil)
 
 func (c *grpcClient) Info(ctx context.Context) (Info, error) {
 	resp, err := c.client.Info(ctx, &addonpb.InfoRequest{})
@@ -431,6 +479,9 @@ func (c *grpcClient) StreamMetricFeed(ctx context.Context) (chan<- *addonpb.Metr
 				if !ok {
 					_ = stream.CloseSend()
 					return
+				}
+				if frame == nil {
+					continue
 				}
 				if err := stream.Send(frame); err != nil {
 					return

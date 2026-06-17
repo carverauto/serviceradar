@@ -4,8 +4,18 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CHART_DIR="${ROOT_DIR}/helm/serviceradar"
 
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "${tmpdir}"' EXIT
+if [[ -n "${HELM_BIN:-}" ]]; then
+  HELM_CMD=("${HELM_BIN}")
+elif command -v helm >/dev/null 2>&1; then
+  HELM_CMD=(helm)
+else
+  HELM_CMD=("${ROOT_DIR}/scripts/run-helm.sh")
+fi
+
+tmp_root="${ROOT_DIR}/.helm-defaults-check"
+mkdir -p "${tmp_root}"
+tmpdir="$(mktemp -d "${tmp_root}/run.XXXXXXXX")"
+trap 'rm -rf "${tmpdir}"; rmdir "${tmp_root}" 2>/dev/null || true' EXIT
 
 legacy_values="${tmpdir}/legacy-values.yaml"
 cat >"${legacy_values}" <<'YAML'
@@ -20,7 +30,7 @@ render_env() {
   local output_file="$1"
   shift
 
-  helm template serviceradar "${CHART_DIR}" \
+  "${HELM_CMD[@]}" template serviceradar "${CHART_DIR}" \
     --show-only templates/core.yaml \
     --set global.imageTag="v1.0.0" \
     "$@" >"${output_file}"

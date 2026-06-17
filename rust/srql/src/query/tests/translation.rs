@@ -150,6 +150,72 @@ fn translate_logs_device_id_resolves_inventory_aliases() {
 }
 
 #[test]
+fn translate_logs_without_time_gets_default_window() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: "in:logs sort:timestamp:desc limit:25".to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("COALESCE(observed_timestamp, timestamp) >= $1"),
+        "logs list query should be lower-bounded by default, got: {}",
+        response.sql
+    );
+    assert!(
+        response
+            .sql
+            .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+        "logs list query should be upper-bounded by default, got: {}",
+        response.sql
+    );
+    assert_eq!(
+        response.params.len(),
+        4,
+        "expected start/end plus limit/offset binds, got: {:?}",
+        response.params
+    );
+}
+
+#[test]
+fn translate_logs_stats_without_time_gets_default_window() {
+    let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
+    let request = QueryRequest {
+        query: r#"in:logs stats:"count() as total""#.to_string(),
+        limit: None,
+        cursor: None,
+        direction: QueryDirection::Next,
+        mode: None,
+    };
+
+    let response = translate_request(&config, request).expect("translation should succeed");
+
+    assert!(
+        response
+            .sql
+            .contains("COALESCE(observed_timestamp, timestamp) >= $1")
+            && response
+                .sql
+                .contains("COALESCE(observed_timestamp, timestamp) <= $2"),
+        "logs stats query should be time-bounded by default, got: {}",
+        response.sql
+    );
+    assert_eq!(
+        response.params.len(),
+        2,
+        "expected start/end binds, got: {:?}",
+        response.params
+    );
+}
+
+#[test]
 fn translate_downsample_emits_time_bucket_query() {
     let config = crate::config::AppConfig::embedded("postgres://unused/db".to_string());
     let request = QueryRequest {

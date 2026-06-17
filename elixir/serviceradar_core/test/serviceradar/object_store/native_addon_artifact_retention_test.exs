@@ -10,20 +10,20 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         package(
           "pkg-active",
           :approved,
-          "native-addons/endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz"
+          "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz"
         )
 
       plan =
         NativeAddonArtifactRetention.plan(
           [package],
           MapSet.new(),
-          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz")],
+          [object("native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz")],
           0
         )
 
       assert [
                %{
-                 key: "native-addons/endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz",
+                 key: "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/sha.tar.gz",
                  reason: :active_package
                }
              ] =
@@ -37,20 +37,20 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         package(
           "pkg-staged",
           :staged,
-          "native-addons/endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz"
+          "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz"
         )
 
       plan =
         NativeAddonArtifactRetention.plan(
           [package],
           MapSet.new(),
-          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz")],
+          [object("native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz")],
           0
         )
 
       assert [
                %{
-                 key: "native-addons/endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz",
+                 key: "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/staged.tar.gz",
                  reason: :active_package
                }
              ] =
@@ -91,7 +91,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         package(
           "pkg-verified",
           :staged,
-          "native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
+          "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
           ~U[2026-01-01 00:00:00Z],
           "verified"
         )
@@ -100,13 +100,14 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         NativeAddonArtifactRetention.plan(
           [package],
           MapSet.new(),
-          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz")],
+          [object("native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz")],
           0
         )
 
       assert [
                %{
-                 key: "native-addons/endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
+                 key:
+                   "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/verified.tar.gz",
                  reason: :verified_package
                }
              ] =
@@ -120,7 +121,7 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         package(
           "pkg-revoked-verified",
           :revoked,
-          "native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
+          "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
           ~U[2026-01-01 00:00:00Z],
           "verified"
         )
@@ -129,14 +130,18 @@ defmodule ServiceRadar.ObjectStore.NativeAddonArtifactRetentionTest do
         NativeAddonArtifactRetention.plan(
           [package],
           MapSet.new(),
-          [object("native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz")],
+          [
+            object(
+              "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz"
+            )
+          ],
           0
         )
 
       assert [
                %{
                  key:
-                   "native-addons/endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
+                   "native-addons/scalibr-endpoint-inventory/0.1.1/linux/amd64/revoked-verified.tar.gz",
                  reason: :inactive_package
                }
              ] = plan.eligible

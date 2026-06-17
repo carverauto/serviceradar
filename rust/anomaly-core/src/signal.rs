@@ -25,7 +25,12 @@ impl SignalVerdict {
         }
     }
 
-    pub(crate) fn not_ready(name: &str, threshold: f64, sample_count: usize, reason: String) -> Self {
+    pub(crate) fn not_ready(
+        name: &str,
+        threshold: f64,
+        sample_count: usize,
+        reason: String,
+    ) -> Self {
         Self {
             name: name.to_string(),
             enabled: true,
@@ -191,5 +196,13 @@ fn evaluate_signal_window(
         format!("{name} z-score {score:.3} is below {threshold:.3}")
     };
 
-    SignalVerdict::ready(name, breached, score, threshold, window.len(), stats, reason)
+    SignalVerdict::ready(
+        name,
+        breached,
+        score,
+        threshold,
+        window.len(),
+        stats,
+        reason,
+    )
 }

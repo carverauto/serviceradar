@@ -131,4 +131,16 @@ defmodule ServiceRadar.NATS.JetstreamConsumerTest do
     assert payload.config.max_deliver == 5
     refute Map.has_key?(payload.config, :deliver_subject)
   end
+
+  test "immutable push pull consumer shape errors require durable recreation" do
+    assert JetstreamConsumer.immutable_consumer_shape_error?(
+             "can not update push consumer to pull based"
+           )
+
+    assert JetstreamConsumer.immutable_consumer_shape_error?(
+             "can not update pull consumer to push based"
+           )
+
+    refute JetstreamConsumer.immutable_consumer_shape_error?("consumer already exists")
+  end
 end

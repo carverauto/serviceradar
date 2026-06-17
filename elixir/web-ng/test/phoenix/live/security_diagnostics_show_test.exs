@@ -8,8 +8,11 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
   setup %{conn: conn} do
     old = Application.get_env(:serviceradar_web_ng, :srql_module)
     Application.put_env(:serviceradar_web_ng, :srql_module, __MODULE__.SRQLStub)
+    :persistent_term.put({__MODULE__, :test_pid}, self())
 
     on_exit(fn ->
+      :persistent_term.erase({__MODULE__, :test_pid})
+
       if is_nil(old) do
         Application.delete_env(:serviceradar_web_ng, :srql_module)
       else
@@ -19,6 +22,12 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
 
     user = AccountsFixtures.user_fixture(%{role: :operator})
     {:ok, conn: log_in_user(conn, user)}
+  end
+
+  test "event detail bounds direct event id lookup by time", %{conn: conn} do
+    {:ok, _lv, _html} = live(conn, ~p"/events/falco-event-1")
+
+    assert_receive {:srql_query, ~s(in:events id:"falco-event-1" time:last_24h sort:time:desc limit:1)}
   end
 
   test "event detail renders Falco runtime diagnostics with partial attribution", %{conn: conn} do
@@ -88,6 +97,8 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
 
     @impl true
     def query(query, _opts) when is_binary(query) do
+      record_query(query)
+
       {:ok,
        %{
          "results" => results(query),
@@ -99,6 +110,13 @@ defmodule ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest do
     @impl true
     def query_request(%{"query" => query}) when is_binary(query), do: query(query, %{})
     def query_request(_payload), do: {:error, :invalid_request}
+
+    defp record_query(query) do
+      case :persistent_term.get({ServiceRadarWebNGWeb.SecurityDiagnosticsShowTest, :test_pid}, nil) do
+        pid when is_pid(pid) -> send(pid, {:srql_query, query})
+        _ -> :ok
+      end
+    end
 
     defp results(query) do
       cond do

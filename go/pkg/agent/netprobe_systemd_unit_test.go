@@ -125,13 +125,13 @@ func TestHostComponentSystemdUnitsShareSliceWithoutAgentParentage(t *testing.T) 
 			"bumblebee-scan",
 			"serviceradar-bumblebee-scan.service",
 		),
-		"endpoint-inventory": filepath.Join(
+		"scalibr-endpoint-inventory": filepath.Join(
 			"..",
 			"..",
 			"..",
 			"addons",
-			"endpoint-inventory",
-			"serviceradar-endpoint-inventory.service",
+			"scalibr-endpoint-inventory",
+			"serviceradar-scalibr-endpoint-inventory.service",
 		),
 	}
 

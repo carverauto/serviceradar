@@ -19,7 +19,6 @@ defmodule ServiceRadarWebNGWeb.Api.AddonPackageController do
   alias ServiceRadarWebNG.Plugins.Storage
 
   require Ash.Query
-  require Logger
 
   Module.register_attribute(__MODULE__, :sobelow_skip, accumulate: true)
 

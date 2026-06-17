@@ -101,7 +101,10 @@ impl DetectorThresholds {
         let window_size = context.window_size.unwrap_or(DEFAULT_WINDOW_SIZE).max(1);
         let min_samples = context.min_samples.unwrap_or(DEFAULT_MIN_SAMPLES).max(1);
         let n_sigma = clean_threshold(context.n_sigma.unwrap_or(DEFAULT_N_SIGMA));
-        let confirm_slots = context.confirm_slots.unwrap_or(DEFAULT_CONFIRM_SLOTS).max(1);
+        let confirm_slots = context
+            .confirm_slots
+            .unwrap_or(DEFAULT_CONFIRM_SLOTS)
+            .max(1);
         let seasonal_enabled = context.seasonal_enabled.unwrap_or_else(|| {
             context
                 .seasonal_baseline
@@ -186,7 +189,10 @@ fn evaluate_detector_command(
     (value, state, context)
 }
 
-fn evaluate_detector(state: &DetectorState, thresholds: &DetectorThresholds) -> DetectionEvaluation {
+fn evaluate_detector(
+    state: &DetectorState,
+    thresholds: &DetectorThresholds,
+) -> DetectionEvaluation {
     let signals = vec![
         evaluate_rolling_signal(
             "rolling",

@@ -16,10 +16,12 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
     3. `agent-links`  — rebuild agent->device links from ocsf_agents ground
        truth, fix stranded identifiers/poisoned aliases/ip literal (4.3)
     4. `proxmox-dups` — collapse intra-Proxmox duplicate hostname groups (4.4)
+    5. `armis-dups`   — collapse Armis rows onto their armis_device_id owner
   """
 
   alias ServiceRadar.Actors.SystemActor
   alias ServiceRadar.Inventory.Remediation.AgentLinks
+  alias ServiceRadar.Inventory.Remediation.ArmisDups
   alias ServiceRadar.Inventory.Remediation.BlobPurge
   alias ServiceRadar.Inventory.Remediation.Manifest
   alias ServiceRadar.Inventory.Remediation.ProxmoxDups
@@ -28,7 +30,14 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   require Logger
 
-  @step_order ["blob-purge", "test-debris", "stale-agent-devices", "agent-links", "proxmox-dups"]
+  @step_order [
+    "blob-purge",
+    "test-debris",
+    "stale-agent-devices",
+    "agent-links",
+    "proxmox-dups",
+    "armis-dups"
+  ]
 
   @doc "Ordered list of known step names."
   @spec steps() :: [String.t()]
@@ -49,7 +58,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
       `:debris_sim_patterns`, `:debris_device_agent_prefix`,
       `:debris_hostnames`, `:stale_agent_uids`, `:stale_agent_prefixes`,
       `:stale_agent_before`, `:agent_uids`, `:agent_statuses`, `:ip_literal`,
-      `:proxmox_source`, `:hostname_denylist`
+      `:proxmox_source`, `:hostname_denylist`, `:armis_plan_sample_limit`
 
   Returns `{:ok, %{mode: mode, manifest_path: path | nil, reports: %{step => report}}}`.
   """
@@ -118,4 +127,7 @@ defmodule ServiceRadar.Inventory.Remediation.DireRemediation do
 
   defp run_step("proxmox-dups", mode, opts, manifest, actor),
     do: ProxmoxDups.run(mode, opts, manifest, actor)
+
+  defp run_step("armis-dups", mode, opts, manifest, actor),
+    do: ArmisDups.run(mode, opts, manifest, actor)
 end

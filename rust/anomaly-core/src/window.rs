@@ -12,7 +12,10 @@ use deep_causality_data_structures::{SlidingWindow, VectorStorage, window_type};
 
 pub type BaselineWindow = SlidingWindow<VectorStorage<f64>, f64>;
 
-pub fn compact_rolling_state(context: &ReasonContext, window_size: usize) -> (Vec<f64>, WelfordAcc) {
+pub fn compact_rolling_state(
+    context: &ReasonContext,
+    window_size: usize,
+) -> (Vec<f64>, WelfordAcc) {
     let source = context.window_tail.as_ref().unwrap_or(&context.baseline);
     let clean_values = clean_window_values(source, window_size);
 
@@ -33,7 +36,9 @@ pub fn compact_rolling_state(context: &ReasonContext, window_size: usize) -> (Ve
 }
 
 pub fn window_values(values: &[f64], window_size: usize) -> Vec<f64> {
-    baseline_window(values, window_size).vec().unwrap_or_default()
+    baseline_window(values, window_size)
+        .vec()
+        .unwrap_or_default()
 }
 
 fn baseline_window(values: &[f64], window_size: usize) -> BaselineWindow {
@@ -68,7 +73,10 @@ mod tests {
     use super::*;
     use crate::types::ReasonContext;
 
-    fn context_with_window(window_tail: Vec<f64>, rolling_acc: Option<WelfordAcc>) -> ReasonContext {
+    fn context_with_window(
+        window_tail: Vec<f64>,
+        rolling_acc: Option<WelfordAcc>,
+    ) -> ReasonContext {
         ReasonContext {
             baseline: Vec::new(),
             rolling_acc,

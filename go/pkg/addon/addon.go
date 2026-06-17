@@ -68,7 +68,8 @@ const (
 	// feed over AddonService.StreamMetricFeed to analyze samples at the edge
 	// (e.g. per-series anomaly detection) before they are published to the
 	// gateway. The agent never opens the feed for an add-on that does not
-	// advertise this capability.
+	// advertise this capability, and the stream is lossy by contract so slow
+	// add-ons cannot block collection or gateway publishing.
 	CapabilityMetricFeedV1 = "metric-feed:v1"
 )
 
@@ -154,6 +155,14 @@ type OtlpRelaySource interface {
 // stream ends; the caller should close acks when it stops acking.
 type OtlpRelayClient interface {
 	RelayOtlp(ctx context.Context) (frames <-chan *addonpb.OtlpRelayFrame, acks chan<- uint64, err error)
+}
+
+// MetricFeedSink is implemented by add-ons that consume the local agent metric
+// feed. The add-on receives MetricFeedFrame messages from frames and returns
+// cumulative ack watermarks on the returned channel once it has accepted every
+// frame with feed_id <= watermark.
+type MetricFeedSink interface {
+	StreamMetricFeed(ctx context.Context, frames <-chan *addonpb.MetricFeedFrame) (<-chan uint64, error)
 }
 
 // MetricFeedClient is implemented by client-side adapters that can drive a

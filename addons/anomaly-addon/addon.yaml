@@ -2,12 +2,12 @@
 #
 # Runs co-located with serviceradar-agent as a go-plugin sidecar. It consumes the
 # agent's local metric feed (metric-feed:v1) and scores each sample per series
-# with the shared serviceradar-anomaly-core detector — the same code the central
-# NIF uses — then emits anomaly verdicts upstream over native-telemetry:v1.
+# with the shared serviceradar-anomaly-core detector, then emits anomaly verdicts
+# upstream over native-telemetry:v1.
 # Capabilities here match what the binary reports from Info().
 id: anomaly
 name: Anomaly Detection Add-on
-version: 0.1.0
+version: 0.1.1
 description: >-
   Edge per-series anomaly detection. Analyzes the agent's locally collected
   sysmon / SNMP / ICMP metrics on-host and ships verdicts instead of every raw
@@ -60,5 +60,16 @@ signal_schemas:
     ocsf_schema_version: 1.5.0
     class_uid: 2004
     type_uid: 200401
+  - id: com.carverauto.anomaly.capacity_shed
+    version: 1.0.0
+    signal_type: event
+    payload_kind: ocsf_event
+    payload_schema: schemas/capacity_shed.schema.json
+    display_contract: display/capacity_shed.display.json
+    display_contract_id: com.carverauto.anomaly.capacity_shed.display
+    display_contract_version: 1.0.0
+    ocsf_schema_version: 1.7.0
+    class_uid: 1008
+    type_uid: 100801
 
 config_schema: config.schema.json

@@ -65,6 +65,27 @@ defmodule ServiceRadarWebNGWeb.LogLive.IndexTest do
     assert [%{cursor: nil} | _] = drain_srql_calls()
   end
 
+  test "live log refresh bounds broad explicit log queries", %{conn: conn} do
+    {:ok, lv, _html} =
+      live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs sort:timestamp:desc", limit: 20}}")
+
+    assert [%{query: initial_query, cursor: nil} | _] = drain_srql_calls()
+    assert initial_query == "in:logs time:last_24h sort:timestamp:desc"
+
+    lv
+    |> element("#logs-live-toggle")
+    |> render_click()
+
+    _ = drain_srql_calls()
+
+    send(lv.pid, {:logs_ingested, %{}})
+    send(lv.pid, {:debounced_refresh, "logs"})
+    render(lv)
+
+    assert [%{query: refresh_query, cursor: nil} | _] = drain_srql_calls()
+    assert refresh_query == "in:logs time:last_24h sort:timestamp:desc"
+  end
+
   test "manual pagination pauses live mode before subsequent refreshes", %{conn: conn} do
     {:ok, lv, html} =
       live(conn, ~p"/observability?#{%{tab: "logs", q: "in:logs time:last_24h sort:timestamp:desc", limit: 20}}")

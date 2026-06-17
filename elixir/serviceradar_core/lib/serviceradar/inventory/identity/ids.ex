@@ -57,7 +57,7 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
       # agent_id is typically carried in metadata for inventory updates, but some
       # producers (ex: mapper results) may emit it at the top-level.
       agent_id: get_trimmed(metadata, "agent_id") || get_agent_id_from_update(update),
-      armis_id: get_trimmed(metadata, "armis_device_id"),
+      armis_id: get_armis_id(metadata),
       integration_id: get_integration_id(metadata),
       netbox_id: get_trimmed(metadata, "netbox_device_id"),
       mac: List.first(macs),
@@ -158,6 +158,9 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
 
   defp get_integration_id(metadata) do
     case metadata["integration_type"] do
+      "armis" ->
+        nil
+
       "netbox" ->
         get_trimmed(metadata, "integration_id")
 
@@ -165,6 +168,10 @@ defmodule ServiceRadar.Inventory.Identity.Ids do
         get_trimmed(metadata, "integration_id")
     end
   end
+
+  defp get_armis_id(metadata) when is_map(metadata), do: get_trimmed(metadata, "armis_device_id")
+
+  defp get_armis_id(_metadata), do: nil
 
   defp get_trimmed(map, key) when is_map(map) do
     case map[key] do

@@ -157,6 +157,11 @@ type AddonManager interface {
 	Status() []Status
 	// RunCommand executes a generic command against a supervised add-on.
 	RunCommand(ctx context.Context, invocation CommandInvocation) (coreaddon.CommandResult, error)
+	// PublishMetricFeed offers one encoded serviceradar.metric.v1.MetricBatch to
+	// running metric-feed:v1 add-ons that explicitly subscribe to source. The
+	// call must be non-blocking for the agent collection/push path; it returns the
+	// number of add-on queues that accepted the frame.
+	PublishMetricFeed(source string, payload []byte) int
 	// Stop terminates all add-ons and waits for their supervisors to exit.
 	Stop(ctx context.Context) error
 }

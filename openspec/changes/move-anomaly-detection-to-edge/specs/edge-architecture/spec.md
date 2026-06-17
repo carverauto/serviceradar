@@ -36,14 +36,15 @@ the host or the agent.
 - **AND** it SHALL emit a telemetry counter recording the shed
 
 ### Requirement: Edge-resident per-series anomaly detection
-A native anomaly add-on SHALL run the same per-series detector used centrally and
-SHALL own its per-series state locally, without central ownership or a
-distributed lease. Detection verdicts produced at the edge SHALL be equivalent to
-the verdicts the central engine would produce for the same input.
+A native anomaly add-on SHALL run the shared per-series detector extracted from
+the former central raw-stream analyzer and SHALL own its per-series state
+locally, without central ownership or a distributed lease. Detection verdicts
+produced at the edge SHALL be equivalent to the verdicts the shared detector
+produces for the same input.
 
-#### Scenario: Edge verdict matches central verdict
+#### Scenario: Edge verdict matches shared detector verdict
 - **GIVEN** a captured set of metric samples for a series
-- **WHEN** the edge anomaly add-on and the central anomaly engine each process those samples
+- **WHEN** the edge anomaly add-on and the shared detector each process those samples
 - **THEN** they SHALL produce the same anomaly verdicts
 
 #### Scenario: Add-on restart re-warms without a verdict gap

@@ -2,6 +2,7 @@ defmodule ServiceRadar.FlowAttributionTest do
   use ExUnit.Case, async: false
 
   alias ServiceRadar.FlowAttribution
+  alias ServiceRadar.FlowAttribution.Persistence
   alias ServiceRadar.Repo
   alias ServiceRadar.TestSupport
 
@@ -156,6 +157,58 @@ defmodule ServiceRadar.FlowAttributionTest do
 
     assert history_count == 1
     assert history_cmdline == "redis-server --protected-mode yes"
+  end
+
+  test "current attribution upsert is idempotent for repeated rows", %{
+    partition: partition,
+    agent_id: agent_id
+  } do
+    now = DateTime.truncate(DateTime.utc_now(), :second)
+
+    row = %{
+      observed_at: now,
+      partition: partition,
+      attribution_key: "attr-key-#{System.unique_integer([:positive])}",
+      agent_id: agent_id,
+      proto: 6,
+      local_ip: "10.42.221.147",
+      local_port: 6379,
+      remote_ip: "0.0.0.0",
+      remote_port: 0,
+      pid: 63_790,
+      comm: "redis-server",
+      cmdline: "redis-server *:6379",
+      uid: 1000,
+      container_id: nil,
+      workload_identity: nil
+    }
+
+    assert %Postgrex.Result{num_rows: 1} = Persistence.insert_current_rows([row, row])
+    assert %Postgrex.Result{num_rows: 0} = Persistence.insert_current_rows([row, row])
+
+    older = %{
+      row
+      | observed_at: DateTime.add(now, -5, :second),
+        cmdline: "redis-server older",
+        uid: 2000
+    }
+
+    assert %Postgrex.Result{num_rows: 0} = Persistence.insert_current_rows([older])
+
+    %{rows: [[count, observed_at, cmdline, uid]]} =
+      query!(
+        """
+        SELECT count(*), max(observed_at), max(cmdline), max(uid)
+        FROM platform.flow_process_attribution_current
+        WHERE partition = $1
+        """,
+        [partition]
+      )
+
+    assert count == 1
+    assert DateTime.compare(observed_at, now) == :eq
+    assert cmdline == "redis-server *:6379"
+    assert uid == 1000
   end
 
   test "enriches current attribution rows from existing workload identity", %{
