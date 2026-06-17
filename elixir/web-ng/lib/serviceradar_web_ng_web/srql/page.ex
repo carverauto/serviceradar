@@ -48,7 +48,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
 
     builder = build_builder_state(params, srql, entity, limit, builder_available)
     default_query = default_query_for(builder_available, builder, entity, limit)
-    query = normalize_query_param(Map.get(params, "q"), default_query)
+
+    query =
+      params
+      |> Map.get("q")
+      |> normalize_query_param(default_query)
+      |> ensure_default_time_window(entity)
 
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
@@ -98,7 +103,12 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
     limit = parse_limit(Map.get(params, "limit"), default_limit, max_limit)
     builder = build_builder_state(params, srql, entity, limit, builder_available)
     default_query = default_query_for(builder_available, builder, entity, limit)
-    query = normalize_query_param(Map.get(params, "q"), default_query)
+
+    query =
+      params
+      |> Map.get("q")
+      |> normalize_query_param(default_query)
+      |> ensure_default_time_window(entity)
 
     {builder_supported, builder_sync, builder_state} =
       parse_builder_state(builder_available, query, builder)
@@ -623,6 +633,27 @@ defmodule ServiceRadarWebNGWeb.SRQL.Page do
           other -> String.slice(other, 0, 4000)
         end
     end
+  end
+
+  defp ensure_default_time_window(query, "logs") when is_binary(query) do
+    tokens = tokenize_query(query)
+
+    if entity_from_tokens(tokens) == "logs" and not Enum.any?(tokens, &String.starts_with?(&1, "time:")) do
+      insert_log_default_time(tokens)
+    else
+      query
+    end
+  end
+
+  defp ensure_default_time_window(query, _entity), do: query
+
+  defp insert_log_default_time(tokens) do
+    {prefix, suffix} =
+      Enum.split_while(tokens, fn token ->
+        not (String.starts_with?(token, "sort:") or String.starts_with?(token, "limit:"))
+      end)
+
+    Enum.join(prefix ++ ["time:last_24h"] ++ suffix, " ")
   end
 
   defp builder_available?(srql), do: Map.get(srql, :builder_available, false)

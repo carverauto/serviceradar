@@ -28,7 +28,7 @@ defmodule ServiceRadarWebNGWeb.LogLive.Show do
     log_id = normalize_uuid(log_id)
 
     # Use 'id' field (not 'log_id') to filter logs
-    query = "in:logs id:\"#{escape_value(log_id)}\" limit:1"
+    query = "in:logs id:\"#{escape_value(log_id)}\" time:last_24h limit:1"
 
     {log, error} =
       case srql_module().query(query) do

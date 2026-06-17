@@ -41,6 +41,37 @@ defmodule ServiceRadarWebNGWeb.SRQL.PageTest do
     assert socket.assigns.limit == 50
   end
 
+  test "sync_from_params bounds explicit logs queries without a time filter" do
+    socket = Page.init(%Socket{}, "logs", default_limit: 20)
+
+    socket =
+      Page.sync_from_params(
+        socket,
+        %{"q" => ~s(in:logs message:"time:last_1h inside body" sort:timestamp:desc limit:50)},
+        "https://example.test/observability?tab=logs",
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    assert socket.assigns.srql.query ==
+             ~s(in:logs message:"time:last_1h inside body" time:last_24h sort:timestamp:desc limit:50)
+  end
+
+  test "sync_from_params preserves explicit logs time filters" do
+    socket = Page.init(%Socket{}, "logs", default_limit: 20)
+
+    socket =
+      Page.sync_from_params(
+        socket,
+        %{"q" => "in:logs time:last_1h sort:timestamp:desc limit:50"},
+        "https://example.test/observability?tab=logs",
+        default_limit: 20,
+        max_limit: 100
+      )
+
+    assert socket.assigns.srql.query == "in:logs time:last_1h sort:timestamp:desc limit:50"
+  end
+
   test "logs default query is bounded to the last 24 hours" do
     socket = Page.init(%Socket{}, "logs", default_limit: 20)
 
