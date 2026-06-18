@@ -6,6 +6,7 @@ go_library(
         "artifacts.go",
         "credentials.go",
         "manager.go",
+        "metric_feed.go",
         "resource_limits_linux.go",
         "resource_limits_other.go",
         "status_proto.go",
@@ -18,6 +19,7 @@ go_library(
         "//go/pkg/addon",
         "//go/pkg/logger",
         "//proto",
+        "//proto/agent/addon/v1:addonpb",
         "@com_github_hashicorp_go_hclog//:go-hclog",
         "@com_github_hashicorp_go_plugin//:go-plugin",
         "@com_github_rs_zerolog//:zerolog",
@@ -31,6 +33,7 @@ go_test(
         "credentials_test.go",
         "manager_rust_addon_test.go",
         "manager_test.go",
+        "metric_feed_test.go",
         "resource_limits_linux_test.go",
         "status_proto_test.go",
         "telemetry_env_test.go",
@@ -40,4 +43,9 @@ go_test(
     env = {
         "SERVICERADAR_SAMPLE_ADDON_BIN": "$(rootpath //go/cmd/serviceradar-sample-addon)",
     },
+    deps = [
+        "//go/pkg/addon",
+        "//proto/agent/addon/v1:addonpb",
+        "@com_github_rs_zerolog//:zerolog",
+    ],
 )
