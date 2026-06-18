@@ -45,7 +45,8 @@
 {{- $imageName := $pg.imageName }}
 {{- if not $imageName }}
   {{- $imageRepo := default (include "serviceradar.imageRepository" (dict "Values" .Values "name" "serviceradar-cnpg")) $pg.image }}
-  {{- $imageTag := default "18.3.0-sr5@sha256:c70e6cf66ba3608011eccd1fd93169133ed90d62613573eca6446fece8bbfd5d" $pg.imageTag }}
+  {{- /* known-good 18.3.0-sr5 (c349a1d); c70e6cf6 is the broken re-push — see _helpers.tpl / 2026-06-17 outage */ -}}
+  {{- $imageTag := default "18.3.0-sr5@sha256:c349a1d34aef056f818630e0766501b5c98fa7598bdeee38d59d677a94cb18c9" $pg.imageTag }}
   {{- $imageName = printf "%s:%s" $imageRepo $imageTag }}
 {{- end }}
 {{- $sharedPreload := $pg.sharedPreloadLibraries }}
