@@ -47,6 +47,7 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
         endpoint_inventory_addon_package_seeder_child(),
         anomaly_addon_profile_seeder_child(),
         advisory_feed_definition_seeder_child(),
+        retired_producer_schedule_cleaner_child(),
         advisory_feed_scheduler_child(),
         sweep_schedule_reconciler_child(),
         ip_enrichment_scheduler_child(),
@@ -210,6 +211,12 @@ defmodule ServiceRadar.Cluster.CoordinatorChildren do
   defp advisory_feed_definition_seeder_child do
     if enabled?(:seeders_enabled, true) do
       ServiceRadar.Inventory.AdvisoryFeeds.FeedDefinitionSeeder
+    end
+  end
+
+  defp retired_producer_schedule_cleaner_child do
+    if enabled?(:seeders_enabled, true) do
+      ServiceRadar.Plugins.RetiredProducerScheduleCleaner
     end
   end
 
