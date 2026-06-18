@@ -199,4 +199,28 @@ ADDON_BUNDLES = [
         ],
         "pushed_artifact_tarball": True,
     },
+    {
+        # Edge OTEL collector add-on (refactor-otel-signal-correlation edge-relay
+        # plan). Runs as an unprivileged agent-sidecar (otlp-relay:v1): local
+        # OTLP/gRPC + OTLP/HTTP listeners, durable on-disk relay spool, and the
+        # acked AddonService.RelayOtlp stream to the supervising agent. The
+        # //rust/otel-addon binary is packaged here as a signed per-arch
+        # pushed-artifact bundle. No `unit_entries`/`data_entries`: the sidecar is
+        # agent-supervised (not systemd) and ships no extra runtime files beyond
+        # its manifest + config schema.
+        "name": "otel_collector_addon_bundle",
+        "addon_id": "otel-collector",
+        "repository_name": "serviceradar-addon-otel-collector",
+        "language": "rust",
+        "binary": "//rust/otel-addon:serviceradar-otel-addon",
+        "binary_name": "serviceradar-otel-addon",
+        "platforms": [
+            ("linux", "amd64"),
+        ],
+        "manifest_entries": [
+            ("addon.yaml", "//addons/otel-collector:addon.yaml"),
+            ("config.schema.json", "//addons/otel-collector:config.schema.json"),
+        ],
+        "pushed_artifact_tarball": True,
+    },
 ]

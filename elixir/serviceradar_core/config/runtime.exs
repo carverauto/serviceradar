@@ -55,6 +55,51 @@ netprobe_addon_config =
     _ -> netprobe_addon_config
   end
 
+# OTEL collector native add-on package — signed artifact refs for the package seeder.
+# native-addons.yml emits per-arch object_key/sha256/signature refs in its import index;
+# deployments pass them here (as JSON) + the published version so
+# OtelCollectorAddonPackageSeeder can approve an assignable package. Without artifacts the
+# seeder stages the manifest version (visible, not assignable); version/oci refs are only
+# set when their env vars are present (version otherwise defaults to the in-image manifest).
+
+otel_collector_addon_artifacts =
+  case System.get_env("SERVICERADAR_OTEL_COLLECTOR_ADDON_ARTIFACTS") do
+    json when is_binary(json) and json != "" ->
+      case Jason.decode(json) do
+        {:ok, %{} = map} -> map
+        _ -> %{}
+      end
+
+    _ ->
+      %{}
+  end
+
+otel_collector_addon_config = [artifacts: otel_collector_addon_artifacts]
+
+otel_collector_addon_config =
+  case System.get_env("SERVICERADAR_OTEL_COLLECTOR_ADDON_VERSION") do
+    v when is_binary(v) and v != "" -> Keyword.put(otel_collector_addon_config, :version, v)
+    _ -> otel_collector_addon_config
+  end
+
+otel_collector_addon_config =
+  case System.get_env("SERVICERADAR_OTEL_COLLECTOR_ADDON_OCI_REF") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(otel_collector_addon_config, :source_oci_ref, v)
+
+    _ ->
+      otel_collector_addon_config
+  end
+
+otel_collector_addon_config =
+  case System.get_env("SERVICERADAR_OTEL_COLLECTOR_ADDON_OCI_DIGEST") do
+    v when is_binary(v) and v != "" ->
+      Keyword.put(otel_collector_addon_config, :source_oci_digest, v)
+
+    _ ->
+      otel_collector_addon_config
+  end
+
 # GeoLite2 MMDB configuration (all environments)
 geolite_dir = System.get_env("GEOLITE_MMDB_DIR", "/var/lib/serviceradar/geoip")
 
@@ -215,6 +260,7 @@ config :serviceradar_core,
        endpoint_inventory_addon_config
 
 config :serviceradar_core, :netprobe_native_addon_package, netprobe_addon_config
+config :serviceradar_core, :otel_collector_native_addon_package, otel_collector_addon_config
 
 config :serviceradar_core,
        :workload_identity_native_addon_package,
