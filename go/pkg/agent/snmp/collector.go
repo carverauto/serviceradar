@@ -188,6 +188,22 @@ func (c *SNMPCollector) processResult(ctx context.Context, oid string, value int
 	isMonotonic := false
 	counterWidth := counterWidth(value)
 
+	// Counter classification is behavioral: a reading is treated as a counter only
+	// when the SNMP wire type is actually Counter32/Counter64 (carried as a
+	// CounterValue), not solely on operator DataType config. A Gauge32 (a bare
+	// uint64) mislabeled as a counter would otherwise be differenced/wrapped,
+	// feeding garbage rates to the anomaly detector. Downgrade to gauge + warn so
+	// the misconfiguration is visible instead of silently corrupting the series.
+	if _, isWireCounter := value.(CounterValue); dataType == TypeCounter && !isWireCounter {
+		c.logger.Warn().
+			Str("oid", oidConfig.OID).
+			Str("name", oidConfig.Name).
+			Msg("OID configured as counter but SNMP wire type is not Counter32/Counter64; treating as gauge")
+
+		dataType = TypeGauge
+		isDelta = false
+	}
+
 	if dataType == TypeCounter {
 		rawValue = converted
 		kind = counterKindSum
