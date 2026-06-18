@@ -41,6 +41,10 @@ natsCreds:
 
 cnpg:
   storageClass: local-path-big
+  # The demo's local-path volume is a 1TB disk (scsi3), larger than the declared
+  # storageSize, so the chart's ~30%-of-storageSize default is too small here.
+  # Pin the WAL retention cap explicitly. (NEVER -1/unbounded — the 2026-06-17 outage.)
+  maxSlotWalKeepSize: "250GB"
   localDevAccess:
     enabled: true
     # Allow local web-ng testing from the workstation LANs used for demo
