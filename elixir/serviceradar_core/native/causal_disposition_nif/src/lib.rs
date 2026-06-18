@@ -33,7 +33,8 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use rustler::{NifTaggedEnum, NifUnitEnum};
 use serviceradar_causal_disposition::{
-    SeasonalConfig, SeasonalDisposition, SeasonalRow, dispose_seasonal,
+    CapacityConfig, CapacityDisposition, CapacityRow, SeasonalConfig, SeasonalDisposition,
+    SeasonalRow, dispose_capacity, dispose_seasonal,
 };
 
 /// Which disposition kernel to run for the batch (the `kind` argument). Encodes on
@@ -57,17 +58,30 @@ pub enum DispositionRequest {
         config: SeasonalConfig,
         row: SeasonalRow,
     },
+    /// A capacity row plus its capacity config (phase 2). The `dispose_batch`
+    /// `kind` must be `:capacity` for this variant; a kind/variant mismatch is a
+    /// per-row `{:error, _}`, never an unwind (graft #1).
+    Capacity {
+        config: CapacityConfig,
+        row: CapacityRow,
+    },
 }
 
-/// One per-row result. A `NifTaggedEnum`, so the worker reads back
-/// `{:ok, %SeasonalDisposition{}}` or `{:error, "reason"}` per row — typed, not JSON.
+/// One per-row result. A `NifTaggedEnum`, so the worker reads back a typed tuple
+/// (not JSON) per row:
+/// - `{:ok, %SeasonalDisposition{}}` for a seasonal row,
+/// - `{:capacity_ok, %CapacityDisposition{}}` for a capacity row,
+/// - `{:error, "reason"}` when the row could not be disposed.
 #[derive(Clone, Debug, NifTaggedEnum)]
 pub enum DispositionResult {
     /// The kernel produced a seasonal disposition for the row.
     Ok(SeasonalDisposition),
-    /// The row could not be disposed: a kind/row-variant mismatch, an unimplemented
-    /// kernel (capacity, phase 2), or — via the `catch_unwind` safety net — a panic
-    /// that was contained to this one row instead of the scheduler thread.
+    /// The kernel produced a capacity disposition for the row (phase 2). Encodes as
+    /// `{:capacity_ok, %{series_key: ..., disposition: {...}}}`.
+    CapacityOk(CapacityDisposition),
+    /// The row could not be disposed: a kind/row-variant mismatch, or — via the
+    /// `catch_unwind` safety net — a panic that was contained to this one row
+    /// instead of the scheduler thread.
     Error(String),
 }
 
@@ -100,22 +114,28 @@ fn dispose_batch_impl(
 fn dispose_one(kind: DispositionKind, request: DispositionRequest) -> DispositionResult {
     let outcome = catch_unwind(AssertUnwindSafe(|| match (kind, request) {
         (DispositionKind::Seasonal, DispositionRequest::Seasonal { config, row }) => {
-            Ok(dispose_seasonal(row, &config))
+            DispositionResult::Ok(dispose_seasonal(row, &config))
         }
-        // Capacity is the gated phase-2 port; the kernel does not exist yet, so the
-        // request is rejected as an error value, never a panic. Once a capacity row
-        // variant is added to `DispositionRequest`, a kind/row mismatch (e.g. a
-        // seasonal kind with a capacity row) gains its own arm here as another error
-        // value; today `DispositionRequest::Seasonal` is the only variant, so the
-        // seasonal arm above is already exhaustive for `Seasonal`.
-        (DispositionKind::Capacity, _) => {
-            Err("capacity disposition is not yet implemented (phase 2, parity-gated)".to_string())
+        (DispositionKind::Capacity, DispositionRequest::Capacity { config, row }) => {
+            DispositionResult::CapacityOk(dispose_capacity(row, &config))
+        }
+        // A kind/row-variant mismatch (e.g. a `:capacity` kind with a seasonal row,
+        // or vice versa) is a contract error reported per row as a value, never an
+        // unwind (graft #1).
+        (DispositionKind::Seasonal, DispositionRequest::Capacity { .. }) => {
+            DispositionResult::Error(
+                "kind/row mismatch: :seasonal kind with a capacity row".to_string(),
+            )
+        }
+        (DispositionKind::Capacity, DispositionRequest::Seasonal { .. }) => {
+            DispositionResult::Error(
+                "kind/row mismatch: :capacity kind with a seasonal row".to_string(),
+            )
         }
     }));
 
     match outcome {
-        Ok(Ok(disposition)) => DispositionResult::Ok(disposition),
-        Ok(Err(reason)) => DispositionResult::Error(reason),
+        Ok(result) => result,
         // The unwind safety net: a panic in the kernel (not expected) is contained to
         // this row and reported as an error result, never propagated across FFI.
         Err(_panic) => {
@@ -136,7 +156,9 @@ mod tests {
     //! construct and run in plain `cargo test` without the BEAM runtime.
 
     use super::*;
-    use serviceradar_causal_disposition::{Disposition, RobustStatistic};
+    use serviceradar_causal_disposition::{
+        CapacityModelKind, CapacityPoint, Disposition, RobustStatistic,
+    };
 
     fn seasonal_config() -> SeasonalConfig {
         SeasonalConfig {
@@ -215,8 +237,8 @@ mod tests {
                 );
                 assert_eq!(d.series_key, "svc/cpu");
             }
-            DispositionResult::Error(reason) => {
-                panic!("a well-formed seasonal row must dispose to Ok, got Error({reason})")
+            other => {
+                panic!("a well-formed seasonal row must dispose to Ok, got {other:?}")
             }
         }
     }
@@ -239,16 +261,69 @@ mod tests {
                 Disposition::InsufficientSeasonalBaseline,
                 "a thin bucket must surface as the InsufficientSeasonalBaseline value"
             ),
-            DispositionResult::Error(reason) => {
-                panic!("a kernel gate must marshal as Ok(value), got Error({reason})")
+            other => {
+                panic!("a kernel gate must marshal as Ok(value), got {other:?}")
             }
         }
     }
 
+    fn capacity_config() -> CapacityConfig {
+        CapacityConfig {
+            capacity_threshold: Some(80.0),
+            horizon_seconds: 24 * 3_600,
+            model_kind: CapacityModelKind::Linear,
+            min_history: 24,
+            period: 24,
+            alpha: 0.35,
+            beta: 0.05,
+            gamma: 0.25,
+        }
+    }
+
+    /// A linearly-rising capacity row whose threshold crossing lands in-horizon → a
+    /// `Projected` disposition (phase 2, now implemented).
+    fn rising_capacity_row() -> CapacityRow {
+        let start: i64 = 1_780_272_000_000_000;
+        let points = (0..48)
+            .map(|h| CapacityPoint {
+                at_unix_micros: start + h * 3_600 * 1_000_000,
+                value: 10.0 + h as f64,
+            })
+            .collect();
+        CapacityRow {
+            series_key: "svc/disk".to_string(),
+            points,
+        }
+    }
+
     #[test]
-    fn capacity_kind_is_error_not_panic() {
-        // Phase 2 is gated; a capacity request must be a clean Error value, never an
-        // unwind (graft #1).
+    fn capacity_request_disposes_to_capacity_ok() {
+        // Phase 2 is wired: a well-formed capacity row disposes to CapacityOk with a
+        // Projected verdict, never an Error or a panic.
+        let out = dispose_one(
+            DispositionKind::Capacity,
+            DispositionRequest::Capacity {
+                config: capacity_config(),
+                row: rising_capacity_row(),
+            },
+        );
+        match out {
+            DispositionResult::CapacityOk(d) => {
+                assert_eq!(d.series_key, "svc/disk");
+                assert!(
+                    matches!(d.disposition, Disposition::Projected { .. }),
+                    "a rising capacity row must project, got {:?}",
+                    d.disposition
+                );
+            }
+            other => panic!("a well-formed capacity row must dispose to CapacityOk, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn kind_row_mismatch_is_error_not_panic() {
+        // A :capacity kind with a seasonal row is a contract error reported per row
+        // as a value, never an unwind (graft #1).
         let out = dispose_one(
             DispositionKind::Capacity,
             DispositionRequest::Seasonal {
@@ -257,8 +332,21 @@ mod tests {
             },
         );
         assert!(
-            matches!(out, DispositionResult::Error(ref r) if r.contains("capacity")),
-            "capacity must be a not-implemented Error, got {out:?}"
+            matches!(out, DispositionResult::Error(ref r) if r.contains("mismatch")),
+            "a kind/row mismatch must be a clean Error, got {out:?}"
+        );
+
+        // ...and the reverse: a :seasonal kind with a capacity row.
+        let out = dispose_one(
+            DispositionKind::Seasonal,
+            DispositionRequest::Capacity {
+                config: capacity_config(),
+                row: rising_capacity_row(),
+            },
+        );
+        assert!(
+            matches!(out, DispositionResult::Error(ref r) if r.contains("mismatch")),
+            "a kind/row mismatch must be a clean Error, got {out:?}"
         );
     }
 

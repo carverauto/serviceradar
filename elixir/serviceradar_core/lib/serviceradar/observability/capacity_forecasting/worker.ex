@@ -12,9 +12,9 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
   alias ServiceRadar.Observability.AnomalyConfigRuntime
   alias ServiceRadar.Observability.CapacityForecast
   alias ServiceRadar.Observability.CapacityForecasting.InterfaceCapacity
-  alias ServiceRadar.Observability.CapacityForecasting.Model
   alias ServiceRadar.Observability.CapacityForecasting.Source
   alias ServiceRadar.Observability.CapacityForecasting.VerdictEmitter
+  alias ServiceRadar.Observability.CausalReasoner
   alias ServiceRadar.Observability.SRQLRunner
   alias ServiceRadar.SweepJobs.ObanSupport
 
@@ -244,7 +244,7 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
     seasonal_period =
       positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
 
-    case Model.forecast(points,
+    case compute_forecast(points,
            min_points: min_points,
            horizon_seconds: common.horizon_seconds,
            exhaustion_threshold: common.exhaustion_threshold,
@@ -278,6 +278,145 @@ defmodule ServiceRadar.Observability.CapacityForecasting.Worker do
         skipped_attrs(source, points, common, reason, diagnostics)
     end
   end
+
+  # The numeric forecast compute. Orchestration stays here (paging, interface
+  # bytes->percent, at_risk?, the Ash upsert, telemetry, VerdictEmitter); ONLY the
+  # least-squares / Holt-Winters fit moved to the Rust `dispose_capacity` kernel on
+  # the shared DeepCausality substrate (OpenSpec add-core-causal-disposition-nif,
+  # task 7.4). This adapter preserves the legacy forecast contract exactly (the shape
+  # the now-deleted `model.ex` `forecast/2` returned, captured bit-for-bit by the
+  # `capacity_parity_fixtures.json` gate): `{:ok, forecast_map}` for a projection,
+  # `{:skip, reason, diagnostics}` for the insufficient-history / guard gate — so every
+  # consumer below is untouched.
+  defp compute_forecast(points, opts) do
+    min_points = positive_integer(Keyword.get(opts, :min_points), @default_min_points)
+
+    horizon_seconds =
+      positive_integer(Keyword.get(opts, :horizon_seconds), @default_horizon_seconds)
+
+    seasonal_period =
+      positive_integer(Keyword.get(opts, :seasonal_period), @default_seasonal_period)
+
+    threshold = Keyword.get(opts, :exhaustion_threshold)
+    model_kind = capacity_model_kind(Keyword.get(opts, :model))
+
+    config = %{
+      capacity_threshold: capacity_threshold(threshold),
+      horizon_seconds: horizon_seconds,
+      model_kind: model_kind,
+      min_history: min_points,
+      period: seasonal_period,
+      alpha: 0.35,
+      beta: 0.05,
+      gamma: 0.25
+    }
+
+    row = %{
+      series_key: "capacity",
+      points: Enum.map(points, &nif_point/1)
+    }
+
+    request = {:capacity, %{config: config, row: row}}
+
+    meta = %{
+      horizon_seconds: horizon_seconds,
+      seasonal_period: seasonal_period,
+      min_points: min_points,
+      points: points
+    }
+
+    case CausalReasoner.dispose_batch(:capacity, [request]) do
+      [{:capacity_ok, %{disposition: disposition}}] ->
+        forecast_from_disposition(disposition, meta)
+
+      [{:error, reason}] ->
+        # An ABI/contract failure (never a detection gate) — surface as a skip so the
+        # row is recorded, not silently dropped, mirroring a model skip.
+        {:skip, "forecast_unavailable", %{"error" => to_string(reason)}}
+
+      other ->
+        {:skip, "forecast_unavailable", %{"error" => inspect(other)}}
+    end
+  end
+
+  # `{:projected, %{...}}` -> the legacy `{:ok, forecast_map}` shape. Timestamps come
+  # back from the NIF as unix microseconds (so the window start's sub-second
+  # component survives `DateTime.add(first_at, round(cross_x), :second)`); rebuild the
+  # DateTimes the rest of the worker expects.
+  defp forecast_from_disposition({:projected, payload}, meta) do
+    {:ok,
+     %{
+       model: payload.model,
+       current_value: payload.current_value,
+       slope_per_second: payload.slope_per_second,
+       intercept: payload.intercept,
+       projected_value: payload.projected_value,
+       projected_exhaustion_at: from_unix_micros(payload.projected_exhaustion_at_unix_micros),
+       confidence: payload.confidence,
+       lower_bound: payload.lower_bound,
+       upper_bound: payload.upper_bound,
+       sample_count: payload.sample_count,
+       window_started_at: from_unix_micros!(payload.window_started_at_unix_micros),
+       window_ended_at: from_unix_micros!(payload.window_ended_at_unix_micros),
+       diagnostics: forecast_diagnostics(payload, meta.horizon_seconds, meta.seasonal_period)
+     }}
+  end
+
+  defp forecast_from_disposition({:skipped, %{reason: reason}}, meta) do
+    # The insufficient-history gate (and the kernel's finite guards) -> the legacy
+    # `{:skip, reason, diagnostics}` tuple, carrying the diagnostics the legacy model
+    # emitted (now the `insufficient_history` skip in `capacity.rs`).
+    {:skip, to_string(reason), %{sample_count: length(meta.points), min_points: meta.min_points}}
+  end
+
+  defp forecast_from_disposition(other, _meta) do
+    {:skip, "forecast_unavailable", %{"error" => inspect(other)}}
+  end
+
+  # Rebuild the legacy diagnostics map per model (the keys the deleted `model.ex`
+  # emitted in its `linear` / `holt_winters_additive` diagnostics, now reproduced by
+  # `capacity.rs`). The diagnostics ride in metadata only (not part of the 1e-9 numeric
+  # parity gate); we reconstruct every key the worker has without re-deriving model
+  # internals.
+  defp forecast_diagnostics(
+         %{model: "holt_winters_additive", rmse: rmse},
+         horizon_seconds,
+         period
+       ) do
+    %{
+      "rmse" => rmse,
+      "horizon_seconds" => horizon_seconds,
+      "period" => period,
+      "model" => "holt_winters_additive"
+    }
+  end
+
+  defp forecast_diagnostics(%{model: model, rmse: rmse}, horizon_seconds, _period) do
+    %{"rmse" => rmse, "horizon_seconds" => horizon_seconds, "model" => model}
+  end
+
+  # Map the worker's `source.model` (a string after config merge) onto the NIF
+  # `CapacityModelKind` atom. Mirrors the legacy model-choice dispatch keys (now the
+  # `Disposition`/`model_kind` selection in `capacity.rs`).
+  defp capacity_model_kind(model)
+       when model in [:seasonal, "seasonal", :holt_winters, "holt_winters"], do: :seasonal
+
+  defp capacity_model_kind(model) when model in [:linear, "linear"], do: :linear
+  defp capacity_model_kind(_model), do: :auto
+
+  # `:exhaustion_threshold` -> the NIF's `Option<f64>` (encoded as the value or nil).
+  defp capacity_threshold(threshold) when is_number(threshold), do: threshold * 1.0
+  defp capacity_threshold(_threshold), do: nil
+
+  defp nif_point(%{at: %DateTime{} = at, value: value}) do
+    %{at_unix_micros: DateTime.to_unix(at, :microsecond), value: value * 1.0}
+  end
+
+  defp from_unix_micros(nil), do: nil
+  defp from_unix_micros(micros) when is_integer(micros), do: from_unix_micros!(micros)
+
+  defp from_unix_micros!(micros) when is_integer(micros),
+    do: DateTime.from_unix!(micros, :microsecond)
 
   # A bounded-threshold metric (e.g. utilization_percent) that projects far beyond its
   # threshold is contaminated input, not a real forecast — skip it rather than render an
