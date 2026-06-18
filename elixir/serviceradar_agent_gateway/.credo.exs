@@ -9,6 +9,5 @@ build_config.(
   included: ["config/", "lib/", "test/"],
   extra: extra_checks,
   plugins: [{AshCredo, []}],
-  requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"],
-  disabled: [{Credo.Check.Design.DuplicatedCode, []}]
+  requires: ["deps/ex_dna/lib/ex_dna/integrations/credo.ex"]
 )
